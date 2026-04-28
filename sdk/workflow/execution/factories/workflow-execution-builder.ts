@@ -14,11 +14,7 @@
  */
 
 import type { WorkflowGraph } from "@wf-agent/types";
-import type {
-  WorkflowExecution,
-  WorkflowExecutionOptions,
-  WorkflowExecutionStatus,
-} from "@wf-agent/types";
+import type { WorkflowExecution, ThreadOptions, WorkflowExecutionStatus } from "@wf-agent/types";
 import { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
 import { WorkflowExecutionState } from "../../state-managers/workflow-execution-state.js";
 import { WorkflowStateCoordinator } from "../../state-managers/workflow-state-coordinator.js";
@@ -60,7 +56,7 @@ export class WorkflowExecutionBuilder {
    */
   private getWorkflowGraphRegistry(): WorkflowGraphRegistry {
     const container = getContainer();
-    return container.get(Identifiers.WorkflowGraphRegistry) as WorkflowGraphRegistry;
+    return container.get(Identifiers.WorkflowRegistry) as WorkflowGraphRegistry;
   }
 
   /**
@@ -104,7 +100,7 @@ export class WorkflowExecutionBuilder {
    */
   async build(
     workflowId: string,
-    options: WorkflowExecutionOptions = {},
+    options: ThreadOptions = {},
   ): Promise<WorkflowExecutionBuildResult> {
     logger.info("Building workflow execution from workflow", { workflowId });
 
@@ -120,7 +116,7 @@ export class WorkflowExecutionBuilder {
       const eventManager = this.getEventManager();
       logError(error, { workflowId });
       emitErrorEvent(eventManager, {
-        executionId: "",
+        threadId: "",
         workflowId,
         error,
       });
@@ -147,7 +143,7 @@ export class WorkflowExecutionBuilder {
    */
   private async buildFromWorkflowGraph(
     workflowGraph: WorkflowGraph,
-    options: WorkflowExecutionOptions = {},
+    options: ThreadOptions = {},
   ): Promise<WorkflowExecutionBuildResult> {
     // Step 1: Verify workflow graph
     if (!workflowGraph.nodes || workflowGraph.nodes.size === 0) {
@@ -186,7 +182,7 @@ export class WorkflowExecutionBuilder {
       variables: [],
       variableScopes: {
         global: {},
-        workflowExecution: {},
+        thread: {},
         local: [],
         loop: [],
       },
@@ -215,7 +211,7 @@ export class WorkflowExecutionBuilder {
     // Step 7: Create ConversationSession
     const conversationManager = new ConversationSession({
       eventManager: this.getEventManager(),
-      executionId: workflowExecution.id,
+      threadId: workflowExecution.id,
       workflowId: workflowGraph.workflowId,
     });
 
@@ -277,10 +273,10 @@ export class WorkflowExecutionBuilder {
       currentNodeId: sourceWorkflowExecution.currentNodeId,
       graph: sourceWorkflowExecution.graph,
       variables: sourceWorkflowExecution.variables.map(v => ({ ...v })),
-      // 4-level scopes: global is shared through references, workflowExecution creates deep copies, local and loop values are cleared
+      // 4-level scopes: global is shared through references, thread creates deep copies, local and loop values are cleared
       variableScopes: {
         global: sourceWorkflowExecution.variableScopes.global,
-        workflowExecution: { ...sourceWorkflowExecution.variableScopes.workflowExecution },
+        thread: { ...sourceWorkflowExecution.variableScopes.thread },
         local: [],
         loop: [],
       },

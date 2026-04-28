@@ -5,7 +5,7 @@
 
 import type { Node, LoopStartNodeConfig } from "@wf-agent/types";
 import type { Thread } from "@wf-agent/types";
-import type { ThreadEntity } from "../../../entities/thread-entity.js";
+import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import { ExecutionError, ValidationError, RuntimeValidationError } from "@wf-agent/types";
 import { now, getErrorMessage } from "@wf-agent/common-utils";
 
@@ -24,7 +24,7 @@ interface LoopState {
 /**
  * Check if the node can be executed.
  */
-function canExecute(threadEntity: ThreadEntity, node: Node): boolean {
+function canExecute(threadEntity: WorkflowExecutionEntity, node: Node): boolean {
   if (threadEntity.getStatus() !== "RUNNING") {
     return false;
   }
@@ -293,7 +293,7 @@ function updateLoopState(loopState: LoopState): void {
  * @returns: Execution result
  */
 export async function loopStartHandler(
-  threadEntity: ThreadEntity,
+  threadEntity: WorkflowExecutionEntity,
   node: Node,
   _context?: unknown,
 ): Promise<unknown> {

@@ -3,7 +3,7 @@
  * Export all API modules and types
  *
  * directory structure:
- * - graph/ : Graph related APIs (Workflow, Thread, Checkpoint, etc.)
+ * - workflow/ : Workflow related APIs (Workflow, Execution, Checkpoint, etc.)
  * - agent/ : Agent related APIs (AgentLoop, etc.)
  * - shared/ : shared modules (types, core, common, utils, validation, etc.)
  */
@@ -86,81 +86,85 @@ export {
 
 // Common Resource API Base Classes and Tools
 export { ReadonlyResourceAPI, CrudResourceAPI } from "./shared/resources/generic-resource-api.js";
-export { createResourceAPIs, type ResourceAPIs } from "./shared/resources/index.js";
+export { createSharedResourceAPIs, type SharedResourceAPIs } from "./shared/resources/index.js";
 
 // ============================================================================
-// Graph - Resource Management API (CRUD Operations)
+// Workflow - Resource Management API (CRUD Operations)
 // ============================================================================
-export { WorkflowRegistryAPI } from "./graph/resources/workflows/workflow-registry-api.js";
-export { ThreadRegistryAPI } from "./graph/resources/threads/thread-registry-api.js";
-export { NodeRegistryAPI } from "./graph/resources/templates/node-template-registry-api.js";
-export { TriggerTemplateRegistryAPI } from "./graph/resources/templates/trigger-template-registry-api.js";
-export { CheckpointResourceAPI } from "./graph/resources/checkpoints/checkpoint-resource-api.js";
+export { WorkflowRegistryAPI } from "./workflow/resources/workflows/workflow-registry-api.js";
+export {
+  WorkflowExecutionRegistryAPI,
+  type WorkflowExecutionFilter,
+  type WorkflowExecutionSummary,
+} from "./workflow/resources/executions/workflow-execution-registry-api.js";
+export { NodeRegistryAPI } from "./workflow/resources/templates/node-template-registry-api.js";
+export { TriggerTemplateRegistryAPI } from "./workflow/resources/templates/trigger-template-registry-api.js";
+export { CheckpointResourceAPI } from "./workflow/resources/checkpoints/checkpoint-resource-api.js";
 export {
   MessageResourceAPI,
   type MessageFilter,
   type MessageStats,
-} from "./graph/resources/messages/message-resource-api.js";
+} from "./workflow/resources/messages/message-resource-api.js";
 export {
   VariableResourceAPI,
   type VariableDefinition,
   type VariableFilter,
-} from "./graph/resources/variables/variable-resource-api.js";
-export { TriggerResourceAPI } from "./graph/resources/triggers/trigger-resource-api.js";
+} from "./workflow/resources/variables/variable-resource-api.js";
+export { TriggerResourceAPI } from "./workflow/resources/triggers/trigger-resource-api.js";
 export {
   UserInteractionResourceAPI,
   type UserInteractionConfig,
   type UserInteractionFilter,
-} from "./graph/resources/user-interaction/user-interaction-resource-api.js";
+} from "./workflow/resources/user-interaction/user-interaction-resource-api.js";
 export {
   HumanRelayResourceAPI,
   type HumanRelayConfig,
   type HumanRelayFilter,
-} from "./graph/resources/human-relay/human-relay-resource-api.js";
+} from "./workflow/resources/human-relay/human-relay-resource-api.js";
 
 // ============================================================================
-// Graph - Command class (with side-effect operations)
+// Workflow - Command class (with side-effect operations)
 // ============================================================================
 
 // Execution Commands
-export { ExecuteThreadCommand } from "./graph/operations/execution/execute-thread-command.js";
-export type { ExecuteThreadParams } from "./graph/operations/execution/execute-thread-command.js";
+export { ExecuteWorkflowCommand } from "./workflow/operations/execution/execute-workflow-command.js";
+export type { ExecuteWorkflowParams } from "./workflow/operations/execution/execute-workflow-command.js";
 
-export { ExecuteThreadStreamCommand } from "./graph/operations/execution/execute-thread-stream-command.js";
+export { ExecuteWorkflowStreamCommand } from "./workflow/operations/execution/execute-workflow-stream-command.js";
 export type {
-  ExecuteThreadStreamParams,
-  ThreadStreamEvent,
-} from "./graph/operations/execution/execute-thread-stream-command.js";
+  ExecuteWorkflowStreamParams,
+  WorkflowStreamEvent,
+} from "./workflow/operations/execution/execute-workflow-stream-command.js";
 
-export { PauseThreadCommand } from "./graph/operations/execution/pause-thread-command.js";
+export { PauseWorkflowCommand } from "./workflow/operations/execution/pause-workflow-command.js";
 
-export { ResumeThreadCommand } from "./graph/operations/execution/resume-thread-command.js";
+export { ResumeWorkflowCommand } from "./workflow/operations/execution/resume-workflow-command.js";
 
-export { CancelThreadCommand } from "./graph/operations/execution/cancel-thread-command.js";
+export { CancelWorkflowCommand } from "./workflow/operations/execution/cancel-workflow-command.js";
 
 // Checkpoint Commands
-export { CreateCheckpointCommand as GraphCreateCheckpointCommand } from "./graph/operations/checkpoints/create-checkpoint-command.js";
-export type { CreateCheckpointParams as GraphCreateCheckpointParams } from "./graph/operations/checkpoints/create-checkpoint-command.js";
+export { CreateCheckpointCommand as WorkflowCreateCheckpointCommand } from "./workflow/operations/checkpoints/create-checkpoint-command.js";
+export type { CreateCheckpointParams as WorkflowCreateCheckpointParams } from "./workflow/operations/checkpoints/create-checkpoint-command.js";
 
-export { RestoreFromCheckpointCommand } from "./graph/operations/checkpoints/restore-from-checkpoint-command.js";
-export type { RestoreFromCheckpointParams } from "./graph/operations/checkpoints/restore-from-checkpoint-command.js";
+export { RestoreFromCheckpointCommand } from "./workflow/operations/checkpoints/restore-from-checkpoint-command.js";
+export type { RestoreFromCheckpointParams } from "./workflow/operations/checkpoints/restore-from-checkpoint-command.js";
 
 // Trigger Commands
-export { EnableTriggerCommand } from "./graph/operations/triggers/enable-trigger-command.js";
-export type { EnableTriggerParams } from "./graph/operations/triggers/enable-trigger-command.js";
+export { EnableTriggerCommand } from "./workflow/operations/triggers/enable-trigger-command.js";
+export type { EnableTriggerParams } from "./workflow/operations/triggers/enable-trigger-command.js";
 
-export { DisableTriggerCommand } from "./graph/operations/triggers/disable-trigger-command.js";
-export type { DisableTriggerParams } from "./graph/operations/triggers/disable-trigger-command.js";
+export { DisableTriggerCommand } from "./workflow/operations/triggers/disable-trigger-command.js";
+export type { DisableTriggerParams } from "./workflow/operations/triggers/disable-trigger-command.js";
 
 // Subscriptions
-export { OnEventSubscription } from "./graph/operations/subscriptions/events/on-event-subscription.js";
-export type { OnEventParams } from "./graph/operations/subscriptions/events/on-event-subscription.js";
+export { OnEventSubscription } from "./workflow/operations/subscriptions/events/on-event-subscription.js";
+export type { OnEventParams } from "./workflow/operations/subscriptions/events/on-event-subscription.js";
 
-export { OnceEventSubscription } from "./graph/operations/subscriptions/events/once-event-subscription.js";
-export type { OnceEventParams } from "./graph/operations/subscriptions/events/once-event-subscription.js";
+export { OnceEventSubscription } from "./workflow/operations/subscriptions/events/once-event-subscription.js";
+export type { OnceEventParams } from "./workflow/operations/subscriptions/events/once-event-subscription.js";
 
-export { OffEventSubscription } from "./graph/operations/subscriptions/events/off-event-subscription.js";
-export type { OffEventParams } from "./graph/operations/subscriptions/events/off-event-subscription.js";
+export { OffEventSubscription } from "./workflow/operations/subscriptions/events/off-event-subscription.js";
+export type { OffEventParams } from "./workflow/operations/subscriptions/events/off-event-subscription.js";
 
 // ============================================================================
 // Shared - Command class (with side-effect operations)
@@ -171,14 +175,14 @@ export { DispatchEventCommand } from "./shared/operations/events/dispatch-event-
 export type { DispatchEventParams } from "./shared/operations/events/dispatch-event-command.js";
 
 // ============================================================================
-// Graph - Builder
+// Workflow - Builder
 // ============================================================================
-export { WorkflowBuilder, ExecutionBuilder } from "./graph/builders/index.js";
-export { NodeTemplateBuilder } from "./graph/builders/node-template-builder.js";
-export { TriggerTemplateBuilder } from "./graph/builders/trigger-template-builder.js";
+export { WorkflowBuilder, ExecutionBuilder } from "./workflow/builders/index.js";
+export { NodeTemplateBuilder } from "./workflow/builders/node-template-builder.js";
+export { TriggerTemplateBuilder } from "./workflow/builders/trigger-template-builder.js";
 
 // ============================================================================
-// Graph - Authentication API
+// Workflow - Validation API
 // ============================================================================
 export { WorkflowValidator as WorkflowValidatorAPI } from "../workflow/validation/index.js";
 export { CodeConfigValidator as CodeConfigValidatorAPI } from "../workflow/validation/script-config-validator.js";
@@ -199,14 +203,13 @@ export {
 } from "../core/validation/index.js";
 
 // ============================================================================
-// Graph - Hook Creator
+// Workflow - Hook Creator
 // ============================================================================
 export {
   createThreadStateCheckHook,
-  createCustomValidationHook,
   createPermissionCheckHook,
   createAuditLoggingHook,
-} from "../graph/execution/utils/hook-creators.js";
+} from "../workflow/execution/utils/hook-creators.js";
 
 // ============================================================================
 // Shared - Commands (LLM, Tool, Script)
@@ -302,216 +305,37 @@ export {
 export {
   AgentLoopVariableResourceAPI,
   type AgentLoopVariableFilter,
-  type VariableDefinition as AgentLoopVariableDefinition,
 } from "./agent/resources/variable-resource-api.js";
 
 // ============================================================================
-// Agent - Core Components (from sdk/agent)
+// Shared - Types
 // ============================================================================
-// physical layer (OSI)
-export {
-  AgentLoopEntity,
-  AgentLoopState,
-  AgentLoopStatus,
-  type ToolCallRecord,
-  type IterationRecord,
-} from "../agent/entities/index.js";
-
-// `AgentLoopStateSnapshot` is exported from `agent/index.ts`.
-export { type AgentLoopStateSnapshot } from "../agent/index.js";
-
-// manager layer
-export { MessageHistory, type MessageHistoryState } from "../agent/message/index.js";
-export { VariableState, type VariableStateSnapshot } from "../agent/variable/index.js";
-
-// Execution layer (factory and life cycle)
-export {
-  AgentLoopFactory,
-  createAgentLoopCheckpoint,
-  cleanupAgentLoop,
-  cloneAgentLoop,
-  type AgentLoopEntityOptions,
-  type AgentLoopCheckpointDependencies,
-  type AgentLoopCheckpointOptions,
-} from "../agent/execution/index.js";
-
-// coordinator layer
-export {
-  AgentLoopCoordinator,
-  type AgentLoopExecuteOptions,
-} from "../agent/execution/coordinators/index.js";
-
-// actuator layer
-export {
-  AgentLoopExecutor,
-  type AgentLoopStreamEvent,
-} from "../agent/execution/executors/index.js";
-
-// checkpoint layer
-export {
-  AgentLoopDiffCalculator,
-  AgentLoopDeltaRestorer,
-  AgentLoopCheckpointResolver,
-  AgentLoopCheckpointCoordinator,
-  createCheckpoint,
-  restoreFromCheckpoint,
-  type CheckpointDependencies,
-  type CheckpointOptions,
-  type CreateCheckpointOptions,
-} from "../agent/checkpoint/index.js";
-
-// service layer (export class for direct instantiation, also available via DI)
-export { AgentLoopRegistry } from "../agent/loop/agent-loop-registry.js";
-
-// Hook handlers
-export {
-  executeAgentHook,
-  type AgentHookExecutionContext,
-  type AgentHookDefinition,
-  buildAgentHookEvaluationContext,
-  convertToEvaluationContext,
-  type AgentHookEvaluationContext,
-  emitAgentHookEvent,
-  type AgentCustomEventData,
-} from "../agent/execution/handlers/index.js";
+export type { CommandError } from "./shared/types/command-error.js";
 
 // ============================================================================
-// SDK Core - Core Components
+// Shared - Utilities
 // ============================================================================
-// LLM Components
-export { LLMWrapper, ProfileManager } from "../core/llm/index.js";
-export { LLMExecutor } from "../core/executors/llm-executor.js";
-export type {
-  MessageStreamEvent,
-  MessageStreamStreamEvent,
-  MessageStreamTextEvent,
-  MessageStreamInputJsonEvent,
-  MessageStreamMessageEvent,
-  MessageStreamFinalMessageEvent,
-  MessageStreamErrorEvent,
-  MessageStreamAbortEvent,
-  MessageStreamEndEvent,
-} from "../core/llm/index.js";
-
-// Event Manager
-export { EventRegistry } from "../core/registry/event-registry.js";
-
-// Service Components
-export { ToolRegistry } from "../core/registry/tool-registry.js";
+export { Observable, create, type Observer } from "./shared/utils/observable.js";
 
 // ============================================================================
-// Shared - Tool Functions
-// ============================================================================
-// Result type - imported from the core layer
-export { ok, err, all, any, tryCatchAsyncWithSignal } from "@wf-agent/common-utils";
-export type { Result, Ok, Err } from "@wf-agent/types";
-
-// ============================================================================
-// Shared - Observable Reactive Programming
-// ============================================================================
-export {
-  Observable,
-  Observer,
-  Subscription as ObservableSubscription,
-  ObservableImpl,
-  create,
-} from "./shared/utils/observable.js";
-export type { OperatorFunction } from "./shared/utils/observable.js";
-
-// ============================================================================
-// Shared - Type Definitions
-// ============================================================================
-export type { ThreadOptions, SDKOptions, SDKDependencies } from "./shared/types/core-types.js";
-
-export type {
-  ScriptFilter,
-  ScriptOptions,
-  ScriptTestResult,
-  ScriptExecutionLog,
-  ScriptStatistics,
-  ScriptRegistrationConfig,
-  ScriptBatchExecutionConfig,
-} from "./shared/types/code-types.js";
-
-export type {
-  ExecutionEvent,
-  StartEvent,
-  CompleteEvent,
-  ErrorEvent,
-  CancelledEvent,
-  ProgressEvent,
-  NodeExecutedEvent,
-} from "./shared/types/execution-events.js";
-
-// ============================================================================
-// Shared - Configuration Parsing Module
-// ============================================================================
-export {
-  ConfigParser,
-  ConfigTransformer,
-  ConfigFormat,
-  type ParsedConfig,
-  type WorkflowConfigFile,
-  type NodeConfigFile,
-  type EdgeConfigFile,
-  type IConfigParser,
-  type IConfigTransformer,
-} from "./shared/config/index.js";
-
-// JSON Parsing Functions
-export { parseJson, stringifyJson, validateJsonSyntax } from "./shared/config/index.js";
-
-// TOML parsing function
-export { parseToml, validateTomlSyntax } from "./shared/config/index.js";
-
-// Configure the parser function
-export {
-  parseWorkflow,
-  parseNodeTemplate,
-  parseTriggerTemplate,
-  parseScript,
-  parseLLMProfile,
-  loadConfigContent,
-  parseAgentLoopConfig,
-  parseAndValidateAgentLoopConfig,
-  transformToAgentLoopConfig,
-  loadAgentLoopConfig,
-} from "./shared/config/index.js";
-
-// ============================================================================
-// Profile template type
-// ============================================================================
-export type { LLMProfileTemplate as ProfileTemplate } from "./shared/resources/llm/llm-profile-registry-api.js";
-
-// ============================================================================
-// Predefined resources - tools, workflows, triggers
-// ============================================================================
-export {
-  createPredefinedTools,
-  registerPredefinedTools,
-  type PredefinedToolsOptions,
-  type ReadFileConfig,
-  type WriteFileConfig,
-  type EditFileConfig,
-  type RunShellConfig,
-  type SessionNoteConfig,
-} from "../resources/predefined/tools/index.js";
-
-// ============================================================================
-// Component Message System
+// Shared - Component Message
 // ============================================================================
 export {
   MessageBus,
-  createMessageBus,
-  MessagePublisher,
-  createMessagePublisher,
-  matchesRoutingRule,
-  findMatchingRule,
-  sortRulesByPriority,
-  type MessageFilter as ComponentMessageFilter,
+  type MessageFilter,
   type MessageHandler,
   type MessageSubscription,
-  type MessageBusOptions,
-  type EntityStatus,
-  type EntityContext,
-} from "./shared/component-message/index.js";
+} from "./shared/component-message/message-bus.js";
+
+export {
+  PublisherAPI,
+  type PublishOptions,
+  type PublishResult,
+} from "./shared/component-message/publisher-api.js";
+
+export {
+  routeMessage,
+  createMessageRouter,
+  type MessageRouter,
+  type MessageRoute,
+} from "./shared/component-message/routing-utils.js";

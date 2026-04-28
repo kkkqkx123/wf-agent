@@ -3,7 +3,7 @@
  */
 
 import type { Node } from "@wf-agent/types";
-import type { ThreadEntity } from "../../../entities/thread-entity.js";
+import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import { addToolHandler, type AddToolHandlerContext } from "./add-tool-handler.js";
 import { agentLoopHandler } from "./agent-loop-handler.js";
 import { contextProcessorHandler } from "./context-processor-handler.js";
@@ -22,24 +22,24 @@ import { userInteractionHandler } from "./user-interaction-handler.js";
 import { variableHandler } from "./variable-handler.js";
 
 export type NodeHandlerFn = (
-  threadEntity: ThreadEntity,
+  workflowExecutionEntity: WorkflowExecutionEntity,
   node: Node,
   context?: unknown,
 ) => Promise<unknown>;
 
 export function getNodeHandler(nodeType: string): NodeHandlerFn {
   const handlers: Record<string, NodeHandlerFn> = {
-    ADD_TOOL: (threadEntity, node, context) =>
+    ADD_TOOL: (workflowExecutionEntity, node, context) =>
       addToolHandler(workflowExecutionEntity.getThread(), node, context as AddToolHandlerContext),
-    AGENT_LOOP: (threadEntity, node, context) =>
+    AGENT_LOOP: (workflowExecutionEntity, node, context) =>
       agentLoopHandler(workflowExecutionEntity.getThread(), node, context as any),
-    CONTEXT_PROCESSOR: (threadEntity, node, context) =>
+    CONTEXT_PROCESSOR: (workflowExecutionEntity, node, context) =>
       contextProcessorHandler(workflowExecutionEntity.getThread(), node, context as any),
     CONTINUE_FROM_TRIGGER: continueFromTriggerHandler as NodeHandlerFn,
     END: endHandler as NodeHandlerFn,
     FORK: forkHandler as NodeHandlerFn,
     JOIN: joinHandler as NodeHandlerFn,
-    LLM: (threadEntity, node, context) =>
+    LLM: (workflowExecutionEntity, node, context) =>
       llmHandler(workflowExecutionEntity.getThread(), node, context as any),
     LOOP_END: loopEndHandler as NodeHandlerFn,
     LOOP_START: loopStartHandler as NodeHandlerFn,
@@ -47,7 +47,7 @@ export function getNodeHandler(nodeType: string): NodeHandlerFn {
     SCRIPT: scriptHandler as NodeHandlerFn,
     START_FROM_TRIGGER: startFromTriggerHandler as NodeHandlerFn,
     START: startHandler as NodeHandlerFn,
-    USER_INTERACTION: (threadEntity, node, context) =>
+    USER_INTERACTION: (workflowExecutionEntity, node, context) =>
       userInteractionHandler(workflowExecutionEntity.getThread(), node, context as any),
     VARIABLE: variableHandler as NodeHandlerFn,
   };

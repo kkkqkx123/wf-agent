@@ -77,7 +77,6 @@ import { TriggerCoordinator } from "../../workflow/execution/coordinators/trigge
 import { NodeExecutionCoordinator } from "../../workflow/execution/coordinators/node-execution-coordinator.js";
 import { TriggeredSubworkflowHandler } from "../../workflow/execution/handlers/triggered-subworkflow-handler.js";
 import { LLMExecutionCoordinator } from "../../workflow/execution/coordinators/llm-execution-coordinator.js";
-import { WorkflowOperationCoordinator } from "../../workflow/execution/coordinators/workflow-operation-coordinator.js";
 import { CheckpointCoordinator } from "../../workflow/checkpoint/checkpoint-coordinator.js";
 import { WorkflowNavigator } from "../../workflow/builder/workflow-navigator.js";
 import { WorkflowLifecycleCoordinator } from "../../workflow/execution/coordinators/workflow-lifecycle-coordinator.js";
@@ -283,10 +282,10 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
         c.get(Identifiers.ToolRegistry) as ToolRegistry,
         c.get(Identifiers.EventRegistry) as EventRegistry,
         {
-          threadRegistry: c.get(Identifiers.ThreadRegistry) as WorkflowExecutionRegistry,
+          workflowExecutionRegistry: c.get(Identifiers.ThreadRegistry) as WorkflowExecutionRegistry,
           checkpointStateManager: c.get(Identifiers.CheckpointState) as CheckpointState,
           workflowRegistry: c.get(Identifiers.WorkflowRegistry) as WorkflowRegistry,
-          graphRegistry: c.get(Identifiers.GraphRegistry) as WorkflowGraphRegistry,
+          workflowGraphRegistry: c.get(Identifiers.GraphRegistry) as WorkflowGraphRegistry,
         },
         c.get(Identifiers.ToolVisibilityStore) as ToolVisibilityStore,
         eventBuilder,
@@ -700,17 +699,6 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
   // ============================================================
   // Level 12: Execution Layer Coordinators (Medium to Low Priority)
   // ============================================================
-
-  // WorkflowOperationCoordinator - A workflow operation coordinator that relies on WorkflowExecutionRegistry and EventRegistry
-  container
-    .bind(Identifiers.ThreadOperationCoordinator)
-    .toDynamicValue((c: IContainer): WorkflowOperationCoordinator => {
-      return new WorkflowOperationCoordinator(
-        c.get(Identifiers.ThreadRegistry) as WorkflowExecutionRegistry,
-        c.get(Identifiers.EventRegistry) as EventRegistry,
-      );
-    })
-    .inSingletonScope();
 
   // AgentLoopExecutor - Agent Loop Executor Factory
   // Creates a new AgentLoopExecutor instance for each execution.

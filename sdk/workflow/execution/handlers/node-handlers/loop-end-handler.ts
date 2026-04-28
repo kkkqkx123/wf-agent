@@ -5,7 +5,7 @@
 
 import type { Node, LoopEndNodeConfig } from "@wf-agent/types";
 import type { Thread } from "@wf-agent/types";
-import type { ThreadEntity } from "../../../entities/thread-entity.js";
+import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import type { Condition, EvaluationContext } from "@wf-agent/types";
 import { ExecutionError, NotFoundError } from "@wf-agent/types";
 import { conditionEvaluator } from "@wf-agent/common-utils";

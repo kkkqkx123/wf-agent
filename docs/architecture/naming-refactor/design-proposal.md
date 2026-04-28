@@ -2,7 +2,7 @@
 
 ## 概述
 
-本文档描述将 `wf-agent` 项目重命名为 `workflow-agent`，并统一内部命名体系的完整设计方案。
+本文档描述将 `graph-agent` 项目重命名为 `wf-agent`，并统一内部命名体系的完整设计方案。
 
 ## 当前命名问题分析
 
@@ -27,7 +27,7 @@ Thread (执行实例)
 
 - 业界普遍使用 **Workflow** 描述工作流系统
 - LangChain、Temporal 等框架都使用 Workflow 作为核心概念
-- `wf-agent` 项目名对初次接触者不够直观
+- `graph-agent` 项目名对初次接触者不够直观
 
 ## 目标命名体系
 
@@ -63,7 +63,7 @@ sdk/
 
 | 当前 | 目标 | 说明 |
 |------|------|------|
-| `wf-agent` | `workflow-agent` | 项目名称 |
+| `graph-agent` | `f-agent` | 项目名称 |
 
 ### 2. SDK 模块级别
 
@@ -318,10 +318,10 @@ export type PreprocessedGraph = WorkflowGraph;
 
 ## 总结
 
-本次命名重构旨在建立清晰、一致、符合业界标准的命名体系。通过将 `wf-agent` 重命名为 `workflow-agent`，并统一内部命名，可以显著提高项目的可理解性和可维护性。
+本次命名重构旨在建立清晰、一致、符合业界标准的命名体系。通过将 `graph-agent` 重命名为 `wf-agent`，并统一内部命名，可以显著提高项目的可理解性和可维护性。
 
 关键变更：
-- `wf-agent` → `workflow-agent`
+- `graph-agent` → `wf-agent`
 - `sdk/graph/` → `sdk/workflow/`
 - `Thread` → `WorkflowExecution`
 - `GraphData` → `WorkflowGraphData`

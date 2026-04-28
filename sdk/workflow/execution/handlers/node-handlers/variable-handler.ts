@@ -4,7 +4,7 @@
  */
 
 import type { Node, VariableNodeConfig, Thread } from "@wf-agent/types";
-import type { ThreadEntity } from "../../../entities/thread-entity.js";
+import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import { RuntimeValidationError } from "@wf-agent/types";
 import { now } from "@wf-agent/common-utils";
 import { resolvePath } from "@wf-agent/common-utils";
@@ -12,7 +12,7 @@ import { resolvePath } from "@wf-agent/common-utils";
 /**
  * Check whether the node can be executed.
  */
-function canExecute(threadEntity: ThreadEntity, node: Node): boolean {
+function canExecute(threadEntity: WorkflowExecutionEntity, node: Node): boolean {
   if (threadEntity.getStatus() !== "RUNNING") {
     return false;
   }
@@ -164,13 +164,13 @@ function convertType(value: unknown, targetType: string): unknown {
 
 /**
  * Variable Node Processing Function
- * @param threadEntity ThreadEntity instance
+ * @param threadEntity WorkflowExecutionEntity instance
  * @param node Node definition
  * @param context Processor context (optional)
  * @returns Execution result
  */
 export async function variableHandler(
-  threadEntity: ThreadEntity,
+  threadEntity: WorkflowExecutionEntity,
   node: Node,
   _context?: unknown,
 ): Promise<unknown> {

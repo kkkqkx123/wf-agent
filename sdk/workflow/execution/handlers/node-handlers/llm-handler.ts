@@ -23,7 +23,7 @@ import { LLMWrapper } from "../../../../core/llm/wrapper.js";
 import { executeHumanRelay } from "../human-relay-handler.js";
 import type { EventRegistry } from "../../../../core/registry/event-registry.js";
 import type { ConversationSession } from "../../../../core/messaging/conversation-session.js";
-import type { ThreadEntity } from "../../../entities/thread-entity.js";
+import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 
 /**
  * LLM node execution results

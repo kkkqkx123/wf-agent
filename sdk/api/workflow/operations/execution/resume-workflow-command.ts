@@ -24,7 +24,7 @@ export class ResumeWorkflowCommand extends BaseCommand<WorkflowExecutionResult> 
 
   protected async executeInternal(): Promise<WorkflowExecutionResult> {
     const lifecycleCoordinator = this.dependencies.getWorkflowLifecycleCoordinator();
-    const result = await lifecycleCoordinator.resumeExecution(this.executionId);
+    const result = await lifecycleCoordinator.resumeWorkflowExecution(this.executionId);
     return result;
   }
 

@@ -9,7 +9,7 @@
 
 import { WorkflowRegistryAPI } from "../../workflow/resources/workflows/workflow-registry-api.js";
 import { ToolRegistryAPI } from "../resources/tools/tool-registry-api.js";
-import { ThreadRegistryAPI } from "../../workflow/resources/threads/thread-registry-api.js";
+import { WorkflowExecutionRegistryAPI } from "../../workflow/resources/executions/workflow-execution-registry-api.js";
 import { ScriptRegistryAPI } from "../resources/scripts/script-registry-api.js";
 import { LLMProfileRegistryAPI } from "../resources/llm/llm-profile-registry-api.js";
 import { NodeRegistryAPI } from "../../workflow/resources/templates/node-template-registry-api.js";
@@ -31,8 +31,8 @@ export interface AllAPIs {
   workflows: WorkflowRegistryAPI;
   /** Tool API */
   tools: ToolRegistryAPI;
-  /** Thread API */
-  threads: ThreadRegistryAPI;
+  /** Workflow Execution API */
+  executions: WorkflowExecutionRegistryAPI;
   /** Script API */
   scripts: ScriptRegistryAPI;
   /** Profile API */
@@ -132,11 +132,11 @@ export class APIFactory {
   }
 
   /**
-   * Create a thread API
-   * @returns ThreadRegistryAPI instance
+   * Create a workflow execution API
+   * @returns WorkflowExecutionRegistryAPI instance
    */
-  public createThreadAPI(): ThreadRegistryAPI {
-    return this.createAPI("threads", ThreadRegistryAPI);
+  public createWorkflowExecutionAPI(): WorkflowExecutionRegistryAPI {
+    return this.createAPI("executions", WorkflowExecutionRegistryAPI);
   }
 
   /**
@@ -235,7 +235,7 @@ export class APIFactory {
     return {
       workflows: this.createWorkflowAPI(),
       tools: this.createToolAPI(),
-      threads: this.createThreadAPI(),
+      executions: this.createWorkflowExecutionAPI(),
       scripts: this.createScriptAPI(),
       profiles: this.createProfileAPI(),
       nodeTemplates: this.createNodeTemplateAPI(),

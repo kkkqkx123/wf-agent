@@ -9,7 +9,7 @@
  */
 
 import type { Node, ScriptNodeConfig } from "@wf-agent/types";
-import type { ThreadEntity } from "../../../entities/thread-entity.js";
+import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import { now, getErrorMessage } from "@wf-agent/common-utils";
 import { getContainer } from "../../../../core/di/container-config.js";
 import * as Identifiers from "../../../../core/di/service-identifiers.js";
@@ -17,18 +17,18 @@ import type { ScriptRegistry } from "../../../../core/registry/script-registry.j
 
 /**
  * Script Node Processing Function
- * @param threadEntity ThreadEntity instance
+ * @param workflowExecutionEntity WorkflowExecutionEntity instance
  * @param node Node definition
  * @param context Processor context (optional)
  * @returns Execution result
  *
  * Note:
- * - The application layer is responsible for checking the Thread status (RUNNING/PAUSED/COMPLETED).
+ * - The application layer is responsible for checking the WorkflowExecution status (RUNNING/PAUSED/COMPLETED).
  * - The application layer is responsible for implementing risk level strategies (through middleware or interceptors).
  * - The application layer is responsible for script security verification (whitelist, sandbox configuration, etc.).
  */
 export async function scriptHandler(
-  threadEntity: ThreadEntity,
+  workflowExecutionEntity: WorkflowExecutionEntity,
   node: Node,
   _context?: unknown,
 ): Promise<unknown> {
@@ -46,8 +46,8 @@ export async function scriptHandler(
     }
 
     // Record execution history
-    threadEntity.addNodeResult({
-      step: threadEntity.getNodeResults().length + 1,
+    workflowExecutionEntity.addNodeResult({
+      step: workflowExecutionEntity.getNodeResults().length + 1,
       nodeId: node.id,
       nodeType: node.type,
       status: "COMPLETED",
@@ -58,8 +58,8 @@ export async function scriptHandler(
     return result.value;
   } catch (error) {
     // Record the history of execution failures.
-    threadEntity.addNodeResult({
-      step: threadEntity.getNodeResults().length + 1,
+    workflowExecutionEntity.addNodeResult({
+      step: workflowExecutionEntity.getNodeResults().length + 1,
       nodeId: node.id,
       nodeType: node.type,
       status: "FAILED",

@@ -14,7 +14,7 @@ import { ExecutionError } from "@wf-agent/types";
 import { now, diffTimestamp, getErrorOrNew } from "@wf-agent/common-utils";
 import { ToolContextStore } from "../../../stores/tool-context-store.js";
 import type { EventRegistry } from "../../../../core/registry/event-registry.js";
-import type { ThreadEntity } from "../../../entities/thread-entity.js";
+import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import { buildToolAddedEvent } from "../../../../core/utils/event/builders/tool-events.js";
 import type { ToolRegistry } from "../../../../core/registry/tool-registry.js";
 
@@ -44,8 +44,8 @@ export interface AddToolHandlerContext {
   toolService: ToolRegistry;
   /** Event Manager */
   eventManager: EventRegistry;
-  /** Thread entity (used for tool visibility declarations) */
-  threadEntity?: ThreadEntity;
+  /** Workflow execution entity (used for tool visibility declarations) */
+  workflowExecutionEntity?: WorkflowExecutionEntity;
 }
 
 /**
@@ -98,8 +98,8 @@ export async function addToolHandler(
     // 3. Calculate the number of tools that were skipped.
     const skippedCount = validToolIds.length - addedCount;
 
-    // 4. Update tool visibility (if ThreadEntity is provided)
-    if (context.threadEntity && addedCount > 0) {
+    // 4. Update tool visibility (if WorkflowExecutionEntity is provided)
+    if (context.workflowExecutionEntity && addedCount > 0) {
       // Tool visibility updates are handled by ToolVisibilityCoordinator
       // This is just a placeholder, the actual update is done in the coordinator
     }

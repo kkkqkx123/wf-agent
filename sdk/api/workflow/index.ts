@@ -64,11 +64,16 @@ export {
 } from "./resources/human-relay/human-relay-resource-api.js";
 
 // Operations - Execution
-export { ExecuteWorkflowCommand, type ExecuteWorkflowParams } from "./operations/execution/execute-workflow-command.js";
-export { ExecuteWorkflowStreamCommand } from "./operations/execution/execute-workflow-stream-command.js";
-export { PauseWorkflowCommand } from "./operations/execution/pause-workflow-command.js";
-export { ResumeWorkflowCommand } from "./operations/execution/resume-workflow-command.js";
-export { CancelWorkflowCommand } from "./operations/execution/cancel-workflow-command.js";
+export {
+  ExecuteWorkflowCommand,
+  type ExecuteWorkflowParams,
+  ExecuteWorkflowStreamCommand,
+  type ExecuteWorkflowStreamParams,
+  type WorkflowStreamEvent,
+  PauseWorkflowCommand,
+  ResumeWorkflowCommand,
+  CancelWorkflowCommand,
+} from "./operations/execution/index.js";
 
 // Operations - Checkpoints
 export { CreateCheckpointCommand } from "./operations/checkpoints/create-checkpoint-command.js";

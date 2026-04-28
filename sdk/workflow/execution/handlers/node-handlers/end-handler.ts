@@ -4,18 +4,18 @@
  */
 
 import type { Node } from "@wf-agent/types";
-import type { ThreadEntity } from "../../../entities/thread-entity.js";
+import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import { now, diffTimestamp } from "@wf-agent/common-utils";
 
 /**
  * Check whether the node can be executed.
  */
-function canExecute(threadEntity: ThreadEntity, node: Node): boolean {
-  if (threadEntity.getStatus() !== "RUNNING") {
+function canExecute(workflowExecutionEntity: WorkflowExecutionEntity, node: Node): boolean {
+  if (workflowExecutionEntity.getStatus() !== "RUNNING") {
     return false;
   }
 
-  if (threadEntity.getNodeResults().some(result => result.nodeId === node.id)) {
+  if (workflowExecutionEntity.getNodeResults().some(result => result.nodeId === node.id)) {
     return false;
   }
 
@@ -24,49 +24,51 @@ function canExecute(threadEntity: ThreadEntity, node: Node): boolean {
 
 /**
  * End Node Processing Function
- * @param threadEntity: ThreadEntity instance
+ * @param workflowExecutionEntity: WorkflowExecutionEntity instance
  * @param node: Node definition
  * @returns: Execution result
  */
 export async function endHandler(
-  threadEntity: ThreadEntity,
+  workflowExecutionEntity: WorkflowExecutionEntity,
   node: Node,
   _context?: unknown,
 ): Promise<unknown> {
   // Check if it is possible to execute.
-  if (!canExecute(threadEntity, node)) {
+  if (!canExecute(workflowExecutionEntity, node)) {
     return {
       nodeId: node.id,
       nodeType: node.type,
       status: "SKIPPED",
-      step: threadEntity.getNodeResults().length + 1,
+      step: workflowExecutionEntity.getNodeResults().length + 1,
       executionTime: 0,
     };
   }
 
-  // Collect Thread output
-  // Use thread.output as the final output of the workflow (explicitly set by a node or the END node).
-  const output = threadEntity.getOutput() || {};
+  // Collect WorkflowExecution output
+  // Use workflowExecution.output as the final output of the workflow (explicitly set by a node or the END node).
+  const output = workflowExecutionEntity.getOutput() || {};
 
-  // Set the Thread output (without modifying the status; the status is managed by the ThreadLifecycleCoordinator).
-  threadEntity.setOutput(output);
+  // Set the WorkflowExecution output (without modifying the status; the status is managed by the WorkflowLifecycleCoordinator).
+  workflowExecutionEntity.setOutput(output);
 
   // Record the execution history.
-  threadEntity.addNodeResult({
-    step: threadEntity.getNodeResults().length + 1,
+  workflowExecutionEntity.addNodeResult({
+    step: workflowExecutionEntity.getNodeResults().length + 1,
     nodeId: node.id,
     nodeType: node.type,
     status: "COMPLETED",
     timestamp: now(),
+    executionTime: diffTimestamp(now(), now()),
   });
 
-  // Calculate execution time using ThreadEntity's time methods
-  const startTime = threadEntity.getStartTime();
-  const executionTime = startTime ? diffTimestamp(startTime, now()) : 0;
+  // Calculate execution time using WorkflowExecutionEntity's time methods
+  const executionTime = workflowExecutionEntity.getExecutionTime();
 
-  // Return the execution results
+  // Return the execution result.
   return {
-    message: "Workflow completed",
+    nodeId: node.id,
+    nodeType: node.type,
+    status: "COMPLETED",
     output,
     executionTime,
   };

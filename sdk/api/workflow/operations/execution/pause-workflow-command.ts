@@ -23,7 +23,7 @@ export class PauseWorkflowCommand extends BaseCommand<void> {
 
   protected async executeInternal(): Promise<void> {
     const lifecycleCoordinator = this.dependencies.getWorkflowLifecycleCoordinator();
-    await lifecycleCoordinator.pauseExecution(this.executionId);
+    await lifecycleCoordinator.pauseWorkflowExecution(this.executionId);
   }
 
   validate(): CommandValidationResult {

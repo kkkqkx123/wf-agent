@@ -23,7 +23,7 @@ import {
   validationSuccess,
   validationFailure,
 } from "../../../shared/types/command.js";
-import type { WorkflowExecutionOptions, BaseEvent } from "@wf-agent/types";
+import type { ThreadOptions, BaseEvent } from "@wf-agent/types";
 import { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
 
 /**
@@ -33,7 +33,7 @@ export interface ExecuteWorkflowStreamParams {
   /** Workflow ID (required) */
   workflowId: string;
   /** Execution options */
-  options?: WorkflowExecutionOptions;
+  options?: ThreadOptions;
 }
 
 /**
@@ -77,7 +77,7 @@ export class ExecuteWorkflowStreamCommand extends BaseCommand<AsyncGenerator<Wor
     const workflowExecutionBuilder = (await this.getWorkflowExecutionBuilder()) as {
       build: (
         workflowId: string,
-        options: WorkflowExecutionOptions,
+        options: ThreadOptions,
       ) => Promise<import("../../../../workflow/entities/workflow-execution-entity.js").WorkflowExecutionEntity>;
     };
 
@@ -94,7 +94,7 @@ export class ExecuteWorkflowStreamCommand extends BaseCommand<AsyncGenerator<Wor
     let executionComplete = false;
 
     const eventListener = (event: BaseEvent) => {
-      if (event.executionId === executionId || event.threadId === executionId) {
+      if (event.threadId === executionId) {
         eventQueue.push(event);
         if (resolveEvent) {
           const nextEvent = eventQueue.shift()!;
@@ -105,12 +105,6 @@ export class ExecuteWorkflowStreamCommand extends BaseCommand<AsyncGenerator<Wor
     };
 
     const eventTypes: Array<BaseEvent["type"]> = [
-      "WORKFLOW_STARTED",
-      "WORKFLOW_COMPLETED",
-      "WORKFLOW_FAILED",
-      "WORKFLOW_PAUSED",
-      "WORKFLOW_RESUMED",
-      "WORKFLOW_CANCELLED",
       "THREAD_STARTED",
       "THREAD_COMPLETED",
       "THREAD_FAILED",

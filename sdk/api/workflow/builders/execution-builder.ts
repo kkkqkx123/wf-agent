@@ -4,7 +4,7 @@
  * Supports Result, Promise and Observable interfaces
  */
 
-import type { WorkflowExecutionResult, WorkflowExecutionOptions } from "@wf-agent/types";
+import type { WorkflowExecutionResult, ThreadOptions } from "@wf-agent/types";
 import { ok, err, getErrorOrNew, withAbortSignal, now } from "@wf-agent/common-utils";
 import type { Result } from "@wf-agent/types";
 import { Observable, create, type Observer } from "../../shared/utils/observable.js";
@@ -26,7 +26,7 @@ import type {
  */
 export class ExecutionBuilder {
   private workflowId?: string;
-  private options: WorkflowExecutionOptions = {};
+  private options: ThreadOptions = {};
   private onProgressCallbacks: Array<(progress: unknown) => void> = [];
   private onErrorCallbacks: Array<(error: unknown) => void> = [];
   private abortController?: AbortController;
@@ -204,15 +204,16 @@ export class ExecutionBuilder {
       const executePromise = this.executeWithSignal(signal);
 
       // Listening to execution results
+      let threadId: string | undefined;
       executePromise.then(result => {
         if (result.isOk()) {
-          const executionId = result.value.executionId;
+          threadId = result.value.threadId;
           // Send Completion Event
           observer.next({
             type: "complete",
             timestamp: now(),
             workflowId,
-            executionId: executionId,
+            threadId: threadId,
             result: result.value,
             executionStats: {
               duration: result.value.executionTime,
@@ -228,7 +229,7 @@ export class ExecutionBuilder {
               type: "cancelled",
               timestamp: now(),
               workflowId,
-              executionId: executionId || "unknown",
+              threadId: threadId || "unknown",
               reason: result.error.message,
             } as CancelledEvent);
             observer.complete();
@@ -238,7 +239,7 @@ export class ExecutionBuilder {
               type: "error",
               timestamp: now(),
               workflowId,
-              executionId: executionId || "unknown",
+              threadId: threadId || "unknown",
               error: result.error,
             } as ErrorEvent);
             observer.error(result.error);

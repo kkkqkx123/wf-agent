@@ -1,5 +1,5 @@
 /**
- * Thread execution related type definitions
+ * Workflow execution related type definitions
  */
 
 import type { ID, Timestamp } from "../common.js";
@@ -7,9 +7,9 @@ import type { WorkflowExecutionStatus } from "./status.js";
 import type { NodeExecutionResult } from "./history.js";
 
 /**
- * Thread Execution Option Type
+ * Workflow Execution Option Type
  */
-export interface ThreadOptions {
+export interface WorkflowExecutionOptions {
   /** Input Data Objects */
   input?: Record<string, unknown>;
   /** Maximum number of execution steps */
@@ -29,16 +29,21 @@ export interface ThreadOptions {
 }
 
 /**
- * Thread execution result type
+ * @deprecated Use WorkflowExecutionOptions instead
+ */
+export type ThreadOptions = WorkflowExecutionOptions;
+
+/**
+ * Workflow execution result type
  *
  * Design principle:
  * - Use status field to indicate execution status instead of redundant success field.
  * - Errors are stored in the errors array, with error counts provided in the metadata.
  * - Caller determines success/failure by status
  */
-export interface ThreadResult {
-  /** Thread ID */
-  threadId: ID;
+export interface WorkflowExecutionResult {
+  /** Execution ID */
+  executionId: ID;
   /** output data */
   output: Record<string, unknown>;
   /** Execution time (milliseconds) */
@@ -46,14 +51,19 @@ export interface ThreadResult {
   /** Array of node execution results */
   nodeResults: NodeExecutionResult[];
   /** Implementation metadata */
-  metadata: ThreadResultMetadata;
+  metadata: WorkflowExecutionResultMetadata;
 }
 
 /**
- * Thread execution result metadata
+ * @deprecated Use WorkflowExecutionResult instead
  */
-export interface ThreadResultMetadata {
-  /** thread state */
+export type ThreadResult = WorkflowExecutionResult;
+
+/**
+ * Workflow execution result metadata
+ */
+export interface WorkflowExecutionResultMetadata {
+  /** execution state */
   status: WorkflowExecutionStatus;
   /** Starting time */
   startTime: Timestamp;
@@ -66,3 +76,8 @@ export interface ThreadResultMetadata {
   /** Number of errors */
   errorCount: number;
 }
+
+/**
+ * @deprecated Use WorkflowExecutionResultMetadata instead
+ */
+export type ThreadResultMetadata = WorkflowExecutionResultMetadata;

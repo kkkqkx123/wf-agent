@@ -123,7 +123,9 @@ export interface BaseEvent {
   timestamp: Timestamp;
   /** Workflow ID (optional) */
   workflowId?: ID;
-  /** Thread ID (optional, for events that do not depend on the graph layer, such as the core layer) */
+  /** Execution ID (optional, for events that do not depend on the graph layer, such as the core layer) */
+  executionId?: ID;
+  /** @deprecated Use executionId instead */
   threadId?: ID;
   /** event metadata */
   metadata?: Metadata;

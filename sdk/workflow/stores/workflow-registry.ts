@@ -24,15 +24,15 @@ import type {
   WorkflowReferenceRelation,
   WorkflowReferenceType,
 } from "@wf-agent/types";
-import type { WorkflowSummary } from "../../api/graph/resources/workflows/workflow-registry-api.js";
-import type { ThreadRegistry } from "./thread-registry.js";
+import type { WorkflowSummary } from "../../api/workflow/resources/workflows/workflow-registry-api.js";
+import type { WorkflowExecutionRegistry } from "./workflow-execution-registry.js";
 import {
   ExecutionError,
   ConfigurationValidationError,
   WorkflowNotFoundError,
 } from "@wf-agent/types";
-import type { GraphRegistry } from "./graph-registry.js";
-import { processWorkflow, type ProcessOptions } from "../../graph/graph-builder/workflow-processor.js";
+import type { WorkflowGraphRegistry } from "./workflow-graph-registry.js";
+import { processWorkflow, type ProcessOptions } from "../graph-builder/workflow-processor.js";
 import { getContainer } from "../../core/di/container-config.js";
 import * as Identifiers from "../../core/di/service-identifiers.js";
 import { getErrorMessage } from "@wf-agent/common-utils";
@@ -59,37 +59,37 @@ export class WorkflowRegistry {
   private activeWorkflows: Set<string> = new Set();
   private referenceRelations: Map<string, WorkflowReferenceRelation[]> = new Map();
   private maxRecursionDepth: number;
-  private threadRegistry: ThreadRegistry | undefined;
+  private workflowExecutionRegistry: WorkflowExecutionRegistry | undefined;
 
   constructor(
     options: {
       maxRecursionDepth?: number;
     } = {},
-    threadRegistry?: ThreadRegistry,
+    workflowExecutionRegistry?: WorkflowExecutionRegistry,
   ) {
     this.maxRecursionDepth = options.maxRecursionDepth ?? 10;
-    this.threadRegistry = threadRegistry;
+    this.workflowExecutionRegistry = workflowExecutionRegistry;
   }
 
   /**
-   * Obtain a ThreadRegistry instance (with delayed retrieval)
-   * @returns A ThreadRegistry instance or undefined
+   * Obtain a WorkflowExecutionRegistry instance (with delayed retrieval)
+   * @returns A WorkflowExecutionRegistry instance or undefined
    */
-  private getThreadRegistry(): ThreadRegistry | undefined {
-    if (!this.threadRegistry) {
+  private getWorkflowExecutionRegistry(): WorkflowExecutionRegistry | undefined {
+    if (!this.workflowExecutionRegistry) {
       const container = getContainer();
-      this.threadRegistry = container.get(Identifiers.ThreadRegistry) as ThreadRegistry;
+      this.workflowExecutionRegistry = container.get(Identifiers.ThreadRegistry) as WorkflowExecutionRegistry;
     }
-    return this.threadRegistry;
+    return this.workflowExecutionRegistry;
   }
 
   /**
-   * Obtain a GraphRegistry instance (with delayed retrieval)
-   * @returns GraphRegistry instance
+   * Obtain a WorkflowGraphRegistry instance (with delayed retrieval)
+   * @returns WorkflowGraphRegistry instance
    */
-  private getGraphRegistry(): GraphRegistry {
+  private getWorkflowGraphRegistry(): WorkflowGraphRegistry {
     const container = getContainer();
-    return container.get(Identifiers.GraphRegistry) as GraphRegistry;
+    return container.get(Identifiers.WorkflowRegistry) as WorkflowGraphRegistry;
   }
 
   /**
@@ -323,7 +323,7 @@ export class WorkflowRegistry {
    * @returns: Preprocessed graph
    */
   private async preprocessWorkflow(workflow: WorkflowDefinition): Promise<void> {
-    const graphRegistry = this.getGraphRegistry();
+    const graphRegistry = this.getWorkflowGraphRegistry();
 
     // Check if it has already been preprocessed.
     if (graphRegistry.has(workflow.id)) {
@@ -536,13 +536,13 @@ export class WorkflowRegistry {
    * @returns Reference information
    */
   checkWorkflowReferences(workflowId: string): WorkflowReferenceInfo {
-    const threadRegistry = this.getThreadRegistry();
-    if (!threadRegistry) {
-      throw new ExecutionError("ThreadRegistry not available", undefined, workflowId, {
+    const workflowExecutionRegistry = this.getWorkflowExecutionRegistry();
+    if (!workflowExecutionRegistry) {
+      throw new ExecutionError("WorkflowExecutionRegistry not available", undefined, workflowId, {
         operation: "check_workflow_references",
       });
     }
-    return checkWorkflowReferences(this, threadRegistry, workflowId);
+    return checkWorkflowReferences(this, workflowExecutionRegistry, workflowId);
   }
 
   /**

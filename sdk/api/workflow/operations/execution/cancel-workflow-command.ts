@@ -23,7 +23,7 @@ export class CancelWorkflowCommand extends BaseCommand<void> {
 
   protected async executeInternal(): Promise<void> {
     const lifecycleCoordinator = this.dependencies.getWorkflowLifecycleCoordinator();
-    await lifecycleCoordinator.stopExecution(this.executionId);
+    await lifecycleCoordinator.stopWorkflowExecution(this.executionId);
   }
 
   validate(): CommandValidationResult {

@@ -3,21 +3,22 @@
  * Defines the types associated with diagram workflow execution
  *
  * These types describe the configuration and result of the operation "Execute a workflow".
- * Thread is the top-level execution module of a graph workflow and contains complete information about the graph structure.
+ * WorkflowExecution is the top-level execution module of a graph workflow and contains complete information about the graph structure.
  */
 
-import type { WorkflowExecution, ThreadOptions, ThreadResult } from "./index.js";
+import type { WorkflowExecution, WorkflowExecutionOptions, WorkflowExecutionResult } from "./index.js";
 import type { WorkflowTemplate } from "../workflow/index.js";
 import type { ID, Timestamp, Metadata } from "../common.js";
 
 /**
  * Type of workflow execution option
+ * @deprecated Use WorkflowExecutionOptions from ./execution.js instead
  */
-export interface WorkflowExecutionOptions {
+export interface WorkflowExecutionConfig {
   /** Workflow definitions */
   workflow: WorkflowTemplate;
-  /** Threading Options */
-  threadOptions?: ThreadOptions;
+  /** Workflow Execution Options */
+  executionOptions?: WorkflowExecutionOptions;
   /** Whether to enable event listening */
   enableEvents?: boolean;
   /** Whether to enable logging */
@@ -28,36 +29,36 @@ export interface WorkflowExecutionOptions {
 
 /**
  * Type of workflow execution result
+ * @deprecated Use WorkflowExecutionResult from ./execution.js instead
  */
-export interface WorkflowExecutionResult {
+export interface WorkflowExecutionOutput {
   /** Successful implementation */
   success: boolean;
-  /** Thread results */
-  threadResult: ThreadResult;
+  /** Workflow execution results */
+  executionResult: WorkflowExecutionResult;
   /** Implementation metadata */
-  metadata: WorkflowExecutionMetadata;
+  metadata: WorkflowExecutionOutputMetadata;
 
-  // Backward compatibility properties (delegate to threadResult)
-  /** @deprecated Use threadResult.threadId instead */
-  get threadId(): ID;
-  /** @deprecated Use threadResult.output instead */
+  // Backward compatibility properties (delegate to executionResult)
+  /** @deprecated Use executionResult.executionId instead */
+  get executionId(): ID;
+  /** @deprecated Use executionResult.output instead */
   get output(): Record<string, unknown>;
-  /** @deprecated Use threadResult.executionTime instead */
+  /** @deprecated Use executionResult.executionTime instead */
   get executionTime(): Timestamp;
-  /** @deprecated Use threadResult.nodeResults instead */
+  /** @deprecated Use executionResult.nodeResults instead */
   get nodeResults(): import("./history.js").NodeExecutionResult[];
 }
 
 /**
  * Workflow execution metadata types
+ * @deprecated Use WorkflowExecutionResultMetadata from ./execution.js instead
  */
-export interface WorkflowExecutionMetadata {
+export interface WorkflowExecutionOutputMetadata {
   /** Execution ID */
   executionId: ID;
   /** Workflow ID */
   workflowId: ID;
-  /** Thread ID */
-  threadId: ID;
   /** Starting time */
   startTime: Timestamp;
   /** end time */
@@ -79,36 +80,20 @@ export interface WorkflowExecutionMetadata {
 }
 
 /**
- * Workflow execution context type
- */
-export interface WorkflowExecutionContext {
-  /** Workflow definitions */
-  workflow: WorkflowTemplate;
-  /** current thread */
-  thread: WorkflowExecution;
-  /** implementation option */
-  options: WorkflowExecutionOptions;
-  /** Implementation metadata */
-  metadata: WorkflowExecutionMetadata;
-  /** Customized Contextual Data */
-  contextData: Metadata;
-}
-
-/**
  * Harmonized implementation status enumeration (as a type reference only)
- * 
+ *
  * This enumeration is used to provide a uniform naming reference for execution states.
- * AgentLoopEntity and ThreadEntity may refer to this enumeration to define status, but continue to use their respective AgentLoopStatus and ThreadStatus.
- * But continue to use their respective AgentLoopStatus and ThreadStatus.
- * 
+ * AgentLoopEntity and WorkflowExecutionEntity may refer to this enumeration to define status, but continue to use their respective AgentLoopStatus and WorkflowExecutionStatus.
+ * But continue to use their respective AgentLoopStatus and WorkflowExecutionStatus.
+ *
  * Mapping relationships (for reference only):
- * - AgentLoopStatus.CREATED / ThreadStatus.CREATED -> ExecutionStatus.PENDING
- * - AgentLoopStatus.RUNNING / ThreadStatus.RUNNING -> ExecutionStatus.RUNNING
- * - AgentLoopStatus.PAUSED / ThreadStatus.PAUSED -> ExecutionStatus.PAUSED
- * - AgentLoopStatus.COMPLETED / ThreadStatus.COMPLETED -> ExecutionStatus.COMPLETED
- * - AgentLoopStatus.FAILED / ThreadStatus.FAILED -> ExecutionStatus.FAILED
- * - AgentLoopStatus.CANCELLED / ThreadStatus.CANCELLED -> ExecutionStatus.CANCELLED
- * - ThreadStatus.TIMEOUT -> ExecutionStatus.FAILED
+ * - AgentLoopStatus.CREATED / WorkflowExecutionStatus.CREATED -> ExecutionStatus.PENDING
+ * - AgentLoopStatus.RUNNING / WorkflowExecutionStatus.RUNNING -> ExecutionStatus.RUNNING
+ * - AgentLoopStatus.PAUSED / WorkflowExecutionStatus.PAUSED -> ExecutionStatus.PAUSED
+ * - AgentLoopStatus.COMPLETED / WorkflowExecutionStatus.COMPLETED -> ExecutionStatus.COMPLETED
+ * - AgentLoopStatus.FAILED / WorkflowExecutionStatus.FAILED -> ExecutionStatus.FAILED
+ * - AgentLoopStatus.CANCELLED / WorkflowExecutionStatus.CANCELLED -> ExecutionStatus.CANCELLED
+ * - WorkflowExecutionStatus.TIMEOUT -> ExecutionStatus.FAILED
  */
 export enum ExecutionStatus {
   /** awaiting implementation */

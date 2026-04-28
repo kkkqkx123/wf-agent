@@ -10,14 +10,14 @@ import { executeOperation } from "../../../../core/utils/messages/message-operat
 import { getVisibleMessages } from "../../../../core/utils/messages/visible-range-calculator.js";
 import type { MessageOperationContext } from "@wf-agent/types";
 import type { ConversationSession } from "../../../../core/messaging/conversation-session.js";
-import type { ThreadEntity } from "../../../entities/thread-entity.js";
+import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 
 /**
  * ContinueFromTrigger handler context
  */
 export interface ContinueFromTriggerHandlerContext {
-  /** Main thread entity */
-  mainThreadEntity?: ThreadEntity;
+  /** Main workflow execution entity */
+  mainWorkflowExecutionEntity?: WorkflowExecutionEntity;
   /** Conversation manager */
   conversationManager?: ConversationSession;
 }
@@ -25,12 +25,12 @@ export interface ContinueFromTriggerHandlerContext {
 /**
  * Check whether the node can be executed.
  */
-function canExecute(threadEntity: ThreadEntity, node: Node): boolean {
-  if (threadEntity.getStatus() !== "RUNNING") {
+function canExecute(workflowExecutionEntity: WorkflowExecutionEntity, node: Node): boolean {
+  if (workflowExecutionEntity.getStatus() !== "RUNNING") {
     return false;
   }
 
-  if (threadEntity.getNodeResults().some(result => result.nodeId === node.id)) {
+  if (workflowExecutionEntity.getNodeResults().some(result => result.nodeId === node.id)) {
     return false;
   }
 
@@ -39,23 +39,23 @@ function canExecute(threadEntity: ThreadEntity, node: Node): boolean {
 
 /**
  * ContinueFromTrigger node processing function
- * @param threadEntity: ThreadEntity instance
+ * @param workflowExecutionEntity: WorkflowExecutionEntity instance
  * @param node: Node definition
  * @param context: Processor context (optional)
  * @returns: Execution result
  */
 export async function continueFromTriggerHandler(
-  threadEntity: ThreadEntity,
+  workflowExecutionEntity: WorkflowExecutionEntity,
   node: Node,
   context?: ContinueFromTriggerHandlerContext,
 ): Promise<unknown> {
   // Check if it is possible to execute.
-  if (!canExecute(threadEntity, node)) {
+  if (!canExecute(workflowExecutionEntity, node)) {
     return {
       nodeId: node.id,
       nodeType: node.type,
       status: "SKIPPED",
-      step: threadEntity.getNodeResults().length + 1,
+      step: workflowExecutionEntity.getNodeResults().length + 1,
       executionTime: 0,
     };
   }
@@ -108,16 +108,16 @@ export async function continueFromTriggerHandler(
       // Get the visible messages and send them back to the main thread.
       const visibleMessages = getVisibleMessages(result.messages, result.markMap);
 
-      // Send the message back to the main thread.
+      // Send the message back to the main workflow execution.
       for (const msg of visibleMessages) {
-        mainThreadEntity.addMessage(msg);
+        mainWorkflowExecutionEntity?.addMessage(msg);
       }
     }
   }
 
   // Record execution history
-  threadEntity.addNodeResult({
-    step: threadEntity.getNodeResults().length + 1,
+  workflowExecutionEntity.addNodeResult({
+    step: workflowExecutionEntity.getNodeResults().length + 1,
     nodeId: node.id,
     nodeType: node.type,
     status: "COMPLETED",

@@ -1,6 +1,6 @@
 /**
  * StartFromTrigger node function
- * Responsible for initializing the trigger sub-workflow and receiving input data from the main thread
+ * Responsible for initializing the trigger sub-workflow and receiving input data from the main workflow execution
  */
 
 import type { Node, LLMMessage } from "@wf-agent/types";
@@ -24,14 +24,14 @@ export interface StartFromTriggerHandlerContext {
 /**
  * Check whether the node can be executed.
  */
-function canExecute(threadEntity: ThreadEntity, node: Node): boolean {
+function canExecute(workflowExecutionEntity: WorkflowExecutionEntity, node: Node): boolean {
   // The START_FROM_TRIGGER node can execute in either the CREATED or RUNNING state.
-  const status = threadEntity.getStatus();
+  const status = workflowExecutionEntity.getStatus();
   if (status !== "CREATED" && status !== "RUNNING") {
     return false;
   }
 
-  if (threadEntity.getNodeResults().some(result => result.nodeId === node.id)) {
+  if (workflowExecutionEntity.getNodeResults().some(result => result.nodeId === node.id)) {
     return false;
   }
 
@@ -40,59 +40,59 @@ function canExecute(threadEntity: ThreadEntity, node: Node): boolean {
 
 /**
  * StartFromTrigger node processing function
- * @param threadEntity ThreadEntity instance
+ * @param workflowExecutionEntity WorkflowExecutionEntity instance
  * @param node Node definition
  * @param context Processor context (optional)
  * @returns Execution result
  */
 export async function startFromTriggerHandler(
-  threadEntity: ThreadEntity,
+  workflowExecutionEntity: WorkflowExecutionEntity,
   node: Node,
   context?: StartFromTriggerHandlerContext,
 ): Promise<unknown> {
   // Check if it is possible to execute.
-  if (!canExecute(threadEntity, node)) {
+  if (!canExecute(workflowExecutionEntity, node)) {
     return {
       nodeId: node.id,
       nodeType: node.type,
       status: "SKIPPED",
-      step: threadEntity.getNodeResults().length + 1,
+      step: workflowExecutionEntity.getNodeResults().length + 1,
       executionTime: 0,
     };
   }
 
-  // Initialize Thread state via ThreadEntity
-  threadEntity.setStatus("RUNNING");
-  threadEntity.setCurrentNodeId(node.id);
-  threadEntity.state.start();
+  // Initialize WorkflowExecution state via WorkflowExecutionEntity
+  workflowExecutionEntity.setStatus("RUNNING");
+  workflowExecutionEntity.setCurrentNodeId(node.id);
+  workflowExecutionEntity.state.start();
 
-  // Variables and results for initializing a Thread
-  const thread = workflowExecutionEntity.getThread();
-  if (!thread.variables) {
-    thread.variables = [];
+  // Variables and results for initializing a WorkflowExecution
+  const workflowExecution = workflowExecutionEntity.getThread();
+  if (!workflowExecution.variables) {
+    workflowExecution.variables = [];
   }
-  if (!thread.errors) {
-    thread.errors = [];
+  if (!workflowExecution.errors) {
+    workflowExecution.errors = [];
   }
 
-  // Initialize Thread input
-  if (!thread.input) {
-    thread.input = {};
+  // Initialize WorkflowExecution input
+  if (!workflowExecution.input) {
+    workflowExecution.input = {};
   }
 
   // Get the input data passed from the trigger from the context.
   const triggerInput = context?.triggerInput || {};
 
-  // Set input data to thread.input
+  // Set input data to workflowExecution.input
   const updatedInput = {
-    ...threadEntity.getInput(),
+    ...workflowExecutionEntity.getInput(),
     ...triggerInput,
   };
-  thread.input = updatedInput;
+  workflowExecution.input = updatedInput;
 
-  // If there are variables passed, initialize them in the thread.
+  // If there are variables passed, initialize them in the workflowExecution.
   if (triggerInput.variables) {
-    thread.variables = triggerInput.variables as typeof thread.variables;
+    workflowExecution.variables = triggerInput.variables as typeof workflowExecution.variables;
   }
 
   // If there is any passed conversation history, initialize it into the conversationManager.
@@ -101,8 +101,8 @@ export async function startFromTriggerHandler(
   }
 
   // Record execution history
-  threadEntity.addNodeResult({
-    step: threadEntity.getNodeResults().length + 1,
+  workflowExecutionEntity.addNodeResult({
+    step: workflowExecutionEntity.getNodeResults().length + 1,
     nodeId: node.id,
     nodeType: node.type,
     status: "COMPLETED",

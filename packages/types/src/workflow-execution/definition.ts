@@ -1,24 +1,24 @@
 /**
- * Thread Definition Type
+ * Workflow Execution Definition Type
  */
 
 import type { ID, Version } from "../common.js";
 import type { WorkflowGraph } from "../graph/index.js";
 import type { WorkflowExecutionType } from "./status.js";
 import type { ForkJoinContext, TriggeredSubworkflowContext } from "./context.js";
-import type { ThreadVariable } from "./variables.js";
+import type { WorkflowExecutionVariable } from "./variables.js";
 import type { NodeExecutionResult } from "./history.js";
 import type { VariableScopes } from "./scopes.js";
 
 /**
  * Workflow Execution Definition Type (Execution Instance)
- * WorkflowExecution as a pure data object, does not contain methods, which are provided by ThreadContext
+ * WorkflowExecution as a pure data object, does not contain methods, which are provided by WorkflowExecutionContext
  *
  * Note: Runtime state fields (status, startTime, endTime, shouldPause, shouldStop)
- * are managed by ThreadState in ThreadEntity, not stored in this data object.
+ * are managed by ExecutionState in WorkflowExecutionEntity, not stored in this data object.
  */
 export interface WorkflowExecution {
-  /** Thread Unique Identifier */
+  /** Execution Unique Identifier */
   id: ID;
   /** Associated Workflow ID */
   workflowId: ID;
@@ -29,7 +29,7 @@ export interface WorkflowExecution {
   /** Preprocessed workflow graph structure (using the WorkflowGraph interface) */
   graph: WorkflowGraph;
   /** Array of variables (for persistence and metadata) */
-  variables: ThreadVariable[];
+  variables: WorkflowExecutionVariable[];
   /** Four levels of scope variable storage */
   variableScopes: VariableScopes;
   /**
@@ -43,7 +43,7 @@ export interface WorkflowExecution {
    *
    * Example:
    * ```typescript
-   * thread.input = {
+   * execution.input = {
    *   userName: 'Alice',
    *   userAge: 25,
    *   config: { timeout: 5000 }
@@ -55,8 +55,8 @@ export interface WorkflowExecution {
    * ```
    *
    * Note: Difference between this field and variables
-   * - Thread.input: Initial input of the workflow, read-only
-   * - Thread.variableScopes.thread: Variables used during workflow execution, mutable
+   * - WorkflowExecution.input: Initial input of the workflow, read-only
+   * - WorkflowExecution.variableScopes.thread: Variables used during workflow execution, mutable
    */
   input: Record<string, unknown>;
   /**
@@ -70,7 +70,7 @@ export interface WorkflowExecution {
    *
    * Example:
    * ```typescript
-   * thread.output = {
+   * execution.output = {
    *   result: 'Task completed',
    *   status: 'success',
    *   data: { count: 10 }
@@ -82,8 +82,8 @@ export interface WorkflowExecution {
    * ```
    *
    * Note: Difference between this field and variables
-   * - Thread.output: Final output of the workflow, read-only
-   * - Thread.variableScopes.thread: Variables used during workflow execution, mutable
+   * - WorkflowExecution.output: Final output of the workflow, read-only
+   * - WorkflowExecution.variableScopes.thread: Variables used during workflow execution, mutable
    */
   output: Record<string, unknown>;
   /** Execution history (stored in order of execution) */
@@ -93,19 +93,13 @@ export interface WorkflowExecution {
   /** Context data (for storing instances of Conversation, etc.) */
   contextData?: Record<string, unknown>;
 
-  // ========== Thread types and relationship management ==========
-  /** Thread type */
-  threadType?: WorkflowExecutionType;
+  // ========== Execution types and relationship management ==========
+  /** Execution type */
+  executionType?: WorkflowExecutionType;
 
-  /** FORK/JOIN context (only present if threadType is FORK_JOIN) */
+  /** FORK/JOIN context (only present if executionType is FORK_JOIN) */
   forkJoinContext?: ForkJoinContext;
 
-  /** Triggered subworkflow context (only present if threadType is TRIGGERED_SUBWORKFLOW) */
+  /** Triggered subworkflow context (only present if executionType is TRIGGERED_SUBWORKFLOW) */
   triggeredSubworkflowContext?: TriggeredSubworkflowContext;
 }
-
-/**
- * Backward compatibility alias for WorkflowExecution
- * @deprecated Use WorkflowExecution instead
- */
-export type Thread = WorkflowExecution;

@@ -7,8 +7,8 @@
  */
 
 import { z } from "zod";
-import type { VariableScope } from "../thread/scopes.js";
-import type { VariableValueType } from "../thread/variables.js";
+import type { VariableScope } from "../workflow-execution/scopes.js";
+import type { VariableValueType } from "../workflow-execution/variables.js";
 
 // Import the types to ensure schema stays in sync
 import type {

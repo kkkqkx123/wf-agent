@@ -2,7 +2,7 @@
  * Interactive Node Configuration Type Definition
  */
 
-import type { VariableScope } from '../../thread/scopes.js';
+import type { VariableScope } from '../../workflow-execution/scopes.js';
 
 /**
  * User Interaction Node Configuration

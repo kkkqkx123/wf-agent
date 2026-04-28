@@ -1,6 +1,6 @@
 /**
  * Start Node Processing Function
- * Responsible for executing the START node, marking the beginning of the workflow, and initializing the Thread status.
+ * Responsible for executing the START node, marking the beginning of the workflow, and initializing the WorkflowExecution status.
  */
 
 import type { Node } from "@wf-agent/types";
@@ -10,14 +10,14 @@ import { now } from "@wf-agent/common-utils";
 /**
  * Check whether the node can be executed.
  */
-function canExecute(threadEntity: ThreadEntity, node: Node): boolean {
+function canExecute(workflowExecutionEntity: WorkflowExecutionEntity, node: Node): boolean {
   // The START node can be executed in either the CREATED or RUNNING state (if it has not been executed before).
-  const status = threadEntity.getStatus();
+  const status = workflowExecutionEntity.getStatus();
   if (status !== "CREATED" && status !== "RUNNING") {
     return false;
   }
 
-  if (threadEntity.getNodeResults().some(result => result.nodeId === node.id)) {
+  if (workflowExecutionEntity.getNodeResults().some(result => result.nodeId === node.id)) {
     return false;
   }
 
@@ -26,48 +26,48 @@ function canExecute(threadEntity: ThreadEntity, node: Node): boolean {
 
 /**
  * Start node processing function
- * @param threadEntity: ThreadEntity instance
+ * @param workflowExecutionEntity: WorkflowExecutionEntity instance
  * @param node: Node definition
  * @returns: Execution result
  */
 export async function startHandler(
-  threadEntity: ThreadEntity,
+  workflowExecutionEntity: WorkflowExecutionEntity,
   node: Node,
   _context?: unknown,
 ): Promise<unknown> {
   // Check if it is possible to execute.
-  if (!canExecute(threadEntity, node)) {
+  if (!canExecute(workflowExecutionEntity, node)) {
     return {
       nodeId: node.id,
       nodeType: node.type,
       status: "SKIPPED",
-      step: threadEntity.getNodeResults().length + 1,
+      step: workflowExecutionEntity.getNodeResults().length + 1,
       executionTime: 0,
     };
   }
 
-  // Initialize Thread state via ThreadEntity
-  threadEntity.setStatus("RUNNING");
-  threadEntity.setCurrentNodeId(node.id);
-  threadEntity.state.start();
+  // Initialize WorkflowExecution state via WorkflowExecutionEntity
+  workflowExecutionEntity.setStatus("RUNNING");
+  workflowExecutionEntity.setCurrentNodeId(node.id);
+  workflowExecutionEntity.state.start();
 
-  // Initializing variables and results for the Thread
-  const thread = workflowExecutionEntity.getThread();
-  if (!thread.variables) {
-    thread.variables = [];
+  // Initializing variables and results for the WorkflowExecution
+  const workflowExecution = workflowExecutionEntity.getThread();
+  if (!workflowExecution.variables) {
+    workflowExecution.variables = [];
   }
-  if (!thread.errors) {
-    thread.errors = [];
+  if (!workflowExecution.errors) {
+    workflowExecution.errors = [];
   }
 
-  // Initialize Thread input
-  if (!thread.input) {
-    thread.input = {};
+  // Initialize WorkflowExecution input
+  if (!workflowExecution.input) {
+    workflowExecution.input = {};
   }
 
   // Record execution history
-  threadEntity.addNodeResult({
-    step: threadEntity.getNodeResults().length + 1,
+  workflowExecutionEntity.addNodeResult({
+    step: workflowExecutionEntity.getNodeResults().length + 1,
     nodeId: node.id,
     nodeType: node.type,
     status: "COMPLETED",
@@ -77,6 +77,6 @@ export async function startHandler(
   // Return the execution result
   return {
     message: "Workflow started",
-    input: threadEntity.getInput(),
+    input: workflowExecutionEntity.getInput(),
   };
 }

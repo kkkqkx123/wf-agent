@@ -4,7 +4,7 @@
  */
 
 import type { ID, Metadata } from "./common.js";
-import type { VariableScope } from "./thread/scopes.js";
+import type { VariableScope } from "./workflow-execution/scopes.js";
 
 /**
  * Types of user interactions

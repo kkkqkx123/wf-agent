@@ -3,8 +3,8 @@
  * Export all signal related types
  */
 
-// Basic Signal Type
+// Base Signal Type
 export * from "./base.js";
 
-// Interrupt request type
+// Interrupt Request Type
 export * from "./interruption.js";

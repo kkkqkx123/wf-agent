@@ -13,12 +13,12 @@ import { ExecutionError, RuntimeValidationError } from "@wf-agent/types";
 import { MessageArrayUtils } from "../../../core/utils/messages/message-array-utils.js";
 import { getErrorMessage, getErrorOrUndefined } from "@wf-agent/common-utils";
 import {
-  buildThreadForkStartedEvent,
-  buildThreadForkCompletedEvent,
-  buildThreadJoinStartedEvent,
-  buildThreadJoinConditionMetEvent,
-  buildThreadCopyStartedEvent,
-  buildThreadCopyCompletedEvent,
+  buildWorkflowExecutionForkStartedEvent,
+  buildWorkflowExecutionForkCompletedEvent,
+  buildWorkflowExecutionJoinStartedEvent,
+  buildWorkflowExecutionJoinConditionMetEvent,
+  buildWorkflowExecutionCopyStartedEvent,
+  buildWorkflowExecutionCopyCompletedEvent,
 } from "./event/index.js";
 import { safeEmit } from "../../../core/utils/event/event-emitter.js";
 import {
@@ -91,11 +91,11 @@ export async function fork(
     });
   }
 
-  // Trigger the THREAD_FORK_STARTED event
-  const forkStartedEvent = buildThreadForkStartedEvent({
+  // Trigger the WORKFLOW_EXECUTION_FORK_STARTED event
+  const forkStartedEvent = buildWorkflowExecutionForkStartedEvent({
     threadId: parentThreadEntity.id,
     workflowId: parentThreadEntity.getWorkflowId(),
-    parentThreadId: parentThreadEntity.id,
+    parentExecutionId: parentThreadEntity.id,
     forkConfig: forkConfig as unknown as Record<string, unknown>,
   });
   await safeEmit(eventManager, forkStartedEvent);
@@ -107,12 +107,12 @@ export async function fork(
     startNodeId: forkConfig.startNodeId,
   });
 
-  // Trigger the THREAD_FORK_COMPLETED event
-  const forkCompletedEvent = buildThreadForkCompletedEvent({
+  // Trigger the WORKFLOW_EXECUTION_FORK_COMPLETED event
+  const forkCompletedEvent = buildWorkflowExecutionForkCompletedEvent({
     threadId: parentThreadEntity.id,
     workflowId: parentThreadEntity.getWorkflowId(),
-    parentThreadId: parentThreadEntity.id,
-    childThreadIds: [childThreadEntity.id],
+    parentExecutionId: parentThreadEntity.id,
+    childExecutionIds: [childThreadEntity.id],
   });
   await safeEmit(eventManager, forkCompletedEvent);
 
@@ -159,15 +159,15 @@ export async function join(
     });
   }
 
-  // Trigger the THREAD_JOIN_STARTED event
+  // Trigger the WORKFLOW_EXECUTION_JOIN_STARTED event
   if (eventManager && parentThreadId) {
     const parentThreadEntity = threadRegistry.get(parentThreadId);
     if (parentThreadEntity) {
-      const joinStartedEvent = buildThreadJoinStartedEvent({
+      const joinStartedEvent = buildWorkflowExecutionJoinStartedEvent({
         threadId: parentThreadEntity.id,
         workflowId: parentThreadEntity.getWorkflowId(),
-        parentThreadId: parentThreadEntity.id,
-        childThreadIds,
+        parentExecutionId: parentThreadEntity.id,
+        childExecutionIds: childThreadIds,
         joinStrategy,
       });
       await safeEmit(eventManager, joinStartedEvent);
@@ -278,23 +278,23 @@ export async function copy(
     throw new ExecutionError(`Source thread entity is null or undefined`, undefined, "");
   }
 
-  // Trigger the THREAD_COPY_STARTED event
-  const copyStartedEvent = buildThreadCopyStartedEvent({
+  // Trigger the WORKFLOW_EXECUTION_COPY_STARTED event
+  const copyStartedEvent = buildWorkflowExecutionCopyStartedEvent({
     threadId: sourceThreadEntity.id,
     workflowId: sourceThreadEntity.getWorkflowId(),
-    sourceThreadId: sourceThreadEntity.id,
+    sourceExecutionId: sourceThreadEntity.id,
   });
   await safeEmit(eventManager, copyStartedEvent);
 
   // Step 2: Call ThreadBuilder to create a new thread
   const { threadEntity: copiedThreadEntity } = await threadBuilder.createCopy(sourceThreadEntity);
 
-  // Trigger the THREAD_COPY_COMPLETED event.
-  const copyCompletedEvent = buildThreadCopyCompletedEvent({
+  // Trigger the WORKFLOW_EXECUTION_COPY_COMPLETED event.
+  const copyCompletedEvent = buildWorkflowExecutionCopyCompletedEvent({
     threadId: sourceThreadEntity.id,
     workflowId: sourceThreadEntity.getWorkflowId(),
-    sourceThreadId: sourceThreadEntity.id,
-    copiedThreadId: copiedThreadEntity.id,
+    sourceExecutionId: sourceThreadEntity.id,
+    copiedExecutionId: copiedThreadEntity.id,
   });
   await safeEmit(eventManager, copyCompletedEvent);
 
@@ -440,15 +440,15 @@ async function waitForCompletion(
       });
   }
 
-  // Trigger the THREAD_JOIN_CONDITION_MET event
+  // Trigger the WORKFLOW_EXECUTION_JOIN_CONDITION_MET event
   if (parentThreadId && conditionMet) {
     const parentThreadEntity = threadRegistry.get(parentThreadId);
     if (parentThreadEntity) {
-      const joinConditionMetEvent = buildThreadJoinConditionMetEvent({
+      const joinConditionMetEvent = buildWorkflowExecutionJoinConditionMetEvent({
         threadId: parentThreadEntity.id,
         workflowId: parentThreadEntity.getWorkflowId(),
-        parentThreadId: parentThreadEntity.id,
-        childThreadIds,
+        parentExecutionId: parentThreadEntity.id,
+        childExecutionIds: childThreadIds,
         condition: joinStrategy,
       });
       await safeEmit(eventManager, joinConditionMetEvent);
@@ -517,15 +517,15 @@ async function waitForCompletionByPolling(
     await new Promise(resolve => setTimeout(resolve, 100));
   }
 
-  // Trigger the THREAD_JOIN_CONDITION_MET event
+  // Trigger the WORKFLOW_EXECUTION_JOIN_CONDITION_MET event
   if (eventManager && parentThreadId && conditionMet) {
     const parentThreadEntity = threadRegistry.get(parentThreadId);
     if (parentThreadEntity) {
-      const joinConditionMetEvent = buildThreadJoinConditionMetEvent({
+      const joinConditionMetEvent = buildWorkflowExecutionJoinConditionMetEvent({
         threadId: parentThreadEntity.id,
         workflowId: parentThreadEntity.getWorkflowId(),
-        parentThreadId: parentThreadEntity.id,
-        childThreadIds,
+        parentExecutionId: parentThreadEntity.id,
+        childExecutionIds: childThreadIds,
         condition: joinStrategy,
       });
       await safeEmit(eventManager, joinConditionMetEvent);

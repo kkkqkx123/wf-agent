@@ -65,11 +65,11 @@ export class JsonThreadStorage
           }
         }
 
-        if (options.threadType && metadata.threadType !== options.threadType) {
+        if (options.executionType && metadata.executionType !== options.executionType) {
           return false;
         }
 
-        if (options.parentThreadId && metadata.parentThreadId !== options.parentThreadId) {
+        if (options.parentExecutionId && metadata.parentExecutionId !== options.parentExecutionId) {
           return false;
         }
 

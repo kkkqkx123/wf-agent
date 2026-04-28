@@ -4,7 +4,7 @@
  */
 
 import type { Node, RouteNodeConfig } from "@wf-agent/types";
-import type { ThreadEntity } from "../../../entities/thread-entity.js";
+import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import type { Condition, EvaluationContext } from "@wf-agent/types";
 import { ExecutionError } from "@wf-agent/types";
 import { conditionEvaluator } from "@wf-agent/common-utils";
@@ -13,8 +13,8 @@ import { now, getErrorMessage } from "@wf-agent/common-utils";
 /**
  * Check if the node can be executed.
  */
-function canExecute(threadEntity: ThreadEntity): boolean {
-  if (threadEntity.getStatus() !== "RUNNING") {
+function canExecute(workflowExecutionEntity: WorkflowExecutionEntity): boolean {
+  if (workflowExecutionEntity.getStatus() !== "RUNNING") {
     return false;
   }
   return true;
@@ -23,21 +23,21 @@ function canExecute(threadEntity: ThreadEntity): boolean {
 /**
  * Evaluating routing conditions
  */
-function evaluateRouteCondition(condition: Condition, threadEntity: ThreadEntity): boolean {
+function evaluateRouteCondition(condition: Condition, workflowExecutionEntity: WorkflowExecutionEntity): boolean {
   try {
     // Constructing the evaluation context
     const context: EvaluationContext = {
-      variables: threadEntity.getAllVariables(),
-      input: threadEntity.getInput(),
-      output: threadEntity.getOutput(),
+      variables: workflowExecutionEntity.getAllVariables(),
+      input: workflowExecutionEntity.getInput(),
+      output: workflowExecutionEntity.getOutput(),
     };
 
     return conditionEvaluator.evaluate(condition, context);
   } catch (error) {
     throw new ExecutionError(
       `Failed to evaluate route condition: ${condition.expression}`,
-      threadEntity.getCurrentNodeId(),
-      threadEntity.getWorkflowId(),
+      workflowExecutionEntity.getCurrentNodeId(),
+      workflowExecutionEntity.getWorkflowId(),
       { expression: condition.expression, originalError: error },
     );
   }
@@ -45,19 +45,19 @@ function evaluateRouteCondition(condition: Condition, threadEntity: ThreadEntity
 
 /**
  * Route node processing function
- * @param threadEntity ThreadEntity instance
+ * @param workflowExecutionEntity WorkflowExecutionEntity instance
  * @param node Node definition
  * @param context Processor context (optional)
  * @returns Execution result
  */
-export async function routeHandler(threadEntity: ThreadEntity, node: Node): Promise<unknown> {
+export async function routeHandler(workflowExecutionEntity: WorkflowExecutionEntity, node: Node): Promise<unknown> {
   // Check if it can be executed.
-  if (!canExecute(threadEntity)) {
+  if (!canExecute(workflowExecutionEntity)) {
     return {
       nodeId: node.id,
       nodeType: node.type,
       status: "SKIPPED",
-      step: threadEntity.getNodeResults().length + 1,
+      step: workflowExecutionEntity.getNodeResults().length + 1,
       executionTime: 0,
     };
   }
@@ -69,7 +69,7 @@ export async function routeHandler(threadEntity: ThreadEntity, node: Node): Prom
 
   // Evaluate routing conditions
   for (const route of sortedRoutes) {
-    if (evaluateRouteCondition(route.condition, threadEntity)) {
+    if (evaluateRouteCondition(route.condition, workflowExecutionEntity)) {
       return {
         status: "COMPLETED",
         selectedNode: route.targetNodeId,
@@ -88,6 +88,6 @@ export async function routeHandler(threadEntity: ThreadEntity, node: Node): Prom
   throw new ExecutionError(
     "No route matched and no default target specified",
     node.id,
-    threadEntity.getWorkflowId(),
+    workflowExecutionEntity.getWorkflowId(),
   );
 }

@@ -21,8 +21,8 @@ export * from "./llm-events.js";
 // Error events
 export * from "./error-events.js";
 
-// Thread events
-export * from "./thread-events.js";
+// Workflow Execution events
+export * from "./workflow-execution-events.js";
 
 // Node events
 export * from "./node-events.js";

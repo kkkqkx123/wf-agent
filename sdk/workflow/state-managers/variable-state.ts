@@ -15,7 +15,7 @@
  * - Atomic operations to ensure state consistency
  */
 
-import type { ThreadVariable } from "@wf-agent/types";
+import type { WorkflowExecutionVariable } from "@wf-agent/types";
 import type { VariableScope, VariableScopes } from "@wf-agent/types";
 import type { WorkflowVariable } from "@wf-agent/types";
 import { RuntimeValidationError } from "@wf-agent/types";
@@ -40,10 +40,10 @@ const logger = createContextualLogger({ component: "variable-state-manager" });
  * - Atomic operations: Ensure state consistency
  */
 export class VariableState implements LifecycleCapable<{
-  variables: ThreadVariable[];
+  variables: WorkflowExecutionVariable[];
   variableScopes: VariableScopes;
 }> {
-  private variables: ThreadVariable[] = [];
+  private variables: WorkflowExecutionVariable[] = [];
   private variableScopes: VariableScopes = {
     global: {},
     thread: {},
@@ -76,9 +76,9 @@ export class VariableState implements LifecycleCapable<{
       return;
     }
 
-    // Create a ThreadVariable from WorkflowVariable
+    // Create a WorkflowExecutionVariable from WorkflowVariable
     this.variables = workflowVariables.map(
-      (v: WorkflowVariable): ThreadVariable => ({
+      (v: WorkflowVariable): WorkflowExecutionVariable => ({
         name: v.name,
         value: v.defaultValue,
         type: v.type,
@@ -119,10 +119,10 @@ export class VariableState implements LifecycleCapable<{
   }
 
   /**
-   * Initialize variable state from ThreadVariable
+   * Initialize variable state from WorkflowExecutionVariable
    * @param threadVariables Definition of Thread variables
    */
-  initializeFromThreadVariables(threadVariables: ThreadVariable[]): void {
+  initializeFromThreadVariables(threadVariables: WorkflowExecutionVariable[]): void {
     if (!threadVariables || threadVariables.length === 0) {
       this.variables = [];
       this.variableScopes = {
@@ -134,8 +134,8 @@ export class VariableState implements LifecycleCapable<{
       return;
     }
 
-    // Use ThreadVariable directly
-    this.variables = threadVariables.map((v: ThreadVariable): ThreadVariable => ({ ...v }));
+    // Use WorkflowExecutionVariable directly
+    this.variables = threadVariables.map((v: WorkflowExecutionVariable): WorkflowExecutionVariable => ({ ...v }));
 
     // Initialize a level-4 scope
     this.variableScopes = {
@@ -169,7 +169,7 @@ export class VariableState implements LifecycleCapable<{
    * @param name Variable name
    * @returns Variable definition; returns undefined if the variable does not exist
    */
-  getVariableDefinition(name: string): ThreadVariable | undefined {
+  getVariableDefinition(name: string): WorkflowExecutionVariable | undefined {
     return this.variables.find(v => v.name === name);
   }
 
@@ -177,7 +177,7 @@ export class VariableState implements LifecycleCapable<{
    * Get all variable definitions
    * @returns All variable definitions
    */
-  getAllVariableDefinitions(): ThreadVariable[] {
+  getAllVariableDefinitions(): WorkflowExecutionVariable[] {
     return [...this.variables];
   }
 
@@ -384,7 +384,7 @@ export class VariableState implements LifecycleCapable<{
    * @returns Variable snapshot
    */
   createSnapshot(): {
-    variables: ThreadVariable[];
+    variables: WorkflowExecutionVariable[];
     variableScopes: VariableScopes;
   } {
     return {
@@ -404,7 +404,7 @@ export class VariableState implements LifecycleCapable<{
    * @param snapshot Variable snapshot
    */
   restoreFromSnapshot(snapshot: {
-    variables: ThreadVariable[];
+    variables: WorkflowExecutionVariable[];
     variableScopes: VariableScopes;
   }): void {
     this.variables = snapshot.variables.map(v => ({ ...v }));
@@ -421,7 +421,7 @@ export class VariableState implements LifecycleCapable<{
    * @param sourceStateManager Source state manager
    */
   copyFrom(sourceStateManager: VariableState): void {
-    this.variables = sourceStateManager.variables.map((v: ThreadVariable) => ({ ...v }));
+    this.variables = sourceStateManager.variables.map((v: WorkflowExecutionVariable) => ({ ...v }));
 
     // The global scope is shared through references.
     this.variableScopes = {

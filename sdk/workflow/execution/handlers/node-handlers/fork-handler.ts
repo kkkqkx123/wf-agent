@@ -1,16 +1,16 @@
 /**
  * Fork Node Handling Function
- * The Fork node serves as a placeholder; the actual Fork operation is handled by the ThreadExecutor invoking the ThreadCoordinator.
+ * The Fork node serves as a placeholder; the actual Fork operation is handled by the WorkflowExecutor invoking the WorkflowCoordinator.
  */
 
 import type { Node } from "@wf-agent/types";
-import type { ThreadEntity } from "../../../entities/thread-entity.js";
+import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 
 /**
  * Check whether the node can be executed.
  */
-function canExecute(threadEntity: ThreadEntity): boolean {
-  if (threadEntity.getStatus() !== "RUNNING") {
+function canExecute(workflowExecutionEntity: WorkflowExecutionEntity): boolean {
+  if (workflowExecutionEntity.getStatus() !== "RUNNING") {
     return false;
   }
   return true;
@@ -18,24 +18,27 @@ function canExecute(threadEntity: ThreadEntity): boolean {
 
 /**
  * Fork Node Processing Function
- * The Fork node serves as a placeholder; the actual Fork operation is handled by the ThreadExecutor, which in turn calls the ThreadCoordinator.
- * @param threadEntity: ThreadEntity instance
+ * The Fork node serves as a placeholder; the actual Fork operation is handled by the WorkflowExecutor, which in turn calls the WorkflowCoordinator.
+ * @param workflowExecutionEntity: WorkflowExecutionEntity instance
  * @param node: Node definition
  * @returns: Execution result
  */
-export async function forkHandler(threadEntity: ThreadEntity, node: Node): Promise<unknown> {
+export async function forkHandler(
+  workflowExecutionEntity: WorkflowExecutionEntity,
+  node: Node,
+): Promise<unknown> {
   // Check if it is possible to execute.
-  if (!canExecute(threadEntity)) {
+  if (!canExecute(workflowExecutionEntity)) {
     return {
       nodeId: node.id,
       nodeType: node.type,
       status: "SKIPPED",
-      step: threadEntity.getNodeResults().length + 1,
+      step: workflowExecutionEntity.getNodeResults().length + 1,
       executionTime: 0,
     };
   }
 
-  // The Fork node serves as a placeholder; the actual Fork operation is handled by the ThreadExecutor, which in turn calls the ThreadOperationCoordinator.
+  // The Fork node serves as a placeholder; the actual Fork operation is handled by the WorkflowExecutor, which in turn calls the WorkflowOperationCoordinator.
   // Configuration parameters are read from node.config and no need to return configuration information
   return {};
 }

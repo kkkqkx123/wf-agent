@@ -5,5 +5,5 @@
 
 export * from "./checkpoint-storage.js";
 export * from "./task-storage.js";
-export * from "./thread-storage.js";
+export * from "./workflow-execution-storage.js";
 export * from "./workflow-storage.js";

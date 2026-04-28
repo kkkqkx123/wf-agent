@@ -1,5 +1,5 @@
 /**
- * Thread history type definition
+ * Workflow Execution History Type Definition
  */
 
 import type { ID, Timestamp } from "../common.js";
@@ -12,19 +12,19 @@ export interface NodeExecutionResult {
   nodeId: ID;
   /** Node type */
   nodeType: string;
-  /** execution status (computing) */
+  /** Execution status */
   status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "SKIPPED" | "CANCELLED";
-  /** Implementation step number */
+  /** Execution step number */
   step: number;
-  /** error message */
+  /** Error message */
   error?: unknown;
   /** Execution time (milliseconds) */
   executionTime?: Timestamp;
-  /** Starting time */
+  /** Start time */
   startTime?: Timestamp;
-  /** end time */
+  /** End time */
   endTime?: Timestamp;
-  /** timestamp */
+  /** Timestamp */
   timestamp?: Timestamp;
 }
 
@@ -32,18 +32,18 @@ export interface NodeExecutionResult {
  * Execution History Entry Type
  */
 export interface ExecutionHistoryEntry {
-  /** Implementation step number */
+  /** Execution step number */
   step: number;
   /** Node ID */
   nodeId: ID;
   /** Node type */
   nodeType: string;
-  /** execution status (computing) */
+  /** Execution status */
   status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "SKIPPED" | "CANCELLED";
-  /** timestamp */
+  /** Timestamp */
   timestamp: Timestamp;
-  /** Implementation data (for tracing and debugging) */
+  /** Execution data (for tracing and debugging) */
   data?: unknown;
-  /** error message */
+  /** Error message */
   error?: unknown;
 }

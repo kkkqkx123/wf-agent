@@ -394,6 +394,16 @@ export class WorkflowExecutionEntity {
    * Get the raw WorkflowExecution data object
    * @returns WorkflowExecution data object
    * @internal For internal use only
+   * @deprecated Use getWorkflowExecutionData() instead
+   */
+  getThread(): WorkflowExecution {
+    return this.workflowExecution;
+  }
+
+  /**
+   * Get the raw WorkflowExecution data object
+   * @returns WorkflowExecution data object
+   * @internal For internal use only
    */
   getWorkflowExecutionData(): WorkflowExecution {
     return this.workflowExecution;
@@ -406,5 +416,44 @@ export class WorkflowExecutionEntity {
    */
   getExecutionState(): ExecutionState {
     return this.executionState;
+  }
+
+  /**
+   * Get execution time in milliseconds
+   * @returns Execution time or 0 if not completed
+   */
+  getExecutionTime(): number {
+    if (this.state.startTime && this.state.endTime) {
+      return this.state.endTime - this.state.startTime;
+    }
+    return 0;
+  }
+
+  // Trigger State Management ============
+
+  /**
+   * Get trigger state snapshot
+   * @returns Trigger state snapshot with triggers array
+   */
+  getTriggerStateSnapshot(): { triggers: unknown[] } {
+    // If triggerManager is not set or doesn't have getTriggers method, return empty array
+    if (!this.triggerManager || typeof (this.triggerManager as { getTriggers?: () => unknown[] }).getTriggers !== "function") {
+      return { triggers: [] };
+    }
+    return {
+      triggers: (this.triggerManager as { getTriggers: () => unknown[] }).getTriggers(),
+    };
+  }
+
+  /**
+   * Restore trigger state from snapshot
+   * @param snapshot Trigger state snapshot with triggers array
+   */
+  restoreTriggerState(snapshot: { triggers: unknown[] }): void {
+    // If triggerManager is not set or doesn't have restoreTriggers method, do nothing
+    if (!this.triggerManager || typeof (this.triggerManager as { restoreTriggers?: (triggers: unknown[]) => void }).restoreTriggers !== "function") {
+      return;
+    }
+    (this.triggerManager as { restoreTriggers: (triggers: unknown[]) => void }).restoreTriggers(snapshot.triggers);
   }
 }

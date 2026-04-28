@@ -4,8 +4,8 @@
 
 import type { ID, Timestamp } from "../../common.js";
 import type { ThreadStateSnapshot } from "./snapshot.js";
-import type { WorkflowExecutionStatus } from "../../thread/index.js";
-import type { NodeExecutionResult } from "../../thread/index.js";
+import type { WorkflowExecutionStatus } from "../../workflow-execution/index.js";
+import type { NodeExecutionResult } from "../../workflow-execution/index.js";
 import type { BaseCheckpoint } from "../base.js";
 
 /**

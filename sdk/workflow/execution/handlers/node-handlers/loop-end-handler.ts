@@ -26,14 +26,14 @@ interface LoopState {
 /**
  * Check whether the node can be executed.
  */
-function canExecute(threadEntity: ThreadEntity, node: Node): boolean {
-  if (threadEntity.getStatus() !== "RUNNING") {
+function canExecute(workflowExecutionEntity: WorkflowExecutionEntity, node: Node): boolean {
+  if (workflowExecutionEntity.getStatus() !== "RUNNING") {
     return false;
   }
 
-  const thread = workflowExecutionEntity.getThread();
+  const workflowExecution = workflowExecutionEntity.getThread();
   const config = node.config as LoopEndNodeConfig;
-  const loopState = getLoopState(thread);
+  const loopState = getLoopState(workflowExecution);
 
   // Check if the loop status exists.
   if (!loopState) {
@@ -46,8 +46,8 @@ function canExecute(threadEntity: ThreadEntity, node: Node): boolean {
 /**
  * Get the loop status
  */
-function getLoopState(thread: Thread): LoopState | undefined {
-  const currentLoopScope = thread.variableScopes.loop[thread.variableScopes.loop.length - 1] as
+function getLoopState(workflowExecution: Thread): LoopState | undefined {
+  const currentLoopScope = workflowExecution.variableScopes.loop[workflowExecution.variableScopes.loop.length - 1] as
     | Record<string, unknown>
     | undefined;
   if (currentLoopScope) {
@@ -59,29 +59,29 @@ function getLoopState(thread: Thread): LoopState | undefined {
 /**
  * Clear loop state and scope.
  */
-function clearLoopState(thread: Thread): void {
+function clearLoopState(workflowExecution: Thread): void {
   // Clear the loop state object
-  const currentLoopScope = thread.variableScopes.loop[thread.variableScopes.loop.length - 1];
+  const currentLoopScope = workflowExecution.variableScopes.loop[workflowExecution.variableScopes.loop.length - 1];
   if (currentLoopScope) {
     delete currentLoopScope[`__loop_state`];
   }
 
   // Leave the loop scope.
-  if (thread.variableScopes && thread.variableScopes.loop.length > 0) {
-    thread.variableScopes.loop.pop();
+  if (workflowExecution.variableScopes && workflowExecution.variableScopes.loop.length > 0) {
+    workflowExecution.variableScopes.loop.pop();
   }
 }
 
 /**
  * Evaluating interrupt conditions
  */
-function evaluateBreakCondition(breakCondition: Condition, thread: Thread): boolean {
+function evaluateBreakCondition(breakCondition: Condition, workflowExecution: Thread): boolean {
   try {
     // Constructing the evaluation context
     const context: EvaluationContext = {
-      variables: thread.variableScopes.thread || {},
-      input: thread.input || {},
-      output: thread.output || {},
+      variables: workflowExecution.variableScopes.thread || {},
+      input: workflowExecution.input || {},
+      output: workflowExecution.output || {},
     };
 
     // Use ConditionEvaluator to evaluate conditions.
@@ -89,13 +89,13 @@ function evaluateBreakCondition(breakCondition: Condition, thread: Thread): bool
   } catch (error) {
     throw new ExecutionError(
       `Failed to evaluate break condition: ${getErrorMessage(error)}`,
-      thread.currentNodeId,
-      thread.workflowId,
+      workflowExecution.currentNodeId,
+      workflowExecution.workflowId,
       {
         breakCondition,
-        variables: thread.variableScopes.thread,
-        input: thread.input,
-        output: thread.output,
+        variables: workflowExecution.variableScopes.thread,
+        input: workflowExecution.input,
+        output: workflowExecution.output,
       },
       getErrorOrUndefined(error),
     );
@@ -153,25 +153,25 @@ function updateLoopState(loopState: LoopState): void {
 
 /**
  * LoopEnd node processing function
- * @param thread Thread instance
+ * @param workflowExecutionEntity WorkflowExecutionEntity instance
  * @param node Node definition
  * @param context Processor context (optional)
  * @returns Execution result
  */
 export async function loopEndHandler(
-  threadEntity: ThreadEntity,
+  workflowExecutionEntity: WorkflowExecutionEntity,
   node: Node,
   _context?: unknown,
 ): Promise<unknown> {
-  const thread = workflowExecutionEntity.getThread();
+  const workflowExecution = workflowExecutionEntity.getThread();
 
   // Check if it is possible to execute.
-  if (!canExecute(threadEntity, node)) {
+  if (!canExecute(workflowExecutionEntity, node)) {
     return {
       nodeId: node.id,
       nodeType: node.type,
       status: "SKIPPED",
-      step: thread.nodeResults.length + 1,
+      step: workflowExecution.nodeResults.length + 1,
       executionTime: 0,
     };
   }
@@ -179,7 +179,7 @@ export async function loopEndHandler(
   const config = node.config as LoopEndNodeConfig;
 
   // Get the loop status
-  const loopState = getLoopState(thread);
+  const loopState = getLoopState(workflowExecution);
 
   if (!loopState) {
     throw new NotFoundError(
@@ -196,7 +196,7 @@ export async function loopEndHandler(
   // Evaluating interrupt conditions
   let shouldBreak = false;
   if (config.breakCondition) {
-    shouldBreak = evaluateBreakCondition(config.breakCondition, thread);
+    shouldBreak = evaluateBreakCondition(config.breakCondition, workflowExecution);
   }
 
   // Check the loop condition.
@@ -210,12 +210,12 @@ export async function loopEndHandler(
     updateLoopState(loopState);
   } else {
     // Loop ended, clearing the loop state and scope.
-    clearLoopState(thread);
+    clearLoopState(workflowExecution);
   }
 
   // Record execution history
-  thread.nodeResults.push({
-    step: thread.nodeResults.length + 1,
+  workflowExecution.nodeResults.push({
+    step: workflowExecution.nodeResults.length + 1,
     nodeId: node.id,
     nodeType: node.type,
     status: "COMPLETED",

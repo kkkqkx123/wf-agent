@@ -6,8 +6,8 @@
 // Export base type
 export * from "./base.js";
 
-// Exporting thread-related events
-export * from "./thread-events.js";
+// Exporting workflow execution-related events
+export * from "./workflow-execution-events.js";
 
 // Exporting node-related events
 export * from "./node-events.js";
@@ -41,20 +41,20 @@ export { EventType } from "./base.js";
 
 // Export the union type of all event types
 import type {
-  ThreadStartedEvent,
-  ThreadCompletedEvent,
-  ThreadFailedEvent,
-  ThreadPausedEvent,
-  ThreadResumedEvent,
-  ThreadCancelledEvent,
-  ThreadStateChangedEvent,
-  ThreadForkStartedEvent,
-  ThreadForkCompletedEvent,
-  ThreadJoinStartedEvent,
-  ThreadJoinConditionMetEvent,
-  ThreadCopyStartedEvent,
-  ThreadCopyCompletedEvent,
-} from "./thread-events.js";
+  WorkflowExecutionStartedEvent,
+  WorkflowExecutionCompletedEvent,
+  WorkflowExecutionFailedEvent,
+  WorkflowExecutionPausedEvent,
+  WorkflowExecutionResumedEvent,
+  WorkflowExecutionCancelledEvent,
+  WorkflowExecutionStateChangedEvent,
+  WorkflowExecutionForkStartedEvent,
+  WorkflowExecutionForkCompletedEvent,
+  WorkflowExecutionJoinStartedEvent,
+  WorkflowExecutionJoinConditionMetEvent,
+  WorkflowExecutionCopyStartedEvent,
+  WorkflowExecutionCopyCompletedEvent,
+} from "./workflow-execution-events.js";
 
 import type {
   NodeStartedEvent,
@@ -120,19 +120,19 @@ import type {
  * Union type for all event types
  */
 export type Event =
-  | ThreadStartedEvent
-  | ThreadCompletedEvent
-  | ThreadFailedEvent
-  | ThreadPausedEvent
-  | ThreadResumedEvent
-  | ThreadCancelledEvent
-  | ThreadStateChangedEvent
-  | ThreadForkStartedEvent
-  | ThreadForkCompletedEvent
-  | ThreadJoinStartedEvent
-  | ThreadJoinConditionMetEvent
-  | ThreadCopyStartedEvent
-  | ThreadCopyCompletedEvent
+  | WorkflowExecutionStartedEvent
+  | WorkflowExecutionCompletedEvent
+  | WorkflowExecutionFailedEvent
+  | WorkflowExecutionPausedEvent
+  | WorkflowExecutionResumedEvent
+  | WorkflowExecutionCancelledEvent
+  | WorkflowExecutionStateChangedEvent
+  | WorkflowExecutionForkStartedEvent
+  | WorkflowExecutionForkCompletedEvent
+  | WorkflowExecutionJoinStartedEvent
+  | WorkflowExecutionJoinConditionMetEvent
+  | WorkflowExecutionCopyStartedEvent
+  | WorkflowExecutionCopyCompletedEvent
   | NodeStartedEvent
   | NodeCompletedEvent
   | NodeFailedEvent

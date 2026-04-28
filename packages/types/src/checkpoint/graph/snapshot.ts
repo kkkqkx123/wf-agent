@@ -3,8 +3,8 @@
  */
 
 import type { ID } from "../../common.js";
-import { WorkflowExecutionStatus } from "../../thread/index.js";
-import type { NodeExecutionResult, VariableScopes } from "../../thread/index.js";
+import { WorkflowExecutionStatus } from "../../workflow-execution/index.js";
+import type { NodeExecutionResult, VariableScopes } from "../../workflow-execution/index.js";
 import type { TriggerRuntimeState } from "../../trigger/index.js";
 import type { TokenUsageStats } from "../../llm/index.js";
 import type { MessageMarkMap } from "../../message/index.js";

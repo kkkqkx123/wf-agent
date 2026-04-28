@@ -165,9 +165,9 @@ export class SqliteThreadStorage
           metadata.workflowId,
           metadata.workflowVersion,
           metadata.status,
-          metadata.threadType ?? null,
+          metadata.executionType ?? null,
           metadata.currentNodeId ?? null,
-          metadata.parentThreadId ?? null,
+          metadata.parentExecutionId ?? null,
           metadata.startTime,
           metadata.endTime ?? null,
           executionDuration,
@@ -279,14 +279,14 @@ export class SqliteThreadStorage
         }
       }
 
-      if (options?.threadType) {
+      if (options?.executionType) {
         conditions.push("thread_type = ?");
-        params.push(options.threadType);
+        params.push(options.executionType);
       }
 
-      if (options?.parentThreadId) {
+      if (options?.parentExecutionId) {
         conditions.push("parent_thread_id = ?");
-        params.push(options.parentThreadId);
+        params.push(options.parentExecutionId);
       }
 
       if (options?.startTimeFrom) {
@@ -359,9 +359,9 @@ export class SqliteThreadStorage
           workflow_id as "workflowId",
           workflow_version as "workflowVersion",
           status,
-          thread_type as "threadType",
+          thread_type as "executionType",
           current_node_id as "currentNodeId",
-          parent_thread_id as "parentThreadId",
+          parent_thread_id as "parentExecutionId",
           start_time as "startTime",
           end_time as "endTime",
           tags,
@@ -374,9 +374,9 @@ export class SqliteThreadStorage
             workflowId: string;
             workflowVersion: string;
             status: string;
-            threadType: string | null;
+            executionType: string | null;
             currentNodeId: string | null;
-            parentThreadId: string | null;
+            parentExecutionId: string | null;
             startTime: number;
             endTime: number | null;
             tags: string | null;
@@ -389,13 +389,13 @@ export class SqliteThreadStorage
       }
 
       return {
-        threadId: row.id,
+        executionId: row.id,
         workflowId: row.workflowId,
         workflowVersion: row.workflowVersion,
         status: row.status as WorkflowExecutionStatus,
-        threadType: row.threadType as import("@wf-agent/types").WorkflowExecutionType | undefined,
+        executionType: row.executionType as import("@wf-agent/types").WorkflowExecutionType | undefined,
         currentNodeId: row.currentNodeId ?? undefined,
-        parentThreadId: row.parentThreadId ?? undefined,
+        parentExecutionId: row.parentExecutionId ?? undefined,
         startTime: row.startTime,
         endTime: row.endTime ?? undefined,
         tags: row.tags ? JSON.parse(row.tags) : undefined,

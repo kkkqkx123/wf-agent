@@ -1,5 +1,5 @@
 /**
- * Workflow execution related type definitions
+ * Workflow Execution Related Type Definitions
  */
 
 import type { ID, Timestamp } from "../common.js";
@@ -24,14 +24,9 @@ export interface WorkflowExecutionOptions {
   onNodeExecuted?: (result: NodeExecutionResult) => void | Promise<void>;
   /** Tool Callbacks */
   onToolCalled?: (toolId: ID, parameters: Record<string, unknown>) => void | Promise<void>;
-  /** error callback */
+  /** Error callback */
   onError?: (error: unknown) => void | Promise<void>;
 }
-
-/**
- * @deprecated Use WorkflowExecutionOptions instead
- */
-export type ThreadOptions = WorkflowExecutionOptions;
 
 /**
  * Workflow execution result type
@@ -44,30 +39,25 @@ export type ThreadOptions = WorkflowExecutionOptions;
 export interface WorkflowExecutionResult {
   /** Execution ID */
   executionId: ID;
-  /** output data */
+  /** Output data */
   output: Record<string, unknown>;
   /** Execution time (milliseconds) */
   executionTime: Timestamp;
   /** Array of node execution results */
   nodeResults: NodeExecutionResult[];
-  /** Implementation metadata */
+  /** Execution metadata */
   metadata: WorkflowExecutionResultMetadata;
 }
-
-/**
- * @deprecated Use WorkflowExecutionResult instead
- */
-export type ThreadResult = WorkflowExecutionResult;
 
 /**
  * Workflow execution result metadata
  */
 export interface WorkflowExecutionResultMetadata {
-  /** execution state */
+  /** Execution state */
   status: WorkflowExecutionStatus;
-  /** Starting time */
+  /** Start time */
   startTime: Timestamp;
-  /** end time */
+  /** End time */
   endTime: Timestamp;
   /** Execution time (milliseconds) */
   executionTime: Timestamp;
@@ -76,8 +66,3 @@ export interface WorkflowExecutionResultMetadata {
   /** Number of errors */
   errorCount: number;
 }
-
-/**
- * @deprecated Use WorkflowExecutionResultMetadata instead
- */
-export type ThreadResultMetadata = WorkflowExecutionResultMetadata;

@@ -2,8 +2,8 @@
  * Workflow Variable Type Definitions
  */
 
-import type { VariableScope } from "../thread/scopes.js";
-import type { VariableValueType } from "../thread/variables.js";
+import type { VariableScope } from "../workflow-execution/scopes.js";
+import type { VariableValueType } from "../workflow-execution/variables.js";
 
 /**
  * 工作流变量定义类型

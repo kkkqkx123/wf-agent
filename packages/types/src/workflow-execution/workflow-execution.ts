@@ -11,75 +11,6 @@ import type { WorkflowTemplate } from "../workflow/index.js";
 import type { ID, Timestamp, Metadata } from "../common.js";
 
 /**
- * Type of workflow execution option
- * @deprecated Use WorkflowExecutionOptions from ./execution.js instead
- */
-export interface WorkflowExecutionConfig {
-  /** Workflow definitions */
-  workflow: WorkflowTemplate;
-  /** Workflow Execution Options */
-  executionOptions?: WorkflowExecutionOptions;
-  /** Whether to enable event listening */
-  enableEvents?: boolean;
-  /** Whether to enable logging */
-  enableLogging?: boolean;
-  /** Customizing the execution context */
-  context?: Metadata;
-}
-
-/**
- * Type of workflow execution result
- * @deprecated Use WorkflowExecutionResult from ./execution.js instead
- */
-export interface WorkflowExecutionOutput {
-  /** Successful implementation */
-  success: boolean;
-  /** Workflow execution results */
-  executionResult: WorkflowExecutionResult;
-  /** Implementation metadata */
-  metadata: WorkflowExecutionOutputMetadata;
-
-  // Backward compatibility properties (delegate to executionResult)
-  /** @deprecated Use executionResult.executionId instead */
-  get executionId(): ID;
-  /** @deprecated Use executionResult.output instead */
-  get output(): Record<string, unknown>;
-  /** @deprecated Use executionResult.executionTime instead */
-  get executionTime(): Timestamp;
-  /** @deprecated Use executionResult.nodeResults instead */
-  get nodeResults(): import("./history.js").NodeExecutionResult[];
-}
-
-/**
- * Workflow execution metadata types
- * @deprecated Use WorkflowExecutionResultMetadata from ./execution.js instead
- */
-export interface WorkflowExecutionOutputMetadata {
-  /** Execution ID */
-  executionId: ID;
-  /** Workflow ID */
-  workflowId: ID;
-  /** Starting time */
-  startTime: Timestamp;
-  /** end time */
-  endTime: Timestamp;
-  /** Execution time (milliseconds) */
-  duration: number;
-  /** Number of execution steps */
-  steps: number;
-  /** Number of nodes executed */
-  nodesExecuted: number;
-  /** Number of edges executed */
-  edgesTraversed: number;
-  /** Whether checkpoints are used */
-  usedCheckpoints: boolean;
-  /** Number of checkpoints */
-  checkpointCount: number;
-  /** Custom Fields */
-  customFields?: Metadata;
-}
-
-/**
  * Harmonized implementation status enumeration (as a type reference only)
  *
  * This enumeration is used to provide a uniform naming reference for execution states.
@@ -96,15 +27,15 @@ export interface WorkflowExecutionOutputMetadata {
  * - WorkflowExecutionStatus.TIMEOUT -> ExecutionStatus.FAILED
  */
 export enum ExecutionStatus {
-  /** awaiting implementation */
+  /** Pending execution */
   PENDING = "PENDING",
-  /** under implementation */
+  /** In execution */
   RUNNING = "RUNNING",
-  /** Suspended */
+  /** Paused */
   PAUSED = "PAUSED",
-  /** done */
+  /** Completed */
   COMPLETED = "COMPLETED",
-  /** failure of execution */
+  /** Execution failed */
   FAILED = "FAILED",
   /** Cancelled */
   CANCELLED = "CANCELLED",
@@ -124,36 +55,36 @@ export enum ExecutionEventType {
   INSTANCE_CREATED = "INSTANCE_CREATED",
   /** Instance started */
   INSTANCE_STARTED = "INSTANCE_STARTED",
-  /** Instance has been suspended */
+  /** Instance paused */
   INSTANCE_PAUSED = "INSTANCE_PAUSED",
-  /** Instance restored */
+  /** Instance resumed */
   INSTANCE_RESUMED = "INSTANCE_RESUMED",
-  /** Example completed */
+  /** Instance completed */
   INSTANCE_COMPLETED = "INSTANCE_COMPLETED",
-  /** Instance execution failure */
+  /** Instance execution failed */
   INSTANCE_FAILED = "INSTANCE_FAILED",
-  /** Instance canceled */
+  /** Instance cancelled */
   INSTANCE_CANCELLED = "INSTANCE_CANCELLED",
 
-  // implementation process event (computing)
-  /** The node starts executing */
+  // Execution process events
+  /** Node started executing */
   NODE_STARTED = "NODE_STARTED",
   /** Node execution completed */
   NODE_COMPLETED = "NODE_COMPLETED",
-  /** Node execution failure */
+  /** Node execution failed */
   NODE_FAILED = "NODE_FAILED",
 
   // Tool invocation events
-  /** Start of tool call */
+  /** Tool call started */
   TOOL_CALL_STARTED = "TOOL_CALL_STARTED",
-  /** Tool call completion */
+  /** Tool call completed */
   TOOL_CALL_COMPLETED = "TOOL_CALL_COMPLETED",
-  /** Tool call failure */
+  /** Tool call failed */
   TOOL_CALL_FAILED = "TOOL_CALL_FAILED",
 
-  // checkpoint event
+  // Checkpoint events
   /** Checkpoint created */
   CHECKPOINT_CREATED = "CHECKPOINT_CREATED",
-  /** Checkpoints have been restored */
+  /** Checkpoint restored */
   CHECKPOINT_RESTORED = "CHECKPOINT_RESTORED",
 }

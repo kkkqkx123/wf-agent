@@ -2,7 +2,7 @@
  * Variable Node Configuration Type Definition
  */
 
-import type { VariableScope } from '../../thread/scopes.js';
+import type { VariableScope } from '../../workflow-execution/scopes.js';
 
 /**
  * Variable Operation Node Configuration

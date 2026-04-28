@@ -1,5 +1,5 @@
 /**
- * Thread Variable Type Definitions
+ * Workflow Execution Variable Type Definitions
  */
 
 import type { Metadata } from "../common.js";
@@ -11,19 +11,19 @@ import type { VariableScope } from "./scopes.js";
 export type VariableValueType = "number" | "string" | "boolean" | "array" | "object";
 
 /**
- * Thread Variable Types
+ * Workflow Execution Variable Types
  */
-export interface ThreadVariable {
-  /** variable name */
+export interface WorkflowExecutionVariable {
+  /** Variable name */
   name: string;
-  /** variable value */
+  /** Variable value */
   value: unknown;
   /** Variable type */
   type: VariableValueType;
-  /** variable scope */
+  /** Variable scope */
   scope: VariableScope;
   /** Read-only or not */
   readonly: boolean;
-  /** variable metadata */
+  /** Variable metadata */
   metadata?: Metadata;
 }

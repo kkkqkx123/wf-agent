@@ -17,7 +17,7 @@ export * from "./node/index.js";
 export * from "./agent/index.js";
 
 // Implementation-related types
-export * from "./thread/index.js";
+export * from "./workflow-execution/index.js";
 export * from "./events/index.js";
 export * from "./errors/index.js";
 export * from "./trigger/index.js";

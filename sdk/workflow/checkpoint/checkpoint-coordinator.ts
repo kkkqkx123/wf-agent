@@ -18,7 +18,7 @@ import type {
   MessageMarkMap,
   DeltaStorageConfig,
   TCheckpointType,
-  ThreadVariable,
+  WorkflowExecutionVariable,
   LLMMessage,
   NodeExecutionResult,
   TriggerRuntimeState,
@@ -359,7 +359,7 @@ export class CheckpointCoordinator {
     // Step 6: Restore the variable snapshot using VariableState
     const variableStateManager = new VariableState();
     variableStateManager.restoreFromSnapshot({
-      variables: workflowExecutionState.variables as ThreadVariable[],
+      variables: workflowExecutionState.variables as WorkflowExecutionVariable[],
       variableScopes: workflowExecutionState.variableScopes,
     });
 

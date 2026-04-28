@@ -1,30 +1,30 @@
 /**
- * Threaded Storage Type Definitions
- * Define metadata, query options related to thread persistent storage
+ * Workflow Execution Storage Type Definitions
+ * Define metadata, query options related to workflow execution persistent storage
  */
 
 import type { ID, Timestamp, Version } from "../common.js";
-import type { WorkflowExecutionStatus, WorkflowExecutionType } from "../thread/status.js";
+import type { WorkflowExecutionStatus, WorkflowExecutionType } from "../workflow-execution/status.js";
 
 /**
- * Threads store metadata
+ * Workflow Execution Storage Metadata
  * Metadata information for indexing and querying
  */
-export interface ThreadStorageMetadata {
-  /** Thread ID */
-  threadId: ID;
+export interface WorkflowExecutionStorageMetadata {
+  /** Workflow Execution ID */
+  executionId: ID;
   /** Workflow ID */
   workflowId: ID;
   /** Workflow version */
   workflowVersion: Version;
-  /** thread state */
+  /** execution state */
   status: WorkflowExecutionStatus;
-  /** Thread type */
-  threadType?: WorkflowExecutionType;
+  /** Execution type */
+  executionType?: WorkflowExecutionType;
   /** Current Node ID */
   currentNodeId?: ID;
-  /** Parent thread ID (child thread scenario) */
-  parentThreadId?: ID;
+  /** Parent execution ID (child execution scenario) */
+  parentExecutionId?: ID;
   /** Starting time */
   startTime: Timestamp;
   /** end time */
@@ -36,18 +36,18 @@ export interface ThreadStorageMetadata {
 }
 
 /**
- * Threaded list query options
+ * Workflow Execution List Query Options
  * Support for multi-dimensional filtering and paging
  */
-export interface ThreadListOptions {
+export interface WorkflowExecutionListOptions {
   /** Filter by Workflow ID */
   workflowId?: ID;
-  /** Filter by thread state (supports single or multiple states) */
+  /** Filter by execution state (supports single or multiple states) */
   status?: WorkflowExecutionStatus | WorkflowExecutionStatus[];
-  /** Filter by thread type */
-  threadType?: WorkflowExecutionType;
-  /** Filter by Parent Thread ID */
-  parentThreadId?: ID;
+  /** Filter by execution type */
+  executionType?: WorkflowExecutionType;
+  /** Filter by Parent Execution ID */
+  parentExecutionId?: ID;
   /** Start time range - start */
   startTimeFrom?: Timestamp;
   /** Start time range - End */
@@ -69,20 +69,20 @@ export interface ThreadListOptions {
 }
 
 /**
- * Thread information (with ID and metadata)
+ * Workflow Execution Information (with ID and metadata)
  * For list presentation and statistics
  */
-export interface ThreadInfo {
-  /** Thread ID */
-  threadId: string;
-  /** Thread metadata */
-  metadata: ThreadStorageMetadata;
+export interface WorkflowExecutionInfo {
+  /** Workflow Execution ID */
+  executionId: string;
+  /** Execution metadata */
+  metadata: WorkflowExecutionStorageMetadata;
 }
 
 /**
- * Thread Statistics
+ * Workflow Execution Statistics
  */
-export interface ThreadStats {
+export interface WorkflowExecutionStats {
   /** aggregate */
   total: number;
   /** Number of states */

@@ -8,10 +8,10 @@ import { NodeType } from "../node/index.js";
 import type { Edge, EdgeType } from "../edge.js";
 
 /**
- * Graph Node Types
+ * Workflow Node Types
  * Node representations for graph validation and analysis
  */
-export interface GraphNode {
+export interface WorkflowNode {
   /** Node Unique Identifier */
   id: ID;
   /** Node type */
@@ -31,10 +31,10 @@ export interface GraphNode {
 }
 
 /**
- * Graph Edge Types
+ * Workflow Edge Types
  * Edge representations for graph validation and analysis
  */
-export interface GraphEdge {
+export interface WorkflowEdge {
   /** edge unique identifier */
   id: ID;
   /** Source node ID */
@@ -69,16 +69,16 @@ export type ReverseAdjacencyList = Map<ID, Set<ID>>;
  * Node Mapping Table Types
  * Creates a mapping of node IDs to node objects
  */
-export type NodeMap = Map<ID, GraphNode>;
+export type NodeMap = Map<ID, WorkflowNode>;
 
 /**
  * Edge Mapping Table Types
  * Creates a mapping relationship from edge IDs to edge objects
  */
-export type EdgeMap = Map<ID, GraphEdge>;
+export type EdgeMap = Map<ID, WorkflowEdge>;
 
 /**
- * Graph Data Interface (Graph)
+ * Workflow Graph Structure Interface
  *
  * Design Notes:
  * - Defines the interface specification for graph data structures
@@ -86,7 +86,7 @@ export type EdgeMap = Map<ID, GraphEdge>;
  * - Thread and other types use this interface to reference graph data.
  * - Provide basic operations and query functions for graphs
  */
-export interface Graph {
+export interface WorkflowGraphStructure {
   /** collection of nodes */
   nodes: NodeMap;
   /** bilateral assembly */
@@ -101,19 +101,19 @@ export interface Graph {
   endNodeIds: Set<ID>;
 
   /** Get node */
-  getNode(nodeId: ID): GraphNode | undefined;
+  getNode(nodeId: ID): WorkflowNode | undefined;
   /** Getting the edge */
-  getEdge(edgeId: ID): GraphEdge | undefined;
+  getEdge(edgeId: ID): WorkflowEdge | undefined;
   /** Get the outgoing neighbors of the node */
   getOutgoingNeighbors(nodeId: ID): Set<ID>;
   /** Get the incoming edge neighbors of the node */
   getIncomingNeighbors(nodeId: ID): Set<ID>;
   /** Get the outgoing edge of the node */
-  getOutgoingEdges(nodeId: ID): GraphEdge[];
+  getOutgoingEdges(nodeId: ID): WorkflowEdge[];
   /** Get the incoming edge of the node */
-  getIncomingEdges(nodeId: ID): GraphEdge[];
+  getIncomingEdges(nodeId: ID): WorkflowEdge[];
   /** Get the edge between two nodes */
-  getEdgeBetween(sourceNodeId: ID, targetNodeId: ID): GraphEdge | undefined;
+  getEdgeBetween(sourceNodeId: ID, targetNodeId: ID): WorkflowEdge | undefined;
   /** Check if the node exists */
   hasNode(nodeId: ID): boolean;
   /** Check for the presence of edges */
@@ -129,7 +129,7 @@ export interface Graph {
   /** Get the number of edges */
   getEdgeCount(): number;
   /** Get the node with in-degree 0 */
-  getSourceNodes(): GraphNode[];
+  getSourceNodes(): WorkflowNode[];
   /** Get the node with out degree 0 */
-  getSinkNodes(): GraphNode[];
+  getSinkNodes(): WorkflowNode[];
 }

@@ -6,8 +6,8 @@
  * Thread is the top-level execution module of a graph workflow and contains complete information about the graph structure.
  */
 
-import type { Thread, ThreadOptions, ThreadResult } from "./index.js";
-import type { WorkflowDefinition } from "../workflow/index.js";
+import type { WorkflowExecution, ThreadOptions, ThreadResult } from "./index.js";
+import type { WorkflowTemplate } from "../workflow/index.js";
 import type { ID, Timestamp, Metadata } from "../common.js";
 
 /**
@@ -15,7 +15,7 @@ import type { ID, Timestamp, Metadata } from "../common.js";
  */
 export interface WorkflowExecutionOptions {
   /** Workflow definitions */
-  workflow: WorkflowDefinition;
+  workflow: WorkflowTemplate;
   /** Threading Options */
   threadOptions?: ThreadOptions;
   /** Whether to enable event listening */
@@ -73,9 +73,9 @@ export interface WorkflowExecutionMetadata {
  */
 export interface WorkflowExecutionContext {
   /** Workflow definitions */
-  workflow: WorkflowDefinition;
+  workflow: WorkflowTemplate;
   /** current thread */
-  thread: Thread;
+  thread: WorkflowExecution;
   /** implementation option */
   options: WorkflowExecutionOptions;
   /** Implementation metadata */

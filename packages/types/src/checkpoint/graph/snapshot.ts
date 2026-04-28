@@ -3,7 +3,7 @@
  */
 
 import type { ID } from "../../common.js";
-import { ThreadStatus } from "../../thread/index.js";
+import { WorkflowExecutionStatus } from "../../thread/index.js";
 import type { NodeExecutionResult, VariableScopes } from "../../thread/index.js";
 import type { TriggerRuntimeState } from "../../trigger/index.js";
 import type { TokenUsageStats } from "../../llm/index.js";
@@ -14,7 +14,7 @@ import type { MessageMarkMap } from "../../message/index.js";
  */
 export interface ThreadStateSnapshot {
   /** Thread Status */
-  status: ThreadStatus;
+  status: WorkflowExecutionStatus;
   /** Current node ID */
   currentNodeId: ID;
   /** Variable array */

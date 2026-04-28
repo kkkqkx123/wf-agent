@@ -3,9 +3,9 @@
  */
 
 /**
- * thread state
+ * Workflow Execution Status
  */
-export type ThreadStatus =
+export type WorkflowExecutionStatus =
   /** Created */
   | "CREATED"
   /** running */
@@ -22,9 +22,9 @@ export type ThreadStatus =
   | "TIMEOUT";
 
 /**
- * Thread type
+ * Workflow Execution Type
  */
-export type ThreadType =
+export type WorkflowExecutionType =
   /** main thread */
   | "MAIN"
   /** FORK/JOIN subthreads */

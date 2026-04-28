@@ -1,21 +1,21 @@
 /**
- * Preprocessed Graph Interface
+ * Workflow Graph Interface
  * Extending the Graph interface to add preprocessing-related metadata
  */
 
-import type { Graph } from "./structure.js";
+import type { WorkflowGraphStructure } from "./structure.js";
 import type { ID, Timestamp, Version } from "../common.js";
 import type { IdMapping, SubgraphRelationship } from "../workflow/id-mapping.js";
-import type { GraphAnalysisResult } from "./analysis.js";
+import type { WorkflowGraphAnalysis } from "./analysis.js";
 import type { PreprocessValidationResult, SubgraphMergeLog } from "../workflow/preprocess.js";
 import type { WorkflowTrigger } from "../trigger/index.js";
 import type { WorkflowVariable } from "../workflow/variables.js";
 
 /**
- * Preprocessed Graph Interface
+ * Workflow Graph Interface
  * Extends the Graph interface with all preprocessing-related information
  */
-export interface PreprocessedGraph extends Graph {
+export interface WorkflowGraph extends WorkflowGraphStructure {
   // ========== ID mapping correlation =======
   /** ID mapping table (temporary data for build phase) */
   idMapping: IdMapping;
@@ -31,7 +31,7 @@ export interface PreprocessedGraph extends Graph {
 
   // ========== Preprocessing metadata ==========
   /** Graphical analysis results */
-  graphAnalysis: GraphAnalysisResult;
+  graphAnalysis: WorkflowGraphAnalysis;
 
   /** Preprocessing validation results */
   validationResult: PreprocessValidationResult;

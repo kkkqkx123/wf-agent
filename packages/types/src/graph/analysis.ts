@@ -12,10 +12,10 @@ import type {
 } from "./validation.js";
 
 /**
- * Graph Analysis Results
+ * Workflow Graph Analysis Results
  * Contains the results of all graph analysis algorithms
  */
-export interface GraphAnalysisResult {
+export interface WorkflowGraphAnalysis {
   /** Ring test results */
   cycleDetection: CycleDetectionResult;
   /** Results of accessibility analysis */

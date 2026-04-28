@@ -3,21 +3,21 @@
  */
 
 import type { ID, Version } from "../common.js";
-import type { PreprocessedGraph } from "../graph/index.js";
-import type { ThreadType } from "./status.js";
+import type { WorkflowGraph } from "../graph/index.js";
+import type { WorkflowExecutionType } from "./status.js";
 import type { ForkJoinContext, TriggeredSubworkflowContext } from "./context.js";
 import type { ThreadVariable } from "./variables.js";
 import type { NodeExecutionResult } from "./history.js";
 import type { VariableScopes } from "./scopes.js";
 
 /**
- * Thread Definition Type (Execution Instance)
- * Thread as a pure data object, does not contain methods, which are provided by ThreadContext
+ * Workflow Execution Definition Type (Execution Instance)
+ * WorkflowExecution as a pure data object, does not contain methods, which are provided by ThreadContext
  *
  * Note: Runtime state fields (status, startTime, endTime, shouldPause, shouldStop)
  * are managed by ThreadState in ThreadEntity, not stored in this data object.
  */
-export interface Thread {
+export interface WorkflowExecution {
   /** Thread Unique Identifier */
   id: ID;
   /** Associated Workflow ID */
@@ -26,8 +26,8 @@ export interface Thread {
   workflowVersion: Version;
   /** Current execution node ID */
   currentNodeId: ID;
-  /** Preprocessed workflow graph structure (using the PreprocessedGraph interface) */
-  graph: PreprocessedGraph;
+  /** Preprocessed workflow graph structure (using the WorkflowGraph interface) */
+  graph: WorkflowGraph;
   /** Array of variables (for persistence and metadata) */
   variables: ThreadVariable[];
   /** Four levels of scope variable storage */
@@ -95,7 +95,7 @@ export interface Thread {
 
   // ========== Thread types and relationship management ==========
   /** Thread type */
-  threadType?: ThreadType;
+  threadType?: WorkflowExecutionType;
 
   /** FORK/JOIN context (only present if threadType is FORK_JOIN) */
   forkJoinContext?: ForkJoinContext;

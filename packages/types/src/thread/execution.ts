@@ -3,7 +3,7 @@
  */
 
 import type { ID, Timestamp } from "../common.js";
-import type { ThreadStatus } from "./status.js";
+import type { WorkflowExecutionStatus } from "./status.js";
 import type { NodeExecutionResult } from "./history.js";
 
 /**
@@ -54,7 +54,7 @@ export interface ThreadResult {
  */
 export interface ThreadResultMetadata {
   /** thread state */
-  status: ThreadStatus;
+  status: WorkflowExecutionStatus;
   /** Starting time */
   startTime: Timestamp;
   /** end time */

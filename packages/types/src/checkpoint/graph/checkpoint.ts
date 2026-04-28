@@ -4,7 +4,7 @@
 
 import type { ID, Timestamp } from "../../common.js";
 import type { ThreadStateSnapshot } from "./snapshot.js";
-import type { ThreadStatus } from "../../thread/index.js";
+import type { WorkflowExecutionStatus } from "../../thread/index.js";
 import type { NodeExecutionResult } from "../../thread/index.js";
 import type { BaseCheckpoint } from "../base.js";
 
@@ -26,8 +26,8 @@ export interface CheckpointDelta {
   addedNodeResults?: Record<string, NodeExecutionResult>;
   /** Status change */
   statusChange?: {
-    from: ThreadStatus;
-    to: ThreadStatus;
+    from: WorkflowExecutionStatus;
+    to: WorkflowExecutionStatus;
   };
   /** Current Node Change */
   currentNodeChange?: {

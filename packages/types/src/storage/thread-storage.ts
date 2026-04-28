@@ -4,7 +4,7 @@
  */
 
 import type { ID, Timestamp, Version } from "../common.js";
-import type { ThreadStatus, ThreadType } from "../thread/status.js";
+import type { WorkflowExecutionStatus, WorkflowExecutionType } from "../thread/status.js";
 
 /**
  * Threads store metadata
@@ -18,9 +18,9 @@ export interface ThreadStorageMetadata {
   /** Workflow version */
   workflowVersion: Version;
   /** thread state */
-  status: ThreadStatus;
+  status: WorkflowExecutionStatus;
   /** Thread type */
-  threadType?: ThreadType;
+  threadType?: WorkflowExecutionType;
   /** Current Node ID */
   currentNodeId?: ID;
   /** Parent thread ID (child thread scenario) */
@@ -43,9 +43,9 @@ export interface ThreadListOptions {
   /** Filter by Workflow ID */
   workflowId?: ID;
   /** Filter by thread state (supports single or multiple states) */
-  status?: ThreadStatus | ThreadStatus[];
+  status?: WorkflowExecutionStatus | WorkflowExecutionStatus[];
   /** Filter by thread type */
-  threadType?: ThreadType;
+  threadType?: WorkflowExecutionType;
   /** Filter by Parent Thread ID */
   parentThreadId?: ID;
   /** Start time range - start */
@@ -86,9 +86,9 @@ export interface ThreadStats {
   /** aggregate */
   total: number;
   /** Number of states */
-  byStatus: Record<ThreadStatus, number>;
+  byStatus: Record<WorkflowExecutionStatus, number>;
   /** Number of each type */
-  byType: Record<ThreadType, number>;
+  byType: Record<WorkflowExecutionType, number>;
   /** Statistics grouped by workflow */
   byWorkflow: Record<ID, number>;
 }

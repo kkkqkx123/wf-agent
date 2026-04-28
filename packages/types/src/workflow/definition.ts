@@ -7,23 +7,23 @@ import type { Edge } from "../edge.js";
 import type { ID, Version, Timestamp } from "../common.js";
 import type { WorkflowTrigger } from "../trigger/index.js";
 import type { TriggerReference } from "../trigger-template.js";
-import type { WorkflowType } from "./type.js";
+import type { WorkflowTemplateType } from "./type.js";
 import type { WorkflowVariable } from "./variables.js";
 import type { WorkflowConfig } from "./config.js";
 import type { WorkflowMetadata } from "./metadata.js";
 import type { TriggeredSubworkflowConfig } from "./config.js";
 
 /**
- * Workflow Definition Type
+ * Workflow Template Type
  * Contains the basic information and structure of the workflow
  */
-export interface WorkflowDefinition {
+export interface WorkflowTemplate {
   /** Workflow unique identifier */
   id: ID;
   /** Workflow name */
   name: string;
   /** Type of workflow */
-  type: WorkflowType;
+  type: WorkflowTemplateType;
   /** Optional workflow description */
   description?: string;
   /** Array of nodes, defining all nodes of the workflow */

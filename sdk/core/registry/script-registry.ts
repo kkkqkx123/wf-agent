@@ -368,7 +368,7 @@ class ScriptRegistry {
     };
 
     // Use `tryCatchAsyncWithSignal` to ensure that the signal is passed correctly.
-    const result = await tryCatchAsyncWithSignal(
+    const result = await tryCatchAsyncWithSignal<ScriptExecutionResult>(
       (signal: AbortSignal | undefined) =>
         executor.execute(script, { ...executionOptions, signal }),
       executionOptions?.signal,

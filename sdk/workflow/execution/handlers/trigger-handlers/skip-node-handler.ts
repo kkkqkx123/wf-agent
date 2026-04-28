@@ -44,7 +44,7 @@ function createFailureResult(
 export async function skipNodeHandler(
   action: TriggerAction,
   triggerId: string,
-  threadRegistry: WorkflowExecutionRegistry,
+  threadRegistry: ThreadRegistry,
   eventManager: EventRegistry,
 ): Promise<TriggerExecutionResult> {
   const executionTime = now();
@@ -62,7 +62,7 @@ export async function skipNodeHandler(
       throw new ThreadContextNotFoundError(`ThreadEntity not found: ${threadId}`, threadId);
     }
 
-    const thread = workflowExecutionEntity.getThread();
+    const thread = threadEntity.getThread();
 
     const result: NodeExecutionResult = {
       nodeId,
@@ -75,7 +75,7 @@ export async function skipNodeHandler(
     thread.nodeResults.push(result);
 
     const completedEvent = buildNodeCompletedEvent({
-      threadId: workflowExecutionEntity.id,
+      threadId: threadEntity.id,
       workflowId: threadEntity.getWorkflowId(),
       nodeId,
       output: null,

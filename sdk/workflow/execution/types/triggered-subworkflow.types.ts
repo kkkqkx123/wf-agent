@@ -8,7 +8,7 @@
  */
 
 import type { ID } from "@wf-agent/types";
-import type { ThreadEntity } from "../../entities/workflow-execution-entity.js";
+import type { ThreadEntity } from "../../entities/index.js";
 import type { WorkflowExecutionResult } from "@wf-agent/types";
 import { TaskStatus } from "../../../core/types/index.js";
 

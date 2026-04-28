@@ -7,7 +7,6 @@
 
 import type { TriggerAction, TriggerExecutionResult } from "@wf-agent/types";
 import { RuntimeValidationError, ThreadContextNotFoundError } from "@wf-agent/types";
-import type { ThreadStateTransitor } from "../../coordinators/thread-state-transitor.js";
 import type { ThreadRegistry } from "../../../stores/thread-registry.js";
 import { getErrorMessage, now } from "@wf-agent/common-utils";
 
@@ -44,8 +43,7 @@ function createFailureResult(
 export async function resumeThreadHandler(
   action: TriggerAction,
   triggerId: string,
-  stateTransitor: ThreadStateTransitor,
-  threadRegistry: WorkflowExecutionRegistry,
+  threadRegistry: ThreadRegistry,
 ): Promise<TriggerExecutionResult> {
   const executionTime = now();
 
@@ -64,7 +62,7 @@ export async function resumeThreadHandler(
       throw new ThreadContextNotFoundError(`Thread not found: ${threadId}`, threadId);
     }
 
-    await stateTransitor.resumeThread(threadEntity);
+    threadEntity.resume();
 
     return createSuccessResult(
       triggerId,

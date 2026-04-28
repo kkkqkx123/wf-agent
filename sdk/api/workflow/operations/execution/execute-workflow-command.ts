@@ -1,21 +1,21 @@
 /**
- * ExecuteThreadCommand - Execute Thread Command
+ * ExecuteWorkflowCommand - Execute Workflow Command
  *
  * Responsibilities:
  * - Receives workflow ID and execution options as input
- * - Delegates to ThreadLifecycleCoordinator to execute thread
+ * - Delegates to WorkflowLifecycleCoordinator to execute workflow
  * - Returns WorkflowExecutionResult as execution result
  *
  * Design Principles:
  * - Follows Command pattern, inherits BaseCommand
- * - Uses dependency injection for ExecutionContext and ThreadLifecycleCoordinator
+ * - Uses dependency injection for ExecutionContext and WorkflowLifecycleCoordinator
  * - Parameter validation is completed in validate() method
  * - Actual execution logic is implemented in executeInternal()
  *
  * Note:
- * - This command is only responsible for executing threads, not for registering workflows
+ * - This command is only responsible for executing workflows, not for registering workflow definitions
  * - Workflow registration should be done through a separate API
- * - Thread is an execution instance of workflow, a new Thread is created each time
+ * - WorkflowExecution is an execution instance of workflow template
  */
 
 import {
@@ -24,48 +24,40 @@ import {
   validationSuccess,
   validationFailure,
 } from "../../../shared/types/command.js";
-import type { WorkflowExecutionResult, ThreadOptions } from "@wf-agent/types";
+import type { WorkflowExecutionResult, WorkflowExecutionOptions } from "@wf-agent/types";
 import { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
 
 /**
- * Execute thread command parameters
+ * Execute workflow command parameters
  */
-export interface ExecuteThreadParams {
+export interface ExecuteWorkflowParams {
   /** Workflow ID (required) */
   workflowId: string;
-  /** Execute the option */
-  options?: ThreadOptions;
+  /** Execution options */
+  options?: WorkflowExecutionOptions;
 }
 
 /**
- * Execute Thread Command
+ * Execute Workflow Command
  *
  * Workflow:
  * 1. Validate parameters (workflowId is required)
- * 2. Execute thread using ThreadLifecycleCoordinator
+ * 2. Execute workflow using WorkflowLifecycleCoordinator
  * 3. Return WorkflowExecutionResult
- *
- * Execution Flow:
- * - ThreadLifecycleCoordinator.execute(workflowId, options)
- *   → ThreadBuilder.build(workflowId, options)  // Create ThreadContext
- *   → ThreadRegistry.register(threadContext)    // Register thread
- *   → ThreadLifecycleCoordinator.startThread(thread) // Start thread
- *   → ThreadExecutor.executeThread(threadContext) // Execute thread
- *   → ThreadLifecycleCoordinator.completeThread/failThread // Complete thread
  */
-export class ExecuteThreadCommand extends BaseCommand<WorkflowExecutionResult> {
+export class ExecuteWorkflowCommand extends BaseCommand<WorkflowExecutionResult> {
   constructor(
-    private readonly params: ExecuteThreadParams,
+    private readonly params: ExecuteWorkflowParams,
     private readonly dependencies: APIDependencyManager,
   ) {
     super();
   }
 
   protected async executeInternal(): Promise<WorkflowExecutionResult> {
-    // Obtain the ThreadLifecycleCoordinator through APIDependencyManager
-    const lifecycleCoordinator = this.dependencies.getThreadLifecycleCoordinator();
+    // Obtain the WorkflowLifecycleCoordinator through APIDependencyManager
+    const lifecycleCoordinator = this.dependencies.getWorkflowLifecycleCoordinator();
 
-    // Execute thread (delegated to ThreadLifecycleCoordinator)
+    // Execute workflow (delegated to WorkflowLifecycleCoordinator)
     const result = await lifecycleCoordinator.execute(
       this.params.workflowId,
       this.params.options || {},

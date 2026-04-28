@@ -1,5 +1,5 @@
 /**
- * CancelThreadCommand - Cancel Thread Command
+ * CancelWorkflowCommand - Cancel Workflow Execution Command
  */
 
 import {
@@ -11,26 +11,26 @@ import {
 import { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
 
 /**
- * Cancel thread command
+ * Cancel workflow execution command
  */
-export class CancelThreadCommand extends BaseCommand<void> {
+export class CancelWorkflowCommand extends BaseCommand<void> {
   constructor(
-    private readonly threadId: string,
+    private readonly executionId: string,
     private readonly dependencies: APIDependencyManager,
   ) {
     super();
   }
 
   protected async executeInternal(): Promise<void> {
-    const lifecycleCoordinator = this.dependencies.getThreadLifecycleCoordinator();
-    await lifecycleCoordinator.stopThread(this.threadId);
+    const lifecycleCoordinator = this.dependencies.getWorkflowLifecycleCoordinator();
+    await lifecycleCoordinator.stopExecution(this.executionId);
   }
 
   validate(): CommandValidationResult {
     const errors: string[] = [];
 
-    if (!this.threadId || this.threadId.trim().length === 0) {
-      errors.push("Thread ID cannot be empty.");
+    if (!this.executionId || this.executionId.trim().length === 0) {
+      errors.push("Execution ID cannot be empty.");
     }
 
     return errors.length > 0 ? validationFailure(errors) : validationSuccess();

@@ -33,8 +33,8 @@ import type {
 import * as Identifiers from "./service-identifiers.js";
 
 // Storage Layer Service
-import { GraphRegistry } from "../../workflow/stores/workflow-graph-registry.js";
-import { ThreadRegistry } from "../../workflow/stores/thread-registry.js";
+import { WorkflowGraphRegistry } from "../../workflow/stores/workflow-graph-registry.js";
+import { WorkflowExecutionRegistry } from "../../workflow/stores/workflow-execution-registry.js";
 import { LLMWrapper } from "../llm/wrapper.js";
 
 // Business Layer Services
@@ -46,7 +46,7 @@ import { TriggerTemplateRegistry } from "../registry/trigger-template-registry.j
 import { TaskRegistry } from "../../workflow/stores/task/task-registry.js";
 import { TaskQueue } from "../../workflow/stores/task/task-queue.js";
 import { WorkflowRegistry } from "../../workflow/stores/workflow-registry.js";
-import { ThreadPool } from "../../workflow/execution/thread-pool.js";
+import { WorkflowExecutionPool } from "../../workflow/execution/workflow-execution-pool.js";
 
 // Execution Layer Services - Core Layer Universal Executor
 import { LLMExecutor, ToolCallExecutor } from "../executors/index.js";
@@ -61,26 +61,26 @@ import {
   buildToolCallCompletedEvent,
   buildToolCallFailedEvent,
 } from "../../workflow/execution/utils/event/index.js";
-import { ThreadStateTransitor } from "../../workflow/execution/coordinators/thread-state-transitor.js";
+import { WorkflowStateTransitor } from "../../workflow/execution/coordinators/workflow-state-transitor.js";
 import { CheckpointState } from "../../workflow/checkpoint/checkpoint-state-manager.js";
 import { ToolContextStore } from "../../workflow/stores/tool-context-store.js";
-import { GraphConversationSession } from "../../workflow/message/workflow-conversation-session.js";
+import { WorkflowConversationSession } from "../../workflow/message/workflow-conversation-session.js";
 import { ToolVisibilityStore } from "../../workflow/stores/tool-visibility-store.js";
 import { ToolVisibilityCoordinator } from "../../workflow/execution/coordinators/tool-visibility-coordinator.js";
-import { ThreadBuilder } from "../../workflow/execution/factories/thread-builder.js";
-import { ThreadExecutor } from "../../workflow/execution/executors/thread-executor.js";
+import { WorkflowExecutionBuilder } from "../../workflow/execution/factories/workflow-execution-builder.js";
+import { WorkflowExecutor } from "../../workflow/execution/executors/workflow-executor.js";
 
 // Execution Layer - Coordinators
-import { ThreadExecutionCoordinator } from "../../workflow/execution/coordinators/thread-execution-coordinator.js";
+import { WorkflowExecutionCoordinator } from "../../workflow/execution/coordinators/workflow-execution-coordinator.js";
 import { VariableCoordinator } from "../../workflow/execution/coordinators/variable-coordinator.js";
 import { TriggerCoordinator } from "../../workflow/execution/coordinators/trigger-coordinator.js";
 import { NodeExecutionCoordinator } from "../../workflow/execution/coordinators/node-execution-coordinator.js";
 import { TriggeredSubworkflowHandler } from "../../workflow/execution/handlers/triggered-subworkflow-handler.js";
 import { LLMExecutionCoordinator } from "../../workflow/execution/coordinators/llm-execution-coordinator.js";
-import { ThreadOperationCoordinator } from "../../workflow/execution/coordinators/thread-operation-coordinator.js";
+import { WorkflowOperationCoordinator } from "../../workflow/execution/coordinators/workflow-operation-coordinator.js";
 import { CheckpointCoordinator } from "../../workflow/checkpoint/checkpoint-coordinator.js";
-import { GraphNavigator } from "../../workflow/builder/graph-navigator.js";
-import { ThreadLifecycleCoordinator } from "../../workflow/execution/coordinators/thread-lifecycle-coordinator.js";
+import { WorkflowNavigator } from "../../workflow/builder/workflow-navigator.js";
+import { WorkflowLifecycleCoordinator } from "../../workflow/execution/coordinators/workflow-lifecycle-coordinator.js";
 
 // Execution Layer - Managers
 import { ConversationSession } from "../messaging/conversation-session.js";
@@ -90,7 +90,7 @@ import { InterruptionState } from "../types/interruption-state.js";
 import { AgentLoopExecutor } from "../../agent/execution/executors/agent-loop-executor.js";
 import { AgentLoopRegistry } from "../../agent/loop/agent-loop-registry.js";
 import { AgentLoopCoordinator } from "../../agent/execution/coordinators/agent-loop-coordinator.js";
-import { ThreadEntity } from "../../workflow/entities/workflow-execution-entity.js";
+import { WorkflowExecutionEntity } from "../../workflow/entities/workflow-execution-entity.js";
 
 /** Global container instance */
 let container: Container | null = null;
@@ -176,9 +176,9 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
   // First Layer: A storage layer service with no dependencies
   // ============================================================
 
-  container.bind(Identifiers.GraphRegistry).to(GraphRegistry).inSingletonScope();
+  container.bind(Identifiers.GraphRegistry).to(WorkflowGraphRegistry).inSingletonScope();
 
-  container.bind(Identifiers.ThreadRegistry).to(ThreadRegistry).inSingletonScope();
+  container.bind(Identifiers.ThreadRegistry).to(WorkflowExecutionRegistry).inSingletonScope();
 
   // LLMWrapper - An LLM wrapper that relies on EventRegistry for event publishing.
   (container as any)
@@ -305,36 +305,36 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
     })
     .inSingletonScope();
 
-  // GraphConversationSession - Graph Conversation Session Factory
-  // GraphConversationSession is thread-isolated and requires a separate instance for each thread.
+  // WorkflowConversationSession - Workflow Conversation Session Factory
+  // WorkflowConversationSession is thread-isolated and requires a separate instance for each thread.
   // Create instances using the factory pattern to ensure data isolation between threads
   container
     .bind(Identifiers.GraphConversationSession)
     .toDynamicValue(() => {
       return {
-        create: (threadId: string) => new GraphConversationSession({ threadId }),
+        create: (threadId: string) => new WorkflowConversationSession({ threadId }),
       };
     })
     .inSingletonScope();
 
-  // ThreadStateTransitor - Thread State Transitor Factory
-  // Each thread requires a separate instance of the state transitor
+  // WorkflowStateTransitor - Workflow State Transitor Factory
+  // Each workflow execution requires a separate instance of the state transitor
   container
     .bind(Identifiers.ThreadStateTransitor)
-    .toDynamicValue((c: IContainer): { create: (threadId: string) => ThreadStateTransitor } => {
+    .toDynamicValue((c: IContainer): { create: (threadId: string) => WorkflowStateTransitor } => {
       const eventManager = c.get(Identifiers.EventRegistry) as EventRegistry;
-      const graphConversationSessionFactory = c.get(Identifiers.GraphConversationSession) as {
-        create: (threadId: string) => GraphConversationSession;
+      const workflowConversationSessionFactory = c.get(Identifiers.GraphConversationSession) as {
+        create: (threadId: string) => WorkflowConversationSession;
       };
-      const threadRegistry = c.get(Identifiers.ThreadRegistry) as WorkflowExecutionRegistry;
+      const workflowExecutionRegistry = c.get(Identifiers.ThreadRegistry) as WorkflowExecutionRegistry;
       const taskRegistry = c.get(Identifiers.TaskRegistry) as TaskRegistry;
       return {
         create: (threadId: string) => {
-          const graphConversationSession = graphConversationSessionFactory.create(threadId);
-          return new ThreadStateTransitor(
+          const workflowConversationSession = workflowConversationSessionFactory.create(threadId);
+          return new WorkflowStateTransitor(
             eventManager,
-            graphConversationSession,
-            threadRegistry,
+            workflowConversationSession,
+            workflowExecutionRegistry,
             taskRegistry,
           );
         },
@@ -376,49 +376,49 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
     .inSingletonScope();
 
   // ============================================================
-  // Layer 7: ThreadExecutor (depends on GraphRegistry and ThreadExecutionCoordinator factories)
+  // Layer 7: WorkflowExecutor (depends on WorkflowGraphRegistry and WorkflowExecutionCoordinator factories)
   // ============================================================
 
-  // ThreadExecutor - A thread executor that relies on the GraphRegistry and ThreadExecutionCoordinator factories.
+  // WorkflowExecutor - A workflow executor that relies on the WorkflowGraphRegistry and WorkflowExecutionCoordinator factories.
   container
     .bind(Identifiers.ThreadExecutor)
-    .toDynamicValue((c: IContainer): ThreadExecutor => {
-      return new ThreadExecutor({
+    .toDynamicValue((c: IContainer): WorkflowExecutor => {
+      return new WorkflowExecutor({
         graphRegistry: c.get(Identifiers.GraphRegistry) as WorkflowGraphRegistry,
         threadExecutionCoordinatorFactory: c.get(Identifiers.ThreadExecutionCoordinator) as {
-          create: (threadEntity: ThreadEntity) => ThreadExecutionCoordinator;
+          create: (threadEntity: WorkflowExecutionEntity) => WorkflowExecutionCoordinator;
         },
       });
     })
     .inSingletonScope();
 
   // ============================================================
-  // Layer 8: ThreadLifecycleCoordinator (Factory Pattern)
+  // Layer 8: WorkflowLifecycleCoordinator (Factory Pattern)
   // ============================================================
 
-  // ThreadLifecycleCoordinator - Thread Lifecycle Coordinator Factory
-  // Each thread requires a separate instance of the lifecycle coordinator
-  // This binds the high-level ThreadLifecycleCoordinator from execution/coordinators
-  // which depends on ThreadStateTransitor, ThreadBuilder, ThreadExecutor
+  // WorkflowLifecycleCoordinator - Workflow Lifecycle Coordinator Factory
+  // Each workflow execution requires a separate instance of the lifecycle coordinator
+  // This binds the high-level WorkflowLifecycleCoordinator from execution/coordinators
+  // which depends on WorkflowStateTransitor, WorkflowExecutionBuilder, WorkflowExecutor
   container
     .bind(Identifiers.ThreadLifecycleCoordinator)
     .toDynamicValue(
-      (c: IContainer): { create: (threadId: string) => ThreadLifecycleCoordinator } => {
-        const threadRegistry = c.get(Identifiers.ThreadRegistry) as WorkflowExecutionRegistry;
-        const threadBuilder = c.get(Identifiers.ThreadBuilder) as ThreadBuilder;
-        const threadExecutor = c.get(Identifiers.ThreadExecutor) as ThreadExecutor;
+      (c: IContainer): { create: (threadId: string) => WorkflowLifecycleCoordinator } => {
+        const workflowExecutionRegistry = c.get(Identifiers.ThreadRegistry) as WorkflowExecutionRegistry;
+        const workflowExecutionBuilder = c.get(Identifiers.ThreadBuilder) as WorkflowExecutionBuilder;
+        const workflowExecutor = c.get(Identifiers.ThreadExecutor) as WorkflowExecutor;
         const stateTransitorFactory = c.get(Identifiers.ThreadStateTransitor) as {
-          create: (threadId: string) => ThreadStateTransitor;
+          create: (threadId: string) => WorkflowStateTransitor;
         };
 
         return {
           create: (threadId: string) => {
             const stateTransitor = stateTransitorFactory.create(threadId);
-            return new ThreadLifecycleCoordinator(
-              threadRegistry,
+            return new WorkflowLifecycleCoordinator(
+              workflowExecutionRegistry,
               stateTransitor,
-              threadBuilder,
-              threadExecutor,
+              workflowExecutionBuilder,
+              workflowExecutor,
             );
           },
         };
@@ -427,11 +427,11 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
     .inSingletonScope();
 
   // ============================================================
-  // Layer 9: ThreadBuilder (no dependencies)
+  // Layer 9: WorkflowExecutionBuilder (no dependencies)
   // ============================================================
 
-  // ThreadBuilder - A thread builder with no dependencies
-  container.bind(Identifiers.ThreadBuilder).to(ThreadBuilder).inSingletonScope();
+  // WorkflowExecutionBuilder - A workflow execution builder with no dependencies
+  container.bind(Identifiers.ThreadBuilder).to(WorkflowExecutionBuilder).inSingletonScope();
 
   // ============================================================
   // Level 10: Basic Managers at the Execution Layer (without dependencies or factory patterns)
@@ -528,7 +528,7 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
 
   // NodeExecutionCoordinator - dependency on multiple services and coordinators
   // NodeExecutionCoordinator - node execution coordinator factory
-  // Each thread requires a separate node execution coordinator instance
+  // Each workflow execution requires a separate node execution coordinator instance
   container
     .bind(Identifiers.NodeExecutionCoordinator)
     .toDynamicValue(
@@ -538,7 +538,7 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
         create: (
           threadId: string,
           nodeId: string,
-          threadEntity: ThreadEntity,
+          threadEntity: WorkflowExecutionEntity,
         ) => NodeExecutionCoordinator;
       } => {
         const conversationManagerFactory = c.get(Identifiers.ConversationSession) as {
@@ -552,9 +552,9 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
         };
 
         return {
-          create: (threadId: string, nodeId: string, threadEntity: ThreadEntity) => {
+          create: (threadId: string, nodeId: string, threadEntity: WorkflowExecutionEntity) => {
             const graph = threadEntity.getGraph();
-            const navigator = new GraphNavigator(graph);
+            const navigator = new WorkflowNavigator(graph);
             const config = {
               eventManager: c.get(Identifiers.EventRegistry) as EventRegistry,
               llmCoordinator: c.get(Identifiers.LLMExecutionCoordinator) as LLMExecutionCoordinator,
@@ -580,40 +580,40 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
 
   // TriggerCoordinator - Dependencies on multiple services and coordinators
   // TriggerCoordinator - Trigger Coordinator Factory
-  // Each thread requires a separate instance of the trigger coordinator
+  // Each workflow execution requires a separate instance of the trigger coordinator
   container
     .bind(Identifiers.TriggerCoordinator)
     .toDynamicValue((c: IContainer): { create: (threadId: string) => TriggerCoordinator } => {
-      const threadRegistry = c.get(Identifiers.ThreadRegistry) as WorkflowExecutionRegistry;
+      const workflowExecutionRegistry = c.get(Identifiers.ThreadRegistry) as WorkflowExecutionRegistry;
       const workflowRegistry = c.get(Identifiers.WorkflowRegistry) as WorkflowRegistry;
-      const graphRegistry = c.get(Identifiers.GraphRegistry) as WorkflowGraphRegistry;
+      const workflowGraphRegistry = c.get(Identifiers.GraphRegistry) as WorkflowGraphRegistry;
       const eventManager = c.get(Identifiers.EventRegistry) as EventRegistry;
-      const threadBuilder = c.get(Identifiers.ThreadBuilder) as ThreadBuilder;
+      const workflowExecutionBuilder = c.get(Identifiers.ThreadBuilder) as WorkflowExecutionBuilder;
       const taskRegistry = c.get(Identifiers.TaskRegistry) as TaskRegistry;
-      const threadPoolService = c.get(Identifiers.ThreadPool) as ThreadPool;
+      const workflowExecutionPool = c.get(Identifiers.ThreadPool) as WorkflowExecutionPool;
       const stateManagerFactory = c.get(Identifiers.TriggerState) as {
         create: (threadId: string) => TriggerState;
       };
       const checkpointStateManager = c.get(Identifiers.CheckpointState) as CheckpointState;
       const stateTransitorFactory = c.get(Identifiers.ThreadStateTransitor) as {
-        create: (threadId: string) => ThreadStateTransitor;
+        create: (threadId: string) => WorkflowStateTransitor;
       };
 
       return {
         create: (threadId: string) => {
           const stateManager = stateManagerFactory.create(threadId);
-          const threadStateTransitor = stateTransitorFactory.create(threadId);
-          const taskQueueManager = new TaskQueue(taskRegistry, threadPoolService, eventManager);
+          const workflowStateTransitor = stateTransitorFactory.create(threadId);
+          const taskQueueManager = new TaskQueue(taskRegistry, workflowExecutionPool, eventManager);
           return new TriggerCoordinator({
-            threadRegistry,
+            threadRegistry: workflowExecutionRegistry,
             workflowRegistry,
             stateManager,
             checkpointStateManager,
-            graphRegistry,
+            graphRegistry: workflowGraphRegistry,
             eventManager,
-            threadBuilder,
+            threadBuilder: workflowExecutionBuilder,
             taskQueueManager,
-            threadLifecycleCoordinator: threadStateTransitor,
+            threadLifecycleCoordinator: workflowStateTransitor,
           });
         },
       };
@@ -628,34 +628,34 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
     .toDynamicValue((c: IContainer): TriggeredSubworkflowHandler => {
       const taskRegistry = c.get(Identifiers.TaskRegistry) as TaskRegistry;
       const eventManager = c.get(Identifiers.EventRegistry) as EventRegistry;
-      const threadPoolService = c.get(Identifiers.ThreadPool) as ThreadPool;
-      const taskQueueManager = new TaskQueue(taskRegistry, threadPoolService, eventManager);
-      const threadRegistry = c.get(Identifiers.ThreadRegistry) as WorkflowExecutionRegistry;
+      const workflowExecutionPool = c.get(Identifiers.ThreadPool) as WorkflowExecutionPool;
+      const taskQueueManager = new TaskQueue(taskRegistry, workflowExecutionPool, eventManager);
+      const workflowExecutionRegistry = c.get(Identifiers.ThreadRegistry) as WorkflowExecutionRegistry;
       // Create an adapter to convert null to undefined
-      const threadRegistryAdapter = {
-        register: (entity: ThreadEntity) => threadRegistry.register(entity),
-        get: (id: string) => threadRegistry.get(id) ?? undefined,
+      const workflowExecutionRegistryAdapter = {
+        register: (entity: WorkflowExecutionEntity) => workflowExecutionRegistry.register(entity),
+        get: (id: string) => workflowExecutionRegistry.get(id) ?? undefined,
       };
       return new TriggeredSubworkflowHandler(
-        threadRegistryAdapter,
-        c.get(Identifiers.ThreadBuilder) as ThreadBuilder,
+        workflowExecutionRegistryAdapter,
+        c.get(Identifiers.ThreadBuilder) as WorkflowExecutionBuilder,
         taskQueueManager,
         eventManager,
-        threadPoolService,
+        workflowExecutionPool,
       );
     })
     .inSingletonScope();
 
-  // ThreadExecutionCoordinator - Thread Execution Coordinator Factory
-  // ThreadExecutionCoordinator is responsible for coordinating the thread execution process and requires ThreadEntity as a parameter.
-  // Create instances using the factory pattern, with one execution coordinator per thread
-  // 注意：VariableCoordinator、TriggerCoordinator、InterruptionState、ToolVisibilityCoordinator、NodeExecutionCoordinator 都需要根据 threadId 创建实例
+  // WorkflowExecutionCoordinator - Workflow Execution Coordinator Factory
+  // WorkflowExecutionCoordinator is responsible for coordinating the workflow execution process and requires WorkflowExecutionEntity as a parameter.
+  // Create instances using the factory pattern, with one execution coordinator per workflow execution
+  // Note: VariableCoordinator、TriggerCoordinator、InterruptionState、ToolVisibilityCoordinator、NodeExecutionCoordinator all need to be created based on threadId
   container
     .bind(Identifiers.ThreadExecutionCoordinator)
     .toDynamicValue(
-      (c: IContainer): { create: (threadEntity: ThreadEntity) => ThreadExecutionCoordinator } => {
+      (c: IContainer): { create: (threadEntity: WorkflowExecutionEntity) => WorkflowExecutionCoordinator } => {
         const variableCoordinator = c.get(Identifiers.VariableCoordinator) as VariableCoordinator;
-        const graphRegistry = c.get(Identifiers.GraphRegistry) as WorkflowGraphRegistry;
+        const workflowGraphRegistry = c.get(Identifiers.GraphRegistry) as WorkflowGraphRegistry;
         const toolService = c.get(Identifiers.ToolRegistry) as ToolRegistry;
         const toolVisibilityStore = c.get(Identifiers.ToolVisibilityStore) as ToolVisibilityStore;
         const toolVisibilityCoordinator = new ToolVisibilityCoordinator(
@@ -672,17 +672,17 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
           create: (
             threadId: string,
             nodeId: string,
-            threadEntity: ThreadEntity,
+            threadEntity: WorkflowExecutionEntity,
           ) => NodeExecutionCoordinator;
         };
 
         return {
-          create: (threadEntity: ThreadEntity) => {
-            const threadId = workflowExecutionEntity.id;
+          create: (threadEntity: WorkflowExecutionEntity) => {
+            const threadId = threadEntity.id;
             const nodeId = threadEntity.getCurrentNodeId();
             const graph = threadEntity.getGraph();
-            const navigator = new GraphNavigator(graph);
-            return new ThreadExecutionCoordinator(
+            const navigator = new WorkflowNavigator(graph);
+            return new WorkflowExecutionCoordinator(
               threadEntity,
               variableCoordinator,
               triggerCoordinatorFactory.create(threadId),
@@ -701,11 +701,11 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
   // Level 12: Execution Layer Coordinators (Medium to Low Priority)
   // ============================================================
 
-  // ThreadOperationCoordinator - A thread operation coordinator that relies on ThreadRegistry and EventRegistry
+  // WorkflowOperationCoordinator - A workflow operation coordinator that relies on WorkflowExecutionRegistry and EventRegistry
   container
     .bind(Identifiers.ThreadOperationCoordinator)
-    .toDynamicValue((c: IContainer): ThreadOperationCoordinator => {
-      return new ThreadOperationCoordinator(
+    .toDynamicValue((c: IContainer): WorkflowOperationCoordinator => {
+      return new WorkflowOperationCoordinator(
         c.get(Identifiers.ThreadRegistry) as WorkflowExecutionRegistry,
         c.get(Identifiers.EventRegistry) as EventRegistry,
       );
@@ -784,14 +784,14 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
     .inSingletonScope();
 
   // ============================================================
-  // Layer 13: ThreadPool (requires ThreadExecutor, which must be bound after all dependencies)
+  // Layer 13: WorkflowExecutionPool (requires WorkflowExecutor, which must be bound after all dependencies)
   // ============================================================
 
-  // ThreadPool - thread pool service for concurrent thread execution
-  // Note: It must be bound after all dependencies, as it requires ThreadExecutor.
+  // WorkflowExecutionPool - workflow execution pool service for concurrent workflow execution
+  // Note: It must be bound after all dependencies, as it requires WorkflowExecutor.
   container
     .bind(Identifiers.ThreadPool)
-    .toDynamicValue((c: IContainer): ThreadPool => {
+    .toDynamicValue((c: IContainer): WorkflowExecutionPool => {
       const config = {
         minExecutors: 1,
         maxExecutors: 10,
@@ -799,8 +799,8 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
         defaultTimeout: 30000,
       };
 
-      return ThreadPool.getInstance(
-        () => c.get(Identifiers.ThreadExecutor) as ThreadExecutor,
+      return WorkflowExecutionPool.getInstance(
+        () => c.get(Identifiers.ThreadExecutor) as WorkflowExecutor,
         config,
       );
     })

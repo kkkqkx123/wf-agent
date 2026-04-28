@@ -37,16 +37,16 @@
  * - Verification of the combination of nodes triggering sub-workflows (handled by WorkflowValidator).
  */
 
-import type { ID, NodeType, GraphValidationOptions, GraphAnalysisResult } from "@wf-agent/types";
+import type { ID, NodeType, GraphValidationOptions, WorkflowGraphAnalysis } from "@wf-agent/types";
 import { ConfigurationValidationError } from "@wf-agent/types";
 import type { Result } from "@wf-agent/types";
 import { ok, err } from "@wf-agent/common-utils";
-import { GraphData } from "../entities/graph-data.js";
+import { WorkflowGraphData } from "../entities/workflow-graph-data.js";
 import { SUBGRAPH_METADATA_KEYS } from "@wf-agent/types";
-import { analyzeGraph } from "../graph-builder/utils/graph-analyzer.js";
-import { detectCycles } from "../graph-builder/utils/graph-cycle-detector.js";
-import { analyzeReachability } from "../graph-builder/utils/graph-reachability-analyzer.js";
-import { getReachableNodes } from "../graph-builder/utils/graph-traversal.js";
+import { analyzeWorkflowGraph } from "../builder/utils/workflow-graph-analyzer.js";
+import { detectCycles } from "../builder/utils/workflow-cycle-detector.js";
+import { analyzeReachability } from "../builder/utils/workflow-reachability-analyzer.js";
+import { getReachableNodes } from "../builder/utils/workflow-traversal.js";
 
 /**
  * Image Validator Class
@@ -56,9 +56,9 @@ export class GraphValidator {
    * Verify the graph structure.
    */
   static validate(
-    graph: GraphData,
+    graph: WorkflowGraphData,
     options: GraphValidationOptions = {},
-  ): Result<GraphData, ConfigurationValidationError[]> {
+  ): Result<WorkflowGraphData, ConfigurationValidationError[]> {
     const errorList: ConfigurationValidationError[] = [];
 
     const opts = {
@@ -177,7 +177,7 @@ export class GraphValidator {
    * - An END node cannot have any outgoing edges.
    * - The uniqueness of START nodes (excluding boundary nodes of sub-workflows).
    */
-  private static validateStartEndNodes(graph: GraphData): ConfigurationValidationError[] {
+  private static validateStartEndNodes(graph: WorkflowGraphData): ConfigurationValidationError[] {
     const errors: ConfigurationValidationError[] = [];
 
     // Check the START node.
@@ -264,7 +264,7 @@ export class GraphValidator {
   /**
    * Verify isolated nodes
    */
-  private static validateIsolatedNodes(graph: GraphData): ConfigurationValidationError[] {
+  private static validateIsolatedNodes(graph: WorkflowGraphData): ConfigurationValidationError[] {
     const errors: ConfigurationValidationError[] = [];
 
     for (const node of graph.nodes.values()) {
@@ -313,7 +313,7 @@ export class GraphValidator {
    * @param graph Graph data
    * @returns List of validation errors
    */
-  private static validateForkJoinPairs(graph: GraphData): ConfigurationValidationError[] {
+  private static validateForkJoinPairs(graph: WorkflowGraphData): ConfigurationValidationError[] {
     const errors: ConfigurationValidationError[] = [];
     // Use the first element of the forkPathIds array as the pairing identifier.
     const forkNodes = new Map<ID, { nodeId: ID; forkPathIds: ID[] }>(); // forkPathIds[0] -> {nodeId, forkPathIds}
@@ -558,8 +558,8 @@ export class GraphValidator {
   /**
    * Complete graph analysis
    */
-  static analyze(graph: GraphData): GraphAnalysisResult {
-    return analyzeGraph(graph);
+  static analyze(graph: WorkflowGraphData): WorkflowGraphAnalysis {
+    return analyzeWorkflowGraph(graph);
   }
 
   /**
@@ -567,7 +567,7 @@ export class GraphValidator {
    * @param graph Graph data
    * @returns List of verification errors
    */
-  private static validateSubgraphExistence(graph: GraphData): ConfigurationValidationError[] {
+  private static validateSubgraphExistence(graph: WorkflowGraphData): ConfigurationValidationError[] {
     const errors: ConfigurationValidationError[] = [];
 
     for (const node of graph.nodes.values()) {
@@ -595,7 +595,7 @@ export class GraphValidator {
    * @param graph Graph data
    * @returns List of verification errors
    */
-  private static validateSubgraphCompatibility(graph: GraphData): ConfigurationValidationError[] {
+  private static validateSubgraphCompatibility(graph: WorkflowGraphData): ConfigurationValidationError[] {
     const errors: ConfigurationValidationError[] = [];
 
     for (const node of graph.nodes.values()) {
@@ -612,7 +612,7 @@ export class GraphValidator {
    * @param graph Graph data
    * @returns Whether it is a trigger workflow
    */
-  private static isTriggeredSubgraph(graph: GraphData): boolean {
+  private static isTriggeredSubgraph(graph: WorkflowGraphData): boolean {
     for (const node of graph.nodes.values()) {
       if (node.type === ("START_FROM_TRIGGER" as NodeType)) {
         return true;
@@ -634,7 +634,7 @@ export class GraphValidator {
    * @param graph Graph data
    * @returns List of verification errors
    */
-  private static validateTriggeredSubgraphNodes(graph: GraphData): ConfigurationValidationError[] {
+  private static validateTriggeredSubgraphNodes(graph: WorkflowGraphData): ConfigurationValidationError[] {
     const errors: ConfigurationValidationError[] = [];
 
     // Check the START_FROM_TRIGGER node.
@@ -774,7 +774,7 @@ export class GraphValidator {
    * @returns List of verification errors
    */
   private static validateTriggeredSubgraphConnectivity(
-    graph: GraphData,
+    graph: WorkflowGraphData,
   ): ConfigurationValidationError[] {
     const errors: ConfigurationValidationError[] = [];
 

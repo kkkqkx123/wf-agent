@@ -1,10 +1,10 @@
 /**
- * ExecuteThreadStreamCommand - Execute Thread Stream Command
+ * ExecuteWorkflowStreamCommand - Execute Workflow Stream Command
  *
  * Responsibilities:
- * - Encapsulates thread streaming execution as Command pattern
+ * - Encapsulates workflow streaming execution as Command pattern
  * - Provides unified API layer interface
- * - Supports streaming Thread execution via event system
+ * - Supports streaming workflow execution via event system
  *
  * Design Principles:
  * - Follows Command pattern, inherits BaseCommand
@@ -13,7 +13,7 @@
  *
  * Streaming Event Architecture:
  * - Yields BaseEvent types from EventRegistry
- * - Thread lifecycle events: THREAD_STARTED, THREAD_COMPLETED, etc.
+ * - Workflow lifecycle events: WORKFLOW_STARTED, WORKFLOW_COMPLETED, etc.
  * - Node events: NODE_STARTED, NODE_COMPLETED, etc.
  */
 
@@ -23,79 +23,78 @@ import {
   validationSuccess,
   validationFailure,
 } from "../../../shared/types/command.js";
-import type { ThreadOptions, BaseEvent } from "@wf-agent/types";
+import type { WorkflowExecutionOptions, BaseEvent } from "@wf-agent/types";
 import { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
 
 /**
- * Execute thread stream command parameters
+ * Execute workflow stream command parameters
  */
-export interface ExecuteThreadStreamParams {
+export interface ExecuteWorkflowStreamParams {
   /** Workflow ID (required) */
   workflowId: string;
   /** Execution options */
-  options?: ThreadOptions;
+  options?: WorkflowExecutionOptions;
 }
 
 /**
- * Thread stream event - union of all relevant events during thread execution
+ * Workflow stream event - union of all relevant events during workflow execution
  */
-export type ThreadStreamEvent = BaseEvent;
+export type WorkflowStreamEvent = BaseEvent;
 
 /**
- * Execute Thread Stream Command
+ * Execute Workflow Stream Command
  *
  * Workflow:
  * 1. Validate parameters (workflowId is required)
- * 2. Build ThreadEntity using ThreadBuilder
- * 3. Register ThreadEntity
- * 4. Execute thread while yielding events
+ * 2. Build WorkflowExecutionEntity using WorkflowExecutionBuilder
+ * 3. Register WorkflowExecutionEntity
+ * 4. Execute workflow while yielding events
  * 5. Return final result
  *
  * The stream yields events from the EventRegistry during execution,
  * allowing callers to process events in real-time.
  */
-export class ExecuteThreadStreamCommand extends BaseCommand<AsyncGenerator<ThreadStreamEvent>> {
+export class ExecuteWorkflowStreamCommand extends BaseCommand<AsyncGenerator<WorkflowStreamEvent>> {
   constructor(
-    private readonly params: ExecuteThreadStreamParams,
+    private readonly params: ExecuteWorkflowStreamParams,
     private readonly dependencies: APIDependencyManager,
   ) {
     super();
   }
 
-  protected async executeInternal(): Promise<AsyncGenerator<ThreadStreamEvent>> {
+  protected async executeInternal(): Promise<AsyncGenerator<WorkflowStreamEvent>> {
     return this.executeStream();
   }
 
   /**
-   * Execute thread and yield events
+   * Execute workflow and yield events
    */
-  private async *executeStream(): AsyncGenerator<ThreadStreamEvent> {
-    const lifecycleCoordinator = this.dependencies.getThreadLifecycleCoordinator();
-    const threadRegistry = this.dependencies.getThreadRegistry();
+  private async *executeStream(): AsyncGenerator<WorkflowStreamEvent> {
+    const lifecycleCoordinator = this.dependencies.getWorkflowLifecycleCoordinator();
+    const workflowExecutionRegistry = this.dependencies.getWorkflowExecutionRegistry();
     const eventManager = this.dependencies.getEventManager();
 
-    const threadBuilder = (await this.getThreadBuilder()) as {
+    const workflowExecutionBuilder = (await this.getWorkflowExecutionBuilder()) as {
       build: (
         workflowId: string,
-        options: ThreadOptions,
-      ) => Promise<import("../../../../graph/entities/thread-entity.js").ThreadEntity>;
+        options: WorkflowExecutionOptions,
+      ) => Promise<import("../../../../workflow/entities/workflow-execution-entity.js").WorkflowExecutionEntity>;
     };
 
-    const threadEntity = await threadBuilder.build(
+    const executionEntity = await workflowExecutionBuilder.build(
       this.params.workflowId,
       this.params.options || {},
     );
-    const threadId = threadEntity.id;
+    const executionId = executionEntity.id;
 
-    threadRegistry.register(threadEntity);
+    workflowExecutionRegistry.register(executionEntity);
 
-    const eventQueue: ThreadStreamEvent[] = [];
-    let resolveEvent: ((value: IteratorResult<ThreadStreamEvent>) => void) | null = null;
+    const eventQueue: WorkflowStreamEvent[] = [];
+    let resolveEvent: ((value: IteratorResult<WorkflowStreamEvent>) => void) | null = null;
     let executionComplete = false;
-    let finalResult: unknown;
 
     const eventListener = (event: BaseEvent) => {
-      if (event.threadId === threadId) {
+      if (event.executionId === executionId || event.threadId === executionId) {
         eventQueue.push(event);
         if (resolveEvent) {
           const nextEvent = eventQueue.shift()!;
@@ -106,6 +105,12 @@ export class ExecuteThreadStreamCommand extends BaseCommand<AsyncGenerator<Threa
     };
 
     const eventTypes: Array<BaseEvent["type"]> = [
+      "WORKFLOW_STARTED",
+      "WORKFLOW_COMPLETED",
+      "WORKFLOW_FAILED",
+      "WORKFLOW_PAUSED",
+      "WORKFLOW_RESUMED",
+      "WORKFLOW_CANCELLED",
       "THREAD_STARTED",
       "THREAD_COMPLETED",
       "THREAD_FAILED",
@@ -129,8 +134,7 @@ export class ExecuteThreadStreamCommand extends BaseCommand<AsyncGenerator<Threa
 
     const executionPromise = lifecycleCoordinator
       .execute(this.params.workflowId, this.params.options || {})
-      .then(result => {
-        finalResult = result;
+      .then(() => {
         executionComplete = true;
       })
       .catch(error => {
@@ -145,7 +149,7 @@ export class ExecuteThreadStreamCommand extends BaseCommand<AsyncGenerator<Threa
         } else if (!executionComplete) {
           await Promise.race([
             executionPromise,
-            new Promise<IteratorResult<ThreadStreamEvent>>(resolve => {
+            new Promise<IteratorResult<WorkflowStreamEvent>>(resolve => {
               resolveEvent = resolve;
             }).then(result => {
               if (result.done === false) {
@@ -155,7 +159,7 @@ export class ExecuteThreadStreamCommand extends BaseCommand<AsyncGenerator<Threa
             }),
           ]).then(result => {
             if (result && typeof result === "object" && "value" in result) {
-              return result as IteratorResult<ThreadStreamEvent>;
+              return result as IteratorResult<WorkflowStreamEvent>;
             }
             return null;
           });
@@ -171,9 +175,9 @@ export class ExecuteThreadStreamCommand extends BaseCommand<AsyncGenerator<Threa
   }
 
   /**
-   * Get ThreadBuilder instance
+   * Get WorkflowExecutionBuilder instance
    */
-  private async getThreadBuilder() {
+  private async getWorkflowExecutionBuilder() {
     const container = await import("../../../../core/di/index.js").then(m => m.getContainer());
     const Identifiers = await import("../../../../core/di/service-identifiers.js");
     return container.get(Identifiers.ThreadBuilder);

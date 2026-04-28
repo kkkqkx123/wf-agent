@@ -32,7 +32,7 @@ import {
   WorkflowNotFoundError,
 } from "@wf-agent/types";
 import type { GraphRegistry } from "./graph-registry.js";
-import { processWorkflow, type ProcessOptions } from "../graph-builder/workflow-processor.js";
+import { processWorkflow, type ProcessOptions } from "../../graph/graph-builder/workflow-processor.js";
 import { getContainer } from "../../core/di/container-config.js";
 import * as Identifiers from "../../core/di/service-identifiers.js";
 import { getErrorMessage } from "@wf-agent/common-utils";
@@ -59,13 +59,13 @@ export class WorkflowRegistry {
   private activeWorkflows: Set<string> = new Set();
   private referenceRelations: Map<string, WorkflowReferenceRelation[]> = new Map();
   private maxRecursionDepth: number;
-  private threadRegistry: WorkflowExecutionRegistry | undefined;
+  private threadRegistry: ThreadRegistry | undefined;
 
   constructor(
     options: {
       maxRecursionDepth?: number;
     } = {},
-    threadRegistry?: WorkflowExecutionRegistry,
+    threadRegistry?: ThreadRegistry,
   ) {
     this.maxRecursionDepth = options.maxRecursionDepth ?? 10;
     this.threadRegistry = threadRegistry;
@@ -75,10 +75,10 @@ export class WorkflowRegistry {
    * Obtain a ThreadRegistry instance (with delayed retrieval)
    * @returns A ThreadRegistry instance or undefined
    */
-  private getThreadRegistry(): WorkflowExecutionRegistry | undefined {
+  private getThreadRegistry(): ThreadRegistry | undefined {
     if (!this.threadRegistry) {
       const container = getContainer();
-      this.threadRegistry = container.get(Identifiers.ThreadRegistry) as WorkflowExecutionRegistry;
+      this.threadRegistry = container.get(Identifiers.ThreadRegistry) as ThreadRegistry;
     }
     return this.threadRegistry;
   }
@@ -87,9 +87,9 @@ export class WorkflowRegistry {
    * Obtain a GraphRegistry instance (with delayed retrieval)
    * @returns GraphRegistry instance
    */
-  private getGraphRegistry(): WorkflowGraphRegistry {
+  private getGraphRegistry(): GraphRegistry {
     const container = getContainer();
-    return container.get(Identifiers.GraphRegistry) as WorkflowGraphRegistry;
+    return container.get(Identifiers.GraphRegistry) as GraphRegistry;
   }
 
   /**

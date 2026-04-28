@@ -48,7 +48,7 @@ export interface InterruptionDetector {
  * Interrupt Detector Implementation
  */
 export class InterruptionDetectorImpl implements InterruptionDetector {
-  constructor(private threadRegistry: WorkflowExecutionRegistry) {}
+  constructor(private threadRegistry: ThreadRegistry) {}
 
   /**
    * Get the AbortSignal

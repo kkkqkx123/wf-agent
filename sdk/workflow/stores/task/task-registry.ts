@@ -18,7 +18,7 @@
 
 import { generateId } from "../../../utils/index.js";
 import { now } from "@wf-agent/common-utils";
-import type { ThreadEntity } from "../../entities/workflow-execution-entity.js";
+import type { ThreadEntity } from "../../entities/index.js";
 import type { WorkflowExecutionResult, TaskStorageMetadata } from "@wf-agent/types";
 import {
   TaskStatus,

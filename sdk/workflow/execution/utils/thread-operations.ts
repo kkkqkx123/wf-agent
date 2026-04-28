@@ -5,9 +5,9 @@
  */
 
 import type { Thread } from "@wf-agent/types";
-import type { ThreadEntity } from "../../entities/workflow-execution-entity.js";
+import type { ThreadEntity } from "../../entities/index.js";
 import type { ThreadBuilder } from "../factories/thread-builder.js";
-import type { ThreadRegistry } from "../../stores/workflow-execution-registry.js";
+import type { ThreadRegistry } from "../../stores/thread-registry.js";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import { ExecutionError, RuntimeValidationError } from "@wf-agent/types";
 import { MessageArrayUtils } from "../../../core/utils/messages/message-array-utils.js";
@@ -140,7 +140,7 @@ export async function fork(
 export async function join(
   childThreadIds: string[],
   joinStrategy: JoinStrategy,
-  threadRegistry: WorkflowExecutionRegistry,
+  threadRegistry: ThreadRegistry,
   mainPathId: string,
   timeout: number = 0,
   parentThreadId?: string,
@@ -312,7 +312,7 @@ export async function copy(
 async function waitForCompletion(
   childThreadIds: string[],
   joinStrategy: JoinStrategy,
-  threadRegistry: WorkflowExecutionRegistry,
+  threadRegistry: ThreadRegistry,
   timeout: number | undefined,
   parentThreadId?: string,
   eventManager?: EventRegistry,
@@ -343,7 +343,7 @@ async function waitForCompletion(
       for (const threadId of childThreadIds) {
         const threadEntity = threadRegistry.get(threadId);
         if (threadEntity) {
-          const thread = workflowExecutionEntity.getThread();
+          const thread = threadEntity.getThread();
           const status = threadEntity.getStatus();
           if (status === "COMPLETED") {
             completedThreads.push(thread);
@@ -362,7 +362,7 @@ async function waitForCompletion(
       for (const threadId of childThreadIds) {
         const threadEntity = threadRegistry.get(threadId);
         if (threadEntity) {
-          const thread = workflowExecutionEntity.getThread();
+          const thread = threadEntity.getThread();
           const status = threadEntity.getStatus();
           if (status === "COMPLETED") {
             completedThreads.push(thread);
@@ -382,7 +382,7 @@ async function waitForCompletion(
       for (const threadId of childThreadIds) {
         const threadEntity = threadRegistry.get(threadId);
         if (threadEntity) {
-          const thread = workflowExecutionEntity.getThread();
+          const thread = threadEntity.getThread();
           const status = threadEntity.getStatus();
           if (status === "FAILED" || status === "CANCELLED") {
             failedThreads.push(thread);
@@ -401,7 +401,7 @@ async function waitForCompletion(
       for (const threadId of childThreadIds) {
         const threadEntity = threadRegistry.get(threadId);
         if (threadEntity) {
-          const thread = workflowExecutionEntity.getThread();
+          const thread = threadEntity.getThread();
           const status = threadEntity.getStatus();
           if (status === "COMPLETED") {
             completedThreads.push(thread);
@@ -421,7 +421,7 @@ async function waitForCompletion(
       for (const threadId of childThreadIds) {
         const threadEntity = threadRegistry.get(threadId);
         if (threadEntity) {
-          const thread = workflowExecutionEntity.getThread();
+          const thread = threadEntity.getThread();
           const status = threadEntity.getStatus();
           if (status === "COMPLETED") {
             completedThreads.push(thread);
@@ -469,7 +469,7 @@ async function waitForCompletion(
 async function waitForCompletionByPolling(
   childThreadIds: string[],
   joinStrategy: JoinStrategy,
-  threadRegistry: WorkflowExecutionRegistry,
+  threadRegistry: ThreadRegistry,
   timeout: number | undefined,
   parentThreadId?: string,
   eventManager?: EventRegistry,
@@ -488,7 +488,7 @@ async function waitForCompletionByPolling(
         continue;
       }
 
-      const thread = workflowExecutionEntity.getThread();
+      const thread = threadEntity.getThread();
       const status = threadEntity.getStatus();
       if (status === "COMPLETED") {
         completedThreads.push(thread);

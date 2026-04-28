@@ -2,72 +2,79 @@
 
 ## Type Issues Summary
 
-- **Total**: 137
-- **❌** error: 137
-- **Categories**: 7
-- **Files Affected**: 47
+- **Total**: 227
+- **❌** error: 227
+- **Categories**: 14
+- **Files Affected**: 51
 - **Packages Affected**: 2
 
 ## Breakdown by Category
 
-- **[TS2307]**: 96 occurrence(s)
-- **[TS2305]**: 22 occurrence(s)
-- **[TS7006]**: 11 occurrence(s)
-- **[TS2724]**: 4 occurrence(s)
-- **[TS2694]**: 2 occurrence(s)
+- **[TS2304]**: 67 occurrence(s)
+- **[TS2307]**: 66 occurrence(s)
+- **[TS2339]**: 31 occurrence(s)
+- **[TS2305]**: 19 occurrence(s)
+- **[TS7006]**: 13 occurrence(s)
+- **[TS2353]**: 13 occurrence(s)
+- **[TS2345]**: 4 occurrence(s)
+- **[TS2551]**: 4 occurrence(s)
+- **[TS2724]**: 3 occurrence(s)
+- **[TS18046]**: 2 occurrence(s)
+- **[TS4111]**: 2 occurrence(s)
+- **[TS4112]**: 1 occurrence(s)
 - **run failed: command exited (2)**: 1 occurrence(s)
-- **[TS2532]**: 1 occurrence(s)
+- **[TS7053]**: 1 occurrence(s)
 
 ## Details by Package
 
-### Package: `@wf-agent/sdk` (136 issue(s))
+### Package: `@wf-agent/sdk` (226 issue(s))
 
-#### `core/di/container-config.ts` (29 item(s))
+#### `core/di/container-config.ts` (34 item(s))
 
-- ❌ **error** `[[TS2307]]` at line 36:31: Cannot find module '../../graph/stores/graph-registry.js' or its corresponding type declarations.
-- ❌ **error** `[[TS2307]]` at line 37:32: Cannot find module '../../graph/stores/thread-registry.js' or its corresponding type declarations.
-- ❌ **error** `[[TS2307]]` at line 46:30: Cannot find module '../../graph/stores/task/task-registry.js' or its corresponding type declarations.
-- ❌ **error** `[[TS2307]]` at line 47:27: Cannot find module '../../graph/stores/task/task-queue.js' or its corresponding type declarations.
-- ❌ **error** `[[TS2307]]` at line 48:34: Cannot find module '../../graph/stores/workflow-registry.js' or its corresponding type declarations.
-- ... and 24 more
+- ❌ **error** `[[TS2305]]` at line 36:10: Module '"../../workflow/stores/workflow-graph-registry.js"' has no exported member 'GraphRegistry'.
+- ❌ **error** `[[TS2307]]` at line 49:28: Cannot find module '../../workflow/execution/thread-pool.js' or its corresponding type declarations.
+- ❌ **error** `[[TS2307]]` at line 64:38: Cannot find module '../../workflow/execution/coordinators/thread-state-transitor.js' or its corresponding type declarations.
+- ❌ **error** `[[TS2305]]` at line 67:10: Module '"../../workflow/message/workflow-conversation-session.js"' has no exported member 'GraphConversationSession'.
+- ❌ **error** `[[TS2307]]` at line 71:32: Cannot find module '../../workflow/execution/executors/thread-executor.js' or its corresponding type declarations.
+- ... and 29 more
 
-#### `api/graph/resources/checkpoints/checkpoint-resource-api.ts` (9 item(s))
+#### `workflow/execution/coordinators/node-execution-coordinator.ts` (22 item(s))
 
-- ❌ **error** `[[TS2307]]` at line 7:33: Cannot find module '../../../../graph/checkpoint/checkpoint-state-manager.js' or its corresponding type declarations.
-- ❌ **error** `[[TS2307]]` at line 9:39: Cannot find module '../../../../graph/checkpoint/checkpoint-coordinator.js' or its corresponding type declarations.
-- ❌ **error** `[[TS2724]]` at line 15:10: '"@wf-agent/types"' has no exported member named 'ThreadStatus'. Did you mean 'ThreadStats'?
-- ❌ **error** `[[TS2307]]` at line 197:17: Cannot find module '../../../../graph/stores/thread-registry.js' or its corresponding type declarations.
-- ❌ **error** `[[TS2307]]` at line 200:17: Cannot find module '../../../../graph/stores/workflow-registry.js' or its corresponding type declarations.
+- ❌ **error** `[[TS2307]]` at line 41:8: Cannot find module '../handlers/subworkflow-handler.js' or its corresponding type declarations.
+- ❌ **error** `[[TS2724]]` at line 48:10: '"@wf-agent/types"' has no exported member named 'SUBWORKFLOW_METADATA_KEYS'. Did you mean 'isWorkflowMetadata'?
+- ❌ **error** `[[TS2305]]` at line 48:37: Module '"@wf-agent/types"' has no exported member 'SubworkflowBoundaryType'.
+- ❌ **error** `[[TS2305]]` at line 56:3: Module '"../utils/event/index.js"' has no exported member 'buildWorkflowExecutionPausedEvent'.
+- ❌ **error** `[[TS2305]]` at line 57:3: Module '"../utils/event/index.js"' has no exported member 'buildWorkflowExecutionCancelledEvent'.
+- ... and 17 more
+
+#### `workflow/message/workflow-conversation-session.ts` (11 item(s))
+
+- ❌ **error** `[[TS2307]]` at line 21:8: Cannot find module '../../../core/messaging/conversation-session.js' or its corresponding type declarations.
+- ❌ **error** `[[TS2307]]` at line 22:35: Cannot find module '../../../core/registry/tool-registry.js' or its corresponding type declarations.
+- ❌ **error** `[[TS2307]]` at line 24:40: Cannot find module '../../../utils/contextual-logger.js' or its corresponding type declarations.
+- ❌ **error** `[[TS2307]]` at line 25:48: Cannot find module '../../../resources/dynamic/prompts/fragments/available-tools.js' or its corresponding type declarations.
+- ❌ **error** `[[TS2339]]` at line 74:30: Property 'getAllMessages' does not exist on type 'WorkflowConversationSession'.
+- ... and 6 more
+
+#### `api/shared/resources/index.ts` (10 item(s))
+
+- ❌ **error** `[[TS2307]]` at line 17:39: Cannot find module '../../workflow/resources/checkpoints/checkpoint-resource-api.js' or its corresponding type declarations.
+- ❌ **error** `[[TS2307]]` at line 24:8: Cannot find module '../../workflow/resources/messages/message-resource-api.js' or its corresponding type declarations.
+- ❌ **error** `[[TS2307]]` at line 31:8: Cannot find module '../../workflow/resources/variables/variable-resource-api.js' or its corresponding type declarations.
+- ❌ **error** `[[TS2307]]` at line 34:36: Cannot find module '../../workflow/resources/triggers/trigger-resource-api.js' or its corresponding type declarations.
+- ❌ **error** `[[TS2307]]` at line 40:37: Cannot find module '../../workflow/resources/workflows/workflow-registry-api.js' or its corresponding type declarations.
+- ... and 5 more
+
+#### `workflow/execution/factories/llm-context-factory.ts` (9 item(s))
+
+- ❌ **error** `[[TS2305]]` at line 12:15: Module '"../../stores/workflow-execution-registry.js"' has no exported member 'ThreadRegistry'.
+- ❌ **error** `[[TS2305]]` at line 14:15: Module '"../../stores/workflow-graph-registry.js"' has no exported member 'GraphRegistry'.
+- ❌ **error** `[[TS2304]]` at line 27:19: Cannot find name 'WorkflowExecutionRegistry'.
+- ❌ **error** `[[TS2304]]` at line 30:19: Cannot find name 'WorkflowGraphRegistry'.
+- ❌ **error** `[[TS2304]]` at line 37:20: Cannot find name 'WorkflowExecutionRegistry'.
 - ... and 4 more
 
-#### `graph/entities/thread-entity.ts` (8 item(s))
-
-- ❌ **error** `[[TS2305]]` at line 14:15: Module '"@wf-agent/types"' has no exported member 'Thread'.
-- ❌ **error** `[[TS2724]]` at line 14:23: '"@wf-agent/types"' has no exported member named 'ThreadStatus'. Did you mean 'ThreadStats'?
-- ❌ **error** `[[TS2305]]` at line 14:37: Module '"@wf-agent/types"' has no exported member 'ThreadType'.
-- ❌ **error** `[[TS2305]]` at line 15:15: Module '"@wf-agent/types"' has no exported member 'PreprocessedGraph'.
-- ❌ **error** `[[TS2307]]` at line 16:38: Cannot find module '../state-managers/execution-state.js' or its corresponding type declarations.
-- ... and 3 more
-
-#### `graph/graph-builder/index.ts` (8 item(s))
-
-- ❌ **error** `[[TS2307]]` at line 6:30: Cannot find module './graph-builder.js' or its corresponding type declarations.
-- ❌ **error** `[[TS2307]]` at line 7:32: Cannot find module './graph-navigator.js' or its corresponding type declarations.
-- ❌ **error** `[[TS2307]]` at line 12:52: Cannot find module './utils/graph-analyzer.js' or its corresponding type declarations.
-- ❌ **error** `[[TS2307]]` at line 14:30: Cannot find module './utils/graph-cycle-detector.js' or its corresponding type declarations.
-- ❌ **error** `[[TS2307]]` at line 16:37: Cannot find module './utils/graph-reachability-analyzer.js' or its corresponding type declarations.
-- ... and 3 more
-
-#### `graph/graph-builder/workflow-processor.ts` (7 item(s))
-
-- ❌ **error** `[[TS2305]]` at line 10:3: Module '"@wf-agent/types"' has no exported member 'WorkflowDefinition'.
-- ❌ **error** `[[TS2305]]` at line 15:3: Module '"@wf-agent/types"' has no exported member 'PreprocessedGraph'.
-- ❌ **error** `[[TS2307]]` at line 21:30: Cannot find module './graph-builder.js' or its corresponding type declarations.
-- ❌ **error** `[[TS2307]]` at line 25:39: Cannot find module '../entities/preprocessed-graph-data.js' or its corresponding type declarations.
-- ❌ **error** `[[TS2307]]` at line 34:36: Cannot find module '../stores/graph-registry.js' or its corresponding type declarations.
-- ... and 2 more
-
-*... and 41 more files in this package*
+*... and 45 more files in this package*
 
 ### Package: `D` (1 issue(s))
 

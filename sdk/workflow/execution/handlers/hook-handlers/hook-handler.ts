@@ -20,7 +20,7 @@ import { getErrorOrNew } from "@wf-agent/common-utils";
 import { createContextualLogger } from "../../../../utils/contextual-logger.js";
 import { buildHookEvaluationContext, convertToEvaluationContext } from "./context-builder.js";
 import { emitHookEvent } from "./event-emitter.js";
-import type { ThreadEntity } from "../../../entities/thread-entity.js";
+import type { ThreadEntity } from "../../../entities/index.js";
 
 const logger = createContextualLogger();
 

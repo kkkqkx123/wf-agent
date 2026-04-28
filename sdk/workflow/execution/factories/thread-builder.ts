@@ -15,9 +15,9 @@
 
 import type { PreprocessedGraph } from "@wf-agent/types";
 import type { Thread, ThreadOptions, WorkflowExecutionStatus } from "@wf-agent/types";
-import { ThreadEntity } from "../../entities/workflow-execution-entity.js";
+import { ThreadEntity } from "../../entities/index.js";
 import { ExecutionState } from "../../state-managers/execution-state.js";
-import { ThreadStateCoordinator } from "../../state-managers/workflow-state-coordinator.js";
+import { ThreadStateCoordinator } from "../../state-managers/thread-state-coordinator.js";
 import { generateId, now as getCurrentTimestamp } from "@wf-agent/common-utils";
 import { ExecutionError, RuntimeValidationError } from "@wf-agent/types";
 import type { GraphRegistry } from "../../stores/workflow-graph-registry.js";

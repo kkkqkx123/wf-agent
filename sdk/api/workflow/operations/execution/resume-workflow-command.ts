@@ -1,5 +1,5 @@
 /**
- * ResumeThreadCommand - Command to resume a thread
+ * ResumeWorkflowCommand - Command to resume a workflow execution
  */
 
 import {
@@ -12,27 +12,27 @@ import type { WorkflowExecutionResult } from "@wf-agent/types";
 import { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
 
 /**
- * Thread recovery command
+ * Workflow execution resume command
  */
-export class ResumeThreadCommand extends BaseCommand<WorkflowExecutionResult> {
+export class ResumeWorkflowCommand extends BaseCommand<WorkflowExecutionResult> {
   constructor(
-    private readonly threadId: string,
+    private readonly executionId: string,
     private readonly dependencies: APIDependencyManager,
   ) {
     super();
   }
 
   protected async executeInternal(): Promise<WorkflowExecutionResult> {
-    const lifecycleCoordinator = this.dependencies.getThreadLifecycleCoordinator();
-    const result = await lifecycleCoordinator.resumeThread(this.threadId);
+    const lifecycleCoordinator = this.dependencies.getWorkflowLifecycleCoordinator();
+    const result = await lifecycleCoordinator.resumeExecution(this.executionId);
     return result;
   }
 
   validate(): CommandValidationResult {
     const errors: string[] = [];
 
-    if (!this.threadId || this.threadId.trim().length === 0) {
-      errors.push("Thread ID cannot be null");
+    if (!this.executionId || this.executionId.trim().length === 0) {
+      errors.push("Execution ID cannot be empty");
     }
 
     return errors.length > 0 ? validationFailure(errors) : validationSuccess();

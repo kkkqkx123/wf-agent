@@ -7,7 +7,7 @@
  * Instances are managed uniformly through the SingletonRegistry.
  */
 
-import { ThreadEntity } from "../entities/thread-entity.js";
+import { ThreadEntity } from "../entities/index.js";
 import type { WorkflowExecutionStatus } from "@wf-agent/types";
 
 /**

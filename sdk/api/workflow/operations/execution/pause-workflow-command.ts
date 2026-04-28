@@ -1,5 +1,5 @@
 /**
- * PauseThreadCommand - Pause Thread Command
+ * PauseWorkflowCommand - Pause Workflow Execution Command
  */
 
 import {
@@ -11,26 +11,26 @@ import {
 import { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
 
 /**
- * Pause Thread Command
+ * Pause Workflow Execution Command
  */
-export class PauseThreadCommand extends BaseCommand<void> {
+export class PauseWorkflowCommand extends BaseCommand<void> {
   constructor(
-    private readonly threadId: string,
+    private readonly executionId: string,
     private readonly dependencies: APIDependencyManager,
   ) {
     super();
   }
 
   protected async executeInternal(): Promise<void> {
-    const lifecycleCoordinator = this.dependencies.getThreadLifecycleCoordinator();
-    await lifecycleCoordinator.pauseThread(this.threadId);
+    const lifecycleCoordinator = this.dependencies.getWorkflowLifecycleCoordinator();
+    await lifecycleCoordinator.pauseExecution(this.executionId);
   }
 
   validate(): CommandValidationResult {
     const errors: string[] = [];
 
-    if (!this.threadId || this.threadId.trim().length === 0) {
-      errors.push("Thread ID cannot be empty.");
+    if (!this.executionId || this.executionId.trim().length === 0) {
+      errors.push("Execution ID cannot be empty.");
     }
 
     return errors.length > 0 ? validationFailure(errors) : validationSuccess();

@@ -13,7 +13,7 @@
 import { getContainer } from "../../../core/di/index.js";
 import * as Identifiers from "../../../core/di/service-identifiers.js";
 import type { WorkflowRegistry } from "../../../workflow/stores/workflow-registry.js";
-import type { ThreadRegistry } from "../../../workflow/stores/thread-registry.js";
+import type { WorkflowExecutionRegistry } from "../../../workflow/stores/workflow-execution-registry.js";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import type { CheckpointState } from "../../../workflow/checkpoint/checkpoint-state-manager.js";
 import type { ToolRegistry } from "../../../core/registry/tool-registry.js";
@@ -21,7 +21,7 @@ import type { LLMExecutor } from "../../../core/executors/llm-executor.js";
 import type { ScriptRegistry } from "../../../core/registry/script-registry.js";
 import type { NodeTemplateRegistry } from "../../../core/registry/node-template-registry.js";
 import type { TriggerTemplateRegistry } from "../../../core/registry/trigger-template-registry.js";
-import type { GraphRegistry } from "../../../workflow/stores/workflow-graph-registry.js";
+import type { WorkflowGraphRegistry } from "../../../workflow/stores/workflow-graph-registry.js";
 import type { SkillRegistry } from "../../../core/registry/skill-registry.js";
 import type { SkillLoader } from "../../../core/utils/skill-loader.js";
 import type { AgentLoopRegistry } from "../../../agent/loop/agent-loop-registry.js";
@@ -50,10 +50,20 @@ export class APIDependencyManager {
   }
 
   /**
-   * Get the thread registry
+   * Get the workflow execution registry
+   */
+  getWorkflowExecutionRegistry(): WorkflowExecutionRegistry {
+    return this.container.get(
+      Identifiers.ThreadRegistry as ServiceIdentifier<WorkflowExecutionRegistry>,
+    );
+  }
+
+  /**
+   * Get the thread registry (alias for getWorkflowExecutionRegistry)
+   * @deprecated Use getWorkflowExecutionRegistry instead
    */
   getThreadRegistry(): WorkflowExecutionRegistry {
-    return this.container.get(Identifiers.ThreadRegistry as ServiceIdentifier<ThreadRegistry>);
+    return this.getWorkflowExecutionRegistry();
   }
 
   /**
@@ -110,25 +120,43 @@ export class APIDependencyManager {
   }
 
   /**
-   * Get the image registry
+   * Get the workflow graph registry
    */
-  getGraphRegistry(): WorkflowGraphRegistry {
-    return this.container.get(Identifiers.GraphRegistry as ServiceIdentifier<GraphRegistry>);
+  getWorkflowGraphRegistry(): WorkflowGraphRegistry {
+    return this.container.get(
+      Identifiers.GraphRegistry as ServiceIdentifier<WorkflowGraphRegistry>,
+    );
   }
 
   /**
-   * Obtain the thread lifecycle coordinator
+   * Get the graph registry (alias for getWorkflowGraphRegistry)
+   * @deprecated Use getWorkflowGraphRegistry instead
    */
-  getThreadLifecycleCoordinator(): import("../../../graph/execution/coordinators/thread-lifecycle-coordinator.js").ThreadLifecycleCoordinator {
+  getGraphRegistry(): WorkflowGraphRegistry {
+    return this.getWorkflowGraphRegistry();
+  }
+
+  /**
+   * Obtain the workflow lifecycle coordinator
+   */
+  getWorkflowLifecycleCoordinator(): import("../../../workflow/execution/coordinators/workflow-lifecycle-coordinator.js").WorkflowLifecycleCoordinator {
     return this.container.get(
       Identifiers.ThreadLifecycleCoordinator as ServiceIdentifier<
-        import("../../../graph/execution/coordinators/thread-lifecycle-coordinator.js").ThreadLifecycleCoordinator
+        import("../../../workflow/execution/coordinators/workflow-lifecycle-coordinator.js").WorkflowLifecycleCoordinator
       >,
     );
   }
 
   /**
-   * Obtain the LLM package
+   * Obtain the thread lifecycle coordinator (alias for getWorkflowLifecycleCoordinator)
+   * @deprecated Use getWorkflowLifecycleCoordinator instead
+   */
+  getThreadLifecycleCoordinator(): import("../../../workflow/execution/coordinators/workflow-lifecycle-coordinator.js").WorkflowLifecycleCoordinator {
+    return this.getWorkflowLifecycleCoordinator();
+  }
+
+  /**
+   * Obtain the LLM wrapper
    */
   getLLMWrapper(): import("../../../core/llm/wrapper.js").LLMWrapper {
     return this.container.get(

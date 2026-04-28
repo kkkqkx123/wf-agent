@@ -20,8 +20,8 @@ function canExecute(threadEntity: ThreadEntity, node: Node): boolean {
   const config = node.config as VariableNodeConfig;
 
   // Check if the variable is read-only.
-  const thread = workflowExecutionEntity.getThread();
-  const existingVariable = thread.variables?.find(v => v.name === config.variableName);
+  const thread = threadEntity.getThread();
+  const existingVariable = thread.variables?.find((v: { name: string; readonly?: boolean }) => v.name === config.variableName);
   if (existingVariable && existingVariable.readonly) {
     return false;
   }

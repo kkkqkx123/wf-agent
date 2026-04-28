@@ -56,7 +56,7 @@ function createFailureResult(
 export async function applyMessageOperationHandler(
   action: TriggerAction,
   triggerId: string,
-  threadRegistry: WorkflowExecutionRegistry,
+  threadRegistry: ThreadRegistry,
   stateCoordinatorMap?: Map<string, ThreadStateCoordinator>,
 ): Promise<TriggerExecutionResult> {
   const executionTime = now();

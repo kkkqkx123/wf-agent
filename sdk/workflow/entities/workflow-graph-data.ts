@@ -197,4 +197,46 @@ export class WorkflowGraphData implements WorkflowGraphStructure {
   getAllEdgeIds(): ID[] {
     return Array.from(this.edges.keys());
   }
+
+  /**
+   * Get the number of nodes
+   */
+  getNodeCount(): number {
+    return this.nodes.size;
+  }
+
+  /**
+   * Get the number of edges
+   */
+  getEdgeCount(): number {
+    return this.edges.size;
+  }
+
+  /**
+   * Get source nodes (nodes with in-degree 0)
+   */
+  getSourceNodes(): WorkflowNode[] {
+    const sources: WorkflowNode[] = [];
+    for (const node of this.nodes.values()) {
+      const incoming = this.getIncomingNeighbors(node.id);
+      if (incoming.size === 0) {
+        sources.push(node);
+      }
+    }
+    return sources;
+  }
+
+  /**
+   * Get sink nodes (nodes with out-degree 0)
+   */
+  getSinkNodes(): WorkflowNode[] {
+    const sinks: WorkflowNode[] = [];
+    for (const node of this.nodes.values()) {
+      const outgoing = this.getOutgoingNeighbors(node.id);
+      if (outgoing.size === 0) {
+        sinks.push(node);
+      }
+    }
+    return sinks;
+  }
 }

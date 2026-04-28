@@ -53,7 +53,7 @@ export function createPermissionCheckHook(requiredPermissions: string[]): NodeHo
     eventPayload: {
       requiredPermissions,
       handler: async (context: HookExecutionContext) => {
-        const thread = context.workflowExecutionEntity.getThread();
+        const thread = context.threadEntity.getThread();
         const userPermissions = (thread.variableScopes.thread?.["permissions"] || []) as string[];
         const missing = requiredPermissions.filter(p => !userPermissions.includes(p));
 
@@ -80,12 +80,12 @@ export function createAuditLoggingHook(auditService: {
     eventPayload: {
       handler: async (context: HookExecutionContext) => {
         const config = context.node.config as ScriptNodeConfig;
-        const thread = context.workflowExecutionEntity.getThread();
+        const thread = context.threadEntity.getThread();
 
         await auditService.log({
           eventType: "NODE_EXECUTION_ATTEMPT",
           timestamp: new Date(),
-          threadId: context.workflowExecutionEntity.id,
+          threadId: context.threadEntity.id,
           nodeId: context.node.id,
           nodeName: context.node.name,
           nodeType: context.node.type,

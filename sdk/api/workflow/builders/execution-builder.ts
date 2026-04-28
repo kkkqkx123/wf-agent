@@ -4,11 +4,11 @@
  * Supports Result, Promise and Observable interfaces
  */
 
-import type { WorkflowExecutionResult, ThreadOptions } from "@wf-agent/types";
+import type { WorkflowExecutionResult, WorkflowExecutionOptions } from "@wf-agent/types";
 import { ok, err, getErrorOrNew, withAbortSignal, now } from "@wf-agent/common-utils";
 import type { Result } from "@wf-agent/types";
 import { Observable, create, type Observer } from "../../shared/utils/observable.js";
-import { ExecuteThreadCommand } from "../operations/execution/execute-thread-command.js";
+import { ExecuteWorkflowCommand } from "../operations/execution/execute-workflow-command.js";
 import { ExecutionError as SDKExecutionError } from "@wf-agent/types";
 import { APIDependencyManager } from "../../shared/core/sdk-dependencies.js";
 import type {
@@ -26,7 +26,7 @@ import type {
  */
 export class ExecutionBuilder {
   private workflowId?: string;
-  private options: ThreadOptions = {};
+  private options: WorkflowExecutionOptions = {};
   private onProgressCallbacks: Array<(progress: unknown) => void> = [];
   private onErrorCallbacks: Array<(error: unknown) => void> = [];
   private abortController?: AbortController;
@@ -128,8 +128,8 @@ export class ExecutionBuilder {
     }
 
     try {
-      // Thread execution using Command mode
-      const command = new ExecuteThreadCommand(
+      // Workflow execution using Command mode
+      const command = new ExecuteWorkflowCommand(
         {
           workflowId: this.workflowId,
           options: this.options,
@@ -206,13 +206,13 @@ export class ExecutionBuilder {
       // Listening to execution results
       executePromise.then(result => {
         if (result.isOk()) {
-          threadId = result.value.threadId;
+          const executionId = result.value.executionId;
           // Send Completion Event
           observer.next({
             type: "complete",
             timestamp: now(),
             workflowId,
-            threadId: result.value.threadId,
+            executionId: executionId,
             result: result.value,
             executionStats: {
               duration: result.value.executionTime,
@@ -228,7 +228,7 @@ export class ExecutionBuilder {
               type: "cancelled",
               timestamp: now(),
               workflowId,
-              threadId: threadId || "unknown",
+              executionId: executionId || "unknown",
               reason: result.error.message,
             } as CancelledEvent);
             observer.complete();
@@ -238,7 +238,7 @@ export class ExecutionBuilder {
               type: "error",
               timestamp: now(),
               workflowId,
-              threadId: threadId || "unknown",
+              executionId: executionId || "unknown",
               error: result.error,
             } as ErrorEvent);
             observer.error(result.error);
@@ -268,8 +268,8 @@ export class ExecutionBuilder {
   private async executeWithSignal(signal: AbortSignal): Promise<Result<WorkflowExecutionResult, Error>> {
     // Wrapping execution logic with withAbortSignal
     return withAbortSignal(async () => {
-      // Thread execution using Command mode
-      const command = new ExecuteThreadCommand(
+      // Workflow execution using Command mode
+      const command = new ExecuteWorkflowCommand(
         {
           workflowId: this.workflowId!,
           options: this.options,

@@ -30,6 +30,7 @@ import type { TriggeredSubgraphTask } from "../../types/triggered-subworkflow.ty
 import { getContainer } from "../../../../core/di/index.js";
 import * as Identifiers from "../../../../core/di/service-identifiers.js";
 import type { GraphRegistry } from "../../../stores/graph-registry.js";
+import type { WorkflowGraphRegistry } from "../../../stores/workflow-graph-registry.js";
 import type { TriggeredSubworkflowHandler } from "../triggered-subworkflow-handler.js";
 
 function createSyncSuccessResult(
@@ -108,7 +109,7 @@ function createFailureResult(
 export async function executeTriggeredSubgraphHandler(
   action: TriggerAction,
   triggerId: string,
-  threadRegistry: WorkflowExecutionRegistry,
+  threadRegistry: ThreadRegistry,
   eventManager: EventRegistry,
   threadBuilder: ThreadBuilder,
   taskQueueManager: TaskQueue,

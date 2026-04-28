@@ -1,13 +1,13 @@
 /**
- * Graph stores module export
- * Provides workflow registry, graph registry, thread registry, task registry, and tool stores.
+ * Workflow stores module export
+ * Provides workflow registry, graph registry, execution registry, task registry, and tool stores.
  */
 
-export { GraphRegistry } from "./graph-registry.js";
+export { WorkflowGraphRegistry } from "./workflow-graph-registry.js";
 export { WorkflowRegistry } from "./workflow-registry.js";
 export type { WorkflowVersion } from "./workflow-registry.js";
 
-export { ThreadRegistry } from "./thread-registry.js";
+export { WorkflowExecutionRegistry } from "./workflow-execution-registry.js";
 
 export { TaskRegistry, type TaskManager, type TaskRegistryConfig } from "./task/task-registry.js";
 export { TaskQueue } from "./task/task-queue.js";

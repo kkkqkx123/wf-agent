@@ -15,12 +15,12 @@
  * - Implements the TaskManager interface for use in conjunction with TaskRegistry
  */
 
-import type { ThreadEntity } from "../../entities/workflow-execution-entity.js";
-import type { ThreadStateCoordinator } from "../../state-managers/workflow-state-coordinator.js";
+import type { ThreadEntity } from "../../entities/index.js";
+import type { ThreadStateCoordinator } from "../../state-managers/thread-state-coordinator.js";
 import type { ConversationSession } from "../../../core/messaging/conversation-session.js";
 import { getErrorOrNew, now } from "@wf-agent/common-utils";
 import { TaskRegistry, type TaskManager } from "../../stores/task/task-registry.js";
-import { ThreadPool } from "../workflow-execution-pool.js";
+import type { WorkflowExecutionPool } from "../workflow-execution-pool.js";
 import { TaskQueue } from "../../stores/task/task-queue.js";
 import { CallbackState } from "../../state-managers/callback-state.js";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
@@ -43,7 +43,7 @@ import { logError, emitErrorEvent } from "../../../core/utils/error-utils.js";
  */
 interface ThreadBuildResultSimple {
   threadEntity: ThreadEntity;
-  stateCoordinator: WorkflowStateCoordinator;
+  stateCoordinator: ThreadStateCoordinator;
   conversationManager: ConversationSession;
 }
 
@@ -59,7 +59,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
   /**
    * Thread Pool Service
    */
-  private threadPoolService: ThreadPool;
+  private threadPoolService: WorkflowExecutionPool;
 
   /**
    * Task Queue Manager
@@ -124,7 +124,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     },
     taskQueueManager: TaskQueue,
     eventManager: EventRegistry,
-    threadPoolService: ThreadPool,
+    threadPoolService: WorkflowExecutionPool,
   ) {
     this.threadRegistry = threadRegistry;
     this.threadBuilder = threadBuilder;

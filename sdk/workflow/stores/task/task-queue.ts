@@ -17,7 +17,7 @@ import { ThreadExecutor } from "../../execution/executors/thread-executor.js";
 import { TaskRegistry } from "./task-registry.js";
 import { ThreadPool } from "../../execution/thread-pool.js";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
-import type { ThreadEntity } from "../../entities/workflow-execution-entity.js";
+import type { ThreadEntity } from "../../entities/index.js";
 import type { WorkflowExecutionResult } from "@wf-agent/types";
 import {
   type QueueTask,

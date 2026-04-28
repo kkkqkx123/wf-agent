@@ -26,7 +26,7 @@
  * - accessor.get('loop.item') - 获取循环变量
  */
 
-import type { ThreadEntity } from "../../entities/workflow-execution-entity.js";
+import type { ThreadEntity } from "../../entities/index.js";
 import type { VariableScope } from "@wf-agent/types";
 import { resolvePath } from "@wf-agent/common-utils";
 
@@ -152,7 +152,7 @@ export class VariableAccessor {
    * @returns Value
    */
   private getFromScope(path: string, scope: VariableScope): unknown {
-    const thread = this.workflowExecutionEntity.getThread();
+    const thread = this.threadEntity.getThread();
     const scopes = thread.variableScopes;
 
     let scopeData: Record<string, unknown> | undefined;

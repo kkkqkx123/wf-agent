@@ -41,7 +41,7 @@ function createFailureResult(
 export async function setVariableHandler(
   action: TriggerAction,
   triggerId: string,
-  threadRegistry: WorkflowExecutionRegistry,
+  threadRegistry: ThreadRegistry,
 ): Promise<TriggerExecutionResult> {
   const startTime = now();
 

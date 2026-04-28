@@ -14,7 +14,7 @@
  */
 
 import type { LLMMessage, TokenUsageStats, MessageMarkMap } from "@wf-agent/types";
-import type { ThreadEntity } from "../entities/thread-entity.js";
+import type { ThreadEntity } from "../entities/index.js";
 import type { ConversationSession } from "../../core/messaging/conversation-session.js";
 
 /**

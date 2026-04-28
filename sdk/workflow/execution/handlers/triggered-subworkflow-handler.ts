@@ -16,7 +16,7 @@
  */
 
 import type { WorkflowExecutionEntity } from "../../entities/index.js";
-import type { ThreadStateCoordinator } from "../../state-managers/thread-state-coordinator.js";
+import type { WorkflowStateCoordinator } from "../../state-managers/workflow-state-coordinator.js";
 import type { ConversationSession } from "../../../core/messaging/conversation-session.js";
 import { getErrorOrNew, now } from "@wf-agent/common-utils";
 import { TaskRegistry, type TaskManager } from "../../stores/task/task-registry.js";
@@ -39,11 +39,11 @@ import { RuntimeValidationError, SDKError } from "@wf-agent/types";
 import { logError, emitErrorEvent } from "../../../core/utils/error-utils.js";
 
 /**
- * Thread Build Result (simplified interface for TriggeredSubworkflowHandler)
+ * Workflow Execution Build Result (simplified interface for TriggeredSubworkflowHandler)
  */
 interface ThreadBuildResultSimple {
   threadEntity: WorkflowExecutionEntity;
-  stateCoordinator: ThreadStateCoordinator;
+  stateCoordinator: WorkflowStateCoordinator;
   conversationManager: ConversationSession;
 }
 

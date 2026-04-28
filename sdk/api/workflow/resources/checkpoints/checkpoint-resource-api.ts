@@ -194,7 +194,7 @@ export class CheckpointResourceAPI extends CrudResourceAPI<Checkpoint, string, C
     const container = getContainer();
     const threadRegistry = container.get(
       Identifiers.WorkflowExecutionRegistry,
-    ) as import("../../../../workflow/stores/thread-registry.js").WorkflowExecutionRegistry;
+    ) as import("../../../../workflow/stores/workflow-execution-registry.js").WorkflowExecutionRegistry;
     const workflowRegistry = container.get(
       Identifiers.WorkflowRegistry,
     ) as import("../../../../workflow/stores/workflow-registry.js").WorkflowRegistry;
@@ -228,7 +228,7 @@ export class CheckpointResourceAPI extends CrudResourceAPI<Checkpoint, string, C
     const container = getContainer();
     const threadRegistry = container.get(
       Identifiers.WorkflowExecutionRegistry,
-    ) as import("../../../../workflow/stores/thread-registry.js").WorkflowExecutionRegistry;
+    ) as import("../../../../workflow/stores/workflow-execution-registry.js").WorkflowExecutionRegistry;
     const workflowRegistry = container.get(
       Identifiers.WorkflowRegistry,
     ) as import("../../../../workflow/stores/workflow-registry.js").WorkflowRegistry;

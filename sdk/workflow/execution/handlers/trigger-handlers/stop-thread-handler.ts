@@ -7,7 +7,7 @@
 
 import type { TriggerAction, TriggerExecutionResult } from "@wf-agent/types";
 import { RuntimeValidationError, ThreadContextNotFoundError } from "@wf-agent/types";
-import type { WorkflowExecutionRegistry } from "../../../stores/thread-registry.js";
+import type { WorkflowExecutionRegistry } from "../../../stores/workflow-execution-registry.js";
 import { getErrorMessage, now } from "@wf-agent/common-utils";
 
 function createSuccessResult(
@@ -57,7 +57,7 @@ export async function stopThreadHandler(
 
     const { threadId } = action.parameters;
 
-    const threadEntity = threadRegistry.get(threadId);
+    const threadEntity = workflowExecutionRegistry.get(threadId);
     if (!threadEntity) {
       throw new ThreadContextNotFoundError(`Thread not found: ${threadId}`, threadId);
     }

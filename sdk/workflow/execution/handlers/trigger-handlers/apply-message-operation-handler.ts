@@ -11,7 +11,7 @@ import type {
   MessageOperationConfig,
 } from "@wf-agent/types";
 import { RuntimeValidationError } from "@wf-agent/types";
-import type { WorkflowExecutionRegistry } from "../../../stores/thread-registry.js";
+import type { WorkflowExecutionRegistry } from "../../../stores/workflow-execution-registry.js";
 import type { ThreadStateCoordinator } from "../../../state-managers/thread-state-coordinator.js";
 import { getErrorMessage, now } from "@wf-agent/common-utils";
 

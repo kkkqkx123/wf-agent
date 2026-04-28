@@ -4,7 +4,7 @@
  */
 
 import { ReadonlyResourceAPI } from "../../../shared/resources/generic-resource-api.js";
-import type { WorkflowExecutionRegistry } from "../../../../workflow/stores/thread-registry.js";
+import type { WorkflowExecutionRegistry } from "../../../../workflow/stores/workflow-execution-registry.js";
 import type { LLMMessage } from "@wf-agent/types";
 import { ThreadContextNotFoundError } from "@wf-agent/types";
 import { getContainer } from "../../../../core/di/index.js";

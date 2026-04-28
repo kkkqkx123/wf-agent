@@ -21,7 +21,7 @@ import {
   ThreadContextNotFoundError,
   WorkflowNotFoundError,
 } from "@wf-agent/types";
-import type { WorkflowExecutionRegistry } from "../../../stores/thread-registry.js";
+import type { WorkflowExecutionRegistry } from "../../../stores/workflow-execution-registry.js";
 import type { EventRegistry } from "../../../../core/registry/event-registry.js";
 import type { ThreadBuilder } from "../../factories/thread-builder.js";
 import type { TaskQueue } from "../../../stores/task/task-queue.js";

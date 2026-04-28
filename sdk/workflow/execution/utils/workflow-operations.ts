@@ -7,7 +7,7 @@
 import type { Thread } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../entities/index.js";
 import type { ThreadBuilder } from "../factories/thread-builder.js";
-import type { WorkflowExecutionRegistry } from "../../stores/thread-registry.js";
+import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-registry.js";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import { ExecutionError, RuntimeValidationError } from "@wf-agent/types";
 import { MessageArrayUtils } from "../../../core/utils/messages/message-array-utils.js";

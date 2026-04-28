@@ -15,7 +15,7 @@
 
 import { randomUUID } from "crypto";
 import type { LLMMessage, AgentLoopConfig, ID } from "@wf-agent/types";
-import type { WorkflowExecutionRegistry } from "../../../workflow/stores/thread-registry.js";
+import type { WorkflowExecutionRegistry } from "../../../workflow/stores/workflow-execution-registry.js";
 import { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import type { ConversationSession } from "../../../core/messaging/conversation-session.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";

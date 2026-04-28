@@ -13,9 +13,9 @@
  * - Automatically handles coordination between the queue and the thread pool
  */
 
-import { ThreadExecutor } from "../../execution/executors/thread-executor.js";
+import { WorkflowExecutor } from "../../execution/executors/workflow-executor.js";
 import { TaskRegistry } from "./task-registry.js";
-import { ThreadPool } from "../../execution/thread-pool.js";
+import { WorkflowExecutionPool } from "../../execution/workflow-execution-pool.js";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import type { WorkflowExecutionEntity } from "../../entities/index.js";
 import type { WorkflowExecutionResult } from "@wf-agent/types";
@@ -54,9 +54,9 @@ export class TaskQueue {
   private taskRegistry: TaskRegistry;
 
   /**
-   * Thread Pool Service
+   * Workflow Execution Pool Service
    */
-  private threadPoolService: ThreadPool;
+  private threadPoolService: WorkflowExecutionPool;
 
   /**
    * Event Manager
@@ -71,12 +71,12 @@ export class TaskQueue {
   /**
    * Constructor
    * @param taskRegistry Task Registry
-   * @param threadPoolService Thread Pool Service
+   * @param threadPoolService Workflow Execution Pool Service
    * @param eventManager Event Manager
    */
   constructor(
     taskRegistry: TaskRegistry,
-    threadPoolService: ThreadPool,
+    threadPoolService: WorkflowExecutionPool,
     eventManager: EventRegistry,
   ) {
     this.taskRegistry = taskRegistry;

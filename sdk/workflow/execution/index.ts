@@ -1,6 +1,6 @@
 /**
  * Execution Module Export
- * Provides the Thread execution engine, node processing functions, router, and event manager.
+ * Provides the Workflow execution engine, node processing functions, router, and event manager.
  */
 
 // Execute entity
@@ -8,22 +8,26 @@ export { WorkflowExecutionEntity } from "../entities/index.js";
 export { ExecutionState, type SubgraphContext } from "../state-managers/index.js";
 
 // Main Execution Engine
-export { ThreadExecutor, type ThreadExecutorDependencies } from "./executors/thread-executor.js";
+export { WorkflowExecutor, type WorkflowExecutorDependencies } from "./executors/workflow-executor.js";
+// Backward compatibility
+export { WorkflowExecutor as ThreadExecutor, type WorkflowExecutorDependencies as ThreadExecutorDependencies } from "./executors/workflow-executor.js";
 
-// Thread Builder
-export { ThreadBuilder } from "./factories/thread-builder.js";
+// Workflow Execution Builder
+export { WorkflowExecutionBuilder } from "./factories/workflow-execution-builder.js";
+// Backward compatibility
+export { WorkflowExecutionBuilder as ThreadBuilder } from "./factories/workflow-execution-builder.js";
 
-// Thread Status Verification Tool Function
+// Workflow State Validation
 export {
   validateTransition,
   isValidTransition,
   getAllowedTransitions,
   isTerminalStatus,
   isActiveStatus,
-} from "./utils/thread-state-validator.js";
+} from "./utils/workflow-state-validator.js";
 
-// Thread Registry
-export { WorkflowExecutionRegistry } from "../stores/thread-registry.js";
+// Workflow Execution Registry
+export { WorkflowExecutionRegistry } from "../stores/workflow-execution-registry.js";
 
 // Variable Coordinator and State Manager
 export { VariableCoordinator } from "./coordinators/variable-coordinator.js";

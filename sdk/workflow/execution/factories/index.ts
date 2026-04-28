@@ -4,15 +4,17 @@
  * The factory is responsible for creating complex objects and contexts, primarily for use by the coordinator.
  *
  * Included factories:
- * - ThreadBuilder: Thread entity builder (main factory for thread creation)
+ * - WorkflowExecutionBuilder: Workflow execution entity builder (main factory for workflow execution creation)
  * - NodeHandlerContextFactory: Node handler context factory
  * - LLMContextFactory: LLM execution context factory
  *
- * Note: ThreadBuilder follows the factory pattern but keeps its name to reflect the builder pattern usage.
+ * Note: WorkflowExecutionBuilder follows the factory pattern but keeps its name to reflect the builder pattern usage.
  * The naming difference from AgentLoopFactory reflects the different execution models.
  */
 
-export { ThreadBuilder } from "./thread-builder.js";
+export { WorkflowExecutionBuilder } from "./workflow-execution-builder.js";
+// Backward compatibility
+export { WorkflowExecutionBuilder as ThreadBuilder } from "./workflow-execution-builder.js";
 
 export {
   NodeHandlerContextFactory,

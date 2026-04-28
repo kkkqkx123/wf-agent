@@ -6,4 +6,3 @@
 export * from "./human-relay-handler.js";
 export * from "./subgraph-handler.js";
 export * from "./triggered-subgraph-handler.js";
-export * from "./triggered-subworkflow-handler.js";

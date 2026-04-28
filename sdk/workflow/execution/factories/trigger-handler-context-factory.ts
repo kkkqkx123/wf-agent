@@ -17,7 +17,7 @@ import type { WorkflowGraphRegistry } from "../../stores/workflow-graph-registry
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import type { TriggerState } from "../../state-managers/trigger-state.js";
 import type { CheckpointState } from "../../checkpoint/checkpoint-state-manager.js";
-import type { ThreadBuilder } from "./thread-builder.js";
+import type { WorkflowExecutionBuilder } from "./workflow-execution-builder.js";
 import type { TaskQueue } from "../../stores/task/task-queue.js";
 import type { WorkflowStateTransitor } from "../coordinators/workflow-state-transitor.js";
 import { DependencyInjectionError } from "@wf-agent/types";
@@ -54,7 +54,7 @@ export interface SetVariableTriggerContext {
 export interface ExecuteSubgraphTriggerContext {
   workflowExecutionRegistry: WorkflowExecutionRegistry;
   eventManager: EventRegistry;
-  threadBuilder: ThreadBuilder;
+  threadBuilder: WorkflowExecutionBuilder;
   taskQueueManager: TaskQueue;
   parentThreadId: string;
 }
@@ -64,7 +64,7 @@ export interface ExecuteSubgraphTriggerContext {
  */
 export interface TriggerHandlerContextFactoryConfig {
   // Core Dependencies (Required)
-  /** Thread Registry */
+  /** Workflow Execution Registry */
   workflowExecutionRegistry: WorkflowExecutionRegistry;
   /** Workflow Registry */
   workflowRegistry: WorkflowRegistry;
@@ -74,15 +74,15 @@ export interface TriggerHandlerContextFactoryConfig {
   // Optional dependencies
   /** Checkpoint State Manager */
   checkpointStateManager?: CheckpointState;
-  /** Figure Registry */
+  /** Workflow Graph Registry */
   graphRegistry?: WorkflowGraphRegistry;
   /** Event Manager */
   eventManager?: EventRegistry;
-  /** Thread Builder */
-  threadBuilder?: ThreadBuilder;
+  /** Workflow Execution Builder */
+  threadBuilder?: WorkflowExecutionBuilder;
   /** Task Queue Manager */
   taskQueueManager?: TaskQueue;
-  /** Thread State Transitor */
+  /** Workflow State Transitor */
   threadLifecycleCoordinator?: WorkflowStateTransitor;
 }
 
@@ -174,7 +174,7 @@ export class TriggerHandlerContextFactory {
     }
 
     return {
-      workflowExecutionRegistry: this.config.threadRegistry,
+      workflowExecutionRegistry: this.config.workflowExecutionRegistry,
       eventManager: this.config.eventManager,
     };
   }
@@ -186,7 +186,7 @@ export class TriggerHandlerContextFactory {
    */
   private createSetVariableContext(): SetVariableTriggerContext {
     return {
-      workflowExecutionRegistry: this.config.threadRegistry,
+      workflowExecutionRegistry: this.config.workflowExecutionRegistry,
     };
   }
 
@@ -238,7 +238,7 @@ export class TriggerHandlerContextFactory {
     }
 
     return {
-      workflowExecutionRegistry: this.config.threadRegistry,
+      workflowExecutionRegistry: this.config.workflowExecutionRegistry,
       eventManager: this.config.eventManager,
       threadBuilder: this.config.threadBuilder,
       taskQueueManager: this.config.taskQueueManager,

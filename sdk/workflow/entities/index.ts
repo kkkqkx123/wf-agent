@@ -8,7 +8,7 @@ export { WorkflowGraphData } from "./workflow-graph-data.js";
 export { WorkflowGraph } from "./workflow-graph.js";
 export { WorkflowExecutionEntity } from "./workflow-execution-entity.js";
 
-// Re-export from graph module for backward compatibility
-export { GraphData } from "../../graph/entities/graph-data.js";
-export { PreprocessedGraphData } from "../../graph/entities/preprocessed-graph-data.js";
-export { WorkflowExecutionEntity } from "../../graph/entities/thread-entity.js";
+// Backward compatibility aliases
+export { WorkflowGraphData as GraphData } from "./workflow-graph-data.js";
+export { WorkflowGraph as PreprocessedGraphData } from "./workflow-graph.js";
+export { WorkflowExecutionEntity as ThreadEntity } from "./workflow-execution-entity.js";

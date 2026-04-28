@@ -4,7 +4,7 @@
  */
 
 import type { WorkflowRegistry } from "../../stores/workflow-registry.js";
-import type { WorkflowExecutionRegistry } from "../../stores/thread-registry.js";
+import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-registry.js";
 import type { WorkflowExecutionEntity } from "../../entities/index.js";
 import type { WorkflowTrigger } from "@wf-agent/types";
 import type { TriggerReference } from "@wf-agent/types";

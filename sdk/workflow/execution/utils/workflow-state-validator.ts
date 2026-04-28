@@ -56,7 +56,7 @@ export function isValidTransition(
  * @throws ValidationError The status transition is invalid.
  */
 export function validateTransition(
-  executionId: string,
+  workflowExecutionId: string,
   currentStatus: WorkflowExecutionStatus,
   targetStatus: WorkflowExecutionStatus,
 ): void {

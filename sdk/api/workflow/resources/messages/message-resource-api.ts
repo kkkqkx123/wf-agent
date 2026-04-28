@@ -4,7 +4,7 @@
  */
 
 import { ReadonlyResourceAPI } from "../../../shared/resources/generic-resource-api.js";
-import type { ThreadRegistry } from "../../../../workflow/stores/thread-registry.js";
+import type { WorkflowExecutionRegistry } from "../../../../workflow/stores/thread-registry.js";
 import type { LLMMessage } from "@wf-agent/types";
 import { ThreadContextNotFoundError } from "@wf-agent/types";
 import { getContainer } from "../../../../core/di/index.js";
@@ -42,12 +42,12 @@ export interface MessageStats {
  * MessageResourceAPI - Message Resource Management API
  */
 export class MessageResourceAPI extends ReadonlyResourceAPI<LLMMessage, string, MessageFilter> {
-  private registry: ThreadRegistry;
+  private registry: WorkflowExecutionRegistry;
 
   constructor() {
     super();
     const container = getContainer();
-    this.registry = container.get(Identifiers.ThreadRegistry) as ThreadRegistry;
+    this.registry = container.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry;
   }
 
   // ============================================================================
@@ -265,10 +265,10 @@ export class MessageResourceAPI extends ReadonlyResourceAPI<LLMMessage, string, 
   }
 
   /**
-   * Get the underlying ThreadRegistry instance
-   * @returns ThreadRegistry instance
+   * Get the underlying WorkflowExecutionRegistry instance
+   * @returns WorkflowExecutionRegistry instance
    */
-  getRegistry(): ThreadRegistry {
+  getRegistry(): WorkflowExecutionRegistry {
     return this.registry;
   }
 }

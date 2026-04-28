@@ -91,7 +91,7 @@ export class WorkflowLifecycleCoordinator {
    * 3. Trigger the AbortController to interrupt any ongoing asynchronous operations.
    * 4. Update the workflow execution status.
    *
-   * @param executionId: Workflow Execution ID
+   * @param workflowExecutionId: Workflow Execution ID
    * @throws NotFoundError: The workflow execution context does not exist.
    */
   async pauseWorkflowExecution(executionId: string): Promise<void> {
@@ -116,7 +116,7 @@ export class WorkflowLifecycleCoordinator {
    * 3. Clear the pause flag.
    * 4. Continue executing the workflow.
    *
-   * @param executionId: Workflow Execution ID
+   * @param workflowExecutionId: Workflow Execution ID
    * @returns: Execution result
    * @throws: NotFoundError: The workflow execution context does not exist.
    */
@@ -147,7 +147,7 @@ export class WorkflowLifecycleCoordinator {
    * 5. Cancel any child workflow executions recursively.
    * 6. Cleanup child AgentLoops.
    *
-   * @param executionId: Workflow Execution ID
+   * @param workflowExecutionId: Workflow Execution ID
    * @throws NotFoundError: The workflow execution context does not exist.
    */
   async stopWorkflowExecution(executionId: string): Promise<void> {
@@ -201,7 +201,7 @@ export class WorkflowLifecycleCoordinator {
    *
    * Note: This is an emergency measure and should typically be used to manage workflow execution status through the normal lifecycle methods (pauseWorkflowExecution/resumeWorkflowExecution/stopWorkflowExecution). Use this method only when those methods are not functioning correctly.
    *
-   * @param executionId: Workflow Execution ID
+   * @param workflowExecutionId: Workflow Execution ID
    * @param status: New status
    *
    */
@@ -232,7 +232,7 @@ export class WorkflowLifecycleCoordinator {
 
   /**
    * Forcibly pause a workflow execution (delegated to WorkflowStateTransitor)
-   * @param executionId: Workflow Execution ID
+   * @param workflowExecutionId: Workflow Execution ID
    */
   async forcePauseWorkflowExecution(executionId: string): Promise<void> {
     await this.forceSetWorkflowExecutionStatus(executionId, "PAUSED");
@@ -240,7 +240,7 @@ export class WorkflowLifecycleCoordinator {
 
   /**
    * Forcibly cancel a workflow execution (delegated to WorkflowStateTransitor)
-   * @param executionId: Workflow Execution ID
+   * @param workflowExecutionId: Workflow Execution ID
    * @param reason: Reason for cancellation
    */
   async forceCancelWorkflowExecution(executionId: string, reason?: string): Promise<void> {

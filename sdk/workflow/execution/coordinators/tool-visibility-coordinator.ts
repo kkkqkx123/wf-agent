@@ -26,7 +26,7 @@ import type {
   VisibilityDeclaration,
   VisibilityChangeType,
 } from "../types/tool-visibility.types.js";
-import type { ThreadEntity } from "../../entities/workflow-execution-entity.js";
+import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
 import type { ToolRegistry } from "../../../core/registry/tool-registry.js";
 import type { LLMMessage } from "@wf-agent/types";
 import { now } from "@wf-agent/common-utils";
@@ -92,7 +92,7 @@ export class ToolVisibilityCoordinator {
    * @param changeType Type of change
    */
   async updateVisibilityOnScopeChange(
-    threadEntity: ThreadEntity,
+    threadEntity: WorkflowExecutionEntity,
     newScope: ToolScope,
     newScopeId: string,
     availableTools: string[],
@@ -208,7 +208,7 @@ export class ToolVisibilityCoordinator {
    * @param scope Scope
    */
   async addToolsDynamically(
-    threadEntity: ThreadEntity,
+    threadEntity: WorkflowExecutionEntity,
     toolIds: string[],
     scope: ToolScope,
   ): Promise<void> {
@@ -244,7 +244,7 @@ export class ToolVisibilityCoordinator {
    *
    * @param threadEntity Thread Entity
    */
-  async refreshDeclaration(threadEntity: ThreadEntity): Promise<void> {
+  async refreshDeclaration(threadEntity: WorkflowExecutionEntity): Promise<void> {
     const threadId = workflowExecutionEntity.id;
     const context = this.getContext(threadId);
 
@@ -306,7 +306,7 @@ export class ToolVisibilityCoordinator {
    */
   validateDeclarationHistory(
     threadId: string,
-    threadEntity: ThreadEntity,
+    threadEntity: WorkflowExecutionEntity,
   ): { valid: boolean; errors: string[] } {
     const context = this.getContext(threadId);
     if (!context) {
@@ -375,7 +375,7 @@ export class ToolVisibilityCoordinator {
    */
   async updateDeclarationHistoryAfterMessageOperation(
     threadId: string,
-    threadEntity: ThreadEntity,
+    threadEntity: WorkflowExecutionEntity,
     operation: "truncate" | "filter" | "clear",
   ): Promise<void> {
     const context = this.getContext(threadId);
@@ -429,7 +429,7 @@ export class ToolVisibilityCoordinator {
    * @param threadId: Thread ID
    * @param threadEntity: Thread entity
    */
-  async repairDeclarationHistory(threadId: string, threadEntity: ThreadEntity): Promise<void> {
+  async repairDeclarationHistory(threadId: string, threadEntity: WorkflowExecutionEntity): Promise<void> {
     const context = this.getContext(threadId);
     if (!context) {
       return;

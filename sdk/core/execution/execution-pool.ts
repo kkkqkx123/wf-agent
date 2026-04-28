@@ -46,7 +46,7 @@ export interface ExecutorFactory<T> {
 /**
  * ExecutionPool - Generic Execution Pool
  *
- * @template T - The execution instance type (e.g., ThreadEntity, AgentLoopEntity)
+ * @template T - The execution instance type (e.g., WorkflowExecutionEntity, AgentLoopEntity)
  */
 export class ExecutionPool<T> {
   private static instances: Map<string, ExecutionPool<unknown>> = new Map();

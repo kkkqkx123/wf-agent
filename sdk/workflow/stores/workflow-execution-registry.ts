@@ -37,7 +37,7 @@ export class WorkflowExecutionRegistry {
 
   /**
    * Get WorkflowExecutionEntity
-   * @param executionId: Workflow Execution ID
+   * @param workflowExecutionId: Workflow Execution ID
    * @returns: An instance of WorkflowExecutionEntity or null
    */
   get(executionId: string): WorkflowExecutionEntity | null {
@@ -84,7 +84,7 @@ export class WorkflowExecutionRegistry {
 
   /**
    * Check if WorkflowExecutionEntity exists
-   * @param executionId: Workflow Execution ID
+   * @param workflowExecutionId: Workflow Execution ID
    * @returns: Whether it exists or not
    */
   has(executionId: string): boolean {

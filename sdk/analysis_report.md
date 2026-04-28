@@ -2,121 +2,130 @@
 
 ## Type Issues Summary
 
-- **Total**: 81
-- **⚠️** warning: 81
-- **Categories**: 41
-- **Files Affected**: 74
+- **Total**: 163
+- **❌** error: 163
+- **Categories**: 15
+- **Files Affected**: 40
+- **Packages Affected**: 4
 
 ## Breakdown by Category
 
-- **Unexpected any. Specify a different**: 36 occurrence(s)
-- **'NotFoundError' is defined but never**: 2 occurrence(s)
-- **'loopId' is defined but never**: 2 occurrence(s)
-- **'ConfigType' is defined but never**: 2 occurrence(s)
-- **'stream' is assigned a value**: 2 occurrence(s)
-- **'node' is defined but never**: 2 occurrence(s)
-- **'createErrorBuilder' is defined but never**: 1 occurrence(s)
-- **'CheckpointError' is defined but never**: 1 occurrence(s)
-- **'event' is defined but never**: 1 occurrence(s)
-- **'options' is assigned a value**: 1 occurrence(s)
-- **'ThreadIsolatedManagerFactory' is defined but never**: 1 occurrence(s)
-- **'AgentLoopState' is defined but never**: 1 occurrence(s)
-- **'logger' is assigned a value**: 1 occurrence(s)
-- **'currentKey' is assigned a value**: 1 occurrence(s)
-- **'container' is assigned a value**: 1 occurrence(s)
-- **'toolCalls' is assigned a value**: 1 occurrence(s)
-- **'affectedVisibleIndices' is assigned a value**: 1 occurrence(s)
-- **'ok' is defined but never**: 1 occurrence(s)
-- **'role' is assigned a value**: 1 occurrence(s)
-- **'resource' is defined but never**: 1 occurrence(s)
+- **[TS2339]**: 36 occurrence(s)
+- **[TS2305]**: 27 occurrence(s)
+- **[TS2304]**: 25 occurrence(s)
+- **[TS2307]**: 20 occurrence(s)
+- **[TS2353]**: 16 occurrence(s)
+- **[TS2345]**: 10 occurrence(s)
+- **[TS2551]**: 9 occurrence(s)
+- **[TS7006]**: 7 occurrence(s)
+- **[TS2724]**: 4 occurrence(s)
+- **[TS18046]**: 2 occurrence(s)
+- **[TS4111]**: 2 occurrence(s)
+- **[TS2300]**: 2 occurrence(s)
+- **[TS4112]**: 1 occurrence(s)
+- **[TS2554]**: 1 occurrence(s)
+- **[TS2739]**: 1 occurrence(s)
 
-## Details by File
+## Details by Package
 
-### `D:\项目\agent\wf-agent\sdk\api\shared\core\api-factory.ts` (2 item(s))
+### Package: `  Property 'threadEntity' is missing in type '{ workflowExecution` (113 issue(s))
 
-- ⚠️ **warning** at line 110:29: Unexpected any. Specify a different type
-- ⚠️ **warning** at line 112:34: Unexpected any. Specify a different type
+#### `workflow/execution/utils/event/index.ts` (13 item(s))
 
-### `D:\项目\agent\wf-agent\sdk\api\shared\resources\generic-resource-api.ts` (2 item(s))
+- ❌ **error** `[[TS2724]]` at line 45:3: '"../../../../core/utils/event/builders/index.js"' has no exported member named 'buildThreadStartedEvent'. Did you mean 'buildNodeStartedEvent'?
+- ❌ **error** `[[TS2724]]` at line 46:3: '"../../../../core/utils/event/builders/index.js"' has no exported member named 'buildThreadCompletedEvent'. Did you mean 'buildNodeCompletedEvent'?
+- ❌ **error** `[[TS2724]]` at line 47:3: '"../../../../core/utils/event/builders/index.js"' has no exported member named 'buildThreadFailedEvent'. Did you mean 'buildNodeFailedEvent'?
+- ❌ **error** `[[TS2305]]` at line 48:3: Module '"../../../../core/utils/event/builders/index.js"' has no exported member 'buildThreadPausedEvent'.
+- ❌ **error** `[[TS2305]]` at line 49:3: Module '"../../../../core/utils/event/builders/index.js"' has no exported member 'buildThreadResumedEvent'.
+- ... and 8 more
 
-- ⚠️ **warning** at line 259:5: 'resource' is defined but never used. Allowed unused args must match /^\_/u
-- ⚠️ **warning** at line 273:5: 'updates' is defined but never used. Allowed unused args must match /^\_/u
+#### `workflow/execution/factories/workflow-execution-builder.ts` (12 item(s))
 
-### `D:\项目\agent\wf-agent\sdk\core\utils\event\builders\common.ts` (2 item(s))
+- ❌ **error** `[[TS2353]]` at line 193:7: Object literal may only specify known properties, and 'executionType' does not exist in type 'WorkflowExecution'.
+- ❌ **error** `[[TS2345]]` at line 208:7: Argument of type 'WorkflowExecutionState' is not assignable to parameter of type 'ExecutionState'.
+- ❌ **error** `[[TS2551]]` at line 259:67: Property 'getWorkflowExecution' does not exist on type 'WorkflowExecutionEntity'. Did you mean 'getWorkflowExecutionData'?
+- ❌ **error** `[[TS7006]]` at line 275:56: Parameter 'v' implicitly has an 'any' type.
+- ❌ **error** `[[TS7006]]` at line 285:60: Parameter 'h' implicitly has an 'any' type.
+- ... and 7 more
 
-- ⚠️ **warning** at line 29:56: Unexpected any. Specify a different type
-- ⚠️ **warning** at line 63:35: Unexpected any. Specify a different type
+#### `workflow/message/workflow-conversation-session.ts` (11 item(s))
 
-### `D:\项目\agent\wf-agent\sdk\core\validation\message-validator.ts` (2 item(s))
+- ❌ **error** `[[TS2307]]` at line 21:8: Cannot find module '../../../core/messaging/conversation-session.js' or its corresponding type declarations.
+- ❌ **error** `[[TS2307]]` at line 22:35: Cannot find module '../../../core/registry/tool-registry.js' or its corresponding type declarations.
+- ❌ **error** `[[TS2307]]` at line 24:40: Cannot find module '../../../utils/contextual-logger.js' or its corresponding type declarations.
+- ❌ **error** `[[TS2307]]` at line 25:48: Cannot find module '../../../resources/dynamic/prompts/fragments/available-tools.js' or its corresponding type declarations.
+- ❌ **error** `[[TS2339]]` at line 74:30: Property 'getAllMessages' does not exist on type 'WorkflowConversationSession'.
+- ... and 6 more
 
-- ⚠️ **warning** at line 166:23: Unexpected any. Specify a different type
-- ⚠️ **warning** at line 168:22: Unexpected any. Specify a different type
+#### `workflow/execution/factories/llm-context-factory.ts` (9 item(s))
 
-### `D:\项目\agent\wf-agent\sdk\api\shared\config\processors\workflow.ts` (2 item(s))
+- ❌ **error** `[[TS2305]]` at line 12:15: Module '"../../stores/workflow-execution-registry.js"' has no exported member 'ThreadRegistry'.
+- ❌ **error** `[[TS2305]]` at line 14:15: Module '"../../stores/workflow-graph-registry.js"' has no exported member 'GraphRegistry'.
+- ❌ **error** `[[TS2304]]` at line 27:19: Cannot find name 'WorkflowExecutionRegistry'.
+- ❌ **error** `[[TS2304]]` at line 30:19: Cannot find name 'WorkflowGraphRegistry'.
+- ❌ **error** `[[TS2304]]` at line 37:20: Cannot find name 'WorkflowExecutionRegistry'.
+- ... and 4 more
 
-- ⚠️ **warning** at line 8:10: 'ConfigType' is defined but never used. Allowed unused vars must match /^\_/u
-- ⚠️ **warning** at line 41:31: Unexpected any. Specify a different type
+#### `workflow/execution/coordinators/node-execution-coordinator.ts` (9 item(s))
 
-### `D:\项目\agent\wf-agent\sdk\graph\execution\handlers\node-handlers\loop-start-handler.ts` (2 item(s))
+- ❌ **error** `[[TS2551]]` at line 362:56: Property 'getWorkflowExecution' does not exist on type 'WorkflowExecutionEntity'. Did you mean 'getWorkflowExecutionData'?
+- ❌ **error** `[[TS2345]]` at line 387:11: Argument of type '{ workflowExecution: any; workflowExecutionEntity: WorkflowExecutionEntity; node: Node; result: NodeExecutionResult; checkpointDependencies: CheckpointDependencies | undefined; }' is not assignable to parameter of type 'HookExecutionContext'.
+- ❌ **error** `[[TS2551]]` at line 388:56: Property 'getWorkflowExecution' does not exist on type 'WorkflowExecutionEntity'. Did you mean 'getWorkflowExecutionData'?
+- ❌ **error** `[[TS2353]]` at line 413:17: Object literal may only specify known properties, and 'executionId' does not exist in type 'CreateCheckpointOptions'.
+- ❌ **error** `[[TS2339]]` at line 433:60: Property 'buildEvent' does not exist on type 'WorkflowExecutionEntity'.
+- ... and 4 more
 
-- ⚠️ **warning** at line 167:39: 'loopId' is defined but never used. Allowed unused args must match /^\_/u
-- ⚠️ **warning** at line 188:41: 'loopId' is defined but never used. Allowed unused args must match /^\_/u
+*... and 20 more files in this package*
 
-### `D:\项目\agent\wf-agent\sdk\core\llm\formatters\gemini-native.ts` (2 item(s))
+### Package: `    Type '{ threadRegistry` (21 issue(s))
 
-- ⚠️ **warning** at line 135:14: '\_e' is defined but never used
-- ⚠️ **warning** at line 148:11: 'toolCalls' is assigned a value but never used. Allowed unused vars must match /^\_/u
+#### `core/di/container-config.ts` (4 item(s))
 
-### `D:\项目\agent\wf-agent\sdk\core\utils\checkpoint\cleanup-policy.ts` (1 item(s))
+- ❌ **error** `[[TS2739]]` at line 613:13: Type 'WorkflowExecutionBuilder' is missing the following properties from type 'ThreadBuilder': threadTemplates, getGraphRegistry, buildFromPreprocessedGraph
+- ❌ **error** `[[TS2345]]` at line 640:9: Argument of type 'WorkflowExecutionBuilder' is not assignable to parameter of type '{ build: (subgraphId: string, options: { input: Record<string, unknown>; }) => Promise<ThreadBuildResultSimple>; }'.
+- ❌ **error** `[[TS2353]]` at line 754:15: Object literal may only specify known properties, and 'threadRegistry' does not exist in type 'CheckpointDependencies'.
+- ❌ **error** `[[TS2353]]` at line 764:13: Object literal may only specify known properties, and 'threadRegistry' does not exist in type 'CheckpointDependencies'.
 
-- ⚠️ **warning** at line 178:66: Unexpected any. Specify a different type
+#### `workflow/entities/index.ts` (3 item(s))
 
-### `D:\项目\agent\wf-agent\sdk\agent\execution\executors\agent-stream-executor.ts` (1 item(s))
+- ❌ **error** `[[TS2307]]` at line 12:27: Cannot find module '../../graph/entities/graph-data.js' or its corresponding type declarations.
+- ❌ **error** `[[TS2307]]` at line 13:39: Cannot find module '../../graph/entities/preprocessed-graph-data.js' or its corresponding type declarations.
+- ❌ **error** `[[TS2307]]` at line 14:30: Cannot find module '../../graph/entities/thread-entity.js' or its corresponding type declarations.
 
-- ⚠️ **warning** at line 265:11: 'donePromise' is assigned a value but never used. Allowed unused vars must match /^\_/u
+#### `workflow/checkpoint/checkpoint-coordinator.ts` (3 item(s))
 
-### `D:\项目\agent\wf-agent\sdk\agent\execution\factories\agent-loop-factory.ts` (1 item(s))
+- ❌ **error** `[[TS2339]]` at line 421:31: Property 'setParentThreadId' does not exist on type 'WorkflowExecutionEntity'.
+- ❌ **error** `[[TS2339]]` at line 456:47: Property 'setParentThreadId' does not exist on type 'WorkflowExecutionEntity'.
+- ❌ **error** `[[TS2339]]` at line 460:35: Property 'registerChildThread' does not exist on type 'WorkflowExecutionEntity'.
 
-- ⚠️ **warning** at line 19:10: 'AgentLoopState' is defined but never used. Allowed unused vars must match /^\_/u
+#### `resources/predefined/tools/builtin/workflow/execute-workflow/handler.ts` (3 item(s))
 
-### `D:\项目\agent\wf-agent\sdk\core\managers\execution-queue-manager.ts` (1 item(s))
+- ❌ **error** `[[TS2307]]` at line 10:8: Cannot find module '../../../../../../graph/execution/types/workflow-tool.types.js' or its corresponding type declarations.
+- ❌ **error** `[[TS2307]]` at line 15:8: Cannot find module '../../../../../../graph/execution/types/triggered-subworkflow.types.js' or its corresponding type declarations.
+- ❌ **error** `[[TS2307]]` at line 19:50: Cannot find module '../../../../../../graph/execution/handlers/triggered-subworkflow-handler.js' or its corresponding type declarations.
 
-- ⚠️ **warning** at line 333:5: 'executionTime' is defined but never used. Allowed unused args must match /^\_/u
+#### `resources/predefined/tools/builtin/workflow/cancel-workflow/handler.ts` (2 item(s))
 
-### `D:\项目\agent\wf-agent\sdk\api\graph\resources\variables\variable-resource-api.ts` (1 item(s))
+- ❌ **error** `[[TS2307]]` at line 9:8: Cannot find module '../../../../../../graph/execution/types/workflow-tool.types.js' or its corresponding type declarations.
+- ❌ **error** `[[TS2307]]` at line 13:50: Cannot find module '../../../../../../graph/execution/handlers/triggered-subworkflow-handler.js' or its corresponding type declarations.
 
-- ⚠️ **warning** at line 181:11: 'thread' is assigned a value but never used. Allowed unused vars must match /^\_/u
+*... and 4 more files in this package*
 
-### `D:\项目\agent\wf-agent\sdk\graph\execution\coordinators\llm-execution-coordinator.ts` (1 item(s))
+### Package: `  Type '{ threadRegistry` (5 issue(s))
 
-- ⚠️ **warning** at line 500:11: 'toolApprovalData' is assigned a value but never used. Allowed unused vars must match /^\_/u
+#### `workflow/execution/coordinators/node-execution-coordinator.ts` (5 item(s))
 
-### `D:\项目\agent\wf-agent\sdk\api\shared\operations\events\dispatch-event-command.ts` (1 item(s))
+- ❌ **error** `[[TS2353]]` at line 165:7: Object literal may only specify known properties, and 'workflowExecutionRegistry' does not exist in type 'NodeHandlerContextFactoryConfig'.
+- ❌ **error** `[[TS2353]]` at line 218:13: Object literal may only specify known properties, and 'executionId' does not exist in type 'CreateCheckpointOptions'.
+- ❌ **error** `[[TS2339]]` at line 316:56: Property 'buildEvent' does not exist on type 'WorkflowExecutionEntity'.
+- ❌ **error** `[[TS2353]]` at line 335:17: Object literal may only specify known properties, and 'executionId' does not exist in type 'CreateCheckpointOptions'.
+- ❌ **error** `[[TS2345]]` at line 361:11: Argument of type '{ workflowExecution: any; workflowExecutionEntity: WorkflowExecutionEntity; node: Node; checkpointDependencies: CheckpointDependencies | undefined; }' is not assignable to parameter of type 'HookExecutionContext'.
 
-- ⚠️ **warning** at line 55:51: Unexpected any. Specify a different type
+### Package: `    Property 'workflowExecutionId' is missing in type '{ threadId` (3 issue(s))
 
-### `D:\项目\agent\wf-agent\sdk\core\llm\formatters\gemini-openai.ts` (1 item(s))
+#### `core/di/container-config.ts` (3 item(s))
 
-- ⚠️ **warning** at line 208:13: 'stream' is assigned a value but never used. Allowed unused vars must match /^\_/u
+- ❌ **error** `[[TS2353]]` at line 314:73: Object literal may only specify known properties, and 'threadId' does not exist in type 'WorkflowConversationSessionConfig'.
+- ❌ **error** `[[TS2554]]` at line 337:13: Expected 3 arguments, but got 4.
+- ❌ **error** `[[TS2345]]` at line 573:49: Argument of type '{ eventManager: EventRegistry; llmCoordinator: LLMExecutionCoordinator; conversationManager: ConversationSession; interruptionManager: InterruptionState; ... 4 more ...; agentLoopExecutorFactory: AgentLoopExecutor; }' is not assignable to parameter of type 'NodeExecutionCoordinatorConfig'.
 
-### `D:\项目\agent\wf-agent\sdk\graph\preprocessing\id-mapping-builder.ts` (1 item(s))
-
-- ⚠️ **warning** at line 158:5: 'workflowRegistry' is defined but never used. Allowed unused args must match /^\_/u
-
-### `D:\项目\agent\wf-agent\sdk\graph\execution\handlers\node-handlers\continue-from-trigger-handler.ts` (1 item(s))
-
-- ⚠️ **warning** at line 8:46: 'LLMMessage' is defined but never used. Allowed unused vars must match /^\_/u
-
-### `D:\项目\agent\wf-agent\sdk\core\llm\message-stream.ts` (1 item(s))
-
-- ⚠️ **warning** at line 327:18: Unexpected any. Specify a different type
-
-### `D:\项目\agent\wf-agent\sdk\api\graph\builders\node-builder.ts` (1 item(s))
-
-- ⚠️ **warning** at line 90:85: Unexpected any. Specify a different type
-
-### `D:\项目\agent\wf-agent\sdk\agent\entities\agent-loop-entity.ts` (1 item(s))
-
-- ⚠️ **warning** at line 224:36: Unexpected any. Specify a different type
-
-_... and 54 more files (use --verbose to see all)_

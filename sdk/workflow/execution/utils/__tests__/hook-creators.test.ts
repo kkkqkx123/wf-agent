@@ -51,7 +51,7 @@ function createMockExecutionContext(
       name: "Test Node",
       config: {},
     },
-    executionId: "test-execution",
+    workflowExecutionId: "test-execution",
     ...overrides,
   } as HookExecutionContext;
 }

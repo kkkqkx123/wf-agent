@@ -5,9 +5,9 @@
  */
 
 import type { Thread } from "@wf-agent/types";
-import type { ThreadEntity } from "../../entities/index.js";
+import type { WorkflowExecutionEntity } from "../../entities/index.js";
 import type { ThreadBuilder } from "../factories/thread-builder.js";
-import type { ThreadRegistry } from "../../stores/thread-registry.js";
+import type { WorkflowExecutionRegistry } from "../../stores/thread-registry.js";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import { ExecutionError, RuntimeValidationError } from "@wf-agent/types";
 import { MessageArrayUtils } from "../../../core/utils/messages/message-array-utils.js";
@@ -69,11 +69,11 @@ export interface JoinResult {
  * @returns: Child thread entity
  */
 export async function fork(
-  parentThreadEntity: ThreadEntity,
+  parentThreadEntity: WorkflowExecutionEntity,
   forkConfig: ForkConfig,
   threadBuilder: ThreadBuilder,
   eventManager?: EventRegistry,
-): Promise<ThreadEntity> {
+): Promise<WorkflowExecutionEntity> {
   // Step 1: Verify the Fork configuration
   if (!forkConfig.forkId) {
     throw new RuntimeValidationError("Fork config must have forkId", {
@@ -140,7 +140,7 @@ export async function fork(
 export async function join(
   childThreadIds: string[],
   joinStrategy: JoinStrategy,
-  threadRegistry: ThreadRegistry,
+  workflowExecutionRegistry: WorkflowExecutionRegistry,
   mainPathId: string,
   timeout: number = 0,
   parentThreadId?: string,
@@ -233,7 +233,7 @@ export async function join(
 
       try {
         // Use MessageArrayUtils to clone the messages from the main thread and merge them into the parent thread.
-        // Use messageHistoryManager directly since ThreadEntity no longer holds ConversationManager
+        // Use messageHistoryManager directly since WorkflowExecutionEntity no longer holds ConversationManager
         const mainMessages = mainThreadEntity.messageHistoryManager.getMessages();
         const clonedMessages = MessageArrayUtils.cloneMessages(mainMessages);
 
@@ -269,10 +269,10 @@ export async function join(
  * @returns: The copied thread entity
  */
 export async function copy(
-  sourceThreadEntity: ThreadEntity,
+  sourceThreadEntity: WorkflowExecutionEntity,
   threadBuilder: ThreadBuilder,
   eventManager?: EventRegistry,
-): Promise<ThreadEntity> {
+): Promise<WorkflowExecutionEntity> {
   // Step 1: Verify that the source thread exists.
   if (!sourceThreadEntity) {
     throw new ExecutionError(`Source thread entity is null or undefined`, undefined, "");
@@ -312,7 +312,7 @@ export async function copy(
 async function waitForCompletion(
   childThreadIds: string[],
   joinStrategy: JoinStrategy,
-  threadRegistry: ThreadRegistry,
+  workflowExecutionRegistry: WorkflowExecutionRegistry,
   timeout: number | undefined,
   parentThreadId?: string,
   eventManager?: EventRegistry,
@@ -469,7 +469,7 @@ async function waitForCompletion(
 async function waitForCompletionByPolling(
   childThreadIds: string[],
   joinStrategy: JoinStrategy,
-  threadRegistry: ThreadRegistry,
+  workflowExecutionRegistry: WorkflowExecutionRegistry,
   timeout: number | undefined,
   parentThreadId?: string,
   eventManager?: EventRegistry,

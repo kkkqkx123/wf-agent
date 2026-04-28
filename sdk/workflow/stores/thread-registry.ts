@@ -1,20 +1,20 @@
 /**
- * ThreadRegistry - ThreadEntity Registry
- * Responsible for the memory storage and basic querying of ThreadEntity objects.
+ * WorkflowExecutionRegistry - WorkflowExecutionEntity Registry
+ * Responsible for the memory storage and basic querying of WorkflowExecutionEntity objects.
  * It does not handle state transitions, persistence, or serialization.
  *
  * This module only exports class definitions; no instances are exported.
  * Instances are managed uniformly through the SingletonRegistry.
  */
 
-import { ThreadEntity } from "../entities/index.js";
+import { WorkflowExecutionEntity } from "../entities/index.js";
 import type { WorkflowExecutionStatus } from "@wf-agent/types";
 
 /**
- * ThreadRegistry - ThreadEntity Registry
+ * WorkflowExecutionRegistry - WorkflowExecutionEntity Registry
  *
  * Core Responsibilities:
- * - Manage active ThreadEntity instances.
+ * - Manage active WorkflowExecutionEntity instances.
  * - Provide registration, query and deletion of instances.
  * - Support filtering by status.
  * - Support resource cleanup.
@@ -24,28 +24,28 @@ import type { WorkflowExecutionStatus } from "@wf-agent/types";
  * - Thread-safe (Map operations).
  * - Support for cleaning up expired instances.
  */
-export class ThreadRegistry {
-  private threadEntities: Map<string, ThreadEntity> = new Map();
+export class WorkflowExecutionRegistry {
+  private threadEntities: Map<string, WorkflowExecutionEntity> = new Map();
 
   /**
-   * Register ThreadEntity
-   * @param threadEntity An instance of ThreadEntity
+   * Register WorkflowExecutionEntity
+   * @param threadEntity An instance of WorkflowExecutionEntity
    */
-  register(threadEntity: ThreadEntity): void {
+  register(threadEntity: WorkflowExecutionEntity): void {
     this.threadEntities.set(threadEntity.id, threadEntity);
   }
 
   /**
-   * Get ThreadEntity
+   * Get WorkflowExecutionEntity
    * @param threadId: Thread ID
-   * @returns: An instance of ThreadEntity or null
+   * @returns: An instance of WorkflowExecutionEntity or null
    */
-  get(threadId: string): ThreadEntity | null {
+  get(threadId: string): WorkflowExecutionEntity | null {
     return this.threadEntities.get(threadId) || null;
   }
 
   /**
-   * Delete ThreadEntity
+   * Delete WorkflowExecutionEntity
    * @param threadId Thread ID
    */
   delete(threadId: string): void {
@@ -54,9 +54,9 @@ export class ThreadRegistry {
 
   /**
    * Get all ThreadEntities
-   * @returns Array of ThreadEntity
+   * @returns Array of WorkflowExecutionEntity
    */
-  getAll(): ThreadEntity[] {
+  getAll(): WorkflowExecutionEntity[] {
     return Array.from(this.threadEntities.values());
   }
 
@@ -83,7 +83,7 @@ export class ThreadRegistry {
   }
 
   /**
-   * Check if ThreadEntity exists
+   * Check if WorkflowExecutionEntity exists
    * @param threadId: Thread ID
    * @returns: Whether it exists or not
    */
@@ -105,49 +105,49 @@ export class ThreadRegistry {
   /**
    * Get ThreadEntities by status
    * @param status Thread status
-   * @returns Array of ThreadEntity with the specified status
+   * @returns Array of WorkflowExecutionEntity with the specified status
    */
-  getByStatus(status: WorkflowExecutionStatus): ThreadEntity[] {
+  getByStatus(status: WorkflowExecutionStatus): WorkflowExecutionEntity[] {
     return this.getAll().filter(entity => entity.getStatus() === status);
   }
 
   /**
    * Get running ThreadEntities
-   * @returns Array of running ThreadEntity
+   * @returns Array of running WorkflowExecutionEntity
    */
-  getRunning(): ThreadEntity[] {
+  getRunning(): WorkflowExecutionEntity[] {
     return this.getByStatus("RUNNING");
   }
 
   /**
    * Get paused ThreadEntities
-   * @returns Array of paused ThreadEntity
+   * @returns Array of paused WorkflowExecutionEntity
    */
-  getPaused(): ThreadEntity[] {
+  getPaused(): WorkflowExecutionEntity[] {
     return this.getByStatus("PAUSED");
   }
 
   /**
    * Get completed ThreadEntities
-   * @returns Array of completed ThreadEntity
+   * @returns Array of completed WorkflowExecutionEntity
    */
-  getCompleted(): ThreadEntity[] {
+  getCompleted(): WorkflowExecutionEntity[] {
     return this.getByStatus("COMPLETED");
   }
 
   /**
    * Get failed ThreadEntities
-   * @returns Array of failed ThreadEntity
+   * @returns Array of failed WorkflowExecutionEntity
    */
-  getFailed(): ThreadEntity[] {
+  getFailed(): WorkflowExecutionEntity[] {
     return this.getByStatus("FAILED");
   }
 
   /**
    * Get cancelled ThreadEntities
-   * @returns Array of cancelled ThreadEntity
+   * @returns Array of cancelled WorkflowExecutionEntity
    */
-  getCancelled(): ThreadEntity[] {
+  getCancelled(): WorkflowExecutionEntity[] {
     return this.getByStatus("CANCELLED");
   }
 

@@ -17,7 +17,7 @@ import { ThreadExecutor } from "../../execution/executors/thread-executor.js";
 import { TaskRegistry } from "./task-registry.js";
 import { ThreadPool } from "../../execution/thread-pool.js";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
-import type { ThreadEntity } from "../../entities/index.js";
+import type { WorkflowExecutionEntity } from "../../entities/index.js";
 import type { WorkflowExecutionResult } from "@wf-agent/types";
 import {
   type QueueTask,
@@ -93,7 +93,7 @@ export class TaskQueue {
    */
   async submitSync(
     taskId: string,
-    threadEntity: ThreadEntity,
+    threadEntity: WorkflowExecutionEntity,
     timeout?: number,
   ): Promise<ExecutedSubgraphResult> {
     return new Promise((resolve, reject) => {
@@ -122,7 +122,7 @@ export class TaskQueue {
    * @param timeout Timeout period (in milliseconds)
    * @returns Task submission result
    */
-  submitAsync(taskId: string, threadEntity: ThreadEntity, timeout?: number): TaskSubmissionResult {
+  submitAsync(taskId: string, threadEntity: WorkflowExecutionEntity, timeout?: number): TaskSubmissionResult {
     const queueTask: QueueTask = {
       taskId,
       threadEntity,

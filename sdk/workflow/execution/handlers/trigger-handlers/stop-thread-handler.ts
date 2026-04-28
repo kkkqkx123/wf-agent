@@ -2,12 +2,12 @@
  * Thread termination function
  *
  * Responsible for initiating the action to stop a thread
- * Coordinates the termination process through the ThreadStateTransitor, which includes cascading the cancellation of child threads
+ * Coordinates the termination process through the WorkflowStateTransitor, which includes cascading the cancellation of child threads
  */
 
 import type { TriggerAction, TriggerExecutionResult } from "@wf-agent/types";
 import { RuntimeValidationError, ThreadContextNotFoundError } from "@wf-agent/types";
-import type { ThreadRegistry } from "../../../stores/thread-registry.js";
+import type { WorkflowExecutionRegistry } from "../../../stores/thread-registry.js";
 import { getErrorMessage, now } from "@wf-agent/common-utils";
 
 function createSuccessResult(
@@ -43,7 +43,7 @@ function createFailureResult(
 export async function stopThreadHandler(
   action: TriggerAction,
   triggerId: string,
-  threadRegistry: ThreadRegistry,
+  workflowExecutionRegistry: WorkflowExecutionRegistry,
 ): Promise<TriggerExecutionResult> {
   const executionTime = now();
 

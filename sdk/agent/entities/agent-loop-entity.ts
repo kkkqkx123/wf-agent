@@ -2,7 +2,7 @@
  * AgentLoopEntity - Agent Loop Execution Instance
  *
  * A pure data entity that encapsulates the data access operations of an Agent Loop instance.
- * Refer to ThreadEntity design pattern.
+ * Refer to WorkflowExecutionEntity design pattern.
  *
  * Note that the factory methods are provided by AgentLoopFactory:
  * - Factory methods are provided by AgentLoopFactory

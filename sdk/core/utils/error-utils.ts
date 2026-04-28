@@ -31,7 +31,7 @@ export interface StandardErrorContext {
 /**
  * Automatically extract standard error context from entities
  *
- * @param source: Source of the context (ThreadEntity, AgentLoopEntity, or a regular object)
+ * @param source: Source of the context (WorkflowExecutionEntity, AgentLoopEntity, or a regular object)
  * @param operation: Name of the operation (optional)
  * @returns: Standard error context
  */
@@ -44,7 +44,7 @@ export function extractErrorContext(source: unknown, operation?: string): Standa
 
   const src = source as Record<string, unknown>;
 
-  // Extract ThreadEntity-related fields
+  // Extract WorkflowExecutionEntity-related fields
   if (src["id"] !== undefined) {
     // Use the threadId field preferentially, followed by the id.
     const threadId = src["threadId"];
@@ -165,7 +165,7 @@ export async function handleError(
  *
  * @param eventManager  Event manager
  * @param error SDKError object
- * @param contextSource  Context source (ThreadEntity, AgentLoopEntity, or a regular object)
+ * @param contextSource  Context source (WorkflowExecutionEntity, AgentLoopEntity, or a regular object)
  * @param operation  Operation name (optional)
  * @returns  A standardized error containing the extracted context
  */

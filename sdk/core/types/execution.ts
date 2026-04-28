@@ -11,7 +11,7 @@
  */
 
 import type { WorkflowExecutionResult, TaskStatus } from "@wf-agent/types";
-import type { ThreadEntity } from "../../workflow/entities/workflow-execution-entity.js";
+import type { WorkflowExecutionEntity } from "../../workflow/entities/workflow-execution-entity.js";
 import type { AgentLoopEntity } from "../../agent/entities/agent-loop-entity.js";
 
 // ============================================================================
@@ -26,9 +26,9 @@ export type ExecutionInstanceType = "agent" | "thread";
 
 /**
  * Unified execution instance type
- * Supports both AgentLoopEntity and ThreadEntity
+ * Supports both AgentLoopEntity and WorkflowExecutionEntity
  */
-export type ExecutionInstance = AgentLoopEntity | ThreadEntity;
+export type ExecutionInstance = AgentLoopEntity | WorkflowExecutionEntity;
 
 // ============================================================================
 // Type Guard Functions for Execution Instances
@@ -44,11 +44,11 @@ export function isAgentInstance(instance: ExecutionInstance): instance is AgentL
 }
 
 /**
- * Check if the execution instance is a ThreadEntity
+ * Check if the execution instance is a WorkflowExecutionEntity
  * @param instance Execution instance
- * @returns True if the instance is a ThreadEntity
+ * @returns True if the instance is a WorkflowExecutionEntity
  */
-export function isThreadInstance(instance: ExecutionInstance): instance is ThreadEntity {
+export function isThreadInstance(instance: ExecutionInstance): instance is WorkflowExecutionEntity {
   return "getThreadId" in instance && "getWorkflowId" in instance;
 }
 
@@ -93,7 +93,7 @@ export interface TaskInfo {
   id: string;
   /** Execution instance type (agent or thread) */
   instanceType: ExecutionInstanceType;
-  /** Execution instance (AgentLoopEntity or ThreadEntity) */
+  /** Execution instance (AgentLoopEntity or WorkflowExecutionEntity) */
   instance: ExecutionInstance;
   /** Task Status */
   status: TaskStatus;

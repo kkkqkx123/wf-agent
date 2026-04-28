@@ -15,7 +15,7 @@ import { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
  */
 export class CancelWorkflowCommand extends BaseCommand<void> {
   constructor(
-    private readonly executionId: string,
+    private readonly workflowExecutionId: string,
     private readonly dependencies: APIDependencyManager,
   ) {
     super();
@@ -23,13 +23,13 @@ export class CancelWorkflowCommand extends BaseCommand<void> {
 
   protected async executeInternal(): Promise<void> {
     const lifecycleCoordinator = this.dependencies.getWorkflowLifecycleCoordinator();
-    await lifecycleCoordinator.stopWorkflowExecution(this.executionId);
+    await lifecycleCoordinator.stopWorkflowExecution(this.workflowExecutionId);
   }
 
   validate(): CommandValidationResult {
     const errors: string[] = [];
 
-    if (!this.executionId || this.executionId.trim().length === 0) {
+    if (!this.workflowExecutionId || this.workflowExecutionId.trim().length === 0) {
       errors.push("Execution ID cannot be empty.");
     }
 

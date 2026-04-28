@@ -4,8 +4,8 @@
  */
 
 import type { WorkflowRegistry } from "../../stores/workflow-registry.js";
-import type { ThreadRegistry } from "../../stores/thread-registry.js";
-import type { ThreadEntity } from "../../entities/index.js";
+import type { WorkflowExecutionRegistry } from "../../stores/thread-registry.js";
+import type { WorkflowExecutionEntity } from "../../entities/index.js";
 import type { WorkflowTrigger } from "@wf-agent/types";
 import type { TriggerReference } from "@wf-agent/types";
 import type { WorkflowReference, WorkflowReferenceInfo } from "@wf-agent/types";
@@ -13,13 +13,13 @@ import type { WorkflowReference, WorkflowReferenceInfo } from "@wf-agent/types";
 /**
  * Check if the workflow is being referenced.
  * @param workflowRegistry: Workflow registry
- * @param threadRegistry: Thread registry
+ * @param workflowExecutionRegistry: Thread registry
  * @param workflowId: Workflow ID
  * @returns: Reference information
  */
 export function checkWorkflowReferences(
   workflowRegistry: WorkflowRegistry,
-  threadRegistry: ThreadRegistry,
+  workflowExecutionRegistry: WorkflowExecutionRegistry,
   workflowId: string,
 ): WorkflowReferenceInfo {
   const references: WorkflowReference[] = [];
@@ -131,7 +131,7 @@ function checkTriggerReferences(
  * Check runtime thread references.
  */
 function checkThreadReferences(
-  threadRegistry: ThreadRegistry,
+  workflowExecutionRegistry: WorkflowExecutionRegistry,
   workflowId: string,
 ): WorkflowReference[] {
   const references: WorkflowReference[] = [];
@@ -171,7 +171,7 @@ function checkThreadReferences(
 /**
  * Create a main workflow reference
  */
-function createMainWorkflowReference(threadEntity: ThreadEntity): WorkflowReference {
+function createMainWorkflowReference(threadEntity: WorkflowExecutionEntity): WorkflowReference {
   return {
     type: "thread",
     sourceId: threadEntity.id,
@@ -188,7 +188,7 @@ function createMainWorkflowReference(threadEntity: ThreadEntity): WorkflowRefere
 /**
  * Create a reference to the triggered sub-workflow.
  */
-function createTriggeredSubworkflowReference(threadEntity: ThreadEntity): WorkflowReference {
+function createTriggeredSubworkflowReference(threadEntity: WorkflowExecutionEntity): WorkflowReference {
   return {
     type: "thread",
     sourceId: threadEntity.id,
@@ -206,7 +206,7 @@ function createTriggeredSubworkflowReference(threadEntity: ThreadEntity): Workfl
  * Create a reference to the subgraph execution stack
  */
 function createSubgraphStackReference(
-  threadEntity: ThreadEntity,
+  threadEntity: WorkflowExecutionEntity,
   context: { depth?: number; parentWorkflowId?: string },
 ): WorkflowReference {
   return {

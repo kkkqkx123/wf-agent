@@ -14,7 +14,7 @@
  * - Use pure functions with no internal state
  */
 
-import type { ThreadEntity } from "../../entities/workflow-execution-entity.js";
+import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
 import { now } from "@wf-agent/common-utils";
 
 /**
@@ -25,7 +25,7 @@ import { now } from "@wf-agent/common-utils";
  * @param input Subgraph input
  */
 export async function enterSubgraph(
-  threadEntity: ThreadEntity,
+  threadEntity: WorkflowExecutionEntity,
   workflowId: string,
   parentWorkflowId: string,
   input: Record<string, unknown>,
@@ -37,7 +37,7 @@ export async function enterSubgraph(
  * Exit the subgraph
  * @param threadEntity Thread entity
  */
-export async function exitSubgraph(threadEntity: ThreadEntity): Promise<void> {
+export async function exitSubgraph(threadEntity: WorkflowExecutionEntity): Promise<void> {
   await threadEntity.exitSubgraph();
 }
 
@@ -46,7 +46,7 @@ export async function exitSubgraph(threadEntity: ThreadEntity): Promise<void> {
  * @param threadEntity Thread entity
  * @returns Subgraph input data (using the variable system)
  */
-export function getSubgraphInput(threadEntity: ThreadEntity): Record<string, unknown> {
+export function getSubgraphInput(threadEntity: WorkflowExecutionEntity): Record<string, unknown> {
   // Using a variable system to retrieve input data
   return threadEntity.getAllVariables();
 }
@@ -56,7 +56,7 @@ export function getSubgraphInput(threadEntity: ThreadEntity): Record<string, unk
  * @param threadEntity Thread entity
  * @returns Subgraph output data
  */
-export function getSubgraphOutput(threadEntity: ThreadEntity): Record<string, unknown> {
+export function getSubgraphOutput(threadEntity: WorkflowExecutionEntity): Record<string, unknown> {
   const subgraphContext = threadEntity.getCurrentSubgraphContext();
   if (!subgraphContext) return {};
 

@@ -1,26 +1,26 @@
 /**
  * ThreadBuilder - Thread Builder
  *
- * Responsible for retrieving WorkflowDefinition from WorkflowRegistry and creating ThreadEntity instances.
+ * Responsible for retrieving WorkflowDefinition from WorkflowRegistry and creating WorkflowExecutionEntity instances.
  * Provides support for thread template caching and deep copying, as well as the use of preprocessed graphs and graph navigation.
  *
  * Note: ThreadBuilder is used directly for thread creation, not wrapped as ThreadFactory.
  * The naming difference from AgentLoopFactory reflects the different execution models.
  *
  * Migration Note:
- * - ThreadEntity no longer holds ConversationManager directly
+ * - WorkflowExecutionEntity no longer holds ConversationManager directly
  * - ThreadStateCoordinator is created separately to manage state
  * - This eliminates data redundancy and synchronization issues
  */
 
 import type { PreprocessedGraph } from "@wf-agent/types";
 import type { Thread, ThreadOptions, WorkflowExecutionStatus } from "@wf-agent/types";
-import { ThreadEntity } from "../../entities/index.js";
+import { WorkflowExecutionEntity } from "../../entities/index.js";
 import { ExecutionState } from "../../state-managers/execution-state.js";
 import { ThreadStateCoordinator } from "../../state-managers/thread-state-coordinator.js";
 import { generateId, now as getCurrentTimestamp } from "@wf-agent/common-utils";
 import { ExecutionError, RuntimeValidationError } from "@wf-agent/types";
-import type { GraphRegistry } from "../../stores/workflow-graph-registry.js";
+import type { WorkflowGraphRegistry } from "../../stores/workflow-graph-registry.js";
 import { getContainer } from "../../../core/di/index.js";
 import * as Identifiers from "../../../core/di/service-identifiers.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
@@ -33,10 +33,10 @@ const logger = createContextualLogger({ operation: "thread-builder" });
 
 /**
  * Thread Build Result
- * Contains both ThreadEntity and ThreadStateCoordinator
+ * Contains both WorkflowExecutionEntity and ThreadStateCoordinator
  */
 export interface ThreadBuildResult {
-  threadEntity: ThreadEntity;
+  threadEntity: WorkflowExecutionEntity;
   stateCoordinator: WorkflowStateCoordinator;
   conversationManager: ConversationSession;
 }
@@ -44,10 +44,10 @@ export interface ThreadBuildResult {
 /**
  * ThreadBuilder - Thread Builder
  *
- * Factory class for creating ThreadEntity instances from workflows.
+ * Factory class for creating WorkflowExecutionEntity instances from workflows.
  */
 export class ThreadBuilder {
-  private threadTemplates: Map<string, ThreadEntity> = new Map();
+  private threadTemplates: Map<string, WorkflowExecutionEntity> = new Map();
 
   constructor() {}
 
@@ -56,7 +56,7 @@ export class ThreadBuilder {
    */
   private getGraphRegistry(): WorkflowGraphRegistry {
     const container = getContainer();
-    return container.get(Identifiers.GraphRegistry) as WorkflowGraphRegistry;
+    return container.get(Identifiers.WorkflowGraphRegistry) as WorkflowGraphRegistry;
   }
 
   /**
@@ -92,11 +92,11 @@ export class ThreadBuilder {
   }
 
   /**
-   * Get workflow from WorkflowRegistry and construct ThreadEntity
+   * Get workflow from WorkflowRegistry and construct WorkflowExecutionEntity
    *
    * @param workflowId Workflow ID
    * @param options Thread options
-   * @returns ThreadBuildResult containing ThreadEntity, ThreadStateCoordinator, and ConversationSession
+   * @returns ThreadBuildResult containing WorkflowExecutionEntity, ThreadStateCoordinator, and ConversationSession
    */
   async build(workflowId: string, options: ThreadOptions = {}): Promise<ThreadBuildResult> {
     logger.info("Building thread from workflow", { workflowId });
@@ -129,11 +129,11 @@ export class ThreadBuilder {
   }
 
   /**
-   * Build ThreadEntity from PreprocessedGraph (internal method)
+   * Build WorkflowExecutionEntity from PreprocessedGraph (internal method)
    *
    * @param preprocessedGraph Preprocessed graph
    * @param options Thread options
-   * @returns ThreadBuildResult containing ThreadEntity, ThreadStateCoordinator, and ConversationSession
+   * @returns ThreadBuildResult containing WorkflowExecutionEntity, ThreadStateCoordinator, and ConversationSession
    */
   private async buildFromPreprocessedGraph(
     preprocessedGraph: PreprocessedGraph,
@@ -196,8 +196,8 @@ export class ThreadBuilder {
     // Step 5: Create ExecutionState
     const executionState = new ExecutionState();
 
-    // Step 6: Create ThreadEntity (without ConversationManager)
-    const threadEntity = new ThreadEntity(thread, executionState);
+    // Step 6: Create WorkflowExecutionEntity (without ConversationManager)
+    const threadEntity = new WorkflowExecutionEntity(thread, executionState);
 
     // Step 7: Create ConversationSession
     const conversationManager = new ConversationSession({
@@ -220,10 +220,10 @@ export class ThreadBuilder {
   }
 
   /**
-   * Build ThreadEntity from cached template
+   * Build WorkflowExecutionEntity from cached template
    *
    * @param templateId Template ID
-   * @returns ThreadBuildResult containing ThreadEntity, ThreadStateCoordinator, and ConversationSession
+   * @returns ThreadBuildResult containing WorkflowExecutionEntity, ThreadStateCoordinator, and ConversationSession
    */
   async buildFromTemplate(templateId: string): Promise<ThreadBuildResult> {
     const template = this.threadTemplates.get(templateId);
@@ -239,12 +239,12 @@ export class ThreadBuilder {
   }
 
   /**
-   * Create a copy of ThreadEntity
+   * Create a copy of WorkflowExecutionEntity
    *
-   * @param sourceThreadEntity Source ThreadEntity
-   * @returns ThreadBuildResult containing ThreadEntity, ThreadStateCoordinator, and ConversationSession
+   * @param sourceThreadEntity Source WorkflowExecutionEntity
+   * @returns ThreadBuildResult containing WorkflowExecutionEntity, ThreadStateCoordinator, and ConversationSession
    */
-  async createCopy(sourceThreadEntity: ThreadEntity): Promise<ThreadBuildResult> {
+  async createCopy(sourceThreadEntity: WorkflowExecutionEntity): Promise<ThreadBuildResult> {
     const sourceThread = sourceThreadEntity.getThread();
     const copiedThreadId = generateId();
 
@@ -284,8 +284,8 @@ export class ThreadBuilder {
     // Create ExecutionState
     const executionState = new ExecutionState();
 
-    // Create ThreadEntity (without ConversationManager)
-    const copiedThreadEntity = new ThreadEntity(copiedThread, executionState);
+    // Create WorkflowExecutionEntity (without ConversationManager)
+    const copiedThreadEntity = new WorkflowExecutionEntity(copiedThread, executionState);
 
     // Create ConversationSession (clone from source message history)
     const conversationManager = new ConversationSession({
@@ -312,14 +312,14 @@ export class ThreadBuilder {
   }
 
   /**
-   * Create a fork sub-ThreadEntity
+   * Create a fork sub-WorkflowExecutionEntity
    *
-   * @param parentThreadEntity Parent ThreadEntity
+   * @param parentThreadEntity Parent WorkflowExecutionEntity
    * @param forkConfig Fork configuration
-   * @returns ThreadBuildResult containing ThreadEntity, ThreadStateCoordinator, and ConversationSession
+   * @returns ThreadBuildResult containing WorkflowExecutionEntity, ThreadStateCoordinator, and ConversationSession
    */
   async createFork(
-    parentThreadEntity: ThreadEntity,
+    parentThreadEntity: WorkflowExecutionEntity,
     forkConfig: { forkId: string; forkPathId?: string; startNodeId?: string },
   ): Promise<ThreadBuildResult> {
     const parentThread = parentThreadEntity.getThread();
@@ -372,8 +372,8 @@ export class ThreadBuilder {
     // Create ExecutionState
     const executionState = new ExecutionState();
 
-    // Create ThreadEntity (without ConversationManager)
-    const forkThreadEntity = new ThreadEntity(forkThread, executionState);
+    // Create WorkflowExecutionEntity (without ConversationManager)
+    const forkThreadEntity = new WorkflowExecutionEntity(forkThread, executionState);
 
     // Create ConversationSession (clone from parent message history)
     const conversationManager = new ConversationSession({

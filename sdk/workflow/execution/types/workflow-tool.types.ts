@@ -7,13 +7,13 @@
  * - Located in SDK to avoid circular dependencies with packages/types
  */
 
-import type { ThreadEntity } from "../../entities/workflow-execution-entity.js";
-import type { ThreadRegistry } from "../../stores/workflow-execution-registry.js";
+import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
+import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-registry.js";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import type { ThreadBuilder } from "../factories/thread-builder.js";
 import type { TaskQueue } from "../../stores/task/task-queue.js";
 import type { WorkflowRegistry } from "../../stores/workflow-registry.js";
-import type { GraphRegistry } from "../../stores/workflow-graph-registry.js";
+import type { WorkflowGraphRegistry } from "../../stores/workflow-graph-registry.js";
 
 /**
  * Workflow Tool Execution Context
@@ -26,7 +26,7 @@ export interface WorkflowToolExecutionContext {
   /** Current thread ID */
   threadId?: string;
   /** Parent thread entity */
-  parentThreadEntity?: ThreadEntity;
+  parentThreadEntity?: WorkflowExecutionEntity;
   /** Thread registry */
   threadRegistry?: WorkflowExecutionRegistry;
   /** Event manager */

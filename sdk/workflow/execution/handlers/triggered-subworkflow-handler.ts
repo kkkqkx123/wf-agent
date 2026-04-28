@@ -15,7 +15,7 @@
  * - Implements the TaskManager interface for use in conjunction with TaskRegistry
  */
 
-import type { ThreadEntity } from "../../entities/index.js";
+import type { WorkflowExecutionEntity } from "../../entities/index.js";
 import type { ThreadStateCoordinator } from "../../state-managers/thread-state-coordinator.js";
 import type { ConversationSession } from "../../../core/messaging/conversation-session.js";
 import { getErrorOrNew, now } from "@wf-agent/common-utils";
@@ -42,7 +42,7 @@ import { logError, emitErrorEvent } from "../../../core/utils/error-utils.js";
  * Thread Build Result (simplified interface for TriggeredSubworkflowHandler)
  */
 interface ThreadBuildResultSimple {
-  threadEntity: ThreadEntity;
+  threadEntity: WorkflowExecutionEntity;
   stateCoordinator: ThreadStateCoordinator;
   conversationManager: ConversationSession;
 }
@@ -74,9 +74,9 @@ export class TriggeredSubworkflowHandler implements TaskManager {
   /**
    * Thread Registry
    */
-  private threadRegistry: {
-    register: (entity: ThreadEntity) => void;
-    get: (id: string) => ThreadEntity | undefined;
+  private workflowExecutionRegistry: {
+    register: (entity: WorkflowExecutionEntity) => void;
+    get: (id: string) => WorkflowExecutionEntity | undefined;
   };
 
   /**
@@ -105,16 +105,16 @@ export class TriggeredSubworkflowHandler implements TaskManager {
 
   /**
    * Constructor
-   * @param threadRegistry: Thread registry
+   * @param workflowExecutionRegistry: Thread registry
    * @param threadBuilder: Thread builder
    * @param taskQueueManager: Task queue manager
    * @param eventManager: Event manager
    * @param threadPoolService: Thread pool service
    */
   constructor(
-    threadRegistry: {
-      register: (entity: ThreadEntity) => void;
-      get: (id: string) => ThreadEntity | undefined;
+    workflowExecutionRegistry: {
+      register: (entity: WorkflowExecutionEntity) => void;
+      get: (id: string) => WorkflowExecutionEntity | undefined;
     },
     threadBuilder: {
       build: (
@@ -165,10 +165,10 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     // Prepare the input data
     const input = this.prepareInputData(task);
 
-    // Create a sub-workflow ThreadEntity
+    // Create a sub-workflow WorkflowExecutionEntity
     const subgraphEntity = await this.createSubgraphContext(task, input);
 
-    // Register with ThreadRegistry
+    // Register with WorkflowExecutionRegistry
     this.threadRegistry.register(subgraphEntity);
 
     // Establish a parent-child thread relationship
@@ -217,7 +217,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
   private async createSubgraphContext(
     task: TriggeredSubgraphTask,
     input: Record<string, unknown>,
-  ): Promise<ThreadEntity> {
+  ): Promise<WorkflowExecutionEntity> {
     const { threadEntity: subgraphEntity } = await this.threadBuilder.build(task.subgraphId, {
       input,
     });
@@ -235,7 +235,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
    * @returns Execution result
    */
   private async executeSync(
-    subgraphEntity: ThreadEntity,
+    subgraphEntity: WorkflowExecutionEntity,
     timeout: number,
   ): Promise<ExecutedSubgraphResult> {
     // First, register the task with the global TaskRegistry.
@@ -261,7 +261,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
    * @param timeout: Timeout period
    * @returns: Task submission result
    */
-  private executeAsync(subgraphEntity: ThreadEntity, timeout: number): TaskSubmissionResult {
+  private executeAsync(subgraphEntity: WorkflowExecutionEntity, timeout: number): TaskSubmissionResult {
     const threadId = subgraphEntity.id;
 
     // First, register the task with the global TaskRegistry.
@@ -360,7 +360,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
    * Cancel the parent-child relationship
    * @param subgraphEntity Sub-workflow entity
    */
-  private unregisterParentChildRelationship(subgraphEntity: ThreadEntity): void {
+  private unregisterParentChildRelationship(subgraphEntity: WorkflowExecutionEntity): void {
     const parentThreadId = subgraphEntity.getParentThreadId();
     const childThreadId = subgraphEntity.id;
 
@@ -379,7 +379,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
    */
   private async emitStartedEvent(
     task: TriggeredSubgraphTask,
-    _subgraphEntity: ThreadEntity,
+    _subgraphEntity: WorkflowExecutionEntity,
   ): Promise<void> {
     const startedEvent = buildTriggeredSubgraphStartedEvent({
       threadId: task.mainThreadEntity.id,
@@ -458,7 +458,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
       const taskInfo = this.taskRegistry.get(taskId);
       if (taskInfo && taskInfo.instanceType === "thread") {
         // Cancel the parent-child relationship.
-        this.unregisterParentChildRelationship(taskInfo.instance as ThreadEntity);
+        this.unregisterParentChildRelationship(taskInfo.instance as WorkflowExecutionEntity);
       }
     }
 

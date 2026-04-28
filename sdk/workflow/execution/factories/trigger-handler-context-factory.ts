@@ -11,15 +11,15 @@
  */
 
 import type { Trigger, TriggerAction } from "@wf-agent/types";
-import type { ThreadRegistry } from "../../stores/workflow-execution-registry.js";
+import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-registry.js";
 import type { WorkflowRegistry } from "../../stores/workflow-registry.js";
-import type { GraphRegistry } from "../../stores/workflow-graph-registry.js";
+import type { WorkflowGraphRegistry } from "../../stores/workflow-graph-registry.js";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import type { TriggerState } from "../../state-managers/trigger-state.js";
 import type { CheckpointState } from "../../checkpoint/checkpoint-state-manager.js";
 import type { ThreadBuilder } from "./thread-builder.js";
 import type { TaskQueue } from "../../stores/task/task-queue.js";
-import type { ThreadStateTransitor } from "../coordinators/thread-state-transitor.js";
+import type { WorkflowStateTransitor } from "../coordinators/workflow-state-transitor.js";
 import { DependencyInjectionError } from "@wf-agent/types";
 
 /**
@@ -27,7 +27,7 @@ import { DependencyInjectionError } from "@wf-agent/types";
  * Used for stop_thread, pause_thread, resume_thread actions
  */
 export interface LifecycleTriggerContext {
-  threadLifecycleCoordinator: ThreadStateTransitor;
+  threadLifecycleCoordinator: WorkflowStateTransitor;
 }
 
 /**
@@ -35,7 +35,7 @@ export interface LifecycleTriggerContext {
  * Used for the skip_node action
  */
 export interface SkipNodeTriggerContext {
-  threadRegistry: WorkflowExecutionRegistry;
+  workflowExecutionRegistry: WorkflowExecutionRegistry;
   eventManager: EventRegistry;
 }
 
@@ -44,7 +44,7 @@ export interface SkipNodeTriggerContext {
  * Used for the set_variable action
  */
 export interface SetVariableTriggerContext {
-  threadRegistry: WorkflowExecutionRegistry;
+  workflowExecutionRegistry: WorkflowExecutionRegistry;
 }
 
 /**
@@ -52,7 +52,7 @@ export interface SetVariableTriggerContext {
  * Used for the execute_triggered_subgraph action
  */
 export interface ExecuteSubgraphTriggerContext {
-  threadRegistry: WorkflowExecutionRegistry;
+  workflowExecutionRegistry: WorkflowExecutionRegistry;
   eventManager: EventRegistry;
   threadBuilder: ThreadBuilder;
   taskQueueManager: TaskQueue;
@@ -65,7 +65,7 @@ export interface ExecuteSubgraphTriggerContext {
 export interface TriggerHandlerContextFactoryConfig {
   // Core Dependencies (Required)
   /** Thread Registry */
-  threadRegistry: WorkflowExecutionRegistry;
+  workflowExecutionRegistry: WorkflowExecutionRegistry;
   /** Workflow Registry */
   workflowRegistry: WorkflowRegistry;
   /** Trigger State Manager */
@@ -83,7 +83,7 @@ export interface TriggerHandlerContextFactoryConfig {
   /** Task Queue Manager */
   taskQueueManager?: TaskQueue;
   /** Thread State Transitor */
-  threadLifecycleCoordinator?: ThreadStateTransitor;
+  threadLifecycleCoordinator?: WorkflowStateTransitor;
 }
 
 /**
@@ -174,7 +174,7 @@ export class TriggerHandlerContextFactory {
     }
 
     return {
-      threadRegistry: this.config.threadRegistry,
+      workflowExecutionRegistry: this.config.threadRegistry,
       eventManager: this.config.eventManager,
     };
   }
@@ -186,7 +186,7 @@ export class TriggerHandlerContextFactory {
    */
   private createSetVariableContext(): SetVariableTriggerContext {
     return {
-      threadRegistry: this.config.threadRegistry,
+      workflowExecutionRegistry: this.config.threadRegistry,
     };
   }
 
@@ -238,7 +238,7 @@ export class TriggerHandlerContextFactory {
     }
 
     return {
-      threadRegistry: this.config.threadRegistry,
+      workflowExecutionRegistry: this.config.threadRegistry,
       eventManager: this.config.eventManager,
       threadBuilder: this.config.threadBuilder,
       taskQueueManager: this.config.taskQueueManager,
@@ -281,8 +281,8 @@ export class TriggerHandlerContextFactory {
   getGraphRegistry(): WorkflowGraphRegistry {
     if (!this.config.graphRegistry) {
       throw new DependencyInjectionError(
-        "GraphRegistry is not configured",
-        "GraphRegistry",
+        "WorkflowGraphRegistry is not configured",
+        "WorkflowGraphRegistry",
         "TriggerHandlerContextFactory.getGraphRegistry",
       );
     }

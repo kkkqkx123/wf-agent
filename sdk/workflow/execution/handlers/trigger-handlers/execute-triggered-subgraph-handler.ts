@@ -21,7 +21,7 @@ import {
   ThreadContextNotFoundError,
   WorkflowNotFoundError,
 } from "@wf-agent/types";
-import type { ThreadRegistry } from "../../../stores/thread-registry.js";
+import type { WorkflowExecutionRegistry } from "../../../stores/thread-registry.js";
 import type { EventRegistry } from "../../../../core/registry/event-registry.js";
 import type { ThreadBuilder } from "../../factories/thread-builder.js";
 import type { TaskQueue } from "../../../stores/task/task-queue.js";
@@ -29,7 +29,6 @@ import { getErrorMessage, now, diffTimestamp } from "@wf-agent/common-utils";
 import type { TriggeredSubgraphTask } from "../../types/triggered-subworkflow.types.js";
 import { getContainer } from "../../../../core/di/index.js";
 import * as Identifiers from "../../../../core/di/service-identifiers.js";
-import type { GraphRegistry } from "../../../stores/graph-registry.js";
 import type { WorkflowGraphRegistry } from "../../../stores/workflow-graph-registry.js";
 import type { TriggeredSubworkflowHandler } from "../triggered-subworkflow-handler.js";
 
@@ -109,7 +108,7 @@ function createFailureResult(
 export async function executeTriggeredSubgraphHandler(
   action: TriggerAction,
   triggerId: string,
-  threadRegistry: ThreadRegistry,
+  workflowExecutionRegistry: WorkflowExecutionRegistry,
   eventManager: EventRegistry,
   threadBuilder: ThreadBuilder,
   taskQueueManager: TaskQueue,
@@ -143,7 +142,7 @@ export async function executeTriggeredSubgraphHandler(
     }
 
     const container = getContainer();
-    const graphRegistry = container.get(Identifiers.GraphRegistry) as WorkflowGraphRegistry;
+    const graphRegistry = container.get(Identifiers.WorkflowGraphRegistry) as WorkflowGraphRegistry;
     const processedTriggeredWorkflow = graphRegistry.get(triggeredWorkflowId);
 
     if (!processedTriggeredWorkflow) {

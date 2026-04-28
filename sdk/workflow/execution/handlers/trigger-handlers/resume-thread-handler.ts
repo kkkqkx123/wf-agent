@@ -2,12 +2,12 @@
  * Restore Thread Handling Function
  *
  * Responsible for initiating the actions required to restore the thread
- * Coordinates the recovery process through the ThreadStateTransitor
+ * Coordinates the recovery process through the WorkflowStateTransitor
  */
 
 import type { TriggerAction, TriggerExecutionResult } from "@wf-agent/types";
 import { RuntimeValidationError, ThreadContextNotFoundError } from "@wf-agent/types";
-import type { ThreadRegistry } from "../../../stores/thread-registry.js";
+import type { WorkflowExecutionRegistry } from "../../../stores/thread-registry.js";
 import { getErrorMessage, now } from "@wf-agent/common-utils";
 
 function createSuccessResult(
@@ -43,7 +43,7 @@ function createFailureResult(
 export async function resumeThreadHandler(
   action: TriggerAction,
   triggerId: string,
-  threadRegistry: ThreadRegistry,
+  workflowExecutionRegistry: WorkflowExecutionRegistry,
 ): Promise<TriggerExecutionResult> {
   const executionTime = now();
 

@@ -207,7 +207,7 @@ export class ExecutionBuilder {
       let threadId: string | undefined;
       executePromise.then(result => {
         if (result.isOk()) {
-          threadId = result.value.threadId;
+          threadId = result.value.id;
           // Send Completion Event
           observer.next({
             type: "complete",

@@ -28,7 +28,7 @@ import type {
   HumanRelayContext,
 } from "@wf-agent/types";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
-import type { ThreadEntity } from "../../entities/workflow-execution-entity.js";
+import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
 import { MessageRole } from "@wf-agent/types";
 import {
   generateId,
@@ -55,7 +55,7 @@ export interface HumanRelayTask {
   /** Timeout period (in milliseconds) */
   timeout: number;
   /** Thread Entity */
-  threadEntity: ThreadEntity;
+  threadEntity: WorkflowExecutionEntity;
   /** Request ID */
   requestId: string;
   /** Node ID */
@@ -284,7 +284,7 @@ export async function executeHumanRelay(
   messages: LLMMessage[],
   prompt: string,
   timeout: number,
-  threadEntity: ThreadEntity,
+  threadEntity: WorkflowExecutionEntity,
   eventManager: EventRegistry,
   humanRelayHandler: HumanRelayHandler,
   nodeId: string,

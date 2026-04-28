@@ -18,10 +18,10 @@ import type { ServiceIdentifier } from "@wf-agent/common-utils";
 // ============================================================
 
 /**
- * GraphRegistry - Graph Registry
+ * WorkflowGraphRegistry - Graph Registry
  * Manages the storage and retrieval of preprocessed graphs.
  */
-export const GraphRegistry: ServiceIdentifier<unknown> = Symbol("GraphRegistry");
+export const WorkflowGraphRegistry: ServiceIdentifier<unknown> = Symbol("WorkflowGraphRegistry");
 
 /**
  * GraphNavigator - Graph Navigator
@@ -30,10 +30,10 @@ export const GraphRegistry: ServiceIdentifier<unknown> = Symbol("GraphRegistry")
 export const GraphNavigator: ServiceIdentifier<unknown> = Symbol("GraphNavigator");
 
 /**
- * ThreadRegistry - Thread Registry
+ * WorkflowExecutionRegistry - Thread Registry
  * Manages the memory storage of ThreadContext
  */
-export const ThreadRegistry: ServiceIdentifier<unknown> = Symbol("ThreadRegistry");
+export const WorkflowExecutionRegistry: ServiceIdentifier<unknown> = Symbol("WorkflowExecutionRegistry");
 
 // ============================================================
 // Business Layer Services
@@ -88,13 +88,13 @@ export const TaskRegistry: ServiceIdentifier<unknown> = Symbol("TaskRegistry");
 
 /**
  * ThreadBuilder - Thread Construction Tool
- * Constructs ThreadEntity instances from workflow definitions
+ * Constructs WorkflowExecutionEntity instances from workflow definitions
  */
 export const ThreadBuilder: ServiceIdentifier<unknown> = Symbol("ThreadBuilder");
 
 /**
  * ThreadExecutor - Thread Executor
- * Executes a single ThreadEntity instance
+ * Executes a single WorkflowExecutionEntity instance
  */
 export const ThreadExecutor: ServiceIdentifier<unknown> = Symbol("ThreadExecutor");
 
@@ -107,10 +107,10 @@ export const ThreadLifecycleCoordinator: ServiceIdentifier<unknown> = Symbol(
 );
 
 /**
- * ThreadStateTransitor - Thread State Transitor
+ * WorkflowStateTransitor - Thread State Transitor
  * Manages the transition of thread lifecycle states
  */
-export const ThreadStateTransitor: ServiceIdentifier<unknown> = Symbol("ThreadStateTransitor");
+export const WorkflowStateTransitor: ServiceIdentifier<unknown> = Symbol("WorkflowStateTransitor");
 
 /**
  * CheckpointState - Checkpoint State Manager

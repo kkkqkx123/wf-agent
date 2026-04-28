@@ -2,12 +2,12 @@
  * Thread Suspension Handling Function
  *
  * Responsible for initiating the action to suspend a thread
- * The suspension process is coordinated through the ThreadStateTransitor.
+ * The suspension process is coordinated through the WorkflowStateTransitor.
  */
 
 import type { TriggerAction, TriggerExecutionResult } from "@wf-agent/types";
 import { RuntimeValidationError, ThreadContextNotFoundError } from "@wf-agent/types";
-import type { ThreadRegistry } from "../../../stores/thread-registry.js";
+import type { WorkflowExecutionRegistry } from "../../../stores/thread-registry.js";
 import { getErrorMessage, now } from "@wf-agent/common-utils";
 
 function createSuccessResult(
@@ -43,7 +43,7 @@ function createFailureResult(
 export async function pauseThreadHandler(
   action: TriggerAction,
   triggerId: string,
-  threadRegistry: ThreadRegistry,
+  workflowExecutionRegistry: WorkflowExecutionRegistry,
 ): Promise<TriggerExecutionResult> {
   const executionTime = now();
 

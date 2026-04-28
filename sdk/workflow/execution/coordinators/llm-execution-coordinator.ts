@@ -504,10 +504,10 @@ export class LLMExecutionCoordinator {
         const approvalContext = this.contextFactory.createToolApprovalContext(threadId, nodeId);
         if (approvalContext.workflowRegistry && approvalContext.graphRegistry) {
           const dependencies = {
-            threadRegistry: approvalContext.threadRegistry,
+            workflowExecutionRegistry: approvalContext.threadRegistry,
             checkpointStateManager: approvalContext.checkpointStateManager,
             workflowRegistry: approvalContext.workflowRegistry,
-            graphRegistry: approvalContext.graphRegistry,
+            workflowGraphRegistry: approvalContext.graphRegistry,
           };
           checkpointId = await CheckpointCoordinator.createCheckpoint(threadId, dependencies, {
             description: "Waiting for tool approval",

@@ -9,7 +9,7 @@
  */
 
 import type { Node } from "@wf-agent/types";
-import type { ThreadEntity } from "../../entities/workflow-execution-entity.js";
+import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
 import type { UserInteractionHandler } from "@wf-agent/types";
 import type { HumanRelayHandler } from "@wf-agent/types";
 import type { ConversationSession } from "../../../core/messaging/conversation-session.js";
@@ -60,7 +60,7 @@ export class NodeHandlerContextFactory {
    * @returns Processor context
    * @throws ExecutionError When required dependencies are missing
    */
-  createHandlerContext(node: Node, threadEntity: ThreadEntity): Record<string, unknown> {
+  createHandlerContext(node: Node, threadEntity: WorkflowExecutionEntity): Record<string, unknown> {
     switch (node.type) {
       case "USER_INTERACTION":
         return this.createUserInteractionContext(node, threadEntity);
@@ -88,7 +88,7 @@ export class NodeHandlerContextFactory {
    */
   private createUserInteractionContext(
     node: Node,
-    threadEntity: ThreadEntity,
+    threadEntity: WorkflowExecutionEntity,
   ): Record<string, unknown> {
     if (!this.config.userInteractionHandler) {
       throw new ExecutionError(
@@ -107,11 +107,11 @@ export class NodeHandlerContextFactory {
   /**
    * Create a Context Processor node context
    */
-  private createContextProcessorContext(threadEntity: ThreadEntity): Record<string, unknown> {
+  private createContextProcessorContext(threadEntity: WorkflowExecutionEntity): Record<string, unknown> {
     return {
       conversationManager: this.config.conversationManager,
       threadEntity: threadEntity,
-      threadRegistry: this.config.threadRegistry,
+      workflowExecutionRegistry: this.config.threadRegistry,
     };
   }
 
@@ -130,7 +130,7 @@ export class NodeHandlerContextFactory {
   /**
    * Create a tool to add node context
    */
-  private createAddToolContext(node: Node, threadEntity: ThreadEntity): Record<string, unknown> {
+  private createAddToolContext(node: Node, threadEntity: WorkflowExecutionEntity): Record<string, unknown> {
     if (!this.config.toolContextStore || !this.config.toolService) {
       throw new ExecutionError(
         "ToolContextStore or ToolRegistry is not provided",
@@ -150,7 +150,7 @@ export class NodeHandlerContextFactory {
   /**
    * Create an Agent Loop node context
    */
-  private createAgentLoopContext(node: Node, threadEntity: ThreadEntity): Record<string, unknown> {
+  private createAgentLoopContext(node: Node, threadEntity: WorkflowExecutionEntity): Record<string, unknown> {
     if (!this.config.agentLoopExecutorFactory) {
       throw new ExecutionError(
         "AgentLoopExecutorFactory is not provided",

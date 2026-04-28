@@ -193,13 +193,13 @@ export class CheckpointResourceAPI extends CrudResourceAPI<Checkpoint, string, C
     // Obtain global services from the DI container.
     const container = getContainer();
     const threadRegistry = container.get(
-      Identifiers.ThreadRegistry,
-    ) as import("../../../../workflow/stores/thread-registry.js").ThreadRegistry;
+      Identifiers.WorkflowExecutionRegistry,
+    ) as import("../../../../workflow/stores/thread-registry.js").WorkflowExecutionRegistry;
     const workflowRegistry = container.get(
       Identifiers.WorkflowRegistry,
     ) as import("../../../../workflow/stores/workflow-registry.js").WorkflowRegistry;
     const graphRegistry = container.get(
-      Identifiers.GraphRegistry,
+      Identifiers.WorkflowGraphRegistry,
     ) as import("../../../../workflow/stores/workflow-graph-registry.js").WorkflowGraphRegistry;
 
     const dependencies = {
@@ -227,13 +227,13 @@ export class CheckpointResourceAPI extends CrudResourceAPI<Checkpoint, string, C
     // Obtain global services from the DI container.
     const container = getContainer();
     const threadRegistry = container.get(
-      Identifiers.ThreadRegistry,
-    ) as import("../../../../workflow/stores/thread-registry.js").ThreadRegistry;
+      Identifiers.WorkflowExecutionRegistry,
+    ) as import("../../../../workflow/stores/thread-registry.js").WorkflowExecutionRegistry;
     const workflowRegistry = container.get(
       Identifiers.WorkflowRegistry,
     ) as import("../../../../workflow/stores/workflow-registry.js").WorkflowRegistry;
     const graphRegistry = container.get(
-      Identifiers.GraphRegistry,
+      Identifiers.WorkflowGraphRegistry,
     ) as import("../../../../workflow/stores/workflow-graph-registry.js").WorkflowGraphRegistry;
 
     const dependencies = {

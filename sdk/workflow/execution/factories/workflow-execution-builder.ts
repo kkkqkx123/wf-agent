@@ -127,7 +127,7 @@ export class WorkflowExecutionBuilder {
     const result = await this.buildFromWorkflowGraph(workflowGraph, options);
 
     logger.info("Workflow execution built successfully", {
-      executionId: result.workflowExecutionEntity.id,
+      workflowExecutionId: result.workflowExecutionEntity.id,
       workflowId,
     });
 
@@ -256,7 +256,7 @@ export class WorkflowExecutionBuilder {
   async createCopy(
     sourceWorkflowExecutionEntity: WorkflowExecutionEntity,
   ): Promise<WorkflowExecutionBuildResult> {
-    const sourceWorkflowExecution = sourceWorkflowExecutionEntity.getWorkflowExecution();
+    const sourceWorkflowExecution = sourceWorkflowExecutionEntity.getWorkflowExecutionData();
     const copiedExecutionId = generateId();
 
     logger.info("Creating workflow execution copy", {
@@ -304,7 +304,7 @@ export class WorkflowExecutionBuilder {
     // Create ConversationSession (clone from source message history)
     const conversationManager = new ConversationSession({
       eventManager: this.getEventManager(),
-      executionId: copiedWorkflowExecution.id,
+      workflowExecutionId: copiedWorkflowExecution.id,
       workflowId: copiedWorkflowExecution.workflowId,
       initialMessages: sourceWorkflowExecutionEntity.messageHistoryManager.getMessages(),
     });
@@ -339,7 +339,7 @@ export class WorkflowExecutionBuilder {
     parentWorkflowExecutionEntity: WorkflowExecutionEntity,
     forkConfig: { forkId: string; forkPathId?: string; startNodeId?: string },
   ): Promise<WorkflowExecutionBuildResult> {
-    const parentWorkflowExecution = parentWorkflowExecutionEntity.getWorkflowExecution();
+    const parentWorkflowExecution = parentWorkflowExecutionEntity.getWorkflowExecutionData();
     const forkExecutionId = generateId();
 
     logger.info("Creating fork workflow execution", {
@@ -398,7 +398,7 @@ export class WorkflowExecutionBuilder {
     // Create ConversationSession (clone from parent message history)
     const conversationManager = new ConversationSession({
       eventManager: this.getEventManager(),
-      executionId: forkWorkflowExecution.id,
+      workflowExecutionId: forkWorkflowExecution.id,
       workflowId: forkWorkflowExecution.workflowId,
       initialMessages: parentWorkflowExecutionEntity.messageHistoryManager.getMessages(),
     });

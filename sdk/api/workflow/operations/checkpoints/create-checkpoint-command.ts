@@ -38,7 +38,7 @@ export interface CreateCheckpointParams {
  *
  * Workflow:
  * 1. Validate parameters (threadId required)
- * 2. Get ThreadEntity from ThreadRegistry
+ * 2. Get WorkflowExecutionEntity from WorkflowExecutionRegistry
  * 3. Call CheckpointCoordinator to create checkpoint
  * 4. Return the checkpoint ID
  */

@@ -11,7 +11,7 @@ import type {
   MessageOperationConfig,
 } from "@wf-agent/types";
 import { RuntimeValidationError } from "@wf-agent/types";
-import type { ThreadRegistry } from "../../../stores/thread-registry.js";
+import type { WorkflowExecutionRegistry } from "../../../stores/thread-registry.js";
 import type { ThreadStateCoordinator } from "../../../state-managers/thread-state-coordinator.js";
 import { getErrorMessage, now } from "@wf-agent/common-utils";
 
@@ -56,7 +56,7 @@ function createFailureResult(
 export async function applyMessageOperationHandler(
   action: TriggerAction,
   triggerId: string,
-  threadRegistry: ThreadRegistry,
+  workflowExecutionRegistry: WorkflowExecutionRegistry,
   stateCoordinatorMap?: Map<string, ThreadStateCoordinator>,
 ): Promise<TriggerExecutionResult> {
   const executionTime = now();

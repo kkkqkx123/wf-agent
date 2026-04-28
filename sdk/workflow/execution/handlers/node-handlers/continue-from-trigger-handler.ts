@@ -18,6 +18,8 @@ import type { WorkflowExecutionEntity } from "../../../entities/workflow-executi
 export interface ContinueFromTriggerHandlerContext {
   /** Main workflow execution entity */
   mainWorkflowExecutionEntity?: WorkflowExecutionEntity;
+  /** Main thread entity */
+  mainThreadEntity?: WorkflowExecutionEntity;
   /** Conversation manager */
   conversationManager?: ConversationSession;
 }

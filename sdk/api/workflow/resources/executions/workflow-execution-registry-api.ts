@@ -91,7 +91,7 @@ export class WorkflowExecutionRegistryAPI extends CrudResourceAPI<
     if (!executionEntity) {
       return null;
     }
-    return executionEntity.getExecution();
+    return executionEntity.getWorkflowExecutionData();
   }
 
   /**
@@ -102,7 +102,7 @@ export class WorkflowExecutionRegistryAPI extends CrudResourceAPI<
     return this.dependencies
       .getWorkflowExecutionRegistry()
       .getAll()
-      .map(executionEntity => executionEntity.getExecution());
+      .map(executionEntity => executionEntity.getWorkflowExecutionData());
   }
 
   /**
@@ -166,7 +166,7 @@ export class WorkflowExecutionRegistryAPI extends CrudResourceAPI<
     const executionEntities = this.dependencies.getWorkflowExecutionRegistry().getAll();
 
     return executionEntities.map(executionEntity => {
-      const execution = executionEntity.getExecution();
+      const execution = executionEntity.getWorkflowExecutionData();
       const startTime = executionEntity.getStartTime();
       const endTime = executionEntity.getEndTime();
 
@@ -209,7 +209,7 @@ export class WorkflowExecutionRegistryAPI extends CrudResourceAPI<
       return null;
     }
 
-    const execution = executionEntity.getExecution();
+    const execution = executionEntity.getWorkflowExecutionData();
     const status = executionEntity.getStatus();
     const startTime = executionEntity.getStartTime();
     const endTime = executionEntity.getEndTime();
@@ -220,7 +220,7 @@ export class WorkflowExecutionRegistryAPI extends CrudResourceAPI<
     }
 
     return {
-      executionId: execution.id,
+      threadId: execution.id,
       output: execution.output,
       executionTime: startTime && endTime ? endTime - startTime : 0,
       nodeResults: execution.nodeResults,
@@ -257,7 +257,7 @@ export class WorkflowExecutionRegistryAPI extends CrudResourceAPI<
     const byWorkflow: Record<string, number> = {};
 
     for (const executionEntity of executionEntities) {
-      const execution = executionEntity.getExecution();
+      const execution = executionEntity.getWorkflowExecutionData();
       const status = executionEntity.getStatus();
 
       // Statistics by Status

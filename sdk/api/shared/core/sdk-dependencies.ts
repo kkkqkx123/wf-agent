@@ -54,7 +54,7 @@ export class APIDependencyManager {
    */
   getWorkflowExecutionRegistry(): WorkflowExecutionRegistry {
     return this.container.get(
-      Identifiers.ThreadRegistry as ServiceIdentifier<WorkflowExecutionRegistry>,
+      Identifiers.WorkflowExecutionRegistry as ServiceIdentifier<WorkflowExecutionRegistry>,
     );
   }
 
@@ -124,7 +124,7 @@ export class APIDependencyManager {
    */
   getWorkflowGraphRegistry(): WorkflowGraphRegistry {
     return this.container.get(
-      Identifiers.GraphRegistry as ServiceIdentifier<WorkflowGraphRegistry>,
+      Identifiers.WorkflowGraphRegistry as ServiceIdentifier<WorkflowGraphRegistry>,
     );
   }
 

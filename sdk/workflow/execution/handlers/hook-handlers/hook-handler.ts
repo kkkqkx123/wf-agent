@@ -20,7 +20,7 @@ import { getErrorOrNew } from "@wf-agent/common-utils";
 import { createContextualLogger } from "../../../../utils/contextual-logger.js";
 import { buildHookEvaluationContext, convertToEvaluationContext } from "./context-builder.js";
 import { emitHookEvent } from "./event-emitter.js";
-import type { ThreadEntity } from "../../../entities/index.js";
+import type { WorkflowExecutionEntity } from "../../../entities/index.js";
 
 const logger = createContextualLogger();
 
@@ -30,8 +30,8 @@ const logger = createContextualLogger();
  * Extends BaseHookContext to add Graph-specific context data.
  */
 export interface HookExecutionContext extends BaseHookContext {
-  /** ThreadEntity instance */
-  threadEntity: ThreadEntity;
+  /** WorkflowExecutionEntity instance */
+  threadEntity: WorkflowExecutionEntity;
   /** Node Definition */
   node: Node;
   /** Node execution results (available at AFTER_EXECUTE) */

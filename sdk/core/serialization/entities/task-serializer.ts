@@ -70,7 +70,7 @@ export interface SerializedThreadResultMetadata {
  */
 export interface SerializedThreadResult {
   /** Thread ID */
-  threadId: string;
+  id: string;
   /** Output data */
   output: Record<string, unknown>;
   /** Execution time (milliseconds) */
@@ -111,7 +111,7 @@ export const TaskSerializationUtils = {
    */
   serializeThreadResult(result: WorkflowExecutionResult): SerializedThreadResult {
     return {
-      threadId: result.threadId,
+      id: result.id,
       output: result.output,
       executionTime: result.executionTime,
       nodeResults: result.nodeResults,
@@ -131,7 +131,7 @@ export const TaskSerializationUtils = {
    */
   deserializeThreadResult(serialized: SerializedThreadResult): WorkflowExecutionResult {
     return {
-      threadId: serialized.threadId,
+      id: serialized.id,
       output: serialized.output,
       executionTime: serialized.executionTime,
       nodeResults: serialized.nodeResults,
@@ -177,7 +177,7 @@ export const TaskSerializationUtils = {
     };
 
     if (taskInfo.instanceType === "thread") {
-      snapshot.threadId = taskInfo.instance.id;
+      snapshot.id = taskInfo.instance.id;
       if (taskInfo.instance.getWorkflowId) {
         snapshot.workflowId = taskInfo.instance.getWorkflowId();
       }

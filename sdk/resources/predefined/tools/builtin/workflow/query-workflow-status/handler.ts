@@ -6,11 +6,11 @@ import type { BuiltinToolExecutionContext } from "@wf-agent/types";
 import type {
   QueryWorkflowStatusParams,
   QueryWorkflowStatusResult,
-} from "../../../../../../graph/execution/types/workflow-tool.types.js";
+} from "../../../../../../workflow/execution/types/workflow-tool.types.js";
 import { getContainer } from "../../../../../../core/di/index.js";
 import * as Identifiers from "../../../../../../core/di/service-identifiers.js";
 import { RuntimeValidationError } from "@wf-agent/types";
-import type { TriggeredSubworkflowHandler } from "../../../../../../graph/execution/handlers/triggered-subworkflow-handler.js";
+import type { TriggeredSubworkflowHandler } from "../../../../../../workflow/execution/handlers/triggered-subworkflow-handler.js";
 import { isThreadInstance } from "../../../../../../core/types/index.js";
 
 /**
@@ -69,7 +69,7 @@ export function createQueryWorkflowStatusHandler() {
     // Get instance from taskInfo
     const instance = taskInfo.instance;
 
-    // Check if instance is a ThreadEntity
+    // Check if instance is a WorkflowExecutionEntity
     if (!isThreadInstance(instance)) {
       return {
         success: false,

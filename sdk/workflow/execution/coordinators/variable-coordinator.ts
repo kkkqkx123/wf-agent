@@ -15,7 +15,7 @@
  * - Delegation pattern: Uses the VariableState for atomic state operations
  */
 
-import type { ThreadEntity } from "../../entities/workflow-execution-entity.js";
+import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
 import type { VariableScope, WorkflowVariable } from "@wf-agent/types";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import { getErrorOrNew } from "@wf-agent/common-utils";
@@ -61,11 +61,11 @@ export class VariableCoordinator {
    * Retrieve the value of a variable (searching based on scope priority)
    * Priority: loop > local > thread > global
    * Supports on-demand initialization: Variables in the thread, local, and loop scopes are initialized the first time they are accessed.
-   * @param threadEntity ThreadEntity instance
+   * @param threadEntity WorkflowExecutionEntity instance
    * @param name Variable name
    * @returns Variable value
    */
-  getVariable(threadEntity: ThreadEntity, name: string): unknown {
+  getVariable(threadEntity: WorkflowExecutionEntity, name: string): unknown {
     const scopes = this.stateManager.getVariableScopes();
 
     // Loop Scope (Highest Priority)
@@ -140,13 +140,13 @@ export class VariableCoordinator {
 
   /**
    * Update the value of a defined variable
-   * @param threadEntity ThreadEntity instance
+   * @param threadEntity WorkflowExecutionEntity instance
    * @param name Variable name
    * @param value New variable value
    * @param explicitScope Explicitly specified scope (optional)
    */
   async updateVariable(
-    threadEntity: ThreadEntity,
+    threadEntity: WorkflowExecutionEntity,
     name: string,
     value: unknown,
     explicitScope?: VariableScope,
@@ -204,11 +204,11 @@ export class VariableCoordinator {
 
   /**
    * Check if the variable exists
-   * @param threadEntity ThreadEntity instance
+   * @param threadEntity WorkflowExecutionEntity instance
    * @param name Variable name
    * @returns Whether the variable exists
    */
-  hasVariable(threadEntity: ThreadEntity, name: string): boolean {
+  hasVariable(threadEntity: WorkflowExecutionEntity, name: string): boolean {
     return this.getVariable(threadEntity, name) !== undefined;
   }
 
@@ -306,7 +306,7 @@ export class VariableCoordinator {
    * @param threadContext: Thread context
    * @returns: VariableAccessor instance
    */
-  createAccessor(threadEntity: ThreadEntity): VariableAccessor {
+  createAccessor(threadEntity: WorkflowExecutionEntity): VariableAccessor {
     return new VariableAccessor(threadEntity);
   }
 
@@ -332,20 +332,20 @@ export class VariableCoordinator {
    * getVariableByPath(entity, 'subgraph.temp')
    * getVariableByPath(entity, 'loop.item')
    */
-  getVariableByPath(threadEntity: ThreadEntity, path: string): unknown {
+  getVariableByPath(threadEntity: WorkflowExecutionEntity, path: string): unknown {
     const accessor = this.createAccessor(threadEntity);
     return accessor.get(path);
   }
 
   /**
    * Trigger a variable change event
-   * @param threadEntity ThreadEntity instance
+   * @param threadEntity WorkflowExecutionEntity instance
    * @param name Variable name
    * @param value New value
    * @param scope Scope of the variable
    */
   private async emitVariableChangedEvent(
-    threadEntity: ThreadEntity,
+    threadEntity: WorkflowExecutionEntity,
     name: string,
     value: unknown,
     scope: VariableScope,

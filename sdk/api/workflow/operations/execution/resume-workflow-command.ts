@@ -16,7 +16,7 @@ import { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
  */
 export class ResumeWorkflowCommand extends BaseCommand<WorkflowExecutionResult> {
   constructor(
-    private readonly executionId: string,
+    private readonly workflowExecutionId: string,
     private readonly dependencies: APIDependencyManager,
   ) {
     super();
@@ -24,14 +24,14 @@ export class ResumeWorkflowCommand extends BaseCommand<WorkflowExecutionResult> 
 
   protected async executeInternal(): Promise<WorkflowExecutionResult> {
     const lifecycleCoordinator = this.dependencies.getWorkflowLifecycleCoordinator();
-    const result = await lifecycleCoordinator.resumeWorkflowExecution(this.executionId);
+    const result = await lifecycleCoordinator.resumeWorkflowExecution(this.workflowExecutionId);
     return result;
   }
 
   validate(): CommandValidationResult {
     const errors: string[] = [];
 
-    if (!this.executionId || this.executionId.trim().length === 0) {
+    if (!this.workflowExecutionId || this.workflowExecutionId.trim().length === 0) {
       errors.push("Execution ID cannot be empty");
     }
 

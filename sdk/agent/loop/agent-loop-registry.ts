@@ -2,7 +2,7 @@
  * AgentLoopRegistry - Agent Loop Registry
  *
  * Manages all active AgentLoopEntity instances.
- * Refer to the ThreadRegistry design pattern.
+ * Refer to the WorkflowExecutionRegistry design pattern.
  */
 
 import type { ID } from "@wf-agent/types";

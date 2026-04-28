@@ -61,7 +61,7 @@ export class WorkflowStateTransitor {
    */
   async startWorkflowExecution(workflowExecutionEntity: WorkflowExecutionEntity): Promise<void> {
     const previousStatus = workflowExecutionEntity.getStatus();
-    logger.info("Starting workflow execution", { executionId: workflowExecutionEntity.id, previousStatus });
+    logger.info("Starting workflow execution", { workflowExecutionId: workflowExecutionEntity.id, previousStatus });
 
     validateTransition(workflowExecutionEntity.id, previousStatus, "RUNNING" as WorkflowExecutionStatus);
 
@@ -73,7 +73,7 @@ export class WorkflowStateTransitor {
     const stateChangedEvent = buildWorkflowExecutionStateChangedEvent(workflowExecutionEntity, previousStatus, "RUNNING");
     await emit(this.eventManager, stateChangedEvent);
 
-    logger.info("Workflow execution started", { executionId: workflowExecutionEntity.id, status: "RUNNING" });
+    logger.info("Workflow execution started", { workflowExecutionId: workflowExecutionEntity.id, status: "RUNNING" });
   }
 
   /**
@@ -85,11 +85,11 @@ export class WorkflowStateTransitor {
   async pauseWorkflowExecution(workflowExecutionEntity: WorkflowExecutionEntity): Promise<void> {
     const currentStatus = workflowExecutionEntity.getStatus();
     if (currentStatus === "PAUSED") {
-      logger.debug("Workflow execution already paused, skipping", { executionId: workflowExecutionEntity.id });
+      logger.debug("Workflow execution already paused, skipping", { workflowExecutionId: workflowExecutionEntity.id });
       return;
     }
 
-    logger.info("Pausing workflow execution", { executionId: workflowExecutionEntity.id, previousStatus: currentStatus });
+    logger.info("Pausing workflow execution", { workflowExecutionId: workflowExecutionEntity.id, previousStatus: currentStatus });
 
     validateTransition(workflowExecutionEntity.id, currentStatus, "PAUSED" as WorkflowExecutionStatus);
 
@@ -101,7 +101,7 @@ export class WorkflowStateTransitor {
     const stateChangedEvent = buildWorkflowExecutionStateChangedEvent(workflowExecutionEntity, currentStatus, "PAUSED");
     await emit(this.eventManager, stateChangedEvent);
 
-    logger.info("Workflow execution paused", { executionId: workflowExecutionEntity.id });
+    logger.info("Workflow execution paused", { workflowExecutionId: workflowExecutionEntity.id });
   }
 
   /**
@@ -113,11 +113,11 @@ export class WorkflowStateTransitor {
   async resumeWorkflowExecution(workflowExecutionEntity: WorkflowExecutionEntity): Promise<void> {
     const currentStatus = workflowExecutionEntity.getStatus();
     if (currentStatus === "RUNNING") {
-      logger.debug("Workflow execution already running, skipping resume", { executionId: workflowExecutionEntity.id });
+      logger.debug("Workflow execution already running, skipping resume", { workflowExecutionId: workflowExecutionEntity.id });
       return;
     }
 
-    logger.info("Resuming workflow execution", { executionId: workflowExecutionEntity.id, previousStatus: currentStatus });
+    logger.info("Resuming workflow execution", { workflowExecutionId: workflowExecutionEntity.id, previousStatus: currentStatus });
 
     validateTransition(workflowExecutionEntity.id, currentStatus, "RUNNING" as WorkflowExecutionStatus);
 
@@ -129,7 +129,7 @@ export class WorkflowStateTransitor {
     const stateChangedEvent = buildWorkflowExecutionStateChangedEvent(workflowExecutionEntity, currentStatus, "RUNNING");
     await emit(this.eventManager, stateChangedEvent);
 
-    logger.info("Workflow execution resumed", { executionId: workflowExecutionEntity.id });
+    logger.info("Workflow execution resumed", { workflowExecutionId: workflowExecutionEntity.id });
   }
 
   /**
@@ -141,10 +141,10 @@ export class WorkflowStateTransitor {
    */
   async completeWorkflowExecution(workflowExecutionEntity: WorkflowExecutionEntity, result: WorkflowExecutionResult): Promise<void> {
     const previousStatus = workflowExecutionEntity.getStatus();
-    logger.info("Completing workflow execution", { executionId: workflowExecutionEntity.id, previousStatus });
+    logger.info("Completing workflow execution", { workflowExecutionId: workflowExecutionEntity.id, previousStatus });
 
     if (previousStatus === "COMPLETED") {
-      logger.debug("Workflow execution already completed, emitting event only", { executionId: workflowExecutionEntity.id });
+      logger.debug("Workflow execution already completed, emitting event only", { workflowExecutionId: workflowExecutionEntity.id });
       if (!workflowExecutionEntity.getEndTime()) {
         workflowExecutionEntity.state.complete();
       }
@@ -173,7 +173,7 @@ export class WorkflowStateTransitor {
     const endTime = workflowExecutionEntity.getEndTime();
     const startTime = workflowExecutionEntity.getStartTime();
     logger.info("Workflow execution completed", {
-      executionId: workflowExecutionEntity.id,
+      workflowExecutionId: workflowExecutionEntity.id,
       executionTime: endTime && startTime ? endTime - startTime : 0,
     });
   }
@@ -188,7 +188,7 @@ export class WorkflowStateTransitor {
   async failWorkflowExecution(workflowExecutionEntity: WorkflowExecutionEntity, error: Error): Promise<void> {
     const previousStatus = workflowExecutionEntity.getStatus();
     logger.info("Failing workflow execution", {
-      executionId: workflowExecutionEntity.id,
+      workflowExecutionId: workflowExecutionEntity.id,
       previousStatus,
       errorMessage: error.message,
     });
@@ -200,7 +200,7 @@ export class WorkflowStateTransitor {
     workflowExecutionEntity.getErrors().push(error.message);
     this.workflowConversationSession.cleanup();
 
-    const failedEvent = buildWorkflowExecutionFailedEvent({ executionId: workflowExecutionEntity.id, error });
+    const failedEvent = buildWorkflowExecutionFailedEvent({ workflowExecutionId: workflowExecutionEntity.id, error });
     await emit(this.eventManager, failedEvent);
 
     const stateChangedEvent = buildWorkflowExecutionStateChangedEvent(workflowExecutionEntity, previousStatus, "FAILED");
@@ -209,7 +209,7 @@ export class WorkflowStateTransitor {
     const endTime = workflowExecutionEntity.getEndTime();
     const startTime = workflowExecutionEntity.getStartTime();
     logger.info("Workflow execution failed", {
-      executionId: workflowExecutionEntity.id,
+      workflowExecutionId: workflowExecutionEntity.id,
       executionTime: endTime && startTime ? endTime - startTime : 0,
     });
   }
@@ -224,12 +224,12 @@ export class WorkflowStateTransitor {
   async cancelWorkflowExecution(workflowExecutionEntity: WorkflowExecutionEntity, reason?: string): Promise<void> {
     const currentStatus = workflowExecutionEntity.getStatus();
     if (currentStatus === "CANCELLED") {
-      logger.debug("Workflow execution already cancelled, skipping", { executionId: workflowExecutionEntity.id });
+      logger.debug("Workflow execution already cancelled, skipping", { workflowExecutionId: workflowExecutionEntity.id });
       return;
     }
 
     logger.info("Cancelling workflow execution", {
-      executionId: workflowExecutionEntity.id,
+      workflowExecutionId: workflowExecutionEntity.id,
       previousStatus: currentStatus,
       reason,
     });
@@ -250,7 +250,7 @@ export class WorkflowStateTransitor {
     );
     await emit(this.eventManager, stateChangedEvent);
 
-    logger.info("Workflow execution cancelled", { executionId: workflowExecutionEntity.id, reason });
+    logger.info("Workflow execution cancelled", { workflowExecutionId: workflowExecutionEntity.id, reason });
   }
 
   /**

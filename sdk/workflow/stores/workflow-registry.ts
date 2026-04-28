@@ -3,7 +3,7 @@
  * Responsible for the registration, querying, and management of workflow definitions
  * This includes the management of workflow relationships and references
  *
- * The pre-processed graph is managed by GraphRegistry.
+ * The pre-processed graph is managed by WorkflowGraphRegistry.
  *
  * This module only exports class definitions; instances are managed uniformly through SingletonRegistry.
  *
@@ -78,7 +78,7 @@ export class WorkflowRegistry {
   private getWorkflowExecutionRegistry(): WorkflowExecutionRegistry | undefined {
     if (!this.workflowExecutionRegistry) {
       const container = getContainer();
-      this.workflowExecutionRegistry = container.get(Identifiers.ThreadRegistry) as WorkflowExecutionRegistry;
+      this.workflowExecutionRegistry = container.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry;
     }
     return this.workflowExecutionRegistry;
   }

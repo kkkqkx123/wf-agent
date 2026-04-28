@@ -34,18 +34,18 @@ import type { WorkflowStateCoordinator } from "../../state-managers/workflow-sta
 import { LLMExecutionCoordinator } from "./llm-execution-coordinator.js";
 import { SDKError } from "@wf-agent/types";
 import {
-  enterSubworkflow,
-  exitSubworkflow,
-  getSubworkflowInput,
-  getSubworkflowOutput,
-} from "../handlers/subworkflow-handler.js";
+  enterSubgraph,
+  exitSubgraph,
+  getSubgraphInput,
+  getSubgraphOutput,
+} from "../handlers/subgraph-handler.js";
 
 import { executeHook } from "../handlers/hook-handlers/hook-handler.js";
 import { handleErrorWithContext } from "../../../core/utils/error-utils.js";
 import { now, diffTimestamp, getErrorOrNew } from "@wf-agent/common-utils";
 import { emit } from "../../../core/utils/event/event-emitter.js";
 import { getNodeHandler } from "../handlers/node-handlers/index.js";
-import { SUBWORKFLOW_METADATA_KEYS, SubworkflowBoundaryType } from "@wf-agent/types";
+import { SUBGRAPH_METADATA_KEYS, SubgraphBoundaryType } from "@wf-agent/types";
 import type { CheckpointDependencies } from "../../checkpoint/utils/checkpoint-utils.js";
 import { createCheckpoint } from "../../checkpoint/utils/checkpoint-utils.js";
 import {
@@ -58,8 +58,8 @@ import {
   buildNodeStartedEvent,
   buildNodeCompletedEvent,
   buildNodeFailedEvent,
-  buildSubworkflowStartedEvent,
-  buildSubworkflowCompletedEvent,
+  buildSubgraphStartedEvent,
+  buildSubgraphCompletedEvent,
 } from "../utils/event/index.js";
 import type { InterruptionDetector } from "../interruption-detector.js";
 import {
@@ -193,7 +193,7 @@ export class NodeExecutionCoordinator {
    * @param type Interrupt Type (PAUSE or STOP)
    */
   async handleInterruption(
-    executionId: string,
+    workflowExecutionId: string,
     nodeId: string,
     type: "PAUSE" | "STOP",
   ): Promise<void> {
@@ -301,14 +301,14 @@ export class NodeExecutionCoordinator {
     // Get the GraphNode to check the boundary information.
     const graphNode = this.navigator.getGraph().getNode(nodeId);
 
-    // Check if it is a boundary node of a subworkflow.
-    if (graphNode?.internalMetadata?.[SUBWORKFLOW_METADATA_KEYS.BOUNDARY_TYPE]) {
-      logger.debug("Handling subworkflow boundary", {
+    // Check if it is a boundary node of a subgraph.
+    if (graphNode?.internalMetadata?.[SUBGRAPH_METADATA_KEYS.BOUNDARY_TYPE]) {
+      logger.debug("Handling subgraph boundary", {
         executionId,
         nodeId,
-        boundaryType: graphNode.internalMetadata[SUBWORKFLOW_METADATA_KEYS.BOUNDARY_TYPE],
+        boundaryType: graphNode.internalMetadata[SUBGRAPH_METADATA_KEYS.BOUNDARY_TYPE],
       });
-      await this.handleSubworkflowBoundary(workflowExecutionEntity, graphNode);
+      await this.handleSubgraphBoundary(workflowExecutionEntity, graphNode);
     }
 
     try {
@@ -332,7 +332,7 @@ export class NodeExecutionCoordinator {
           try {
             await createCheckpoint(
               {
-                executionId: workflowExecutionEntity.id,
+                workflowExecutionId: workflowExecutionEntity.id,
                 nodeId,
                 description: configResult.description || `Before node: ${node.name}`,
               },
@@ -359,7 +359,7 @@ export class NodeExecutionCoordinator {
         });
         await executeHook(
           {
-            workflowExecution: workflowExecutionEntity.getWorkflowExecution(),
+            workflowExecution: workflowExecutionEntity.getWorkflowExecutionData(),
             workflowExecutionEntity,
             node,
             checkpointDependencies: this.checkpointDependencies,
@@ -385,7 +385,7 @@ export class NodeExecutionCoordinator {
         });
         await executeHook(
           {
-            workflowExecution: workflowExecutionEntity.getWorkflowExecution(),
+            workflowExecution: workflowExecutionEntity.getWorkflowExecutionData(),
             workflowExecutionEntity,
             node,
             result: nodeResult,
@@ -410,7 +410,7 @@ export class NodeExecutionCoordinator {
           try {
             await createCheckpoint(
               {
-                executionId: workflowExecutionEntity.id,
+                workflowExecutionId: workflowExecutionEntity.id,
                 nodeId,
                 description: configResult.description || `After node: ${node.name}`,
               },
@@ -486,11 +486,11 @@ export class NodeExecutionCoordinator {
   }
 
   /**
-   * Handle subworkflow boundaries
+   * Handle subgraph boundaries
    * @param workflowExecutionEntity Workflow execution entity
    * @param graphNode Graph node
    */
-  private async handleSubworkflowBoundary(
+  private async handleSubgraphBoundary(
     workflowExecutionEntity: WorkflowExecutionEntity,
     graphNode: {
       internalMetadata?: Record<string, unknown>;
@@ -499,48 +499,48 @@ export class NodeExecutionCoordinator {
     },
   ): Promise<void> {
     const boundaryType = graphNode.internalMetadata?.[
-      SUBWORKFLOW_METADATA_KEYS.BOUNDARY_TYPE
-    ] as SubworkflowBoundaryType;
+      SUBGRAPH_METADATA_KEYS.BOUNDARY_TYPE
+    ] as SubgraphBoundaryType;
     const executionId = workflowExecutionEntity.id;
 
     if (boundaryType === "entry") {
-      logger.info("Entering subworkflow", {
+      logger.info("Entering subgraph", {
         executionId,
-        subworkflowId: graphNode.workflowId,
+        subgraphId: graphNode.workflowId,
         parentWorkflowId: graphNode.parentWorkflowId,
       });
-      // Enter the subworkflow
-      const input = getSubworkflowInput(workflowExecutionEntity);
-      await enterSubworkflow(workflowExecutionEntity, graphNode.workflowId, graphNode.parentWorkflowId!, input);
+      // Enter the subgraph
+      const input = getSubgraphInput(workflowExecutionEntity);
+      await enterSubgraph(workflowExecutionEntity, graphNode.workflowId, graphNode.parentWorkflowId!, input);
 
-      // Trigger the start event of the subworkflow
-      const subworkflowStartedEvent = workflowExecutionEntity.buildEvent(buildSubworkflowStartedEvent, {
-        subworkflowId: graphNode.workflowId,
+      // Trigger the start event of the subgraph
+      const subgraphStartedEvent = workflowExecutionEntity.buildEvent(buildSubgraphStartedEvent, {
+        subgraphId: graphNode.workflowId,
         parentWorkflowId: graphNode.parentWorkflowId!,
         input,
       });
-      await emit(this.eventManager, subworkflowStartedEvent);
+      await emit(this.eventManager, subgraphStartedEvent);
     } else if (boundaryType === "exit") {
-      // Exit the subworkflow
-      const subworkflowContext = workflowExecutionEntity.getCurrentSubworkflowContext();
-      if (subworkflowContext) {
-        const output = getSubworkflowOutput(workflowExecutionEntity);
+      // Exit the subgraph
+      const subgraphContext = workflowExecutionEntity.getCurrentSubgraphContext();
+      if (subgraphContext) {
+        const output = getSubgraphOutput(workflowExecutionEntity);
 
-        logger.info("Exiting subworkflow", {
+        logger.info("Exiting subgraph", {
           executionId,
-          subworkflowId: subworkflowContext.workflowId,
-          executionTime: diffTimestamp(subworkflowContext.startTime, now()),
+          subgraphId: subgraphContext.workflowId,
+          executionTime: diffTimestamp(subgraphContext.startTime, now()),
         });
 
-        // Trigger the completion event of the subworkflow.
-        const subworkflowCompletedEvent = workflowExecutionEntity.buildEvent(buildSubworkflowCompletedEvent, {
-          subworkflowId: subworkflowContext.workflowId,
+        // Trigger the completion event of the subgraph.
+        const subgraphCompletedEvent = workflowExecutionEntity.buildEvent(buildSubgraphCompletedEvent, {
+          subgraphId: subgraphContext.workflowId,
           output,
-          executionTime: diffTimestamp(subworkflowContext.startTime, now()),
+          executionTime: diffTimestamp(subgraphContext.startTime, now()),
         });
-        await emit(this.eventManager, subworkflowCompletedEvent);
+        await emit(this.eventManager, subgraphCompletedEvent);
 
-        await exitSubworkflow(workflowExecutionEntity);
+        await exitSubgraph(workflowExecutionEntity);
       }
     }
   }

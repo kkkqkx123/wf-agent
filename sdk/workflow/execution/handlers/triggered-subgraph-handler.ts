@@ -16,7 +16,7 @@
  */
 
 import type { ID, WorkflowExecutionResult } from "@wf-agent/types";
-import type { ThreadEntity } from "../../entities/workflow-execution-entity.js";
+import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import { now, diffTimestamp, getErrorMessage, getErrorOrNew } from "@wf-agent/common-utils";
 import { createSubgraphMetadata } from "./subgraph-handler.js";
@@ -34,7 +34,7 @@ import {
  * Sub-workflow Executor Interface
  */
 export interface SubgraphExecutor {
-  executeThread(threadEntity: ThreadEntity): Promise<unknown>;
+  executeThread(threadEntity: WorkflowExecutionEntity): Promise<unknown>;
 }
 
 /**
@@ -46,7 +46,7 @@ export interface SubgraphContextFactory {
     subgraphId: ID,
     input: Record<string, unknown>,
     metadata: Record<string, unknown>,
-  ): Promise<ThreadEntity>;
+  ): Promise<WorkflowExecutionEntity>;
 }
 
 /**
@@ -58,7 +58,7 @@ export interface SubgraphContextFactory {
 export async function createSubgraphContext(
   task: TriggeredSubgraphTask,
   contextFactory: SubgraphContextFactory,
-): Promise<ThreadEntity> {
+): Promise<WorkflowExecutionEntity> {
   const metadata = createSubgraphMetadata(task.triggerId, task.mainThreadEntity.id);
 
   const subgraphEntity = await contextFactory.buildSubgraphContext(
@@ -77,7 +77,7 @@ export async function createSubgraphContext(
  * @param eventManager: The event manager
  */
 export async function emitSubgraphStartedEvent(
-  mainThreadEntity: ThreadEntity,
+  mainThreadEntity: WorkflowExecutionEntity,
   task: TriggeredSubgraphTask,
   eventManager: EventRegistry,
 ): Promise<void> {
@@ -101,9 +101,9 @@ export async function emitSubgraphStartedEvent(
  * @param eventManager: The event manager
  */
 export async function emitSubgraphCompletedEvent(
-  mainThreadEntity: ThreadEntity,
+  mainThreadEntity: WorkflowExecutionEntity,
   task: TriggeredSubgraphTask,
-  subgraphEntity: ThreadEntity,
+  subgraphEntity: WorkflowExecutionEntity,
   executionTime: number,
   eventManager: EventRegistry,
 ): Promise<void> {
@@ -128,7 +128,7 @@ export async function emitSubgraphCompletedEvent(
  * @param eventManager: Event manager
  */
 export async function emitSubgraphFailedEvent(
-  mainThreadEntity: ThreadEntity,
+  mainThreadEntity: WorkflowExecutionEntity,
   task: TriggeredSubgraphTask,
   error: Error | string,
   executionTime: number,

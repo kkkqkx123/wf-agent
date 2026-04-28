@@ -13,8 +13,8 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { TriggerCoordinator } from "../../workflow/execution/coordinators/trigger-coordinator.js";
 import { TriggerState } from "../../workflow/state-managers/trigger-state.js";
 import { WorkflowRegistry } from "../../workflow/workflow/workflow-registry.js";
-import { GraphRegistry } from "../../workflow/graph-structure/graph-registry.js";
-import { ThreadRegistry } from "../../workflow/stores/thread-registry.js";
+import { WorkflowGraphRegistry } from "../../workflow/graph-structure/graph-registry.js";
+import { WorkflowExecutionRegistry } from "../../workflow/stores/thread-registry.js";
 import type { WorkflowTrigger, Trigger, BaseEvent, NodeCustomEvent } from "@wf-agent/types";
 import { EventType } from "@wf-agent/types";
 import { ExecutionError, RuntimeValidationError } from "@wf-agent/types";
@@ -72,10 +72,10 @@ describe("Trigger Coordinator", () => {
 
     // Create a coordinator
     coordinator = new TriggerCoordinator({
-      threadRegistry: mockThreadRegistry,
+      workflowExecutionRegistry: mockThreadRegistry,
       workflowRegistry: mockWorkflowRegistry,
       stateManager: stateManager,
-      graphRegistry: mockGraphRegistry,
+      workflowGraphRegistry: mockGraphRegistry,
       eventManager: mockEventManager,
       threadLifecycleCoordinator: mockThreadLifecycleCoordinator,
       threadBuilder: mockThreadBuilder,

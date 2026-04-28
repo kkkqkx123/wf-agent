@@ -29,8 +29,8 @@ import {
 import type { TriggerTemplate, WorkflowDefinition } from "@wf-agent/types";
 import { EventType, TriggerActionType } from "@wf-agent/types";
 import { initializeContainer, resetContainer, setStorageCallback } from "../di/container-config.js";
-import type { GraphRegistry } from "../../workflow/graph-structure/graph-registry.js";
-import type { ThreadRegistry } from "../../workflow/stores/thread-registry.js";
+import type { WorkflowGraphRegistry } from "../../workflow/graph-structure/graph-registry.js";
+import type { WorkflowExecutionRegistry } from "../../workflow/stores/thread-registry.js";
 import * as Identifiers from "../di/service-identifiers.js";
 
 // Mock storage callback
@@ -44,8 +44,8 @@ const mockStorageCallback = {
 describe("Predefined Triggers -predefined triggers", () => {
   let triggerRegistry: TriggerTemplateRegistry;
   let workflowRegistry: WorkflowRegistry;
-  let graphRegistry: WorkflowGraphRegistry;
-  let threadRegistry: WorkflowExecutionRegistry;
+  let workflowGraphRegistry: WorkflowGraphRegistry;
+  let workflowExecutionRegistry: WorkflowExecutionRegistry;
 
   beforeEach(() => {
     // Reset container before each test
@@ -55,8 +55,8 @@ describe("Predefined Triggers -predefined triggers", () => {
 
     // Get instances from container
     const container = initializeContainer(mockStorageCallback);
-    graphRegistry = container.get(Identifiers.GraphRegistry);
-    threadRegistry = container.get(Identifiers.ThreadRegistry);
+    graphRegistry = container.get(Identifiers.WorkflowGraphRegistry);
+    threadRegistry = container.get(Identifiers.WorkflowExecutionRegistry);
 
     // Create registries with proper dependencies
     triggerRegistry = new TriggerTemplateRegistry();

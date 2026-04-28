@@ -1,9 +1,9 @@
 /**
  * ThreadStateCoordinator - Thread State Coordinator
- * Unified management of ThreadEntity and ConversationSession state
+ * Unified management of WorkflowExecutionEntity and ConversationSession state
  *
  * Core Responsibilities:
- * - Coordinate message management between ThreadEntity and ConversationSession
+ * - Coordinate message management between WorkflowExecutionEntity and ConversationSession
  * - Provide unified state snapshot and recovery interface
  * - Eliminate data redundancy and synchronization issues
  *
@@ -14,7 +14,7 @@
  */
 
 import type { LLMMessage, TokenUsageStats, MessageMarkMap } from "@wf-agent/types";
-import type { ThreadEntity } from "../entities/index.js";
+import type { WorkflowExecutionEntity } from "../entities/index.js";
 import type { ConversationSession } from "../../core/messaging/conversation-session.js";
 
 /**
@@ -37,7 +37,7 @@ export interface ThreadStateSnapshot {
  */
 export interface ThreadStateCoordinatorConfig {
   /** Thread entity (required) */
-  threadEntity: ThreadEntity;
+  threadEntity: WorkflowExecutionEntity;
   /** Conversation session (required) */
   conversationManager: ConversationSession;
 }
@@ -45,10 +45,10 @@ export interface ThreadStateCoordinatorConfig {
 /**
  * ThreadStateCoordinator
  *
- * Coordinates state management between ThreadEntity and ConversationSession.
+ * Coordinates state management between WorkflowExecutionEntity and ConversationSession.
  * This class provides a unified interface for message management and state operations,
  * eliminating the data redundancy and synchronization issues that existed when
- * ThreadEntity directly held a ConversationSession.
+ * WorkflowExecutionEntity directly held a ConversationSession.
  *
  * Usage:
  * - Created by execution layer (NodeExecutionCoordinator, ThreadBuilder, etc.)
@@ -56,7 +56,7 @@ export interface ThreadStateCoordinatorConfig {
  * - Handles state snapshot and recovery for checkpoint mechanism
  */
 export class ThreadStateCoordinator {
-  private threadEntity: ThreadEntity;
+  private threadEntity: WorkflowExecutionEntity;
   private conversationManager: ConversationSession;
 
   constructor(config: ThreadStateCoordinatorConfig) {
@@ -70,11 +70,11 @@ export class ThreadStateCoordinator {
 
   /**
    * Add a message to both managers
-   * This replaces the previous dual-write pattern in ThreadEntity
+   * This replaces the previous dual-write pattern in WorkflowExecutionEntity
    * @param message LLM message
    */
   addMessage(message: LLMMessage): void {
-    // Add to ThreadEntity's message history
+    // Add to WorkflowExecutionEntity's message history
     this.threadEntity.messageHistoryManager.addMessage(message);
     // Sync to ConversationSession for Graph-specific features
     this.conversationManager.addMessage(message);
@@ -292,7 +292,7 @@ export class ThreadStateCoordinator {
    * Get the thread entity
    * @returns Thread entity
    */
-  getThreadEntity(): ThreadEntity {
+  getThreadEntity(): WorkflowExecutionEntity {
     return this.threadEntity;
   }
 

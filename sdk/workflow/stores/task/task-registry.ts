@@ -18,7 +18,7 @@
 
 import { generateId } from "../../../utils/index.js";
 import { now } from "@wf-agent/common-utils";
-import type { ThreadEntity } from "../../entities/index.js";
+import type { WorkflowExecutionEntity } from "../../entities/index.js";
 import type { WorkflowExecutionResult, TaskStorageMetadata } from "@wf-agent/types";
 import {
   TaskStatus,
@@ -291,7 +291,7 @@ export class TaskRegistry {
 
   /**
    * Register a task (unified method for both Agent and Thread)
-   * @param instance Execution instance (AgentLoopEntity or ThreadEntity)
+   * @param instance Execution instance (AgentLoopEntity or WorkflowExecutionEntity)
    * @param instanceType Execution instance type
    * @param manager Task manager
    * @param timeout Timeout period (in milliseconds)
@@ -330,7 +330,7 @@ export class TaskRegistry {
    * @param timeout Timeout period (in milliseconds)
    * @returns Task ID
    */
-  registerThread(threadEntity: ThreadEntity, manager: TaskManager, timeout?: number): string {
+  registerThread(threadEntity: WorkflowExecutionEntity, manager: TaskManager, timeout?: number): string {
     return this.register(threadEntity, "thread", manager, timeout);
   }
 

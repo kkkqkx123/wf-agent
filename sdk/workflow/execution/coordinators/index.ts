@@ -15,7 +15,7 @@
  * - ThreadOperationCoordinator: Thread operation coordinator
  * - VariableCoordinator: Variable coordinator
  * - ToolVisibilityCoordinator: Tool visibility coordinator
- * - ThreadStateTransitor: Thread state transitor (atomic state operations + cascade operations)
+ * - WorkflowStateTransitor: Thread state transitor (atomic state operations + cascade operations)
  */
 
 export {
@@ -28,6 +28,6 @@ export { ThreadLifecycleCoordinator } from "./thread-lifecycle-coordinator.js";
 export { ThreadOperationCoordinator } from "./thread-operation-coordinator.js";
 export { ThreadExecutionCoordinator } from "./thread-execution-coordinator.js";
 export { VariableCoordinator } from "./variable-coordinator.js";
-export { ThreadStateTransitor } from "./thread-state-transitor.js";
+export { WorkflowStateTransitor } from "./thread-state-transitor.js";
 
 export { ToolVisibilityCoordinator } from "./tool-visibility-coordinator.js";

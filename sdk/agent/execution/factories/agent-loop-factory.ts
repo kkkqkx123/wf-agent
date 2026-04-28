@@ -15,7 +15,7 @@
 
 import { randomUUID } from "crypto";
 import type { LLMMessage, AgentLoopConfig, ID } from "@wf-agent/types";
-import type { ThreadRegistry } from "../../../workflow/stores/thread-registry.js";
+import type { WorkflowExecutionRegistry } from "../../../workflow/stores/thread-registry.js";
 import { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import type { ConversationSession } from "../../../core/messaging/conversation-session.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
@@ -138,7 +138,7 @@ export class AgentLoopFactory {
   ): Promise<void> {
     try {
       const container = getContainer();
-      const threadRegistry = container.get(Identifiers.ThreadRegistry) as WorkflowExecutionRegistry;
+      const threadRegistry = container.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry;
 
       if (threadRegistry) {
         const threadEntity = threadRegistry.get(parentThreadId);

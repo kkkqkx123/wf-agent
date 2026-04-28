@@ -9,9 +9,9 @@
  * - Verification of the presence of necessary dependencies
  */
 
-import type { ThreadRegistry } from "../../stores/workflow-execution-registry.js";
+import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-registry.js";
 import type { WorkflowRegistry } from "../../stores/workflow-registry.js";
-import type { GraphRegistry } from "../../stores/workflow-graph-registry.js";
+import type { WorkflowGraphRegistry } from "../../stores/workflow-graph-registry.js";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import type { ToolRegistry } from "../../../core/registry/tool-registry.js";
 import type { LLMExecutor } from "../../../core/executors/llm-executor.js";
@@ -24,7 +24,7 @@ import { ExecutionError } from "@wf-agent/types";
  * Tool Approval Context
  */
 export interface ToolApprovalContext {
-  threadRegistry: WorkflowExecutionRegistry;
+  workflowExecutionRegistry: WorkflowExecutionRegistry;
   checkpointStateManager: CheckpointState;
   workflowRegistry?: WorkflowRegistry;
   graphRegistry?: WorkflowGraphRegistry;
@@ -118,7 +118,7 @@ export class LLMContextFactory {
   createToolApprovalContext(threadId: string, nodeId: string): ToolApprovalContext {
     if (!this.config.threadRegistry) {
       throw new ExecutionError(
-        "ThreadRegistry is required for tool approval context",
+        "WorkflowExecutionRegistry is required for tool approval context",
         nodeId,
         undefined,
         { threadId },
@@ -135,10 +135,10 @@ export class LLMContextFactory {
     }
 
     return {
-      threadRegistry: this.config.threadRegistry,
+      workflowExecutionRegistry: this.config.threadRegistry,
       checkpointStateManager: this.config.checkpointStateManager,
       workflowRegistry: this.config.workflowRegistry,
-      graphRegistry: this.config.graphRegistry,
+      workflowGraphRegistry: this.config.graphRegistry,
     };
   }
 
@@ -149,7 +149,7 @@ export class LLMContextFactory {
    */
   createInterruptionContext(): InterruptionContext {
     return {
-      threadRegistry: this.config.threadRegistry,
+      workflowExecutionRegistry: this.config.threadRegistry,
       interruptionDetector: this.config.interruptionDetector,
     };
   }

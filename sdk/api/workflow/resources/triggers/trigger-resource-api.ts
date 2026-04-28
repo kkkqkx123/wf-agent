@@ -4,7 +4,7 @@
  */
 
 import { ReadonlyResourceAPI } from "../../../shared/resources/generic-resource-api.js";
-import type { ThreadRegistry } from "../../../../workflow/stores/thread-registry.js";
+import type { WorkflowExecutionRegistry } from "../../../../workflow/stores/thread-registry.js";
 import type { Trigger } from "@wf-agent/types";
 import { NotFoundError, ThreadContextNotFoundError } from "@wf-agent/types";
 import { getContainer } from "../../../../core/di/index.js";
@@ -34,7 +34,7 @@ export class TriggerResourceAPI extends ReadonlyResourceAPI<Trigger, string, Tri
   constructor() {
     super();
     const container = getContainer();
-    this.registry = container.get(Identifiers.ThreadRegistry) as WorkflowExecutionRegistry;
+    this.registry = container.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry;
   }
 
   // ============================================================================
@@ -314,8 +314,8 @@ export class TriggerResourceAPI extends ReadonlyResourceAPI<Trigger, string, Tri
   }
 
   /**
-   * Get the underlying ThreadRegistry instance
-   * @returns ThreadRegistry instance
+   * Get the underlying WorkflowExecutionRegistry instance
+   * @returns WorkflowExecutionRegistry instance
    */
   getRegistry(): WorkflowExecutionRegistry {
     return this.registry;

@@ -4,7 +4,7 @@
  */
 
 // Execute entity
-export { ThreadEntity } from "../entities/index.js";
+export { WorkflowExecutionEntity } from "../entities/index.js";
 export { ExecutionState, type SubgraphContext } from "../state-managers/index.js";
 
 // Main Execution Engine
@@ -23,7 +23,7 @@ export {
 } from "./utils/thread-state-validator.js";
 
 // Thread Registry
-export { ThreadRegistry } from "../stores/thread-registry.js";
+export { WorkflowExecutionRegistry } from "../stores/thread-registry.js";
 
 // Variable Coordinator and State Manager
 export { VariableCoordinator } from "./coordinators/variable-coordinator.js";

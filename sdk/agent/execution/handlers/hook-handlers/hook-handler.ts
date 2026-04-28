@@ -148,7 +148,7 @@ export async function executeAgentHook(
 
   // Constructing the execution context
   const context: AgentHookExecutionContext = {
-    executionId: entity.id,
+    workflowExecutionId: entity.id,
     entity,
     toolCall: toolCallInfo,
     llmResponse,

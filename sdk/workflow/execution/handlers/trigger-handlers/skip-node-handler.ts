@@ -6,7 +6,7 @@
 import type { TriggerAction, TriggerExecutionResult } from "@wf-agent/types";
 import type { NodeExecutionResult } from "@wf-agent/types";
 import { ValidationError, ThreadContextNotFoundError } from "@wf-agent/types";
-import type { ThreadRegistry } from "../../../stores/thread-registry.js";
+import type { WorkflowExecutionRegistry } from "../../../stores/thread-registry.js";
 import type { EventRegistry } from "../../../../core/registry/event-registry.js";
 import { getErrorMessage, now } from "@wf-agent/common-utils";
 import { buildNodeCompletedEvent } from "../../utils/event/index.js";
@@ -44,7 +44,7 @@ function createFailureResult(
 export async function skipNodeHandler(
   action: TriggerAction,
   triggerId: string,
-  threadRegistry: ThreadRegistry,
+  workflowExecutionRegistry: WorkflowExecutionRegistry,
   eventManager: EventRegistry,
 ): Promise<TriggerExecutionResult> {
   const executionTime = now();
@@ -59,7 +59,7 @@ export async function skipNodeHandler(
     const threadEntity = threadRegistry.get(threadId);
 
     if (!threadEntity) {
-      throw new ThreadContextNotFoundError(`ThreadEntity not found: ${threadId}`, threadId);
+      throw new ThreadContextNotFoundError(`WorkflowExecutionEntity not found: ${threadId}`, threadId);
     }
 
     const thread = threadEntity.getThread();

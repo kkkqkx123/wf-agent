@@ -9,12 +9,12 @@
  *
  * Design Principles:
  * - Unified interface: All components use the same detection interface
- * - Dependency injection: Obtain ThreadContext through ThreadRegistry
+ * - Dependency injection: Obtain ThreadContext through WorkflowExecutionRegistry
  * - Efficiency: Avoid unnecessary object creation
  * - Unified use of AbortSignal as the primary interrupt mechanism
  */
 
-import type { ThreadRegistry } from "../stores/thread-registry.js";
+import type { WorkflowExecutionRegistry } from "../stores/thread-registry.js";
 import type { InterruptionType } from "@wf-agent/types";
 import { isAborted, checkInterruption, getInterruptionType } from "@wf-agent/common-utils";
 
@@ -48,7 +48,7 @@ export interface InterruptionDetector {
  * Interrupt Detector Implementation
  */
 export class InterruptionDetectorImpl implements InterruptionDetector {
-  constructor(private threadRegistry: ThreadRegistry) {}
+  constructor(private workflowExecutionRegistry: WorkflowExecutionRegistry) {}
 
   /**
    * Get the AbortSignal

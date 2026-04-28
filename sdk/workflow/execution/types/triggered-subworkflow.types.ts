@@ -8,7 +8,7 @@
  */
 
 import type { ID } from "@wf-agent/types";
-import type { ThreadEntity } from "../../entities/index.js";
+import type { WorkflowExecutionEntity } from "../../entities/index.js";
 import type { WorkflowExecutionResult } from "@wf-agent/types";
 import { TaskStatus } from "../../../core/types/index.js";
 
@@ -23,7 +23,7 @@ export interface TriggeredSubgraphTask {
   /** Trigger ID */
   triggerId: string;
   /** Main Workflow Thread Entity */
-  mainThreadEntity: ThreadEntity;
+  mainThreadEntity: WorkflowExecutionEntity;
   /** Configuration options */
   config?: {
     /**
@@ -46,7 +46,7 @@ export interface TriggeredSubgraphTask {
  */
 export interface ExecutedSubgraphResult {
   /** Sub-workflow entity */
-  subgraphEntity: ThreadEntity;
+  subgraphEntity: WorkflowExecutionEntity;
   /** Execution result */
   threadResult: WorkflowExecutionResult;
   /** Execution time (in milliseconds) */
@@ -74,7 +74,7 @@ export interface QueueTask {
   /** Task ID */
   taskId: string;
   /** Thread Entity */
-  threadEntity: ThreadEntity;
+  threadEntity: WorkflowExecutionEntity;
   /** Promise resolve function */
   resolve: (value: ExecutedSubgraphResult) => void;
   /** Promise reject function */

@@ -6,7 +6,7 @@
  */
 
 import type { TriggerTemplateRegistry } from "../../core/registry/trigger-template-registry.js";
-import type { WorkflowRegistry } from "../../graph/stores/workflow-registry.js";
+import type { WorkflowRegistry } from "../../workflow/stores/workflow-registry.js";
 import {
   registerContextCompressionTrigger,
   unregisterContextCompressionTrigger,

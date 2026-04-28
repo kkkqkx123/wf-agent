@@ -15,7 +15,7 @@
  * - Sub-workflows are executed asynchronously to avoid blocking the main workflow
  */
 
-import type { ID, ThreadResult } from "@wf-agent/types";
+import type { ID, WorkflowExecutionResult } from "@wf-agent/types";
 import type { ThreadEntity } from "../../entities/workflow-execution-entity.js";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import { now, diffTimestamp, getErrorMessage, getErrorOrNew } from "@wf-agent/common-utils";
@@ -185,7 +185,7 @@ export async function executeSingleTriggeredSubgraph(
 
     return {
       subgraphEntity,
-      threadResult: threadResult as ThreadResult,
+      threadResult: threadResult as WorkflowExecutionResult,
       executionTime,
     };
   } catch (error) {

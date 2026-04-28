@@ -14,7 +14,7 @@
  */
 
 import type { PreprocessedGraph } from "@wf-agent/types";
-import type { Thread, ThreadOptions, ThreadStatus } from "@wf-agent/types";
+import type { Thread, ThreadOptions, WorkflowExecutionStatus } from "@wf-agent/types";
 import { ThreadEntity } from "../../entities/workflow-execution-entity.js";
 import { ExecutionState } from "../../state-managers/execution-state.js";
 import { ThreadStateCoordinator } from "../../state-managers/workflow-state-coordinator.js";
@@ -56,7 +56,7 @@ export class ThreadBuilder {
    */
   private getGraphRegistry(): WorkflowGraphRegistry {
     const container = getContainer();
-    return container.get(Identifiers.GraphRegistry) as GraphRegistry;
+    return container.get(Identifiers.GraphRegistry) as WorkflowGraphRegistry;
   }
 
   /**
@@ -123,7 +123,7 @@ export class ThreadBuilder {
     // Build from PreprocessedGraph
     const result = await this.buildFromPreprocessedGraph(preprocessedGraph, options);
 
-    logger.info("Thread built successfully", { threadId: result.threadEntity.id, workflowId });
+    logger.info("Thread built successfully", { threadId: result.workflowExecutionEntity.id, workflowId });
 
     return result;
   }

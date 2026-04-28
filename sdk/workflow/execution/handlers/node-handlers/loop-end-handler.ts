@@ -31,7 +31,7 @@ function canExecute(threadEntity: ThreadEntity, node: Node): boolean {
     return false;
   }
 
-  const thread = threadEntity.getThread();
+  const thread = workflowExecutionEntity.getThread();
   const config = node.config as LoopEndNodeConfig;
   const loopState = getLoopState(thread);
 
@@ -163,7 +163,7 @@ export async function loopEndHandler(
   node: Node,
   _context?: unknown,
 ): Promise<unknown> {
-  const thread = threadEntity.getThread();
+  const thread = workflowExecutionEntity.getThread();
 
   // Check if it is possible to execute.
   if (!canExecute(threadEntity, node)) {

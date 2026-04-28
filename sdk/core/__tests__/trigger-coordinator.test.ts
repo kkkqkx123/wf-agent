@@ -10,11 +10,11 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { TriggerCoordinator } from "../../graph/execution/coordinators/trigger-coordinator.js";
-import { TriggerState } from "../../graph/state-managers/trigger-state.js";
-import { WorkflowRegistry } from "../../graph/workflow/workflow-registry.js";
-import { GraphRegistry } from "../../graph/graph-structure/graph-registry.js";
-import { ThreadRegistry } from "../../graph/stores/thread-registry.js";
+import { TriggerCoordinator } from "../../workflow/execution/coordinators/trigger-coordinator.js";
+import { TriggerState } from "../../workflow/state-managers/trigger-state.js";
+import { WorkflowRegistry } from "../../workflow/workflow/workflow-registry.js";
+import { GraphRegistry } from "../../workflow/graph-structure/graph-registry.js";
+import { ThreadRegistry } from "../../workflow/stores/thread-registry.js";
 import type { WorkflowTrigger, Trigger, BaseEvent, NodeCustomEvent } from "@wf-agent/types";
 import { EventType } from "@wf-agent/types";
 import { ExecutionError, RuntimeValidationError } from "@wf-agent/types";

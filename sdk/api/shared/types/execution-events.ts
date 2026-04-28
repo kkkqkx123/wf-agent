@@ -3,7 +3,7 @@
  * For asynchronous execution and observers used with ExecutionBuilder
  */
 
-import type { ThreadResult } from "@wf-agent/types";
+import type { WorkflowExecutionResult } from "@wf-agent/types";
 
 /**
  * Execute event type
@@ -33,7 +33,7 @@ export interface CompleteEvent {
   timestamp: number;
   workflowId: string;
   threadId: string;
-  result: ThreadResult;
+  result: WorkflowExecutionResult;
   executionStats: {
     duration: number;
     steps: number;

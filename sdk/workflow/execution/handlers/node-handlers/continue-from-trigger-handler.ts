@@ -69,7 +69,7 @@ export async function continueFromTriggerHandler(
   }
 
   // Handling variable callbacks
-  const thread = threadEntity.getThread();
+  const thread = workflowExecutionEntity.getThread();
   if (config.variableCallback) {
     if (config.variableCallback.includeAll) {
       // Return all variables

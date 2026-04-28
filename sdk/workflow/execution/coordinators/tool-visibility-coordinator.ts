@@ -98,7 +98,7 @@ export class ToolVisibilityCoordinator {
     availableTools: string[],
     changeType: VisibilityChangeType = "enter_scope",
   ): Promise<void> {
-    const threadId = threadEntity.id;
+    const threadId = workflowExecutionEntity.id;
     const context = this.getContext(threadId);
 
     if (!context) {
@@ -212,7 +212,7 @@ export class ToolVisibilityCoordinator {
     toolIds: string[],
     scope: ToolScope,
   ): Promise<void> {
-    const threadId = threadEntity.id;
+    const threadId = workflowExecutionEntity.id;
     const context = this.getContext(threadId);
 
     if (!context) {
@@ -245,7 +245,7 @@ export class ToolVisibilityCoordinator {
    * @param threadEntity Thread Entity
    */
   async refreshDeclaration(threadEntity: ThreadEntity): Promise<void> {
-    const threadId = threadEntity.id;
+    const threadId = workflowExecutionEntity.id;
     const context = this.getContext(threadId);
 
     if (!context) {

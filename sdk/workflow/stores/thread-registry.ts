@@ -8,7 +8,7 @@
  */
 
 import { ThreadEntity } from "../entities/thread-entity.js";
-import type { ThreadStatus } from "@wf-agent/types";
+import type { WorkflowExecutionStatus } from "@wf-agent/types";
 
 /**
  * ThreadRegistry - ThreadEntity Registry
@@ -107,7 +107,7 @@ export class ThreadRegistry {
    * @param status Thread status
    * @returns Array of ThreadEntity with the specified status
    */
-  getByStatus(status: ThreadStatus): ThreadEntity[] {
+  getByStatus(status: WorkflowExecutionStatus): ThreadEntity[] {
     return this.getAll().filter(entity => entity.getStatus() === status);
   }
 

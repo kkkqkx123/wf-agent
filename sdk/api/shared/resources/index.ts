@@ -14,33 +14,33 @@ import {
 } from "./generic-resource-api.js";
 
 // Checkpoint resource management
-import { CheckpointResourceAPI } from "../../graph/resources/checkpoints/checkpoint-resource-api.js";
+import { CheckpointResourceAPI } from "../../workflow/resources/checkpoints/checkpoint-resource-api.js";
 
 // Message Resource Management
 import {
   MessageResourceAPI,
   type MessageFilter,
   type MessageStats,
-} from "../../graph/resources/messages/message-resource-api.js";
+} from "../../workflow/resources/messages/message-resource-api.js";
 
 // Variable Resource Management
 import {
   VariableResourceAPI,
   type VariableFilter,
   type VariableDefinition,
-} from "../../graph/resources/variables/variable-resource-api.js";
+} from "../../workflow/resources/variables/variable-resource-api.js";
 
 // Trigger Resource Management
-import { TriggerResourceAPI } from "../../graph/resources/triggers/trigger-resource-api.js";
+import { TriggerResourceAPI } from "../../workflow/resources/triggers/trigger-resource-api.js";
 
 // Event Resource Management
 import { EventResourceAPI, type EventStats } from "./events/event-resource-api.js";
 
 // Workflow Resource Management
-import { WorkflowRegistryAPI } from "../../graph/resources/workflows/workflow-registry-api.js";
+import { WorkflowRegistryAPI } from "../../workflow/resources/workflows/workflow-registry-api.js";
 
 // Thread resource management
-import { ThreadRegistryAPI } from "../../graph/resources/threads/thread-registry-api.js";
+import { ThreadRegistryAPI } from "../../workflow/resources/threads/thread-registry-api.js";
 
 // Tool Resource Management
 import { ToolRegistryAPI } from "./tools/tool-registry-api.js";
@@ -49,10 +49,10 @@ import { ToolRegistryAPI } from "./tools/tool-registry-api.js";
 import { ScriptRegistryAPI } from "./scripts/script-registry-api.js";
 
 // Node Template Resource Management
-import { NodeRegistryAPI } from "../../graph/resources/templates/node-template-registry-api.js";
+import { NodeRegistryAPI } from "../../workflow/resources/templates/node-template-registry-api.js";
 
 // Trigger Template Resource Management
-import { TriggerTemplateRegistryAPI } from "../../graph/resources/templates/trigger-template-registry-api.js";
+import { TriggerTemplateRegistryAPI } from "../../workflow/resources/templates/trigger-template-registry-api.js";
 
 // Profile Resource Management
 import { LLMProfileRegistryAPI } from "./llm/llm-profile-registry-api.js";
@@ -62,14 +62,14 @@ import {
   UserInteractionResourceAPI,
   type UserInteractionConfig,
   type UserInteractionFilter,
-} from "../../graph/resources/user-interaction/user-interaction-resource-api.js";
+} from "../../workflow/resources/user-interaction/user-interaction-resource-api.js";
 
 // Human Relay Resource Management
 import {
   HumanRelayResourceAPI,
   type HumanRelayConfig,
   type HumanRelayFilter,
-} from "../../graph/resources/human-relay/human-relay-resource-api.js";
+} from "../../workflow/resources/human-relay/human-relay-resource-api.js";
 
 // Skill Resource Management
 import {

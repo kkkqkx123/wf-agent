@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { TriggerState } from "../../graph/state-managers/trigger-state.js";
+import { TriggerState } from "../../workflow/state-managers/trigger-state.js";
 import type { TriggerRuntimeState } from "@wf-agent/types";
 import { NotFoundError, RuntimeValidationError } from "@wf-agent/types";
 

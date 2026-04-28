@@ -75,7 +75,7 @@ export function createHumanRelayRequest(task: HumanRelayTask): HumanRelayRequest
     timeout: task.timeout,
     metadata: {
       workflowId: task.threadEntity.getWorkflowId(),
-      threadId: task.threadEntity.id,
+      threadId: task.workflowExecutionEntity.id,
       nodeId: task.nodeId,
     },
   };
@@ -95,7 +95,7 @@ export function createHumanRelayContext(task: HumanRelayTask): HumanRelayContext
   };
 
   return {
-    threadId: task.threadEntity.id,
+    threadId: task.workflowExecutionEntity.id,
     workflowId: task.threadEntity.getWorkflowId(),
     nodeId: task.nodeId,
     getVariable: (variableName: string) => {
@@ -126,7 +126,7 @@ export async function emitHumanRelayRequestedEvent(
   await eventManager.emit(
     buildHumanRelayRequestedEvent({
       workflowId: task.threadEntity.getWorkflowId(),
-      threadId: task.threadEntity.id,
+      threadId: task.workflowExecutionEntity.id,
       requestId: request.requestId,
       prompt: request.prompt,
       messageCount: request.messages.length,
@@ -149,7 +149,7 @@ export async function emitHumanRelayRespondedEvent(
   await eventManager.emit(
     buildHumanRelayRespondedEvent({
       workflowId: task.threadEntity.getWorkflowId(),
-      threadId: task.threadEntity.id,
+      threadId: task.workflowExecutionEntity.id,
       requestId: response.requestId,
       content: response.content,
     }),
@@ -172,7 +172,7 @@ export async function emitHumanRelayProcessedEvent(
   await eventManager.emit(
     buildHumanRelayProcessedEvent({
       workflowId: task.threadEntity.getWorkflowId(),
-      threadId: task.threadEntity.id,
+      threadId: task.workflowExecutionEntity.id,
       requestId: task.requestId,
       message: {
         role: message.role,
@@ -198,7 +198,7 @@ export async function emitHumanRelayFailedEvent(
   await eventManager.emit(
     buildHumanRelayFailedEvent({
       workflowId: task.threadEntity.getWorkflowId(),
-      threadId: task.threadEntity.id,
+      threadId: task.workflowExecutionEntity.id,
       requestId: task.requestId,
       reason: getErrorMessage(error),
     }),
@@ -264,7 +264,7 @@ export function convertToLLMMessage(
       source: "human-relay",
       nodeId: task.nodeId,
       workflowId: task.threadEntity.getWorkflowId(),
-      threadId: task.threadEntity.id,
+      threadId: task.workflowExecutionEntity.id,
     },
   };
 }

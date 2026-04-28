@@ -7,19 +7,19 @@
  *
  */
 
-import { WorkflowRegistryAPI } from "../../graph/resources/workflows/workflow-registry-api.js";
+import { WorkflowRegistryAPI } from "../../workflow/resources/workflows/workflow-registry-api.js";
 import { ToolRegistryAPI } from "../resources/tools/tool-registry-api.js";
-import { ThreadRegistryAPI } from "../../graph/resources/threads/thread-registry-api.js";
+import { ThreadRegistryAPI } from "../../workflow/resources/threads/thread-registry-api.js";
 import { ScriptRegistryAPI } from "../resources/scripts/script-registry-api.js";
 import { LLMProfileRegistryAPI } from "../resources/llm/llm-profile-registry-api.js";
-import { NodeRegistryAPI } from "../../graph/resources/templates/node-template-registry-api.js";
-import { TriggerTemplateRegistryAPI } from "../../graph/resources/templates/trigger-template-registry-api.js";
-import { UserInteractionResourceAPI } from "../../graph/resources/user-interaction/user-interaction-resource-api.js";
-import { HumanRelayResourceAPI } from "../../graph/resources/human-relay/human-relay-resource-api.js";
+import { NodeRegistryAPI } from "../../workflow/resources/templates/node-template-registry-api.js";
+import { TriggerTemplateRegistryAPI } from "../../workflow/resources/templates/trigger-template-registry-api.js";
+import { UserInteractionResourceAPI } from "../../workflow/resources/user-interaction/user-interaction-resource-api.js";
+import { HumanRelayResourceAPI } from "../../workflow/resources/human-relay/human-relay-resource-api.js";
 import { EventResourceAPI } from "../resources/events/event-resource-api.js";
-import { TriggerResourceAPI } from "../../graph/resources/triggers/trigger-resource-api.js";
-import { VariableResourceAPI } from "../../graph/resources/variables/variable-resource-api.js";
-import { MessageResourceAPI } from "../../graph/resources/messages/message-resource-api.js";
+import { TriggerResourceAPI } from "../../workflow/resources/triggers/trigger-resource-api.js";
+import { VariableResourceAPI } from "../../workflow/resources/variables/variable-resource-api.js";
+import { MessageResourceAPI } from "../../workflow/resources/messages/message-resource-api.js";
 import { SkillRegistryAPI } from "../resources/skills/skill-registry-api.js";
 import { APIDependencyManager } from "./sdk-dependencies.js";
 

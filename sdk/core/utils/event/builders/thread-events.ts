@@ -4,7 +4,7 @@
  */
 
 import { now } from "@wf-agent/common-utils";
-import type { Thread, ThreadResult } from "@wf-agent/types";
+import type { Thread, WorkflowExecutionResult } from "@wf-agent/types";
 import type {
   ThreadStartedEvent,
   ThreadCompletedEvent,
@@ -21,7 +21,7 @@ import type {
   ThreadCopyCompletedEvent,
 } from "@wf-agent/types";
 import { createBuilder, createErrorBuilder } from "./common.js";
-import type { ThreadEntity } from "../../../../graph/entities/thread-entity.js";
+import type { ThreadEntity } from "../../../../workflow/entities/workflow-execution-entity.js";
 
 // =============================================================================
 // Thread Lifecycle Events (built from ThreadEntity)
@@ -34,7 +34,7 @@ export const buildThreadStartedEvent = (threadEntity: ThreadEntity): ThreadStart
   type: "THREAD_STARTED",
   timestamp: now(),
   workflowId: threadEntity.getWorkflowId(),
-  threadId: threadEntity.id,
+  threadId: workflowExecutionEntity.id,
   input: threadEntity.getInput(),
 });
 
@@ -43,12 +43,12 @@ export const buildThreadStartedEvent = (threadEntity: ThreadEntity): ThreadStart
  */
 export const buildThreadCompletedEvent = (
   threadEntity: ThreadEntity,
-  result: ThreadResult,
+  result: WorkflowExecutionResult,
 ): ThreadCompletedEvent => ({
   type: "THREAD_COMPLETED",
   timestamp: now(),
   workflowId: threadEntity.getWorkflowId(),
-  threadId: threadEntity.id,
+  threadId: workflowExecutionEntity.id,
   output: result.output,
   executionTime: result.executionTime,
 });
@@ -65,7 +65,7 @@ export const buildThreadPausedEvent = (threadEntity: ThreadEntity): ThreadPaused
   type: "THREAD_PAUSED",
   timestamp: now(),
   workflowId: threadEntity.getWorkflowId(),
-  threadId: threadEntity.id,
+  threadId: workflowExecutionEntity.id,
 });
 
 /**
@@ -75,7 +75,7 @@ export const buildThreadResumedEvent = (threadEntity: ThreadEntity): ThreadResum
   type: "THREAD_RESUMED",
   timestamp: now(),
   workflowId: threadEntity.getWorkflowId(),
-  threadId: threadEntity.id,
+  threadId: workflowExecutionEntity.id,
 });
 
 /**
@@ -88,7 +88,7 @@ export const buildThreadCancelledEvent = (
   type: "THREAD_CANCELLED",
   timestamp: now(),
   workflowId: threadEntity.getWorkflowId(),
-  threadId: threadEntity.id,
+  threadId: workflowExecutionEntity.id,
   reason,
 });
 
@@ -103,7 +103,7 @@ export const buildThreadStateChangedEvent = (
   type: "THREAD_STATE_CHANGED",
   timestamp: now(),
   workflowId: threadEntity.getWorkflowId(),
-  threadId: threadEntity.id,
+  threadId: workflowExecutionEntity.id,
   previousStatus,
   newStatus,
 });

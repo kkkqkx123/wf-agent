@@ -17,7 +17,7 @@
  */
 
 import type { TriggerTemplateRegistry } from "../../core/registry/trigger-template-registry.js";
-import type { WorkflowRegistry } from "../../graph/stores/workflow-registry.js";
+import type { WorkflowRegistry } from "../../workflow/stores/workflow-registry.js";
 import type { ToolRegistry } from "../../core/registry/tool-registry.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 

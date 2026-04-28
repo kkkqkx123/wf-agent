@@ -19,7 +19,7 @@
 import { generateId } from "../../../utils/index.js";
 import { now } from "@wf-agent/common-utils";
 import type { ThreadEntity } from "../../entities/workflow-execution-entity.js";
-import type { ThreadResult, TaskStorageMetadata } from "@wf-agent/types";
+import type { WorkflowExecutionResult, TaskStorageMetadata } from "@wf-agent/types";
 import {
   TaskStatus,
   type TaskInfo,
@@ -352,7 +352,7 @@ export class TaskRegistry {
    * @param taskId Task ID
    * @param result Execution result
    */
-  updateStatusToCompleted(taskId: string, result: ThreadResult): void {
+  updateStatusToCompleted(taskId: string, result: WorkflowExecutionResult): void {
     const taskInfo = this.tasks.get(taskId);
     if (taskInfo) {
       taskInfo.status = "COMPLETED";

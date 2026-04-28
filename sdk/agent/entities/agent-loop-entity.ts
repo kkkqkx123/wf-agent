@@ -23,7 +23,7 @@ import {
   ConversationSession,
   type ConversationSessionConfig,
 } from "../../core/messaging/conversation-session.js";
-import { VariableState } from "../../graph/state-managers/variable-state.js";
+import { VariableState } from "../../workflow/state-managers/variable-state.js";
 import { buildInitialMessages, type InitialMessagesConfig } from "../../core/prompt/index.js";
 
 /**

@@ -4,15 +4,15 @@
  */
 
 import { CrudResourceAPI } from "../../../shared/resources/generic-resource-api.js";
-import { CheckpointState } from "../../../../graph/checkpoint/checkpoint-state-manager.js";
+import { CheckpointState } from "../../../../workflow/checkpoint/checkpoint-state-manager.js";
 import type { Checkpoint, CheckpointMetadata } from "@wf-agent/types";
-import { CheckpointCoordinator } from "../../../../graph/checkpoint/checkpoint-coordinator.js";
+import { CheckpointCoordinator } from "../../../../workflow/checkpoint/checkpoint-coordinator.js";
 import { getContainer } from "../../../../core/di/index.js";
 import * as Identifiers from "../../../../core/di/service-identifiers.js";
 import { getErrorMessage, isSuccess, getData } from "../../../shared/types/execution-result.js";
 import type { EventRegistry } from "../../../../core/registry/event-registry.js";
 import type { Timestamp } from "@wf-agent/types";
-import { ThreadStatus } from "@wf-agent/types";
+import { WorkflowExecutionStatus } from "@wf-agent/types";
 import { GraphCheckpointTriggerType } from "@wf-agent/types";
 import { buildCheckpointRestoredEvent } from "../../../../core/utils/event/builders/index.js";
 
@@ -51,7 +51,7 @@ export interface CheckpointSummary {
   /** Workflow ID */
   workflowId: string;
   /** Thread Status */
-  threadStatus: ThreadStatus;
+  threadStatus: WorkflowExecutionStatus;
   /** Current node ID */
   currentNodeId: string;
   /** Create a timestamp */
@@ -194,19 +194,20 @@ export class CheckpointResourceAPI extends CrudResourceAPI<Checkpoint, string, C
     const container = getContainer();
     const threadRegistry = container.get(
       Identifiers.ThreadRegistry,
-    ) as import("../../../../graph/stores/thread-registry.js").ThreadRegistry;
+    ) as import("../../../../workflow/stores/thread-registry.js").ThreadRegistry;
     const workflowRegistry = container.get(
       Identifiers.WorkflowRegistry,
-    ) as import("../../../../graph/stores/workflow-registry.js").WorkflowRegistry;
+    ) as import("../../../../workflow/stores/workflow-registry.js").WorkflowRegistry;
     const graphRegistry = container.get(
       Identifiers.GraphRegistry,
-    ) as import("../../../../graph/stores/graph-registry.js").GraphRegistry;
+    ) as import("../../../../workflow/stores/workflow-graph-registry.js").WorkflowGraphRegistry;
 
     const dependencies = {
-      threadRegistry,
+      workflowExecutionRegistry:
+        threadRegistry as unknown as import("../../../../workflow/stores/workflow-execution-registry.js").WorkflowExecutionRegistry,
       checkpointStateManager: this.stateManager,
       workflowRegistry,
-      graphRegistry,
+      workflowGraphRegistry: graphRegistry,
     };
 
     const checkpointId = await CheckpointCoordinator.createCheckpoint(
@@ -227,22 +228,23 @@ export class CheckpointResourceAPI extends CrudResourceAPI<Checkpoint, string, C
     const container = getContainer();
     const threadRegistry = container.get(
       Identifiers.ThreadRegistry,
-    ) as import("../../../../graph/stores/thread-registry.js").ThreadRegistry;
+    ) as import("../../../../workflow/stores/thread-registry.js").ThreadRegistry;
     const workflowRegistry = container.get(
       Identifiers.WorkflowRegistry,
-    ) as import("../../../../graph/stores/workflow-registry.js").WorkflowRegistry;
+    ) as import("../../../../workflow/stores/workflow-registry.js").WorkflowRegistry;
     const graphRegistry = container.get(
       Identifiers.GraphRegistry,
-    ) as import("../../../../graph/stores/graph-registry.js").GraphRegistry;
+    ) as import("../../../../workflow/stores/workflow-graph-registry.js").WorkflowGraphRegistry;
 
     const dependencies = {
-      threadRegistry,
+      workflowExecutionRegistry:
+        threadRegistry as unknown as import("../../../../workflow/stores/workflow-execution-registry.js").WorkflowExecutionRegistry,
       checkpointStateManager: this.stateManager,
       workflowRegistry,
-      graphRegistry,
+      workflowGraphRegistry: graphRegistry,
     };
 
-    const { threadEntity } = await CheckpointCoordinator.restoreFromCheckpoint(
+    const { workflowExecutionEntity } = await CheckpointCoordinator.restoreFromCheckpoint(
       checkpointId,
       dependencies,
     );
@@ -254,7 +256,7 @@ export class CheckpointResourceAPI extends CrudResourceAPI<Checkpoint, string, C
         await this.eventManager.emit(
           buildCheckpointRestoredEvent({
             workflowId: checkpoint.workflowId,
-            threadId: threadEntity.id,
+            threadId: workflowExecutionEntity.id,
             checkpointId,
             description: checkpoint.metadata?.description,
           }),
@@ -262,7 +264,7 @@ export class CheckpointResourceAPI extends CrudResourceAPI<Checkpoint, string, C
       }
     }
 
-    return threadEntity.id;
+    return workflowExecutionEntity.id;
   }
 
   /**

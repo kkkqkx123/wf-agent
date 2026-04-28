@@ -149,7 +149,7 @@ export async function processWorkflow(
   if (options.workflowRegistry) {
     const triggeredWorkflowIds = extractTriggeredWorkflowIds(expandedTriggers);
     const container = getContainer();
-    const graphRegistry = container.get(Identifiers.GraphRegistry) as GraphRegistry;
+    const graphRegistry = container.get(Identifiers.GraphRegistry) as WorkflowGraphRegistry;
 
     for (const triggeredWorkflowId of triggeredWorkflowIds) {
       // Get pre-processed graphs from graph-registry

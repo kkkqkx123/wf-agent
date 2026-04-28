@@ -9,7 +9,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { TriggerTemplateRegistry } from "../services/trigger-template-registry.js";
-import { WorkflowRegistry } from "../../graph/workflow/workflow-registry.js";
+import { WorkflowRegistry } from "../../workflow/workflow/workflow-registry.js";
 import {
   registerContextCompressionTrigger,
   registerContextCompressionWorkflow,
@@ -29,8 +29,8 @@ import {
 import type { TriggerTemplate, WorkflowDefinition } from "@wf-agent/types";
 import { EventType, TriggerActionType } from "@wf-agent/types";
 import { initializeContainer, resetContainer, setStorageCallback } from "../di/container-config.js";
-import type { GraphRegistry } from "../../graph/graph-structure/graph-registry.js";
-import type { ThreadRegistry } from "../../graph/stores/thread-registry.js";
+import type { GraphRegistry } from "../../workflow/graph-structure/graph-registry.js";
+import type { ThreadRegistry } from "../../workflow/stores/thread-registry.js";
 import * as Identifiers from "../di/service-identifiers.js";
 
 // Mock storage callback
@@ -44,8 +44,8 @@ const mockStorageCallback = {
 describe("Predefined Triggers -predefined triggers", () => {
   let triggerRegistry: TriggerTemplateRegistry;
   let workflowRegistry: WorkflowRegistry;
-  let graphRegistry: GraphRegistry;
-  let threadRegistry: ThreadRegistry;
+  let graphRegistry: WorkflowGraphRegistry;
+  let threadRegistry: WorkflowExecutionRegistry;
 
   beforeEach(() => {
     // Reset container before each test

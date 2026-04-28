@@ -52,7 +52,7 @@ export async function startHandler(
   threadEntity.state.start();
 
   // Initializing variables and results for the Thread
-  const thread = threadEntity.getThread();
+  const thread = workflowExecutionEntity.getThread();
   if (!thread.variables) {
     thread.variables = [];
   }

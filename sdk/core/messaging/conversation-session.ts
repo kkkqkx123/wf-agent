@@ -26,7 +26,7 @@ import {
   buildTokenLimitExceededEvent,
   buildContextCompressionRequestedEvent,
   buildContextCompressionCompletedEvent,
-} from "../../graph/execution/utils/event/index.js";
+} from "../../workflow/execution/utils/event/index.js";
 import { generateToolListDescription } from "../utils/tools/tool-description-generator.js";
 import { executeOperation } from "../utils/messages/message-operation-utils.js";
 import type { MessageOperationConfig, MessageOperationResult } from "@wf-agent/types";

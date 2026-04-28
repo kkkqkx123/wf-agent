@@ -11,7 +11,7 @@
  */
 
 import type { ID, LLMMessage, NodeExecutionResult } from "@wf-agent/types";
-import type { Thread, ThreadStatus, ThreadType } from "@wf-agent/types";
+import type { Thread, WorkflowExecutionStatus, WorkflowExecutionType } from "@wf-agent/types";
 import type { PreprocessedGraph } from "@wf-agent/types";
 import type { SubgraphContext } from "../state-managers/execution-state.js";
 import { ExecutionState } from "../state-managers/execution-state.js";
@@ -90,19 +90,19 @@ export class ThreadEntity {
     return this.thread.workflowId;
   }
 
-  getStatus(): ThreadStatus {
+  getStatus(): WorkflowExecutionStatus {
     return this.state.status;
   }
 
-  setStatus(status: ThreadStatus): void {
+  setStatus(status: WorkflowExecutionStatus): void {
     this.state.status = status;
   }
 
-  getThreadType(): ThreadType {
+  getThreadType(): WorkflowExecutionType {
     return this.thread.threadType || "MAIN";
   }
 
-  setThreadType(threadType: ThreadType): void {
+  setThreadType(threadType: WorkflowExecutionType): void {
     this.thread.threadType = threadType;
   }
 

@@ -4,8 +4,8 @@
  * Refactored version: Inherit GenericResourceAPI to improve code reusability and consistency.
  */
 
-import type { ThreadRegistry } from "../../../../graph/stores/thread-registry.js";
-import type { Thread, ThreadResult, ThreadStatus } from "@wf-agent/types";
+import type { ThreadRegistry } from "../../../../workflow/stores/thread-registry.js";
+import type { Thread, WorkflowExecutionResult, WorkflowExecutionStatus } from "@wf-agent/types";
 import { CrudResourceAPI } from "../../../shared/resources/generic-resource-api.js";
 import { getErrorMessage, isSuccess, getData } from "../../../shared/types/execution-result.js";
 import type { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
@@ -15,13 +15,13 @@ import type { Timestamp } from "@wf-agent/types";
 /**
  * Thread Filter
  */
-export interface ThreadFilter {
+export interface WorkflowExecutionFilter {
   /** Thread ID List */
   ids?: string[];
   /** Workflow ID */
   workflowId?: string;
   /** thread state */
-  status?: ThreadStatus;
+  status?: WorkflowExecutionStatus;
   /** Thread type */
   threadType?: "MAIN" | "FORK_JOIN" | "TRIGGERED_SUBWORKFLOW";
   /** Creation timeframe */
@@ -33,7 +33,7 @@ export interface ThreadFilter {
 /**
  * Thread Summary
  */
-export interface ThreadSummary {
+export interface WorkflowExecutionSummary {
   /** Thread ID */
   id: string;
   /** Workflow ID */
@@ -41,7 +41,7 @@ export interface ThreadSummary {
   /** Workflow name */
   workflowName: string;
   /** thread state */
-  status: ThreadStatus;
+  status: WorkflowExecutionStatus;
   /** Thread type */
   threadType?: "MAIN" | "FORK_JOIN" | "TRIGGERED_SUBWORKFLOW";
   /** Current Node ID */
@@ -66,7 +66,7 @@ export interface ThreadSummary {
  * - Implement all abstract methods to adapt to ThreadRegistry.
  * - Add enhancements such as caching, logging, validation, etc.
  */
-export class ThreadRegistryAPI extends CrudResourceAPI<Thread, string, ThreadFilter> {
+export class ThreadRegistryAPI extends CrudResourceAPI<Thread, string, WorkflowExecutionFilter> {
   private dependencies: APIDependencyManager;
 
   /**
@@ -99,7 +99,7 @@ export class ThreadRegistryAPI extends CrudResourceAPI<Thread, string, ThreadFil
     return this.dependencies
       .getThreadRegistry()
       .getAll()
-      .map((threadEntity: { getThread: () => Thread }) => threadEntity.getThread());
+      .map(threadEntity => threadEntity.getThread());
   }
 
   /**
@@ -137,7 +137,7 @@ export class ThreadRegistryAPI extends CrudResourceAPI<Thread, string, ThreadFil
    * @param filter Filtering conditions
    * @returns Filtered thread array
    */
-  protected override applyFilter(resources: Thread[], filter: ThreadFilter): Thread[] {
+  protected override applyFilter(resources: Thread[], filter: WorkflowExecutionFilter): Thread[] {
     return resources.filter(thread => {
       if (filter.ids && !filter.ids.some(id => thread.id.includes(id))) {
         return false;
@@ -167,7 +167,7 @@ export class ThreadRegistryAPI extends CrudResourceAPI<Thread, string, ThreadFil
    * @param filter filter criteria
    * @returns array of thread summaries
    */
-  async getThreadSummaries(filter?: ThreadFilter): Promise<ThreadSummary[]> {
+  async getThreadSummaries(filter?: WorkflowExecutionFilter): Promise<WorkflowExecutionSummary[]> {
     const threadEntities = this.dependencies.getThreadRegistry().getAll();
 
     return threadEntities.map(threadEntity => {
@@ -195,7 +195,7 @@ export class ThreadRegistryAPI extends CrudResourceAPI<Thread, string, ThreadFil
    * @param threadId threadId
    * @returns thread status, or null if it does not exist
    */
-  async getThreadStatus(threadId: string): Promise<ThreadStatus | null> {
+  async getThreadStatus(threadId: string): Promise<WorkflowExecutionStatus | null> {
     const threadEntity = this.dependencies.getThreadRegistry().get(threadId);
     if (!threadEntity) {
       return null;
@@ -208,7 +208,7 @@ export class ThreadRegistryAPI extends CrudResourceAPI<Thread, string, ThreadFil
    * @param threadId threadId
    * @returns The result of the thread execution, or null if it doesn't exist or hasn't completed.
    */
-  async getThreadResult(threadId: string): Promise<ThreadResult | null> {
+  async getThreadResult(threadId: string): Promise<WorkflowExecutionResult | null> {
     const threadEntity = this.dependencies.getThreadRegistry().get(threadId);
     if (!threadEntity) {
       return null;
@@ -246,11 +246,11 @@ export class ThreadRegistryAPI extends CrudResourceAPI<Thread, string, ThreadFil
    */
   async getThreadStatistics(): Promise<{
     total: number;
-    byStatus: Record<ThreadStatus, number>;
+    byStatus: Record<WorkflowExecutionStatus, number>;
     byWorkflow: Record<string, number>;
   }> {
     const threadEntities = this.dependencies.getThreadRegistry().getAll();
-    const byStatus: Record<ThreadStatus, number> = {
+    const byStatus: Record<WorkflowExecutionStatus, number> = {
       CREATED: 0,
       RUNNING: 0,
       PAUSED: 0,

@@ -9,7 +9,7 @@
 
 import type { ID } from "@wf-agent/types";
 import type { ThreadEntity } from "../../entities/workflow-execution-entity.js";
-import type { ThreadResult } from "@wf-agent/types";
+import type { WorkflowExecutionResult } from "@wf-agent/types";
 import { TaskStatus } from "../../../core/types/index.js";
 
 /**
@@ -48,7 +48,7 @@ export interface ExecutedSubgraphResult {
   /** Sub-workflow entity */
   subgraphEntity: ThreadEntity;
   /** Execution result */
-  threadResult: ThreadResult;
+  threadResult: WorkflowExecutionResult;
   /** Execution time (in milliseconds) */
   executionTime: number;
 }

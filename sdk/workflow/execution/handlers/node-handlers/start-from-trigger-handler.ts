@@ -67,7 +67,7 @@ export async function startFromTriggerHandler(
   threadEntity.state.start();
 
   // Variables and results for initializing a Thread
-  const thread = threadEntity.getThread();
+  const thread = workflowExecutionEntity.getThread();
   if (!thread.variables) {
     thread.variables = [];
   }

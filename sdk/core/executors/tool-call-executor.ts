@@ -30,8 +30,8 @@ import { now, diffTimestamp, generateId } from "@wf-agent/common-utils";
 import type { ConversationSession } from "../messaging/conversation-session.js";
 import { ThreadInterruptedException, CheckpointError } from "@wf-agent/types";
 import { MessageBuilder } from "../messaging/message-builder.js";
-import type { CheckpointDependencies } from "../../graph/checkpoint/utils/checkpoint-utils.js";
-import type { ToolVisibilityStore } from "../../graph/stores/tool-visibility-store.js";
+import type { CheckpointDependencies } from "../../workflow/checkpoint/utils/checkpoint-utils.js";
+import type { ToolVisibilityStore } from "../../workflow/stores/tool-visibility-store.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "ToolCallExecutor" });

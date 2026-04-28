@@ -174,12 +174,12 @@ function checkThreadReferences(
 function createMainWorkflowReference(threadEntity: ThreadEntity): WorkflowReference {
   return {
     type: "thread",
-    sourceId: threadEntity.id,
-    sourceName: `Thread ${threadEntity.id}`,
+    sourceId: workflowExecutionEntity.id,
+    sourceName: `Thread ${workflowExecutionEntity.id}`,
     isRuntimeReference: true,
     details: {
       threadStatus: threadEntity.getStatus(),
-      threadType: threadEntity.getThreadType(),
+      threadType: workflowExecutionEntity.getThreadType(),
       referenceType: "main-workflow",
     },
   };
@@ -191,12 +191,12 @@ function createMainWorkflowReference(threadEntity: ThreadEntity): WorkflowRefere
 function createTriggeredSubworkflowReference(threadEntity: ThreadEntity): WorkflowReference {
   return {
     type: "thread",
-    sourceId: threadEntity.id,
-    sourceName: `Thread ${threadEntity.id} (Triggered Subworkflow)`,
+    sourceId: workflowExecutionEntity.id,
+    sourceName: `Thread ${workflowExecutionEntity.id} (Triggered Subworkflow)`,
     isRuntimeReference: true,
     details: {
       threadStatus: threadEntity.getStatus(),
-      threadType: threadEntity.getThreadType(),
+      threadType: workflowExecutionEntity.getThreadType(),
       contextType: "triggered-subworkflow",
     },
   };
@@ -211,12 +211,12 @@ function createSubgraphStackReference(
 ): WorkflowReference {
   return {
     type: "thread",
-    sourceId: threadEntity.id,
-    sourceName: `Thread ${threadEntity.id} (Subgraph Stack)`,
+    sourceId: workflowExecutionEntity.id,
+    sourceName: `Thread ${workflowExecutionEntity.id} (Subgraph Stack)`,
     isRuntimeReference: true,
     details: {
       threadStatus: threadEntity.getStatus(),
-      threadType: threadEntity.getThreadType(),
+      threadType: workflowExecutionEntity.getThreadType(),
       contextType: "subgraph-stack",
       depth: context.depth,
       parentWorkflowId: context.parentWorkflowId,

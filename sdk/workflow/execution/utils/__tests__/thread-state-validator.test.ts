@@ -12,7 +12,7 @@ import {
   isActiveStatus,
 } from "../thread-state-validator.js";
 import { RuntimeValidationError } from "@wf-agent/types";
-import type { ThreadStatus } from "@wf-agent/types";
+import type { WorkflowExecutionStatus } from "@wf-agent/types";
 
 describe("isValidTransition", () => {
   it("The CREATED -> RUNNING conversion should be allowed.", () => {
@@ -239,7 +239,7 @@ describe("isActiveStatus", () => {
 });
 
 describe("State transition rule integrity", () => {
-  const allStatuses: ThreadStatus[] = [
+  const allStatuses: WorkflowExecutionStatus[] = [
     "CREATED",
     "RUNNING",
     "PAUSED",
@@ -257,7 +257,7 @@ describe("State transition rule integrity", () => {
   });
 
   it("The termination state does not allow any transitions", () => {
-    const terminalStatuses: ThreadStatus[] = ["COMPLETED", "FAILED", "CANCELLED", "TIMEOUT"];
+    const terminalStatuses: WorkflowExecutionStatus[] = ["COMPLETED", "FAILED", "CANCELLED", "TIMEOUT"];
     for (const status of terminalStatuses) {
       const transitions = getAllowedTransitions(status);
       expect(transitions).toHaveLength(0);

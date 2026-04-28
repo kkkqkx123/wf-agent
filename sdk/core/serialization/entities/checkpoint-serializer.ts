@@ -109,8 +109,8 @@ export class CheckpointDeltaCalculator extends DeltaCalculator<CheckpointSnapsho
 
     if (previous.threadState?.status !== current.threadState?.status) {
       delta.statusChange = {
-        from: previous.threadState?.status as import("@wf-agent/types").ThreadStatus,
-        to: current.threadState?.status as import("@wf-agent/types").ThreadStatus,
+        from: previous.threadState?.status as import("@wf-agent/types").WorkflowExecutionStatus,
+        to: current.threadState?.status as import("@wf-agent/types").WorkflowExecutionStatus,
       };
     }
 

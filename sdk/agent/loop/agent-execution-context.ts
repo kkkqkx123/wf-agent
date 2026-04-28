@@ -14,7 +14,7 @@
  * - Fault isolation from Graph execution
  */
 
-import { TaskRegistry, type TaskManager } from "../../graph/stores/task/task-registry.js";
+import { TaskRegistry, type TaskManager } from "../../workflow/stores/task/task-registry.js";
 import {
   ExecutionPool,
   type Executor,

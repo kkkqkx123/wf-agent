@@ -62,7 +62,7 @@ export async function skipNodeHandler(
       throw new ThreadContextNotFoundError(`ThreadEntity not found: ${threadId}`, threadId);
     }
 
-    const thread = threadEntity.getThread();
+    const thread = workflowExecutionEntity.getThread();
 
     const result: NodeExecutionResult = {
       nodeId,
@@ -75,7 +75,7 @@ export async function skipNodeHandler(
     thread.nodeResults.push(result);
 
     const completedEvent = buildNodeCompletedEvent({
-      threadId: threadEntity.id,
+      threadId: workflowExecutionEntity.id,
       workflowId: threadEntity.getWorkflowId(),
       nodeId,
       output: null,

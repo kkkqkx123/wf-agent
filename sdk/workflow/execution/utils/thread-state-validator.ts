@@ -12,7 +12,7 @@
  * - Simplicity: Export specific functions rather than creating a class
  */
 
-import type { ThreadStatus } from "@wf-agent/types";
+import type { WorkflowExecutionStatus } from "@wf-agent/types";
 import { RuntimeValidationError } from "@wf-agent/types";
 
 /**
@@ -40,8 +40,8 @@ const STATE_TRANSITIONS: Record<string, string[]> = {
  * @returns: Whether the transition is allowed
  */
 export function isValidTransition(
-  currentStatus: ThreadStatus,
-  targetStatus: ThreadStatus,
+  currentStatus: WorkflowExecutionStatus,
+  targetStatus: WorkflowExecutionStatus,
 ): boolean {
   const allowedTransitions = STATE_TRANSITIONS[currentStatus] || [];
   return allowedTransitions.includes(targetStatus);
@@ -57,8 +57,8 @@ export function isValidTransition(
  */
 export function validateTransition(
   threadId: string,
-  currentStatus: ThreadStatus,
-  targetStatus: ThreadStatus,
+  currentStatus: WorkflowExecutionStatus,
+  targetStatus: WorkflowExecutionStatus,
 ): void {
   if (!isValidTransition(currentStatus, targetStatus)) {
     throw new RuntimeValidationError(
@@ -78,8 +78,8 @@ export function validateTransition(
  * @param currentStatus: The current status
  * @returns: An array of target states that are allowed
  */
-export function getAllowedTransitions(currentStatus: ThreadStatus): ThreadStatus[] {
-  return (STATE_TRANSITIONS[currentStatus] || []) as ThreadStatus[];
+export function getAllowedTransitions(currentStatus: WorkflowExecutionStatus): WorkflowExecutionStatus[] {
+  return (STATE_TRANSITIONS[currentStatus] || []) as WorkflowExecutionStatus[];
 }
 
 /**
@@ -88,7 +88,7 @@ export function getAllowedTransitions(currentStatus: ThreadStatus): ThreadStatus
  * @param status: The status
  * @returns: Whether it is in a terminated state
  */
-export function isTerminalStatus(status: ThreadStatus): boolean {
+export function isTerminalStatus(status: WorkflowExecutionStatus): boolean {
   return ["COMPLETED", "FAILED", "CANCELLED", "TIMEOUT"].includes(status);
 }
 
@@ -98,6 +98,6 @@ export function isTerminalStatus(status: ThreadStatus): boolean {
  * @param status The status
  * @returns Whether it is an active status
  */
-export function isActiveStatus(status: ThreadStatus): boolean {
+export function isActiveStatus(status: WorkflowExecutionStatus): boolean {
   return ["RUNNING", "PAUSED"].includes(status);
 }

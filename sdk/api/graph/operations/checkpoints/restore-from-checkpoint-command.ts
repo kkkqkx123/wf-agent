@@ -8,7 +8,7 @@ import {
   validationSuccess,
   validationFailure,
 } from "../../../shared/types/command.js";
-import { CheckpointCoordinator } from "../../../../graph/checkpoint/checkpoint-coordinator.js";
+import { CheckpointCoordinator } from "../../../../workflow/checkpoint/checkpoint-coordinator.js";
 import type { Thread } from "@wf-agent/types";
 
 import type { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
@@ -49,17 +49,18 @@ export class RestoreFromCheckpointCommand extends BaseCommand<Thread> {
    * Execute the command
    */
   protected async executeInternal(): Promise<Thread> {
+    const threadRegistry = this.dependencies.getThreadRegistry();
     const dependencies = {
-      threadRegistry: this.dependencies.getThreadRegistry(),
+      workflowExecutionRegistry: threadRegistry as unknown as import("../../../../workflow/stores/workflow-execution-registry.js").WorkflowExecutionRegistry,
       checkpointStateManager: this.dependencies.getCheckpointStateManager(),
       workflowRegistry: this.dependencies.getWorkflowRegistry(),
-      graphRegistry: this.dependencies.getGraphRegistry(),
+      workflowGraphRegistry: this.dependencies.getGraphRegistry(),
     };
 
-    const { threadEntity } = await CheckpointCoordinator.restoreFromCheckpoint(
+    const { workflowExecutionEntity } = await CheckpointCoordinator.restoreFromCheckpoint(
       this.params.checkpointId,
       dependencies,
     );
-    return threadEntity.getThread();
+    return workflowExecutionEntity.getThread();
   }
 }

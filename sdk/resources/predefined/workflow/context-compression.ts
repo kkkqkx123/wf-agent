@@ -7,7 +7,7 @@
 
 import type { WorkflowDefinition, Node, Edge, TruncateMessageOperation } from "@wf-agent/types";
 import { now, generateId } from "@wf-agent/common-utils";
-import type { WorkflowRegistry } from "../../../graph/stores/workflow-registry.js";
+import type { WorkflowRegistry } from "../../../workflow/stores/workflow-registry.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "ContextCompressionWorkflow" });

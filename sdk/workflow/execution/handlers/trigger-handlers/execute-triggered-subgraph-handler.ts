@@ -142,7 +142,7 @@ export async function executeTriggeredSubgraphHandler(
     }
 
     const container = getContainer();
-    const graphRegistry = container.get(Identifiers.GraphRegistry) as GraphRegistry;
+    const graphRegistry = container.get(Identifiers.GraphRegistry) as WorkflowGraphRegistry;
     const processedTriggeredWorkflow = graphRegistry.get(triggeredWorkflowId);
 
     if (!processedTriggeredWorkflow) {

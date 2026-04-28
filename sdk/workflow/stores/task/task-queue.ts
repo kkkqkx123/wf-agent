@@ -18,7 +18,7 @@ import { TaskRegistry } from "./task-registry.js";
 import { ThreadPool } from "../../execution/thread-pool.js";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import type { ThreadEntity } from "../../entities/workflow-execution-entity.js";
-import type { ThreadResult } from "@wf-agent/types";
+import type { WorkflowExecutionResult } from "@wf-agent/types";
 import {
   type QueueTask,
   type ExecutedSubgraphResult,
@@ -222,7 +222,7 @@ export class TaskQueue {
    */
   private async handleTaskCompleted(
     queueTask: QueueTask,
-    threadResult: ThreadResult,
+    threadResult: WorkflowExecutionResult,
     executionTime: number,
   ): Promise<void> {
     // Update task registry
@@ -233,7 +233,7 @@ export class TaskQueue {
 
     // Trigger the completion event
     const completedEvent = buildTriggeredSubgraphCompletedEvent({
-      threadId: queueTask.threadEntity.id,
+      threadId: queueTask.workflowExecutionEntity.id,
       workflowId: queueTask.threadEntity.getWorkflowId(),
       subgraphId: queueTask.threadEntity.getTriggeredSubworkflowId() || "",
       triggerId: "",
@@ -272,7 +272,7 @@ export class TaskQueue {
 
     // Trigger a failure event.
     const failedEvent = buildTriggeredSubgraphFailedEvent({
-      threadId: queueTask.threadEntity.id,
+      threadId: queueTask.workflowExecutionEntity.id,
       workflowId: queueTask.threadEntity.getWorkflowId(),
       subgraphId: queueTask.threadEntity.getTriggeredSubworkflowId() || "",
       triggerId: "",
@@ -304,7 +304,7 @@ export class TaskQueue {
 
       // Trigger the cancellation event (using the FAILED event type, as the CANCELLED event type does not exist)
       const cancelledEvent = buildTriggeredSubgraphFailedEvent({
-        threadId: queueTask.threadEntity.id,
+        threadId: queueTask.workflowExecutionEntity.id,
         workflowId: queueTask.threadEntity.getWorkflowId(),
         subgraphId: queueTask.threadEntity.getTriggeredSubworkflowId() || "",
         triggerId: "",

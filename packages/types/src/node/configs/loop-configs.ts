@@ -2,7 +2,7 @@
  * Cyclic Node Configuration Type Definition
  */
 
-import type { Condition } from '../../graph/condition.js';
+import type { Condition } from "../../graph/condition.js";
 
 /**
  * Cyclic Data Source Configuration

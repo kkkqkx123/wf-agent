@@ -19,7 +19,7 @@ import {
   validationFailure,
 } from "../../../shared/types/command.js";
 import type { CheckpointMetadata } from "@wf-agent/types";
-import { CheckpointCoordinator } from "../../../../graph/checkpoint/checkpoint-coordinator.js";
+import { CheckpointCoordinator } from "../../../../workflow/checkpoint/checkpoint-coordinator.js";
 import type { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
 import { ThreadContextNotFoundError } from "@wf-agent/types";
 
@@ -65,10 +65,10 @@ export class CreateCheckpointCommand extends BaseCommand<string> {
     }
 
     const dependencies = {
-      threadRegistry,
+      workflowExecutionRegistry: threadRegistry as unknown as import("../../../../workflow/stores/workflow-execution-registry.js").WorkflowExecutionRegistry,
       checkpointStateManager,
       workflowRegistry,
-      graphRegistry,
+      workflowGraphRegistry: graphRegistry,
     };
 
     const checkpointId = await CheckpointCoordinator.createCheckpoint(

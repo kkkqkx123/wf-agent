@@ -3,7 +3,7 @@
  * Contains START, END, and ROUTE node configurations
  */
 
-import type { Condition } from '../../graph/condition.js';
+import type { Condition } from "../../graph/condition.js";
 
 /**
  * Starting Node Configuration

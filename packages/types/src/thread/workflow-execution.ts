@@ -36,6 +36,16 @@ export interface WorkflowExecutionResult {
   threadResult: ThreadResult;
   /** Implementation metadata */
   metadata: WorkflowExecutionMetadata;
+
+  // Backward compatibility properties (delegate to threadResult)
+  /** @deprecated Use threadResult.threadId instead */
+  get threadId(): ID;
+  /** @deprecated Use threadResult.output instead */
+  get output(): Record<string, unknown>;
+  /** @deprecated Use threadResult.executionTime instead */
+  get executionTime(): Timestamp;
+  /** @deprecated Use threadResult.nodeResults instead */
+  get nodeResults(): import("./history.js").NodeExecutionResult[];
 }
 
 /**

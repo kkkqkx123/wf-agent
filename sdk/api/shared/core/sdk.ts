@@ -27,7 +27,7 @@ import { registerAllPredefinedContent } from "../../../resources/predefined/regi
 import { TomlParserManager } from "../../../utils/toml-parser-manager.js";
 import type { ServiceIdentifier } from "@wf-agent/common-utils";
 import type { TriggerTemplateRegistry } from "../../../core/registry/trigger-template-registry.js";
-import type { WorkflowRegistry } from "../../../graph/stores/workflow-registry.js";
+import type { WorkflowRegistry } from "../../../workflow/stores/workflow-registry.js";
 import type { ToolRegistry } from "../../../core/registry/tool-registry.js";
 
 /**

@@ -33,8 +33,8 @@ import type {
 import * as Identifiers from "./service-identifiers.js";
 
 // Storage Layer Service
-import { GraphRegistry } from "../../graph/stores/graph-registry.js";
-import { ThreadRegistry } from "../../graph/stores/thread-registry.js";
+import { GraphRegistry } from "../../workflow/stores/workflow-graph-registry.js";
+import { ThreadRegistry } from "../../workflow/stores/thread-registry.js";
 import { LLMWrapper } from "../llm/wrapper.js";
 
 // Business Layer Services
@@ -43,54 +43,54 @@ import { ToolRegistry } from "../registry/tool-registry.js";
 import { ScriptRegistry } from "../registry/script-registry.js";
 import { NodeTemplateRegistry } from "../registry/node-template-registry.js";
 import { TriggerTemplateRegistry } from "../registry/trigger-template-registry.js";
-import { TaskRegistry } from "../../graph/stores/task/task-registry.js";
-import { TaskQueue } from "../../graph/stores/task/task-queue.js";
-import { WorkflowRegistry } from "../../graph/stores/workflow-registry.js";
-import { ThreadPool } from "../../graph/execution/thread-pool.js";
+import { TaskRegistry } from "../../workflow/stores/task/task-registry.js";
+import { TaskQueue } from "../../workflow/stores/task/task-queue.js";
+import { WorkflowRegistry } from "../../workflow/stores/workflow-registry.js";
+import { ThreadPool } from "../../workflow/execution/thread-pool.js";
 
 // Execution Layer Services - Core Layer Universal Executor
 import { LLMExecutor, ToolCallExecutor } from "../executors/index.js";
 import { ToolApprovalCoordinator } from "../coordinators/tool-approval-coordinator.js";
 import { SkillRegistry } from "../registry/skill-registry.js";
 import { SkillLoader } from "../utils/skill-loader.js";
-import { safeEmit } from "../../graph/execution/utils/index.js";
-import { createCheckpoint } from "../../graph/checkpoint/utils/checkpoint-utils.js";
+import { safeEmit } from "../../workflow/execution/utils/index.js";
+import { createCheckpoint } from "../../workflow/checkpoint/utils/checkpoint-utils.js";
 import {
   buildMessageAddedEvent,
   buildToolCallStartedEvent,
   buildToolCallCompletedEvent,
   buildToolCallFailedEvent,
-} from "../../graph/execution/utils/event/index.js";
-import { ThreadStateTransitor } from "../../graph/execution/coordinators/thread-state-transitor.js";
-import { CheckpointState } from "../../graph/checkpoint/checkpoint-state-manager.js";
-import { ToolContextStore } from "../../graph/stores/tool-context-store.js";
-import { GraphConversationSession } from "../../graph/message/graph-conversation-session.js";
-import { ToolVisibilityStore } from "../../graph/stores/tool-visibility-store.js";
-import { ToolVisibilityCoordinator } from "../../graph/execution/coordinators/tool-visibility-coordinator.js";
-import { ThreadBuilder } from "../../graph/execution/factories/thread-builder.js";
-import { ThreadExecutor } from "../../graph/execution/executors/thread-executor.js";
+} from "../../workflow/execution/utils/event/index.js";
+import { ThreadStateTransitor } from "../../workflow/execution/coordinators/thread-state-transitor.js";
+import { CheckpointState } from "../../workflow/checkpoint/checkpoint-state-manager.js";
+import { ToolContextStore } from "../../workflow/stores/tool-context-store.js";
+import { GraphConversationSession } from "../../workflow/message/workflow-conversation-session.js";
+import { ToolVisibilityStore } from "../../workflow/stores/tool-visibility-store.js";
+import { ToolVisibilityCoordinator } from "../../workflow/execution/coordinators/tool-visibility-coordinator.js";
+import { ThreadBuilder } from "../../workflow/execution/factories/thread-builder.js";
+import { ThreadExecutor } from "../../workflow/execution/executors/thread-executor.js";
 
 // Execution Layer - Coordinators
-import { ThreadExecutionCoordinator } from "../../graph/execution/coordinators/thread-execution-coordinator.js";
-import { VariableCoordinator } from "../../graph/execution/coordinators/variable-coordinator.js";
-import { TriggerCoordinator } from "../../graph/execution/coordinators/trigger-coordinator.js";
-import { NodeExecutionCoordinator } from "../../graph/execution/coordinators/node-execution-coordinator.js";
-import { TriggeredSubworkflowHandler } from "../../graph/execution/handlers/triggered-subworkflow-handler.js";
-import { LLMExecutionCoordinator } from "../../graph/execution/coordinators/llm-execution-coordinator.js";
-import { ThreadOperationCoordinator } from "../../graph/execution/coordinators/thread-operation-coordinator.js";
-import { CheckpointCoordinator } from "../../graph/checkpoint/checkpoint-coordinator.js";
-import { GraphNavigator } from "../../graph/graph-builder/graph-navigator.js";
-import { ThreadLifecycleCoordinator } from "../../graph/execution/coordinators/thread-lifecycle-coordinator.js";
+import { ThreadExecutionCoordinator } from "../../workflow/execution/coordinators/thread-execution-coordinator.js";
+import { VariableCoordinator } from "../../workflow/execution/coordinators/variable-coordinator.js";
+import { TriggerCoordinator } from "../../workflow/execution/coordinators/trigger-coordinator.js";
+import { NodeExecutionCoordinator } from "../../workflow/execution/coordinators/node-execution-coordinator.js";
+import { TriggeredSubworkflowHandler } from "../../workflow/execution/handlers/triggered-subworkflow-handler.js";
+import { LLMExecutionCoordinator } from "../../workflow/execution/coordinators/llm-execution-coordinator.js";
+import { ThreadOperationCoordinator } from "../../workflow/execution/coordinators/thread-operation-coordinator.js";
+import { CheckpointCoordinator } from "../../workflow/checkpoint/checkpoint-coordinator.js";
+import { GraphNavigator } from "../../workflow/builder/graph-navigator.js";
+import { ThreadLifecycleCoordinator } from "../../workflow/execution/coordinators/thread-lifecycle-coordinator.js";
 
 // Execution Layer - Managers
 import { ConversationSession } from "../messaging/conversation-session.js";
-import { VariableState } from "../../graph/state-managers/variable-state.js";
-import { TriggerState } from "../../graph/state-managers/trigger-state.js";
+import { VariableState } from "../../workflow/state-managers/variable-state.js";
+import { TriggerState } from "../../workflow/state-managers/trigger-state.js";
 import { InterruptionState } from "../types/interruption-state.js";
 import { AgentLoopExecutor } from "../../agent/execution/executors/agent-loop-executor.js";
 import { AgentLoopRegistry } from "../../agent/loop/agent-loop-registry.js";
 import { AgentLoopCoordinator } from "../../agent/execution/coordinators/agent-loop-coordinator.js";
-import { ThreadEntity } from "../../graph/entities/thread-entity.js";
+import { ThreadEntity } from "../../workflow/entities/workflow-execution-entity.js";
 
 /** Global container instance */
 let container: Container | null = null;
@@ -249,7 +249,7 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
   container
     .bind(Identifiers.WorkflowRegistry)
     .toDynamicValue((c: IContainer): WorkflowRegistry => {
-      const threadRegistry = c.get(Identifiers.ThreadRegistry) as ThreadRegistry;
+      const threadRegistry = c.get(Identifiers.ThreadRegistry) as WorkflowExecutionRegistry;
       return new WorkflowRegistry({ maxRecursionDepth: 10 }, threadRegistry);
     })
     .inSingletonScope();
@@ -283,10 +283,10 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
         c.get(Identifiers.ToolRegistry) as ToolRegistry,
         c.get(Identifiers.EventRegistry) as EventRegistry,
         {
-          threadRegistry: c.get(Identifiers.ThreadRegistry) as ThreadRegistry,
+          threadRegistry: c.get(Identifiers.ThreadRegistry) as WorkflowExecutionRegistry,
           checkpointStateManager: c.get(Identifiers.CheckpointState) as CheckpointState,
           workflowRegistry: c.get(Identifiers.WorkflowRegistry) as WorkflowRegistry,
-          graphRegistry: c.get(Identifiers.GraphRegistry) as GraphRegistry,
+          graphRegistry: c.get(Identifiers.GraphRegistry) as WorkflowGraphRegistry,
         },
         c.get(Identifiers.ToolVisibilityStore) as ToolVisibilityStore,
         eventBuilder,
@@ -326,7 +326,7 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
       const graphConversationSessionFactory = c.get(Identifiers.GraphConversationSession) as {
         create: (threadId: string) => GraphConversationSession;
       };
-      const threadRegistry = c.get(Identifiers.ThreadRegistry) as ThreadRegistry;
+      const threadRegistry = c.get(Identifiers.ThreadRegistry) as WorkflowExecutionRegistry;
       const taskRegistry = c.get(Identifiers.TaskRegistry) as TaskRegistry;
       return {
         create: (threadId: string) => {
@@ -384,7 +384,7 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
     .bind(Identifiers.ThreadExecutor)
     .toDynamicValue((c: IContainer): ThreadExecutor => {
       return new ThreadExecutor({
-        graphRegistry: c.get(Identifiers.GraphRegistry) as GraphRegistry,
+        graphRegistry: c.get(Identifiers.GraphRegistry) as WorkflowGraphRegistry,
         threadExecutionCoordinatorFactory: c.get(Identifiers.ThreadExecutionCoordinator) as {
           create: (threadEntity: ThreadEntity) => ThreadExecutionCoordinator;
         },
@@ -404,7 +404,7 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
     .bind(Identifiers.ThreadLifecycleCoordinator)
     .toDynamicValue(
       (c: IContainer): { create: (threadId: string) => ThreadLifecycleCoordinator } => {
-        const threadRegistry = c.get(Identifiers.ThreadRegistry) as ThreadRegistry;
+        const threadRegistry = c.get(Identifiers.ThreadRegistry) as WorkflowExecutionRegistry;
         const threadBuilder = c.get(Identifiers.ThreadBuilder) as ThreadBuilder;
         const threadExecutor = c.get(Identifiers.ThreadExecutor) as ThreadExecutor;
         const stateTransitorFactory = c.get(Identifiers.ThreadStateTransitor) as {
@@ -564,10 +564,10 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
               toolService: c.get(Identifiers.ToolRegistry) as ToolRegistry,
               toolContextStore: c.get(Identifiers.ToolContextStore) as ToolContextStore,
               checkpointDependencies: {
-                threadRegistry: c.get(Identifiers.ThreadRegistry) as ThreadRegistry,
+                threadRegistry: c.get(Identifiers.ThreadRegistry) as WorkflowExecutionRegistry,
                 checkpointStateManager: c.get(Identifiers.CheckpointState) as CheckpointState,
                 workflowRegistry: c.get(Identifiers.WorkflowRegistry) as WorkflowRegistry,
-                graphRegistry: c.get(Identifiers.GraphRegistry) as GraphRegistry,
+                graphRegistry: c.get(Identifiers.GraphRegistry) as WorkflowGraphRegistry,
               },
               agentLoopExecutorFactory: agentLoopExecutorFactory.create(),
             };
@@ -584,9 +584,9 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
   container
     .bind(Identifiers.TriggerCoordinator)
     .toDynamicValue((c: IContainer): { create: (threadId: string) => TriggerCoordinator } => {
-      const threadRegistry = c.get(Identifiers.ThreadRegistry) as ThreadRegistry;
+      const threadRegistry = c.get(Identifiers.ThreadRegistry) as WorkflowExecutionRegistry;
       const workflowRegistry = c.get(Identifiers.WorkflowRegistry) as WorkflowRegistry;
-      const graphRegistry = c.get(Identifiers.GraphRegistry) as GraphRegistry;
+      const graphRegistry = c.get(Identifiers.GraphRegistry) as WorkflowGraphRegistry;
       const eventManager = c.get(Identifiers.EventRegistry) as EventRegistry;
       const threadBuilder = c.get(Identifiers.ThreadBuilder) as ThreadBuilder;
       const taskRegistry = c.get(Identifiers.TaskRegistry) as TaskRegistry;
@@ -630,7 +630,7 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
       const eventManager = c.get(Identifiers.EventRegistry) as EventRegistry;
       const threadPoolService = c.get(Identifiers.ThreadPool) as ThreadPool;
       const taskQueueManager = new TaskQueue(taskRegistry, threadPoolService, eventManager);
-      const threadRegistry = c.get(Identifiers.ThreadRegistry) as ThreadRegistry;
+      const threadRegistry = c.get(Identifiers.ThreadRegistry) as WorkflowExecutionRegistry;
       // Create an adapter to convert null to undefined
       const threadRegistryAdapter = {
         register: (entity: ThreadEntity) => threadRegistry.register(entity),
@@ -655,7 +655,7 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
     .toDynamicValue(
       (c: IContainer): { create: (threadEntity: ThreadEntity) => ThreadExecutionCoordinator } => {
         const variableCoordinator = c.get(Identifiers.VariableCoordinator) as VariableCoordinator;
-        const graphRegistry = c.get(Identifiers.GraphRegistry) as GraphRegistry;
+        const graphRegistry = c.get(Identifiers.GraphRegistry) as WorkflowGraphRegistry;
         const toolService = c.get(Identifiers.ToolRegistry) as ToolRegistry;
         const toolVisibilityStore = c.get(Identifiers.ToolVisibilityStore) as ToolVisibilityStore;
         const toolVisibilityCoordinator = new ToolVisibilityCoordinator(
@@ -678,7 +678,7 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
 
         return {
           create: (threadEntity: ThreadEntity) => {
-            const threadId = threadEntity.id;
+            const threadId = workflowExecutionEntity.id;
             const nodeId = threadEntity.getCurrentNodeId();
             const graph = threadEntity.getGraph();
             const navigator = new GraphNavigator(graph);
@@ -706,7 +706,7 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
     .bind(Identifiers.ThreadOperationCoordinator)
     .toDynamicValue((c: IContainer): ThreadOperationCoordinator => {
       return new ThreadOperationCoordinator(
-        c.get(Identifiers.ThreadRegistry) as ThreadRegistry,
+        c.get(Identifiers.ThreadRegistry) as WorkflowExecutionRegistry,
         c.get(Identifiers.EventRegistry) as EventRegistry,
       );
     })
@@ -754,29 +754,29 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
     .toDynamicValue((c: IContainer) => {
       return {
         dependencies: {
-          threadRegistry: c.get(Identifiers.ThreadRegistry) as ThreadRegistry,
+          threadRegistry: c.get(Identifiers.ThreadRegistry) as WorkflowExecutionRegistry,
           checkpointStateManager: c.get(Identifiers.CheckpointState) as CheckpointState,
           workflowRegistry: c.get(Identifiers.WorkflowRegistry) as WorkflowRegistry,
-          graphRegistry: c.get(Identifiers.GraphRegistry) as GraphRegistry,
+          graphRegistry: c.get(Identifiers.GraphRegistry) as WorkflowGraphRegistry,
         },
         createCheckpoint: (threadId: string, metadata?: Record<string, unknown>) => {
           return CheckpointCoordinator.createCheckpoint(
             threadId,
             {
-              threadRegistry: c.get(Identifiers.ThreadRegistry) as ThreadRegistry,
+              threadRegistry: c.get(Identifiers.ThreadRegistry) as WorkflowExecutionRegistry,
               checkpointStateManager: c.get(Identifiers.CheckpointState) as CheckpointState,
               workflowRegistry: c.get(Identifiers.WorkflowRegistry) as WorkflowRegistry,
-              graphRegistry: c.get(Identifiers.GraphRegistry) as GraphRegistry,
+              graphRegistry: c.get(Identifiers.GraphRegistry) as WorkflowGraphRegistry,
             },
             metadata,
           );
         },
         restoreFromCheckpoint: (checkpointId: string) => {
           return CheckpointCoordinator.restoreFromCheckpoint(checkpointId, {
-            threadRegistry: c.get(Identifiers.ThreadRegistry) as ThreadRegistry,
+            threadRegistry: c.get(Identifiers.ThreadRegistry) as WorkflowExecutionRegistry,
             checkpointStateManager: c.get(Identifiers.CheckpointState) as CheckpointState,
             workflowRegistry: c.get(Identifiers.WorkflowRegistry) as WorkflowRegistry,
-            graphRegistry: c.get(Identifiers.GraphRegistry) as GraphRegistry,
+            graphRegistry: c.get(Identifiers.GraphRegistry) as WorkflowGraphRegistry,
           });
         },
       };

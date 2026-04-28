@@ -78,7 +78,7 @@ export class WorkflowRegistry {
   private getThreadRegistry(): WorkflowExecutionRegistry | undefined {
     if (!this.threadRegistry) {
       const container = getContainer();
-      this.threadRegistry = container.get(Identifiers.ThreadRegistry) as ThreadRegistry;
+      this.threadRegistry = container.get(Identifiers.ThreadRegistry) as WorkflowExecutionRegistry;
     }
     return this.threadRegistry;
   }
@@ -89,7 +89,7 @@ export class WorkflowRegistry {
    */
   private getGraphRegistry(): WorkflowGraphRegistry {
     const container = getContainer();
-    return container.get(Identifiers.GraphRegistry) as GraphRegistry;
+    return container.get(Identifiers.GraphRegistry) as WorkflowGraphRegistry;
   }
 
   /**

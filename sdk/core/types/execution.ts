@@ -10,8 +10,8 @@
  * - Type safety with discriminated unions
  */
 
-import type { ThreadResult, TaskStatus } from "@wf-agent/types";
-import type { ThreadEntity } from "../../graph/entities/thread-entity.js";
+import type { WorkflowExecutionResult, TaskStatus } from "@wf-agent/types";
+import type { ThreadEntity } from "../../workflow/entities/workflow-execution-entity.js";
 import type { AgentLoopEntity } from "../../agent/entities/agent-loop-entity.js";
 
 // ============================================================================
@@ -104,7 +104,7 @@ export interface TaskInfo {
   /** Completion time */
   completeTime?: number;
   /** Execution result (upon success) */
-  result?: ThreadResult;
+  result?: WorkflowExecutionResult;
   /** Error message (in case of failure) */
   error?: Error;
   /** Timeout period (in milliseconds) */
@@ -131,7 +131,7 @@ export interface StoredTaskInfo {
   /** Completion time */
   completeTime?: number;
   /** Execution result (upon success) */
-  result?: ThreadResult;
+  result?: WorkflowExecutionResult;
   /** Error message (in case of failure) */
   error?: Error;
   /** Timeout period (in milliseconds) */

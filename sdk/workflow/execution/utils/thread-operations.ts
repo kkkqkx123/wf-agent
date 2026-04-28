@@ -343,7 +343,7 @@ async function waitForCompletion(
       for (const threadId of childThreadIds) {
         const threadEntity = threadRegistry.get(threadId);
         if (threadEntity) {
-          const thread = threadEntity.getThread();
+          const thread = workflowExecutionEntity.getThread();
           const status = threadEntity.getStatus();
           if (status === "COMPLETED") {
             completedThreads.push(thread);
@@ -362,7 +362,7 @@ async function waitForCompletion(
       for (const threadId of childThreadIds) {
         const threadEntity = threadRegistry.get(threadId);
         if (threadEntity) {
-          const thread = threadEntity.getThread();
+          const thread = workflowExecutionEntity.getThread();
           const status = threadEntity.getStatus();
           if (status === "COMPLETED") {
             completedThreads.push(thread);
@@ -382,7 +382,7 @@ async function waitForCompletion(
       for (const threadId of childThreadIds) {
         const threadEntity = threadRegistry.get(threadId);
         if (threadEntity) {
-          const thread = threadEntity.getThread();
+          const thread = workflowExecutionEntity.getThread();
           const status = threadEntity.getStatus();
           if (status === "FAILED" || status === "CANCELLED") {
             failedThreads.push(thread);
@@ -401,7 +401,7 @@ async function waitForCompletion(
       for (const threadId of childThreadIds) {
         const threadEntity = threadRegistry.get(threadId);
         if (threadEntity) {
-          const thread = threadEntity.getThread();
+          const thread = workflowExecutionEntity.getThread();
           const status = threadEntity.getStatus();
           if (status === "COMPLETED") {
             completedThreads.push(thread);
@@ -421,7 +421,7 @@ async function waitForCompletion(
       for (const threadId of childThreadIds) {
         const threadEntity = threadRegistry.get(threadId);
         if (threadEntity) {
-          const thread = threadEntity.getThread();
+          const thread = workflowExecutionEntity.getThread();
           const status = threadEntity.getStatus();
           if (status === "COMPLETED") {
             completedThreads.push(thread);
@@ -488,7 +488,7 @@ async function waitForCompletionByPolling(
         continue;
       }
 
-      const thread = threadEntity.getThread();
+      const thread = workflowExecutionEntity.getThread();
       const status = threadEntity.getStatus();
       if (status === "COMPLETED") {
         completedThreads.push(thread);

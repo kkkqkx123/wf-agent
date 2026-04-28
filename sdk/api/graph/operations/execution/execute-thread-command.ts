@@ -4,7 +4,7 @@
  * Responsibilities:
  * - Receives workflow ID and execution options as input
  * - Delegates to ThreadLifecycleCoordinator to execute thread
- * - Returns ThreadResult as execution result
+ * - Returns WorkflowExecutionResult as execution result
  *
  * Design Principles:
  * - Follows Command pattern, inherits BaseCommand
@@ -24,7 +24,7 @@ import {
   validationSuccess,
   validationFailure,
 } from "../../../shared/types/command.js";
-import type { ThreadResult, ThreadOptions } from "@wf-agent/types";
+import type { WorkflowExecutionResult, ThreadOptions } from "@wf-agent/types";
 import { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
 
 /**
@@ -43,7 +43,7 @@ export interface ExecuteThreadParams {
  * Workflow:
  * 1. Validate parameters (workflowId is required)
  * 2. Execute thread using ThreadLifecycleCoordinator
- * 3. Return ThreadResult
+ * 3. Return WorkflowExecutionResult
  *
  * Execution Flow:
  * - ThreadLifecycleCoordinator.execute(workflowId, options)
@@ -53,7 +53,7 @@ export interface ExecuteThreadParams {
  *   → ThreadExecutor.executeThread(threadContext) // Execute thread
  *   → ThreadLifecycleCoordinator.completeThread/failThread // Complete thread
  */
-export class ExecuteThreadCommand extends BaseCommand<ThreadResult> {
+export class ExecuteThreadCommand extends BaseCommand<WorkflowExecutionResult> {
   constructor(
     private readonly params: ExecuteThreadParams,
     private readonly dependencies: APIDependencyManager,
@@ -61,7 +61,7 @@ export class ExecuteThreadCommand extends BaseCommand<ThreadResult> {
     super();
   }
 
-  protected async executeInternal(): Promise<ThreadResult> {
+  protected async executeInternal(): Promise<WorkflowExecutionResult> {
     // Obtain the ThreadLifecycleCoordinator through APIDependencyManager
     const lifecycleCoordinator = this.dependencies.getThreadLifecycleCoordinator();
 

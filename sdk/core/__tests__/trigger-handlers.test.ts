@@ -18,7 +18,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   getTriggerHandler,
   triggerHandlers,
-} from "../../graph/execution/handlers/trigger-handlers/index.js";
+} from "../../workflow/execution/handlers/trigger-handlers/index.js";
 import { TriggerActionType } from "@wf-agent/types";
 import type { TriggerAction, TriggerExecutionResult } from "@wf-agent/types";
 

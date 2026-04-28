@@ -6,7 +6,7 @@
  */
 
 import { now } from "@wf-agent/common-utils";
-import type { ThreadStatus } from "@wf-agent/types";
+import type { WorkflowExecutionStatus } from "@wf-agent/types";
 
 /**
  * ThreadState - Thread Execution State Manager
@@ -22,7 +22,7 @@ import type { ThreadStatus } from "@wf-agent/types";
  */
 export class ThreadState {
   /** Current Status */
-  private _status: ThreadStatus = "CREATED";
+  private _status: WorkflowExecutionStatus = "CREATED";
 
   /** Pause flag */
   private _shouldPause: boolean = false;
@@ -42,14 +42,14 @@ export class ThreadState {
   /**
    * Get the current status
    */
-  get status(): ThreadStatus {
+  get status(): WorkflowExecutionStatus {
     return this._status;
   }
 
   /**
    * Set the status
    */
-  set status(value: ThreadStatus) {
+  set status(value: WorkflowExecutionStatus) {
     this._status = value;
   }
 

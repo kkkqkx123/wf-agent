@@ -8,13 +8,13 @@ import {
   validationSuccess,
   validationFailure,
 } from "../../../shared/types/command.js";
-import type { ThreadResult } from "@wf-agent/types";
+import type { WorkflowExecutionResult } from "@wf-agent/types";
 import { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
 
 /**
  * Thread recovery command
  */
-export class ResumeThreadCommand extends BaseCommand<ThreadResult> {
+export class ResumeThreadCommand extends BaseCommand<WorkflowExecutionResult> {
   constructor(
     private readonly threadId: string,
     private readonly dependencies: APIDependencyManager,
@@ -22,7 +22,7 @@ export class ResumeThreadCommand extends BaseCommand<ThreadResult> {
     super();
   }
 
-  protected async executeInternal(): Promise<ThreadResult> {
+  protected async executeInternal(): Promise<WorkflowExecutionResult> {
     const lifecycleCoordinator = this.dependencies.getThreadLifecycleCoordinator();
     const result = await lifecycleCoordinator.resumeThread(this.threadId);
     return result;

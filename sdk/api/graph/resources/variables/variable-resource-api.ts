@@ -5,7 +5,7 @@
 
 import { now } from "@wf-agent/common-utils";
 import { ReadonlyResourceAPI } from "../../../shared/resources/generic-resource-api.js";
-import type { ThreadRegistry } from "../../../../graph/stores/thread-registry.js";
+import type { ThreadRegistry } from "../../../../workflow/stores/thread-registry.js";
 import type { Thread } from "@wf-agent/types";
 import { NotFoundError, ThreadContextNotFoundError } from "@wf-agent/types";
 import { getContainer } from "../../../../core/di/index.js";

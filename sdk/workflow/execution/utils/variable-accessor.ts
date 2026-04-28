@@ -152,7 +152,7 @@ export class VariableAccessor {
    * @returns Value
    */
   private getFromScope(path: string, scope: VariableScope): unknown {
-    const thread = this.threadEntity.getThread();
+    const thread = this.workflowExecutionEntity.getThread();
     const scopes = thread.variableScopes;
 
     let scopeData: Record<string, unknown> | undefined;

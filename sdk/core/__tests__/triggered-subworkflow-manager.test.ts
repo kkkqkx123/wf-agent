@@ -10,13 +10,13 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { TriggeredSubworkflowHandler } from "../../graph/execution/handlers/triggered-subworkflow-handler.js";
+import { TriggeredSubworkflowHandler } from "../../workflow/execution/handlers/triggered-subworkflow-handler.js";
 import type {
   TriggeredSubgraphTask,
   ExecutedSubgraphResult,
   TaskSubmissionResult,
-} from "../../graph/execution/types/triggered-subworkflow.types.js";
-import type { ThreadResult } from "@wf-agent/types";
+} from "../../workflow/execution/types/triggered-subworkflow.types.js";
+import type { WorkflowExecutionResult } from "@wf-agent/types";
 import type { TaskStatus } from "@wf-agent/types";
 import type { ExecutionInstanceType } from "../types/index.js";
 
@@ -106,7 +106,7 @@ describe("Triggered Subworkflow Manager - Triggered Subworkflow Manager", () => 
         },
       };
 
-      const mockThreadResult: ThreadResult = {
+      const mockThreadResult: WorkflowExecutionResult = {
         threadId: "subgraph-thread-456",
         output: { compressed: "context" },
         executionTime: 100,
@@ -159,7 +159,7 @@ describe("Triggered Subworkflow Manager - Triggered Subworkflow Manager", () => 
         },
       };
 
-      const mockThreadResult: ThreadResult = {
+      const mockThreadResult: WorkflowExecutionResult = {
         threadId: "subgraph-thread-456",
         output: { data: "test" },
         executionTime: 200,
@@ -276,7 +276,7 @@ describe("Triggered Subworkflow Manager - Triggered Subworkflow Manager", () => 
         // The `config` setting is not configured.
       };
 
-      const mockThreadResult: ThreadResult = {
+      const mockThreadResult: WorkflowExecutionResult = {
         threadId: "subgraph-thread-456",
         output: {},
         executionTime: 50,
@@ -358,7 +358,7 @@ describe("Triggered Subworkflow Manager - Triggered Subworkflow Manager", () => 
         },
       };
 
-      const mockThreadResult: ThreadResult = {
+      const mockThreadResult: WorkflowExecutionResult = {
         threadId: "subgraph-thread-456",
         output: {},
         executionTime: 50,
@@ -398,7 +398,7 @@ describe("Triggered Subworkflow Manager - Triggered Subworkflow Manager", () => 
         },
       };
 
-      const mockThreadResult: ThreadResult = {
+      const mockThreadResult: WorkflowExecutionResult = {
         threadId: "subgraph-thread-456",
         output: {},
         executionTime: 50,

@@ -4,7 +4,7 @@
  * Supports Result, Promise and Observable interfaces
  */
 
-import type { ThreadResult, ThreadOptions } from "@wf-agent/types";
+import type { WorkflowExecutionResult, ThreadOptions } from "@wf-agent/types";
 import { ok, err, getErrorOrNew, withAbortSignal, now } from "@wf-agent/common-utils";
 import type { Result } from "@wf-agent/types";
 import { Observable, create, type Observer } from "../../shared/utils/observable.js";
@@ -120,9 +120,9 @@ export class ExecutionBuilder {
 
   /**
    * Execute the workflow (return Result type)
-   * @returns Promise<Result<ThreadResult, Error>>
+   * @returns Promise<Result<WorkflowExecutionResult, Error>>
    */
-  async execute(): Promise<Result<ThreadResult, Error>> {
+  async execute(): Promise<Result<WorkflowExecutionResult, Error>> {
     if (!this.workflowId) {
       return err(new Error("Workflow ID not set, please call withWorkflow() first."));
     }
@@ -263,9 +263,9 @@ export class ExecutionBuilder {
   /**
    * Execute a workflow using AbortSignal
    * @param signal AbortSignal
-   * @returns Promise<Result<ThreadResult, Error>>
+   * @returns Promise<Result<WorkflowExecutionResult, Error>>
    */
-  private async executeWithSignal(signal: AbortSignal): Promise<Result<ThreadResult, Error>> {
+  private async executeWithSignal(signal: AbortSignal): Promise<Result<WorkflowExecutionResult, Error>> {
     // Wrapping execution logic with withAbortSignal
     return withAbortSignal(async () => {
       // Thread execution using Command mode

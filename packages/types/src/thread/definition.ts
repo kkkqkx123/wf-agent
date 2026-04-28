@@ -103,3 +103,9 @@ export interface WorkflowExecution {
   /** Triggered subworkflow context (only present if threadType is TRIGGERED_SUBWORKFLOW) */
   triggeredSubworkflowContext?: TriggeredSubworkflowContext;
 }
+
+/**
+ * Backward compatibility alias for WorkflowExecution
+ * @deprecated Use WorkflowExecution instead
+ */
+export type Thread = WorkflowExecution;

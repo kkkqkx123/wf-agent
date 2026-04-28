@@ -11,9 +11,9 @@ import type {
   SnapshotBase,
   SerializedError,
   TaskStatus,
-  ThreadResult,
+  WorkflowExecutionResult,
   NodeExecutionResult,
-  ThreadStatus,
+  WorkflowExecutionStatus,
 } from "@wf-agent/types";
 
 /**
@@ -52,7 +52,7 @@ export interface TaskSnapshot extends SnapshotBase {
  */
 export interface SerializedThreadResultMetadata {
   /** Thread state status */
-  status: ThreadStatus;
+  status: WorkflowExecutionStatus;
   /** Starting time */
   startTime: number;
   /** End time */
@@ -107,9 +107,9 @@ export class TaskDeltaCalculator extends DeltaCalculator<TaskSnapshot> {
  */
 export const TaskSerializationUtils = {
   /**
-   * Serialize ThreadResult for storage
+   * Serialize WorkflowExecutionResult for storage
    */
-  serializeThreadResult(result: ThreadResult): SerializedThreadResult {
+  serializeThreadResult(result: WorkflowExecutionResult): SerializedThreadResult {
     return {
       threadId: result.threadId,
       output: result.output,
@@ -127,9 +127,9 @@ export const TaskSerializationUtils = {
   },
 
   /**
-   * Deserialize ThreadResult from serialized format
+   * Deserialize WorkflowExecutionResult from serialized format
    */
-  deserializeThreadResult(serialized: SerializedThreadResult): ThreadResult {
+  deserializeThreadResult(serialized: SerializedThreadResult): WorkflowExecutionResult {
     return {
       threadId: serialized.threadId,
       output: serialized.output,
@@ -157,7 +157,7 @@ export const TaskSerializationUtils = {
     submitTime: number;
     startTime?: number;
     completeTime?: number;
-    result?: ThreadResult;
+    result?: WorkflowExecutionResult;
     error?: Error;
     timeout?: number;
   }): TaskSnapshot {

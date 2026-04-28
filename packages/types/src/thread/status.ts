@@ -31,3 +31,15 @@ export type WorkflowExecutionType =
   | "FORK_JOIN"
   /** Triggered sub workflow thread */
   | "TRIGGERED_SUBWORKFLOW";
+
+/**
+ * Backward compatibility aliases
+ * @deprecated Use WorkflowExecutionStatus instead
+ */
+export type ThreadStatus = WorkflowExecutionStatus;
+
+/**
+ * Backward compatibility alias
+ * @deprecated Use WorkflowExecutionType instead
+ */
+export type ThreadType = WorkflowExecutionType;

@@ -13,7 +13,7 @@
  * - Automatically handles coordination between the queue and the execution pool
  */
 
-import { TaskRegistry } from "../../graph/stores/task/task-registry.js";
+import { TaskRegistry } from "../../workflow/stores/task/task-registry.js";
 import { ExecutionPool, type Executor } from "./execution-pool.js";
 import type { EventRegistry } from "../registry/event-registry.js";
 import {
@@ -23,15 +23,15 @@ import {
   isThreadInstance,
   type QueueStats,
 } from "../types/index.js";
-import type { ThreadResult } from "@wf-agent/types";
+import type { WorkflowExecutionResult } from "@wf-agent/types";
 import { now, diffTimestamp, getErrorOrNew } from "@wf-agent/common-utils";
 import { SDKError } from "@wf-agent/types";
 import { logError, emitErrorEvent } from "../utils/error-utils.js";
-import { emit } from "../../graph/execution/utils/index.js";
+import { emit } from "../../workflow/execution/utils/index.js";
 import {
   buildTriggeredSubgraphCompletedEvent,
   buildTriggeredSubgraphFailedEvent,
-} from "../../graph/execution/utils/event/index.js";
+} from "../../workflow/execution/utils/event/index.js";
 
 /**
  * Queue task interface
@@ -60,7 +60,7 @@ export interface ExecutionResult {
   /** Execution instance */
   instance: ExecutionInstance;
   /** Thread result (for thread execution) */
-  threadResult?: ThreadResult;
+  threadResult?: WorkflowExecutionResult;
   /** Agent result (for agent execution) */
   agentResult?: unknown;
   /** Execution time in ms */
@@ -291,7 +291,7 @@ export class ExecutionQueue<T extends ExecutionInstance> {
     executionTime: number,
   ): Promise<void> {
     // Update task registry
-    this.taskRegistry.updateStatusToCompleted(queueTask.taskId, result as ThreadResult);
+    this.taskRegistry.updateStatusToCompleted(queueTask.taskId, result as WorkflowExecutionResult);
 
     // Remove from the running tasks.
     this.runningTasks.delete(queueTask.taskId);
@@ -313,7 +313,7 @@ export class ExecutionQueue<T extends ExecutionInstance> {
     if (queueTask.resolve) {
       const execResult: ExecutionResult = {
         instance: queueTask.instance,
-        threadResult: isThreadInstance(queueTask.instance) ? (result as ThreadResult) : undefined,
+        threadResult: isThreadInstance(queueTask.instance) ? (result as WorkflowExecutionResult) : undefined,
         agentResult: isAgentInstance(queueTask.instance) ? result : undefined,
         executionTime,
       };

@@ -9,12 +9,12 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { TriggerCoordinator } from "../../graph/execution/coordinators/trigger-coordinator.js";
-import { TriggerState } from "../../graph/state-managers/trigger-state.js";
+import { TriggerCoordinator } from "../../workflow/execution/coordinators/trigger-coordinator.js";
+import { TriggerState } from "../../workflow/state-managers/trigger-state.js";
 import { TriggerTemplateRegistry } from "../services/trigger-template-registry.js";
-import { WorkflowRegistry } from "../../graph/workflow/workflow-registry.js";
-import { GraphRegistry } from "../../graph/graph-structure/graph-registry.js";
-import { ThreadRegistry } from "../../graph/stores/thread-registry.js";
+import { WorkflowRegistry } from "../../workflow/workflow/workflow-registry.js";
+import { GraphRegistry } from "../../workflow/graph-structure/graph-registry.js";
+import { ThreadRegistry } from "../../workflow/stores/thread-registry.js";
 import {
   registerContextCompression,
   CONTEXT_COMPRESSION_TRIGGER_NAME,

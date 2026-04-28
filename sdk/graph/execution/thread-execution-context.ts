@@ -27,7 +27,7 @@ import {
 } from "../../core/execution/execution-queue.js";
 import type { EventRegistry } from "../../core/registry/event-registry.js";
 import type { ThreadEntity } from "../entities/thread-entity.js";
-import type { ThreadResult } from "@wf-agent/types";
+import type { WorkflowExecutionResult } from "@wf-agent/types";
 import type {
   PoolStats,
   ExecutionPoolConfig,
@@ -66,7 +66,7 @@ export interface BaseExecutionManagerDependencies<T, R> {
  */
 export type ThreadExecutionManagerDependencies = BaseExecutionManagerDependencies<
   ThreadEntity,
-  ThreadResult
+  WorkflowExecutionResult
 >;
 
 /**
@@ -107,7 +107,7 @@ export class ThreadExecutionContext implements TaskManager {
   private executeFn: (
     executor: Executor<ThreadEntity>,
     instance: ThreadEntity,
-  ) => Promise<ThreadResult>;
+  ) => Promise<WorkflowExecutionResult>;
 
   /** Instance type */
   private instanceType: ExecutionInstanceType;
@@ -152,7 +152,7 @@ export class ThreadExecutionContext implements TaskManager {
   async executeSync(
     threadEntity: ThreadEntity,
     timeout?: number,
-  ): Promise<TypedExecutionResult<ThreadResult>> {
+  ): Promise<TypedExecutionResult<WorkflowExecutionResult>> {
     // Register task
     const taskId = this.taskRegistry.register(threadEntity, this.instanceType, this, timeout);
 
@@ -166,7 +166,7 @@ export class ThreadExecutionContext implements TaskManager {
 
     return {
       ...result,
-      result: result.threadResult as ThreadResult,
+      result: result.threadResult as WorkflowExecutionResult,
     };
   }
 

@@ -69,7 +69,7 @@ function createCheckpointHandler(): HookHandler<HookExecutionContext> {
     try {
       await createCheckpoint(
         {
-          threadId: context.threadEntity.id,
+          threadId: context.workflowExecutionEntity.id,
           nodeId: context.node.id,
           description: nodeHook.checkpointDescription || `Hook: ${hook.eventName}`,
         },
@@ -81,7 +81,7 @@ function createCheckpointHandler(): HookHandler<HookExecutionContext> {
         {
           eventName: hook.eventName,
           nodeId: context.node.id,
-          threadId: context.threadEntity.id,
+          threadId: context.workflowExecutionEntity.id,
           workflowId: context.threadEntity.getWorkflowId(),
           operation: "checkpoint_creation",
           suggestion: "Check checkpoint storage configuration and retry",

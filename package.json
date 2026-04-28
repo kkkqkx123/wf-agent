@@ -1,7 +1,7 @@
 {
-  "name": "modular-agent-monorepo",
+  "name": "wf-agent-monorepo",
   "version": "1.0.0",
-  "description": "模块化智能体框架 - Monorepo",
+  "description": "Agent with Workflow",
   "private": true,
   "type": "module",
   "workspaces": [

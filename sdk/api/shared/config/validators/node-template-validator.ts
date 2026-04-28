@@ -10,7 +10,7 @@ import type { ConfigFile } from "../types.js";
 import { ok, err } from "@wf-agent/common-utils";
 import type { Result } from "@wf-agent/types";
 import { ValidationError } from "@wf-agent/types";
-import { NodeValidator } from "../../../../graph/validation/node-validator.js";
+import { NodeValidator } from "../../../../workflow/validation/node-validator.js";
 // NodeType is used for validation, imported via NodeValidator
 import {
   validateRequiredFields,

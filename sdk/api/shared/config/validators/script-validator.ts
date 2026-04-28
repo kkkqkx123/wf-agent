@@ -9,7 +9,7 @@ import type { ConfigFile } from "../types.js";
 import { ok, err } from "@wf-agent/common-utils";
 import type { Result } from "@wf-agent/types";
 import { ValidationError } from "@wf-agent/types";
-import { CodeConfigValidator } from "../../../../graph/validation/script-config-validator.js";
+import { CodeConfigValidator } from "../../../../workflow/validation/script-config-validator.js";
 import { validateRequiredFields, validateBooleanField } from "./base-validator.js";
 
 /**

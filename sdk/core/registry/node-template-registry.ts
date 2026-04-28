@@ -14,7 +14,7 @@ import {
   ConfigurationValidationError,
   NodeTemplateNotFoundError,
 } from "@wf-agent/types";
-import { validateNodeByType } from "../../graph/validation/node-validation/index.js";
+import { validateNodeByType } from "../../workflow/validation/node-validation/index.js";
 import { getErrorMessage, now } from "@wf-agent/common-utils";
 
 /**

@@ -5,8 +5,12 @@
     "rootDir": ".",
     "baseUrl": ".",
     "paths": {
-      "@sdk/core/*": ["./core/*"],
-      "@sdk/services/*": ["./services/*"]
+      "@sdk/core/*": [
+        "./core/*"
+      ],
+      "@sdk/services/*": [
+        "./services/*"
+      ]
     }
   },
   "include": [
@@ -17,7 +21,14 @@
     "agent/**/*",
     "api/**/*",
     "utils/**/*",
-    "resources/**/*"
+    "resources/**/*",
+    "workflow/validation",
+    "workflow/execution/utils/__tests__"
   ],
-  "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.spec.ts"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/*.test.ts",
+    "**/*.spec.ts"
+  ]
 }

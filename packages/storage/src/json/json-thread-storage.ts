@@ -4,7 +4,7 @@
  */
 
 import * as path from "path";
-import type { ThreadStorageMetadata, ThreadListOptions, ThreadStatus } from "@wf-agent/types";
+import type { ThreadStorageMetadata, ThreadListOptions, WorkflowExecutionStatus } from "@wf-agent/types";
 import type { ThreadStorageCallback } from "../types/callback/index.js";
 import { BaseJsonStorage, BaseJsonStorageConfig } from "./base-json-storage.js";
 import { StorageError } from "../types/storage-errors.js";
@@ -146,7 +146,7 @@ export class JsonThreadStorage
    * Update thread status
    * Only updates metadata file, no need to touch data file
    */
-  async updateThreadStatus(threadId: string, status: ThreadStatus): Promise<void> {
+  async updateThreadStatus(threadId: string, status: WorkflowExecutionStatus): Promise<void> {
     this.ensureInitialized();
 
     const indexEntry = this["metadataIndex"].get(threadId);

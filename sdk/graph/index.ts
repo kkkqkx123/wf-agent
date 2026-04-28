@@ -6,7 +6,7 @@
 export * from "./entities/index.js";
 
 // Verification
-export * from "./validation/index.js";
+export * from "../workflow/validation/index.js";
 
 // Graph Builder
 export * from "./graph-builder/index.js";

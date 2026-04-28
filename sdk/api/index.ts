@@ -180,8 +180,8 @@ export { TriggerTemplateBuilder } from "./graph/builders/trigger-template-builde
 // ============================================================================
 // Graph - Authentication API
 // ============================================================================
-export { WorkflowValidator as WorkflowValidatorAPI } from "../graph/validation/index.js";
-export { CodeConfigValidator as CodeConfigValidatorAPI } from "../graph/validation/script-config-validator.js";
+export { WorkflowValidator as WorkflowValidatorAPI } from "../workflow/validation/index.js";
+export { CodeConfigValidator as CodeConfigValidatorAPI } from "../workflow/validation/script-config-validator.js";
 export { StaticValidator as StaticValidatorAPI } from "../core/validation/index.js";
 export { StaticValidator } from "../core/validation/index.js";
 export { RuntimeValidator as RuntimeValidatorAPI } from "../core/validation/index.js";

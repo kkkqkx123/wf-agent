@@ -12,7 +12,7 @@ import { ok, err, getErrorMessage } from "@wf-agent/common-utils";
 import { CrudResourceAPI } from "../../../shared/resources/generic-resource-api.js";
 import type { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
 import type { Timestamp } from "@wf-agent/types";
-import { validateNodeByType } from "../../../../graph/validation/node-validation/index.js";
+import { validateNodeByType } from "../../../../workflow/validation/node-validation/index.js";
 
 /**
  * Node Template Filter

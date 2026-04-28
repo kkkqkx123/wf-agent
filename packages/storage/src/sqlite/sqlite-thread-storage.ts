@@ -8,7 +8,7 @@
  * - List queries only scan metadata table, avoiding BLOB reads
  */
 
-import type { ThreadStorageMetadata, ThreadListOptions, ThreadStatus } from "@wf-agent/types";
+import type { ThreadStorageMetadata, ThreadListOptions, WorkflowExecutionStatus } from "@wf-agent/types";
 import type { ThreadStorageCallback } from "../types/callback/index.js";
 import { BaseSqliteStorage, BaseSqliteStorageConfig } from "./base-sqlite-storage.js";
 import { compressBlob, decompressBlob } from "./compression.js";
@@ -392,8 +392,8 @@ export class SqliteThreadStorage
         threadId: row.id,
         workflowId: row.workflowId,
         workflowVersion: row.workflowVersion,
-        status: row.status as ThreadStatus,
-        threadType: row.threadType as import("@wf-agent/types").ThreadType | undefined,
+        status: row.status as WorkflowExecutionStatus,
+        threadType: row.threadType as import("@wf-agent/types").WorkflowExecutionType | undefined,
         currentNodeId: row.currentNodeId ?? undefined,
         parentThreadId: row.parentThreadId ?? undefined,
         startTime: row.startTime,
@@ -409,7 +409,7 @@ export class SqliteThreadStorage
   /**
    * Update Thread Status (optimized - only updates metadata table)
    */
-  async updateThreadStatus(threadId: string, status: ThreadStatus): Promise<void> {
+  async updateThreadStatus(threadId: string, status: WorkflowExecutionStatus): Promise<void> {
     const db = this.getDb();
     const now = Date.now();
 

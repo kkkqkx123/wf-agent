@@ -8,7 +8,7 @@ import type { WorkflowDefinition } from "@wf-agent/types";
 import type { ConfigFile } from "../types.js";
 import type { Result } from "@wf-agent/types";
 import { ValidationError } from "@wf-agent/types";
-import { WorkflowValidator } from "../../../../graph/validation/workflow-validator.js";
+import { WorkflowValidator } from "../../../../workflow/validation/workflow-validator.js";
 
 /**
  * Verify workflow configuration

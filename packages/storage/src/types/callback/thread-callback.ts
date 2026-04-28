@@ -3,7 +3,7 @@
  * Defines a unified interface for thread persistence operations
  */
 
-import type { ThreadStorageMetadata, ThreadListOptions, ThreadStatus } from "@wf-agent/types";
+import type { ThreadStorageMetadata, ThreadListOptions, WorkflowExecutionStatus } from "@wf-agent/types";
 import type { BaseStorageCallback } from "./base-storage-callback.js";
 
 /**
@@ -23,5 +23,5 @@ export interface ThreadStorageCallback extends BaseStorageCallback<
    * @param threadId: Unique thread identifier
    * @param status: New status
    */
-  updateThreadStatus(threadId: string, status: ThreadStatus): Promise<void>;
+  updateThreadStatus(threadId: string, status: WorkflowExecutionStatus): Promise<void>;
 }

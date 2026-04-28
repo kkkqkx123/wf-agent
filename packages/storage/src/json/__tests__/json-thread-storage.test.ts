@@ -7,7 +7,7 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import * as os from "os";
 import { JsonThreadStorage } from "../json-thread-storage.js";
-import type { ThreadStorageMetadata, ThreadStatus } from "@wf-agent/types";
+import type { ThreadStorageMetadata, WorkflowExecutionStatus } from "@wf-agent/types";
 
 describe("JsonThreadStorage", () => {
   let storage: JsonThreadStorage;
@@ -119,7 +119,7 @@ describe("JsonThreadStorage", () => {
     });
 
     it("should filter by multiple statuses", async () => {
-      const ids = await storage.list({ status: ["RUNNING", "COMPLETED"] as ThreadStatus[] });
+      const ids = await storage.list({ status: ["RUNNING", "COMPLETED"] as WorkflowExecutionStatus[] });
       expect(ids).toHaveLength(2);
     });
 

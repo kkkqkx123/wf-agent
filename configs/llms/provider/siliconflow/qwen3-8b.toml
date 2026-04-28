@@ -1,0 +1,40 @@
+# SiliconFlow Qwen/Qwen3-8B-Instruct 配置
+# 继承自通用配置
+
+inherits_from = "common.toml"
+
+# 模型特定配置
+models = ["qwen/qwen3-8b-instruct"]
+
+# 模型特定参数
+[parameters]
+temperature = 0.7
+max_tokens = 32000
+timeout = 60
+
+# 功能支持
+[features]
+function_calling = true
+streaming = true
+vision = false
+responses_api = false
+
+# API端点配置
+[api_endpoints]
+chat_completions = "/chat/completions"
+
+# 模型限制
+[limits]
+max_input_tokens = 30000
+max_output_tokens = 2000
+
+# 元数据
+[metadata]
+provider = "siliconflow"
+version = "1.0"
+description = "SiliconFlow Qwen/Qwen3-8B-Instruct 模型"
+model_family = "qwen3"
+capabilities = ["text_generation", "function_calling"]
+context_length = 32000
+rpm_limit = 1000
+tpm_limit = 50000

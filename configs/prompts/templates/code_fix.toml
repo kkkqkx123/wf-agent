@@ -1,0 +1,29 @@
+name = "code_fix"
+description = "代码修复模板"
+
+# 模板定义：使用引用格式组合提示词片段
+[template]
+system_prompt = "system.coder"
+fix_rules = "rules.safety"
+user_command = "user_commands.fix_code"
+
+# 模板内容，使用变量占位符
+content = """
+{{system_prompt}}
+
+修复规则：
+{{fix_rules}}
+
+{{user_command}}
+
+有问题的代码：
+{{problematic_code}}
+
+问题描述：
+{{issue_description}}
+"""
+
+# 简化的变量定义
+[variables]
+problematic_code = { required = true, description = "有问题的代码" }
+issue_description = { required = true, description = "问题描述" }

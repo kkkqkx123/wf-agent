@@ -1,0 +1,50 @@
+/**
+ * rotate_image 工具 - 前端注册
+ *
+ * 旋转图片工具的显示配置
+ */
+
+import { registerTool } from '../../toolRegistry'
+import RotateImagePanel from '../../../components/tools/media/rotate_image.vue'
+
+/**
+ * 单个任务类型
+ */
+interface RotateTask {
+  image_path: string
+  output_path: string
+  angle: number
+  format?: string
+}
+
+registerTool('rotate_image', {
+  name: 'rotate_image',
+  label: '旋转图片',
+  icon: 'codicon-sync',
+  expandable: true,
+  contentComponent: RotateImagePanel,
+  descriptionFormatter: (args) => {
+    const images = args.images as RotateTask[] | undefined
+    const imagePath = args.image_path as string | undefined
+    const angle = args.angle as number | undefined
+    
+    // 批量模式
+    if (images && Array.isArray(images) && images.length > 0) {
+      if (images.length === 1) {
+        const task = images[0]
+        const shortInput = task.image_path.length > 20 ? '...' + task.image_path.slice(-20) : task.image_path
+        return `${shortInput} → ${task.angle}°`
+      }
+      // 多任务显示
+      return `批量旋转 ${images.length} 张`
+    }
+    
+    // 单张模式
+    if (imagePath && angle !== undefined) {
+      const shortInput = imagePath.length > 20 ? '...' + imagePath.slice(-20) : imagePath
+      return `${shortInput} → ${angle}°`
+    }
+    
+    return '旋转图片'
+  }
+})

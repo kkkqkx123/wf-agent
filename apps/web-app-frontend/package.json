@@ -1,0 +1,29 @@
+{
+  "name": "@wf-agent/web-app-frontend",
+  "version": "1.0.0",
+  "description": "Modular Agent Framework Web Application Frontend",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "clean": "rimraf dist",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --ext .ts,.tsx",
+    "lint:fix": "eslint . --ext .ts,.tsx --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "keywords": [
+    "web",
+    "frontend",
+    "agent",
+    "modular-agent"
+  ],
+  "author": "Modular Agent Framework Team",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

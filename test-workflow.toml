@@ -1,0 +1,17 @@
+[workflow]
+id = "test-wf-001"
+name = "Test Workflow"
+type = "STANDALONE"
+version = "1.0.0"
+
+[[nodes]]
+id = "start"
+type = "START"
+
+[[nodes]]
+id = "end"
+type = "END"
+
+[[edges]]
+from = "start"
+to = "end"

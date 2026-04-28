@@ -1,0 +1,28 @@
+# 高可用轮询池配置
+name = "high_availability_pool"
+task_groups = ["high_availability_group"]
+
+[rotation]
+strategy = "least_recently_used"
+
+[health_check]
+interval = 15
+failure_threshold = 2
+
+[[instances]]
+name = "openai_gpt4o_ha"
+provider = "openai"
+model = "gpt-4o"
+weight = 1
+
+[[instances]]
+name = "anthropic_claude35_ha"
+provider = "anthropic"
+model = "claude-3-5-sonnet"
+weight = 1
+
+[[instances]]
+name = "gemini_25_pro_ha"
+provider = "gemini"
+model = "gemini-2.5-pro"
+weight = 1

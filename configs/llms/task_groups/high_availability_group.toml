@@ -1,0 +1,21 @@
+# 高可用任务组配置
+name = "high_availability_group"
+
+[echelon1]
+model = "gpt-4o"
+provider = "openai"
+priority = 1
+
+[echelon2]
+model = "gpt-4o-mini"
+provider = "openai"
+priority = 2
+
+[echelon3]
+model = "gpt-5-mini"
+provider = "openai"
+priority = 3
+
+[circuit_breaker]
+failure_threshold = 3
+reset_timeout = 30

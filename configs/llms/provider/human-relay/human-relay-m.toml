@@ -1,0 +1,18 @@
+# 继承通用配置
+inherits_from = "../common.toml"
+model_name = "human-relay-m"
+
+# 多轮模式特定配置
+mode = "multi"
+max_history_length = 100 # 用于内部状态管理
+default_timeout = 300    # 多轮对话可能需要更长时间
+
+[metadata]
+description = "HumanRelay多轮模式 - 每次提供增量内容"
+capabilities = [
+    "human_interaction",
+    "web_llm_integration",
+    "incremental_context",
+    "stateful_conversation",
+]
+use_cases = ["有状态LLM集成", "流式对话", "连续交互任务", "需要LLM保持上下文的场景"]

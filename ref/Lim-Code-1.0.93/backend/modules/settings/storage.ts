@@ -1,0 +1,79 @@
+/**
+ * LimCode - 设置存储实现
+ * 
+ * 提供基于文件系统的设置持久化
+ */
+
+import * as fs from 'fs/promises';
+import * as path from 'path';
+import type { SettingsStorage } from './SettingsManager';
+import type { GlobalSettings } from './types';
+
+/**
+ * 文件存储实现
+ * 
+ * 将设置保存为 JSON 文件
+ */
+export class FileSettingsStorage implements SettingsStorage {
+    private filePath: string;
+    
+    /**
+     * @param storageDir 存储目录路径
+     * @param filename 文件名（默认 'settings.json'）
+     */
+    constructor(storageDir: string, filename: string = 'settings.json') {
+        this.filePath = path.join(storageDir, filename);
+    }
+    
+    /**
+     * 加载设置
+     */
+    async load(): Promise<GlobalSettings | null> {
+        try {
+            const content = await fs.readFile(this.filePath, 'utf-8');
+            return JSON.parse(content);
+        } catch (error: any) {
+            // 文件不存在或解析失败
+            if (error.code === 'ENOENT') {
+                return null;
+            }
+            console.error('Failed to load settings:', error);
+            return null;
+        }
+    }
+    
+    /**
+     * 保存设置
+     */
+    async save(settings: GlobalSettings): Promise<void> {
+        try {
+            // 确保目录存在
+            const dir = path.dirname(this.filePath);
+            await fs.mkdir(dir, { recursive: true });
+            
+            // 格式化 JSON（缩进 2 空格）
+            const content = JSON.stringify(settings, null, 2);
+            await fs.writeFile(this.filePath, content, 'utf-8');
+        } catch (error) {
+            console.error('Failed to save settings:', error);
+            throw error;
+        }
+    }
+}
+
+/**
+ * 内存存储实现
+ * 
+ * 仅用于测试或临时使用
+ */
+export class MemorySettingsStorage implements SettingsStorage {
+    private settings: GlobalSettings | null = null;
+    
+    async load(): Promise<GlobalSettings | null> {
+        return this.settings ? { ...this.settings } : null;
+    }
+    
+    async save(settings: GlobalSettings): Promise<void> {
+        this.settings = { ...settings };
+    }
+}

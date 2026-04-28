@@ -1,0 +1,21 @@
+# Time tool configuration
+name = "time_tool"
+tool_type = "stateless"
+description = "A tool for getting current time in specified timezone and timezone conversion functionality"
+function_path = "src.domain.tools.types.native.time_tool:get_current_time"
+enabled = true
+timeout = 10
+
+# 参数模式定义
+[parameters_schema]
+type = "object"
+
+[parameters_schema.properties]
+timezone = { type = "string", description = "IANA timezone name (e.g., 'America/New_York', 'Europe/London'). Defaults to 'UTC' if no timezone provided.", default = "UTC" }
+
+parameters_schema.required = []
+
+# 元数据
+[metadata]
+category = "utility"
+tags = ["time", "timezone", "utility"]

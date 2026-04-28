@@ -1,0 +1,17 @@
+# 继承通用配置
+inherits_from = "../common.toml"
+model_name = "human-relay-s"
+
+# 单轮模式特定配置
+mode = "single"
+max_history_length = 100 # 单轮模式需要完整历史上下文
+default_timeout = 600    # 无状态外部llm需要更长超时时间
+
+[metadata]
+description = "HumanRelay单轮模式 - 每次提供完整上下文"
+capabilities = [
+    "human_interaction",
+    "web_llm_integration",
+    "full_context_support",
+]
+use_cases = ["无状态LLM集成", "完整上下文分析", "需要历史记录的任务"]

@@ -1,0 +1,449 @@
+/**
+ * SQLite Checkpoint Storage Implementation with Metadata-BLOB Separation
+ * Checkpoint persistent storage based on better-sqlite3
+ *
+ * Optimized Design:
+ * - Metadata and BLOB data stored in separate tables for better query performance
+ * - BLOB compression support to reduce storage space
+ * - List queries only scan metadata table, avoiding BLOB reads
+ */
+
+import type { CheckpointStorageMetadata, CheckpointStorageListOptions } from "@wf-agent/types";
+import type { CheckpointStorageCallback } from "../types/callback/index.js";
+import { BaseSqliteStorage, BaseSqliteStorageConfig } from "./base-sqlite-storage.js";
+import { compressBlob, decompressBlob } from "./compression.js";
+
+/**
+ * SQLite Checkpoint Storage
+ * Implementing the CheckpointStorageCallback interface with metadata-BLOB separation
+ */
+export class SqliteCheckpointStorage
+  extends BaseSqliteStorage<CheckpointStorageMetadata>
+  implements CheckpointStorageCallback
+{
+  constructor(config: BaseSqliteStorageConfig) {
+    super(config);
+  }
+
+  /**
+   * Get metadata table name
+   */
+  protected getTableName(): string {
+    return "checkpoint_metadata";
+  }
+
+  /**
+   * Get BLOB table name
+   */
+  protected getBlobTableName(): string {
+    return "checkpoint_blob";
+  }
+
+  /**
+   * Create table structure with metadata-BLOB separation
+   */
+  protected createTableSchema(): void {
+    const db = this.getDb();
+
+    // Layer 1: Metadata table (frequent queries, no BLOB)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS checkpoint_metadata (
+        id TEXT PRIMARY KEY,
+        thread_id TEXT NOT NULL,
+        workflow_id TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        checkpoint_type TEXT,
+        base_checkpoint_id TEXT,
+        previous_checkpoint_id TEXT,
+        message_count INTEGER,
+        variable_count INTEGER,
+        blob_size INTEGER,
+        blob_hash TEXT,
+        tags TEXT,
+        custom_fields TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `);
+
+    // Layer 2: BLOB storage table (infrequent direct access)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS checkpoint_blob (
+        checkpoint_id TEXT PRIMARY KEY,
+        blob_data BLOB NOT NULL,
+        compressed BOOLEAN DEFAULT FALSE,
+        compression_algorithm TEXT,
+        FOREIGN KEY (checkpoint_id) REFERENCES checkpoint_metadata(id) ON DELETE CASCADE
+      )
+    `);
+
+    // Create indexes for optimized queries
+    db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_checkpoint_meta_thread_id ON checkpoint_metadata(thread_id)`,
+    );
+    db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_checkpoint_meta_workflow_id ON checkpoint_metadata(workflow_id)`,
+    );
+    db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_checkpoint_meta_timestamp ON checkpoint_metadata(timestamp)`,
+    );
+    db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_checkpoint_meta_type ON checkpoint_metadata(checkpoint_type)`,
+    );
+    db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_checkpoint_meta_thread_timestamp ON checkpoint_metadata(thread_id, timestamp)`,
+    );
+    db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_checkpoint_meta_workflow_timestamp ON checkpoint_metadata(workflow_id, timestamp)`,
+    );
+  }
+
+  /**
+   * Extract metrics from checkpoint data for metadata storage
+   */
+  private extractMetrics(data: Uint8Array): {
+    messageCount: number;
+    variableCount: number;
+    blobHash: string;
+  } {
+    try {
+      // Parse the checkpoint data to extract metrics
+      const decoder = new TextDecoder();
+      const jsonStr = decoder.decode(data);
+      const checkpoint = JSON.parse(jsonStr);
+
+      const threadState = checkpoint.threadState;
+      const messageCount = threadState?.conversationState?.messages?.length ?? 0;
+      const variableCount = threadState?.variables?.length ?? 0;
+
+      // Simple hash for deduplication detection
+      const blobHash = this.computeHash(data);
+
+      return { messageCount, variableCount, blobHash };
+    } catch {
+      // If parsing fails, return default values
+      return {
+        messageCount: 0,
+        variableCount: 0,
+        blobHash: this.computeHash(data),
+      };
+    }
+  }
+
+  /**
+   * Compute simple hash for BLOB data
+   */
+  private computeHash(data: Uint8Array): string {
+    // Simple FNV-1a hash implementation
+    let hash = 0x811c9dc5;
+    for (let i = 0; i < data.length; i++) {
+      hash ^= data[i]!;
+      hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
+    }
+    return (hash >>> 0).toString(16).padStart(8, "0");
+  }
+
+  /**
+   * Save checkpoint with metadata-BLOB separation and compression
+   */
+  async save(id: string, data: Uint8Array, metadata: CheckpointStorageMetadata): Promise<void> {
+    const db = this.getDb();
+    const now = Date.now();
+
+    try {
+      // Extract metrics from data
+      const metrics = this.extractMetrics(data);
+
+      // Compress BLOB data
+      const { compressed, algorithm } = await compressBlob(data);
+
+      // Use transaction to ensure atomicity
+      const insertMetadata = db.prepare(`
+        INSERT INTO checkpoint_metadata (
+          id, thread_id, workflow_id, timestamp, checkpoint_type,
+          base_checkpoint_id, previous_checkpoint_id, message_count, variable_count,
+          blob_size, blob_hash, tags, custom_fields, created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          thread_id = excluded.thread_id,
+          workflow_id = excluded.workflow_id,
+          timestamp = excluded.timestamp,
+          checkpoint_type = excluded.checkpoint_type,
+          base_checkpoint_id = excluded.base_checkpoint_id,
+          previous_checkpoint_id = excluded.previous_checkpoint_id,
+          message_count = excluded.message_count,
+          variable_count = excluded.variable_count,
+          blob_size = excluded.blob_size,
+          blob_hash = excluded.blob_hash,
+          tags = excluded.tags,
+          custom_fields = excluded.custom_fields,
+          updated_at = excluded.updated_at
+      `);
+
+      const insertBlob = db.prepare(`
+        INSERT INTO checkpoint_blob (checkpoint_id, blob_data, compressed, compression_algorithm)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(checkpoint_id) DO UPDATE SET
+          blob_data = excluded.blob_data,
+          compressed = excluded.compressed,
+          compression_algorithm = excluded.compression_algorithm
+      `);
+
+      db.transaction(() => {
+        // Extract checkpoint type and IDs if available
+        let checkpointType: string | null = null;
+        let baseCheckpointId: string | null = null;
+        let previousCheckpointId: string | null = null;
+
+        try {
+          const decoder = new TextDecoder();
+          const jsonStr = decoder.decode(data);
+          const checkpoint = JSON.parse(jsonStr);
+          checkpointType = checkpoint.type ?? null;
+          baseCheckpointId = checkpoint.baseCheckpointId ?? null;
+          previousCheckpointId = checkpoint.previousCheckpointId ?? null;
+        } catch {
+          // Ignore parsing errors
+        }
+
+        insertMetadata.run(
+          id,
+          metadata.threadId,
+          metadata.workflowId,
+          metadata.timestamp,
+          checkpointType,
+          baseCheckpointId,
+          previousCheckpointId,
+          metrics.messageCount,
+          metrics.variableCount,
+          compressed.length,
+          metrics.blobHash,
+          metadata.tags ? JSON.stringify(metadata.tags) : null,
+          metadata.customFields ? JSON.stringify(metadata.customFields) : null,
+          now,
+          now,
+        );
+
+        insertBlob.run(id, Buffer.from(compressed), algorithm ? 1 : 0, algorithm);
+      })();
+    } catch (error) {
+      this.handleSqliteError(error, "save", { id });
+    }
+  }
+
+  /**
+   * Load checkpoint data with automatic decompression
+   */
+  override async load(id: string): Promise<Uint8Array | null> {
+    const db = this.getDb();
+
+    try {
+      const stmt = db.prepare(`
+        SELECT blob_data, compressed, compression_algorithm
+        FROM checkpoint_blob
+        WHERE checkpoint_id = ?
+      `);
+      const row = stmt.get(id) as
+        | {
+            blob_data: Buffer;
+            compressed: number;
+            compression_algorithm: string | null;
+          }
+        | undefined;
+
+      if (!row) {
+        return null;
+      }
+
+      const data = new Uint8Array(row.blob_data);
+
+      // Decompress if needed
+      if (row.compressed && row.compression_algorithm) {
+        return await decompressBlob(data, row.compression_algorithm);
+      }
+
+      return data;
+    } catch (error) {
+      this.handleSqliteError(error, "load", { id });
+    }
+  }
+
+  /**
+   * Delete checkpoint (cascade delete will handle blob)
+   */
+  override async delete(id: string): Promise<void> {
+    const db = this.getDb();
+
+    try {
+      // Due to ON DELETE CASCADE, deleting from metadata will also delete from blob table
+      const stmt = db.prepare(`DELETE FROM checkpoint_metadata WHERE id = ?`);
+      stmt.run(id);
+    } catch (error) {
+      this.handleSqliteError(error, "delete", { id });
+    }
+  }
+
+  /**
+   * Check if checkpoint exists (only check metadata table)
+   */
+  override async exists(id: string): Promise<boolean> {
+    const db = this.getDb();
+
+    try {
+      const stmt = db.prepare(`SELECT 1 FROM checkpoint_metadata WHERE id = ?`);
+      const row = stmt.get(id);
+      return row !== undefined;
+    } catch (error) {
+      this.handleSqliteError(error, "exists", { id });
+    }
+  }
+
+  /**
+   * List checkpoint IDs (optimized - only scans metadata table)
+   */
+  async list(options?: CheckpointStorageListOptions): Promise<string[]> {
+    const db = this.getDb();
+
+    try {
+      let sql = `SELECT id FROM checkpoint_metadata`;
+      const params: unknown[] = [];
+      const conditions: string[] = [];
+
+      // Construct filter criteria
+      if (options?.threadId) {
+        conditions.push("thread_id = ?");
+        params.push(options.threadId);
+      }
+
+      if (options?.workflowId) {
+        conditions.push("workflow_id = ?");
+        params.push(options.workflowId);
+      }
+
+      if (options?.tags && options.tags.length > 0) {
+        conditions.push(`tags LIKE ?`);
+        params.push(`%"${options.tags[0]}"%`);
+      }
+
+      if (conditions.length > 0) {
+        sql += " WHERE " + conditions.join(" AND ");
+      }
+
+      // Sort by timestamp descending
+      sql += " ORDER BY timestamp DESC";
+
+      // Pagination
+      if (options?.limit !== undefined) {
+        sql += " LIMIT ?";
+        params.push(options.limit);
+      }
+
+      if (options?.offset !== undefined) {
+        sql += " OFFSET ?";
+        params.push(options.offset);
+      }
+
+      const stmt = db.prepare(sql);
+      const rows = stmt.all(...params) as Array<{ id: string }>;
+
+      return rows.map(row => row.id);
+    } catch (error) {
+      this.handleSqliteError(error, "list", { options });
+    }
+  }
+
+  /**
+   * Get metadata (optimized - only reads metadata table)
+   */
+  async getMetadata(id: string): Promise<CheckpointStorageMetadata | null> {
+    const db = this.getDb();
+
+    try {
+      const stmt = db.prepare(`
+        SELECT
+          thread_id as "threadId",
+          workflow_id as "workflowId",
+          timestamp,
+          tags,
+          custom_fields as "customFields"
+        FROM checkpoint_metadata WHERE id = ?
+      `);
+      const row = stmt.get(id) as
+        | {
+            threadId: string;
+            workflowId: string;
+            timestamp: number;
+            tags: string | null;
+            customFields: string | null;
+          }
+        | undefined;
+
+      if (!row) {
+        return null;
+      }
+
+      return {
+        threadId: row.threadId,
+        workflowId: row.workflowId,
+        timestamp: row.timestamp,
+        tags: row.tags ? JSON.parse(row.tags) : undefined,
+        customFields: row.customFields ? JSON.parse(row.customFields) : undefined,
+      };
+    } catch (error) {
+      this.handleSqliteError(error, "getMetadata", { id });
+    }
+  }
+
+  /**
+   * Clear all checkpoints
+   */
+  override async clear(): Promise<void> {
+    const db = this.getDb();
+
+    try {
+      // Due to ON DELETE CASCADE, clearing metadata will also clear blob table
+      db.exec(`DELETE FROM checkpoint_metadata`);
+    } catch (error) {
+      this.handleSqliteError(error, "clear", {});
+    }
+  }
+
+  /**
+   * Get storage statistics
+   */
+  async getStats(): Promise<{
+    totalCount: number;
+    totalBlobSize: number;
+    avgBlobSize: number;
+    maxBlobSize: number;
+  }> {
+    const db = this.getDb();
+
+    try {
+      const stmt = db.prepare(`
+        SELECT
+          COUNT(*) as total_count,
+          SUM(blob_size) as total_blob_size,
+          AVG(blob_size) as avg_blob_size,
+          MAX(blob_size) as max_blob_size
+        FROM checkpoint_metadata
+      `);
+      const row = stmt.get() as {
+        total_count: number;
+        total_blob_size: number;
+        avg_blob_size: number;
+        max_blob_size: number;
+      };
+
+      return {
+        totalCount: row.total_count || 0,
+        totalBlobSize: row.total_blob_size || 0,
+        avgBlobSize: Math.round(row.avg_blob_size || 0),
+        maxBlobSize: row.max_blob_size || 0,
+      };
+    } catch (error) {
+      this.handleSqliteError(error, "getStats", {});
+    }
+  }
+}

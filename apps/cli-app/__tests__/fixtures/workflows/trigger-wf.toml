@@ -1,0 +1,32 @@
+[workflow]
+id = "trigger-wf"
+name = "Workflow with Triggers"
+type = "STANDALONE"
+version = "1.0.0"
+
+[[triggers]]
+id = "on-completion"
+name = "On Thread Completed"
+enabled = true
+
+[triggers.condition]
+eventType = "THREAD_COMPLETED"
+
+[triggers.action]
+type = "execute_script"
+
+[triggers.action.parameters]
+scriptName = "cleanup"
+parameters = { threadId = "${thread.id}" }
+
+[[nodes]]
+id = "start"
+type = "START"
+
+[[nodes]]
+id = "end"
+type = "END"
+
+[[edges]]
+from = "start"
+to = "end"

@@ -1,0 +1,41 @@
+# DuckDuckGo搜索工具配置
+name = "duckduckgo_search"
+tool_type = "rest"
+description = "A tool for searching the web using DuckDuckGo search engine and fetching web page content"
+enabled = true
+timeout = 30
+api_url = "https://html.duckduckgo.com/html"
+method = "POST"
+
+# 请求头
+[headers]
+User-Agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+
+retry_count = 3
+retry_delay = 1.0
+
+# 状态配置
+[state_config]
+manager_type = "memory"
+ttl = 3600
+auto_cleanup = true
+
+# 限流配置
+[rate_limit]
+requests_per_minute = 30
+
+# 参数模式定义
+[parameters_schema]
+type = "object"
+
+[parameters_schema.properties]
+query = { type = "string", description = "Search query string" }
+max_results = { type = "integer", description = "Maximum number of results to return (1-50)", minimum = 1, maximum = 50, default = 10 }
+
+parameters_schema.required = ["query"]
+
+# 元数据
+[metadata]
+category = "search"
+tags = ["search", "web", "duckduckgo", "content"]
+documentation_url = "https://duckduckgo.com/"

@@ -1,0 +1,40 @@
+# Test Environment Configuration
+# This configuration is used for testing purposes only.
+
+# IMPORTANT: Storage Isolation for Integration Tests
+# Each integration test now uses its own isolated storage directory to ensure:
+# 1. Test Isolation: Tests do not interfere with each other's data
+# 2. Parallel Execution Safety: Tests can run in parallel without conflicts
+# 3. Clean State: Each test starts with a fresh storage state
+#
+# The storage path is dynamically set via the STORAGE_DIR environment variable
+# by CLIRunner.setStorageDir() in each test's beforeEach hook.
+# The default baseDir here is used as a fallback when STORAGE_DIR is not set.
+
+[storage]
+type = "json"
+
+[storage.json]
+# Default storage directory (fallback when STORAGE_DIR env var is not set)
+# Each test uses its own subdirectory under __tests__/outputs/{test-name}/
+baseDir = "./__tests__/storage"
+enableFileLock = false
+
+[storage.json.compression]
+enabled = false
+
+[output]
+dir = "./__tests__/outputs"
+logFilePattern = "cli-app-{date}.log"
+enableLogTerminal = false
+enableSDKLogs = false
+sdkLogLevel = "silent"
+
+[presets.contextCompression]
+enabled = true
+
+[presets.predefinedTools]
+enabled = true
+
+[presets.predefinedPrompts]
+enabled = true

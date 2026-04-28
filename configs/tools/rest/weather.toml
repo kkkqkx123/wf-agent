@@ -1,0 +1,41 @@
+# 天气查询工具配置
+name = "weather"
+tool_type = "rest"
+description = "Query weather information for a specified city"
+enabled = true
+timeout = 15
+api_url = "https://api.openweathermap.org/data/2.5/weather"
+method = "GET"
+auth_method = "api_key"
+api_key = "${OPENWEATHER_API_KEY}"
+
+# 请求头
+[headers]
+User-Agent = "ModularAgent/1.0"
+Content-Type = "application/json"
+
+retry_count = 3
+retry_delay = 1.0
+
+# 状态配置
+[state_config]
+manager_type = "memory"
+ttl = 3600
+auto_cleanup = true
+
+# 参数模式定义
+[parameters_schema]
+type = "object"
+
+[parameters_schema.properties]
+q = { type = "string", description = "City name, e.g. \"Beijing,CN\" or \"London\"" }
+units = { type = "string", description = "Temperature unit, optional values: metric(Celsius), imperial(Fahrenheit), kelvin(Kelvin)", enum = ["metric", "imperial", "kelvin"], default = "metric" }
+lang = { type = "string", description = "Language of the returned results, e.g. \"zh_cn\", \"en\"", default = "zh_cn" }
+
+parameters_schema.required = ["q"]
+
+# 元数据
+[metadata]
+category = "weather"
+tags = ["weather", "api", "external"]
+documentation_url = "https://openweathermap.org/api"

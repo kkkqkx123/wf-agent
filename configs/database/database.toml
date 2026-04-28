@@ -1,0 +1,26 @@
+# 数据库配置文件
+# 支持环境变量注入，敏感信息通过 .env 文件配置
+
+# 数据库类型：postgres 或 sqlite
+type = "postgres"
+
+# PostgreSQL 连接配置
+host = "${DATABASE_HOST:localhost}"
+port = "${DATABASE_PORT:5432}"
+username = "${DATABASE_USERNAME:postgres}"
+password = "${DATABASE_PASSWORD:password}"
+database = "${DATABASE_NAME:agent_framework}"
+
+# 是否自动同步数据库结构（生产环境建议设为 false）
+synchronize = false
+
+# 是否启用 SQL 日志
+logging = false
+
+# 连接池配置
+pool_size = "${DATABASE_POOL_MAX:10}"
+max_connections = "${DATABASE_POOL_MAX:10}"
+min_connections = "${DATABASE_POOL_MIN:2}"
+idle_timeout = "30000"
+connection_timeout = "2000"
+acquire_timeout = "10000"

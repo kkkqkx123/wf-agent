@@ -1,0 +1,34 @@
+name = "coder"
+description = "代码编写模板"
+
+# 模板定义：使用引用格式组合提示词片段
+# 支持复合提示词目录结构（单一处理逻辑）：
+# - system.coder.index 引用 configs/prompts/system/coder/index.toml
+# - system.coder.01_code_style 引用 configs/prompts/system/coder/01_code_style.toml
+# - system.coder.02_error_handling 引用 configs/prompts/system/coder/02_error_handling.toml
+[template]
+system_index = "system.coder.index"
+system_code_style = "system.coder.01_code_style"
+system_error_handling = "system.coder.02_error_handling"
+rules = "rules.format"
+user_command = "user_commands.code_review"
+
+# 模板内容，使用变量占位符
+content = """
+{{system_index}}
+
+{{system_code_style}}
+
+{{system_error_handling}}
+
+{{rules}}
+
+{{user_command}}
+
+代码：
+{{user_input}}
+"""
+
+# 变量定义
+[variables]
+user_input = { required = true, description = "用户输入" }

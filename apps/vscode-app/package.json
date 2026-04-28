@@ -1,0 +1,37 @@
+{
+  "name": "@wf-agent/vscode-app",
+  "version": "1.0.0",
+  "description": "Modular Agent Framework VSCode Extension",
+  "type": "module",
+  "main": "dist/backend/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/backend/index.js",
+    "clean": "rimraf dist",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --ext .ts,.tsx",
+    "lint:fix": "eslint . --ext .ts,.tsx --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "keywords": [
+    "vscode",
+    "extension",
+    "agent",
+    "modular-agent"
+  ],
+  "author": "Modular Agent Framework Team",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.80.0",
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "@wf-agent/sdk": "workspace:*",
+    "@wf-agent/types": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.80.0"
+  }
+}

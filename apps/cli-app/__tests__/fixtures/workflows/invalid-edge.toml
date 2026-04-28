@@ -1,0 +1,13 @@
+[workflow]
+id = "invalid-edge-wf"
+name = "Invalid Edge Workflow"
+type = "STANDALONE"
+version = "1.0.0"
+
+[[nodes]]
+id = "start"
+type = "START"
+
+[[edges]]
+from = "start"
+to = "nonexistent"

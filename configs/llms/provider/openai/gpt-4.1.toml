@@ -1,0 +1,29 @@
+# OpenAI GPT-4.1 HTTP客户端配置
+# 继承自通用配置
+
+inherits_from = "common.toml"
+
+# 模型特定配置
+models = ["gpt-4.1"]
+
+# 模型特定参数
+[parameters]
+temperature = 0.7
+max_tokens = 4096
+timeout = 30
+
+# 功能支持
+[features]
+function_calling = true
+streaming = true
+vision = true
+responses_api = false  # GPT-4.1不支持Responses API
+
+# API端点配置
+[api_endpoints]
+chat_completions = "/chat/completions"
+
+# 模型限制
+[limits]
+max_input_tokens = 128000
+max_output_tokens = 4096

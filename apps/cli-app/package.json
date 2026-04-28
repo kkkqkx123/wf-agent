@@ -1,0 +1,50 @@
+{
+  "name": "@wf-agent/cli-app",
+  "version": "1.0.0",
+  "description": "Modular Agent Framework CLI Application",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "modular-agent": "./scripts/modular-agent.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc",
+    "dev:watch": "tsc --watch",
+    "start": "node dist/index.js",
+    "clean": "rimraf dist",
+    "typecheck": "tsc --noEmit",
+    "typecheck:tests": "tsc --noEmit -p tsconfig.test.json",
+    "lint": "eslint . --ext .ts",
+    "lint:fix": "eslint . --ext .ts --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run --config vitest.integration.config.mjs",
+    "test:unit": "vitest run --config vitest.config.mjs",
+    "test:integration": "vitest run --config vitest.integration.config.mjs"
+  },
+  "keywords": [
+    "cli",
+    "workflow",
+    "agent",
+    "modular-agent"
+  ],
+  "author": "Modular Agent Framework Team",
+  "license": "MIT",
+  "dependencies": {
+    "@commander-js/extra-typings": "^14.0.0",
+    "@wf-agent/common-utils": "workspace:*",
+    "@wf-agent/sdk": "workspace:*",
+    "@wf-agent/storage": "workspace:*",
+    "@wf-agent/tool-executors": "workspace:*",
+    "@wf-agent/types": "workspace:*",
+    "commander": "^14.0.3",
+    "node-pty": "^1.1.0",
+    "rxjs": "^7.8.2",
+    "zod": "^4.3.6"
+  },
+  "engines": {
+    "node": ">=22.0.0",
+    "pnpm": ">=9.0.0"
+  }
+}

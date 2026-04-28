@@ -1,0 +1,12 @@
+name = "format"
+description = "输出格式规则提示词"
+
+content = """请遵循以下输出格式规则：
+- 使用清晰的段落结构
+- 适当使用列表和标题组织内容
+- 代码示例使用代码块格式
+- 确保回答简洁明了，重点突出"""
+
+[metadata]
+role = "system"
+priority = 2

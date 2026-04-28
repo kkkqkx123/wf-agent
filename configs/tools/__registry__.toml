@@ -1,0 +1,59 @@
+# 工具注册表配置
+# 定义工具类型注册信息和配置文件引用
+
+[metadata]
+name = "tools_registry"
+version = "1.0.0"
+description = "工具类型注册表"
+author = "system"
+
+# 工具类型注册
+[tool_types.native]
+class_path = "src.domain.tools.types.native_tool:NativeTool"
+description = "原生工具类型 - 应用层提供的有状态工具"
+enabled = true
+config_directory = "native"
+config_files = ["sequentialthinking.toml"]
+
+[tool_types.builtin]
+class_path = "src.domain.tools.types.builtin_tool:BuiltinTool"
+description = "内置工具类型 - 应用层提供的无状态工具"
+enabled = true
+config_directory = "builtin"
+config_files = ["calculator.toml", "hash_convert.toml", "time_tool.toml"]
+
+[tool_types.rest]
+class_path = "src.domain.tools.types.rest_tool:RestTool"
+description = "REST工具类型 - 通过rest等协议调用外部API"
+enabled = true
+config_directory = "rest"
+config_files = ["fetch.toml", "weather.toml", "duckduckgo_search.toml"]
+
+[tool_types.mcp]
+class_path = "src.domain.tools.types.mcp_tool:MCPTool"
+description = "MCP工具类型 - MCP标准协议"
+enabled = true
+config_directory = "mcp"
+config_files = ["database.toml"]
+
+# 工具集注册
+[tool_sets.basic_tools]
+description = "基础工具集"
+enabled = true
+tools = ["calculator", "fetch", "weather", "time_tool"]
+
+[tool_sets.advanced_tools]
+description = "高级工具集"
+enabled = true
+tools = ["hash_convert", "sequentialthinking", "duckduckgo_search", "database"]
+
+# 自动发现配置
+[auto_discovery]
+enabled = true
+scan_directories = [
+  "configs/tools/native",
+  "configs/tools/rest",
+  "configs/tools/mcp",
+]
+file_patterns = ["*.toml"]
+exclude_patterns = ["__*", "_*", "test_*"]

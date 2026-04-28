@@ -1,0 +1,26 @@
+[workflow]
+id = "test-standalone-wf"
+name = "Test Standalone Workflow"
+type = "STANDALONE"
+version = "1.0.0"
+
+[[nodes]]
+id = "start"
+type = "START"
+
+[[nodes]]
+id = "llm"
+type = "LLM"
+config = { profileId = "gpt-4o" }
+
+[[nodes]]
+id = "end"
+type = "END"
+
+[[edges]]
+from = "start"
+to = "llm"
+
+[[edges]]
+from = "llm"
+to = "end"

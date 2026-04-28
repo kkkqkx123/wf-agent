@@ -1,0 +1,62 @@
+# OpenAI HTTP客户端通用配置
+# 此文件包含所有OpenAI HTTP客户端的通用配置
+
+# 基础配置
+provider = "openai"
+model_type = "openai"
+
+# API配置
+base_url = "https://api.openai.com/v1"
+api_version = "v1"
+api_key = "${OPENAI_API_KEY}"
+api_format = "chat_completion"         # 支持 "chat_completion" 或 "responses"
+
+# HTTP客户端配置
+timeout = 30
+max_retries = 3
+retry_delay = 1.0
+backoff_factor = 2.0
+pool_connections = 10
+
+# 默认请求头
+[default_headers]
+Content-Type = "application/json"
+User-Agent = "OpenAI-HTTP-Client/1.0"
+
+# 功能支持
+[features]
+function_calling = true
+streaming = true
+vision = true
+responses_api = true
+
+# 默认参数
+[defaults]
+temperature = 0.7
+max_tokens = 2048
+top_p = 1.0
+frequency_penalty = 0.0
+presence_penalty = 0.0
+
+# 错误处理
+[error_handling]
+retry_on_rate_limit = true
+retry_on_server_error = true
+max_retry_backoff = 60.0
+
+# 支持的模型列表
+models = [
+    "gpt-4o",
+    "gpt-4o-mini",
+    "gpt-5-mini",
+    "gpt-5-nano",
+    "gpt-5.1-codex",
+    "gpt-5-codex",
+    "gpt-5",
+    "gpt-5.1",
+]
+
+# 限流配置
+[rate_limiting]
+requests_per_minute = 3500
+tokens_per_minute = 200000

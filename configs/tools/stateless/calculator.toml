@@ -1,0 +1,22 @@
+# 计算器工具配置
+name = "calculator"
+tool_type = "stateless"
+description = "A tool for performing basic mathematical calculations"
+function_path = "src.domain.tools.native.calculator:calculate"
+enabled = true
+timeout = 10
+
+# 参数模式定义
+[parameters_schema]
+type = "object"
+
+[parameters_schema.properties]
+expression = { type = "string", description = "Mathematical expression to calculate, e.g. \"2 + 3 * 4\"" }
+precision = { type = "integer", description = "Number of decimal places in the result, default is 2", default = 2 }
+
+parameters_schema.required = ["expression"]
+
+# 元数据
+[metadata]
+category = "math"
+tags = ["calculator", "math", "basic"]

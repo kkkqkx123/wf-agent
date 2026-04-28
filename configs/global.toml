@@ -1,0 +1,40 @@
+# 全局配置
+# 框架级基础配置，包含日志、环境、安全等通用设置
+# 功能模块的详细配置请参考各模块目录下的配置文件
+
+# 基础设置
+log_level = "DEBUG"
+env = "development"
+debug = true
+env_prefix = "AGENT_"
+
+# 热重载配置
+hot_reload = true
+watch_interval = 5 # 5秒
+
+# 日志输出配置
+[[log_outputs]]
+type = "console"
+level = "DEBUG"
+format = "text"
+
+[[log_outputs]]
+type = "file"
+level = "DEBUG"
+format = "json"
+path = "logs/agent.log"
+rotation = "daily"
+max_size = "10MB"
+
+# 秘密模式配置
+secret_patterns = [
+  "sk-[a-zA-Z0-9]{20,}",
+  "ms-[a-zA-Z0-9]{15,}",
+  "\\w+@\\w+\\.\\w+",
+  "1\\d{10}",
+]
+
+
+# 注意：以下配置已迁移到各模块目录
+# - LLM配置（重试、超时、性能）→ configs/llms/
+# - 工作流引擎配置 → configs/workflow/

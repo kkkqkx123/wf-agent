@@ -1,0 +1,43 @@
+# 开发文件
+.vscode/**
+.vscode-test/**
+.gitignore
+tsconfig.json
+*.map
+*.ts
+!*.d.ts
+
+# 锁文件
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+
+# 测试相关（不打包进扩展）
+test/**
+jest.config.cjs
+tsconfig.jest.json
+
+# 后端源文件和文档（只需要 dist 中的编译结果）
+backend/**
+webview/**
+
+# 前端源文件（只需要 dist）
+frontend/src/**
+frontend/node_modules/**
+frontend/*.json
+frontend/*.ts
+frontend/*.html
+frontend/tsconfig*.json
+frontend/vite.config.ts
+frontend/pnpm-lock.yaml
+frontend/COMPONENT_ARCHITECTURE.md
+
+# 忽略所有 node_modules，但保留需要的运行时依赖
+node_modules/**
+!node_modules/@vscode/**
+!node_modules/@vscode/codicons/**
+!node_modules/@vscode/codicons/dist/**
+!node_modules/fast-xml-parser/**
+!node_modules/nanoid/**
+!node_modules/strnum/**
+!node_modules/tree-kill/**

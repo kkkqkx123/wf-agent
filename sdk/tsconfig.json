@@ -1,0 +1,23 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": ".",
+    "baseUrl": ".",
+    "paths": {
+      "@sdk/core/*": ["./core/*"],
+      "@sdk/services/*": ["./services/*"]
+    }
+  },
+  "include": [
+    "index.ts",
+    "core/**/*",
+    "services/**/*",
+    "graph/**/*",
+    "agent/**/*",
+    "api/**/*",
+    "utils/**/*",
+    "resources/**/*"
+  ],
+  "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.spec.ts"]
+}

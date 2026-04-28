@@ -1,0 +1,24 @@
+name = "code_review"
+description = "代码审查模板"
+
+# 模板定义：使用引用格式组合提示词片段
+[template]
+system_prompt = "system.coder"
+rules = "rules.format"
+user_command = "user_commands.code_review"
+
+# 模板内容，使用变量占位符
+content = """
+{{system_prompt}}
+
+{{rules}}
+
+{{user_command}}
+
+代码：
+{{code}}
+"""
+
+# 简化的变量定义
+[variables]
+code = { required = true, description = "要审查的代码" }

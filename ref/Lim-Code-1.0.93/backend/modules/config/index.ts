@@ -1,0 +1,46 @@
+/**
+ * LimCode - 配置管理模块
+ * 
+ * 统一导出所有类型、类和函数
+ */
+
+// 类型定义
+export type {
+    // 渠道类型
+    ChannelType,
+    
+    // 配置接口
+    BaseChannelConfig,
+    GeminiConfig,
+    OpenAIConfig,
+    AnthropicConfig,
+    ChannelConfig,
+    
+    // 输入类型
+    CreateConfigInput,
+    UpdateConfigInput,
+    
+    // 统计和验证
+    ConfigStats,
+    ValidationResult,
+    
+    // 选项
+    ExportOptions,
+    ImportOptions,
+    ConfigFilter,
+    ConfigSortOptions
+} from './types';
+
+// 存储适配器
+export type { ConfigStorageAdapter } from './storage';
+export {
+    MemoryStorageAdapter,
+    MementoStorageAdapter,
+    HybridStorageAdapter
+} from './storage';
+
+// 核心管理器
+export { ConfigManager } from './ConfigManager';
+
+// 模块注册
+export { registerConfigModule } from './register';

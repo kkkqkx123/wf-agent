@@ -1,0 +1,54 @@
+{
+  "name": "modular-agent-monorepo",
+  "version": "1.0.0",
+  "description": "模块化智能体框架 - Monorepo",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "sdk"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev --parallel",
+    "test": "node scripts/test.mjs",
+    "lint": "turbo run lint",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "clean": "turbo run clean && rimraf node_modules",
+    "typecheck": "turbo run typecheck",
+    "typecheck:tests": "turbo run typecheck:tests",
+    "postinstall": "pnpm typecheck"
+  },
+  "keywords": [
+    "agent",
+    "workflow",
+    "llm",
+    "modular",
+    "typescript",
+    "monorepo"
+  ],
+  "author": "Modular Agent Framework Team",
+  "license": "MIT",
+  "dependencies": {
+    "zod": "4.3.6"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.2.0",
+    "prettier": "^3.8.2",
+    "rimraf": "^6.1.2",
+    "turbo": "^2.8.3",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.58.1",
+    "@types/node": "^25.2.1",
+    "@vitest/coverage-v8": "^4.0.18",
+    "vitest": "^4.0.18"
+  },
+  "engines": {
+    "node": ">=22.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "packageManager": "pnpm@10.28.2"
+}

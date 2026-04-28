@@ -1,0 +1,34 @@
+# Hello World脚本配置
+name = "hello-world"
+script_type = "SHELL"
+description = "A simple hello world script that demonstrates script execution"
+enabled = true
+
+# 脚本内容（内联代码）
+content = """
+#!/bin/bash
+echo "Hello, World!"
+echo "Current directory: $(pwd)"
+echo "Environment:"
+env | grep -E "^(PATH|HOME|USER)="
+"""
+
+# 执行选项
+[options]
+timeout = 30000
+retries = 2
+retryDelay = 1000
+workingDirectory = "/tmp"
+sandbox = false
+
+# 环境变量
+[options.environment]
+SCRIPT_NAME = "hello-world"
+SCRIPT_VERSION = "1.0.0"
+
+# 元数据
+[metadata]
+category = "demo"
+tags = ["hello", "world", "demo", "basic"]
+author = "System"
+version = "1.0.0"

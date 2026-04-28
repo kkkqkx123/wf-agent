@@ -1,0 +1,12 @@
+name = "fix_code"
+description = "代码修复用户指令"
+
+content = """请分析并修复提供的代码问题。
+1. 识别问题的根本原因
+2. 提供修复方案
+3. 解释修复的原理
+4. 给出预防类似问题的建议"""
+
+[metadata]
+role = "user"
+priority = 3

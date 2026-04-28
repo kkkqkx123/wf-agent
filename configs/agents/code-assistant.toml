@@ -1,0 +1,66 @@
+# Agent Loop 配置示例
+# 展示如何通过配置文件定义 Agent Loop
+
+[agent]
+id = "code-assistant"
+name = "代码助手"
+description = "一个用于代码编写和审查的 Agent"
+version = "1.0.0"
+
+# LLM 配置
+profileId = "gpt-4o"
+systemPrompt = "你是一个专业的代码助手，帮助用户编写、审查和优化代码。"
+maxIterations = 20
+stream = true
+
+# 工具配置
+tools = [
+  "read_file",
+  "write_file", 
+  "edit_file",
+  "shell_execute",
+  "calculator"
+]
+
+# 检查点配置
+[agent.checkpoint]
+createOnEnd = true
+createOnError = true
+createOnIteration = false
+
+# Hook 配置 - 迭代前记录日志
+[[agent.hooks]]
+hookType = "BEFORE_ITERATION"
+eventName = "iteration_started"
+enabled = true
+weight = 10
+
+# Hook 配置 - 工具调用前验证权限
+[[agent.hooks]]
+hookType = "BEFORE_TOOL_CALL"
+eventName = "tool_call_validation"
+condition = "${tool.name == 'shell_execute'}"
+enabled = true
+weight = 100
+
+# Hook 配置 - LLM调用后记录token使用
+[[agent.hooks]]
+hookType = "AFTER_LLM_CALL"
+eventName = "token_usage_record"
+enabled = true
+weight = 5
+
+# Hook 配置 - 迭代后创建检查点（每5次迭代）
+[[agent.hooks]]
+hookType = "AFTER_ITERATION"
+eventName = "checkpoint_creation"
+condition = "${iteration % 5 == 0}"
+createCheckpoint = true
+checkpointDescription = "每5次迭代自动创建检查点"
+enabled = true
+weight = 1
+
+# 元数据
+[agent.metadata]
+author = "Modular Agent Team"
+tags = ["code", "assistant", "development"]

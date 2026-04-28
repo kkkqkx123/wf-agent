@@ -1,0 +1,28 @@
+# 快速轮询池配置
+name = "fast_pool"
+task_groups = ["fast_group"]
+
+[rotation]
+strategy = "round_robin"
+
+[health_check]
+interval = 30
+failure_threshold = 3
+
+[[instances]]
+name = "openai_gpt4o"
+provider = "openai"
+model = "gpt-4o"
+weight = 1
+
+[[instances]]
+name = "openai_gpt4o_mini"
+provider = "openai"
+model = "gpt-4o-mini"
+weight = 2
+
+[[instances]]
+name = "anthropic_claude35"
+provider = "anthropic"
+model = "claude-3-5-sonnet"
+weight = 1

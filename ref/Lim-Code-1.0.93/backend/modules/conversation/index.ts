@@ -1,0 +1,139 @@
+/**
+ * 对话管理模块
+ *
+ * 完整支持 Gemini API 格式:
+ * - Content[] 数组作为存储格式
+ * - 支持函数调用、思考签名、文件数据等
+ * - 支持多模态内容（图片、音频、视频、文档）
+ * - 可直接用于 Gemini API 调用
+ */
+
+export { ConversationManager } from './ConversationManager';
+export { createConversationModule } from './register';
+export {
+    IStorageAdapter,
+    MemoryStorageAdapter,
+    VSCodeStorageAdapter,
+    FileSystemStorageAdapter
+} from './storage';
+export type {
+    Content,
+    ContentPart,
+    ConversationHistory,
+    ConversationMetadata,
+    ConversationData,
+    MessagePosition,
+    MessageFilter,
+    HistorySnapshot,
+    ConversationStats,
+    MessageEdit,
+    MessageInsert
+} from './types';
+
+// 多模态工具
+export {
+    IMAGE_MIME_TYPES,
+    AUDIO_MIME_TYPES,
+    VIDEO_MIME_TYPES,
+    DOCUMENT_MIME_TYPES,
+    SUPPORTED_MIME_TYPES,
+    isSupportedMimeType,
+    getMultimediaType,
+    createInlineDataPart,
+    createImagePart,
+    createAudioPart,
+    createVideoPart,
+    createDocumentPart,
+    createPartFromDataUrl,
+    getInlineDataSize,
+    inlineDataToDataUrl,
+    hasMultimediaContent,
+    getPartMultimediaType
+} from './multimedia';
+export type {
+    ImageMimeType,
+    AudioMimeType,
+    VideoMimeType,
+    DocumentMimeType,
+    SupportedMimeType,
+    MultimediaType
+} from './multimedia';
+
+// 辅助工具函数
+export {
+    buildMessage,
+    buildUserMessage,
+    buildModelMessage,
+    appendParts,
+    prependParts,
+    getMessageText,
+    getTextParts,
+    getMultimediaParts,
+    hasMultimedia,
+    hasConsecutiveSameRole,
+    groupByConsecutiveRole,
+    mergeConsecutiveSameRole,
+    countParts,
+    createTextMessage,
+    createMultiTextMessage
+} from './helpers';
+
+// 函数调用工具（支持并行调用）
+export {
+    createFunctionCall,
+    createFunctionCallMessage,
+    createParallelFunctionCalls,
+    extractFunctionCalls,
+    hasFunctionCalls,
+    hasParallelFunctionCalls,
+    getFunctionCallCount,
+    hasFunctionResponses,
+    extractFunctionResponses,
+    createParallelFunctionResponses,
+    groupFunctionCallsByName,
+    analyzeFunctionCalls,
+    matchFunctionCallsAndResponses
+} from './functionCall';
+
+// 函数响应工具（多模态支持 - Gemini 3 Pro+）
+export {
+    FUNCTION_RESPONSE_MIME_TYPES,
+    createJsonRef,
+    isJsonRef,
+    getRefDisplayName,
+    isSupportedForFunctionResponse,
+    createFunctionResponse,
+    createMultimodalFunctionResponse,
+    createFunctionResponseWithFile,
+    createFunctionResponseWithInlineData,
+    createFunctionResponseWithMultipleFiles,
+    validateFunctionResponseRefs,
+    extractMultimediaFromFunctionResponse,
+    hasFunctionResponseMultimedia
+} from './functionResponse';
+export type {
+    JsonReference,
+    FunctionResponseMimeType
+} from './functionResponse';
+
+// Token 工具
+export {
+    setMessageTokens,
+    createMessageWithTokens,
+    getTotalTokens,
+    hasTokenCounts,
+    calculateHistoryTokens,
+    batchSetTokenCounts,
+    getTokenEfficiency,
+    formatTokenCount
+} from './tokenUtils';
+
+// Diff 存储管理器（用于抽离 apply_diff 的 originalContent/newContent）
+export {
+    DiffStorageManager,
+    getDiffStorageManager
+} from './DiffStorageManager';
+export type {
+    DiffContent,
+    DiffReference
+} from './DiffStorageManager';

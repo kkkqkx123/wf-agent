@@ -1,0 +1,11 @@
+name = "error_handling"
+description = "错误处理规范"
+category = "system"
+
+[content]
+text = """代码中必须包含适当的错误处理逻辑：
+- 提供有意义的错误信息
+- 确保资源正确释放"""
+
+[metadata]
+role = "system"

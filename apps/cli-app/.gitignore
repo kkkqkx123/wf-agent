@@ -1,0 +1,34 @@
+# 依赖
+node_modules/
+
+# 构建输出
+dist/
+build/
+
+# 日志文件
+*.log
+modular-agent-debug.log
+
+# 配置文件（本地配置）
+.env
+.env.local
+.modular-agentrc.local
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 操作系统
+.DS_Store
+Thumbs.db
+
+# 测试覆盖率
+coverage/
+.nyc_output/
+
+# 临时文件
+*.tmp
+*.temp

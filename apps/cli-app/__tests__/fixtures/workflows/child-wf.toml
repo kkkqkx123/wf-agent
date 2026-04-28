@@ -1,0 +1,26 @@
+[workflow]
+id = "child-wf"
+name = "Child Workflow"
+type = "STANDALONE"
+version = "1.0.0"
+
+[[nodes]]
+id = "child-start"
+type = "START"
+
+[[nodes]]
+id = "child-process"
+type = "LLM"
+config = { profileId = "gpt-4o" }
+
+[[nodes]]
+id = "child-end"
+type = "END"
+
+[[edges]]
+from = "child-start"
+to = "child-process"
+
+[[edges]]
+from = "child-process"
+to = "child-end"

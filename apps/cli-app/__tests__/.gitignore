@@ -1,0 +1,12 @@
+# Test outputs
+outputs/
+
+# Coverage reports
+coverage/
+
+# Logs
+logs/
+
+# Temporary files
+*.log
+*.tmp

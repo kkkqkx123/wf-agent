@@ -1,0 +1,17 @@
+[workflow]
+id = "multiple-end-wf"
+name = "Multiple End Workflow"
+type = "STANDALONE"
+version = "1.0.0"
+
+[[nodes]]
+id = "start"
+type = "START"
+
+[[nodes]]
+id = "end1"
+type = "END"
+
+[[nodes]]
+id = "end2"
+type = "END"

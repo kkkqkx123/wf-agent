@@ -1,0 +1,197 @@
+# 条件路由配置示例
+# 展示如何使用新的通用条件路由器
+
+[workflow]
+name = "conditional_routing_example"
+description = "条件路由功能演示"
+
+# 定义工作流节点
+[[workflow.nodes]]
+id = "start"
+type = "start"
+
+[[workflow.nodes]]
+id = "check_errors"
+type = "condition"
+function = "condition:has_errors"
+
+[[workflow.nodes]]
+id = "check_tool_calls"
+type = "condition"
+function = "condition:has_tool_calls"
+
+[[workflow.nodes]]
+id = "check_iterations"
+type = "condition"
+function = "condition:max_iterations_reached"
+
+[[workflow.nodes]]
+id = "router"
+type = "routing"
+function = "route:conditional"
+
+# 路由器配置 - 使用新的通用条件路由器
+[workflow.nodes.config]
+matchMode = "first"  # 匹配模式：first, all, any
+defaultNodeId = "continue"
+
+[[workflow.nodes.config.conditions]]
+name = "has_errors"
+value = "${check_errors.result}"
+operator = "equals"
+targetNodeId = "error_handler"
+
+[[workflow.nodes.config.conditions]]
+name = "has_tool_calls"
+value = "${check_tool_calls.result}"
+operator = "equals"
+targetNodeId = "tool_executor"
+
+[[workflow.nodes.config.conditions]]
+name = "max_iterations"
+value = "${check_iterations.result}"
+operator = "equals"
+targetNodeId = "timeout_handler"
+
+# 目标节点
+[[workflow.nodes]]
+id = "error_handler"
+type = "node"
+function = "node:error_handler"
+
+[[workflow.nodes]]
+id = "tool_executor"
+type = "node"
+function = "node:tool_executor"
+
+[[workflow.nodes]]
+id = "timeout_handler"
+type = "node"
+function = "node:timeout_handler"
+
+[[workflow.nodes]]
+id = "continue"
+type = "node"
+function = "node:continue_processing"
+
+[[workflow.nodes]]
+id = "end"
+type = "end"
+
+# 定义边连接
+[[workflow.edges]]
+from = "start"
+to = "check_errors"
+
+[[workflow.edges]]
+from = "check_errors"
+to = "check_tool_calls"
+
+[[workflow.edges]]
+from = "check_tool_calls"
+to = "check_iterations"
+
+[[workflow.edges]]
+from = "check_iterations"
+to = "router"
+
+[[workflow.edges]]
+from = "router"
+to = "error_handler"
+condition = "route_to_error"
+
+[[workflow.edges]]
+from = "router"
+to = "tool_executor"
+condition = "route_to_tools"
+
+[[workflow.edges]]
+from = "router"
+to = "timeout_handler"
+condition = "route_to_timeout"
+
+[[workflow.edges]]
+from = "router"
+to = "continue"
+condition = "route_to_continue"
+
+[[workflow.edges]]
+from = "error_handler"
+to = "end"
+
+[[workflow.edges]]
+from = "tool_executor"
+to = "end"
+
+[[workflow.edges]]
+from = "timeout_handler"
+to = "end"
+
+[[workflow.edges]]
+from = "continue"
+to = "end"
+
+# 高级条件路由示例 - 使用表达式
+[[workflow.nodes]]
+id = "advanced_router"
+type = "routing"
+function = "route:conditional"
+
+[workflow.nodes.config]
+matchMode = "any"  # 任意匹配模式
+defaultNodeId = "normal_processing"
+
+# 复杂条件：错误数量大于3
+[[workflow.nodes.config.conditions]]
+name = "many_errors"
+value = "${count_errors() > 3}"
+operator = "equals"
+targetNodeId = "critical_error_handler"
+
+# 复杂条件：同时有工具调用和错误
+[[workflow.nodes.config.conditions]]
+name = "tools_with_errors"
+value = "${has_tool_calls() && has_errors()}"
+operator = "equals"
+targetNodeId = "tool_error_handler"
+
+# 复杂条件：迭代次数接近上限
+[[workflow.nodes.config.conditions]]
+name = "near_iteration_limit"
+value = "${iteration >= 8}"
+operator = "equals"
+targetNodeId = "early_timeout_handler"
+
+# 否定条件：没有工具调用但有消息
+[[workflow.nodes.config.conditions]]
+name = "no_tools_with_messages"
+value = "${no_tool_calls()}"
+operator = "equals"
+negate = false
+targetNodeId = "text_processor"
+
+# 目标节点
+[[workflow.nodes]]
+id = "critical_error_handler"
+type = "node"
+function = "node:critical_error_handler"
+
+[[workflow.nodes]]
+id = "tool_error_handler"
+type = "node"
+function = "node:tool_error_handler"
+
+[[workflow.nodes]]
+id = "early_timeout_handler"
+type = "node"
+function = "node:early_timeout_handler"
+
+[[workflow.nodes]]
+id = "text_processor"
+type = "node"
+function = "node:text_processor"
+
+[[workflow.nodes]]
+id = "normal_processing"
+type = "node"
+function = "node:normal_processing"

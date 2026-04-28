@@ -1,0 +1,45 @@
+# Gemini 2.5 Flash 配置
+# 继承自 common.toml，只覆盖需要修改的参数
+
+# 基础配置
+provider = "gemini"
+model_type = "gemini"
+model_name = "gemini-2.5-flash"
+clientType = "native"
+
+# API配置
+base_url = "https://generativelanguage.googleapis.com"
+api_version = "v1beta"
+api_key = "${GEMINI_API_KEY}"
+
+# 模型特定参数
+[parameters]
+# 基础生成参数
+temperature = 0.7
+max_tokens = 8192
+top_p = 0.95
+top_k = 40
+
+# 成本配置
+[cost]
+prompt_token_price = 0.000125
+completion_token_price = 0.000375
+
+# 模型能力
+[capabilities]
+max_tokens = 8192
+context_window = 1048576
+supports_streaming = true
+supports_tools = true
+supports_images = true
+supports_audio = true
+supports_video = true
+supports_thinking = true
+
+# 元数据
+[metadata]
+provider = "google"
+version = "1.0"
+description = "Google Gemini 2.5 Flash 模型"
+model_family = "gemini"
+model_tier = "flash"

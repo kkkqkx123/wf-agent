@@ -1,0 +1,63 @@
+# SiliconFlow HTTP客户端通用配置
+# 此文件包含所有SiliconFlow HTTP客户端的通用配置
+
+# 基础配置
+provider = "siliconflow"
+model_type = "siliconflow"
+
+# API配置
+base_url = "https://api.siliconflow.cn/v1"
+api_version = "v1"
+api_key = "${SILICONFLOW_API_KEY}"
+api_format = "chat_completion"             # 支持 "chat_completion" 或 "responses"
+
+# HTTP客户端配置
+timeout = 60
+max_retries = 3
+retry_delay = 2.0
+backoff_factor = 2.0
+pool_connections = 10
+
+# 默认请求头
+[default_headers]
+Content-Type = "application/json"
+User-Agent = "SiliconFlow-HTTP-Client/1.0"
+
+# 功能支持
+[features]
+function_calling = true
+streaming = true
+vision = false
+responses_api = false
+
+# 默认参数
+[defaults]
+temperature = 0.7
+max_tokens = 32000
+max_completion_tokens = 8192
+top_p = 1.0
+frequency_penalty = 0.0
+presence_penalty = 0.0
+timeout = 60
+
+# 错误处理
+[error_handling]
+retry_on_rate_limit = true
+retry_on_server_error = true
+max_retry_backoff = 120.0
+retry_on_status_codes = [429, 500, 502, 503, 504]
+
+# 支持的模型列表
+models = [
+    "qwen/qwen2.5-7b-instruct",
+    "qwen/qwen3-8b-instruct",
+    "thudm/glm-4-9b-chat",
+    "thudm/glm-4-1v-9b-chat",
+    "zhipuai/glm-z1-9b",
+    "tencent/hunyuan-mt-7b-instruct",
+]
+
+# 限流配置
+[rate_limiting]
+requests_per_minute = 1000
+tokens_per_minute = 50000

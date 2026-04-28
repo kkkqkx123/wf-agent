@@ -1,0 +1,59 @@
+# Sequential Thinking Tool Configuration
+name = "sequentialthinking"
+tool_type = "stateful"
+description = """
+A tool for structured problem-solving through sequential thinking steps.
+This tool helps analyze problems through a linear thinking process.
+
+When to use this tool:
+- Breaking down complex problems into steps
+- Planning and design
+- Problems that require a multi-step solution
+- Tasks that need to maintain context over multiple steps
+
+Key features:
+- You can adjust total_thoughts up or down as you progress
+- Simple linear progression of thoughts
+- Basic thought tracking
+"""
+function_path = "path"
+enabled = true
+timeout = 30
+
+# 状态配置
+[state_config]
+manager_type = "memory"
+ttl = 3600
+auto_cleanup = true
+
+# 参数模式定义
+[parameters_schema]
+type = "object"
+
+[parameters_schema.properties]
+thought = { type = "string", description = "Your current thinking step" }
+nextThoughtNeeded = { type = "boolean", description = "Whether another thought step is needed" }
+thoughtNumber = { type = "integer", description = "Current number in sequence", minimum = 1 }
+totalThoughts = { type = "integer", description = "Current estimate of thoughts needed", minimum = 1 }
+
+parameters_schema.required = [
+    "thought",
+    "nextThoughtNeeded",
+    "thoughtNumber",
+    "totalThoughts",
+]
+
+# 元数据
+[metadata]
+category = "reasoning"
+tags = ["thinking", "reasoning", "problem-solving", "analysis", "planning"]
+
+# 示例
+[[examples]]
+description = "Basic thinking sequence"
+
+[examples.parameters]
+thought = "Analyze the core requirements of the problem"
+nextThoughtNeeded = true
+thoughtNumber = 1
+totalThoughts = 3

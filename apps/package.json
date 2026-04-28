@@ -1,0 +1,16 @@
+{
+  "name": "wf-agent/apps",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Application modules for Modular Agent Framework",
+  "workspaces": [
+    "web-app"
+  ],
+  "scripts": {
+    "build": "echo \"Build script for apps coming soon\"",
+    "dev": "echo \"Dev script for apps coming soon\"",
+    "test": "echo \"Test script for apps coming soon\"",
+    "format": "turbo run format",
+    "format:check": "turbo run format:check"
+  }
+}

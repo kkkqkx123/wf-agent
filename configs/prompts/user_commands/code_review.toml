@@ -1,0 +1,12 @@
+name = "code_review"
+description = "代码审查用户指令"
+
+content = """请对提供的代码进行审查，并给出以下内容：
+1. 代码质量评估
+2. 潜在问题和改进建议
+3. 最佳实践建议
+4. 安全性检查结果"""
+
+[metadata]
+role = "user"
+priority = 3

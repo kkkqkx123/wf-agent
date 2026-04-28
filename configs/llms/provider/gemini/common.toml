@@ -1,0 +1,84 @@
+# Gemini Provider通用配置
+# 此文件包含所有Gemini客户端的通用配置
+
+# 基础配置
+provider = "gemini"
+model_type = "gemini"
+clientType = "native" # 可选值: "native" 或 "openai-compatible"
+
+# API配置
+base_url = "https://generativelanguage.googleapis.com"
+api_version = "v1beta"
+api_key = "${GEMINI_API_KEY}"
+
+# HTTP客户端配置
+timeout = 30
+max_retries = 3
+retry_delay = 1.0
+backoff_factor = 2.0
+pool_connections = 10
+
+# 默认请求头
+[default_headers]
+Content-Type = "application/json"
+User-Agent = "ModularAgent/1.0"
+
+# 功能支持
+[features]
+function_calling = true
+streaming = true
+vision = true
+caching = true
+thinking_budget = true
+cached_content = true
+
+# 默认参数
+[defaults]
+temperature = 0.7
+max_tokens = 2048
+top_p = 1.0
+top_k = 40
+candidate_count = 1
+stream = false
+
+# 错误处理
+[error_handling]
+retry_on_rate_limit = true
+retry_on_server_error = true
+max_retry_backoff = 60.0
+
+# 支持的模型列表
+models = [
+    "gemini-2.5-pro",
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-3.0-pro",
+    "gemini-3.0-flash",
+]
+
+# 限流配置
+[rate_limiting]
+requests_per_minute = 60
+tokens_per_minute = 32000
+
+# 降级配置
+[fallback_config]
+enabled = true
+max_attempts = 3
+
+# 元数据
+[metadata]
+provider = "google"
+version = "1.0"
+description = "Gemini Provider通用配置"
+supported_features = [
+    "function_calling",
+    "streaming",
+    "vision",
+    "code_execution",
+    "thinking_budget",
+    "cached_content",
+]
+unsupported_features = [
+    "json_mode", # 通过response_mime_type实现
+]

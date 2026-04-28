@@ -1,0 +1,16 @@
+# 快速任务组配置
+name = "fast_group"
+
+[echelon1]
+model = "gpt-4o"
+provider = "openai"
+priority = 1
+
+[echelon2]
+model = "gpt-4o-mini"
+provider = "openai"
+priority = 2
+
+[circuit_breaker]
+failure_threshold = 5
+reset_timeout = 60

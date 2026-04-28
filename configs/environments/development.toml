@@ -1,0 +1,35 @@
+# 开发环境配置
+log_level = "DEBUG"
+debug = true
+hot_reload = true
+
+# 开发环境特定的日志配置
+[[log_outputs]]
+type = "console"
+level = "DEBUG"
+format = "text"
+
+[[log_outputs]]
+type = "file"
+level = "DEBUG"
+format = "text"
+path = "logs/dev-agent.log"
+rotation = "daily"
+max_size = "50MB"
+
+# 开发环境数据库配置
+[checkpoint]
+storage_type = "sqlite"
+db_path = "storage/dev-checkpoints.db"
+auto_save = true
+save_interval = 3  # 更频繁保存
+
+# 开发环境LLM配置
+[llm]
+default_timeout = 60  # 更长的超时时间用于调试
+default_max_retries = 1  # 减少重试次数
+
+[llm.performance]
+max_concurrent_requests = 3  # 限制并发以便调试
+request_queue_size = 20
+connection_pool_size = 5

@@ -1,0 +1,32 @@
+# 数据库查询工具配置。目前仅提供占位实现
+name = "database_query"
+tool_type = "mcp"
+description = "Execute database queries through MCP server"
+enabled = true
+timeout = 30
+mcp_server_url = "http://localhost:8080/mcp"
+dynamic_schema = true
+refresh_interval = 300  # 5分钟刷新一次Schema
+
+# 状态配置
+[state_config]
+manager_type = "memory"
+ttl = 3600
+auto_cleanup = true
+
+# 参数模式定义
+[parameters_schema]
+type = "object"
+
+[parameters_schema.properties]
+query = { type = "string", description = "SQL query statement" }
+database = { type = "string", description = "Database name", default = "default" }
+limit = { type = "integer", description = "Maximum number of rows to return", default = 100 }
+
+parameters_schema.required = ["query"]
+
+# 元数据
+[metadata]
+category = "database"
+tags = ["database", "sql", "mcp"]
+server_info = "Local MCP database server"

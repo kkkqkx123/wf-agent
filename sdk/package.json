@@ -1,0 +1,61 @@
+{
+  "name": "@wf-agent/sdk",
+  "version": "1.0.0",
+  "description": "Modular Agent Framework SDK - Workflow execution engine",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./services": {
+      "types": "./dist/services/index.d.ts",
+      "import": "./dist/services/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "test": "vitest run --reporter=verbose",
+    "test:watch": "vitest --watch",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit",
+    "typecheck:tests": "tsc --noEmit -p tsconfig.test.json",
+    "clean": "rimraf dist",
+    "lint": "eslint . --ext .ts",
+    "lint:fix": "eslint . --ext .ts --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "prebuild": "npm run clean"
+  },
+  "keywords": [
+    "agent",
+    "workflow",
+    "llm",
+    "sdk"
+  ],
+  "author": "Modular Agent Framework Team",
+  "license": "MIT",
+  "dependencies": {
+    "@wf-agent/types": "workspace:*",
+    "@wf-agent/common-utils": "workspace:*",
+    "@wf-agent/tool-executors": "workspace:*",
+    "@wf-agent/script-executors": "workspace:*",
+    "@wf-agent/prompt-templates": "workspace:*",
+    "@wf-agent/storage": "workspace:*",
+    "zod": "^4.3.6",
+    "@iarna/toml": "^2.2.5",
+    "minimatch": "^10.2.5",
+    "fast-ignore": "^2.0.0"
+  },
+  "devDependencies": {},
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

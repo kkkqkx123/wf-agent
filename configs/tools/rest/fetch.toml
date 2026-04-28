@@ -1,0 +1,32 @@
+# 网页内容获取工具配置
+name = "fetch"
+tool_type = "rest"
+description = "A tool for fetching web page content from URLs and optionally extracting it as markdown, supporting URL fetching with content type handling and robots.txt compliance"
+function_path = "path"
+enabled = true
+timeout = 30
+
+# 状态配置
+[state_config]
+manager_type = "memory"
+ttl = 3600
+auto_cleanup = true
+
+# 参数模式定义
+[parameters_schema]
+type = "object"
+
+[parameters_schema.properties]
+url = { type = "string", description = "URL to fetch", format = "uri" }
+max_length = { type = "integer", description = "Maximum number of characters to return", default = 5000, minimum = 1, maximum = 20000 }
+start_index = { type = "integer", description = "Start output from this character index, useful if a previous fetch was truncated and more context is required", default = 0, minimum = 0 }
+raw = { type = "boolean", description = "Get the actual HTML content of the requested page, without simplification", default = false }
+user_agent = { type = "string", description = "User-Agent string to use for requests", default = "ModularAgent/1.0" }
+proxy_url = { type = "string", description = "Optional proxy URL to use for requests" }
+
+parameters_schema.required = ["url"]
+
+# 元数据
+[metadata]
+category = "web"
+tags = ["web", "fetch", "url", "content", "html", "markdown"]

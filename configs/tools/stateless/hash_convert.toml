@@ -1,0 +1,27 @@
+# Hash转换工具配置
+name = "hash_convert"
+tool_type = "stateless"
+description = "A tool for converting text to various hash values, supporting MD5, SHA1, SHA256, SHA512 algorithms"
+function_path = "src.domain.tools.native.hash_convert:hash_convert"
+enabled = true
+timeout = 10
+
+# 参数模式定义
+[parameters_schema]
+type = "object"
+
+[parameters_schema.properties]
+text = { type = "string", description = "Text to be converted to hash value" }
+algorithm = { type = "string", description = "Hash algorithm, optional values: md5, sha1, sha256, sha512", enum = [
+    "md5",
+    "sha1",
+    "sha256",
+    "sha512",
+], default = "sha256" }
+
+parameters_schema.required = ["text"]
+
+# 元数据
+[metadata]
+category = "utility"
+tags = ["hash", "security", "encryption", "utility"]

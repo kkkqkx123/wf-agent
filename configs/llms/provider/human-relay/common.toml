@@ -1,0 +1,124 @@
+# HumanRelay Provider通用配置
+# 此文件包含所有HumanRelay客户端的通用配置
+
+# 基础配置
+provider = "human-relay"
+model_type = "human-relay"
+
+# HumanRelay特定配置
+mode = "single"                    # single 或 multi
+default_timeout = 300              # 默认超时时间（秒）
+max_history_length = 50            # 多轮对话最大历史长度
+
+# 前端交互配置
+[frontend]
+type = "tui"                       # tui, web, api
+auto_detect = true                 # 自动检测可用前端
+fallback_order = ["tui", "web", "api"]  # 前端回退顺序
+
+# TUI配置
+[frontend.tui]
+prompt_style = "highlight"         # minimal, highlight, detailed
+input_area_height = 10             # 输入区域高度
+show_timer = true                  # 显示计时器
+show_history = true                # 显示历史记录
+history_format = "compact"         # compact, detailed
+auto_save = true                   # 自动保存输入
+
+# Web配置
+[frontend.web]
+port = 8080                        # WebSocket端口
+host = "localhost"                 # 绑定主机
+path = "/human-relay"              # WebSocket路径
+cors_enabled = true                # 启用CORS
+cors_origins = ["*"]               # 允许的源
+max_connections = 10               # 最大连接数
+heartbeat_interval = 30            # 心跳间隔（秒）
+
+# API配置
+[frontend.api]
+endpoint = "/api/human-relay"      # API端点
+auth_required = false              # 是否需要认证
+auth_method = "bearer"             # bearer, basic, apikey
+timeout = 600                      # API超时时间
+rate_limit = 100                   # 速率限制（请求/分钟）
+
+# 提示词模板
+[templates]
+single = """
+请将以下提示词输入到Web LLM中，并将回复粘贴回来：
+
+{prompt}
+
+回复：
+"""
+
+multi = """
+请继续对话，将以下提示词输入到Web LLM中：
+
+{incremental_prompt}
+
+对话历史：
+{conversation_history}
+
+回复：
+"""
+
+# 自定义模板变量
+[templates.variables]
+{prompt} = "完整提示词内容"
+{incremental_prompt} = "增量提示词内容"
+{conversation_history} = "对话历史记录"
+{timestamp} = "当前时间戳"
+{session_id} = "会话ID"
+
+# 功能支持
+[features]
+conversation_history = true         # 支持对话历史
+custom_templates = true            # 支持自定义模板
+timeout_control = true             # 支持超时控制
+cancel_interaction = true          # 支持取消交互
+session_persistence = false        # 会话持久化
+export_history = false             # 导出历史记录
+auto_save = true                   # 自动保存
+voice_input = false                # 语音输入（实验性）
+
+# 错误处理
+[error_handling]
+retry_on_timeout = false           # 超时是否重试
+max_retries = 0                    # 最大重试次数
+retry_delay = 5.0                  # 重试延迟（秒）
+retry_backoff = 1.5                # 退避倍数
+log_errors = true                  # 记录错误日志
+error_notification = false         # 错误通知
+
+# 支持的模型列表
+models = [
+    "human-relay-s",
+    "human-relay-m",
+]
+
+# 模型映射
+[model_mapping]
+"human-relay-s" = { mode = "single", description = "单轮对话模式" }
+"human-relay-m" = { mode = "multi", description = "多轮对话模式" }
+
+# 元数据
+[metadata]
+provider = "human-relay"
+version = "1.0"
+description = "HumanRelay Provider - 通过前端与Web LLM交互"
+author = "Modular Agent Team"
+license = "MIT"
+homepage = "https://github.com/modular-agent/human-relay"
+supported_features = [
+    "human_interaction",
+    "web_llm_integration",
+    "conversation_history",
+    "custom_templates",
+]
+unsupported_features = [
+    "streaming",
+    "function_calling",
+    "image_input",
+]

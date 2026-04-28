@@ -1,0 +1,3 @@
+[workflow]
+name = "test-workflow"
+description = "Test fixture"

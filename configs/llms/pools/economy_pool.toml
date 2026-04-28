@@ -1,0 +1,28 @@
+# 经济轮询池配置
+name = "economy_pool"
+task_groups = ["economy_group"]
+
+[rotation]
+strategy = "weighted"
+
+[health_check]
+interval = 60
+failure_threshold = 5
+
+[[instances]]
+name = "openai_gpt5_mini"
+provider = "openai"
+model = "gpt-5-mini"
+weight = 3
+
+[[instances]]
+name = "openai_gpt5_nano"
+provider = "openai"
+model = "gpt-5-nano"
+weight = 5
+
+[[instances]]
+name = "gemini_25_flash"
+provider = "gemini"
+model = "gemini-2.5-flash"
+weight = 2

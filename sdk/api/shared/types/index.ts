@@ -11,7 +11,7 @@ export type { ExecutionOptions } from "./execution-options.js";
 export { DEFAULT_EXECUTION_OPTIONS, mergeExecutionOptions } from "./execution-options.js";
 
 // Core Types
-export type { ThreadOptions, SDKOptions, SDKDependencies } from "./core-types.js";
+export type { WorkflowExecutionOptions, SDKOptions, SDKDependencies } from "./core-types.js";
 
 // Script Type
 export type {

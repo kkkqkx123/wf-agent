@@ -22,8 +22,6 @@ export interface TriggeredSubgraphTask {
   input: Record<string, unknown>;
   /** Trigger ID */
   triggerId: string;
-  /** Main Workflow Thread Entity (deprecated, use mainWorkflowExecutionEntity) */
-  mainThreadEntity: WorkflowExecutionEntity;
   /** Main Workflow Execution Entity */
   mainWorkflowExecutionEntity: WorkflowExecutionEntity;
   /** Configuration options */
@@ -75,8 +73,6 @@ export interface TaskSubmissionResult {
 export interface QueueTask {
   /** Task ID */
   taskId: string;
-  /** Thread Entity (deprecated, use workflowExecutionEntity) */
-  threadEntity: WorkflowExecutionEntity;
   /** Workflow Execution Entity */
   workflowExecutionEntity: WorkflowExecutionEntity;
   /** Promise resolve function */

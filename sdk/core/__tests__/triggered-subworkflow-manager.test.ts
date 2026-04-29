@@ -27,7 +27,7 @@ const mockThreadRegistry = {
   delete: vi.fn(),
 } as any;
 
-const mockThreadBuilder = {
+const mockWorkflowExecutionBuilder = {
   build: vi.fn(),
 } as any;
 
@@ -43,7 +43,7 @@ const mockEventManager = {
   emit: vi.fn(),
 } as any;
 
-const mockThreadPoolService = {
+const mockWorkflowExecutionPoolService = {
   getConfig: vi.fn(() => ({ defaultTimeout: 60000 })),
   getStats: vi.fn(),
   shutdown: vi.fn(),
@@ -60,10 +60,10 @@ describe("Triggered Subworkflow Manager - Triggered Subworkflow Manager", () => 
     // Create a manager
     manager = new TriggeredSubworkflowHandler(
       mockThreadRegistry,
-      mockThreadBuilder,
+      mockWorkflowExecutionBuilder,
       mockTaskQueueManager,
       mockEventManager,
-      mockThreadPoolService,
+      mockWorkflowExecutionPoolService,
     );
 
     // Mock Main Thread Entity
@@ -90,7 +90,7 @@ describe("Triggered Subworkflow Manager - Triggered Subworkflow Manager", () => 
     };
 
     // Mock threadBuilder.build
-    mockThreadBuilder.build.mockResolvedValue(mockSubgraphEntity);
+    mockWorkflowExecutionBuilder.build.mockResolvedValue(mockSubgraphEntity);
   });
 
   describe("synchronous execution", () => {
@@ -131,7 +131,7 @@ describe("Triggered Subworkflow Manager - Triggered Subworkflow Manager", () => 
 
       const result = await manager.executeTriggeredSubgraph(task);
 
-      expect(mockThreadBuilder.build).toHaveBeenCalledWith("subgraph-1", {
+      expect(mockWorkflowExecutionBuilder.build).toHaveBeenCalledWith("subgraph-1", {
         input: expect.objectContaining({
           triggerId: "trigger-1",
           output: mockMainThreadEntity.getOutput(),
@@ -456,12 +456,12 @@ describe("Triggered Subworkflow Manager - Triggered Subworkflow Manager", () => 
         maxThreads: 10,
       };
 
-      mockThreadPoolService.getStats.mockReturnValue(poolStats);
+      mockWorkflowExecutionPoolService.getStats.mockReturnValue(poolStats);
 
       const stats = manager.getPoolStats();
 
       expect(stats).toBe(poolStats);
-      expect(mockThreadPoolService.getStats).toHaveBeenCalled();
+      expect(mockWorkflowExecutionPoolService.getStats).toHaveBeenCalled();
     });
 
     it("Test task statistics: getTaskStats returns the correct task statistics", () => {
@@ -487,11 +487,11 @@ describe("Triggered Subworkflow Manager - Triggered Subworkflow Manager", () => 
   describe("Close Manager", () => {
     it("Test shutdown manager: shutdown method shuts down correctly", async () => {
       mockTaskQueueManager.drain.mockResolvedValue(undefined);
-      mockThreadPoolService.shutdown.mockResolvedValue(undefined);
+      mockWorkflowExecutionPoolService.shutdown.mockResolvedValue(undefined);
 
       await manager.shutdown();
 
-      expect(mockThreadPoolService.shutdown).toHaveBeenCalled();
+      expect(mockWorkflowExecutionPoolService.shutdown).toHaveBeenCalled();
       expect(mockTaskQueueManager.drain).toHaveBeenCalled();
     });
   });

@@ -39,13 +39,13 @@ const mockEventManager = {
   off: vi.fn(),
 } as any;
 
-const mockThreadLifecycleCoordinator = {
+const mockWorkflowLifecycleCoordinator = {
   stopThread: vi.fn(),
   pauseThread: vi.fn(),
   resumeThread: vi.fn(),
 } as any;
 
-const mockThreadBuilder = {
+const mockWorkflowExecutionBuilder = {
   build: vi.fn(),
 } as any;
 
@@ -77,8 +77,8 @@ describe("Trigger Coordinator", () => {
       stateManager: stateManager,
       workflowGraphRegistry: mockGraphRegistry,
       eventManager: mockEventManager,
-      threadLifecycleCoordinator: mockThreadLifecycleCoordinator,
-      threadBuilder: mockThreadBuilder,
+      threadLifecycleCoordinator: mockWorkflowLifecycleCoordinator,
+      threadBuilder: mockWorkflowExecutionBuilder,
       taskQueueManager: mockTaskQueueManager,
       checkpointStateManager: mockCheckpointStateManager,
     });
@@ -385,7 +385,7 @@ describe("Trigger Coordinator", () => {
       await coordinator.handleEvent(event);
 
       // Verify that the matched trigger was executed.
-      expect(mockThreadLifecycleCoordinator.stopThread).toHaveBeenCalled();
+      expect(mockWorkflowLifecycleCoordinator.stopThread).toHaveBeenCalled();
     });
 
     it("Test mismatch events: Mismatching events should not be triggered.", async () => {
@@ -399,7 +399,7 @@ describe("Trigger Coordinator", () => {
       await coordinator.handleEvent(event);
 
       // Verify that no triggers were executed.
-      expect(mockThreadLifecycleCoordinator.stopThread).not.toHaveBeenCalled();
+      expect(mockWorkflowLifecycleCoordinator.stopThread).not.toHaveBeenCalled();
     });
 
     it("Testing that disabling triggers does not cause them to execute: Triggers that are in a disabled state should not be executed.", async () => {
@@ -413,7 +413,7 @@ describe("Trigger Coordinator", () => {
       await coordinator.handleEvent(event);
 
       // Verify that the disabled triggers have not been executed.
-      expect(mockThreadLifecycleCoordinator.resumeThread).not.toHaveBeenCalled();
+      expect(mockWorkflowLifecycleCoordinator.resumeThread).not.toHaveBeenCalled();
     });
 
     it("Test should not execute when the maximum number of attempts is reached: Triggers that have reached the maxTriggers value should not be executed.", async () => {
@@ -432,7 +432,7 @@ describe("Trigger Coordinator", () => {
       await coordinator.handleEvent(event);
 
       // Verify that triggers that have reached the maximum number of executions have not been executed.
-      expect(mockThreadLifecycleCoordinator.stopThread).not.toHaveBeenCalled();
+      expect(mockWorkflowLifecycleCoordinator.stopThread).not.toHaveBeenCalled();
     });
 
     it("Testing the NODE_CUSTOM_EVENT event: Correct matching of eventName", async () => {
@@ -466,7 +466,7 @@ describe("Trigger Coordinator", () => {
       await coordinator.handleEvent(event);
 
       // Verify that the matched trigger has been executed.
-      expect(mockThreadLifecycleCoordinator.stopThread).toHaveBeenCalled();
+      expect(mockWorkflowLifecycleCoordinator.stopThread).toHaveBeenCalled();
     });
 
     it("Test for NODE_CUSTOM_EVENT not matching eventName: Do not execute if eventName does not match.", async () => {
@@ -500,7 +500,7 @@ describe("Trigger Coordinator", () => {
       await coordinator.handleEvent(event);
 
       // Verify that unmatched triggers were not executed.
-      expect(mockThreadLifecycleCoordinator.stopThread).not.toHaveBeenCalled();
+      expect(mockWorkflowLifecycleCoordinator.stopThread).not.toHaveBeenCalled();
     });
   });
 
@@ -553,7 +553,7 @@ describe("Trigger Coordinator", () => {
       await expect(coordinator.handleEvent(event)).resolves.not.toThrow();
 
       // Verify that the trigger is still being executed.
-      expect(mockThreadLifecycleCoordinator.stopThread).toHaveBeenCalled();
+      expect(mockWorkflowLifecycleCoordinator.stopThread).toHaveBeenCalled();
     });
   });
 
@@ -630,8 +630,8 @@ describe("Trigger Coordinator", () => {
       await coordinator.handleEvent(event);
 
       // Verify that both triggers have been executed.
-      expect(mockThreadLifecycleCoordinator.stopThread).toHaveBeenCalled();
-      expect(mockThreadLifecycleCoordinator.pauseThread).toHaveBeenCalled();
+      expect(mockWorkflowLifecycleCoordinator.stopThread).toHaveBeenCalled();
+      expect(mockWorkflowLifecycleCoordinator.pauseThread).toHaveBeenCalled();
     });
   });
 });

@@ -76,8 +76,6 @@ export interface TriggerHandlerContextFactoryConfig {
   checkpointStateManager?: CheckpointState;
   /** Workflow Graph Registry */
   graphRegistry?: WorkflowGraphRegistry;
-  /** @deprecated Use graphRegistry instead */
-  workflowGraphRegistry?: WorkflowGraphRegistry;
   /** Event Manager */
   eventManager?: EventRegistry;
   /** Workflow Execution Builder */
@@ -136,13 +134,13 @@ export class TriggerHandlerContextFactory {
    * @param triggerId The trigger ID (for error reporting)
    * @param actionType The action type (for error reporting)
    * @returns The lifecycle trigger context
-   * @throws DependencyInjectionError When the ThreadLifecycleCoordinator is missing
+   * @throws DependencyInjectionError When the WorkflowLifecycleCoordinator is missing
    */
   private createLifecycleContext(triggerId: string, actionType: string): LifecycleTriggerContext {
     if (!this.config.threadLifecycleCoordinator) {
       throw new DependencyInjectionError(
-        "ThreadLifecycleCoordinator is required for lifecycle trigger actions",
-        "ThreadLifecycleCoordinator",
+        "WorkflowLifecycleCoordinator is required for lifecycle trigger actions",
+        "WorkflowLifecycleCoordinator",
         "TriggerHandlerContextFactory.createLifecycleContext",
         undefined,
         undefined,
@@ -219,8 +217,8 @@ export class TriggerHandlerContextFactory {
 
     if (!this.config.threadBuilder) {
       throw new DependencyInjectionError(
-        "ThreadBuilder is required for execute_triggered_subgraph trigger action",
-        "ThreadBuilder",
+        "WorkflowExecutionBuilder is required for execute_triggered_subgraph trigger action",
+        "WorkflowExecutionBuilder",
         "TriggerHandlerContextFactory.createSubgraphContext",
         undefined,
         undefined,

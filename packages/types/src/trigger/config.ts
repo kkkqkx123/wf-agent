@@ -49,21 +49,21 @@ export type TriggerActionType =
 // ============================================================================
 
 /**
- * Stop Thread Action Parameters
+ * Stop Workflow Execution Action Parameters
  */
 export interface StopThreadActionParameters {
-  /** Thread ID */
-  threadId: ID;
+  /** Execution ID */
+  executionId: ID;
   /** Whether to force stop */
   force?: boolean;
 }
 
 /**
- * Pause Thread Action Parameters
+ * Pause Workflow Execution Action Parameters
  */
 export interface PauseThreadActionParameters {
-  /** Thread ID */
-  threadId: ID;
+  /** Execution ID */
+  executionId: ID;
   /** Reason for suspension */
   reason?: string;
   /** Whether mandatory suspension */
@@ -71,19 +71,19 @@ export interface PauseThreadActionParameters {
 }
 
 /**
- * Recovery Thread Action Parameters
+ * Resume Workflow Execution Action Parameters
  */
 export interface ResumeThreadActionParameters {
-  /** Thread ID */
-  threadId: ID;
+  /** Execution ID */
+  executionId: ID;
 }
 
 /**
  * Skip Node Action Parameters
  */
 export interface SkipNodeActionParameters {
-  /** Thread ID */
-  threadId: ID;
+  /** Execution ID */
+  executionId: ID;
   /** Node ID */
   nodeId: ID;
 }
@@ -92,8 +92,8 @@ export interface SkipNodeActionParameters {
  * Setting variable action parameters
  */
 export interface SetVariableActionParameters {
-  /** Thread ID */
-  threadId: ID;
+  /** Execution ID */
+  executionId: ID;
   /** variable key-value pair */
   variables: Record<string, unknown>;
   /** variable scope */
@@ -128,8 +128,8 @@ export interface CustomActionParameters {
  * Application Message Action Parameters
  */
 export interface ApplyMessageOperationActionParameters {
-  /** Thread ID */
-  threadId: ID;
+  /** Execution ID */
+  executionId: ID;
   /** Type of operation */
   operationType: "compress" | "truncate" | "summarize" | "mark" | "unmark";
   /** Operational Configuration */
@@ -165,26 +165,26 @@ interface BaseTriggerAction {
 }
 
 /**
- * Stop Thread Action
+ * Stop Workflow Execution Action
  */
-export interface StopThreadAction extends BaseTriggerAction {
-  type: "stop_thread";
+export interface StopWorkflowExecutionAction extends BaseTriggerAction {
+  type: "stop_workflow_execution";
   parameters: StopThreadActionParameters;
 }
 
 /**
- * Pause Thread Action
+ * Pause Workflow Execution Action
  */
-export interface PauseThreadAction extends BaseTriggerAction {
-  type: "pause_thread";
+export interface PauseWorkflowExecutionAction extends BaseTriggerAction {
+  type: "pause_workflow_execution";
   parameters: PauseThreadActionParameters;
 }
 
 /**
- * Resume thread action
+ * Resume Workflow Execution Action
  */
-export interface ResumeThreadAction extends BaseTriggerAction {
-  type: "resume_thread";
+export interface ResumeWorkflowExecutionAction extends BaseTriggerAction {
+  type: "resume_workflow_execution";
   parameters: ResumeThreadActionParameters;
 }
 

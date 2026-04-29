@@ -18,7 +18,7 @@ import type { TriggerAction, TriggerExecutionResult } from "@wf-agent/types";
 import type { ExecuteTriggeredSubgraphActionConfig } from "@wf-agent/types";
 import {
   RuntimeValidationError,
-  ThreadContextNotFoundError,
+  WorkflowExecutionNotFoundError,
   WorkflowNotFoundError,
 } from "@wf-agent/types";
 import type { WorkflowExecutionRegistry } from "../../../stores/workflow-execution-registry.js";
@@ -132,13 +132,13 @@ export async function executeTriggeredSubgraphHandler(
     const threadId = currentThreadId;
 
     if (!threadId) {
-      throw new ThreadContextNotFoundError("Current thread ID not provided", "current");
+      throw new WorkflowExecutionNotFoundError("Current thread ID not provided", "current");
     }
 
     const mainWorkflowExecutionEntity = workflowExecutionRegistry.get(threadId);
 
     if (!mainWorkflowExecutionEntity) {
-      throw new ThreadContextNotFoundError(`Main workflow execution entity not found: ${threadId}`, threadId);
+      throw new WorkflowExecutionNotFoundError(`Main workflow execution entity not found: ${threadId}`, threadId);
     }
 
     const container = getContainer();

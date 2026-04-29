@@ -10,8 +10,8 @@ import type { ID, Timestamp } from "../common.js";
  * Metadata information for indexing and querying
  */
 export interface CheckpointStorageMetadata {
-  /** Thread ID */
-  threadId: ID;
+  /** Execution ID */
+  executionId: ID;
   /** Workflow ID */
   workflowId: ID;
   /** Creating timestamps */
@@ -27,8 +27,8 @@ export interface CheckpointStorageMetadata {
  * Support for basic filtering and paging
  */
 export interface CheckpointStorageListOptions {
-  /** Filter by thread ID */
-  threadId?: ID;
+  /** Filter by execution ID */
+  executionId?: ID;
   /** Filter by Workflow ID */
   workflowId?: ID;
   /** Filter by tag (match any tag) */

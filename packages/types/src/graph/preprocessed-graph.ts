@@ -70,9 +70,3 @@ export interface WorkflowGraph extends WorkflowGraphStructure {
     initial: Set<string>;
   };
 }
-
-/**
- * PreprocessedGraph type alias
- * Alias for WorkflowGraph for backward compatibility
- */
-export type PreprocessedGraph = WorkflowGraph;

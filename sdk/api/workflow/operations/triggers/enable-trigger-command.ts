@@ -3,7 +3,7 @@
  */
 
 import { BaseCommand, CommandValidationResult } from "../../../shared/types/command.js";
-import { ThreadContextNotFoundError } from "@wf-agent/types";
+import { WorkflowExecutionNotFoundError } from "@wf-agent/types";
 import type { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
 
 /**
@@ -63,7 +63,7 @@ export class EnableTriggerCommand extends BaseCommand<void> {
   private async getTriggerManager(threadId: string) {
     const threadContext = this.dependencies.getThreadRegistry().get(threadId);
     if (!threadContext) {
-      throw new ThreadContextNotFoundError(`Thread not found: ${threadId}`, threadId);
+      throw new WorkflowExecutionNotFoundError(`Thread not found: ${threadId}`, threadId);
     }
     return threadContext.triggerManager;
   }

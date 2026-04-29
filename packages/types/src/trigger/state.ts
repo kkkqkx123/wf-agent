@@ -23,8 +23,8 @@ export type TriggerStatus =
 export interface TriggerRuntimeState {
   /** Trigger ID */
   triggerId: ID;
-  /** Thread ID */
-  threadId: ID;
+  /** Execution ID */
+  executionId: ID;
   /** Workflow ID */
   workflowId: ID;
   /** trigger state */

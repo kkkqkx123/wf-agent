@@ -39,13 +39,13 @@ export function checkInterruption(signal?: AbortSignal): InterruptionCheckResult
     if (type === "PAUSE") {
       return {
         type: "paused",
-        threadId: executionId, // Keep threadId for backward compatibility
+        executionId: executionId,
         nodeId: nodeId || "unknown",
       };
     } else if (type === "STOP") {
       return {
         type: "stopped",
-        threadId: executionId, // Keep threadId for backward compatibility
+        executionId: executionId,
         nodeId: nodeId || "unknown",
       };
     }
@@ -72,7 +72,7 @@ export function createInterruptionInfo(
 ): InterruptionInfo {
   return {
     type,
-    threadId: executionId, // Keep threadId for backward compatibility
+    executionId: executionId,
     nodeId,
     timestamp: Date.now(),
   };
@@ -129,7 +129,7 @@ export function getNodeId(result: InterruptionCheckResult): string | undefined {
  */
 export function getExecutionId(result: InterruptionCheckResult): string | undefined {
   if (result.type === "paused" || result.type === "stopped") {
-    return result.threadId; // Use threadId which now stores executionId
+    return result.executionId;
   }
   return undefined;
 }

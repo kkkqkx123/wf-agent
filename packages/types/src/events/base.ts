@@ -10,56 +10,30 @@ import type { ID, Timestamp, Metadata } from "../common.js";
 export type EventType =
   /** Workflow Execution Start */
   | "WORKFLOW_EXECUTION_STARTED"
-  /** Thread Started (deprecated, use WORKFLOW_EXECUTION_STARTED) */
-  | "THREAD_STARTED"
   /** Workflow Execution completion */
   | "WORKFLOW_EXECUTION_COMPLETED"
-  /** Thread Completed (deprecated, use WORKFLOW_EXECUTION_COMPLETED) */
-  | "THREAD_COMPLETED"
   /** Workflow Execution Failure */
   | "WORKFLOW_EXECUTION_FAILED"
-  /** Thread Failed (deprecated, use WORKFLOW_EXECUTION_FAILED) */
-  | "THREAD_FAILED"
   /** Workflow Execution Pause */
   | "WORKFLOW_EXECUTION_PAUSED"
-  /** Thread Paused (deprecated, use WORKFLOW_EXECUTION_PAUSED) */
-  | "THREAD_PAUSED"
   /** Workflow Execution Recovery */
   | "WORKFLOW_EXECUTION_RESUMED"
-  /** Thread Resumed (deprecated, use WORKFLOW_EXECUTION_RESUMED) */
-  | "THREAD_RESUMED"
   /** Workflow Execution Cancellation */
   | "WORKFLOW_EXECUTION_CANCELLED"
-  /** Thread Cancelled (deprecated, use WORKFLOW_EXECUTION_CANCELLED) */
-  | "THREAD_CANCELLED"
   /** Workflow Execution state change */
   | "WORKFLOW_EXECUTION_STATE_CHANGED"
-  /** Thread State Changed (deprecated, use WORKFLOW_EXECUTION_STATE_CHANGED) */
-  | "THREAD_STATE_CHANGED"
   /** Workflow Execution Forking Begins */
   | "WORKFLOW_EXECUTION_FORK_STARTED"
-  /** Thread Fork Started (deprecated, use WORKFLOW_EXECUTION_FORK_STARTED) */
-  | "THREAD_FORK_STARTED"
   /** Workflow Execution Forking Complete */
   | "WORKFLOW_EXECUTION_FORK_COMPLETED"
-  /** Thread Fork Completed (deprecated, use WORKFLOW_EXECUTION_FORK_COMPLETED) */
-  | "THREAD_FORK_COMPLETED"
   /** Workflow Execution merge started */
   | "WORKFLOW_EXECUTION_JOIN_STARTED"
-  /** Thread Join Started (deprecated, use WORKFLOW_EXECUTION_JOIN_STARTED) */
-  | "THREAD_JOIN_STARTED"
   /** Workflow Execution merge condition satisfied */
   | "WORKFLOW_EXECUTION_JOIN_CONDITION_MET"
-  /** Thread Join Condition Met (deprecated, use WORKFLOW_EXECUTION_JOIN_CONDITION_MET) */
-  | "THREAD_JOIN_CONDITION_MET"
   /** Workflow Execution copying begins */
   | "WORKFLOW_EXECUTION_COPY_STARTED"
-  /** Thread Copy Started (deprecated, use WORKFLOW_EXECUTION_COPY_STARTED) */
-  | "THREAD_COPY_STARTED"
   /** Workflow Execution copying complete */
   | "WORKFLOW_EXECUTION_COPY_COMPLETED"
-  /** Thread Copy Completed (deprecated, use WORKFLOW_EXECUTION_COPY_COMPLETED) */
-  | "THREAD_COPY_COMPLETED"
   /** nodal start */
   | "NODE_STARTED"
   /** Node Completion */
@@ -151,8 +125,6 @@ export interface BaseEvent {
   workflowId?: ID;
   /** Execution ID (optional, for events that do not depend on the graph layer, such as the core layer) */
   executionId?: ID;
-  /** Thread ID (deprecated, use executionId) */
-  threadId?: ID;
   /** event metadata */
   metadata?: Metadata;
 }

@@ -10,8 +10,8 @@ import type { InterruptionType } from "@wf-agent/types";
  */
 export type InterruptionCheckResult =
   | { type: "continue" }
-  | { type: "paused"; nodeId: string; threadId?: string }
-  | { type: "stopped"; nodeId: string; threadId?: string }
+  | { type: "paused"; nodeId: string; executionId?: string }
+  | { type: "stopped"; nodeId: string; executionId?: string }
   | { type: "aborted"; reason?: unknown };
 
 /**
@@ -19,7 +19,7 @@ export type InterruptionCheckResult =
  */
 export interface InterruptionInfo {
   type: Exclude<InterruptionType, null>;
-  threadId: string;
+  executionId: string;
   nodeId: string;
   timestamp?: number;
 }

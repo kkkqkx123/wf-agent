@@ -83,4 +83,4 @@ export interface SDKDependencies {
   checkpointStorageCallback?: CheckpointStorageCallback;
 }
 
-export type { ThreadOptions };
+export type { WorkflowExecutionOptions };

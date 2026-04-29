@@ -4,7 +4,7 @@
  */
 
 import type { ID } from "../../common.js";
-import type { ThreadInterruptedException } from "../../errors/index.js";
+import type { WorkflowExecutionInterruptedException } from "../../errors/index.js";
 
 /**
  * Workflow Execution Abort Signal
@@ -16,5 +16,5 @@ export interface WorkflowExecutionAbortSignal extends Omit<AbortSignal, "reason"
   /** Node ID */
   nodeId: ID;
   /** Reason for interruption */
-  reason: ThreadInterruptedException;
+  reason: WorkflowExecutionInterruptedException;
 }

@@ -99,11 +99,11 @@ export class WorkflowExecutionEntity {
   }
 
   getExecutionType(): WorkflowExecutionType {
-    return this.workflowExecution.threadType || "MAIN";
+    return this.workflowExecution.executionType || "MAIN";
   }
 
   setExecutionType(executionType: WorkflowExecutionType): void {
-    this.workflowExecution.threadType = executionType;
+    this.workflowExecution.executionType = executionType;
   }
 
   getCurrentNodeId(): string {
@@ -226,7 +226,7 @@ export class WorkflowExecutionEntity {
   }
 
   getChildExecutionIds(): ID[] {
-    return this.workflowExecution.triggeredSubworkflowContext?.childThreadIds || [];
+    return this.workflowExecution.triggeredSubworkflowContext?.childExecutionIds || [];
   }
 
   setParentExecutionId(parentExecutionId: ID): void {
@@ -265,7 +265,6 @@ export class WorkflowExecutionEntity {
   /**
    * Add a message
    * @param message LLM message
-   * @deprecated Use WorkflowStateCoordinator.addMessage() instead for unified state management
    */
   addMessage(message: LLMMessage): void {
     this.messageHistoryManager.addMessage(message);
@@ -398,17 +397,7 @@ export class WorkflowExecutionEntity {
   // ========== Data Access (for internal use) ----------
 
   /**
-   * Get the raw WorkflowExecution data object
-   * @returns WorkflowExecution data object
-   * @internal For internal use only
-   * @deprecated Use getWorkflowExecutionData() instead
-   */
-  getThread(): WorkflowExecution {
-    return this.workflowExecution;
-  }
-
-  /**
-   * Get the raw WorkflowExecution data object (alias for getThread for compatibility)
+   * Get the raw WorkflowExecution data object (alias for getWorkflowExecutionData for compatibility)
    * @returns WorkflowExecution data object
    */
   getExecution(): WorkflowExecution {

@@ -167,7 +167,7 @@ export class SqliteTaskStorage
       db.transaction(() => {
         insertMetadata.run(
           taskId,
-          metadata.threadId,
+          metadata.executionId,
           metadata.workflowId,
           metadata.status,
           metadata.submitTime,
@@ -269,9 +269,9 @@ export class SqliteTaskStorage
       const params: unknown[] = [];
       const conditions: string[] = [];
 
-      if (options?.threadId) {
+      if (options?.executionId) {
         conditions.push("thread_id = ?");
-        params.push(options.threadId);
+        params.push(options.executionId);
       }
 
       if (options?.workflowId) {
@@ -370,7 +370,7 @@ export class SqliteTaskStorage
       const stmt = db.prepare(`
         SELECT
           id,
-          thread_id as "threadId",
+          thread_id as "executionId",
           workflow_id as "workflowId",
           status,
           submit_time as "submitTime",
@@ -386,7 +386,7 @@ export class SqliteTaskStorage
       const row = stmt.get(taskId) as
         | {
             id: string;
-            threadId: string;
+            executionId: string;
             workflowId: string;
             status: string;
             submitTime: number;
@@ -406,7 +406,7 @@ export class SqliteTaskStorage
 
       return {
         taskId: row.id,
-        threadId: row.threadId,
+        executionId: row.executionId,
         workflowId: row.workflowId,
         status: row.status as TaskStatus,
         submitTime: row.submitTime,

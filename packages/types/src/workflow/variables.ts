@@ -6,28 +6,28 @@ import type { VariableScope } from "../workflow-execution/scopes.js";
 import type { VariableValueType } from "../workflow-execution/variables.js";
 
 /**
- * 工作流变量定义类型
- * 用于在工作流定义阶段声明变量，提供类型安全和初始值
+ * Workflow Variable Definition Type
+ * Used to declare variables at workflow definition stage, providing type safety and initial values
  *
- * 说明：
- * - 在工作流定义时声明变量，提供类型信息和默认值
- * - 执行时转换为 ThreadVariable，存储在 Thread.variableScopes.thread 中
- * - 通过 VARIABLE 节点修改，通过表达式访问（{{variableName}}）
+ * Description:
+ * - Declare variables at workflow definition time, providing type information and default values
+ * - At execution time, converted to WorkflowExecutionVariable, stored in WorkflowExecution.variableScopes.thread
+ * - Modified via VARIABLE node, accessed via expressions ({{variableName}})
  *
- * 示例：
+ * Example:
  * ```typescript
  * workflow.variables = [
  *   { name: 'userName', type: 'string', defaultValue: 'Alice' },
  *   { name: 'userAge', type: 'number', defaultValue: 25 }
  * ]
  *
- * // 执行时
- * thread.variableScopes.thread = {
+ * // At execution time
+ * execution.variableScopes.thread = {
  *   userName: 'Alice',
  *   userAge: 25
  * }
  *
- * // 在表达式中访问
+ * // Access in expressions
  * {{userName}}  // 'Alice'
  * {{userAge}}  // 25
  * ```

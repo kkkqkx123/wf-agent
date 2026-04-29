@@ -88,16 +88,16 @@ export interface BuiltinToolConfig {
  * - This interface uses 'unknown' to avoid circular dependencies
  */
 export interface BuiltinToolExecutionContext {
-  /** Current thread ID */
-  threadId?: string;
-  /** Parent thread entity */
-  parentThreadEntity?: unknown;
-  /** Thread registry */
-  threadRegistry?: unknown;
+  /** Current execution ID */
+  executionId?: string;
+  /** Parent execution entity */
+  parentExecutionEntity?: unknown;
+  /** Execution registry */
+  executionRegistry?: unknown;
   /** Event manager */
   eventManager?: unknown;
-  /** Thread builder */
-  threadBuilder?: unknown;
+  /** Execution builder */
+  executionBuilder?: unknown;
   /** Task queue manager */
   taskQueueManager?: unknown;
   /** Workflow registry */

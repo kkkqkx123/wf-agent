@@ -27,8 +27,8 @@ export type ErrorSeverity =
  * error context
  */
 export interface ErrorContext {
-  /** Thread ID */
-  threadId?: string;
+  /** Execution ID */
+  executionId?: string;
   /** Workflow ID */
   workflowId?: string;
   /** Node ID */

@@ -22,7 +22,7 @@ export * from "./variables.js";
 // Export execution-related types (WorkflowExecutionOptions, WorkflowExecutionResult, etc.)
 export * from "./execution.js";
 
-// Export workflow execution related types (deprecated, use execution.js instead)
+// Export workflow execution related types
 export * from "./workflow-execution.js";
 
 // Export History Type

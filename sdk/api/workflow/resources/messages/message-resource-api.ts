@@ -6,7 +6,7 @@
 import { ReadonlyResourceAPI } from "../../../shared/resources/generic-resource-api.js";
 import type { WorkflowExecutionRegistry } from "../../../../workflow/stores/workflow-execution-registry.js";
 import type { LLMMessage } from "@wf-agent/types";
-import { ThreadContextNotFoundError } from "@wf-agent/types";
+import { WorkflowExecutionNotFoundError } from "@wf-agent/types";
 import { getContainer } from "../../../../core/di/index.js";
 import * as Identifiers from "../../../../core/di/service-identifiers.js";
 
@@ -130,7 +130,7 @@ export class MessageResourceAPI extends ReadonlyResourceAPI<LLMMessage, string, 
   ): Promise<LLMMessage[]> {
     const threadEntity = this.registry.get(threadId);
     if (!threadEntity) {
-      throw new ThreadContextNotFoundError(`Thread not found: ${threadId}`, threadId);
+      throw new WorkflowExecutionNotFoundError(`Thread not found: ${threadId}`, threadId);
     }
 
     let messages = threadEntity.getMessages() || [];
@@ -159,7 +159,7 @@ export class MessageResourceAPI extends ReadonlyResourceAPI<LLMMessage, string, 
   async getRecentMessages(threadId: string, count: number): Promise<LLMMessage[]> {
     const threadEntity = this.registry.get(threadId);
     if (!threadEntity) {
-      throw new ThreadContextNotFoundError(`Thread not found: ${threadId}`, threadId);
+      throw new WorkflowExecutionNotFoundError(`Thread not found: ${threadId}`, threadId);
     }
 
     const messages = threadEntity.getMessages() || [];
@@ -175,7 +175,7 @@ export class MessageResourceAPI extends ReadonlyResourceAPI<LLMMessage, string, 
   async searchMessages(threadId: string, query: string): Promise<LLMMessage[]> {
     const threadEntity = this.registry.get(threadId);
     if (!threadEntity) {
-      throw new ThreadContextNotFoundError(`Thread not found: ${threadId}`, threadId);
+      throw new WorkflowExecutionNotFoundError(`Thread not found: ${threadId}`, threadId);
     }
 
     const messages = threadEntity.getMessages() || [];
@@ -194,7 +194,7 @@ export class MessageResourceAPI extends ReadonlyResourceAPI<LLMMessage, string, 
   async getMessageStats(threadId: string): Promise<MessageStats> {
     const threadEntity = this.registry.get(threadId);
     if (!threadEntity) {
-      throw new ThreadContextNotFoundError(`Thread not found: ${threadId}`, threadId);
+      throw new WorkflowExecutionNotFoundError(`Thread not found: ${threadId}`, threadId);
     }
 
     const messages = threadEntity.getMessages() || [];

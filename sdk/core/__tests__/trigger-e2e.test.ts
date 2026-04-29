@@ -46,13 +46,13 @@ const mockEventManager = {
   off: vi.fn(),
 } as any;
 
-const mockThreadLifecycleCoordinator = {
+const mockWorkflowLifecycleCoordinator = {
   stopThread: vi.fn(),
   pauseThread: vi.fn(),
   resumeThread: vi.fn(),
 } as any;
 
-const mockThreadBuilder = {
+const mockWorkflowExecutionBuilder = {
   build: vi.fn(),
 } as any;
 
@@ -90,8 +90,8 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
       stateManager: stateManager,
       workflowGraphRegistry: mockGraphRegistry,
       eventManager: mockEventManager,
-      threadLifecycleCoordinator: mockThreadLifecycleCoordinator,
-      threadBuilder: mockThreadBuilder,
+      threadLifecycleCoordinator: mockWorkflowLifecycleCoordinator,
+      threadBuilder: mockWorkflowExecutionBuilder,
       taskQueueManager: mockTaskQueueManager,
       checkpointStateManager: mockCheckpointStateManager,
     });
@@ -144,7 +144,7 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
       await coordinator.handleEvent(event);
 
       // 3. Verify that the trigger has been executed.
-      expect(mockThreadLifecycleCoordinator.stopThread).toHaveBeenCalledWith("test-thread", false);
+      expect(mockWorkflowLifecycleCoordinator.stopThread).toHaveBeenCalledWith("test-thread", false);
 
       // 4. Verify status updates
       const trigger = coordinator.get("trigger-1");
@@ -191,9 +191,9 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
       await coordinator.handleEvent(event);
 
       // Verify that all triggers have been executed.
-      expect(mockThreadLifecycleCoordinator.stopThread).toHaveBeenCalled();
-      expect(mockThreadLifecycleCoordinator.pauseThread).toHaveBeenCalled();
-      expect(mockThreadLifecycleCoordinator.resumeThread).toHaveBeenCalled();
+      expect(mockWorkflowLifecycleCoordinator.stopThread).toHaveBeenCalled();
+      expect(mockWorkflowLifecycleCoordinator.pauseThread).toHaveBeenCalled();
+      expect(mockWorkflowLifecycleCoordinator.resumeThread).toHaveBeenCalled();
 
       // Verify that the count of all triggers has increased.
       expect(coordinator.get("trigger-1")?.triggerCount).toBe(1);
@@ -235,7 +235,7 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
       await coordinator.handleEvent(event1);
 
       // Verify that trigger A has been executed.
-      expect(mockThreadLifecycleCoordinator.stopThread).toHaveBeenCalled();
+      expect(mockWorkflowLifecycleCoordinator.stopThread).toHaveBeenCalled();
 
       // Simulate triggering the second event.
       const event2: BaseEvent = {
@@ -248,7 +248,7 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
       await coordinator.handleEvent(event2);
 
       // Verify that trigger B has been executed.
-      expect(mockThreadLifecycleCoordinator.pauseThread).toHaveBeenCalled();
+      expect(mockWorkflowLifecycleCoordinator.pauseThread).toHaveBeenCalled();
     });
   });
 
@@ -365,7 +365,7 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
       coordinator.register(workflowTrigger, "workflow-123");
 
       // Simulator processor failed.
-      mockThreadLifecycleCoordinator.stopThread.mockRejectedValue(new Error("Stop failed"));
+      mockWorkflowLifecycleCoordinator.stopThread.mockRejectedValue(new Error("Stop failed"));
 
       const event: BaseEvent = {
         type: "THREAD_STARTED",
@@ -399,7 +399,7 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
       triggers.forEach(trigger => coordinator.register(trigger, "workflow-123"));
 
       // Simulation of the first trigger failed.
-      mockThreadLifecycleCoordinator.stopThread.mockRejectedValue(new Error("Failed"));
+      mockWorkflowLifecycleCoordinator.stopThread.mockRejectedValue(new Error("Failed"));
 
       const event: BaseEvent = {
         type: "THREAD_STARTED",
@@ -411,7 +411,7 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
       await coordinator.handleEvent(event);
 
       // Verify that the second trigger is still being executed.
-      expect(mockThreadLifecycleCoordinator.pauseThread).toHaveBeenCalled();
+      expect(mockWorkflowLifecycleCoordinator.pauseThread).toHaveBeenCalled();
     });
 
     it("Error message when test dependencies are missing", async () => {
@@ -600,7 +600,7 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
       await coordinator.handleEvent(event);
 
       // Verify that the trigger has been executed.
-      expect(mockThreadLifecycleCoordinator.stopThread).toHaveBeenCalled();
+      expect(mockWorkflowLifecycleCoordinator.stopThread).toHaveBeenCalled();
       expect(coordinator.get("custom-trigger-1")?.triggerCount).toBe(1);
     });
   });

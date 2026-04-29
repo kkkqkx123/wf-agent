@@ -34,9 +34,6 @@ import {
 import { SDKError } from "@wf-agent/types";
 import { logError, emitErrorEvent } from "../../../core/utils/error-utils.js";
 
-/** @deprecated Use WorkflowExecutor instead */
-type ThreadExecutor = WorkflowExecutor;
-
 /**
  * TaskQueue - Task Queue Manager
  */
@@ -194,7 +191,7 @@ export class TaskQueue {
    * @param executor: The executor
    * @param queueTask: The queue task
    */
-  private async executeTask(executor: ThreadExecutor, queueTask: QueueTask): Promise<void> {
+  private async executeTask(executor: WorkflowExecutor, queueTask: QueueTask): Promise<void> {
     const startTime = now();
 
     try {

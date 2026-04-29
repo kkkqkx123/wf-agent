@@ -54,8 +54,6 @@ export interface HumanRelayTask {
   prompt: string;
   /** Timeout period (in milliseconds) */
   timeout: number;
-  /** Thread Entity (deprecated, use workflowExecutionEntity) */
-  threadEntity: WorkflowExecutionEntity;
   /** Workflow Execution Entity */
   workflowExecutionEntity: WorkflowExecutionEntity;
   /** Request ID */

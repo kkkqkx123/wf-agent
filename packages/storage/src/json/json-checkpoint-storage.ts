@@ -50,7 +50,7 @@ export class JsonCheckpointStorage
 
         const metadata = entry.metadata;
 
-        if (options.threadId && metadata.threadId !== options.threadId) {
+        if (options.executionId && metadata.executionId !== options.executionId) {
           return false;
         }
 

@@ -15,7 +15,7 @@
  * - Portability: Can be shared by both the Graph module and the Agent module
  */
 
-import { InterruptedException, ThreadInterruptedException } from "@wf-agent/types";
+import { InterruptedException, WorkflowExecutionInterruptedException } from "@wf-agent/types";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "InterruptionState" });
@@ -68,14 +68,6 @@ export class InterruptionState {
    * @param config Configuration options
    */
   constructor(config: InterruptionStateConfig);
-
-  /**
-   * Constructor (backward compatible)
-   * @param threadId Thread ID
-   * @param nodeId Node ID
-   * @deprecated Use in the form of a configuration object
-   */
-  constructor(threadId: string, nodeId: string);
 
   constructor(configOrThreadId: InterruptionStateConfig | string, nodeId?: string) {
     if (typeof configOrThreadId === "string") {
@@ -185,14 +177,6 @@ export class InterruptionState {
   }
 
   /**
-   * 获取线程ID（向后兼容）
-   * @deprecated 使用 getContextId()
-   */
-  getThreadId(): string {
-    return this.contextId;
-  }
-
-  /**
    * Get the node ID
    */
   getNodeId(): string {
@@ -214,7 +198,7 @@ export class InterruptionState {
       return this.createInterruptionError(info);
     }
 
-    // The default is to use ThreadInterruptedException (for backward compatibility).
-    return new ThreadInterruptedException(message, type, this.contextId, this.nodeId);
+    // The default is to use WorkflowExecutionInterruptedException (for backward compatibility).
+    return new WorkflowExecutionInterruptedException(message, type, this.contextId, this.nodeId);
   }
 }

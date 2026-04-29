@@ -8,7 +8,7 @@ import {
   createAbortError,
   isAbortError,
 } from "../error-utils.js";
-import { AbortError, ThreadInterruptedException } from "@wf-agent/types";
+import { AbortError, WorkflowExecutionInterruptedException } from "@wf-agent/types";
 
 describe("error-utils", () => {
   describe("getErrorMessage", () => {

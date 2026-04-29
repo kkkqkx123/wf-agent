@@ -4,7 +4,7 @@
  */
 
 import {
-  ThreadContextNotFoundError,
+  WorkflowExecutionNotFoundError,
   CheckpointNotFoundError,
   WorkflowNotFoundError,
 } from "@wf-agent/types";
@@ -80,7 +80,7 @@ export class CheckpointCoordinator {
     // Step 1: Retrieve the WorkflowExecutionEntity object from the WorkflowExecutionRegistry
     const workflowExecutionEntity = workflowExecutionRegistry.get(workflowExecutionId);
     if (!workflowExecutionEntity) {
-      throw new ThreadContextNotFoundError(
+      throw new WorkflowExecutionNotFoundError(
         `WorkflowExecutionEntity not found`,
         workflowExecutionId,
       );

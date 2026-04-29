@@ -28,7 +28,7 @@ import type { EventRegistry } from "../registry/event-registry.js";
 import type { Tool, ID, Event } from "@wf-agent/types";
 import { now, diffTimestamp, generateId } from "@wf-agent/common-utils";
 import type { ConversationSession } from "../messaging/conversation-session.js";
-import { ThreadInterruptedException, CheckpointError } from "@wf-agent/types";
+import { WorkflowExecutionInterruptedException, CheckpointError } from "@wf-agent/types";
 import { MessageBuilder } from "../messaging/message-builder.js";
 import type { CheckpointDependencies } from "../../workflow/checkpoint/utils/checkpoint-utils.js";
 import type { ToolVisibilityStore } from "../../workflow/stores/tool-visibility-store.js";
@@ -156,14 +156,14 @@ export class ToolCallExecutor {
     if (options?.abortSignal && options.abortSignal.aborted) {
       const result = checkInterruption(options.abortSignal);
       if (result.type === "paused" || result.type === "stopped") {
-        throw new ThreadInterruptedException(
+        throw new WorkflowExecutionInterruptedException(
           "Tool execution interrupted",
           result.type === "paused" ? "PAUSE" : "STOP",
           result.threadId || threadId || "",
           result.nodeId || nodeId || "",
         );
       }
-      throw new ThreadInterruptedException("Tool execution aborted", "STOP");
+      throw new WorkflowExecutionInterruptedException("Tool execution aborted", "STOP");
     }
 
     // Generate a batch ID (used to track this batch of parallel tool calls)
@@ -456,9 +456,9 @@ export class ToolCallExecutor {
       // Handle AbortError
       if (isAbortError(error)) {
         const result = checkInterruption(options?.abortSignal);
-        // Only PAUSE or STOP will convert to ThreadInterruptedException.
+        // Only PAUSE or STOP will convert to WorkflowExecutionInterruptedException.
         if (result.type === "paused" || result.type === "stopped") {
-          throw new ThreadInterruptedException(
+          throw new WorkflowExecutionInterruptedException(
             "Tool execution interrupted",
             result.type === "paused" ? "PAUSE" : "STOP",
             result.threadId || threadId || "",

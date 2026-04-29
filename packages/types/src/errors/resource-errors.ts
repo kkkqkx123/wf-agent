@@ -93,32 +93,25 @@ export class ScriptNotFoundError extends NotFoundError {
 }
 
 /**
- * Thread context not found error type
+ * Workflow Execution Not Found Error Type
  *
- * Specialized for thread context not found scenarios
+ * Specialized for workflow execution not found scenarios
  * Inherited from NotFoundError for backward compatibility.
  */
-export class ThreadContextNotFoundError extends NotFoundError {
+export class WorkflowExecutionNotFoundError extends NotFoundError {
   constructor(
     message: string,
-    threadId: string,
+    executionId: string,
     context?: Record<string, unknown>,
     severity?: ErrorSeverity,
   ) {
-    super(message, "ThreadContext", threadId, context, severity);
+    super(message, "WorkflowExecution", executionId, context, severity);
   }
 
   protected override getDefaultSeverity(): ErrorSeverity {
     return "error";
   }
 }
-
-/**
- * Workflow Execution Not Found Error Type (alias for ThreadContextNotFoundError)
- * @deprecated Use ThreadContextNotFoundError instead
- */
-export const WorkflowExecutionNotFoundError = ThreadContextNotFoundError;
-export type WorkflowExecutionNotFoundErrorType = typeof ThreadContextNotFoundError;
 
 /**
  * Checkpoint not found error type

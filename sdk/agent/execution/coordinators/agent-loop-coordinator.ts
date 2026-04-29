@@ -2,7 +2,7 @@
  * AgentLoopCoordinator - Agent Loop Lifecycle Coordinator
  *
  * Coordinates the full lifecycle management of AgentLoopEntities.
- * Refer to the design pattern of ThreadLifecycleCoordinator.
+ * Refer to the design pattern of WorkflowLifecycleCoordinator.
  */
 
 import type { ID } from "@wf-agent/types";

@@ -24,7 +24,7 @@ import {
   validationSuccess,
   validationFailure,
 } from "../../../shared/types/command.js";
-import type { WorkflowExecutionResult, ThreadOptions } from "@wf-agent/types";
+import type { WorkflowExecutionResult, WorkflowExecutionOptions } from "@wf-agent/types";
 import { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
 
 /**
@@ -34,7 +34,7 @@ export interface ExecuteWorkflowParams {
   /** Workflow ID (required) */
   workflowId: string;
   /** Execution options */
-  options?: ThreadOptions;
+  options?: WorkflowExecutionOptions;
 }
 
 /**

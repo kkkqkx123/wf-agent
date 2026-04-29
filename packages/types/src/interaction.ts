@@ -90,8 +90,8 @@ export interface UserInteractionResult {
  * Execution context provided by the SDK to the application layer
  */
 export interface UserInteractionContext {
-  /** Thread ID */
-  threadId: ID;
+  /** Execution ID */
+  executionId: ID;
   /** Workflow ID */
   workflowId: ID;
   /** Node ID */

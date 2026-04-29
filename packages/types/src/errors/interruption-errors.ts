@@ -20,7 +20,7 @@ export type InterruptionType = "PAUSE" | "STOP" | null;
  * 4. subclasses can add module-specific context information
  *
  * Usage Scenario:
- * - ThreadInterruptedException: Thread interruption in Graph module.
+ * - WorkflowExecutionInterruptedException: Thread interruption in Graph module.
  * - AgentInterruptedException: Session interruption in the Agent module.
  */
 export class InterruptedException extends SDKError {
@@ -38,37 +38,30 @@ export class InterruptedException extends SDKError {
 }
 
 /**
- * 线程中断异常类型（Graph 模块）
+ * Workflow Execution Interrupt Exception Type (Graph Module)
  *
- * 说明：
- * 1. 用于表示 Graph 模块中线程执行被用户请求中断（暂停或停止）
- * 2. 继承自 InterruptedException，添加 Graph 模块特有的上下文
- * 3. 执行器捕获此异常后，会根据中断类型进行相应处理
+ * Description:
+ * 1. Used to indicate that workflow execution in the Graph module is interrupted by user request (pause or stop)
+ * 2. Inherits from InterruptedException, adding Graph module specific context
+ * 3. After the executor catches this exception, it will handle it according to the interruption type
  *
- * 使用场景：
- * - 用户调用 pauseThread() 时，执行器在安全点抛出此异常
- * - 用户调用 stopThread() 时，执行器在安全点抛出此异常
- * - ThreadExecutionCoordinator 检测到中断标志时抛出
- * - ToolCallExecutor 捕获 AbortError 后转换为 ThreadInterruptedException
+ * Usage Scenario:
+ * - When user calls pauseWorkflowExecution(), the executor throws this exception at a safe point
+ * - When user calls stopWorkflowExecution(), the executor throws this exception at a safe point
+ * - WorkflowExecutionCoordinator throws when detecting interruption flag
+ * - ToolCallExecutor converts AbortError to WorkflowExecutionInterruptedException
  */
-export class ThreadInterruptedException extends InterruptedException {
+export class WorkflowExecutionInterruptedException extends InterruptedException {
   constructor(
     message: string,
     interruptionType: InterruptionType,
-    public readonly threadId?: string,
+    public readonly executionId?: string,
     public readonly nodeId?: string,
     context?: Record<string, unknown>,
   ) {
-    super(message, interruptionType, { ...context, threadId, nodeId });
+    super(message, interruptionType, { ...context, executionId, nodeId });
   }
 }
-
-/**
- * Workflow Execution Interrupt Exception Type (alias for ThreadInterruptedException)
- * @deprecated Use ThreadInterruptedException instead
- */
-export const WorkflowExecutionInterruptedException = ThreadInterruptedException;
-export type WorkflowExecutionInterruptedExceptionType = typeof ThreadInterruptedException;
 
 /**
  * Agent 中断异常类型（Agent 模块）

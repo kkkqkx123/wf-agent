@@ -23,7 +23,7 @@ import {
   validationSuccess,
   validationFailure,
 } from "../../../shared/types/command.js";
-import type { ThreadOptions, BaseEvent } from "@wf-agent/types";
+import type { WorkflowExecutionOptions, BaseEvent } from "@wf-agent/types";
 import { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
 
 /**
@@ -33,7 +33,7 @@ export interface ExecuteWorkflowStreamParams {
   /** Workflow ID (required) */
   workflowId: string;
   /** Execution options */
-  options?: ThreadOptions;
+  options?: WorkflowExecutionOptions;
 }
 
 /**
@@ -77,7 +77,7 @@ export class ExecuteWorkflowStreamCommand extends BaseCommand<AsyncGenerator<Wor
     const workflowExecutionBuilder = (await this.getWorkflowExecutionBuilder()) as {
       build: (
         workflowId: string,
-        options: ThreadOptions,
+        options: WorkflowExecutionOptions,
       ) => Promise<import("../../../../workflow/entities/workflow-execution-entity.js").WorkflowExecutionEntity>;
     };
 
@@ -174,7 +174,7 @@ export class ExecuteWorkflowStreamCommand extends BaseCommand<AsyncGenerator<Wor
   private async getWorkflowExecutionBuilder() {
     const container = await import("../../../../core/di/index.js").then(m => m.getContainer());
     const Identifiers = await import("../../../../core/di/service-identifiers.js");
-    return container.get(Identifiers.ThreadBuilder);
+    return container.get(Identifiers.WorkflowExecutionBuilder);
   }
 
   validate(): CommandValidationResult {

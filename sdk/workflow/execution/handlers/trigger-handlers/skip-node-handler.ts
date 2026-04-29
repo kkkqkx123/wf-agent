@@ -5,7 +5,7 @@
 
 import type { TriggerAction, TriggerExecutionResult } from "@wf-agent/types";
 import type { NodeExecutionResult } from "@wf-agent/types";
-import { ValidationError, ThreadContextNotFoundError } from "@wf-agent/types";
+import { ValidationError, WorkflowExecutionNotFoundError } from "@wf-agent/types";
 import type { WorkflowExecutionRegistry } from "../../../stores/workflow-execution-registry.js";
 import type { EventRegistry } from "../../../../core/registry/event-registry.js";
 import { getErrorMessage, now } from "@wf-agent/common-utils";
@@ -59,7 +59,7 @@ export async function skipNodeHandler(
     const threadEntity = workflowExecutionRegistry.get(threadId);
 
     if (!threadEntity) {
-      throw new ThreadContextNotFoundError(`WorkflowExecutionEntity not found: ${threadId}`, threadId);
+      throw new WorkflowExecutionNotFoundError(`WorkflowExecutionEntity not found: ${threadId}`, threadId);
     }
 
     const thread = threadEntity.getThread();

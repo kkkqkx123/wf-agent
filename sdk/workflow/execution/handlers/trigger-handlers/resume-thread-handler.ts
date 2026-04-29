@@ -6,7 +6,7 @@
  */
 
 import type { TriggerAction, TriggerExecutionResult } from "@wf-agent/types";
-import { RuntimeValidationError, ThreadContextNotFoundError } from "@wf-agent/types";
+import { RuntimeValidationError, WorkflowExecutionNotFoundError } from "@wf-agent/types";
 import type { WorkflowExecutionRegistry } from "../../../stores/workflow-execution-registry.js";
 import { getErrorMessage, now } from "@wf-agent/common-utils";
 
@@ -59,7 +59,7 @@ export async function resumeThreadHandler(
 
     const threadEntity = workflowExecutionRegistry.get(threadId);
     if (!threadEntity) {
-      throw new ThreadContextNotFoundError(`Thread not found: ${threadId}`, threadId);
+      throw new WorkflowExecutionNotFoundError(`Thread not found: ${threadId}`, threadId);
     }
 
     threadEntity.resume();

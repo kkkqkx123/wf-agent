@@ -14,7 +14,7 @@
  */
 
 import type { WorkflowGraph } from "@wf-agent/types";
-import type { WorkflowExecution, ThreadOptions, WorkflowExecutionStatus } from "@wf-agent/types";
+import type { WorkflowExecution, WorkflowExecutionOptions, WorkflowExecutionStatus } from "@wf-agent/types";
 import { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
 import { WorkflowExecutionState } from "../../state-managers/workflow-execution-state.js";
 import { ExecutionState } from "../../state-managers/execution-state.js";
@@ -40,8 +40,6 @@ export interface WorkflowExecutionBuildResult {
   workflowExecutionEntity: WorkflowExecutionEntity;
   stateCoordinator: WorkflowStateCoordinator;
   conversationManager: ConversationSession;
-  /** @deprecated Use workflowExecutionEntity instead */
-  threadEntity: WorkflowExecutionEntity; // Backward compatibility
 }
 
 /**
@@ -103,7 +101,7 @@ export class WorkflowExecutionBuilder {
    */
   async build(
     workflowId: string,
-    options: ThreadOptions = {},
+    options: WorkflowExecutionOptions = {},
   ): Promise<WorkflowExecutionBuildResult> {
     logger.info("Building workflow execution from workflow", { workflowId });
 
@@ -146,7 +144,7 @@ export class WorkflowExecutionBuilder {
    */
   private async buildFromWorkflowGraph(
     workflowGraph: WorkflowGraph,
-    options: ThreadOptions = {},
+    options: WorkflowExecutionOptions = {},
   ): Promise<WorkflowExecutionBuildResult> {
     // Step 1: Verify workflow graph
     if (!workflowGraph.nodes || workflowGraph.nodes.size === 0) {

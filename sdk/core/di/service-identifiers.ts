@@ -87,30 +87,23 @@ export const TaskRegistry: ServiceIdentifier<unknown> = Symbol("TaskRegistry");
 // ============================================================
 
 /**
- * ThreadBuilder - Thread Construction Tool
- * Constructs WorkflowExecutionEntity instances from workflow definitions
- * @deprecated Use WorkflowExecutionBuilder instead
- */
-export const ThreadBuilder: ServiceIdentifier<unknown> = Symbol("ThreadBuilder");
-
-/**
  * WorkflowExecutionBuilder - Workflow Execution Builder
  * Constructs WorkflowExecutionEntity instances from workflow definitions
  */
-export const WorkflowExecutionBuilder: ServiceIdentifier<unknown> = ThreadBuilder;
+export const WorkflowExecutionBuilder: ServiceIdentifier<unknown> = Symbol("WorkflowExecutionBuilder");
 
 /**
- * ThreadExecutor - Thread Executor
+ * WorkflowExecutor - Workflow Executor
  * Executes a single WorkflowExecutionEntity instance
  */
-export const ThreadExecutor: ServiceIdentifier<unknown> = Symbol("ThreadExecutor");
+export const WorkflowExecutor: ServiceIdentifier<unknown> = Symbol("WorkflowExecutor");
 
 /**
- * ThreadLifecycleCoordinator - Thread Lifecycle Coordinator
- * Manages the entire lifecycle of threads
+ * WorkflowLifecycleCoordinator - Workflow Lifecycle Coordinator
+ * Manages the entire lifecycle of workflow executions
  */
-export const ThreadLifecycleCoordinator: ServiceIdentifier<unknown> = Symbol(
-  "ThreadLifecycleCoordinator",
+export const WorkflowLifecycleCoordinator: ServiceIdentifier<unknown> = Symbol(
+  "WorkflowLifecycleCoordinator",
 );
 
 /**
@@ -163,11 +156,11 @@ export const ToolApprovalCoordinator: ServiceIdentifier<unknown> =
 // ============================================================
 
 /**
- * ThreadExecutionCoordinator - Thread Execution Coordinator
- * Coordinates the execution process of threads, orchestrating the completion of tasks by various components.
+ * WorkflowExecutionCoordinator - Workflow Execution Coordinator
+ * Coordinates the execution process of workflow executions, orchestrating the completion of tasks by various components.
  */
-export const ThreadExecutionCoordinator: ServiceIdentifier<unknown> = Symbol(
-  "ThreadExecutionCoordinator",
+export const WorkflowExecutionCoordinator: ServiceIdentifier<unknown> = Symbol(
+  "WorkflowExecutionCoordinator",
 );
 
 /**
@@ -212,11 +205,11 @@ export const ToolVisibilityCoordinator: ServiceIdentifier<unknown> = Symbol(
 export const ToolVisibilityStore: ServiceIdentifier<unknown> = Symbol("ToolVisibilityStore");
 
 /**
- * ThreadOperationCoordinator - Thread Operation Coordinator
- * Responsible for coordinating the structural operations of threads (Fork/Join/Copy)
+ * WorkflowOperationCoordinator - Workflow Operation Coordinator
+ * Responsible for coordinating the structural operations of workflow executions (Fork/Join/Copy)
  */
-export const ThreadOperationCoordinator: ServiceIdentifier<unknown> = Symbol(
-  "ThreadOperationCoordinator",
+export const WorkflowOperationCoordinator: ServiceIdentifier<unknown> = Symbol(
+  "WorkflowOperationCoordinator",
 );
 
 /**
@@ -290,10 +283,10 @@ export const TriggeredSubworkflowHandler: ServiceIdentifier<unknown> = Symbol(
 );
 
 /**
- * ThreadPool - Thread Pool Service
- * Manages a pool of ThreadExecutor instances, providing global management of thread pool resources.
+ * WorkflowExecutionPool - Workflow Execution Pool Service
+ * Manages a pool of WorkflowExecutor instances, providing global management of workflow execution pool resources.
  */
-export const ThreadPool: ServiceIdentifier<unknown> = Symbol("ThreadPool");
+export const WorkflowExecutionPool: ServiceIdentifier<unknown> = Symbol("WorkflowExecutionPool");
 
 // ============================================================
 // Core Layer Services

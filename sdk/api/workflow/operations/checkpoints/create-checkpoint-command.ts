@@ -21,7 +21,7 @@ import {
 import type { CheckpointMetadata } from "@wf-agent/types";
 import { CheckpointCoordinator } from "../../../../workflow/checkpoint/checkpoint-coordinator.js";
 import type { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
-import { ThreadContextNotFoundError } from "@wf-agent/types";
+import { WorkflowExecutionNotFoundError } from "@wf-agent/types";
 
 /**
  * Create Checkpoint Command Parameters
@@ -58,7 +58,7 @@ export class CreateCheckpointCommand extends BaseCommand<string> {
 
     const threadEntity = threadRegistry.get(this.params.threadId);
     if (!threadEntity) {
-      throw new ThreadContextNotFoundError(
+      throw new WorkflowExecutionNotFoundError(
         `Thread not found: ${this.params.threadId}`,
         this.params.threadId,
       );

@@ -22,14 +22,8 @@ export interface ForkJoinContext {
 export interface TriggeredSubworkflowContext {
   /** Parent Execution ID */
   parentExecutionId: ID;
-  /** Parent Thread ID (deprecated, use parentExecutionId) */
-  parentThreadId?: ID;
   /** Array of child execution IDs */
   childExecutionIds: ID[];
-  /** Child Thread IDs (deprecated, use childExecutionIds) */
-  childThreadIds?: ID[];
-  /** Triggered subworkflow IDs (deprecated, use childExecutionIds) */
-  triggeredSubworkflowIds?: ID[];
   /** Triggered subworkflow ID */
   triggeredSubworkflowId: ID;
 }

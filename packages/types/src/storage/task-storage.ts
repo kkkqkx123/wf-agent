@@ -29,8 +29,8 @@ export type TaskStatus =
 export interface TaskStorageMetadata {
   /** Task ID */
   taskId: ID;
-  /** Thread ID */
-  threadId: ID;
+  /** Execution ID */
+  executionId: ID;
   /** Workflow ID */
   workflowId: ID;
   /** mission status */
@@ -58,8 +58,8 @@ export interface TaskStorageMetadata {
  * Support for multi-dimensional filtering and paging
  */
 export interface TaskListOptions {
-  /** Filter by thread ID */
-  threadId?: ID;
+  /** Filter by execution ID */
+  executionId?: ID;
   /** Filter by Workflow ID */
   workflowId?: ID;
   /** Filter by task status (single or multiple statuses supported) */

@@ -4,7 +4,7 @@
  */
 
 import type { TriggerAction, TriggerExecutionResult } from "@wf-agent/types";
-import { RuntimeValidationError, ThreadContextNotFoundError } from "@wf-agent/types";
+import { RuntimeValidationError, WorkflowExecutionNotFoundError } from "@wf-agent/types";
 import type { WorkflowExecutionRegistry } from "../../../stores/workflow-execution-registry.js";
 import { now, diffTimestamp } from "@wf-agent/common-utils";
 
@@ -58,7 +58,7 @@ export async function setVariableHandler(
     const threadEntity = workflowExecutionRegistry.get(threadId);
 
     if (!threadEntity) {
-      throw new ThreadContextNotFoundError(`WorkflowExecutionEntity not found: ${threadId}`, threadId);
+      throw new WorkflowExecutionNotFoundError(`WorkflowExecutionEntity not found: ${threadId}`, threadId);
     }
 
     for (const [name, value] of Object.entries(variables)) {

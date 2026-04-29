@@ -53,8 +53,8 @@ export interface HumanRelayExecutionResult {
  * The execution context provided by the SDK to the application layer.
  */
 export interface HumanRelayContext {
-  /** Thread ID */
-  threadId: ID;
+  /** Execution ID */
+  executionId: ID;
   /** Workflow ID */
   workflowId: ID;
   /** Node ID */

@@ -2,7 +2,7 @@
  * Graph Hook Processor Module
  *
  * Implements Graph-specific Hook execution logic based on the sdk/core/hooks general framework.
- * The timing of execution is managed by higher-level stateful modules (such as ThreadExecutor).
+ * The timing of execution is managed by higher-level stateful modules (such as WorkflowExecutor).
  */
 
 import type { Node, NodeHook, NodeExecutionResult, NodeCustomEvent } from "@wf-agent/types";

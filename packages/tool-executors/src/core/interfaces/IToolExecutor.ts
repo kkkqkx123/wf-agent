@@ -14,14 +14,14 @@ export interface IToolExecutor {
    * @param tool: Tool definition
    * @param parameters: Tool parameters
    * @param options: Execution options
-   * @param threadId: Thread ID (optional, used for thread isolation in stateful tools)
+   * @param executionId: Execution ID (optional, used for execution isolation in stateful tools)
    * @returns: Execution result
    */
   execute(
     tool: Tool,
     parameters: Record<string, unknown>,
     options?: ToolExecutionOptions,
-    threadId?: string,
+    executionId?: string,
   ): Promise<ToolExecutionResult>;
 
   /**

@@ -23,7 +23,7 @@ import { TriggerActionType } from "@wf-agent/types";
 import type { TriggerAction, TriggerExecutionResult } from "@wf-agent/types";
 
 // Mock implementations
-const mockThreadLifecycleCoordinator = {
+const mockWorkflowLifecycleCoordinator = {
   stopThread: vi.fn(),
   pauseThread: vi.fn(),
   resumeThread: vi.fn(),
@@ -50,7 +50,7 @@ const mockEventManager = {
   emit: vi.fn(),
 } as any;
 
-const mockThreadBuilder = {
+const mockWorkflowExecutionBuilder = {
   build: vi.fn(),
 } as any;
 
@@ -75,9 +75,9 @@ describe("Trigger Handlers", () => {
       };
 
       const handler = getTriggerHandler("pause_thread");
-      const result = await handler(action, "trigger-1", mockThreadLifecycleCoordinator);
+      const result = await handler(action, "trigger-1", mockWorkflowLifecycleCoordinator);
 
-      expect(mockThreadLifecycleCoordinator.pauseThread).toHaveBeenCalledWith("thread-123");
+      expect(mockWorkflowLifecycleCoordinator.pauseThread).toHaveBeenCalledWith("thread-123");
       expect(result.success).toBe(true);
     });
 
@@ -91,9 +91,9 @@ describe("Trigger Handlers", () => {
       };
 
       const handler = getTriggerHandler("pause_thread");
-      await handler(action, "trigger-1", mockThreadLifecycleCoordinator);
+      await handler(action, "trigger-1", mockWorkflowLifecycleCoordinator);
 
-      expect(mockThreadLifecycleCoordinator.pauseThread).toHaveBeenCalledWith("thread-123");
+      expect(mockWorkflowLifecycleCoordinator.pauseThread).toHaveBeenCalledWith("thread-123");
     });
   });
 
@@ -107,9 +107,9 @@ describe("Trigger Handlers", () => {
       };
 
       const handler = getTriggerHandler("resume_thread");
-      const result = await handler(action, "trigger-1", mockThreadLifecycleCoordinator);
+      const result = await handler(action, "trigger-1", mockWorkflowLifecycleCoordinator);
 
-      expect(mockThreadLifecycleCoordinator.resumeThread).toHaveBeenCalledWith("thread-123");
+      expect(mockWorkflowLifecycleCoordinator.resumeThread).toHaveBeenCalledWith("thread-123");
       expect(result.success).toBe(true);
     });
   });
@@ -313,7 +313,7 @@ describe("Trigger Handlers", () => {
         "trigger-1",
         mockThreadRegistry,
         mockEventManager,
-        mockThreadBuilder,
+        mockWorkflowExecutionBuilder,
         mockTaskQueueManager,
         "parent-thread-456",
       );
@@ -337,7 +337,7 @@ describe("Trigger Handlers", () => {
         "trigger-1",
         mockThreadRegistry,
         mockEventManager,
-        mockThreadBuilder,
+        mockWorkflowExecutionBuilder,
         mockTaskQueueManager,
         "parent-thread-456",
       );
@@ -439,10 +439,10 @@ describe("Trigger Handlers", () => {
         const result = await handler(
           action,
           "trigger-1",
-          mockThreadLifecycleCoordinator,
+          mockWorkflowLifecycleCoordinator,
           mockThreadRegistry,
           mockEventManager,
-          mockThreadBuilder,
+          mockWorkflowExecutionBuilder,
           mockTaskQueueManager,
           "thread-123",
           mockScriptService,

@@ -19,7 +19,7 @@
  */
 
 import { WorkflowExecutionNotFoundError, RuntimeValidationError } from "@wf-agent/types";
-import type { ThreadOptions, WorkflowExecutionResult } from "@wf-agent/types";
+import type { WorkflowExecutionOptions, WorkflowExecutionResult } from "@wf-agent/types";
 import { WorkflowExecutionStatus } from "@wf-agent/types";
 import { WorkflowExecutionBuilder } from "../factories/workflow-execution-builder.js";
 import { WorkflowExecutor } from "../executors/workflow-executor.js";
@@ -52,7 +52,7 @@ export class WorkflowLifecycleCoordinator {
    * @param options: Execution options
    * @returns: Execution result
    */
-  async execute(workflowId: string, options: ThreadOptions = {}): Promise<WorkflowExecutionResult> {
+  async execute(workflowId: string, options: WorkflowExecutionOptions = {}): Promise<WorkflowExecutionResult> {
     // Step 1: Construct the WorkflowExecutionEntity
     const { workflowExecutionEntity } = await this.workflowExecutionBuilder.build(workflowId, options);
 

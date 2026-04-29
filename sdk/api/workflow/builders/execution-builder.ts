@@ -4,7 +4,7 @@
  * Supports Result, Promise and Observable interfaces
  */
 
-import type { WorkflowExecutionResult, ThreadOptions } from "@wf-agent/types";
+import type { WorkflowExecutionResult, WorkflowExecutionOptions } from "@wf-agent/types";
 import { ok, err, getErrorOrNew, withAbortSignal, now } from "@wf-agent/common-utils";
 import type { Result } from "@wf-agent/types";
 import { Observable, create, type Observer } from "../../shared/utils/observable.js";
@@ -26,14 +26,14 @@ import type {
  */
 export class ExecutionBuilder {
   private workflowId?: string;
-  private options: ThreadOptions = {};
+  private options: WorkflowExecutionOptions = {};
   private onProgressCallbacks: Array<(progress: unknown) => void> = [];
   private onErrorCallbacks: Array<(error: unknown) => void> = [];
   private abortController?: AbortController;
   private readonly dependencies: APIDependencyManager;
 
   constructor() {
-    // Instead of relying on the ThreadExecutorAPI, use the Command mode
+    // Instead of relying on the WorkflowExecutorAPI, use the Command mode
     this.dependencies = new APIDependencyManager();
   }
 

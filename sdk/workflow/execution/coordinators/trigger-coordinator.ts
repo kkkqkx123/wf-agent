@@ -204,7 +204,7 @@ export class TriggerCoordinator {
   }
 
   /**
-   * Handle an event (called directly by ThreadExecutor)
+   * Handle an event (called directly by WorkflowExecutor)
    * @param event The event object
    */
   async handleEvent(event: BaseEvent): Promise<void> {
@@ -321,8 +321,8 @@ export class TriggerCoordinator {
       case "resume_thread":
         if (!threadLifecycleCoordinator) {
           throw new DependencyInjectionError(
-            "ThreadLifecycleCoordinator not provided",
-            "ThreadLifecycleCoordinator",
+            "WorkflowLifecycleCoordinator not provided",
+            "WorkflowLifecycleCoordinator",
           );
         }
         await handler(trigger.action, trigger.id, threadLifecycleCoordinator);
@@ -350,7 +350,7 @@ export class TriggerCoordinator {
         if (!workflowExecutionRegistry || !eventManager || !threadBuilder || !taskQueueManager) {
           throw new DependencyInjectionError(
             "Required dependencies not provided for execute_triggered_subgraph",
-            "WorkflowExecutionRegistry/EventRegistry/ThreadBuilder/TaskQueue",
+            "WorkflowExecutionRegistry/EventRegistry/WorkflowExecutionBuilder/TaskQueue",
           );
         }
         await handler(

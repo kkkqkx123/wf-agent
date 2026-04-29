@@ -286,7 +286,7 @@ export async function copy(
   });
   await safeEmit(eventManager, copyStartedEvent);
 
-  // Step 2: Call ThreadBuilder to create a new thread
+  // Step 2: Call WorkflowExecutionBuilder to create a new thread
   const { threadEntity: copiedThreadEntity } = await threadBuilder.createCopy(sourceThreadEntity);
 
   // Trigger the WORKFLOW_EXECUTION_COPY_COMPLETED event.

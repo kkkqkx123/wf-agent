@@ -59,14 +59,6 @@ export class APIDependencyManager {
   }
 
   /**
-   * Get the thread registry (alias for getWorkflowExecutionRegistry)
-   * @deprecated Use getWorkflowExecutionRegistry instead
-   */
-  getThreadRegistry(): WorkflowExecutionRegistry {
-    return this.getWorkflowExecutionRegistry();
-  }
-
-  /**
    * Obtain the event manager
    */
   getEventManager(): EventRegistry {
@@ -129,30 +121,14 @@ export class APIDependencyManager {
   }
 
   /**
-   * Get the graph registry (alias for getWorkflowGraphRegistry)
-   * @deprecated Use getWorkflowGraphRegistry instead
-   */
-  getGraphRegistry(): WorkflowGraphRegistry {
-    return this.getWorkflowGraphRegistry();
-  }
-
-  /**
    * Obtain the workflow lifecycle coordinator
    */
   getWorkflowLifecycleCoordinator(): import("../../../workflow/execution/coordinators/workflow-lifecycle-coordinator.js").WorkflowLifecycleCoordinator {
     return this.container.get(
-      Identifiers.ThreadLifecycleCoordinator as ServiceIdentifier<
+      Identifiers.WorkflowLifecycleCoordinator as ServiceIdentifier<
         import("../../../workflow/execution/coordinators/workflow-lifecycle-coordinator.js").WorkflowLifecycleCoordinator
       >,
     );
-  }
-
-  /**
-   * Obtain the thread lifecycle coordinator (alias for getWorkflowLifecycleCoordinator)
-   * @deprecated Use getWorkflowLifecycleCoordinator instead
-   */
-  getThreadLifecycleCoordinator(): import("../../../workflow/execution/coordinators/workflow-lifecycle-coordinator.js").WorkflowLifecycleCoordinator {
-    return this.getWorkflowLifecycleCoordinator();
   }
 
   /**

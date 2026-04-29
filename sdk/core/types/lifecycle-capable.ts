@@ -15,7 +15,7 @@
  * Naming explanation:
  * - "Capable" indicates that the component has the capability to manage its own lifecycle.
  * - It does not manage other components; instead, it manages its own lifecycle.
- * - Clearly distinct from ThreadLifecycleCoordinator to avoid confusion.
+ * - Clearly distinct from WorkflowLifecycleCoordinator to avoid confusion.
  */
 
 /**

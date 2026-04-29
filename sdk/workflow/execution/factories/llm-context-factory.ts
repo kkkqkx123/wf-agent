@@ -25,13 +25,9 @@ import { ExecutionError } from "@wf-agent/types";
  */
 export interface ToolApprovalContext {
   workflowExecutionRegistry: WorkflowExecutionRegistry;
-  /** @deprecated Use workflowExecutionRegistry instead */
-  threadRegistry?: WorkflowExecutionRegistry;
   checkpointStateManager: CheckpointState;
   workflowRegistry?: WorkflowRegistry;
   graphRegistry?: WorkflowGraphRegistry;
-  /** @deprecated Use graphRegistry instead */
-  workflowGraphRegistry?: WorkflowGraphRegistry;
 }
 
 /**

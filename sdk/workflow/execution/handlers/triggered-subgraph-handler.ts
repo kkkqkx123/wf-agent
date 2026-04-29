@@ -39,7 +39,7 @@ export interface SubgraphExecutor {
 
 /**
  * Sub-workflow context factory interface
- * Used to create sub-workflow contexts, avoiding direct dependency on ThreadBuilder
+ * Used to create sub-workflow contexts, avoiding direct dependency on WorkflowExecutionBuilder
  */
 export interface SubgraphContextFactory {
   buildSubgraphContext(

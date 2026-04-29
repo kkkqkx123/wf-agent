@@ -99,7 +99,7 @@ export interface CheckpointConfigResult {
  * General Checkpoint List Options
  */
 export interface CheckpointListOptions {
-  /** Parent ID (threadId or agentLoopId) */
+  /** Parent ID (executionId or agentLoopId) */
   parentId?: ID;
   /** Tag filtering */
   tags?: string[];

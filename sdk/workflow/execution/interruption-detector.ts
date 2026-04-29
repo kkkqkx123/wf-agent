@@ -24,24 +24,24 @@ import { isAborted, checkInterruption, getInterruptionType } from "@wf-agent/com
 export interface InterruptionDetector {
   /**
    * Get the AbortSignal
-   * @param threadId: Thread ID
+   * @param executionId: Execution ID
    * @returns: AbortSignal
    */
-  getAbortSignal(threadId: string): AbortSignal;
+  getAbortSignal(executionId: string): AbortSignal;
 
   /**
    * Check if it has been terminated.
-   * @param threadId: Thread ID
+   * @param executionId: Execution ID
    * @returns: Whether it has been terminated
    */
-  isAborted(threadId: string): boolean;
+  isAborted(executionId: string): boolean;
 
   /**
    * Get interrupt type
-   * @param threadId Thread ID
+   * @param executionId Execution ID
    * @returns Interrupt type (PAUSE/STOP/null)
    */
-  getInterruptionType(threadId: string): InterruptionType;
+  getInterruptionType(executionId: string): InterruptionType;
 }
 
 /**
@@ -52,11 +52,11 @@ export class InterruptionDetectorImpl implements InterruptionDetector {
 
   /**
    * Get the AbortSignal
-   * @param threadId: Thread ID
+   * @param executionId: Execution ID
    * @returns: AbortSignal
    */
-  getAbortSignal(threadId: string): AbortSignal {
-    const threadContext = this.workflowExecutionRegistry.get(threadId);
+  getAbortSignal(executionId: string): AbortSignal {
+    const threadContext = this.workflowExecutionRegistry.get(executionId);
     if (!threadContext) {
       return new AbortController().signal;
     }
@@ -73,21 +73,21 @@ export class InterruptionDetectorImpl implements InterruptionDetector {
 
   /**
    * Check if it has been terminated.
-   * @param threadId: Thread ID
+   * @param executionId: Execution ID
    * @returns: Whether it has been terminated
    */
-  isAborted(threadId: string): boolean {
-    const signal = this.getAbortSignal(threadId);
+  isAborted(executionId: string): boolean {
+    const signal = this.getAbortSignal(executionId);
     return isAborted(signal);
   }
 
   /**
    * Get interrupt type
-   * @param threadId Thread ID
+   * @param executionId Execution ID
    * @returns Interrupt type (PAUSE/STOP/null)
    */
-  getInterruptionType(threadId: string): InterruptionType {
-    const signal = this.getAbortSignal(threadId);
+  getInterruptionType(executionId: string): InterruptionType {
+    const signal = this.getAbortSignal(executionId);
     const result = checkInterruption(signal);
     return getInterruptionType(result);
   }

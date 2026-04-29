@@ -17,19 +17,13 @@ import type { TriggerActionType } from "./config.js";
  */
 const eventTypeSchema = z.custom<EventType>((val): val is EventType =>
   [
-    "THREAD_STARTED",
-    "THREAD_COMPLETED",
-    "THREAD_FAILED",
-    "THREAD_PAUSED",
-    "THREAD_RESUMED",
-    "THREAD_CANCELLED",
-    "THREAD_STATE_CHANGED",
-    "THREAD_FORK_STARTED",
-    "THREAD_FORK_COMPLETED",
-    "THREAD_JOIN_STARTED",
-    "THREAD_JOIN_CONDITION_MET",
-    "THREAD_COPY_STARTED",
-    "THREAD_COPY_COMPLETED",
+    "WORKFLOW_EXECUTION_STARTED",
+    "WORKFLOW_EXECUTION_COMPLETED",
+    "WORKFLOW_EXECUTION_FAILED",
+    "WORKFLOW_EXECUTION_PAUSED",
+    "WORKFLOW_EXECUTION_RESUMED",
+    "WORKFLOW_EXECUTION_CANCELLED",
+    "WORKFLOW_EXECUTION_STATE_CHANGED",
     "NODE_STARTED",
     "NODE_COMPLETED",
     "NODE_FAILED",
@@ -177,7 +171,7 @@ export const ConversationHistoryOptionsSchema = z
  * Stop Thread Action Parameters Schema
  */
 export const StopThreadActionParametersSchema = z.object({
-  threadId: z.string().min(1, "Thread ID is required"),
+  executionId: z.string().min(1, "Execution ID is required"),
   force: z.boolean().optional(),
 });
 
@@ -185,7 +179,7 @@ export const StopThreadActionParametersSchema = z.object({
  * Pause Thread Action Parameters Schema
  */
 export const PauseThreadActionParametersSchema = z.object({
-  threadId: z.string().min(1, "Thread ID is required"),
+  executionId: z.string().min(1, "Execution ID is required"),
   reason: z.string().optional(),
 });
 
@@ -193,14 +187,14 @@ export const PauseThreadActionParametersSchema = z.object({
  * Resume Thread Action Parameters Schema
  */
 export const ResumeThreadActionParametersSchema = z.object({
-  threadId: z.string().min(1, "Thread ID is required"),
+  executionId: z.string().min(1, "Execution ID is required"),
 });
 
 /**
  * Skip Node Action Parameters Schema
  */
 export const SkipNodeActionParametersSchema = z.object({
-  threadId: z.string().min(1, "Thread ID is required"),
+  executionId: z.string().min(1, "Execution ID is required"),
   nodeId: z.string().min(1, "Node ID is required"),
 });
 
@@ -208,7 +202,7 @@ export const SkipNodeActionParametersSchema = z.object({
  * Set Variable Action Parameters Schema
  */
 export const SetVariableActionParametersSchema = z.object({
-  threadId: z.string().min(1, "Thread ID is required"),
+  executionId: z.string().min(1, "Execution ID is required"),
   variables: z
     .record(z.string(), z.any())
     .refine(vars => Object.keys(vars).length > 0, "At least one variable must be specified"),
@@ -237,7 +231,7 @@ export const CustomActionParametersSchema = z.object({
  * Apply Message Operation Action Parameters Schema
  */
 export const ApplyMessageOperationActionParametersSchema = z.object({
-  threadId: z.string().min(1, "Thread ID is required"),
+  executionId: z.string().min(1, "Execution ID is required"),
   operationType: z.enum(["compress", "truncate", "summarize", "mark", "unmark"]),
   config: z.record(z.string(), z.any()).optional(),
 });
@@ -275,21 +269,21 @@ export const ExecuteScriptActionConfigSchema = z.object({
  * Trigger Action Schema - Implement type safety using discriminatedUnion
  */
 export const TriggerActionSchema = z.discriminatedUnion("type", [
-  // stop_thread
+  // stop_workflow_execution
   z.object({
-    type: z.literal("stop_thread"),
+    type: z.literal("stop_workflow_execution"),
     parameters: StopThreadActionParametersSchema,
     metadata: z.record(z.string(), z.any()).optional(),
   }),
-  // pause_thread
+  // pause_workflow_execution
   z.object({
-    type: z.literal("pause_thread"),
+    type: z.literal("pause_workflow_execution"),
     parameters: PauseThreadActionParametersSchema,
     metadata: z.record(z.string(), z.any()).optional(),
   }),
-  // resume_thread
+  // resume_workflow_execution
   z.object({
-    type: z.literal("resume_thread"),
+    type: z.literal("resume_workflow_execution"),
     parameters: ResumeThreadActionParametersSchema,
     metadata: z.record(z.string(), z.any()).optional(),
   }),

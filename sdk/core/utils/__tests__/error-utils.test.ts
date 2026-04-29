@@ -59,7 +59,7 @@ describe("Error Utils", () => {
     mockSDKError = new SDKError(
       "Test error message",
       "error",
-      { threadId: "test-thread", workflowId: "test-workflow", nodeId: "test-node" },
+      { executionId: "test-thread", workflowId: "test-workflow", nodeId: "test-node" },
       new Error("Original error"),
     );
   });
@@ -67,7 +67,7 @@ describe("Error Utils", () => {
   describe("logError", () => {
     it("Error-level errors should be logged using `logger.error`.", () => {
       const error = new SDKError("Test error", "error", {});
-      const context = { threadId: "test-thread" };
+      const context = { executionId: "test-thread" };
 
       logError(error, context);
 
@@ -75,13 +75,13 @@ describe("Error Utils", () => {
         errorType: "SDKError",
         errorMessage: "Test error",
         severity: "error",
-        threadId: "test-thread",
+        executionId: "test-thread",
       });
     });
 
     it("The `logger.warn` should be used to record errors of the warning level.", () => {
       const error = new SDKError("Test warning", "warning", {});
-      const context = { threadId: "test-thread" };
+      const context = { executionId: "test-thread" };
 
       logError(error, context);
 
@@ -89,13 +89,13 @@ describe("Error Utils", () => {
         errorType: "SDKError",
         errorMessage: "Test warning",
         severity: "warning",
-        threadId: "test-thread",
+        executionId: "test-thread",
       });
     });
 
     it("You should use `logger.info` to record errors at the info level.", () => {
       const error = new SDKError("Test info", "info", {});
-      const context = { threadId: "test-thread" };
+      const context = { executionId: "test-thread" };
 
       logError(error, context);
 
@@ -103,7 +103,7 @@ describe("Error Utils", () => {
         errorType: "SDKError",
         errorMessage: "Test info",
         severity: "info",
-        threadId: "test-thread",
+        executionId: "test-thread",
       });
     });
 
@@ -122,7 +122,7 @@ describe("Error Utils", () => {
     it("It should include all the provided context fields.", () => {
       const error = new SDKError("Test error", "error", {});
       const context = {
-        threadId: "test-thread",
+        executionId: "test-thread",
         workflowId: "test-workflow",
         nodeId: "test-node",
         additionalField: "additional-value",
@@ -133,7 +133,7 @@ describe("Error Utils", () => {
       expect(mockLogger.error).toHaveBeenCalledWith(
         "Test error",
         expect.objectContaining({
-          threadId: "test-thread",
+          executionId: "test-thread",
           workflowId: "test-workflow",
           nodeId: "test-node",
           additionalField: "additional-value",
@@ -145,7 +145,7 @@ describe("Error Utils", () => {
   describe("emitErrorEvent", () => {
     it("The `safeEmit` should be used to trigger error events.", async () => {
       await emitErrorEvent(mockEventManager, {
-        threadId: "test-thread",
+        executionId: "test-thread",
         workflowId: "test-workflow",
         nodeId: "test-node",
         error: mockSDKError,
@@ -155,7 +155,7 @@ describe("Error Utils", () => {
         mockEventManager,
         expect.objectContaining({
           type: "ERROR",
-          threadId: "test-thread",
+          executionId: "test-thread",
           workflowId: "test-workflow",
           nodeId: "test-node",
           error: mockSDKError,
@@ -165,7 +165,7 @@ describe("Error Utils", () => {
 
     it("It should be able to handle the optional nodeId parameter.", async () => {
       await emitErrorEvent(mockEventManager, {
-        threadId: "test-thread",
+        executionId: "test-thread",
         workflowId: "test-workflow",
         error: mockSDKError,
       });
@@ -174,7 +174,7 @@ describe("Error Utils", () => {
         mockEventManager,
         expect.objectContaining({
           type: "ERROR",
-          threadId: "test-thread",
+          executionId: "test-thread",
           workflowId: "test-workflow",
           error: mockSDKError,
         }),
@@ -183,7 +183,7 @@ describe("Error Utils", () => {
 
     it("It should be able to handle the undefined eventManager.", async () => {
       await emitErrorEvent(undefined, {
-        threadId: "test-thread",
+        executionId: "test-thread",
         workflowId: "test-workflow",
         error: mockSDKError,
       });
@@ -195,7 +195,7 @@ describe("Error Utils", () => {
   describe("handleError", () => {
     it("Logs should be recorded simultaneously, and the events should be triggered accordingly.", async () => {
       await handleError(mockEventManager, mockSDKError, {
-        threadId: "test-thread",
+        executionId: "test-thread",
         workflowId: "test-workflow",
         nodeId: "test-node",
       });
@@ -204,7 +204,7 @@ describe("Error Utils", () => {
       expect(mockLogger.error).toHaveBeenCalledWith(
         "Test error message",
         expect.objectContaining({
-          threadId: "test-thread",
+          executionId: "test-thread",
           workflowId: "test-workflow",
           nodeId: "test-node",
         }),
@@ -215,7 +215,7 @@ describe("Error Utils", () => {
         mockEventManager,
         expect.objectContaining({
           type: "ERROR",
-          threadId: "test-thread",
+          executionId: "test-thread",
           workflowId: "test-workflow",
           nodeId: "test-node",
         }),
@@ -226,7 +226,7 @@ describe("Error Utils", () => {
       const warningError = new SDKError("Warning message", "warning", {});
 
       await handleError(mockEventManager, warningError, {
-        threadId: "test-thread",
+        executionId: "test-thread",
         workflowId: "test-workflow",
       });
 
@@ -237,7 +237,7 @@ describe("Error Utils", () => {
       const infoError = new SDKError("Info message", "info", {});
 
       await handleError(mockEventManager, infoError, {
-        threadId: "test-thread",
+        executionId: "test-thread",
         workflowId: "test-workflow",
       });
 
@@ -246,7 +246,7 @@ describe("Error Utils", () => {
 
     it("It should be able to handle the optional nodeId parameter.", async () => {
       await handleError(mockEventManager, mockSDKError, {
-        threadId: "test-thread",
+        executionId: "test-thread",
         workflowId: "test-workflow",
       });
 
@@ -256,7 +256,7 @@ describe("Error Utils", () => {
 
     it("It should be able to handle the undefined eventManager.", async () => {
       await handleError(undefined, mockSDKError, {
-        threadId: "test-thread",
+        executionId: "test-thread",
         workflowId: "test-workflow",
       });
 
@@ -268,14 +268,14 @@ describe("Error Utils", () => {
   describe("Boundary cases", () => {
     it("The `context` field that may contain empty strings should be handled accordingly.", () => {
       const error = new SDKError("Test error", "error", {});
-      const context = { threadId: "", workflowId: "", nodeId: "" };
+      const context = { executionId: "", workflowId: "", nodeId: "" };
 
       logError(error, context);
 
       expect(mockLogger.error).toHaveBeenCalledWith(
         "Test error",
         expect.objectContaining({
-          threadId: "",
+          executionId: "",
           workflowId: "",
           nodeId: "",
         }),
@@ -285,7 +285,7 @@ describe("Error Utils", () => {
     it("The complex `context` object should be processed.", () => {
       const error = new SDKError("Test error", "error", {});
       const context = {
-        threadId: "test-thread",
+        executionId: "test-thread",
         nested: {
           field1: "value1",
           field2: "value2",
@@ -298,7 +298,7 @@ describe("Error Utils", () => {
       expect(mockLogger.error).toHaveBeenCalledWith(
         "Test error",
         expect.objectContaining({
-          threadId: "test-thread",
+          executionId: "test-thread",
           nested: expect.any(Object),
           array: expect.any(Array),
         }),
@@ -309,7 +309,7 @@ describe("Error Utils", () => {
       const cause = new Error("Cause error");
       const error = new SDKError("Test error", "error", {}, cause);
 
-      logError(error, { threadId: "test-thread" });
+      logError(error, { executionId: "test-thread" });
 
       expect(mockLogger.error).toHaveBeenCalledWith("Test error", expect.any(Object));
     });

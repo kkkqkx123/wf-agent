@@ -21,8 +21,8 @@ export interface VariableFilter {
   scope?: "global" | "thread" | "subgraph" | "loop";
   /** Variable Types */
   type?: string;
-  /** Thread ID */
-  threadId?: string;
+  /** Execution ID */
+  executionId?: string;
   /** Workflow ID */
   workflowId?: string;
 }
@@ -73,12 +73,12 @@ export class VariableResourceAPI extends ReadonlyResourceAPI<unknown, string, Va
 
   /**
    * Get the value of a single variable
-   * @param id The variable name (format: threadId:variableName)
+   * @param id The variable name (format: executionId:variableName)
    * @returns The variable value; returns null if it does not exist
    */
   protected async getResource(id: string): Promise<unknown | null> {
-    const [threadId, variableName] = this.parseVariableId(id);
-    const thread = await this.getThread(threadId);
+    const [executionId, variableName] = this.parseVariableId(id);
+    const thread = await this.getWorkflowExecution(executionId);
 
     if (!(variableName in thread.variableScopes.thread)) {
       return null;
@@ -102,38 +102,38 @@ export class VariableResourceAPI extends ReadonlyResourceAPI<unknown, string, Va
 
   /**
    * Get all variable values of the thread
-   * @param threadId: Thread ID
+   * @param executionId: Execution ID
    * @returns: Record of variable values
    */
-  async getThreadVariables(threadId: string): Promise<Record<string, unknown>> {
-    const threadEntity = await this.getThread(threadId);
-    return { ...threadEntity.variableScopes.thread };
+  async getThreadVariables(executionId: string): Promise<Record<string, unknown>> {
+    const executionEntity = await this.getWorkflowExecution(executionId);
+    return { ...executionEntity.variableScopes.thread };
   }
 
   /**
    * Get the value of a specified variable for a thread
-   * @param threadId: Thread ID
+   * @param executionId: Execution ID
    * @param name: Variable name
    * @returns: Variable value
    */
-  async getThreadVariable(threadId: string, name: string): Promise<unknown> {
-    const threadEntity = await this.getThread(threadId);
+  async getThreadVariable(executionId: string, name: string): Promise<unknown> {
+    const executionEntity = await this.getWorkflowExecution(executionId);
 
-    if (!(name in threadEntity.variableScopes.thread)) {
+    if (!(name in executionEntity.variableScopes.thread)) {
       throw new NotFoundError(`Variable not found: ${name}`, "Variable", name);
     }
 
-    return threadEntity.variableScopes.thread[name];
+    return executionEntity.variableScopes.thread[name];
   }
 
   /**
    * Check if the specified variable exists in the thread.
-   * @param threadId: Thread ID
+   * @param executionId: Execution ID
    * @param name: Variable name
    * @returns: Whether the variable exists
    */
-  async hasThreadVariable(threadId: string, name: string): Promise<boolean> {
-    const thread = await this.getThread(threadId);
+  async hasThreadVariable(executionId: string, name: string): Promise<boolean> {
+    const thread = await this.getWorkflowExecution(executionId);
     return name in thread.variableScopes.thread;
   }
 
@@ -164,12 +164,12 @@ export class VariableResourceAPI extends ReadonlyResourceAPI<unknown, string, Va
       byType: {} as Record<string, number>,
     };
 
-    for (const threadEntity of threadContexts) {
-      const threadId = threadEntity.id;
-      const thread = threadEntity.getThread();
+    for (const executionEntity of threadContexts) {
+      const executionId = executionEntity.id;
+      const thread = executionEntity.getExecution();
       const variables = thread.variableScopes.thread;
 
-      stats.byThread[threadId] = Object.keys(variables).length;
+      stats.byThread[executionId] = Object.keys(variables).length;
       stats.totalVariables += Object.keys(variables).length;
 
       // Statistical variable type determination (simplified implementation)
@@ -184,16 +184,16 @@ export class VariableResourceAPI extends ReadonlyResourceAPI<unknown, string, Va
 
   /**
    * Obtain variable scope information
-   * @param threadId Thread ID
+   * @param executionId Execution ID
    * @returns Scope information
    */
-  async getVariableScopes(threadId: string): Promise<{
+  async getVariableScopes(executionId: string): Promise<{
     thread: Record<string, unknown>;
     global: Record<string, unknown>;
     local: Record<string, unknown>;
     loop: Record<string, unknown>;
   }> {
-    const thread = await this.getThread(threadId);
+    const thread = await this.getWorkflowExecution(executionId);
     return {
       thread: { ...thread.variableScopes.thread },
       global: { ...thread.variableScopes.global },
@@ -210,12 +210,12 @@ export class VariableResourceAPI extends ReadonlyResourceAPI<unknown, string, Va
 
   /**
    * Search for variables
-   * @param threadId Thread ID
+   * @param executionId Execution ID
    * @param query Search keyword
    * @returns Array of matching variable names
    */
-  async searchVariables(threadId: string, query: string): Promise<string[]> {
-    const thread = await this.getThread(threadId);
+  async searchVariables(executionId: string, query: string): Promise<string[]> {
+    const thread = await this.getWorkflowExecution(executionId);
     const variables = thread.variableScopes.thread;
 
     return Object.keys(variables).filter(name => name.toLowerCase().includes(query.toLowerCase()));
@@ -223,22 +223,22 @@ export class VariableResourceAPI extends ReadonlyResourceAPI<unknown, string, Va
 
   /**
    * Export thread variable
-   * @param threadId Thread ID
+   * @param executionId Execution ID
    * @returns JSON string
    */
-  async exportThreadVariables(threadId: string): Promise<string> {
-    const variables = await this.getThreadVariables(threadId);
+  async exportThreadVariables(executionId: string): Promise<string> {
+    const variables = await this.getThreadVariables(executionId);
     return JSON.stringify(variables, null, 2);
   }
 
   /**
    * Get variable change history
-   * @param threadId Thread ID
+   * @param executionId Execution ID
    * @param variableName Variable name
    * @returns Array of change history (simplified implementation)
    */
   async getVariableHistory(
-    threadId: string,
+    executionId: string,
     variableName: string,
   ): Promise<
     Array<{
@@ -248,7 +248,7 @@ export class VariableResourceAPI extends ReadonlyResourceAPI<unknown, string, Va
     }>
   > {
     // Simplify the implementation; in real projects, you can obtain the necessary data from the event system.
-    const currentValue = await this.getThreadVariable(threadId, variableName);
+    const currentValue = await this.getThreadVariable(executionId, variableName);
     return [
       {
         timestamp: now(),
@@ -264,13 +264,13 @@ export class VariableResourceAPI extends ReadonlyResourceAPI<unknown, string, Va
 
   /**
    * Parse variable ID
-   * @param id Variable ID (format: threadId:variableName)
-   * @returns [threadId, variableName]
+   * @param id Variable ID (format: executionId:variableName)
+   * @returns [executionId, variableName]
    */
   private parseVariableId(id: string): [string, string] {
     const parts = id.split(":");
     if (parts.length !== 2) {
-      throw new Error(`Invalid variable ID format: ${id}. Expected format: threadId:variableName`);
+      throw new Error(`Invalid variable ID format: ${id}. Expected format: executionId:variableName`);
     }
     return [parts[0]!, parts[1]!];
   }
@@ -278,12 +278,12 @@ export class VariableResourceAPI extends ReadonlyResourceAPI<unknown, string, Va
   /**
    * Obtain a thread instance
    */
-  private async getThread(threadId: string): Promise<Thread> {
-    const threadContext = this.registry.get(threadId);
+  private async getWorkflowExecution(executionId: string): Promise<Thread> {
+    const threadContext = this.registry.get(executionId);
     if (!threadContext) {
-      throw new WorkflowExecutionNotFoundError(`Thread not found: ${threadId}`, threadId);
+      throw new WorkflowExecutionNotFoundError(`Workflow execution not found: ${executionId}`, executionId);
     }
-    return threadContext.getThread();
+    return threadContext.getExecution();
   }
 
   /**

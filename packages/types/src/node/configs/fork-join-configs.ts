@@ -33,7 +33,7 @@ export interface ForkNodeConfig {
  * Connection Node Configuration
  * 
  * Description:
- * - Subthread IDs are dynamically determined at runtime, generated during FORK node execution and stored in the execution context.
+ * - Subexecution IDs are dynamically determined at runtime, generated during FORK node execution and stored in the execution context.
  * The JOIN node reads it from the execution context when it executes and is not defined in the node configuration.
  * - timeout is the maximum time (in seconds) to wait for the completion of the child thread.
  * When timeout = 0, no timeout is set, and the node waits until the condition is met;

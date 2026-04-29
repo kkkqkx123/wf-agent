@@ -120,13 +120,13 @@ export async function llmHandler(
       maxToolCallsPerRequest: executionData.maxToolCallsPerRequest,
       workflowId: thread.workflowId,
       nodeId: node.id,
-      threadId: thread.id,
+      executionId: thread.id,
     };
 
     // 4. Call LLMExecutionCoordinator
     const result = await context.llmCoordinator.executeLLM(
       {
-        threadId: thread.id,
+        executionId: thread.id,
         nodeId: node.id,
         prompt: executionData.prompt,
         profileId: executionData.profileId,

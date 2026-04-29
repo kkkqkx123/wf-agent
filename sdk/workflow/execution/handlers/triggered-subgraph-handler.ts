@@ -34,7 +34,7 @@ import {
  * Sub-workflow Executor Interface
  */
 export interface SubgraphExecutor {
-  executeThread(threadEntity: WorkflowExecutionEntity): Promise<unknown>;
+  executeThread(executionEntity: WorkflowExecutionEntity): Promise<unknown>;
 }
 
 /**
@@ -83,7 +83,7 @@ export async function emitSubgraphStartedEvent(
 ): Promise<void> {
   await eventManager.emit(
     buildTriggeredSubgraphStartedEvent({
-      threadId: mainThreadEntity.id,
+      executionId: mainThreadEntity.id,
       workflowId: mainThreadEntity.getWorkflowId(),
       subgraphId: task.subgraphId,
       triggerId: task.triggerId,
@@ -109,7 +109,7 @@ export async function emitSubgraphCompletedEvent(
 ): Promise<void> {
   await eventManager.emit(
     buildTriggeredSubgraphCompletedEvent({
-      threadId: mainThreadEntity.id,
+      executionId: mainThreadEntity.id,
       workflowId: mainThreadEntity.getWorkflowId(),
       subgraphId: task.subgraphId,
       triggerId: task.triggerId,
@@ -136,7 +136,7 @@ export async function emitSubgraphFailedEvent(
 ): Promise<void> {
   await eventManager.emit(
     buildTriggeredSubgraphFailedEvent({
-      threadId: mainThreadEntity.id,
+      executionId: mainThreadEntity.id,
       workflowId: mainThreadEntity.getWorkflowId(),
       subgraphId: task.subgraphId,
       triggerId: task.triggerId,

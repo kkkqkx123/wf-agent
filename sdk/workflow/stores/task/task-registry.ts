@@ -241,7 +241,7 @@ export class TaskRegistry {
           storedTask.instanceRef.type === "loaded" &&
           isThreadInstance(storedTask.instanceRef.instance)
         ) {
-          snapshot.threadId = storedTask.instanceRef.instance.id;
+          snapshot.executionId = storedTask.instanceRef.instance.id;
           snapshot.workflowId = storedTask.instanceRef.instance.getWorkflowId();
         }
 
@@ -258,7 +258,7 @@ export class TaskRegistry {
 
       const metadata: TaskStorageMetadata = {
         taskId: snapshot.id,
-        threadId: snapshot.threadId ?? snapshot.instanceId,
+        executionId: snapshot.executionId ?? snapshot.instanceId,
         workflowId: snapshot.workflowId,
         status: snapshot.status,
         submitTime: snapshot.submitTime,
@@ -325,13 +325,13 @@ export class TaskRegistry {
 
   /**
    * Register a Thread task (convenience method for backward compatibility)
-   * @param threadEntity Thread entity
+   * @param executionEntity Thread entity
    * @param manager Task manager
    * @param timeout Timeout period (in milliseconds)
    * @returns Task ID
    */
-  registerThread(threadEntity: WorkflowExecutionEntity, manager: TaskManager, timeout?: number): string {
-    return this.register(threadEntity, "thread", manager, timeout);
+  registerThread(executionEntity: WorkflowExecutionEntity, manager: TaskManager, timeout?: number): string {
+    return this.register(executionEntity, "thread", manager, timeout);
   }
 
   /**
@@ -559,15 +559,15 @@ export class TaskRegistry {
   }
 
   /**
-   * Get a task by thread ID
-   * @param threadId Thread ID
+   * Get a task by execution ID
+   * @param executionId Execution ID
    * @returns Task information
    */
-  getByThreadId(threadId: string): TaskInfo | null {
+  getByThreadId(executionId: string): TaskInfo | null {
     return (
       this.getAll().find(task => {
         if (task.instanceType === "thread" && isThreadInstance(task.instance)) {
-          return task.instance.id === threadId;
+          return task.instance.id === executionId;
         }
         return false;
       }) || null

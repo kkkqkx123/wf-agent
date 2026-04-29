@@ -101,8 +101,8 @@ export interface EventFilter {
   ids?: string[];
   /** Event type */
   eventType?: EventType;
-  /** Thread ID */
-  threadId?: string;
+  /** Execution ID */
+  executionId?: string;
   /** Workflow ID */
   workflowId?: string;
   /** Node ID */
@@ -207,7 +207,7 @@ export class EventResourceAPI extends ReadonlyResourceAPI<BaseEvent, string, Eve
   protected async getResource(id: string): Promise<BaseEvent | null> {
     return (
       this.eventHistory.find(
-        event => `${event.type}-${event.threadId}-${event.timestamp}` === id,
+        event => `${event.type}-${event.executionId}-${event.timestamp}` === id,
       ) || null
     );
   }
@@ -228,7 +228,7 @@ export class EventResourceAPI extends ReadonlyResourceAPI<BaseEvent, string, Eve
       if (filter.eventType && event.type !== filter.eventType) {
         return false;
       }
-      if (filter.threadId && event.threadId !== filter.threadId) {
+      if (filter.executionId && event.executionId !== filter.executionId) {
         return false;
       }
       if (filter.workflowId && event.workflowId !== filter.workflowId) {
@@ -305,8 +305,8 @@ export class EventResourceAPI extends ReadonlyResourceAPI<BaseEvent, string, Eve
       stats.byType[event.type] = (stats.byType[event.type] || 0) + 1;
 
       // Statistics by thread
-      if (event.threadId) {
-        stats.byThread[event.threadId] = (stats.byThread[event.threadId] || 0) + 1;
+      if (event.executionId) {
+        stats.byThread[event.executionId] = (stats.byThread[event.executionId] || 0) + 1;
       }
 
       // Statistics by workflow
@@ -351,12 +351,12 @@ export class EventResourceAPI extends ReadonlyResourceAPI<BaseEvent, string, Eve
     }
 
     return events.filter(event => {
-      // Search event type, thread ID, workflow ID, etc.
+      // Search event type, execution ID, workflow ID, etc.
       const searchableFields = [
         event.type,
-        event.threadId,
+        event.executionId,
         event.workflowId,
-        `${event.type}-${event.threadId}-${event.timestamp}`,
+        `${event.type}-${event.executionId}-${event.timestamp}`,
       ];
 
       if ("nodeId" in event) {
@@ -371,16 +371,16 @@ export class EventResourceAPI extends ReadonlyResourceAPI<BaseEvent, string, Eve
 
   /**
    * Get event timeline
-   * @param threadId Thread ID
+   * @param executionId Execution ID
    * @param workflowId Workflow ID
    * @returns Timeline event array
    */
-  async getEventTimeline(threadId?: string, workflowId?: string): Promise<BaseEvent[]> {
+  async getEventTimeline(executionId?: string, workflowId?: string): Promise<BaseEvent[]> {
     let events = this.eventHistory;
 
     // Apply filter conditions
-    if (threadId) {
-      events = events.filter(event => event.threadId === threadId);
+    if (executionId) {
+      events = events.filter(event => event.executionId === executionId);
     }
     if (workflowId) {
       events = events.filter(event => event.workflowId === workflowId);
@@ -412,8 +412,8 @@ export class EventResourceAPI extends ReadonlyResourceAPI<BaseEvent, string, Eve
     const stats: Record<string, number> = {};
 
     for (const event of this.eventHistory) {
-      if (event.threadId) {
-        stats[event.threadId] = (stats[event.threadId] || 0) + 1;
+      if (event.executionId) {
+        stats[event.executionId] = (stats[event.executionId] || 0) + 1;
       }
     }
 

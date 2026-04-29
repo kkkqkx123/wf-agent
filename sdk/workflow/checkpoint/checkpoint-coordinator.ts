@@ -14,7 +14,7 @@ import type { Thread } from "@wf-agent/types";
 import type {
   Checkpoint,
   CheckpointMetadata,
-  ThreadStateSnapshot,
+  WorkflowExecutionStateSnapshot,
   MessageMarkMap,
   DeltaStorageConfig,
   TCheckpointType,
@@ -86,7 +86,7 @@ export class CheckpointCoordinator {
       );
     }
 
-    const workflowExecution = workflowExecutionEntity.getThread();
+    const workflowExecution = workflowExecutionEntity.getExecution();
 
     // Get ConversationSession from stateCoordinatorMap or parameter
     const convManager =
@@ -120,11 +120,11 @@ export class CheckpointCoordinator {
       // Create a complete checkpoint
       checkpoint = {
         id: checkpointId,
-        threadId: workflowExecutionEntity.id,
+        executionId: workflowExecutionEntity.id,
         workflowId: workflowExecutionEntity.getWorkflowId(),
         timestamp,
         type: CheckpointType["FULL"]!,
-        threadState: currentState,
+        executionState: currentState,
         metadata,
       };
     } else {
@@ -136,16 +136,16 @@ export class CheckpointCoordinator {
         // If the previous checkpoint cannot be obtained, downgrade to the full checkpoint.
         checkpoint = {
           id: checkpointId,
-          threadId: workflowExecutionEntity.id,
+          executionId: workflowExecutionEntity.id,
           workflowId: workflowExecutionEntity.getWorkflowId(),
           timestamp,
           type: CheckpointType["FULL"]!,
-          threadState: currentState,
+          executionState: currentState,
           metadata,
         };
       } else {
         // Get the complete status of the previous checkpoint.
-        let previousState: ThreadStateSnapshot;
+        let previousState: WorkflowExecutionStateSnapshot;
         if (previousCheckpoint.type === CheckpointType["DELTA"]) {
           // If the previous checkpoint was an incremental checkpoint, the full state needs to be restored.
           const restorer = new DeltaCheckpointRestorer(
@@ -155,7 +155,7 @@ export class CheckpointCoordinator {
           const restoreResult = await restorer.restore(previousCheckpointId);
           previousState = restoreResult.snapshot;
         } else {
-          previousState = previousCheckpoint.threadState!;
+          previousState = previousCheckpoint.executionState!;
         }
 
         // Calculate the difference
@@ -172,7 +172,7 @@ export class CheckpointCoordinator {
 
         checkpoint = {
           id: checkpointId,
-          threadId: workflowExecutionEntity.id,
+          executionId: workflowExecutionEntity.id,
           workflowId: workflowExecutionEntity.getWorkflowId(),
           timestamp,
           type: CheckpointType["DELTA"]!,
@@ -199,7 +199,7 @@ export class CheckpointCoordinator {
     workflowExecutionEntity: WorkflowExecutionEntity,
     workflowExecution: Thread,
     conversationManager?: ConversationSession,
-  ): ThreadStateSnapshot {
+    ): WorkflowExecutionStateSnapshot {
     // Create a variable snapshot using VariableState
     const variableStateManager = new VariableState();
     const variableSnapshot = variableStateManager.createSnapshot();
@@ -311,7 +311,7 @@ export class CheckpointCoordinator {
     CheckpointCoordinator.validateCheckpoint(checkpoint);
 
     // Step 3: Obtain the complete workflow execution state (processing incremental checkpoints)
-    let workflowExecutionState: ThreadStateSnapshot;
+    let workflowExecutionState: WorkflowExecutionStateSnapshot;
     if (checkpoint.type === CheckpointType["DELTA"]) {
       // If it's an incremental checkpoint, the full state needs to be restored.
       const restorer = new DeltaCheckpointRestorer(
@@ -322,7 +322,7 @@ export class CheckpointCoordinator {
       workflowExecutionState = restoreResult.snapshot;
     } else {
       // Full checkpoint, use it directly.
-      workflowExecutionState = checkpoint.threadState!;
+      workflowExecutionState = checkpoint.executionState!;
     }
 
     // Step 4: Get the WorkflowGraph from the WorkflowGraphRegistry
@@ -342,7 +342,7 @@ export class CheckpointCoordinator {
     const nodeResultsArray = Object.values(workflowExecutionState.nodeResults || {});
 
     const workflowExecution: Partial<Thread> = {
-      id: checkpoint.threadId,
+      id: checkpoint.executionId,
       workflowId: checkpoint.workflowId,
       workflowVersion: "1.0.0", // TODO: Retrieve the version from the checkpoint metadata
       currentNodeId: workflowExecutionState.currentNodeId,
@@ -569,14 +569,14 @@ export class CheckpointCoordinator {
    */
   private static validateCheckpoint(checkpoint: Checkpoint): void {
     // Verify required fields
-    if (!checkpoint.id || !checkpoint.threadId || !checkpoint.workflowId) {
+    if (!checkpoint.id || !checkpoint.executionId || !checkpoint.workflowId) {
       throw new Error("Invalid checkpoint: missing required fields");
     }
 
     // Verify according to the checkpoint type.
     if (checkpoint.type === CheckpointType["FULL"]) {
-      if (!checkpoint.threadState) {
-        throw new Error("Invalid full checkpoint: missing threadState");
+      if (!checkpoint.executionState) {
+        throw new Error("Invalid full checkpoint: missing executionState");
       }
     } else if (checkpoint.type === CheckpointType["DELTA"]) {
       if (!checkpoint.delta) {

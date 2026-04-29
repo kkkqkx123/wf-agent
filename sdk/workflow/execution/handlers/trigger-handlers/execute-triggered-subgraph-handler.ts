@@ -110,7 +110,7 @@ export async function executeTriggeredSubgraphHandler(
   triggerId: string,
   workflowExecutionRegistry: WorkflowExecutionRegistry,
   eventManager: EventRegistry,
-  threadBuilder: WorkflowExecutionBuilder,
+  executionBuilder: WorkflowExecutionBuilder,
   taskQueueManager: TaskQueue,
   currentThreadId?: string,
 ): Promise<TriggerExecutionResult> {
@@ -129,16 +129,16 @@ export async function executeTriggeredSubgraphHandler(
       });
     }
 
-    const threadId = currentThreadId;
+    const executionId = currentThreadId;
 
-    if (!threadId) {
-      throw new WorkflowExecutionNotFoundError("Current thread ID not provided", "current");
+    if (!executionId) {
+      throw new WorkflowExecutionNotFoundError("Current execution ID not provided", "current");
     }
 
-    const mainWorkflowExecutionEntity = workflowExecutionRegistry.get(threadId);
+    const mainWorkflowExecutionEntity = workflowExecutionRegistry.get(executionId);
 
     if (!mainWorkflowExecutionEntity) {
-      throw new WorkflowExecutionNotFoundError(`Main workflow execution entity not found: ${threadId}`, threadId);
+      throw new WorkflowExecutionNotFoundError(`Main workflow execution entity not found: ${executionId}`, executionId);
     }
 
     const container = getContainer();

@@ -61,7 +61,7 @@ export interface AgentLoopHandlerContext {
   /** Agent Loop registry (optional, used for cross-request management) */
   agentLoopRegistry?: AgentLoopRegistry;
   /** Thread Registry (used for checking interrupts) */
-  threadRegistry?: unknown;
+  executionRegistry?: unknown;
 }
 
 /**
@@ -114,7 +114,7 @@ export async function agentLoopHandler(
       await safeEmit(
         context.eventManager,
         buildMessageAddedEvent({
-          threadId: thread.id,
+          executionId: thread.id,
           role: "user",
           content: inputPrompt,
           nodeId: node.id,
@@ -151,7 +151,7 @@ export async function agentLoopHandler(
       await safeEmit(
         context.eventManager,
         buildMessageAddedEvent({
-          threadId: thread.id,
+          executionId: thread.id,
           role: "assistant",
           content: result.content,
           nodeId: node.id,
@@ -163,7 +163,7 @@ export async function agentLoopHandler(
     await safeEmit(
       context.eventManager,
       buildConversationStateChangedEvent({
-        threadId: thread.id,
+        executionId: thread.id,
         messageCount: context.conversationManager.getMessages().length,
         tokenUsage: 0, // Not counting the total consumption for now.
         nodeId: node.id,
@@ -242,7 +242,7 @@ export async function* agentLoopStreamHandler(
       // Forward streaming events
       yield {
         type: "agent_loop_event",
-        threadId: thread.id,
+        executionId: thread.id,
         nodeId: node.id,
         event,
       };

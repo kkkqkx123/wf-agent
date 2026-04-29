@@ -152,31 +152,31 @@ export class AgentLoopRegistry {
   // ========== Parent Thread Relation Methods ==========
 
   /**
-   * Get AgentLoopEntities by parent thread ID
-   * @param threadId Parent thread ID
-   * @returns Array of AgentLoopEntity with the specified parent thread ID
+   * Get AgentLoopEntities by parent execution ID
+   * @param executionId Parent execution ID
+   * @returns Array of AgentLoopEntity with the specified parent execution ID
    */
-  getByParentThreadId(threadId: ID): AgentLoopEntity[] {
-    return this.getAll().filter(entity => entity.parentThreadId === threadId);
+  getByParentThreadId(executionId: ID): AgentLoopEntity[] {
+    return this.getAll().filter(entity => entity.parentThreadId === executionId);
   }
 
   /**
-   * Get AgentLoopEntity IDs by parent thread ID
-   * @param threadId Parent thread ID
+   * Get AgentLoopEntity IDs by parent execution ID
+   * @param executionId Parent execution ID
    * @returns Array of AgentLoopEntity IDs
    */
-  getIdsByParentThreadId(threadId: ID): ID[] {
-    return this.getByParentThreadId(threadId).map(entity => entity.id);
+  getIdsByParentThreadId(executionId: ID): ID[] {
+    return this.getByParentThreadId(executionId).map(entity => entity.id);
   }
 
   /**
-   * Cleanup AgentLoopEntities by parent thread ID
+   * Cleanup AgentLoopEntities by parent execution ID
    * Stops and removes all AgentLoopEntities associated with the specified thread.
-   * @param threadId Parent thread ID
+   * @param executionId Parent execution ID
    * @returns Number of instances cleaned up
    */
-  cleanupByParentThreadId(threadId: ID): number {
-    const entities = this.getByParentThreadId(threadId);
+  cleanupByParentThreadId(executionId: ID): number {
+    const entities = this.getByParentThreadId(executionId);
     for (const entity of entities) {
       // Stop the entity if it's running
       if (entity.isRunning()) {
@@ -192,21 +192,21 @@ export class AgentLoopRegistry {
   }
 
   /**
-   * Get running AgentLoopEntities by parent thread ID
-   * @param threadId Parent thread ID
+   * Get running AgentLoopEntities by parent execution ID
+   * @param executionId Parent execution ID
    * @returns Array of running AgentLoopEntity
    */
-  getRunningByParentThreadId(threadId: ID): AgentLoopEntity[] {
-    return this.getByParentThreadId(threadId).filter(entity => entity.isRunning());
+  getRunningByParentThreadId(executionId: ID): AgentLoopEntity[] {
+    return this.getByParentThreadId(executionId).filter(entity => entity.isRunning());
   }
 
   /**
-   * Get paused AgentLoopEntities by parent thread ID
-   * @param threadId Parent thread ID
+   * Get paused AgentLoopEntities by parent execution ID
+   * @param executionId Parent execution ID
    * @returns Array of paused AgentLoopEntity
    */
-  getPausedByParentThreadId(threadId: ID): AgentLoopEntity[] {
-    return this.getByParentThreadId(threadId).filter(entity => entity.isPaused());
+  getPausedByParentThreadId(executionId: ID): AgentLoopEntity[] {
+    return this.getByParentThreadId(executionId).filter(entity => entity.isPaused());
   }
 
   // ========== Parent Workflow Execution Relation Methods (Aliases) ==========

@@ -50,8 +50,8 @@ function createFailureResult(
  *
  * @param action Trigger action
  * @param triggerId Trigger ID
- * @param threadRegistry Thread registry
- * @param stateCoordinatorMap Optional map of ThreadStateCoordinator by threadId
+ * @param executionRegistry Thread registry
+ * @param stateCoordinatorMap Optional map of ThreadStateCoordinator by executionId
  */
 export async function applyMessageOperationHandler(
   action: TriggerAction,
@@ -62,15 +62,15 @@ export async function applyMessageOperationHandler(
   const executionTime = now();
 
   try {
-    const { threadId, operationConfig } = action.parameters as {
-      threadId?: string;
+    const { executionId, operationConfig } = action.parameters as {
+      executionId?: string;
       operationConfig?: MessageOperationConfig;
     };
 
-    if (!threadId) {
-      throw new RuntimeValidationError("threadId is required for APPLY_MESSAGE_OPERATION action", {
+    if (!executionId) {
+      throw new RuntimeValidationError("executionId is required for APPLY_MESSAGE_OPERATION action", {
         operation: "handle",
-        field: "parameters.threadId",
+        field: "parameters.executionId",
       });
     }
 
@@ -81,15 +81,15 @@ export async function applyMessageOperationHandler(
       );
     }
 
-    const workflowExecutionEntity = workflowExecutionRegistry.get(threadId);
+    const workflowExecutionEntity = workflowExecutionRegistry.get(executionId);
     if (!workflowExecutionEntity) {
-      throw new Error(`Workflow execution not found: ${threadId}`);
+      throw new Error(`Workflow execution not found: ${executionId}`);
     }
 
     // Get ConversationSession from stateCoordinatorMap
-    const stateCoordinator = stateCoordinatorMap?.get(threadId);
+    const stateCoordinator = stateCoordinatorMap?.get(executionId);
     if (!stateCoordinator) {
-      throw new Error(`ThreadStateCoordinator not found for thread: ${threadId}`);
+      throw new Error(`ThreadStateCoordinator not found for thread: ${executionId}`);
     }
     const conversationManager = stateCoordinator.getConversationManager();
     const result = await conversationManager.executeMessageOperation(operationConfig);
@@ -98,7 +98,7 @@ export async function applyMessageOperationHandler(
       triggerId,
       action,
       {
-        message: `Message operation ${operationConfig.operation} applied successfully to thread ${threadId}`,
+        message: `Message operation ${operationConfig.operation} applied successfully to thread ${executionId}`,
         stats: result.stats,
       },
       executionTime,

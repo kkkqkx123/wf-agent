@@ -220,7 +220,7 @@ export class HumanRelayResourceAPI extends CrudResourceAPI<
     };
 
     return {
-      threadId: (request.metadata?.["threadId"] as string) || "",
+      executionId: (request.metadata?.["executionId"] as string) || "",
       workflowId: (request.metadata?.["workflowId"] as string) || "",
       nodeId: (request.metadata?.["nodeId"] as string) || "",
       getVariable: () => {

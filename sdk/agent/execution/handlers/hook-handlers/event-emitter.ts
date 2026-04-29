@@ -25,7 +25,7 @@ export interface AgentCustomEventData {
   eventData: Record<string, unknown>;
   /** Current iteration count */
   iteration?: number;
-  /** Parent Thread ID (if executed as a Graph node) */
+  /** Parent Execution ID (if executed as a Graph node) */
   parentThreadId?: string;
   /** Node ID (if executed as a Graph node) */
   nodeId?: string;
@@ -46,7 +46,7 @@ export async function emitAgentHookEvent(
   emitEvent: (event: AgentCustomEvent) => Promise<void>,
 ): Promise<void> {
   const event = buildAgentCustomEvent({
-    threadId: entity.parentThreadId || entity.id, // Use parentThreadId or entity.id as threadId
+    executionId: entity.parentThreadId || entity.id, // Use parentThreadId or entity.id as executionId
     agentLoopId: entity.id,
     eventName,
     eventData: eventData ?? {},

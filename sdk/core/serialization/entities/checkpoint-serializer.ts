@@ -11,7 +11,7 @@ import type {
   SnapshotBase,
   Checkpoint,
   CheckpointDelta,
-  ThreadStateSnapshot,
+  WorkflowExecutionStateSnapshot,
 } from "@wf-agent/types";
 
 /**
@@ -95,8 +95,8 @@ export class CheckpointDeltaCalculator extends DeltaCalculator<CheckpointSnapsho
   ): CheckpointDelta | null {
     const delta: CheckpointDelta = {};
 
-    if (current.threadState && previous.threadState) {
-      const stateDelta = this.computeThreadStateDelta(previous.threadState, current.threadState);
+    if (current.executionState && previous.executionState) {
+      const stateDelta = this.computeThreadStateDelta(previous.executionState, current.executionState);
 
       if (stateDelta && Object.keys(stateDelta).length > 0) {
         delta.addedMessages = stateDelta.addedMessages;
@@ -107,10 +107,10 @@ export class CheckpointDeltaCalculator extends DeltaCalculator<CheckpointSnapsho
       }
     }
 
-    if (previous.threadState?.status !== current.threadState?.status) {
+    if (previous.executionState?.status !== current.executionState?.status) {
       delta.statusChange = {
-        from: previous.threadState?.status as import("@wf-agent/types").WorkflowExecutionStatus,
-        to: current.threadState?.status as import("@wf-agent/types").WorkflowExecutionStatus,
+        from: previous.executionState?.status as import("@wf-agent/types").WorkflowExecutionStatus,
+        to: current.executionState?.status as import("@wf-agent/types").WorkflowExecutionStatus,
       };
     }
 
@@ -121,8 +121,8 @@ export class CheckpointDeltaCalculator extends DeltaCalculator<CheckpointSnapsho
    * Compute delta between two thread states
    */
   private computeThreadStateDelta(
-    previous: ThreadStateSnapshot,
-    current: ThreadStateSnapshot,
+    previous: WorkflowExecutionStateSnapshot,
+    current: WorkflowExecutionStateSnapshot,
   ): Partial<CheckpointDelta> | null {
     const delta: Partial<CheckpointDelta> = {};
 

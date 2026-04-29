@@ -110,7 +110,7 @@ describe("Trigger Validator - Trigger Validator", () => {
       const action: TriggerAction = {
         type: "pause_thread",
         parameters: {
-          threadId: "thread-123",
+          executionId: "thread-123",
           force: false,
         },
       };
@@ -135,7 +135,7 @@ describe("Trigger Validator - Trigger Validator", () => {
       const action1: TriggerAction = {
         type: "pause_thread",
         parameters: {
-          threadId: "thread-123",
+          executionId: "thread-123",
           force: false,
         },
       };
@@ -144,7 +144,7 @@ describe("Trigger Validator - Trigger Validator", () => {
         type: "pause_thread",
         parameters: {
           force: false,
-          // `threadId` is missing.
+          // `executionId` is missing.
         },
       };
 
@@ -159,7 +159,7 @@ describe("Trigger Validator - Trigger Validator", () => {
       const action1: TriggerAction = {
         type: "pause_thread",
         parameters: {
-          threadId: "thread-123",
+          executionId: "thread-123",
           reason: "Test Suspension",
         },
       };
@@ -167,7 +167,7 @@ describe("Trigger Validator - Trigger Validator", () => {
       const action2: TriggerAction = {
         type: "pause_thread",
         parameters: {
-          threadId: "thread-123",
+          executionId: "thread-123",
           // "reason" is optional.
         },
       };
@@ -183,7 +183,7 @@ describe("Trigger Validator - Trigger Validator", () => {
       const action1: TriggerAction = {
         type: "set_variable",
         parameters: {
-          threadId: "thread-123",
+          executionId: "thread-123",
           variables: {
             var1: "value1",
             var2: 123,
@@ -194,7 +194,7 @@ describe("Trigger Validator - Trigger Validator", () => {
       const action2: any = {
         type: "set_variable",
         parameters: {
-          threadId: "thread-123",
+          executionId: "thread-123",
           variables: {},
           // Variables cannot be empty.
         },
@@ -260,7 +260,7 @@ describe("Trigger Validator - Trigger Validator", () => {
       const action: TriggerAction = {
         type: "pause_thread",
         parameters: {
-          threadId: "thread-123",
+          executionId: "thread-123",
         },
         metadata: {
           description: "Test Motion",
@@ -285,7 +285,7 @@ describe("Trigger Validator - Trigger Validator", () => {
         action: {
           type: "pause_thread",
           parameters: {
-            threadId: "thread-123",
+            executionId: "thread-123",
           },
         },
         enabled: true,
@@ -306,7 +306,7 @@ describe("Trigger Validator - Trigger Validator", () => {
         action: {
           type: "pause_thread",
           parameters: {
-            threadId: "thread-123",
+            executionId: "thread-123",
           },
         },
         // 'id is missing'
@@ -326,7 +326,7 @@ describe("Trigger Validator - Trigger Validator", () => {
         action: {
           type: "pause_thread",
           parameters: {
-            threadId: "thread-123",
+            executionId: "thread-123",
           },
         },
         // `name` is missing.
@@ -344,7 +344,7 @@ describe("Trigger Validator - Trigger Validator", () => {
         action: {
           type: "pause_thread",
           parameters: {
-            threadId: "thread-123",
+            executionId: "thread-123",
           },
         },
         // "condition is missing"
@@ -380,7 +380,7 @@ describe("Trigger Validator - Trigger Validator", () => {
         action: {
           type: "pause_thread",
           parameters: {
-            threadId: "thread-123",
+            executionId: "thread-123",
           },
         },
         // enabled、maxTriggers、description、metadata 未设置
@@ -401,7 +401,7 @@ describe("Trigger Validator - Trigger Validator", () => {
         action: {
           type: "pause_thread",
           parameters: {
-            threadId: "thread-123",
+            executionId: "thread-123",
           },
         },
         maxTriggers: -1,
@@ -422,7 +422,7 @@ describe("Trigger Validator - Trigger Validator", () => {
         action: {
           type: "pause_thread",
           parameters: {
-            threadId: "thread-123",
+            executionId: "thread-123",
           },
         },
         maxTriggers: 0,
@@ -443,7 +443,7 @@ describe("Trigger Validator - Trigger Validator", () => {
         action: {
           type: "pause_thread",
           parameters: {
-            threadId: "thread-123",
+            executionId: "thread-123",
           },
         },
       };
@@ -461,13 +461,13 @@ describe("Trigger Validator - Trigger Validator", () => {
           id: "trigger-1",
           name: "Trigger 1",
           condition: { eventType: "THREAD_STARTED" as EventType },
-          action: { type: "pause_thread", parameters: { threadId: "thread-123" } },
+          action: { type: "pause_thread", parameters: { executionId: "thread-123" } },
         },
         {
           id: "trigger-2",
           name: "Trigger 2",
           condition: { eventType: "THREAD_COMPLETED" as EventType },
-          action: { type: "pause_thread", parameters: { threadId: "thread-456" } },
+          action: { type: "pause_thread", parameters: { executionId: "thread-456" } },
         },
       ];
 
@@ -482,13 +482,13 @@ describe("Trigger Validator - Trigger Validator", () => {
           id: "trigger-1",
           name: "Trigger 1",
           condition: { eventType: "THREAD_STARTED" as EventType },
-          action: { type: "pause_thread", parameters: { threadId: "thread-123" } },
+          action: { type: "pause_thread", parameters: { executionId: "thread-123" } },
         },
         {
           id: "trigger-1",
           name: "Trigger 2",
           condition: { eventType: "THREAD_COMPLETED" as EventType },
-          action: { type: "pause_thread", parameters: { threadId: "thread-456" } },
+          action: { type: "pause_thread", parameters: { executionId: "thread-456" } },
         },
       ];
 
@@ -518,7 +518,7 @@ describe("Trigger Validator - Trigger Validator", () => {
         id: "trigger-1",
         name: "Trigger 1",
         condition: { eventType: "THREAD_STARTED" as EventType },
-        action: { type: "pause_thread", parameters: { threadId: "thread-123" } },
+        action: { type: "pause_thread", parameters: { executionId: "thread-123" } },
       };
 
       const triggerReference: TriggerReference = {
@@ -537,13 +537,13 @@ describe("Trigger Validator - Trigger Validator", () => {
           id: "trigger-1",
           name: "Trigger 1",
           condition: { eventType: "INVALID_EVENT_TYPE" },
-          action: { type: "pause_thread", parameters: { threadId: "thread-123" } },
+          action: { type: "pause_thread", parameters: { executionId: "thread-123" } },
         },
         {
           id: "trigger-1",
           name: "Trigger 2",
           condition: { eventType: "THREAD_COMPLETED" as EventType },
-          action: { type: "pause_thread", parameters: { threadId: "thread-456" } },
+          action: { type: "pause_thread", parameters: { executionId: "thread-456" } },
         },
       ];
 

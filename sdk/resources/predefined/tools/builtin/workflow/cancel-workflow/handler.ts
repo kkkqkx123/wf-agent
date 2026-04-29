@@ -29,7 +29,7 @@ export function createCancelWorkflowHandler() {
         field: "taskId",
         value: params,
         context: {
-          threadId: context.threadId,
+          executionId: context.executionId,
         },
       });
     }
@@ -47,7 +47,7 @@ export function createCancelWorkflowHandler() {
           operation: "cancel_workflow",
           context: {
             taskId,
-            threadId: context.threadId,
+            executionId: context.executionId,
             containerInitialized: true,
           },
         },

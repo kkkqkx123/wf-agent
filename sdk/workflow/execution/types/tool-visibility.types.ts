@@ -13,7 +13,7 @@ export interface VisibilityDeclaration {
   timestamp: number;
   /** Scope Types */
   scope: ToolScope;
-  /** Scope ID (Thread ID/Workflow ID) */
+  /** Scope ID (Execution ID/Workflow ID) */
   scopeId: string;
   /** List of tool IDs */
   toolIds: string[];
@@ -30,7 +30,7 @@ export interface ToolVisibilityContext {
   /** Current scope */
   currentScope: ToolScope;
 
-  /** Current scope ID (thread ID/workflow ID) */
+  /** Current scope ID (execution ID/workflow ID) */
   scopeId: string;
 
   /** The currently visible set of tools */

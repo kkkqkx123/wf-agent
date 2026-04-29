@@ -54,10 +54,10 @@ export class VariableState implements LifecycleCapable<{
 
   /**
    * Constructor
-   * @param threadId Thread ID (optional, for logging/debugging purposes)
+   * @param executionId Execution ID (optional, for logging/debugging purposes)
    */
-  constructor(threadId?: string) {
-    // threadId is stored for potential future use (logging, debugging)
+  constructor(executionId?: string) {
+    // executionId is stored for potential future use (logging, debugging)
     // Currently not used but kept for API compatibility
   }
 

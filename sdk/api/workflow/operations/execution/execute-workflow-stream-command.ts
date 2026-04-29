@@ -94,7 +94,7 @@ export class ExecuteWorkflowStreamCommand extends BaseCommand<AsyncGenerator<Wor
     let executionComplete = false;
 
     const eventListener = (event: BaseEvent) => {
-      if (event.threadId === executionId) {
+      if (event.executionId === executionId) {
         eventQueue.push(event);
         if (resolveEvent) {
           const nextEvent = eventQueue.shift()!;

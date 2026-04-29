@@ -52,8 +52,8 @@ const logger = createContextualLogger();
  * LLM Execution Parameters
  */
 export interface LLMExecutionParams {
-  /** Thread ID */
-  threadId: string;
+  /** Execution ID */
+  executionId: string;
   /** Node ID */
   nodeId: string;
   /** Prompt words */
@@ -116,8 +116,8 @@ export class LLMExecutionCoordinator {
     // Delayed initialization of the interrupt detector
     if (config.interruptionDetector) {
       this.interruptionDetector = config.interruptionDetector;
-    } else if (config.threadRegistry) {
-      this.interruptionDetector = new InterruptionDetectorImpl(config.threadRegistry);
+    } else if (config.executionRegistry) {
+      this.interruptionDetector = new InterruptionDetectorImpl(config.executionRegistry);
     }
   }
 
@@ -131,26 +131,26 @@ export class LLMExecutionCoordinator {
   /**
    * Check if it has been aborted
    *
-   * @param threadId Thread ID
+   * @param executionId Execution ID
    * @returns Whether it has been aborted
    */
-  isAborted(threadId: string): boolean {
+  isAborted(executionId: string): boolean {
     if (this.interruptionDetector) {
-      return this.interruptionDetector.isAborted(threadId);
+      return this.interruptionDetector.isAborted(executionId);
     }
 
     // Backward compatibility: If the interruptionDetector is not provided, use the old method.
-    const threadRegistry = this.contextFactory.getThreadRegistry();
-    if (!threadRegistry) {
+    const executionRegistry = this.contextFactory.getThreadRegistry();
+    if (!executionRegistry) {
       return false;
     }
 
-    const threadEntity = threadRegistry.get(threadId);
-    if (!threadEntity) {
+    const executionEntity = executionRegistry.get(executionId);
+    if (!executionEntity) {
       return false;
     }
 
-    return threadEntity.getAbortSignal().aborted;
+    return executionEntity.getAbortSignal().aborted;
   }
 
   /**
@@ -208,13 +208,13 @@ export class LLMExecutionCoordinator {
     params: LLMExecutionParams,
     conversationState: ConversationSession,
   ): Promise<string | InterruptionCheckResult> {
-    const { prompt, profileId, parameters, tools, maxToolCallsPerRequest, threadId, nodeId } =
+    const { prompt, profileId, parameters, tools, maxToolCallsPerRequest, executionId, nodeId } =
       params;
 
     // Get the AbortSignal
-    const threadRegistry = this.contextFactory.getThreadRegistry();
-    const threadEntity = threadRegistry?.get(threadId);
-    const abortSignal = threadEntity?.getAbortSignal();
+    const executionRegistry = this.contextFactory.getThreadRegistry();
+    const executionEntity = executionRegistry?.get(executionId);
+    const abortSignal = executionEntity?.getAbortSignal();
 
     // Use the return value tagging system to check for interrupts.
     if (abortSignal) {
@@ -233,7 +233,7 @@ export class LLMExecutionCoordinator {
 
     // Trigger message addition event
     const userMessageEvent = buildMessageAddedEvent({
-      threadId: threadId || "",
+      executionId: executionId || "",
       role: userMessage.role,
       content: userMessage.content,
       nodeId,
@@ -252,7 +252,7 @@ export class LLMExecutionCoordinator {
       // A warning is triggered when the usage exceeds 80%.
       if (usagePercentage > 80) {
         const warningEvent = buildTokenUsageWarningEvent({
-          threadId: threadId || "",
+          executionId: executionId || "",
           tokensUsed: tokenUsage.totalTokens,
           tokenLimit,
           usagePercentage,
@@ -267,7 +267,7 @@ export class LLMExecutionCoordinator {
       | ToolContextStore
       | undefined;
     if (toolContextStore) {
-      const availableToolIds = toolContextStore.getTools(threadId);
+      const availableToolIds = toolContextStore.getTools(executionId);
 
       if (availableToolIds.size > 0) {
         const toolService = this.contextFactory.getToolService();
@@ -338,7 +338,7 @@ export class LLMExecutionCoordinator {
 
     // Trigger message addition event
     const assistantMessageEvent = buildMessageAddedEvent({
-      threadId: threadId || "",
+      executionId: executionId || "",
       role: assistantMessage.role,
       content: assistantMessage.content,
       nodeId,
@@ -370,7 +370,7 @@ export class LLMExecutionCoordinator {
       await this.executeToolCallsWithApproval(
         result.toolCalls,
         conversationState,
-        threadId,
+        executionId,
         nodeId,
         params.workflowConfig,
         this.contextFactory.getToolCallExecutor(),
@@ -381,7 +381,7 @@ export class LLMExecutionCoordinator {
     // Trigger a dialog state change event
     const finalTokenUsage = conversationState.getTokenUsage();
     const stateChangedEvent = buildConversationStateChangedEvent({
-      threadId: threadId || "",
+      executionId: executionId || "",
       messageCount: conversationState.getMessages().length,
       tokenUsage: finalTokenUsage?.totalTokens || 0,
       nodeId,
@@ -397,7 +397,7 @@ export class LLMExecutionCoordinator {
    *
    * @param toolCalls Array of tool calls
    * @param conversationState Conversation manager
-   * @param threadId Thread ID
+   * @param executionId Execution ID
    * @param nodeId Node ID
    * @param workflowConfig Workflow configuration
    * @param toolCallExecutor Tool call executor
@@ -406,7 +406,7 @@ export class LLMExecutionCoordinator {
   private async executeToolCallsWithApproval(
     toolCalls: Array<{ id: string; name: string; arguments: string }>,
     conversationState: ConversationSession,
-    threadId: string,
+    executionId: string,
     nodeId: string,
     workflowConfig: WorkflowConfig | undefined,
     toolCallExecutor: ToolCallExecutor,
@@ -418,7 +418,7 @@ export class LLMExecutionCoordinator {
         const approvalResult = await this.requestToolApproval(
           toolCall,
           undefined,
-          threadId,
+          executionId,
           nodeId,
         );
 
@@ -454,7 +454,7 @@ export class LLMExecutionCoordinator {
       await toolCallExecutor.executeToolCalls(
         [toolCall],
         conversationState,
-        threadId,
+        executionId,
         nodeId,
         options,
       );
@@ -483,7 +483,7 @@ export class LLMExecutionCoordinator {
    *
    * @param toolCall: Tool call
    * @param approvalConfig: Approval configuration
-   * @param threadId: Thread ID
+   * @param executionId: Execution ID
    * @param nodeId: Node ID
    * @param conversationState: Conversation manager
    * @returns: Approval result
@@ -491,7 +491,7 @@ export class LLMExecutionCoordinator {
   private async requestToolApproval(
     toolCall: { id: string; name: string; arguments: string },
     approvalConfig: { approvalTimeout?: number } | undefined,
-    threadId: string,
+    executionId: string,
     nodeId: string,
   ): Promise<ToolApprovalData> {
     const interactionId = generateId();
@@ -501,15 +501,15 @@ export class LLMExecutionCoordinator {
     let checkpointId: string | undefined;
     if (this.contextFactory.hasToolApprovalSupport()) {
       try {
-        const approvalContext = this.contextFactory.createToolApprovalContext(threadId, nodeId);
-        if (approvalContext.workflowRegistry && approvalContext.graphRegistry && approvalContext.threadRegistry) {
+        const approvalContext = this.contextFactory.createToolApprovalContext(executionId, nodeId);
+        if (approvalContext.workflowRegistry && approvalContext.graphRegistry && approvalContext.executionRegistry) {
           const dependencies = {
-            workflowExecutionRegistry: approvalContext.threadRegistry,
+            workflowExecutionRegistry: approvalContext.executionRegistry,
             checkpointStateManager: approvalContext.checkpointStateManager,
             workflowRegistry: approvalContext.workflowRegistry,
             workflowGraphRegistry: approvalContext.graphRegistry,
           };
-          checkpointId = await CheckpointCoordinator.createCheckpoint(threadId, dependencies, {
+          checkpointId = await CheckpointCoordinator.createCheckpoint(executionId, dependencies, {
             description: "Waiting for tool approval",
             customFields: {
               toolApprovalState: {
@@ -526,7 +526,7 @@ export class LLMExecutionCoordinator {
           {
             operation: "create_checkpoint",
             toolCallId: toolCall.id,
-            threadId,
+            executionId,
             nodeId,
             suggestion: "Check checkpoint storage configuration and retry",
           },
@@ -539,7 +539,7 @@ export class LLMExecutionCoordinator {
     try {
       // Trigger the USER_INTERACTION_REQUESTED event
       const requestedEvent = buildUserInteractionRequestedEvent({
-        threadId,
+        executionId,
         nodeId,
         interactionId,
         operationType: "TOOL_APPROVAL",
@@ -559,7 +559,7 @@ export class LLMExecutionCoordinator {
 
       // Trigger the USER_INTERACTION_PROCESSED event
       const processedEvent = buildUserInteractionProcessedEvent({
-        threadId,
+        executionId,
         interactionId,
         operationType: "TOOL_APPROVAL",
         results: approvalResult,
@@ -580,7 +580,7 @@ export class LLMExecutionCoordinator {
             {
               operation: "cleanup_checkpoint",
               checkpointId,
-              threadId,
+              executionId,
               nodeId,
               suggestion:
                 "Checkpoint cleanup failed, may leave stale data. Check storage permissions and retry",

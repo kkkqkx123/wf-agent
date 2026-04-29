@@ -33,7 +33,7 @@ export interface InterruptionInfo {
   type: InterruptionType;
   /** Interrupt message */
   message: string;
-  /** Context ID (such as thread ID, session ID, etc.) */
+  /** Context ID (such as execution ID, session ID, etc.) */
   contextId?: string;
   /** Node ID (optional) */
   nodeId?: string;
@@ -43,7 +43,7 @@ export interface InterruptionInfo {
  * Interruption State Configuration
  */
 export interface InterruptionStateConfig {
-  /** Context ID (such as thread ID, session ID, etc.) */
+  /** Context ID (such as execution ID, session ID, etc.) */
   contextId: string;
   /** Node ID (optional) */
   nodeId?: string;

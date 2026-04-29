@@ -6,7 +6,7 @@
  * - Configure service bindings in the order of dependencies to avoid circular dependencies.
  * - Use the singleton lifecycle for stateless global services (such as Registry, Manager).
  * - Use the factory pattern for thread-isolated services (such as GraphConversationSession, ConversationSession).
- * - Factory functions are used to create instances that require runtime parameters (such as threadId, nodeId).
+ * - Factory functions are used to create instances that require runtime parameters (such as executionId, nodeId).
  *
  * Service Layering:
  * - First Layer: Dependency-free storage layer services (WorkflowGraphRegistry, WorkflowExecutionRegistry).
@@ -28,7 +28,7 @@ import { Container, type IContainer } from "@wf-agent/common-utils";
 import type {
   CheckpointStorageCallback,
   WorkflowStorageCallback,
-  ThreadStorageCallback,
+  TaskStorageCallback,
 } from "@wf-agent/storage";
 import * as Identifiers from "./service-identifiers.js";
 
@@ -96,7 +96,7 @@ let container: Container | null = null;
 /** Storage callbacks provided by the application layer */
 let storageCallback: CheckpointStorageCallback | null = null;
 let workflowStorageCallback: WorkflowStorageCallback | null = null;
-let threadStorageCallback: ThreadStorageCallback | null = null;
+let taskStorageCallback: TaskStorageCallback | null = null;
 
 /**
  * Set checkpoint storage callback
@@ -140,16 +140,16 @@ export function getWorkflowStorageCallback(): WorkflowStorageCallback | null {
  * Set thread storage callback
  * @param callback Implementation of the thread storage callback interface
  */
-export function setThreadStorageCallback(callback: ThreadStorageCallback): void {
-  threadStorageCallback = callback;
+export function setTaskStorageCallback(callback: TaskStorageCallback): void {
+  taskStorageCallback = callback;
 }
 
 /**
  * Get the thread storage callback
  * @returns Implementation of the thread storage callback interface or null
  */
-export function getThreadStorageCallback(): ThreadStorageCallback | null {
-  return threadStorageCallback;
+export function getTaskStorageCallback(): TaskStorageCallback | null {
+  return taskStorageCallback;
 }
 
 /**
@@ -311,7 +311,7 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
     .bind(Identifiers.GraphConversationSession)
     .toDynamicValue(() => {
       return {
-        create: (threadId: string) => new WorkflowConversationSession({ threadId }),
+        create: (executionId: string) => new WorkflowConversationSession({ executionId }),
       };
     })
     .inSingletonScope();
@@ -320,16 +320,16 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
   // Each workflow execution requires a separate instance of the state transitor
   container
     .bind(Identifiers.WorkflowStateTransitor)
-    .toDynamicValue((c: IContainer): { create: (threadId: string) => WorkflowStateTransitor } => {
+    .toDynamicValue((c: IContainer): { create: (executionId: string) => WorkflowStateTransitor } => {
       const eventManager = c.get(Identifiers.EventRegistry) as EventRegistry;
       const workflowConversationSessionFactory = c.get(Identifiers.GraphConversationSession) as {
-        create: (threadId: string) => WorkflowConversationSession;
+        create: (executionId: string) => WorkflowConversationSession;
       };
       const workflowExecutionRegistry = c.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry;
       const taskRegistry = c.get(Identifiers.TaskRegistry) as TaskRegistry;
       return {
-        create: (threadId: string) => {
-          const workflowConversationSession = workflowConversationSessionFactory.create(threadId);
+        create: (executionId: string) => {
+          const workflowConversationSession = workflowConversationSessionFactory.create(executionId);
           return new WorkflowStateTransitor(
             eventManager,
             workflowConversationSession,
@@ -384,7 +384,7 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
       return new WorkflowExecutor({
         workflowGraphRegistry: c.get(Identifiers.WorkflowGraphRegistry) as WorkflowGraphRegistry,
         workflowExecutionCoordinatorFactory: c.get(Identifiers.WorkflowExecutionCoordinator) as {
-          create: (threadEntity: WorkflowExecutionEntity) => WorkflowExecutionCoordinator;
+          create: (executionEntity: WorkflowExecutionEntity) => WorkflowExecutionCoordinator;
         },
       });
     })
@@ -401,17 +401,17 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
   container
     .bind(Identifiers.WorkflowLifecycleCoordinator)
     .toDynamicValue(
-      (c: IContainer): { create: (threadId: string) => WorkflowLifecycleCoordinator } => {
+      (c: IContainer): { create: (executionId: string) => WorkflowLifecycleCoordinator } => {
         const workflowExecutionRegistry = c.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry;
         const workflowExecutionBuilder = c.get(Identifiers.WorkflowExecutionBuilder) as WorkflowExecutionBuilder;
         const workflowExecutor = c.get(Identifiers.WorkflowExecutor) as WorkflowExecutor;
         const stateTransitorFactory = c.get(Identifiers.WorkflowStateTransitor) as {
-          create: (threadId: string) => WorkflowStateTransitor;
+          create: (executionId: string) => WorkflowStateTransitor;
         };
 
         return {
-          create: (threadId: string) => {
-            const stateTransitor = stateTransitorFactory.create(threadId);
+          create: (executionId: string) => {
+            const stateTransitor = stateTransitorFactory.create(executionId);
             return new WorkflowLifecycleCoordinator(
               workflowExecutionRegistry,
               stateTransitor,
@@ -436,34 +436,34 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
   // ============================================================
 
   // VariableState - Variable State Manager Factory
-  // VariableState requires threadId, use factory pattern to create instance
+  // VariableState requires executionId, use factory pattern to create instance
   container
     .bind(Identifiers.VariableState)
     .toDynamicValue(() => {
       return {
-        create: (threadId: string) => new VariableState(threadId),
+        create: (executionId: string) => new VariableState(executionId),
       };
     })
     .inSingletonScope();
 
   // TriggerState - Trigger State Manager Factory
-  // TriggerState requires threadId, use factory pattern to create instance
+  // TriggerState requires executionId, use factory pattern to create instance
   container
     .bind(Identifiers.TriggerState)
     .toDynamicValue(() => {
       return {
-        create: (threadId: string) => new TriggerState(threadId),
+        create: (executionId: string) => new TriggerState(executionId),
       };
     })
     .inSingletonScope();
 
   // InterruptionState - Interruption Manager Factory
-  // InterruptionState requires threadId and nodeId, and uses the factory pattern to create instances.
+  // InterruptionState requires executionId and nodeId, and uses the factory pattern to create instances.
   container
     .bind(Identifiers.InterruptionState)
     .toDynamicValue(() => {
       return {
-        create: (threadId: string, nodeId: string) => new InterruptionState(threadId, nodeId),
+        create: (executionId: string, nodeId: string) => new InterruptionState(executionId, nodeId),
       };
     })
     .inSingletonScope();
@@ -508,14 +508,14 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
     .toDynamicValue(
       (
         c: IContainer,
-      ): { create: (threadId?: string, workflowId?: string) => ConversationSession } => {
+      ): { create: (executionId?: string, workflowId?: string) => ConversationSession } => {
         const eventManager = c.get(Identifiers.EventRegistry) as EventRegistry;
 
         return {
-          create: (threadId?: string, workflowId?: string) => {
+          create: (executionId?: string, workflowId?: string) => {
             return new ConversationSession({
               eventManager,
-              threadId,
+              executionId,
               workflowId,
             });
           },
@@ -534,30 +534,30 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
         c: IContainer,
       ): {
         create: (
-          threadId: string,
+          executionId: string,
           nodeId: string,
-          threadEntity: WorkflowExecutionEntity,
+          executionEntity: WorkflowExecutionEntity,
         ) => NodeExecutionCoordinator;
       } => {
         const conversationManagerFactory = c.get(Identifiers.ConversationSession) as {
-          create: (threadId?: string, workflowId?: string) => ConversationSession;
+          create: (executionId?: string, workflowId?: string) => ConversationSession;
         };
         const interruptionManagerFactory = c.get(Identifiers.InterruptionState) as {
-          create: (threadId: string, nodeId: string) => InterruptionState;
+          create: (executionId: string, nodeId: string) => InterruptionState;
         };
         const agentLoopExecutorFactory = c.get(Identifiers.AgentLoopExecutor) as {
           create: () => AgentLoopExecutor;
         };
 
         return {
-          create: (threadId: string, nodeId: string, threadEntity: WorkflowExecutionEntity) => {
-            const graph = threadEntity.getGraph();
+          create: (executionId: string, nodeId: string, executionEntity: WorkflowExecutionEntity) => {
+            const graph = executionEntity.getGraph();
             const navigator = new WorkflowNavigator(graph);
             const config = {
               eventManager: c.get(Identifiers.EventRegistry) as EventRegistry,
               llmCoordinator: c.get(Identifiers.LLMExecutionCoordinator) as LLMExecutionCoordinator,
-              conversationManager: conversationManagerFactory.create(threadId),
-              interruptionManager: interruptionManagerFactory.create(threadId, nodeId),
+              conversationManager: conversationManagerFactory.create(executionId),
+              interruptionManager: interruptionManagerFactory.create(executionId, nodeId),
               navigator,
               toolService: c.get(Identifiers.ToolRegistry) as ToolRegistry,
               toolContextStore: c.get(Identifiers.ToolContextStore) as ToolContextStore,
@@ -581,7 +581,7 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
   // Each workflow execution requires a separate instance of the trigger coordinator
   container
     .bind(Identifiers.TriggerCoordinator)
-    .toDynamicValue((c: IContainer): { create: (threadId: string) => TriggerCoordinator } => {
+    .toDynamicValue((c: IContainer): { create: (executionId: string) => TriggerCoordinator } => {
       const workflowExecutionRegistry = c.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry;
       const workflowRegistry = c.get(Identifiers.WorkflowRegistry) as WorkflowRegistry;
       const workflowGraphRegistry = c.get(Identifiers.WorkflowGraphRegistry) as WorkflowGraphRegistry;
@@ -590,17 +590,17 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
       const taskRegistry = c.get(Identifiers.TaskRegistry) as TaskRegistry;
       const workflowExecutionPool = c.get(Identifiers.WorkflowExecutionPool) as WorkflowExecutionPool;
       const stateManagerFactory = c.get(Identifiers.TriggerState) as {
-        create: (threadId: string) => TriggerState;
+        create: (executionId: string) => TriggerState;
       };
       const checkpointStateManager = c.get(Identifiers.CheckpointState) as CheckpointState;
       const stateTransitorFactory = c.get(Identifiers.WorkflowStateTransitor) as {
-        create: (threadId: string) => WorkflowStateTransitor;
+        create: (executionId: string) => WorkflowStateTransitor;
       };
 
       return {
-        create: (threadId: string) => {
-          const stateManager = stateManagerFactory.create(threadId);
-          const workflowStateTransitor = stateTransitorFactory.create(threadId);
+        create: (executionId: string) => {
+          const stateManager = stateManagerFactory.create(executionId);
+          const workflowStateTransitor = stateTransitorFactory.create(executionId);
           const taskQueueManager = new TaskQueue(taskRegistry, workflowExecutionPool, eventManager);
           return new TriggerCoordinator({
             workflowExecutionRegistry: workflowExecutionRegistry,
@@ -609,7 +609,7 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
             checkpointStateManager,
             workflowGraphRegistry: workflowGraphRegistry,
             eventManager,
-            threadBuilder: workflowExecutionBuilder,
+            executionBuilder: workflowExecutionBuilder,
             taskQueueManager,
             threadLifecycleCoordinator: workflowStateTransitor,
           });
@@ -647,11 +647,11 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
   // WorkflowExecutionCoordinator - Workflow Execution Coordinator Factory
   // WorkflowExecutionCoordinator is responsible for coordinating the workflow execution process and requires WorkflowExecutionEntity as a parameter.
   // Create instances using the factory pattern, with one execution coordinator per workflow execution
-  // Note: VariableCoordinator、TriggerCoordinator、InterruptionState、ToolVisibilityCoordinator、NodeExecutionCoordinator all need to be created based on threadId
+  // Note: VariableCoordinator、TriggerCoordinator、InterruptionState、ToolVisibilityCoordinator、NodeExecutionCoordinator all need to be created based on executionId
   container
     .bind(Identifiers.WorkflowExecutionCoordinator)
     .toDynamicValue(
-      (c: IContainer): { create: (threadEntity: WorkflowExecutionEntity) => WorkflowExecutionCoordinator } => {
+      (c: IContainer): { create: (executionEntity: WorkflowExecutionEntity) => WorkflowExecutionCoordinator } => {
         const variableCoordinator = c.get(Identifiers.VariableCoordinator) as VariableCoordinator;
         const workflowGraphRegistry = c.get(Identifiers.WorkflowGraphRegistry) as WorkflowGraphRegistry;
         const toolService = c.get(Identifiers.ToolRegistry) as ToolRegistry;
@@ -661,32 +661,32 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
           toolVisibilityStore,
         );
         const triggerCoordinatorFactory = c.get(Identifiers.TriggerCoordinator) as {
-          create: (threadId: string) => TriggerCoordinator;
+          create: (executionId: string) => TriggerCoordinator;
         };
         const interruptionManagerFactory = c.get(Identifiers.InterruptionState) as {
-          create: (threadId: string, nodeId: string) => InterruptionState;
+          create: (executionId: string, nodeId: string) => InterruptionState;
         };
         const nodeExecutionCoordinatorFactory = c.get(Identifiers.NodeExecutionCoordinator) as {
           create: (
-            threadId: string,
+            executionId: string,
             nodeId: string,
-            threadEntity: WorkflowExecutionEntity,
+            executionEntity: WorkflowExecutionEntity,
           ) => NodeExecutionCoordinator;
         };
 
         return {
-          create: (threadEntity: WorkflowExecutionEntity) => {
-            const threadId = threadEntity.id;
-            const nodeId = threadEntity.getCurrentNodeId();
-            const graph = threadEntity.getGraph();
+          create: (executionEntity: WorkflowExecutionEntity) => {
+            const executionId = executionEntity.id;
+            const nodeId = executionEntity.getCurrentNodeId();
+            const graph = executionEntity.getGraph();
             const navigator = new WorkflowNavigator(graph);
             return new WorkflowExecutionCoordinator(
-              threadEntity,
+              executionEntity,
               variableCoordinator,
-              triggerCoordinatorFactory.create(threadId),
-              interruptionManagerFactory.create(threadId, nodeId),
+              triggerCoordinatorFactory.create(executionId),
+              interruptionManagerFactory.create(executionId, nodeId),
               toolVisibilityCoordinator,
-              nodeExecutionCoordinatorFactory.create(threadId, nodeId, threadEntity),
+              nodeExecutionCoordinatorFactory.create(executionId, nodeId, executionEntity),
               navigator,
             );
           },
@@ -821,7 +821,7 @@ export function resetContainer(): void {
   }
   storageCallback = null;
   workflowStorageCallback = null;
-  threadStorageCallback = null;
+  taskStorageCallback = null;
 }
 
 /**

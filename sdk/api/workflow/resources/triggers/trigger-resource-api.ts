@@ -49,8 +49,8 @@ export class TriggerResourceAPI extends ReadonlyResourceAPI<Trigger, string, Tri
   protected async getResource(id: string): Promise<Trigger | null> {
     // Triggers are usually obtained through thread entities, and in this case, it is necessary to iterate through all threads.
     const threadEntities = this.registry.getAll();
-    for (const threadEntity of threadEntities) {
-      const triggerManager = threadEntity.triggerManager as { getAll: () => Trigger[] } | undefined;
+    for (const executionEntity of threadEntities) {
+      const triggerManager = executionEntity.triggerManager as { getAll: () => Trigger[] } | undefined;
       const triggers = triggerManager?.getAll() || [];
       const trigger = triggers.find((t: Trigger) => t.id === id);
       if (trigger) {
@@ -68,8 +68,8 @@ export class TriggerResourceAPI extends ReadonlyResourceAPI<Trigger, string, Tri
     const threadEntities = this.registry.getAll();
     const allTriggers: Trigger[] = [];
 
-    for (const threadEntity of threadEntities) {
-      const triggerManager = threadEntity.triggerManager as { getAll: () => Trigger[] } | undefined;
+    for (const executionEntity of threadEntities) {
+      const triggerManager = executionEntity.triggerManager as { getAll: () => Trigger[] } | undefined;
       const triggers = triggerManager?.getAll() || [];
       allTriggers.push(...triggers);
     }
@@ -101,12 +101,12 @@ export class TriggerResourceAPI extends ReadonlyResourceAPI<Trigger, string, Tri
 
   /**
    * Get all triggers for the thread
-   * @param threadId: Thread ID
+   * @param executionId: Execution ID
    * @param filter: Filter criteria
    * @returns: Array of triggers
    */
-  async getThreadTriggers(threadId: string, filter?: TriggerFilter): Promise<Trigger[]> {
-    const triggerManager = (await this.getTriggerManager(threadId)) as { getAll: () => Trigger[] };
+  async getThreadTriggers(executionId: string, filter?: TriggerFilter): Promise<Trigger[]> {
+    const triggerManager = (await this.getTriggerManager(executionId)) as { getAll: () => Trigger[] };
     let triggers = triggerManager.getAll();
 
     // Apply filter criteria
@@ -119,12 +119,12 @@ export class TriggerResourceAPI extends ReadonlyResourceAPI<Trigger, string, Tri
 
   /**
    * Get the specified trigger for a thread
-   * @param threadId: Thread ID
+   * @param executionId: Execution ID
    * @param triggerId: Trigger ID
    * @returns: Trigger object
    */
-  async getThreadTrigger(threadId: string, triggerId: string): Promise<Trigger> {
-    const triggerManager = (await this.getTriggerManager(threadId)) as {
+  async getThreadTrigger(executionId: string, triggerId: string): Promise<Trigger> {
+    const triggerManager = (await this.getTriggerManager(executionId)) as {
       get: (id: string) => Trigger | undefined;
     };
     const trigger = triggerManager.get(triggerId);
@@ -138,11 +138,11 @@ export class TriggerResourceAPI extends ReadonlyResourceAPI<Trigger, string, Tri
 
   /**
    * Enable trigger
-   * @param threadId Thread ID
+   * @param executionId Execution ID
    * @param triggerId Trigger ID
    */
-  async enableTrigger(threadId: string, triggerId: string): Promise<void> {
-    const triggerManager = (await this.getTriggerManager(threadId)) as {
+  async enableTrigger(executionId: string, triggerId: string): Promise<void> {
+    const triggerManager = (await this.getTriggerManager(executionId)) as {
       enable: (id: string) => void;
     };
     triggerManager.enable(triggerId);
@@ -150,11 +150,11 @@ export class TriggerResourceAPI extends ReadonlyResourceAPI<Trigger, string, Tri
 
   /**
    * Disable the trigger
-   * @param threadId Thread ID
+   * @param executionId Execution ID
    * @param triggerId Trigger ID
    */
-  async disableTrigger(threadId: string, triggerId: string): Promise<void> {
-    const triggerManager = (await this.getTriggerManager(threadId)) as {
+  async disableTrigger(executionId: string, triggerId: string): Promise<void> {
+    const triggerManager = (await this.getTriggerManager(executionId)) as {
       disable: (id: string) => void;
     };
     triggerManager.disable(triggerId);
@@ -162,27 +162,27 @@ export class TriggerResourceAPI extends ReadonlyResourceAPI<Trigger, string, Tri
 
   /**
    * Check if the trigger is enabled.
-   * @param threadId Thread ID
+   * @param executionId Execution ID
    * @param triggerId Trigger ID
    * @returns Whether it is enabled
    */
-  async isTriggerEnabled(threadId: string, triggerId: string): Promise<boolean> {
-    const trigger = await this.getThreadTrigger(threadId, triggerId);
+  async isTriggerEnabled(executionId: string, triggerId: string): Promise<boolean> {
+    const trigger = await this.getThreadTrigger(executionId, triggerId);
     return trigger.status === "enabled";
   }
 
   /**
    * Retrieve trigger statistics
-   * @param threadId Thread ID
+   * @param executionId Execution ID
    * @returns Statistical information
    */
-  async getTriggerStatistics(threadId: string): Promise<{
+  async getTriggerStatistics(executionId: string): Promise<{
     total: number;
     enabled: number;
     disabled: number;
     byType: Record<string, number>;
   }> {
-    const triggers = await this.getThreadTriggers(threadId);
+    const triggers = await this.getThreadTriggers(executionId);
 
     const stats = {
       total: triggers.length,
@@ -226,10 +226,10 @@ export class TriggerResourceAPI extends ReadonlyResourceAPI<Trigger, string, Tri
     };
 
     for (const context of threadContexts) {
-      const threadId = context.id;
+      const executionId = context.id;
       const triggers = (context.triggerManager as { getAll: () => Trigger[] }).getAll();
 
-      stats.byThread[threadId] = triggers.length;
+      stats.byThread[executionId] = triggers.length;
       stats.total += triggers.length;
 
       for (const trigger of triggers) {
@@ -263,12 +263,12 @@ export class TriggerResourceAPI extends ReadonlyResourceAPI<Trigger, string, Tri
 
   /**
    * Retrieve the execution history of a trigger
-   * @param threadId: Thread ID
+   * @param executionId: Execution ID
    * @param triggerId: Trigger ID
    * @returns: Array of execution histories (simplified implementation)
    */
   async getTriggerExecutionHistory(
-    threadId: string,
+    executionId: string,
     triggerId: string,
   ): Promise<
     Array<{
@@ -278,7 +278,7 @@ export class TriggerResourceAPI extends ReadonlyResourceAPI<Trigger, string, Tri
     }>
   > {
     // Simplify the implementation; in real projects, you can obtain the necessary data from the event system.
-    const trigger = await this.getThreadTrigger(threadId, triggerId);
+    const trigger = await this.getThreadTrigger(executionId, triggerId);
     return [
       {
         timestamp: now(),
@@ -290,11 +290,11 @@ export class TriggerResourceAPI extends ReadonlyResourceAPI<Trigger, string, Tri
 
   /**
    * Export thread trigger
-   * @param threadId: Thread ID
+   * @param executionId: Execution ID
    * @returns: JSON string
    */
-  async exportThreadTriggers(threadId: string): Promise<string> {
-    const triggers = await this.getThreadTriggers(threadId);
+  async exportThreadTriggers(executionId: string): Promise<string> {
+    const triggers = await this.getThreadTriggers(executionId);
     return JSON.stringify(triggers, null, 2);
   }
 
@@ -305,10 +305,10 @@ export class TriggerResourceAPI extends ReadonlyResourceAPI<Trigger, string, Tri
   /**
    * Obtain the Trigger Manager
    */
-  private async getTriggerManager(threadId: string) {
-    const threadContext = this.registry.get(threadId);
+  private async getTriggerManager(executionId: string) {
+    const threadContext = this.registry.get(executionId);
     if (!threadContext) {
-      throw new WorkflowExecutionNotFoundError(`Thread not found: ${threadId}`, threadId);
+      throw new WorkflowExecutionNotFoundError(`Workflow execution not found: ${executionId}`, executionId);
     }
     return threadContext.triggerManager;
   }

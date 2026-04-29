@@ -82,8 +82,8 @@ export interface AuditEvent {
   eventType: string;
   /** timestamp */
   timestamp: Date;
-  /** Thread ID */
-  threadId: string;
+  /** Execution ID */
+  executionId: string;
   /** Node ID */
   nodeId: string;
   /** Node Name */

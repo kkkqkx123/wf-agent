@@ -30,17 +30,17 @@ export type NodeHandlerFn = (
 export function getNodeHandler(nodeType: string): NodeHandlerFn {
   const handlers: Record<string, NodeHandlerFn> = {
     ADD_TOOL: (workflowExecutionEntity, node, context) =>
-      addToolHandler(workflowExecutionEntity.getThread(), node, context as AddToolHandlerContext),
+      addToolHandler(workflowExecutionEntity.getExecution(), node, context as AddToolHandlerContext),
     AGENT_LOOP: (workflowExecutionEntity, node, context) =>
-      agentLoopHandler(workflowExecutionEntity.getThread(), node, context as any),
+      agentLoopHandler(workflowExecutionEntity.getExecution(), node, context as any),
     CONTEXT_PROCESSOR: (workflowExecutionEntity, node, context) =>
-      contextProcessorHandler(workflowExecutionEntity.getThread(), node, context as any),
+      contextProcessorHandler(workflowExecutionEntity.getExecution(), node, context as any),
     CONTINUE_FROM_TRIGGER: continueFromTriggerHandler as NodeHandlerFn,
     END: endHandler as NodeHandlerFn,
     FORK: forkHandler as NodeHandlerFn,
     JOIN: joinHandler as NodeHandlerFn,
     LLM: (workflowExecutionEntity, node, context) =>
-      llmHandler(workflowExecutionEntity.getThread(), node, context as any),
+      llmHandler(workflowExecutionEntity.getExecution(), node, context as any),
     LOOP_END: loopEndHandler as NodeHandlerFn,
     LOOP_START: loopStartHandler as NodeHandlerFn,
     ROUTE: routeHandler as NodeHandlerFn,
@@ -48,7 +48,7 @@ export function getNodeHandler(nodeType: string): NodeHandlerFn {
     START_FROM_TRIGGER: startFromTriggerHandler as NodeHandlerFn,
     START: startHandler as NodeHandlerFn,
     USER_INTERACTION: (workflowExecutionEntity, node, context) =>
-      userInteractionHandler(workflowExecutionEntity.getThread(), node, context as any),
+      userInteractionHandler(workflowExecutionEntity.getExecution(), node, context as any),
     VARIABLE: variableHandler as NodeHandlerFn,
   };
 

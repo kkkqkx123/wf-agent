@@ -23,12 +23,12 @@ import type { WorkflowGraphRegistry } from "../../stores/workflow-graph-registry
  * SDK-specific types, ensuring type safety while avoiding circular dependencies.
  */
 export interface WorkflowToolExecutionContext {
-  /** Current thread ID */
-  threadId?: string;
+  /** Current execution ID */
+  executionId?: string;
   /** Parent thread entity */
   parentThreadEntity?: WorkflowExecutionEntity;
   /** Thread registry */
-  threadRegistry?: WorkflowExecutionRegistry;
+  executionRegistry?: WorkflowExecutionRegistry;
   /** Event manager */
   eventManager?: EventRegistry;
   /** Workflow execution builder */
@@ -106,8 +106,8 @@ export interface QueryWorkflowStatusResult {
   status?: string;
   /** Status message */
   message?: string;
-  /** Thread ID */
-  threadId?: string;
+  /** Execution ID */
+  executionId?: string;
   /** Workflow ID */
   workflowId?: string;
   /** Creation timestamp */

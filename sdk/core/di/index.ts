@@ -28,6 +28,6 @@ export {
   getStorageCallback,
   setWorkflowStorageCallback,
   getWorkflowStorageCallback,
-  setThreadStorageCallback,
-  getThreadStorageCallback,
+  setTaskStorageCallback,
+  getTaskStorageCallback,
 } from "./container-config.js";

@@ -65,27 +65,27 @@ export interface ToolContext {
  * - Scope support: Supports three scopes: THREAD, LOCAL, and GLOBAL
  */
 export class ToolContextStore {
-  /** Tool context mapping: threadId -> ToolContext */
+  /** Tool context mapping: executionId -> ToolContext */
   private contexts: Map<string, ToolContext> = new Map();
 
   /**
    * Obtain or create tool context
    */
-  private getOrCreateContext(threadId: string): ToolContext {
-    if (!this.contexts.has(threadId)) {
-      this.contexts.set(threadId, {
+  private getOrCreateContext(executionId: string): ToolContext {
+    if (!this.contexts.has(executionId)) {
+      this.contexts.set(executionId, {
         threadTools: new Map(),
         localTools: new Map(),
         globalTools: new Map(),
       });
     }
-    return this.contexts.get(threadId)!;
+    return this.contexts.get(executionId)!;
   }
 
   /**
    * Add tools to the specified scope
    *
-   * @param threadId Thread ID
+   * @param executionId Execution ID
    * @param workflowId Workflow ID
    * @param toolIds List of tool IDs
    * @param scope Tool scope
@@ -95,7 +95,7 @@ export class ToolContextStore {
    * @returns Number of tools successfully added
    */
   addTools(
-    threadId: string,
+    executionId: string,
     workflowId: ID,
     toolIds: string[],
     scope: ToolScope = "THREAD",
@@ -103,7 +103,7 @@ export class ToolContextStore {
     descriptionTemplate?: string,
     customMetadata?: Record<string, unknown>,
   ): number {
-    const context = this.getOrCreateContext(threadId);
+    const context = this.getOrCreateContext(executionId);
     let addedCount = 0;
 
     for (const toolId of toolIds) {
@@ -147,12 +147,12 @@ export class ToolContextStore {
   /**
    * Get a collection of tools for the specified scope
    *
-   * @param threadId Thread ID
+   * @param executionId Execution ID
    * @param scope Tool scope (optional; if not specified, tools for all scopes will be returned)
    * @returns Collection of tool IDs
    */
-  getTools(threadId: string, scope?: ToolScope): Set<string> {
-    const context = this.contexts.get(threadId);
+  getTools(executionId: string, scope?: ToolScope): Set<string> {
+    const context = this.contexts.get(executionId);
     if (!context) {
       return new Set();
     }
@@ -180,13 +180,13 @@ export class ToolContextStore {
   /**
    * Retrieve tool metadata
    *
-   * @param threadId Thread ID
+   * @param executionId Execution ID
    * @param toolId Tool ID
    * @param scope Tool scope (optional; if not specified, search all scopes)
    * @returns Tool metadata; returns undefined if not found
    */
-  getToolMetadata(threadId: string, toolId: string, scope?: ToolScope): ToolMetadata | undefined {
-    const context = this.contexts.get(threadId);
+  getToolMetadata(executionId: string, toolId: string, scope?: ToolScope): ToolMetadata | undefined {
+    const context = this.contexts.get(executionId);
     if (!context) {
       return undefined;
     }
@@ -213,13 +213,13 @@ export class ToolContextStore {
   /**
    * Remove Tools
    *
-   * @param threadId Thread ID
+   * @param executionId Execution ID
    * @param toolIds List of tool IDs
    * @param scope Tool scope (optional; if not specified, tools will be removed from all scopes)
    * @returns Number of tools successfully removed
    */
-  removeTools(threadId: string, toolIds: string[], scope?: ToolScope): number {
-    const context = this.contexts.get(threadId);
+  removeTools(executionId: string, toolIds: string[], scope?: ToolScope): number {
+    const context = this.contexts.get(executionId);
     if (!context) {
       return 0;
     }
@@ -266,12 +266,12 @@ export class ToolContextStore {
   /**
    * Tool for clearing a specified scope
    *
-   * @param threadId Thread ID
+   * @param executionId Execution ID
    * @param scope Tool scope (optional; if not specified, all scopes will be cleared)
    * @returns Number of tools that were cleared
    */
-  clearTools(threadId: string, scope?: ToolScope): number {
-    const context = this.contexts.get(threadId);
+  clearTools(executionId: string, scope?: ToolScope): number {
+    const context = this.contexts.get(executionId);
     if (!context) {
       return 0;
     }
@@ -306,13 +306,13 @@ export class ToolContextStore {
   /**
    * Check if the tool exists
    *
-   * @param threadId Thread ID
+   * @param executionId Execution ID
    * @param toolId Tool ID
    * @param scope Tool scope (optional; if not specified, all scopes will be checked)
    * @returns Whether the tool exists
    */
-  hasTool(threadId: string, toolId: string, scope?: ToolScope): boolean {
-    const context = this.contexts.get(threadId);
+  hasTool(executionId: string, toolId: string, scope?: ToolScope): boolean {
+    const context = this.contexts.get(executionId);
     if (!context) {
       return false;
     }
@@ -338,11 +338,11 @@ export class ToolContextStore {
   /**
    * Get a snapshot of the tool context
    *
-   * @param threadId: Thread ID
+   * @param executionId: Execution ID
    * @returns: Snapshot of the tool context
    */
-  getSnapshot(threadId: string): ToolContext | undefined {
-    const context = this.contexts.get(threadId);
+  getSnapshot(executionId: string): ToolContext | undefined {
+    const context = this.contexts.get(executionId);
     if (!context) {
       return undefined;
     }
@@ -357,11 +357,11 @@ export class ToolContextStore {
   /**
    * Recovery tool context from a snapshot
    *
-   * @param threadId: Thread ID
+   * @param executionId: Execution ID
    * @param snapshot: Tool context snapshot
    */
-  restoreSnapshot(threadId: string, snapshot: ToolContext): void {
-    this.contexts.set(threadId, {
+  restoreSnapshot(executionId: string, snapshot: ToolContext): void {
+    this.contexts.set(executionId, {
       threadTools: new Map(snapshot.threadTools),
       localTools: new Map(snapshot.localTools),
       globalTools: new Map(snapshot.globalTools),
@@ -371,10 +371,10 @@ export class ToolContextStore {
   /**
    * Delete tool context
    *
-   * @param threadId Thread ID
+   * @param executionId Execution ID
    */
-  deleteContext(threadId: string): void {
-    this.contexts.delete(threadId);
+  deleteContext(executionId: string): void {
+    this.contexts.delete(executionId);
   }
 
   /**
@@ -385,9 +385,9 @@ export class ToolContextStore {
   }
 
   /**
-   * Get all thread IDs
+   * Get all execution IDs
    *
-   * @returns List of thread IDs
+   * @returns List of execution IDs
    */
   getAllThreadIds(): string[] {
     return Array.from(this.contexts.keys());

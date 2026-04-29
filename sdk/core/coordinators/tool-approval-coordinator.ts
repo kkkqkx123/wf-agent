@@ -241,7 +241,7 @@ export class ToolApprovalCoordinator {
     try {
       await this.eventManager!.emit(
         buildUserInteractionRequestedEvent({
-          threadId: request.contextId || "",
+          executionId: request.contextId || "",
           interactionId: request.interactionId,
           operationType: "TOOL_APPROVAL" as const,
           prompt: `Approve tool call "${request.toolCall.function?.name ?? "unknown"}"?`,
@@ -271,7 +271,7 @@ export class ToolApprovalCoordinator {
     try {
       await this.eventManager!.emit(
         buildUserInteractionProcessedEvent({
-          threadId: request.contextId || "",
+          executionId: request.contextId || "",
           interactionId: request.interactionId,
           operationType: "TOOL_APPROVAL" as const,
           results: result,

@@ -83,7 +83,7 @@ function createInteractionContext(
   };
 
   return {
-    threadId: thread.id,
+    executionId: thread.id,
     workflowId: thread.workflowId,
     nodeId: node.id,
     getVariable: (variableName: string, _scope?: VariableScope) => {

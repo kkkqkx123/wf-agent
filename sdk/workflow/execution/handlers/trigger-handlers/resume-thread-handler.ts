@@ -55,19 +55,19 @@ export async function resumeThreadHandler(
       });
     }
 
-    const { threadId } = action.parameters;
+    const { executionId } = action.parameters;
 
-    const threadEntity = workflowExecutionRegistry.get(threadId);
-    if (!threadEntity) {
-      throw new WorkflowExecutionNotFoundError(`Thread not found: ${threadId}`, threadId);
+    const executionEntity = workflowExecutionRegistry.get(executionId);
+    if (!executionEntity) {
+      throw new WorkflowExecutionNotFoundError(`Workflow execution not found: ${executionId}`, executionId);
     }
 
-    threadEntity.resume();
+    executionEntity.resume();
 
     return createSuccessResult(
       triggerId,
       action,
-      { message: `Thread ${threadId} resumed successfully` },
+      { message: `Thread ${executionId} resumed successfully` },
       executionTime,
     );
   } catch (error) {

@@ -8,7 +8,7 @@ import {
   DeltaRestorer,
   createCheckpointLoader,
 } from "../../../core/utils/checkpoint/delta-restorer.js";
-import type { Checkpoint, ThreadStateSnapshot, CheckpointDelta } from "@wf-agent/types";
+import type { Checkpoint, WorkflowExecutionStateSnapshot, CheckpointDelta } from "@wf-agent/types";
 
 /**
  * Checkpoint Delta Restorer
@@ -17,7 +17,7 @@ import type { Checkpoint, ThreadStateSnapshot, CheckpointDelta } from "@wf-agent
  */
 export class DeltaCheckpointRestorer extends DeltaRestorer<
   Checkpoint,
-  ThreadStateSnapshot,
+  WorkflowExecutionStateSnapshot,
   CheckpointDelta
 > {
   constructor(
@@ -35,32 +35,32 @@ export class DeltaCheckpointRestorer extends DeltaRestorer<
   /**
    * Extract snapshot from checkpoint
    */
-  protected extractSnapshot(checkpoint: Checkpoint): ThreadStateSnapshot {
-    if (!checkpoint.threadState) {
-      throw new Error(`Checkpoint ${checkpoint.id} has no thread state`);
+  protected extractSnapshot(checkpoint: Checkpoint): WorkflowExecutionStateSnapshot {
+    if (!checkpoint.executionState) {
+      throw new Error(`Checkpoint ${checkpoint.id} has no execution state`);
     }
-    return checkpoint.threadState;
+    return checkpoint.executionState;
   }
 
   /**
    * Check if checkpoint has snapshot
    */
   protected hasSnapshot(checkpoint: Checkpoint): boolean {
-    return !!checkpoint.threadState;
+    return !!checkpoint.executionState;
   }
 
   /**
    * Extract parent ID from checkpoint
    */
   protected extractParentId(checkpoint: Checkpoint): string {
-    return checkpoint.threadId;
+    return checkpoint.executionId;
   }
 
   /**
    * Apply delta to snapshot
    */
-  protected applyDelta(snapshot: ThreadStateSnapshot, delta: CheckpointDelta): ThreadStateSnapshot {
-    const result: ThreadStateSnapshot = {
+  protected applyDelta(snapshot: WorkflowExecutionStateSnapshot, delta: CheckpointDelta): WorkflowExecutionStateSnapshot {
+    const result: WorkflowExecutionStateSnapshot = {
       ...snapshot,
       conversationState: {
         ...snapshot.conversationState,

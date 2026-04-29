@@ -99,7 +99,7 @@ export class AgentIterationExecutor {
       },
       {
         abortSignal: entity.getAbortSignal(),
-        threadId: entity.id,
+        executionId: entity.id,
         nodeId: entity.nodeId,
       },
     );

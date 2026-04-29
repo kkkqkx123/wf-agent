@@ -311,9 +311,9 @@ export class LLMWrapper {
       return;
     }
 
-    const context = request as { nodeId?: string; threadId?: string; workflowId?: string };
+    const context = request as { nodeId?: string; executionId?: string; workflowId?: string };
     const nodeId = context.nodeId;
-    const threadId = context.threadId;
+    const executionId = context.executionId;
     const workflowId = context.workflowId;
 
     // Check if it is a termination error.
@@ -339,7 +339,7 @@ export class LLMWrapper {
       this.eventManager.emit(
         buildLLMStreamAbortedEvent({
           workflowId: workflowId || "",
-          threadId: threadId || "",
+          executionId: executionId || "",
           nodeId: nodeId || "",
           reason,
         }),
@@ -351,7 +351,7 @@ export class LLMWrapper {
       this.eventManager.emit(
         buildLLMStreamErrorEvent({
           workflowId: workflowId || "",
-          threadId: threadId || "",
+          executionId: executionId || "",
           nodeId: nodeId || "",
           error: errorMessage,
         }),

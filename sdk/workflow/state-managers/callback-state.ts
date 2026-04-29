@@ -23,8 +23,8 @@ const logger = createContextualLogger({ component: "CallbackState" });
  * Callback Information Interface (Generic Version)
  */
 export interface GenericCallbackInfo<T> {
-  /** Thread ID */
-  threadId: string;
+  /** Execution ID */
+  executionId: string;
   /** Promise resolve function */
   resolve: (value: T) => void;
   /** Promise reject function */
@@ -45,39 +45,39 @@ export class CallbackState<T = unknown> {
 
   /**
    * Register callback
-   * @param threadId Thread ID
+   * @param executionId Execution ID
    * @param resolve Promise resolve function
    * @param reject Promise reject function
    * @returns Whether the registration was successful
    */
   registerCallback(
-    threadId: string,
+    executionId: string,
     resolve: (value: T) => void,
     reject: (error: Error) => void,
   ): boolean {
-    if (this.callbacks.has(threadId)) {
+    if (this.callbacks.has(executionId)) {
       return false;
     }
 
     const callbackInfo: GenericCallbackInfo<T> = {
-      threadId,
+      executionId,
       resolve,
       reject,
       registeredAt: now(),
     };
 
-    this.callbacks.set(threadId, callbackInfo);
+    this.callbacks.set(executionId, callbackInfo);
     return true;
   }
 
   /**
    * Trigger a successful callback
-   * @param threadId: Thread ID
+   * @param executionId: Execution ID
    * @param result: Execution result
    * @returns: Whether the trigger was successful
    */
-  triggerCallback(threadId: string, result: T): boolean {
-    const callbackInfo = this.callbacks.get(threadId);
+  triggerCallback(executionId: string, result: T): boolean {
+    const callbackInfo = this.callbacks.get(executionId);
     if (!callbackInfo) {
       return false;
     }
@@ -87,30 +87,30 @@ export class CallbackState<T = unknown> {
       callbackInfo.resolve(result);
 
       // Remove from the callback mapping.
-      this.callbacks.delete(threadId);
+      this.callbacks.delete(executionId);
       return true;
     } catch (error) {
       const errorObj = getErrorOrNew(error);
       const sdkError = new SDKError(
-        `Error triggering callback for thread ${threadId}`,
+        `Error triggering callback for thread ${executionId}`,
         "warning",
-        { threadId },
+        { executionId },
         errorObj,
       );
-      logError(sdkError, { threadId });
-      this.callbacks.delete(threadId);
+      logError(sdkError, { executionId });
+      this.callbacks.delete(executionId);
       return false;
     }
   }
 
   /**
    * Trigger a failure callback
-   * @param threadId: Thread ID
+   * @param executionId: Execution ID
    * @param error: Error message
    * @returns: Whether the trigger was successful
    */
-  triggerErrorCallback(threadId: string, error: Error): boolean {
-    const callbackInfo = this.callbacks.get(threadId);
+  triggerErrorCallback(executionId: string, error: Error): boolean {
+    const callbackInfo = this.callbacks.get(executionId);
     if (!callbackInfo) {
       return false;
     }
@@ -120,31 +120,31 @@ export class CallbackState<T = unknown> {
       callbackInfo.reject(error);
 
       // Remove from the callback map.
-      this.callbacks.delete(threadId);
+      this.callbacks.delete(executionId);
       return true;
     } catch (err) {
-      logger.error(`Error triggering error callback for thread ${threadId}`, { err, threadId });
-      this.callbacks.delete(threadId);
+      logger.error(`Error triggering error callback for thread ${executionId}`, { err, executionId });
+      this.callbacks.delete(executionId);
       return false;
     }
   }
 
   /**
    * Check if the callback exists
-   * @param threadId Thread ID
+   * @param executionId Execution ID
    * @returns Whether it exists
    */
-  hasCallback(threadId: string): boolean {
-    return this.callbacks.has(threadId);
+  hasCallback(executionId: string): boolean {
+    return this.callbacks.has(executionId);
   }
 
   /**
    * Retrieve callback information
-   * @param threadId: Thread ID
+   * @param executionId: Execution ID
    * @returns: Callback information
    */
-  getCallback(threadId: string): GenericCallbackInfo<T> | undefined {
-    return this.callbacks.get(threadId);
+  getCallback(executionId: string): GenericCallbackInfo<T> | undefined {
+    return this.callbacks.get(executionId);
   }
 
   /**
@@ -152,12 +152,12 @@ export class CallbackState<T = unknown> {
    */
   cleanup(): void {
     // Loop through all callbacks and call the reject function.
-    this.callbacks.forEach((callbackInfo, threadId) => {
+    this.callbacks.forEach((callbackInfo, executionId) => {
       try {
-        const error = new Error(`Callback cleanup for thread ${threadId}`);
+        const error = new Error(`Callback cleanup for thread ${executionId}`);
         callbackInfo.reject(error);
       } catch (error) {
-        logger.error(`Error cleaning up callback for thread ${threadId}`, { error, threadId });
+        logger.error(`Error cleaning up callback for thread ${executionId}`, { error, executionId });
       }
     });
 
@@ -167,23 +167,23 @@ export class CallbackState<T = unknown> {
 
   /**
    * Clean up the callbacks for the specified thread
-   * @param threadId Thread ID
+   * @param executionId Execution ID
    * @returns Whether the cleanup was successful
    */
-  cleanupCallback(threadId: string): boolean {
-    const callbackInfo = this.callbacks.get(threadId);
+  cleanupCallback(executionId: string): boolean {
+    const callbackInfo = this.callbacks.get(executionId);
     if (!callbackInfo) {
       return false;
     }
 
     try {
-      const error = new Error(`Callback cleanup for thread ${threadId}`);
+      const error = new Error(`Callback cleanup for thread ${executionId}`);
       callbackInfo.reject(error);
     } catch (error) {
-      logger.error(`Error cleaning up callback for thread ${threadId}`, { error, threadId });
+      logger.error(`Error cleaning up callback for thread ${executionId}`, { error, executionId });
     }
 
-    this.callbacks.delete(threadId);
+    this.callbacks.delete(executionId);
     return true;
   }
 
@@ -196,8 +196,8 @@ export class CallbackState<T = unknown> {
   }
 
   /**
-   * Get all thread IDs
-   * @returns Array of thread IDs
+   * Get all execution IDs
+   * @returns Array of execution IDs
    */
   getThreadIds(): string[] {
     return Array.from(this.callbacks.keys());

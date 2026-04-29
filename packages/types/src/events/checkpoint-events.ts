@@ -23,8 +23,8 @@ export interface CheckpointRestoredEvent extends BaseEvent {
   type: "CHECKPOINT_RESTORED";
   /** Checkpoint ID */
   checkpointId: ID;
-  /** Recovered thread ID */
-  threadId: ID;
+  /** Recovered execution ID */
+  executionId: ID;
   /** Checkpoint Description */
   description?: string;
 }

@@ -17,7 +17,7 @@ import { getErrorMessage } from "@wf-agent/common-utils";
 import {
   setStorageCallback,
   setWorkflowStorageCallback,
-  setThreadStorageCallback,
+  setTaskStorageCallback,
   getContainer,
 } from "../../../core/di/container-config.js";
 import * as Identifiers from "../../../core/di/service-identifiers.js";
@@ -49,8 +49,8 @@ class SDK {
     if (options?.workflowStorageCallback) {
       setWorkflowStorageCallback(options.workflowStorageCallback);
     }
-    if (options?.threadStorageCallback) {
-      setThreadStorageCallback(options.threadStorageCallback);
+    if (options?.taskStorageCallback) {
+      setTaskStorageCallback(options.taskStorageCallback);
     }
 
     // Initialize the API factory.

@@ -504,8 +504,8 @@ export class WorkflowExecutionEntity {
   // Parent-Child Thread Management ============
 
   /**
-   * Set parent thread ID
-   * @param parentId Parent thread ID
+   * Set parent execution ID
+   * @param parentId Parent execution ID
    */
   setParentThreadId(parentId: string): void {
     if (!this.workflowExecution.triggeredSubworkflowContext) {
@@ -523,16 +523,16 @@ export class WorkflowExecutionEntity {
   }
 
   /**
-   * Get parent thread ID
-   * @returns Parent thread ID or undefined
+   * Get parent execution ID
+   * @returns Parent execution ID or undefined
    */
   getParentThreadId(): string | undefined {
     return this.workflowExecution.triggeredSubworkflowContext?.parentThreadId;
   }
 
   /**
-   * Register child thread ID
-   * @param childId Child thread ID
+   * Register child execution ID
+   * @param childId Child execution ID
    */
   registerChildThread(childId: string): void {
     if (!this.workflowExecution.triggeredSubworkflowContext) {
@@ -551,8 +551,8 @@ export class WorkflowExecutionEntity {
   }
 
   /**
-   * Unregister child thread ID
-   * @param childId Child thread ID
+   * Unregister child execution ID
+   * @param childId Child execution ID
    */
   unregisterChildThread(childId: string): void {
     if (!this.workflowExecution.triggeredSubworkflowContext?.childExecutionIds) {

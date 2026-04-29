@@ -35,7 +35,7 @@ export interface AgentLoopEntityOptions {
   initialVariables?: Record<string, unknown>;
   /** Dialogue Manager */
   conversationManager?: ConversationSession;
-  /** Parent Thread ID */
+  /** Parent Execution ID */
   parentThreadId?: ID;
   /** Node ID */
   nodeId?: ID;
@@ -106,7 +106,7 @@ export class AgentLoopFactory {
       });
     }
 
-    // Set the parent Thread ID and node ID
+    // Set the parent Execution ID and node ID
     entity.parentThreadId = options.parentThreadId;
     entity.nodeId = options.nodeId;
 
@@ -130,7 +130,7 @@ export class AgentLoopFactory {
   /**
    * Register AgentLoop with parent Thread for lifecycle management
    * @param agentLoopId AgentLoop ID
-   * @param parentThreadId Parent Thread ID
+   * @param parentThreadId Parent Execution ID
    */
   private static async registerWithParentThread(
     agentLoopId: string,
@@ -138,18 +138,18 @@ export class AgentLoopFactory {
   ): Promise<void> {
     try {
       const container = getContainer();
-      const threadRegistry = container.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry;
+      const executionRegistry = container.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry;
 
-      if (threadRegistry) {
-        const threadEntity = threadRegistry.get(parentThreadId);
-        if (threadEntity) {
-          threadEntity.registerChildAgentLoop(agentLoopId);
+      if (executionRegistry) {
+        const executionEntity = executionRegistry.get(parentThreadId);
+        if (executionEntity) {
+          executionEntity.registerChildAgentLoop(agentLoopId);
           logger.debug("AgentLoop registered with parent Thread", {
             agentLoopId,
             parentThreadId,
           });
         } else {
-          logger.warn("Parent Thread not found for AgentLoop registration", {
+          logger.warn("Parent Workflow execution not found for AgentLoop registration", {
             agentLoopId,
             parentThreadId,
           });

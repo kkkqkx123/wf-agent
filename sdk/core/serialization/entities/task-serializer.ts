@@ -25,12 +25,12 @@ export interface TaskSnapshot extends SnapshotBase {
   id: string;
   /** Execution instance type (agent or thread) */
   instanceType: "agent" | "thread";
-  /** Instance ID (threadId or agentLoopId) */
+  /** Instance ID (executionId or agentLoopId) */
   instanceId: string;
   /** Workflow ID */
   workflowId: string;
-  /** Thread ID (for thread instances) */
-  threadId?: string;
+  /** Execution ID (for thread instances) */
+  executionId?: string;
   /** Task Status */
   status: TaskStatus;
   /** Submission Time */
@@ -69,7 +69,7 @@ export interface SerializedThreadResultMetadata {
  * Serialized Thread Result
  */
 export interface SerializedThreadResult {
-  /** Thread ID */
+  /** Execution ID */
   id: string;
   /** Output data */
   output: Record<string, unknown>;

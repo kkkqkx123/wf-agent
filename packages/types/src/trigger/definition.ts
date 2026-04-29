@@ -54,8 +54,8 @@ export interface Trigger {
 
   /** Associated workflow ID (runtime) */
   workflowId?: ID;
-  /** Associated thread ID (runtime) */
-  threadId?: ID;
+  /** Associated execution ID (runtime) */
+  executionId?: ID;
   /** Number of times triggered (runtime) */
   triggerCount?: number;
   /** Creation time (runtime) */

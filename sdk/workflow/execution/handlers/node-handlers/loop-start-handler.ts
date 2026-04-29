@@ -24,12 +24,12 @@ interface LoopState {
 /**
  * Check if the node can be executed.
  */
-function canExecute(threadEntity: WorkflowExecutionEntity, node: Node): boolean {
-  if (threadEntity.getStatus() !== "RUNNING") {
+function canExecute(executionEntity: WorkflowExecutionEntity, node: Node): boolean {
+  if (executionEntity.getStatus() !== "RUNNING") {
     return false;
   }
 
-  const thread = workflowExecutionEntity.getThread();
+  const thread = workflowExecutionEntity.getExecution();
   const config = node.config as LoopStartNodeConfig;
   const loopState = getLoopState(thread);
 
@@ -293,14 +293,14 @@ function updateLoopState(loopState: LoopState): void {
  * @returns: Execution result
  */
 export async function loopStartHandler(
-  threadEntity: WorkflowExecutionEntity,
+  executionEntity: WorkflowExecutionEntity,
   node: Node,
   _context?: unknown,
 ): Promise<unknown> {
-  const thread = workflowExecutionEntity.getThread();
+  const thread = workflowExecutionEntity.getExecution();
 
   // Check if it is possible to execute.
-  if (!canExecute(threadEntity, node)) {
+  if (!canExecute(executionEntity, node)) {
     return {
       nodeId: node.id,
       nodeType: node.type,

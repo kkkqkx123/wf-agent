@@ -19,56 +19,56 @@ import { now } from "@wf-agent/common-utils";
 
 /**
  * Enter the subgraph
- * @param threadEntity Thread entity
+ * @param executionEntity Thread entity
  * @param workflowId Subgraph workflow ID
  * @param parentWorkflowId Parent workflow ID
  * @param input Subgraph input
  */
 export async function enterSubgraph(
-  threadEntity: WorkflowExecutionEntity,
+  executionEntity: WorkflowExecutionEntity,
   workflowId: string,
   parentWorkflowId: string,
   input: Record<string, unknown>,
 ): Promise<void> {
-  await threadEntity.enterSubgraph(workflowId, parentWorkflowId, input);
+  await executionEntity.enterSubgraph(workflowId, parentWorkflowId, input);
 }
 
 /**
  * Exit the subgraph
- * @param threadEntity Thread entity
+ * @param executionEntity Thread entity
  */
-export async function exitSubgraph(threadEntity: WorkflowExecutionEntity): Promise<void> {
-  await threadEntity.exitSubgraph();
+export async function exitSubgraph(executionEntity: WorkflowExecutionEntity): Promise<void> {
+  await executionEntity.exitSubgraph();
 }
 
 /**
  * Get subgraph input
- * @param threadEntity Thread entity
+ * @param executionEntity Thread entity
  * @returns Subgraph input data (using the variable system)
  */
-export function getSubgraphInput(threadEntity: WorkflowExecutionEntity): Record<string, unknown> {
+export function getSubgraphInput(executionEntity: WorkflowExecutionEntity): Record<string, unknown> {
   // Using a variable system to retrieve input data
-  return threadEntity.getAllVariables();
+  return executionEntity.getAllVariables();
 }
 
 /**
  * Get the subgraph output
- * @param threadEntity Thread entity
+ * @param executionEntity Thread entity
  * @returns Subgraph output data
  */
-export function getSubgraphOutput(threadEntity: WorkflowExecutionEntity): Record<string, unknown> {
-  const subgraphContext = threadEntity.getCurrentSubgraphContext();
+export function getSubgraphOutput(executionEntity: WorkflowExecutionEntity): Record<string, unknown> {
+  const subgraphContext = executionEntity.getCurrentSubgraphContext();
   if (!subgraphContext) return {};
 
   // Get the output of the END node of the subgraph.
-  const graph = threadEntity.getGraph();
+  const graph = executionEntity.getGraph();
   const endNodes = graph.endNodeIds;
 
   for (const endNodeId of endNodes) {
     const graphNode = graph.getNode(endNodeId);
     if (graphNode?.workflowId === subgraphContext.workflowId) {
       // Find the END node of the subgraph and obtain its output.
-      const nodeResult = threadEntity.getNodeResults().find(r => r.nodeId === endNodeId);
+      const nodeResult = executionEntity.getNodeResults().find(r => r.nodeId === endNodeId);
       // Note: NodeExecutionResult doesn't have a 'data' property, so we return an empty object
       // This may need to be updated based on the actual implementation
       return {};
@@ -81,7 +81,7 @@ export function getSubgraphOutput(threadEntity: WorkflowExecutionEntity): Record
 /**
  * Create subgraph context metadata
  * @param triggerId Trigger ID (optional)
- * @param mainThreadId Main thread ID (optional)
+ * @param mainThreadId Main execution ID (optional)
  * @returns Subgraph context metadata
  */
 export function createSubgraphMetadata(

@@ -44,7 +44,7 @@ describe("Workflow Builtin Tools Handlers", () => {
 
     // Mock context
     mockContext = {
-      threadId: "test-thread-123",
+      executionId: "test-thread-123",
       parentThreadEntity: {
         id: "parent-thread-123",
         getThreadId: vi.fn(() => "parent-thread-123"),
@@ -66,7 +66,7 @@ describe("Workflow Builtin Tools Handlers", () => {
           getOutput: vi.fn(() => ({ data: "test" })),
         },
         threadResult: {
-          threadId: "subgraph-thread-456",
+          executionId: "subgraph-thread-456",
           output: { data: "test" },
           executionTime: 100,
         },
@@ -146,7 +146,7 @@ describe("Workflow Builtin Tools Handlers", () => {
       const handler = createExecuteWorkflowHandler();
 
       const invalidContext = {
-        threadId: "test-thread-123",
+        executionId: "test-thread-123",
         // parentThreadEntity is missing
       };
 
@@ -168,7 +168,7 @@ describe("Workflow Builtin Tools Handlers", () => {
       const mockTaskInfo = {
         id: "task-123",
         status: "RUNNING",
-        threadEntity: {
+        executionEntity: {
           getThreadId: vi.fn(() => "thread-456"),
           getWorkflowId: vi.fn(() => "workflow-789"),
         },
@@ -182,7 +182,7 @@ describe("Workflow Builtin Tools Handlers", () => {
 
       expect(result.success).toBe(true);
       expect(result.status).toBe("RUNNING");
-      expect(result.threadId).toBe("thread-456");
+      expect(result.executionId).toBe("thread-456");
       expect(result.workflowId).toBe("workflow-789");
       expect(mockTriggeredSubworkflowManager.getTaskStatus).toHaveBeenCalledWith("task-123");
     });

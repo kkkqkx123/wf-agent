@@ -117,7 +117,7 @@ export class WorkflowExecutionBuilder {
       const eventManager = this.getEventManager();
       logError(error, { workflowId });
       emitErrorEvent(eventManager, {
-        threadId: "",
+        executionId: "",
         workflowId,
         error,
       });
@@ -217,7 +217,7 @@ export class WorkflowExecutionBuilder {
     // Step 7: Create ConversationSession
     const conversationManager = new ConversationSession({
       eventManager: this.getEventManager(),
-      threadId: workflowExecution.id,
+      executionId: workflowExecution.id,
       workflowId: workflowGraph.workflowId,
     });
 
@@ -231,7 +231,7 @@ export class WorkflowExecutionBuilder {
       workflowExecutionEntity,
       stateCoordinator,
       conversationManager,
-      threadEntity: workflowExecutionEntity, // Backward compatibility
+      executionEntity: workflowExecutionEntity, // Backward compatibility
     };
   }
 
@@ -337,7 +337,7 @@ export class WorkflowExecutionBuilder {
       workflowExecutionEntity: copiedWorkflowExecutionEntity,
       stateCoordinator,
       conversationManager,
-      threadEntity: copiedWorkflowExecutionEntity,
+      executionEntity: copiedWorkflowExecutionEntity,
     };
   }
 
@@ -437,7 +437,7 @@ export class WorkflowExecutionBuilder {
       workflowExecutionEntity: forkWorkflowExecutionEntity,
       stateCoordinator,
       conversationManager,
-      threadEntity: forkWorkflowExecutionEntity,
+      executionEntity: forkWorkflowExecutionEntity,
     };
   }
 

@@ -28,13 +28,13 @@ export enum SubgraphMessageType {
  * Subgraph Start Data
  */
 export interface SubgraphStartData {
-  /** Subgraph thread ID */
+  /** Subgraph execution ID */
   subthreadId: string;
 
-  /** Parent thread ID */
+  /** Parent execution ID */
   parentThreadId: string;
 
-  /** Root thread ID */
+  /** Root execution ID */
   rootThreadId: string;
 
   /** Subgraph graph ID */
@@ -54,10 +54,10 @@ export interface SubgraphStartData {
  * Subgraph End Data
  */
 export interface SubgraphEndData {
-  /** Subgraph thread ID */
+  /** Subgraph execution ID */
   subthreadId: string;
 
-  /** Parent thread ID */
+  /** Parent execution ID */
   parentThreadId: string;
 
   /** Final status */
@@ -77,10 +77,10 @@ export interface SubgraphEndData {
  * Subgraph Context Inherit Data
  */
 export interface SubgraphContextInheritData {
-  /** Subgraph thread ID */
+  /** Subgraph execution ID */
   subthreadId: string;
 
-  /** Parent thread ID */
+  /** Parent execution ID */
   parentThreadId: string;
 
   /** Inherited variables */
@@ -97,10 +97,10 @@ export interface SubgraphContextInheritData {
  * Subgraph Context Return Data
  */
 export interface SubgraphContextReturnData {
-  /** Subgraph thread ID */
+  /** Subgraph execution ID */
   subthreadId: string;
 
-  /** Parent thread ID */
+  /** Parent execution ID */
   parentThreadId: string;
 
   /** Output variables to return */
@@ -114,10 +114,10 @@ export interface SubgraphContextReturnData {
  * Subgraph State Sync Data
  */
 export interface SubgraphStateSyncData {
-  /** Subgraph thread ID */
+  /** Subgraph execution ID */
   subthreadId: string;
 
-  /** Parent thread ID */
+  /** Parent execution ID */
   parentThreadId: string;
 
   /** Sync direction */

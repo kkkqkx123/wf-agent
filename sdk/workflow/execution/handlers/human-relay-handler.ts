@@ -74,8 +74,8 @@ export function createHumanRelayRequest(task: HumanRelayTask): HumanRelayRequest
     prompt: task.prompt,
     timeout: task.timeout,
     metadata: {
-      workflowId: task.threadEntity.getWorkflowId(),
-      threadId: task.workflowExecutionEntity.id,
+      workflowId: task.executionEntity.getWorkflowId(),
+      executionId: task.workflowExecutionEntity.id,
       nodeId: task.nodeId,
     },
   };
@@ -95,17 +95,17 @@ export function createHumanRelayContext(task: HumanRelayTask): HumanRelayContext
   };
 
   return {
-    threadId: task.workflowExecutionEntity.id,
-    workflowId: task.threadEntity.getWorkflowId(),
+    executionId: task.workflowExecutionEntity.id,
+    workflowId: task.executionEntity.getWorkflowId(),
     nodeId: task.nodeId,
     getVariable: (variableName: string) => {
-      return task.threadEntity.getVariable(variableName);
+      return task.executionEntity.getVariable(variableName);
     },
     setVariable: async (variableName: string, value: unknown) => {
-      task.threadEntity.setVariable(variableName, value);
+      task.executionEntity.setVariable(variableName, value);
     },
     getVariables: () => {
-      return task.threadEntity.getAllVariables();
+      return task.executionEntity.getAllVariables();
     },
     timeout: task.timeout,
     cancelToken,
@@ -125,8 +125,8 @@ export async function emitHumanRelayRequestedEvent(
 ): Promise<void> {
   await eventManager.emit(
     buildHumanRelayRequestedEvent({
-      workflowId: task.threadEntity.getWorkflowId(),
-      threadId: task.workflowExecutionEntity.id,
+      workflowId: task.executionEntity.getWorkflowId(),
+      executionId: task.workflowExecutionEntity.id,
       requestId: request.requestId,
       prompt: request.prompt,
       messageCount: request.messages.length,
@@ -148,8 +148,8 @@ export async function emitHumanRelayRespondedEvent(
 ): Promise<void> {
   await eventManager.emit(
     buildHumanRelayRespondedEvent({
-      workflowId: task.threadEntity.getWorkflowId(),
-      threadId: task.workflowExecutionEntity.id,
+      workflowId: task.executionEntity.getWorkflowId(),
+      executionId: task.workflowExecutionEntity.id,
       requestId: response.requestId,
       content: response.content,
     }),
@@ -171,8 +171,8 @@ export async function emitHumanRelayProcessedEvent(
 ): Promise<void> {
   await eventManager.emit(
     buildHumanRelayProcessedEvent({
-      workflowId: task.threadEntity.getWorkflowId(),
-      threadId: task.workflowExecutionEntity.id,
+      workflowId: task.executionEntity.getWorkflowId(),
+      executionId: task.workflowExecutionEntity.id,
       requestId: task.requestId,
       message: {
         role: message.role,
@@ -197,8 +197,8 @@ export async function emitHumanRelayFailedEvent(
 ): Promise<void> {
   await eventManager.emit(
     buildHumanRelayFailedEvent({
-      workflowId: task.threadEntity.getWorkflowId(),
-      threadId: task.workflowExecutionEntity.id,
+      workflowId: task.executionEntity.getWorkflowId(),
+      executionId: task.workflowExecutionEntity.id,
       requestId: task.requestId,
       reason: getErrorMessage(error),
     }),
@@ -263,8 +263,8 @@ export function convertToLLMMessage(
     metadata: {
       source: "human-relay",
       nodeId: task.nodeId,
-      workflowId: task.threadEntity.getWorkflowId(),
-      threadId: task.workflowExecutionEntity.id,
+      workflowId: task.executionEntity.getWorkflowId(),
+      executionId: task.workflowExecutionEntity.id,
     },
   };
 }
@@ -284,7 +284,7 @@ export async function executeHumanRelay(
   messages: LLMMessage[],
   prompt: string,
   timeout: number,
-  threadEntity: WorkflowExecutionEntity,
+  executionEntity: WorkflowExecutionEntity,
   eventManager: EventRegistry,
   humanRelayHandler: HumanRelayHandler,
   nodeId: string,
@@ -296,8 +296,8 @@ export async function executeHumanRelay(
     messages,
     prompt,
     timeout,
-    threadEntity,
-    workflowExecutionEntity: threadEntity,
+    executionEntity,
+    workflowExecutionEntity: executionEntity,
     requestId,
     nodeId,
   };

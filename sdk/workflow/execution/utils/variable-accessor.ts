@@ -47,9 +47,9 @@ export type VariableNamespace =
 export class VariableAccessor {
   /**
    * Constructor
-   * @param threadEntity Thread entity
+   * @param executionEntity Thread entity
    */
-  constructor(private readonly threadEntity: WorkflowExecutionEntity) {}
+  constructor(private readonly executionEntity: WorkflowExecutionEntity) {}
 
   /**
    * 获取变量值
@@ -125,7 +125,7 @@ export class VariableAccessor {
    * @returns The value
    */
   private getFromInput(path: string): unknown {
-    const input = this.threadEntity.getInput();
+    const input = this.executionEntity.getInput();
     if (!path) {
       return input;
     }
@@ -138,7 +138,7 @@ export class VariableAccessor {
    * @returns The value
    */
   private getFromOutput(path: string): unknown {
-    const output = this.threadEntity.getOutput();
+    const output = this.executionEntity.getOutput();
     if (!path) {
       return output;
     }
@@ -152,7 +152,7 @@ export class VariableAccessor {
    * @returns Value
    */
   private getFromScope(path: string, scope: VariableScope): unknown {
-    const thread = this.threadEntity.getThread();
+    const thread = this.executionEntity.getExecution();
     const scopes = thread.variableScopes;
 
     let scopeData: Record<string, unknown> | undefined;
@@ -218,7 +218,7 @@ export class VariableAccessor {
       return undefined;
     }
 
-    const rootValue = this.threadEntity.getVariable(rootVarName);
+    const rootValue = this.executionEntity.getVariable(rootVarName);
 
     if (rootValue === undefined) {
       return undefined;

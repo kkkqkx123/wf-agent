@@ -56,11 +56,11 @@ describe("Predefined Triggers -predefined triggers", () => {
     // Get instances from container
     const container = initializeContainer(mockStorageCallback);
     graphRegistry = container.get(Identifiers.WorkflowGraphRegistry);
-    threadRegistry = container.get(Identifiers.WorkflowExecutionRegistry);
+    executionRegistry = container.get(Identifiers.WorkflowExecutionRegistry);
 
     // Create registries with proper dependencies
     triggerRegistry = new TriggerTemplateRegistry();
-    workflowRegistry = new WorkflowRegistry({}, threadRegistry);
+    workflowRegistry = new WorkflowRegistry({}, executionRegistry);
   });
 
   afterEach(() => {

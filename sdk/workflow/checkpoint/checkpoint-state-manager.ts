@@ -37,7 +37,7 @@ const logger = createContextualLogger({ operation: "checkpoint-state-manager" })
  */
 function extractStorageMetadata(checkpoint: Checkpoint): CheckpointStorageMetadata {
   return {
-    threadId: checkpoint.threadId,
+    executionId: checkpoint.executionId,
     workflowId: checkpoint.workflowId,
     timestamp: checkpoint.timestamp,
     tags: checkpoint.metadata?.tags,
@@ -157,7 +157,7 @@ export class CheckpointState implements LifecycleCapable<void> {
   async cleanupWorkflowExecutionCheckpoints(workflowExecutionId: string): Promise<number> {
     logger.info("Cleaning up workflow execution checkpoints", { workflowExecutionId });
 
-    const checkpointIds = await this.storageCallback.list({ threadId: workflowExecutionId });
+    const checkpointIds = await this.storageCallback.list({ executionId: workflowExecutionId });
 
     for (const checkpointId of checkpointIds) {
       await this.delete(checkpointId, "cleanup");
@@ -174,7 +174,7 @@ export class CheckpointState implements LifecycleCapable<void> {
    * @returns Checkpoint ID
    */
   async create(checkpointData: Checkpoint): Promise<string> {
-    const workflowExecutionId = checkpointData.threadId;
+    const workflowExecutionId = checkpointData.executionId;
     const checkpointId = checkpointData.id;
 
     logger.debug("Creating checkpoint", {
@@ -195,7 +195,7 @@ export class CheckpointState implements LifecycleCapable<void> {
 
       // Trigger the checkpoint creation event.
       const createdEvent = buildCheckpointCreatedEvent({
-        threadId: checkpointData.threadId,
+        executionId: checkpointData.executionId,
         checkpointId,
         workflowId: checkpointData.workflowId,
         description: checkpointData.metadata?.description,
@@ -220,13 +220,13 @@ export class CheckpointState implements LifecycleCapable<void> {
 
           // Record error logs
           logError(stateManagementError, {
-            threadId: checkpointData.threadId,
+            executionId: checkpointData.executionId,
             workflowId: checkpointData.workflowId,
           });
 
           // Trigger an error event
           await emitErrorEvent(this.eventManager, {
-            threadId: checkpointData.threadId,
+            executionId: checkpointData.executionId,
             workflowId: checkpointData.workflowId,
             error: stateManagementError,
           });
@@ -239,7 +239,7 @@ export class CheckpointState implements LifecycleCapable<void> {
     } catch (error) {
       // Triggering a checkpoint failure event.
       const failedEvent = buildCheckpointFailedEvent({
-        threadId: checkpointData.threadId,
+        executionId: checkpointData.executionId,
         operation: "create",
         error: getErrorOrNew(error),
         checkpointId: checkpointData.id,
@@ -273,7 +273,7 @@ export class CheckpointState implements LifecycleCapable<void> {
     const storageOptions: import("@wf-agent/types").CheckpointStorageListOptions | undefined =
       options
         ? {
-            threadId: options.parentId as string,
+            executionId: options.parentId as string,
             tags: options.tags,
             limit: options.limit,
             offset: options.offset,
@@ -300,12 +300,12 @@ export class CheckpointState implements LifecycleCapable<void> {
       await this.storageCallback.delete(checkpointId);
       this.checkpointSizes.delete(checkpointId);
 
-      logger.info("Checkpoint deleted", { checkpointId, reason, threadId: checkpoint?.threadId });
+      logger.info("Checkpoint deleted", { checkpointId, reason, executionId: checkpoint?.executionId });
 
       // Trigger a checkpoint deletion event
       if (checkpoint) {
         const deletedEvent = buildCheckpointDeletedEvent({
-          threadId: checkpoint.threadId,
+          executionId: checkpoint.executionId,
           checkpointId,
           workflowId: checkpoint.workflowId,
           reason,
@@ -315,7 +315,7 @@ export class CheckpointState implements LifecycleCapable<void> {
     } catch (error) {
       // Triggering a checkpoint failure event.
       const failedEvent = buildCheckpointFailedEvent({
-        threadId: "",
+        executionId: "",
         operation: "delete",
         error: getErrorOrNew(error),
         checkpointId,

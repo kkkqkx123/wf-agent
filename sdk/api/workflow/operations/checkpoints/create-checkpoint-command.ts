@@ -27,8 +27,8 @@ import { WorkflowExecutionNotFoundError } from "@wf-agent/types";
  * Create Checkpoint Command Parameters
  */
 export interface CreateCheckpointParams {
-  /** Thread ID */
-  threadId: string;
+  /** Execution ID */
+  executionId: string;
   /** Checkpoint metadata */
   metadata?: CheckpointMetadata;
 }
@@ -37,7 +37,7 @@ export interface CreateCheckpointParams {
  * Create Checkpoint Command
  *
  * Workflow:
- * 1. Validate parameters (threadId required)
+ * 1. Validate parameters (executionId required)
  * 2. Get WorkflowExecutionEntity from WorkflowExecutionRegistry
  * 3. Call CheckpointCoordinator to create checkpoint
  * 4. Return the checkpoint ID
@@ -51,28 +51,28 @@ export class CreateCheckpointCommand extends BaseCommand<string> {
   }
 
   protected async executeInternal(): Promise<string> {
-    const threadRegistry = this.dependencies.getThreadRegistry();
+    const executionRegistry = this.dependencies.getWorkflowExecutionRegistry();
     const checkpointStateManager = this.dependencies.getCheckpointStateManager();
     const workflowRegistry = this.dependencies.getWorkflowRegistry();
-    const graphRegistry = this.dependencies.getGraphRegistry();
+    const graphRegistry = this.dependencies.getWorkflowGraphRegistry();
 
-    const threadEntity = threadRegistry.get(this.params.threadId);
-    if (!threadEntity) {
+    const executionEntity = executionRegistry.get(this.params.executionId);
+    if (!executionEntity) {
       throw new WorkflowExecutionNotFoundError(
-        `Thread not found: ${this.params.threadId}`,
-        this.params.threadId,
+        `Workflow execution not found: ${this.params.executionId}`,
+        this.params.executionId,
       );
     }
 
     const dependencies = {
-      workflowExecutionRegistry: threadRegistry as unknown as import("../../../../workflow/stores/workflow-execution-registry.js").WorkflowExecutionRegistry,
+      workflowExecutionRegistry: executionRegistry as unknown as import("../../../../workflow/stores/workflow-execution-registry.js").WorkflowExecutionRegistry,
       checkpointStateManager,
       workflowRegistry,
       workflowGraphRegistry: graphRegistry,
     };
 
     const checkpointId = await CheckpointCoordinator.createCheckpoint(
-      this.params.threadId,
+      this.params.executionId,
       dependencies,
       this.params.metadata,
     );
@@ -83,8 +83,8 @@ export class CreateCheckpointCommand extends BaseCommand<string> {
   validate(): CommandValidationResult {
     const errors: string[] = [];
 
-    if (!this.params.threadId || this.params.threadId.trim().length === 0) {
-      errors.push("threadId must be provided");
+    if (!this.params.executionId || this.params.executionId.trim().length === 0) {
+      errors.push("executionId must be provided");
     }
 
     return errors.length > 0 ? validationFailure(errors) : validationSuccess();

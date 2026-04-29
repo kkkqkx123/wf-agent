@@ -53,16 +53,16 @@ export async function setVariableHandler(
       });
     }
 
-    const { threadId, variables } = action.parameters;
+    const { executionId, variables } = action.parameters;
 
-    const threadEntity = workflowExecutionRegistry.get(threadId);
+    const executionEntity = workflowExecutionRegistry.get(executionId);
 
-    if (!threadEntity) {
-      throw new WorkflowExecutionNotFoundError(`WorkflowExecutionEntity not found: ${threadId}`, threadId);
+    if (!executionEntity) {
+      throw new WorkflowExecutionNotFoundError(`WorkflowExecutionEntity not found: ${executionId}`, executionId);
     }
 
     for (const [name, value] of Object.entries(variables)) {
-      threadEntity.setVariable(name, value);
+      executionEntity.setVariable(name, value);
     }
 
     const executionTime = diffTimestamp(startTime, now());
@@ -70,7 +70,7 @@ export async function setVariableHandler(
     return createSuccessResult(
       triggerId,
       action,
-      { message: `Variables updated successfully in thread ${threadId}`, variables },
+      { message: `Variables updated successfully in thread ${executionId}`, variables },
       executionTime,
     );
   } catch (error) {

@@ -65,13 +65,13 @@ export interface JoinResult {
  * Fork Operation - Creates a child thread
  * @param parentThreadEntity: Parent thread entity
  * @param forkConfig: Fork configuration
- * @param threadBuilder: Thread builder
+ * @param executionBuilder: Thread builder
  * @returns: Child thread entity
  */
 export async function fork(
   parentThreadEntity: WorkflowExecutionEntity,
   forkConfig: ForkConfig,
-  threadBuilder: WorkflowExecutionBuilder,
+  executionBuilder: WorkflowExecutionBuilder,
   eventManager?: EventRegistry,
 ): Promise<WorkflowExecutionEntity> {
   // Step 1: Verify the Fork configuration
@@ -93,7 +93,7 @@ export async function fork(
 
   // Trigger the WORKFLOW_EXECUTION_FORK_STARTED event
   const forkStartedEvent = buildWorkflowExecutionForkStartedEvent({
-    threadId: parentThreadEntity.id,
+    executionId: parentThreadEntity.id,
     workflowId: parentThreadEntity.getWorkflowId(),
     parentExecutionId: parentThreadEntity.id,
     forkConfig: forkConfig as unknown as Record<string, unknown>,
@@ -101,7 +101,7 @@ export async function fork(
   await safeEmit(eventManager, forkStartedEvent);
 
   // Step 2: Create a child thread
-  const { threadEntity: childThreadEntity } = await threadBuilder.createFork(parentThreadEntity, {
+  const { executionEntity: childThreadEntity } = await executionBuilder.createFork(parentThreadEntity, {
     forkId: forkConfig.forkId,
     forkPathId: forkConfig.forkPathId,
     startNodeId: forkConfig.startNodeId,
@@ -109,7 +109,7 @@ export async function fork(
 
   // Trigger the WORKFLOW_EXECUTION_FORK_COMPLETED event
   const forkCompletedEvent = buildWorkflowExecutionForkCompletedEvent({
-    threadId: parentThreadEntity.id,
+    executionId: parentThreadEntity.id,
     workflowId: parentThreadEntity.getWorkflowId(),
     parentExecutionId: parentThreadEntity.id,
     childExecutionIds: [childThreadEntity.id],
@@ -130,7 +130,7 @@ export async function fork(
  *
  * @param childThreadIds 子线程 ID 数组
  * @param joinStrategy Join 策略
- * @param threadRegistry Thread 注册表
+ * @param executionRegistry Thread 注册表
  * @param timeout 超时时间（秒），0 表示不超时，>0 表示超时的秒数
  * @param parentThreadId 父线程 ID（可选）
  * @param eventManager 事件管理器（可选）
@@ -164,7 +164,7 @@ export async function join(
     const parentThreadEntity = workflowExecutionRegistry.get(parentThreadId);
     if (parentThreadEntity) {
       const joinStartedEvent = buildWorkflowExecutionJoinStartedEvent({
-        threadId: parentThreadEntity.id,
+        executionId: parentThreadEntity.id,
         workflowId: parentThreadEntity.getWorkflowId(),
         parentExecutionId: parentThreadEntity.id,
         childExecutionIds: childThreadIds,
@@ -214,7 +214,7 @@ export async function join(
 
       if (!mainThread) {
         throw new ExecutionError(
-          `Main thread not found for mainPathId: ${mainPathId}`,
+          `Main workflow execution not found for mainPathId: ${mainPathId}`,
           undefined,
           parentThreadId,
           { mainPathId, completedThreadIds: completedThreads.map(t => t.id) },
@@ -224,7 +224,7 @@ export async function join(
       const mainThreadEntity = workflowExecutionRegistry.get(mainThread.id);
       if (!mainThreadEntity) {
         throw new ExecutionError(
-          `Main thread entity not found for threadId: ${mainThread.id}`,
+          `Main thread entity not found for executionId: ${mainThread.id}`,
           undefined,
           parentThreadId,
           { mainPathId, mainThreadId: mainThread.id },
@@ -265,12 +265,12 @@ export async function join(
 /**
  * Copy Operation - Creates a copy of a thread
  * @param sourceThreadEntity: The source thread entity
- * @param threadBuilder: The thread builder
+ * @param executionBuilder: The thread builder
  * @returns: The copied thread entity
  */
 export async function copy(
   sourceThreadEntity: WorkflowExecutionEntity,
-  threadBuilder: WorkflowExecutionBuilder,
+  executionBuilder: WorkflowExecutionBuilder,
   eventManager?: EventRegistry,
 ): Promise<WorkflowExecutionEntity> {
   // Step 1: Verify that the source thread exists.
@@ -280,18 +280,18 @@ export async function copy(
 
   // Trigger the WORKFLOW_EXECUTION_COPY_STARTED event
   const copyStartedEvent = buildWorkflowExecutionCopyStartedEvent({
-    threadId: sourceThreadEntity.id,
+    executionId: sourceThreadEntity.id,
     workflowId: sourceThreadEntity.getWorkflowId(),
     sourceExecutionId: sourceThreadEntity.id,
   });
   await safeEmit(eventManager, copyStartedEvent);
 
   // Step 2: Call WorkflowExecutionBuilder to create a new thread
-  const { threadEntity: copiedThreadEntity } = await threadBuilder.createCopy(sourceThreadEntity);
+  const { executionEntity: copiedThreadEntity } = await executionBuilder.createCopy(sourceThreadEntity);
 
   // Trigger the WORKFLOW_EXECUTION_COPY_COMPLETED event.
   const copyCompletedEvent = buildWorkflowExecutionCopyCompletedEvent({
-    threadId: sourceThreadEntity.id,
+    executionId: sourceThreadEntity.id,
     workflowId: sourceThreadEntity.getWorkflowId(),
     sourceExecutionId: sourceThreadEntity.id,
     copiedExecutionId: copiedThreadEntity.id,
@@ -303,9 +303,9 @@ export async function copy(
 
 /**
  * Wait for child threads to complete
- * @param childThreadIds Array of child thread IDs
+ * @param childThreadIds Array of child execution IDs
  * @param joinStrategy Join strategy
- * @param threadRegistry Thread registry
+ * @param executionRegistry Thread registry
  * @param timeout Timeout period in milliseconds
  * @returns Array of completed and failed threads
  */
@@ -340,11 +340,11 @@ async function waitForCompletion(
       // Wait for all threads to complete.
       await waitForMultipleThreadsCompleted(eventManager, childThreadIds, timeout);
       // Collect all completed threads.
-      for (const threadId of childThreadIds) {
-        const threadEntity = workflowExecutionRegistry.get(threadId);
-        if (threadEntity) {
-          const thread = threadEntity.getThread();
-          const status = threadEntity.getStatus();
+      for (const executionId of childThreadIds) {
+        const executionEntity = workflowExecutionRegistry.get(executionId);
+        if (executionEntity) {
+          const thread = executionEntity.getExecution();
+          const status = executionEntity.getStatus();
           if (status === "COMPLETED") {
             completedThreads.push(thread);
           } else if (status === "FAILED" || status === "CANCELLED") {
@@ -359,11 +359,11 @@ async function waitForCompletion(
       // Wait for any thread to complete.
       await waitForAnyThreadCompleted(eventManager, childThreadIds, timeout);
       // Collected threads
-      for (const threadId of childThreadIds) {
-        const threadEntity = workflowExecutionRegistry.get(threadId);
-        if (threadEntity) {
-          const thread = threadEntity.getThread();
-          const status = threadEntity.getStatus();
+      for (const executionId of childThreadIds) {
+        const executionEntity = workflowExecutionRegistry.get(executionId);
+        if (executionEntity) {
+          const thread = executionEntity.getExecution();
+          const status = executionEntity.getStatus();
           if (status === "COMPLETED") {
             completedThreads.push(thread);
           } else if (status === "FAILED" || status === "CANCELLED") {
@@ -379,11 +379,11 @@ async function waitForCompletion(
       // Waiting for all threads to fail.
       await waitForMultipleThreadsCompleted(eventManager, childThreadIds, timeout);
       // Collect all failed threads.
-      for (const threadId of childThreadIds) {
-        const threadEntity = workflowExecutionRegistry.get(threadId);
-        if (threadEntity) {
-          const thread = threadEntity.getThread();
-          const status = threadEntity.getStatus();
+      for (const executionId of childThreadIds) {
+        const executionEntity = workflowExecutionRegistry.get(executionId);
+        if (executionEntity) {
+          const thread = executionEntity.getExecution();
+          const status = executionEntity.getStatus();
           if (status === "FAILED" || status === "CANCELLED") {
             failedThreads.push(thread);
           } else if (status === "COMPLETED") {
@@ -398,11 +398,11 @@ async function waitForCompletion(
       // Waiting for any thread to fail
       await waitForAnyThreadCompletion(eventManager, childThreadIds, timeout);
       // Collect all thread states
-      for (const threadId of childThreadIds) {
-        const threadEntity = workflowExecutionRegistry.get(threadId);
-        if (threadEntity) {
-          const thread = threadEntity.getThread();
-          const status = threadEntity.getStatus();
+      for (const executionId of childThreadIds) {
+        const executionEntity = workflowExecutionRegistry.get(executionId);
+        if (executionEntity) {
+          const thread = executionEntity.getExecution();
+          const status = executionEntity.getStatus();
           if (status === "COMPLETED") {
             completedThreads.push(thread);
           } else if (status === "FAILED" || status === "CANCELLED") {
@@ -418,11 +418,11 @@ async function waitForCompletion(
       // Wait for any thread to complete (simplified approach)
       await waitForAnyThreadCompleted(eventManager, childThreadIds, timeout);
       // Collect all thread states
-      for (const threadId of childThreadIds) {
-        const threadEntity = workflowExecutionRegistry.get(threadId);
-        if (threadEntity) {
-          const thread = threadEntity.getThread();
-          const status = threadEntity.getStatus();
+      for (const executionId of childThreadIds) {
+        const executionEntity = workflowExecutionRegistry.get(executionId);
+        if (executionEntity) {
+          const thread = executionEntity.getExecution();
+          const status = executionEntity.getStatus();
           if (status === "COMPLETED") {
             completedThreads.push(thread);
           } else if (status === "FAILED" || status === "CANCELLED") {
@@ -445,7 +445,7 @@ async function waitForCompletion(
     const parentThreadEntity = workflowExecutionRegistry.get(parentThreadId);
     if (parentThreadEntity) {
       const joinConditionMetEvent = buildWorkflowExecutionJoinConditionMetEvent({
-        threadId: parentThreadEntity.id,
+        executionId: parentThreadEntity.id,
         workflowId: parentThreadEntity.getWorkflowId(),
         parentExecutionId: parentThreadEntity.id,
         childExecutionIds: childThreadIds,
@@ -482,20 +482,20 @@ async function waitForCompletionByPolling(
   // Enter the waiting loop
   while (pendingThreads.size > 0) {
     // Check the status of the sub-thread.
-    for (const threadId of Array.from(pendingThreads)) {
-      const threadEntity = workflowExecutionRegistry.get(threadId);
-      if (!threadEntity) {
+    for (const executionId of Array.from(pendingThreads)) {
+      const executionEntity = workflowExecutionRegistry.get(executionId);
+      if (!executionEntity) {
         continue;
       }
 
-      const thread = threadEntity.getThread();
-      const status = threadEntity.getStatus();
+      const thread = executionEntity.getExecution();
+      const status = executionEntity.getStatus();
       if (status === "COMPLETED") {
         completedThreads.push(thread);
-        pendingThreads.delete(threadId);
+        pendingThreads.delete(executionId);
       } else if (status === "FAILED" || status === "CANCELLED") {
         failedThreads.push(thread);
-        pendingThreads.delete(threadId);
+        pendingThreads.delete(executionId);
       }
     }
 
@@ -522,7 +522,7 @@ async function waitForCompletionByPolling(
     const parentThreadEntity = workflowExecutionRegistry.get(parentThreadId);
     if (parentThreadEntity) {
       const joinConditionMetEvent = buildWorkflowExecutionJoinConditionMetEvent({
-        threadId: parentThreadEntity.id,
+        executionId: parentThreadEntity.id,
         workflowId: parentThreadEntity.getWorkflowId(),
         parentExecutionId: parentThreadEntity.id,
         childExecutionIds: childThreadIds,
@@ -540,7 +540,7 @@ async function waitForCompletionByPolling(
  * Verify whether the Join strategy is satisfied
  * @param completedThreads: Array of completed threads
  * @param failedThreads: Array of failed threads
- * @param childThreadIds: Array of child thread IDs
+ * @param childThreadIds: Array of child execution IDs
  * @param joinStrategy: The Join strategy
  * @returns: Whether the strategy is satisfied
  */
@@ -571,7 +571,7 @@ function validateJoinStrategy(
  * Determine whether to exit the waiting state
  * @param completedThreads: Array of completed threads
  * @param failedThreads: Array of failed threads
- * @param childThreadIds: Array of child thread IDs
+ * @param childThreadIds: Array of child execution IDs
  * @param joinStrategy: Join strategy
  * @param pendingCount: Number of pending threads
  * @returns: Whether it is time to exit

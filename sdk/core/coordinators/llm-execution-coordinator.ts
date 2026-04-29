@@ -45,7 +45,7 @@ const logger = createContextualLogger();
  * LLM Execution Params
  */
 export interface LLMExecutionParams {
-  /** Execution context ID (thread ID, session ID, etc.) */
+  /** Execution context ID (execution ID, session ID, etc.) */
   contextId: string;
   /** Prompt text */
   prompt: string;
@@ -240,7 +240,7 @@ export class LLMExecutionCoordinator {
         parameters: parameters || {},
         tools: availableToolSchemas as ToolSchema[],
       },
-      { abortSignal, threadId: contextId, nodeId },
+      { abortSignal, executionId: contextId, nodeId },
     );
 
     // Check if it's an interruption state
@@ -336,7 +336,7 @@ export class LLMExecutionCoordinator {
   ): Promise<void> {
     try {
       const event = buildMessageAddedEvent({
-        threadId: contextId,
+        executionId: contextId,
         role: message.role,
         content: message.content,
         nodeId,
@@ -359,7 +359,7 @@ export class LLMExecutionCoordinator {
   ): Promise<void> {
     try {
       const event = buildTokenUsageWarningEvent({
-        threadId: contextId,
+        executionId: contextId,
         tokensUsed,
         tokenLimit,
         usagePercentage,
@@ -382,7 +382,7 @@ export class LLMExecutionCoordinator {
   ): Promise<void> {
     try {
       const event = buildConversationStateChangedEvent({
-        threadId: contextId,
+        executionId: contextId,
         messageCount,
         tokenUsage,
         nodeId,

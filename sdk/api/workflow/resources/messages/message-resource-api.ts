@@ -14,8 +14,8 @@ import * as Identifiers from "../../../../core/di/service-identifiers.js";
  * Message Filter
  */
 export interface MessageFilter {
-  /** Thread ID */
-  threadId?: string;
+  /** Execution ID */
+  executionId?: string;
   /** Role Filtering */
   role?: string;
   /** Content Keywords */
@@ -62,10 +62,10 @@ export class MessageResourceAPI extends ReadonlyResourceAPI<LLMMessage, string, 
   protected async getResource(id: string): Promise<LLMMessage | null> {
     // Messages are usually obtained through thread entities, and here it is necessary to iterate through all threads.
     const threadEntities = this.registry.getAll();
-    for (const threadEntity of threadEntities) {
-      const messages = threadEntity.getMessages() || [];
+    for (const executionEntity of threadEntities) {
+      const messages = executionEntity.getMessages() || [];
       const message = messages.find(
-        (m: LLMMessage, index: number) => `${threadEntity.id}-${index}` === id,
+        (m: LLMMessage, index: number) => `${executionEntity.id}-${index}` === id,
       );
       if (message) {
         return message;
@@ -82,8 +82,8 @@ export class MessageResourceAPI extends ReadonlyResourceAPI<LLMMessage, string, 
     const threadEntities = this.registry.getAll();
     const allMessages: LLMMessage[] = [];
 
-    for (const threadEntity of threadEntities) {
-      const messages = threadEntity.getMessages() || [];
+    for (const executionEntity of threadEntities) {
+      const messages = executionEntity.getMessages() || [];
       allMessages.push(...messages);
     }
 
@@ -94,7 +94,7 @@ export class MessageResourceAPI extends ReadonlyResourceAPI<LLMMessage, string, 
    * Apply filter criteria
    */
   protected override applyFilter(messages: LLMMessage[], filter: MessageFilter): LLMMessage[] {
-    // Since LLMMessage does not have a thread ID or timestamp, it is only possible to filter by role and content.
+    // Since LLMMessage does not have a execution ID or timestamp, it is only possible to filter by role and content.
     return messages.filter(message => {
       if (filter.role && message.role !== filter.role) {
         return false;
@@ -116,24 +116,24 @@ export class MessageResourceAPI extends ReadonlyResourceAPI<LLMMessage, string, 
 
   /**
    * Get thread message list
-   * @param threadId Thread ID
+   * @param executionId Execution ID
    * @param limit Limit on the number of messages to return
    * @param offset Offset for starting the message retrieval
    * @param orderBy Sorting method
    * @returns Array of messages
    */
   async getThreadMessages(
-    threadId: string,
+    executionId: string,
     limit?: number,
     offset?: number,
     orderBy: "asc" | "desc" = "asc",
   ): Promise<LLMMessage[]> {
-    const threadEntity = this.registry.get(threadId);
-    if (!threadEntity) {
-      throw new WorkflowExecutionNotFoundError(`Thread not found: ${threadId}`, threadId);
+    const executionEntity = this.registry.get(executionId);
+    if (!executionEntity) {
+      throw new WorkflowExecutionNotFoundError(`Workflow execution not found: ${executionId}`, executionId);
     }
 
-    let messages = threadEntity.getMessages() || [];
+    let messages = executionEntity.getMessages() || [];
 
     // Apply sorting
     if (orderBy === "desc") {
@@ -152,33 +152,33 @@ export class MessageResourceAPI extends ReadonlyResourceAPI<LLMMessage, string, 
 
   /**
    * Get the last N messages
-   * @param threadId Thread ID
+   * @param executionId Execution ID
    * @param count Number of messages
    * @returns Array of messages
    */
-  async getRecentMessages(threadId: string, count: number): Promise<LLMMessage[]> {
-    const threadEntity = this.registry.get(threadId);
-    if (!threadEntity) {
-      throw new WorkflowExecutionNotFoundError(`Thread not found: ${threadId}`, threadId);
+  async getRecentMessages(executionId: string, count: number): Promise<LLMMessage[]> {
+    const executionEntity = this.registry.get(executionId);
+    if (!executionEntity) {
+      throw new WorkflowExecutionNotFoundError(`Workflow execution not found: ${executionId}`, executionId);
     }
 
-    const messages = threadEntity.getMessages() || [];
+    const messages = executionEntity.getMessages() || [];
     return messages.slice(-count);
   }
 
   /**
    * Search for messages
-   * @param threadId Thread ID
+   * @param executionId Execution ID
    * @param query Search keyword
    * @returns Array of matching messages
    */
-  async searchMessages(threadId: string, query: string): Promise<LLMMessage[]> {
-    const threadEntity = this.registry.get(threadId);
-    if (!threadEntity) {
-      throw new WorkflowExecutionNotFoundError(`Thread not found: ${threadId}`, threadId);
+  async searchMessages(executionId: string, query: string): Promise<LLMMessage[]> {
+    const executionEntity = this.registry.get(executionId);
+    if (!executionEntity) {
+      throw new WorkflowExecutionNotFoundError(`Workflow execution not found: ${executionId}`, executionId);
     }
 
-    const messages = threadEntity.getMessages() || [];
+    const messages = executionEntity.getMessages() || [];
     return messages.filter((message: LLMMessage) => {
       const content =
         typeof message.content === "string" ? message.content : JSON.stringify(message.content);
@@ -188,16 +188,16 @@ export class MessageResourceAPI extends ReadonlyResourceAPI<LLMMessage, string, 
 
   /**
    * Get message statistics information
-   * @param threadId: Thread ID
+   * @param executionId: Execution ID
    * @returns: Statistical information
    */
-  async getMessageStats(threadId: string): Promise<MessageStats> {
-    const threadEntity = this.registry.get(threadId);
-    if (!threadEntity) {
-      throw new WorkflowExecutionNotFoundError(`Thread not found: ${threadId}`, threadId);
+  async getMessageStats(executionId: string): Promise<MessageStats> {
+    const executionEntity = this.registry.get(executionId);
+    if (!executionEntity) {
+      throw new WorkflowExecutionNotFoundError(`Workflow execution not found: ${executionId}`, executionId);
     }
 
-    const messages = threadEntity.getMessages() || [];
+    const messages = executionEntity.getMessages() || [];
 
     const stats: MessageStats = {
       total: messages.length,
@@ -233,11 +233,11 @@ export class MessageResourceAPI extends ReadonlyResourceAPI<LLMMessage, string, 
       byRole: {} as Record<string, number>,
     };
 
-    for (const threadEntity of threadEntities) {
-      const messages = threadEntity.getMessages() || [];
-      const threadId = threadEntity.id;
+    for (const executionEntity of threadEntities) {
+      const messages = executionEntity.getMessages() || [];
+      const executionId = executionEntity.id;
 
-      stats.byThread[threadId] = messages.length;
+      stats.byThread[executionId] = messages.length;
       stats.total += messages.length;
 
       for (const message of messages) {
@@ -250,12 +250,12 @@ export class MessageResourceAPI extends ReadonlyResourceAPI<LLMMessage, string, 
 
   /**
    * Get the message conversation history
-   * @param threadId Thread ID
+   * @param executionId Execution ID
    * @param maxMessages Maximum number of messages
    * @returns Array of conversation history
    */
-  async getConversationHistory(threadId: string, maxMessages?: number): Promise<LLMMessage[]> {
-    const messages = await this.getThreadMessages(threadId);
+  async getConversationHistory(executionId: string, maxMessages?: number): Promise<LLMMessage[]> {
+    const messages = await this.getThreadMessages(executionId);
 
     if (maxMessages && messages.length > maxMessages) {
       return messages.slice(-maxMessages);

@@ -54,15 +54,15 @@ export async function skipNodeHandler(
       throw new ValidationError("Action type must be skip_node", "type");
     }
 
-    const { threadId, nodeId } = action.parameters;
+    const { executionId, nodeId } = action.parameters;
 
-    const threadEntity = workflowExecutionRegistry.get(threadId);
+    const executionEntity = workflowExecutionRegistry.get(executionId);
 
-    if (!threadEntity) {
-      throw new WorkflowExecutionNotFoundError(`WorkflowExecutionEntity not found: ${threadId}`, threadId);
+    if (!executionEntity) {
+      throw new WorkflowExecutionNotFoundError(`WorkflowExecutionEntity not found: ${executionId}`, executionId);
     }
 
-    const thread = threadEntity.getThread();
+    const thread = executionEntity.getExecution();
 
     const result: NodeExecutionResult = {
       nodeId,
@@ -75,8 +75,8 @@ export async function skipNodeHandler(
     thread.nodeResults.push(result);
 
     const completedEvent = buildNodeCompletedEvent({
-      threadId: threadEntity.id,
-      workflowId: threadEntity.getWorkflowId(),
+      executionId: executionEntity.id,
+      workflowId: executionEntity.getWorkflowId(),
       nodeId,
       output: null,
       executionTime: 0,
@@ -86,7 +86,7 @@ export async function skipNodeHandler(
     return createSuccessResult(
       triggerId,
       action,
-      { message: `Node ${nodeId} skipped successfully in thread ${threadId}` },
+      { message: `Node ${nodeId} skipped successfully in thread ${executionId}` },
       executionTime,
     );
   } catch (error) {

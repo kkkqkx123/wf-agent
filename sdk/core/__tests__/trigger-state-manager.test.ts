@@ -25,7 +25,7 @@ describe("Trigger State Manager", () => {
     it("Test registration status: register method stores the status correctly", () => {
       const state: TriggerRuntimeState = {
         triggerId: "trigger-1",
-        threadId: "test-thread",
+        executionId: "test-thread",
         workflowId: "workflow-123",
         status: "enabled",
         triggerCount: 0,
@@ -39,10 +39,10 @@ describe("Trigger State Manager", () => {
       expect(retrievedState).toEqual(state);
     });
 
-    it("Test thread ID validation: the threadId in the state must match the manager's threadId", () => {
+    it("Test execution ID validation: the executionId in the state must match the manager's executionId", () => {
       const state: TriggerRuntimeState = {
         triggerId: "trigger-1",
-        threadId: "different-thread", // Does not match.
+        executionId: "different-thread", // Does not match.
         workflowId: "workflow-123",
         status: "enabled",
         triggerCount: 0,
@@ -57,7 +57,7 @@ describe("Trigger State Manager", () => {
     it("Test workflow ID validation: the workflowId in the state must match the manager's workflowId", () => {
       const state: TriggerRuntimeState = {
         triggerId: "trigger-1",
-        threadId: "test-thread",
+        executionId: "test-thread",
         workflowId: "different-workflow", // Does not match
         status: "enabled",
         triggerCount: 0,
@@ -72,7 +72,7 @@ describe("Trigger State Manager", () => {
     it("Test Trigger ID is null: an error should be thrown", () => {
       const state: any = {
         triggerId: "", // Empty ID
-        threadId: "test-thread",
+        executionId: "test-thread",
         workflowId: "workflow-123",
         status: "enabled",
         triggerCount: 0,
@@ -84,10 +84,10 @@ describe("Trigger State Manager", () => {
       }).toThrow(RuntimeValidationError);
     });
 
-    it("Test thread ID is null: an error should be thrown", () => {
+    it("Test execution ID is null: an error should be thrown", () => {
       const state: any = {
         triggerId: "trigger-1",
-        threadId: "", // Empty ID
+        executionId: "", // Empty ID
         workflowId: "workflow-123",
         status: "enabled",
         triggerCount: 0,
@@ -102,7 +102,7 @@ describe("Trigger State Manager", () => {
     it("Test workflow ID is empty: an error should be thrown", () => {
       const state: any = {
         triggerId: "trigger-1",
-        threadId: "test-thread",
+        executionId: "test-thread",
         workflowId: "", // Empty ID
         status: "enabled",
         triggerCount: 0,
@@ -117,7 +117,7 @@ describe("Trigger State Manager", () => {
     it("Testing for duplicate registrations: duplicate registrations should throw an error", () => {
       const state: TriggerRuntimeState = {
         triggerId: "trigger-1",
-        threadId: "test-thread",
+        executionId: "test-thread",
         workflowId: "workflow-123",
         status: "enabled",
         triggerCount: 0,
@@ -137,7 +137,7 @@ describe("Trigger State Manager", () => {
 
       const state: TriggerRuntimeState = {
         triggerId: "trigger-1",
-        threadId: "test-thread",
+        executionId: "test-thread",
         workflowId: null as any,
         status: "enabled",
         triggerCount: 0,
@@ -154,7 +154,7 @@ describe("Trigger State Manager", () => {
     beforeEach(() => {
       const state: TriggerRuntimeState = {
         triggerId: "trigger-1",
-        threadId: "test-thread",
+        executionId: "test-thread",
         workflowId: "workflow-123",
         status: "enabled",
         triggerCount: 0,
@@ -225,7 +225,7 @@ describe("Trigger State Manager", () => {
       const states: TriggerRuntimeState[] = [
         {
           triggerId: "trigger-1",
-          threadId: "test-thread",
+          executionId: "test-thread",
           workflowId: "workflow-123",
           status: "enabled",
           triggerCount: 5,
@@ -233,7 +233,7 @@ describe("Trigger State Manager", () => {
         },
         {
           triggerId: "trigger-2",
-          threadId: "test-thread",
+          executionId: "test-thread",
           workflowId: "workflow-123",
           status: "disabled",
           triggerCount: 10,
@@ -300,7 +300,7 @@ describe("Trigger State Manager", () => {
       // Add more states
       const additionalState: TriggerRuntimeState = {
         triggerId: "trigger-3",
-        threadId: "test-thread",
+        executionId: "test-thread",
         workflowId: "workflow-123",
         status: "triggered",
         triggerCount: 2,
@@ -317,11 +317,11 @@ describe("Trigger State Manager", () => {
       expect(snapshot.has("trigger-3")).toBe(true);
     });
 
-    it("Test restoring snapshots with mismatched thread IDs: an error should be thrown", () => {
+    it("Test restoring snapshots with mismatched execution IDs: an error should be thrown", () => {
       const invalidSnapshot = new Map<string, TriggerRuntimeState>();
       invalidSnapshot.set("trigger-1", {
         triggerId: "trigger-1",
-        threadId: "different-thread", // Does not match
+        executionId: "different-thread", // Does not match
         workflowId: "workflow-123",
         status: "enabled",
         triggerCount: 0,
@@ -339,7 +339,7 @@ describe("Trigger State Manager", () => {
       const states: TriggerRuntimeState[] = [
         {
           triggerId: "trigger-1",
-          threadId: "test-thread",
+          executionId: "test-thread",
           workflowId: "workflow-123",
           status: "enabled",
           triggerCount: 0,
@@ -347,7 +347,7 @@ describe("Trigger State Manager", () => {
         },
         {
           triggerId: "trigger-2",
-          threadId: "test-thread",
+          executionId: "test-thread",
           workflowId: "workflow-123",
           status: "disabled",
           triggerCount: 5,
@@ -421,7 +421,7 @@ describe("Trigger State Manager", () => {
 
       stateManager.register({
         triggerId: "trigger-3",
-        threadId: "test-thread",
+        executionId: "test-thread",
         workflowId: "workflow-123",
         status: "enabled",
         triggerCount: 0,
@@ -441,7 +441,7 @@ describe("Trigger State Manager", () => {
       const states: TriggerRuntimeState[] = [
         {
           triggerId: "trigger-1",
-          threadId: "test-thread",
+          executionId: "test-thread",
           workflowId: "workflow-123",
           status: "enabled",
           triggerCount: 0,
@@ -449,7 +449,7 @@ describe("Trigger State Manager", () => {
         },
         {
           triggerId: "trigger-2",
-          threadId: "test-thread",
+          executionId: "test-thread",
           workflowId: "workflow-123",
           status: "disabled",
           triggerCount: 5,
@@ -479,7 +479,7 @@ describe("Trigger State Manager", () => {
   });
 
   describe("Getter Methods", () => {
-    it("Test to get thread ID: getThreadId returns the correct thread ID", () => {
+    it("Test to get execution ID: getThreadId returns the correct execution ID", () => {
       expect(stateManager.getThreadId()).toBe("test-thread");
     });
 
@@ -508,7 +508,7 @@ describe("Trigger State Manager", () => {
       for (let i = 0; i < stateCount; i++) {
         const state: TriggerRuntimeState = {
           triggerId: `trigger-${i}`,
-          threadId: "test-thread",
+          executionId: "test-thread",
           workflowId: "workflow-123",
           status: "enabled",
           triggerCount: i,
@@ -525,7 +525,7 @@ describe("Trigger State Manager", () => {
     it("Test concurrent status updates: status should be updated correctly", () => {
       const state: TriggerRuntimeState = {
         triggerId: "trigger-1",
-        threadId: "test-thread",
+        executionId: "test-thread",
         workflowId: "workflow-123",
         status: "enabled",
         triggerCount: 0,

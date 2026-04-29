@@ -69,7 +69,7 @@ describe("Trigger Handlers", () => {
       const action: TriggerAction = {
         type: "pause_thread",
         parameters: {
-          threadId: "thread-123",
+          executionId: "thread-123",
           reason: "Test Suspension",
         },
       };
@@ -85,7 +85,7 @@ describe("Trigger Handlers", () => {
       const action: TriggerAction = {
         type: "pause_thread",
         parameters: {
-          threadId: "thread-123",
+          executionId: "thread-123",
           // "reason" is not set.
         },
       };
@@ -102,7 +102,7 @@ describe("Trigger Handlers", () => {
       const action: TriggerAction = {
         type: "resume_thread",
         parameters: {
-          threadId: "thread-123",
+          executionId: "thread-123",
         },
       };
 
@@ -119,7 +119,7 @@ describe("Trigger Handlers", () => {
       const action: TriggerAction = {
         type: "skip_node",
         parameters: {
-          threadId: "thread-123",
+          executionId: "thread-123",
           nodeId: "node-456",
         },
       };
@@ -137,7 +137,7 @@ describe("Trigger Handlers", () => {
       const action: TriggerAction = {
         type: "set_variable",
         parameters: {
-          threadId: "thread-123",
+          executionId: "thread-123",
           variables: {
             var1: "value1",
             var2: 123,
@@ -157,7 +157,7 @@ describe("Trigger Handlers", () => {
       const action: TriggerAction = {
         type: "set_variable",
         parameters: {
-          threadId: "thread-123",
+          executionId: "thread-123",
           variables: {
             globalVar: "global-value",
           },
@@ -351,7 +351,7 @@ describe("Trigger Handlers", () => {
       const action: TriggerAction = {
         type: "apply_message_operation",
         parameters: {
-          threadId: "thread-123",
+          executionId: "thread-123",
           operationType: "compress",
           config: {
             strategy: "keep-last-n",
@@ -371,7 +371,7 @@ describe("Trigger Handlers", () => {
       const action: TriggerAction = {
         type: "apply_message_operation",
         parameters: {
-          threadId: "thread-123",
+          executionId: "thread-123",
           operationType: "truncate",
         },
       };
@@ -418,16 +418,16 @@ describe("Trigger Handlers", () => {
   describe("Processor execution results", () => {
     it("Test that all processors return the correct result format", async () => {
       const actionConfigs = [
-        { type: "pause_thread", parameters: { threadId: "thread-123" } },
-        { type: "resume_thread", parameters: { threadId: "thread-123" } },
-        { type: "skip_node", parameters: { threadId: "thread-123", nodeId: "node-456" } },
-        { type: "set_variable", parameters: { threadId: "thread-123", variables: {} } },
+        { type: "pause_thread", parameters: { executionId: "thread-123" } },
+        { type: "resume_thread", parameters: { executionId: "thread-123" } },
+        { type: "skip_node", parameters: { executionId: "thread-123", nodeId: "node-456" } },
+        { type: "set_variable", parameters: { executionId: "thread-123", variables: {} } },
         { type: "send_notification", parameters: { message: "test" } },
         { type: "custom", parameters: { handlerName: "test" } },
         { type: "execute_script", parameters: { scriptName: "test" } },
         {
           type: "apply_message_operation",
-          parameters: { threadId: "thread-123", operationType: "compress" },
+          parameters: { executionId: "thread-123", operationType: "compress" },
         },
         { type: "execute_triggered_subgraph", parameters: { triggeredWorkflowId: "workflow-123" } },
       ];

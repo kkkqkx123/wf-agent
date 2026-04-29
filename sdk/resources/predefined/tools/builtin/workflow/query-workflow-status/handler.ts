@@ -30,7 +30,7 @@ export function createQueryWorkflowStatusHandler() {
         field: "taskId",
         value: params,
         context: {
-          threadId: context.threadId,
+          executionId: context.executionId,
         },
       });
     }
@@ -48,7 +48,7 @@ export function createQueryWorkflowStatusHandler() {
           operation: "query_workflow_status",
           context: {
             taskId,
-            threadId: context.threadId,
+            executionId: context.executionId,
             containerInitialized: true,
           },
         },
@@ -81,7 +81,7 @@ export function createQueryWorkflowStatusHandler() {
     return {
       success: true,
       status: taskInfo.status,
-      threadId: instance.id,
+      executionId: instance.id,
       workflowId: instance.getWorkflowId(),
       createdAt: taskInfo.submitTime,
       updatedAt: taskInfo.completeTime ?? taskInfo.submitTime,

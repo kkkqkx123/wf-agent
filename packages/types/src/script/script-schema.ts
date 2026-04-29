@@ -168,7 +168,7 @@ export const ScriptSecurityPolicySchema = z.object({
 export const AuditEventSchema = z.object({
   eventType: z.string(),
   timestamp: z.instanceof(Date),
-  threadId: z.string(),
+  executionId: z.string(),
   nodeId: z.string(),
   nodeName: z.string().optional(),
   userId: z.string().optional(),

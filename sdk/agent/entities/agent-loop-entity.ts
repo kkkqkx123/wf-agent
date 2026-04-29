@@ -78,7 +78,7 @@ export class AgentLoopEntity {
   /** Abort Controller */
   abortController?: AbortController;
 
-  /** Parent Thread ID (if executed as a Graph node) */
+  /** Parent Execution ID (if executed as a Graph node) */
   parentThreadId?: ID;
 
   /** Node ID (if executed as a Graph node) */
@@ -119,7 +119,7 @@ export class AgentLoopEntity {
     // Initialize the ConversationSession (without setting an initial message).
     // The initial message will be set asynchronously in the factory method.
     this.conversationManager = new ConversationSession({
-      threadId: id,
+      executionId: id,
       initialMessages: [],
       ...conversationManagerConfig,
     });
@@ -132,7 +132,7 @@ export class AgentLoopEntity {
   async initializeMessages(config: InitialMessagesConfig): Promise<void> {
     const initialMessages = await buildInitialMessages(config);
     this.conversationManager = new ConversationSession({
-      threadId: this.id,
+      executionId: this.id,
       initialMessages,
     });
   }

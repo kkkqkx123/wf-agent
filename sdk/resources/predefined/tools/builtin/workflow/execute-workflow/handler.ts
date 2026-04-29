@@ -43,7 +43,7 @@ export function createExecuteWorkflowHandler() {
         field: "workflowId",
         value: params,
         context: {
-          threadId: context.threadId,
+          executionId: context.executionId,
           hasParentThread: !!context.parentThreadEntity,
         },
       });
@@ -62,7 +62,7 @@ export function createExecuteWorkflowHandler() {
           operation: "execute_workflow",
           context: {
             workflowId,
-            threadId: context.threadId,
+            executionId: context.executionId,
             containerInitialized: true,
           },
         },
@@ -76,7 +76,7 @@ export function createExecuteWorkflowHandler() {
         field: "parentThreadEntity",
         context: {
           workflowId,
-          threadId: workflowContext.threadId,
+          executionId: workflowContext.executionId,
           availableContextKeys: Object.keys(workflowContext),
         },
       });

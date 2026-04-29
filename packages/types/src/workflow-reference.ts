@@ -8,7 +8,7 @@
 export interface WorkflowReference {
   /** reference type */
   type: "subgraph" | "trigger" | "thread";
-  /** Reference source ID (parent workflow ID, trigger ID, thread ID, etc.) */
+  /** Reference source ID (parent workflow ID, trigger ID, execution ID, etc.) */
   sourceId: string;
   /** Cite source name */
   sourceName: string;
@@ -54,7 +54,7 @@ export interface WorkflowReferenceRelation {
   referenceType: WorkflowReferenceType;
   /** Whether it is a runtime reference */
   isRuntime: boolean;
-  /** Referencing source IDs (thread IDs, trigger IDs, etc.) */
+  /** Referencing source IDs (execution IDs, trigger IDs, etc.) */
   sourceReferenceId?: string;
   /** Citation details */
   details?: Record<string, unknown>;

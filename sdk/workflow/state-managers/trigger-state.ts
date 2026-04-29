@@ -34,11 +34,11 @@ export type { TriggerRuntimeState };
  */
 export class TriggerState implements LifecycleCapable<Map<ID, TriggerRuntimeState>> {
   private states: Map<ID, TriggerRuntimeState> = new Map();
-  private threadId: ID;
+  private executionId: ID;
   private workflowId: ID | null = null;
 
-  constructor(threadId: ID) {
-    this.threadId = threadId;
+  constructor(executionId: ID) {
+    this.executionId = executionId;
   }
 
   /**
@@ -58,11 +58,11 @@ export class TriggerState implements LifecycleCapable<Map<ID, TriggerRuntimeStat
   }
 
   /**
-   * Get thread ID
-   * @returns Thread ID
+   * Get execution ID
+   * @returns Execution ID
    */
-  getThreadId(): ID {
-    return this.threadId;
+  getExecutionId(): ID {
+    return this.executionId;
   }
 
   /**
@@ -76,10 +76,10 @@ export class TriggerState implements LifecycleCapable<Map<ID, TriggerRuntimeStat
         field: "triggerId",
       });
     }
-    if (!state.threadId) {
-      throw new RuntimeValidationError("Thread ID cannot be null", {
+    if (!state.executionId) {
+      throw new RuntimeValidationError("Execution ID cannot be null", {
         operation: "register",
-        field: "threadId",
+        field: "executionId",
       });
     }
     if (!state.workflowId) {
@@ -88,10 +88,10 @@ export class TriggerState implements LifecycleCapable<Map<ID, TriggerRuntimeStat
         field: "workflowId",
       });
     }
-    if (state.threadId !== this.threadId) {
+    if (state.executionId !== this.executionId) {
       throw new RuntimeValidationError(
-        `Thread ID mismatch: expected ${this.threadId}, actual ${state.threadId}`,
-        { operation: "register", field: "threadId", value: state.threadId },
+        `Execution ID mismatch: expected ${this.executionId}, actual ${state.executionId}`,
+        { operation: "register", field: "executionId", value: state.executionId },
       );
     }
     if (this.workflowId && state.workflowId !== this.workflowId) {
@@ -107,7 +107,7 @@ export class TriggerState implements LifecycleCapable<Map<ID, TriggerRuntimeStat
 
     this.states.set(state.triggerId, {
       triggerId: state.triggerId,
-      threadId: state.threadId,
+      executionId: state.executionId,
       workflowId: state.workflowId,
       status: state.status,
       triggerCount: state.triggerCount,
@@ -162,7 +162,7 @@ export class TriggerState implements LifecycleCapable<Map<ID, TriggerRuntimeStat
     for (const [triggerId, state] of this.states.entries()) {
       snapshot.set(triggerId, {
         triggerId: state.triggerId,
-        threadId: state.threadId,
+        executionId: state.executionId,
         workflowId: state.workflowId,
         status: state.status,
         triggerCount: state.triggerCount,
@@ -180,16 +180,16 @@ export class TriggerState implements LifecycleCapable<Map<ID, TriggerRuntimeStat
     this.states.clear();
 
     for (const [triggerId, state] of snapshot.entries()) {
-      if (state.threadId !== this.threadId) {
+      if (state.executionId !== this.executionId) {
         throw new RuntimeValidationError(
-          `Thread ID mismatch: expected ${this.threadId}, actual ${state.threadId}`,
-          { operation: "update", field: "threadId", value: state.threadId },
+          `Execution ID mismatch: expected ${this.executionId}, actual ${state.executionId}`,
+          { operation: "update", field: "executionId", value: state.executionId },
         );
       }
 
       this.states.set(triggerId, {
         triggerId: state.triggerId,
-        threadId: state.threadId,
+        executionId: state.executionId,
         workflowId: state.workflowId,
         status: state.status,
         triggerCount: state.triggerCount,

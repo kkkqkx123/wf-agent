@@ -110,7 +110,7 @@ export interface AgentStartData {
     modelId?: string;
   };
 
-  /** Parent thread ID (if called from Graph) */
+  /** Parent execution ID (if called from Graph) */
   parentThreadId?: string;
 
   /** Node ID (if called from Graph) */

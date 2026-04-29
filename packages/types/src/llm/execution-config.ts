@@ -33,8 +33,8 @@ export interface GraphLLMExecutionConfig extends LLMExecutionConfig {
   workflowId: string;
   /** Node ID */
   nodeId: string;
-  /** Thread ID */
-  threadId: string;
+  /** Execution ID */
+  executionId: string;
 }
 
 /**

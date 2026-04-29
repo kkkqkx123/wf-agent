@@ -39,8 +39,8 @@ const logger = createContextualLogger();
 export interface ConversationSessionConfig {
   /** Event Manager */
   eventManager?: EventRegistry;
-  /** Thread ID */
-  threadId?: string;
+  /** Execution ID */
+  executionId?: string;
   /** Workflow Execution ID */
   workflowExecutionId?: string;
   /** Workflow ID */
@@ -69,7 +69,7 @@ export interface ConversationState extends MessageHistoryState {
 export class ConversationSession extends MessageHistory implements LifecycleCapable {
   protected tokenUsageTracker: TokenUsageTracker;
   protected eventManager?: EventRegistry;
-  protected threadId?: string;
+  protected executionId?: string;
   protected workflowId?: string;
   protected checkpointStorage?: CheckpointStorageCallback;
 
@@ -80,7 +80,7 @@ export class ConversationSession extends MessageHistory implements LifecycleCapa
   constructor(config: ConversationSessionConfig = {}) {
     super({ initialMessages: config.initialMessages });
     this.eventManager = config.eventManager;
-    this.threadId = config.threadId;
+    this.executionId = config.executionId;
     this.workflowId = config.workflowId;
     this.checkpointStorage = config.checkpointStorage;
 
@@ -134,19 +134,19 @@ export class ConversationSession extends MessageHistory implements LifecycleCapa
   /**
    * Set context information
    * @param workflowId: Workflow ID
-   * @param threadId: Thread ID
+   * @param executionId: Execution ID
    */
-  setContext(workflowId: string, threadId: string): void {
+  setContext(workflowId: string, executionId: string): void {
     this.workflowId = workflowId;
-    this.threadId = threadId;
+    this.executionId = executionId;
   }
 
   /**
-   * Get thread ID
-   * @returns Thread ID
+   * Get execution ID
+   * @returns Execution ID
    */
   getThreadId(): string | undefined {
-    return this.threadId;
+    return this.executionId;
   }
 
   /**
@@ -184,9 +184,9 @@ export class ConversationSession extends MessageHistory implements LifecycleCapa
    */
   private async triggerTokenLimitEvent(tokensUsed: number): Promise<void> {
     // 1. Send an event through the EventRegistry.
-    if (this.eventManager && this.workflowId && this.threadId) {
+    if (this.eventManager && this.workflowId && this.executionId) {
       const event = buildTokenLimitExceededEvent({
-        threadId: this.threadId,
+        executionId: this.executionId,
         tokensUsed,
         tokenLimit: this.tokenUsageTracker["tokenLimit"],
         workflowId: this.workflowId,
@@ -199,7 +199,7 @@ export class ConversationSession extends MessageHistory implements LifecycleCapa
       tokensUsed,
       tokenLimit: this.tokenUsageTracker["tokenLimit"],
       workflowId: this.workflowId,
-      threadId: this.threadId,
+      executionId: this.executionId,
       operation: "token_usage_check",
     });
   }
@@ -209,9 +209,9 @@ export class ConversationSession extends MessageHistory implements LifecycleCapa
    * @param tokensUsed The number of tokens currently in use
    */
   private async triggerCompressionRequestedEvent(tokensUsed: number): Promise<void> {
-    if (this.eventManager && this.workflowId && this.threadId) {
+    if (this.eventManager && this.workflowId && this.executionId) {
       const event = buildContextCompressionRequestedEvent({
-        threadId: this.threadId,
+        executionId: this.executionId,
         tokensUsed,
         tokenLimit: this.tokenUsageTracker["tokenLimit"],
         workflowId: this.workflowId,
@@ -250,9 +250,9 @@ export class ConversationSession extends MessageHistory implements LifecycleCapa
     this.setMarkMap(result.markMap);
 
     // Trigger the completion event
-    if (this.eventManager && this.workflowId && this.threadId) {
+    if (this.eventManager && this.workflowId && this.executionId) {
       const event = buildContextCompressionCompletedEvent({
-        threadId: this.threadId,
+        executionId: this.executionId,
         workflowId: this.workflowId,
         tokensAfter: this.getTokenUsage().totalTokens,
       });
@@ -327,7 +327,7 @@ export class ConversationSession extends MessageHistory implements LifecycleCapa
   override clone(): ConversationSession {
     const cloned = new ConversationSession({
       eventManager: this.eventManager,
-      threadId: this.threadId,
+      executionId: this.executionId,
       workflowId: this.workflowId,
       tokenLimit: this.tokenUsageTracker["tokenLimit"],
     });

@@ -92,7 +92,7 @@ export class LLMExecutor {
   private handleLLMError(
     error: LLMError,
     profileId: string,
-    options?: { abortSignal?: AbortSignal; threadId?: string; nodeId?: string },
+    options?: { abortSignal?: AbortSignal; executionId?: string; nodeId?: string },
   ): LLMExecutionResultWithInterruption {
     // Check if it is an AbortError.
     if (isAbortError(error)) {
@@ -139,11 +139,11 @@ export class LLMExecutor {
   async executeLLMCall(
     messages: LLMMessage[],
     requestData: LLMExecutionRequestData,
-    options?: { abortSignal?: AbortSignal; threadId?: string; nodeId?: string },
+    options?: { abortSignal?: AbortSignal; executionId?: string; nodeId?: string },
   ): Promise<LLMExecutionResultWithInterruption> {
     logger.debug("LLM call started", {
       profileId: requestData.profileId,
-      threadId: options?.threadId,
+      executionId: options?.executionId,
       nodeId: options?.nodeId,
       messageCount: messages.length,
       stream: requestData.stream,

@@ -246,7 +246,7 @@ export class ContextualLogger {
  * // 创建带线程上下文的日志器
  * const threadLogger = createContextualLogger({
  *   workflowId: 'wf-123',
- *   threadId: 'thread-456'
+ *   executionId: 'thread-456'
  * });
  */
 export function createContextualLogger(baseContext?: ErrorContext): ContextualLogger {

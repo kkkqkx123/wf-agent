@@ -60,13 +60,13 @@ export interface ContextProcessorHandlerContext {
     getMessages: () => unknown[];
   };
   /** Thread entity (optional, used to identify the parent thread) */
-  threadEntity?: {
+  executionEntity?: {
     getParentThreadId: () => string | undefined;
     getConversationManager: () => unknown;
   };
   /** Thread Registry (optional, used to obtain the parent thread entity) */
-  threadRegistry?: {
-    get: (threadId: string) =>
+  executionRegistry?: {
+    get: (executionId: string) =>
       | {
           getConversationManager: () => {
             executeMessageOperation: (
@@ -120,19 +120,19 @@ export async function contextProcessorHandler(
     context.conversationManager;
 
   if (config.operationOptions?.target === "parent") {
-    const threadEntity = context.threadEntity;
-    const threadRegistry = context.threadRegistry;
+    const executionEntity = context.executionEntity;
+    const executionRegistry = context.executionRegistry;
 
-    if (threadEntity && threadRegistry && threadEntity.getParentThreadId()) {
-      const parentThreadId = threadEntity.getParentThreadId();
+    if (executionEntity && executionRegistry && executionEntity.getParentThreadId()) {
+      const parentThreadId = executionEntity.getParentThreadId();
       if (parentThreadId) {
-        const parentThreadEntity = threadRegistry.get(parentThreadId);
+        const parentThreadEntity = executionRegistry.get(parentThreadId);
         if (parentThreadEntity) {
           targetConversationManager =
             parentThreadEntity.getConversationManager() as ContextProcessorHandlerContext["conversationManager"];
           logger.info(`Targeting parent thread: ${parentThreadId} for context processing`, {
             nodeId: node.id,
-            threadId: thread.id,
+            executionId: thread.id,
             parentThreadId,
           });
         }
@@ -155,7 +155,7 @@ export async function contextProcessorHandler(
             {
               operation: config.operationConfig.operation,
               nodeId: node.id,
-              threadId: thread.id,
+              executionId: thread.id,
               workflowId: thread.workflowId,
               suggestion:
                 "Tool visibility may be stale. Check tool visibility coordinator configuration and retry",

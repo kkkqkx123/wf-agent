@@ -129,7 +129,7 @@ export class ToolCallExecutor {
    *
    * @param toolCalls - Array of tool calls to be executed
    * @param conversationState - Conversation manager
-   * @param threadId - Thread ID
+   * @param executionId - Execution ID
    * @param nodeId - Node ID
    * @param options - Execution options (including AbortSignal and progress callback)
    * @returns - Array of execution results
@@ -137,7 +137,7 @@ export class ToolCallExecutor {
   async executeToolCalls(
     toolCalls: Array<{ id: string; name: string; arguments: string }>,
     conversationState: ConversationSession,
-    threadId?: string,
+    executionId?: string,
     nodeId?: string,
     options?: {
       abortSignal?: AbortSignal;
@@ -146,7 +146,7 @@ export class ToolCallExecutor {
     },
   ): Promise<ToolExecutionResult[]> {
     logger.debug("Tool calls execution started", {
-      threadId,
+      executionId,
       nodeId,
       toolCallCount: toolCalls.length,
       toolNames: toolCalls.map(tc => tc.name),
@@ -159,7 +159,7 @@ export class ToolCallExecutor {
         throw new WorkflowExecutionInterruptedException(
           "Tool execution interrupted",
           result.type === "paused" ? "PAUSE" : "STOP",
-          result.threadId || threadId || "",
+          result.executionId || executionId || "",
           result.nodeId || nodeId || "",
         );
       }
@@ -189,7 +189,7 @@ export class ToolCallExecutor {
       this.executeSingleToolCall(
         toolCall,
         conversationState,
-        threadId,
+        executionId,
         nodeId,
         batchId,
         taskInfos.get(toolCall.id)!,
@@ -206,7 +206,7 @@ export class ToolCallExecutor {
 
     logger.debug("Tool calls execution completed", {
       batchId,
-      threadId,
+      executionId,
       nodeId,
       totalCount: toolCalls.length,
       successCount,
@@ -240,7 +240,7 @@ export class ToolCallExecutor {
         // Trigger message addition event
         if (this.eventManager && this.eventBuilder && this.safeEmitFn) {
           const messageEvent = this.eventBuilder.buildMessageAddedEvent({
-            threadId: threadId || "",
+            executionId: executionId || "",
             role: toolMessage.role,
             content:
               typeof toolMessage.content === "string"
@@ -257,7 +257,7 @@ export class ToolCallExecutor {
         // Triggering the tool call failed event.
         if (this.eventManager && this.eventBuilder && this.safeEmitFn) {
           const failedEvent = this.eventBuilder.buildToolCallFailedEvent({
-            threadId: threadId || "",
+            executionId: executionId || "",
             nodeId: nodeId || "",
             toolId: toolCall.name,
             toolName: toolCall.name,
@@ -284,7 +284,7 @@ export class ToolCallExecutor {
    *
    * @param toolCall: The tool call to be executed
    * @param conversationState: The conversation manager
-   * @param threadId: The thread ID
+   * @param executionId: The execution ID
    * @param nodeId: The node ID
    * @param batchId: The batch ID (used for tracking parallel calls)
    * @param taskInfo: Task information (including a pre-generated taskId, etc.)
@@ -294,7 +294,7 @@ export class ToolCallExecutor {
   private async executeSingleToolCall(
     toolCall: { id: string; name: string; arguments: string },
     conversationState: ConversationSession,
-    threadId: string | undefined,
+    executionId: string | undefined,
     nodeId: string | undefined,
     batchId: string,
     taskInfo: ToolCallTaskInfo,
@@ -312,7 +312,7 @@ export class ToolCallExecutor {
         {
           toolCallId: toolCall.id,
           toolName: toolCall.name,
-          threadId,
+          executionId,
           nodeId,
         },
         undefined,
@@ -321,9 +321,9 @@ export class ToolCallExecutor {
     }
 
     // Check whether the tool is within the current visibility context.
-    if (threadId && this.toolVisibilityStore) {
-      if (!this.toolVisibilityStore.isToolVisible(threadId, toolCall.name)) {
-        const visibleTools = this.toolVisibilityStore.getVisibleTools(threadId);
+    if (executionId && this.toolVisibilityStore) {
+      if (!this.toolVisibilityStore.isToolVisible(executionId, toolCall.name)) {
+        const visibleTools = this.toolVisibilityStore.getVisibleTools(executionId);
         const errorMessage = `工具 '${toolCall.name}' 在当前作用域不可用。当前可用工具：[${Array.from(visibleTools).join(", ")}]`;
 
         // Failed to construct the tool result message using MessageBuilder.
@@ -338,7 +338,7 @@ export class ToolCallExecutor {
         // Trigger message addition event
         if (this.eventManager && this.eventBuilder && this.safeEmitFn) {
           const messageEvent = this.eventBuilder.buildMessageAddedEvent({
-            threadId: threadId || "",
+            executionId: executionId || "",
             role: toolMessage.role,
             content:
               typeof toolMessage.content === "string"
@@ -352,7 +352,7 @@ export class ToolCallExecutor {
         // Triggering the tool invocation failed event.
         if (this.eventManager && this.eventBuilder && this.safeEmitFn) {
           const failedEvent = this.eventBuilder.buildToolCallFailedEvent({
-            threadId: threadId || "",
+            executionId: executionId || "",
             nodeId: nodeId || "",
             toolId: toolCall.name,
             toolName: toolCall.name,
@@ -377,7 +377,7 @@ export class ToolCallExecutor {
     if (
       toolConfig?.createCheckpoint &&
       this.checkpointDependencies &&
-      threadId &&
+      executionId &&
       this.createCheckpointFn
     ) {
       const checkpointConfig = toolConfig.createCheckpoint;
@@ -389,7 +389,7 @@ export class ToolCallExecutor {
         try {
           await this.createCheckpointFn(
             {
-              workflowExecutionId: threadId,
+              workflowExecutionId: executionId,
               toolId: toolCall.name,
               description:
                 toolConfig.checkpointDescriptionTemplate || `Before tool: ${toolCall.name}`,
@@ -415,7 +415,7 @@ export class ToolCallExecutor {
     // Trigger the tool call start event.
     if (this.eventManager && this.eventBuilder && this.safeEmitFn) {
       const startedEvent = this.eventBuilder.buildToolCallStartedEvent({
-        threadId: threadId || "",
+        executionId: executionId || "",
         nodeId: nodeId || "",
         toolId: toolCall.name,
         toolName: toolCall.name,
@@ -444,7 +444,7 @@ export class ToolCallExecutor {
       toolCall.name,
       JSON.parse(toolCall.arguments),
       executionOptions,
-      threadId,
+      executionId,
     );
 
     const executionTime = diffTimestamp(startTime, now());
@@ -461,7 +461,7 @@ export class ToolCallExecutor {
           throw new WorkflowExecutionInterruptedException(
             "Tool execution interrupted",
             result.type === "paused" ? "PAUSE" : "STOP",
-            result.threadId || threadId || "",
+            result.executionId || executionId || "",
             result.nodeId || nodeId || "",
           );
         }
@@ -481,7 +481,7 @@ export class ToolCallExecutor {
       // Trigger message addition event
       if (this.eventManager && this.eventBuilder && this.safeEmitFn) {
         const messageEvent = this.eventBuilder.buildMessageAddedEvent({
-          threadId: threadId || "",
+          executionId: executionId || "",
           role: toolMessage.role,
           content:
             typeof toolMessage.content === "string"
@@ -495,7 +495,7 @@ export class ToolCallExecutor {
       // Trigger tool call failure event
       if (this.eventManager && this.eventBuilder && this.safeEmitFn) {
         const failedEvent = this.eventBuilder.buildToolCallFailedEvent({
-          threadId: threadId || "",
+          executionId: executionId || "",
           nodeId: nodeId || "",
           toolId: toolCall.name,
           toolName: toolCall.name,
@@ -531,7 +531,7 @@ export class ToolCallExecutor {
     // Trigger message addition event
     if (this.eventManager && this.eventBuilder && this.safeEmitFn) {
       const messageEvent = this.eventBuilder.buildMessageAddedEvent({
-        threadId: threadId || "",
+        executionId: executionId || "",
         role: toolMessage.role,
         content:
           typeof toolMessage.content === "string"
@@ -546,7 +546,7 @@ export class ToolCallExecutor {
     if (
       toolConfig?.createCheckpoint &&
       this.checkpointDependencies &&
-      threadId &&
+      executionId &&
       this.createCheckpointFn
     ) {
       const checkpointConfig = toolConfig.createCheckpoint;
@@ -554,7 +554,7 @@ export class ToolCallExecutor {
         try {
           await this.createCheckpointFn(
             {
-              workflowExecutionId: threadId,
+              workflowExecutionId: executionId,
               toolId: toolCall.name,
               description:
                 toolConfig.checkpointDescriptionTemplate || `After tool: ${toolCall.name}`,
@@ -580,7 +580,7 @@ export class ToolCallExecutor {
     // Trigger the completion event for the tool invocation.
     if (this.eventManager && this.eventBuilder && this.safeEmitFn) {
       const completedEvent = this.eventBuilder.buildToolCallCompletedEvent({
-        threadId: threadId || "",
+        executionId: executionId || "",
         nodeId: nodeId || "",
         toolId: toolCall.name,
         toolName: toolCall.name,

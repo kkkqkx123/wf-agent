@@ -54,7 +54,7 @@ export interface SetVariableTriggerContext {
 export interface ExecuteSubgraphTriggerContext {
   workflowExecutionRegistry: WorkflowExecutionRegistry;
   eventManager: EventRegistry;
-  threadBuilder: WorkflowExecutionBuilder;
+  executionBuilder: WorkflowExecutionBuilder;
   taskQueueManager: TaskQueue;
   parentThreadId: string;
 }
@@ -79,7 +79,7 @@ export interface TriggerHandlerContextFactoryConfig {
   /** Event Manager */
   eventManager?: EventRegistry;
   /** Workflow Execution Builder */
-  threadBuilder?: WorkflowExecutionBuilder;
+  executionBuilder?: WorkflowExecutionBuilder;
   /** Task Queue Manager */
   taskQueueManager?: TaskQueue;
   /** Workflow State Transitor */
@@ -120,7 +120,7 @@ export class TriggerHandlerContextFactory {
         return this.createSetVariableContext();
 
       case "execute_triggered_subgraph":
-        return this.createSubgraphContext(trigger.id, trigger.action.type, trigger.threadId);
+        return this.createSubgraphContext(trigger.id, trigger.action.type, trigger.executionId);
 
       default:
         // For other action types, return an empty context.
@@ -195,7 +195,7 @@ export class TriggerHandlerContextFactory {
    *
    * @param triggerId The trigger ID (for error reporting)
    * @param actionType The action type (for error reporting)
-   * @param parentThreadId The parent thread ID
+   * @param parentThreadId The parent execution ID
    * @returns The execution subgraph trigger context
    * @throws DependencyInjectionError When a required dependency is missing
    */
@@ -215,7 +215,7 @@ export class TriggerHandlerContextFactory {
       );
     }
 
-    if (!this.config.threadBuilder) {
+    if (!this.config.executionBuilder) {
       throw new DependencyInjectionError(
         "WorkflowExecutionBuilder is required for execute_triggered_subgraph trigger action",
         "WorkflowExecutionBuilder",
@@ -240,7 +240,7 @@ export class TriggerHandlerContextFactory {
     return {
       workflowExecutionRegistry: this.config.workflowExecutionRegistry,
       eventManager: this.config.eventManager,
-      threadBuilder: this.config.threadBuilder,
+      executionBuilder: this.config.executionBuilder,
       taskQueueManager: this.config.taskQueueManager,
       parentThreadId: parentThreadId || "",
     };

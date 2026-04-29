@@ -442,7 +442,7 @@ export class WorkflowRegistryAPI extends CrudResourceAPI<
    * @returns: The processed workflow definition; returns null if it does not exist
    */
   async getProcessedWorkflow(workflowId: string): Promise<unknown | null> {
-    const processed = this.dependencies.getGraphRegistry().get(workflowId);
+    const processed = this.dependencies.getWorkflowGraphRegistry().get(workflowId);
     return processed || null;
   }
 
@@ -455,7 +455,7 @@ export class WorkflowRegistryAPI extends CrudResourceAPI<
     // Use registerAsync for full validation and preprocessing
     await this.dependencies.getWorkflowRegistry().registerAsync(workflow);
     // Return the preprocessed image.
-    return this.dependencies.getGraphRegistry().get(workflow.id);
+    return this.dependencies.getWorkflowGraphRegistry().get(workflow.id);
   }
 
   /**
@@ -466,7 +466,7 @@ export class WorkflowRegistryAPI extends CrudResourceAPI<
   async getWorkflowGraph(workflowId: string): Promise<unknown | null> {
     try {
       // Get the preprocessed graph directly from graph-registry.
-      const processed = this.dependencies.getGraphRegistry().get(workflowId);
+      const processed = this.dependencies.getWorkflowGraphRegistry().get(workflowId);
       // The PreprocessedGraph itself is a Graph, so it does not require the `.graph` attribute.
       return processed || null;
     } catch {

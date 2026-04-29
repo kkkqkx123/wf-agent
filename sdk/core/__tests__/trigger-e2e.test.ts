@@ -91,7 +91,7 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
       workflowGraphRegistry: mockGraphRegistry,
       eventManager: mockEventManager,
       threadLifecycleCoordinator: mockWorkflowLifecycleCoordinator,
-      threadBuilder: mockWorkflowExecutionBuilder,
+      executionBuilder: mockWorkflowExecutionBuilder,
       taskQueueManager: mockTaskQueueManager,
       checkpointStateManager: mockCheckpointStateManager,
     });
@@ -125,7 +125,7 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
         },
         action: {
           type: "pause_thread",
-          parameters: { threadId: "test-thread" },
+          parameters: { executionId: "test-thread" },
         },
         enabled: true,
         maxTriggers: 5,
@@ -136,7 +136,7 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
       // 2. Triggering Events
       const event: BaseEvent = {
         type: "THREAD_STARTED",
-        threadId: "test-thread",
+        executionId: "test-thread",
         workflowId: "workflow-123",
         timestamp: Date.now(),
       };
@@ -159,21 +159,21 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
           id: "trigger-1",
           name: "Trigger 1",
           condition: { eventType: "THREAD_STARTED" as EventType },
-          action: { type: "pause_thread", parameters: { threadId: "test-thread" } },
+          action: { type: "pause_thread", parameters: { executionId: "test-thread" } },
           enabled: true,
         },
         {
           id: "trigger-2",
           name: "Trigger 2",
           condition: { eventType: "THREAD_STARTED" as EventType },
-          action: { type: "pause_thread", parameters: { threadId: "test-thread" } },
+          action: { type: "pause_thread", parameters: { executionId: "test-thread" } },
           enabled: true,
         },
         {
           id: "trigger-3",
           name: "Trigger 3",
           condition: { eventType: "THREAD_STARTED" as EventType },
-          action: { type: "resume_thread", parameters: { threadId: "test-thread" } },
+          action: { type: "resume_thread", parameters: { executionId: "test-thread" } },
           enabled: true,
         },
       ];
@@ -183,7 +183,7 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
       // Trigger event
       const event: BaseEvent = {
         type: "THREAD_STARTED",
-        threadId: "test-thread",
+        executionId: "test-thread",
         workflowId: "workflow-123",
         timestamp: Date.now(),
       };
@@ -207,7 +207,7 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
         id: "trigger-a",
         name: "Trigger A",
         condition: { eventType: "THREAD_STARTED" as EventType },
-        action: { type: "pause_thread", parameters: { threadId: "test-thread" } },
+        action: { type: "pause_thread", parameters: { executionId: "test-thread" } },
         enabled: true,
       };
 
@@ -218,7 +218,7 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
         id: "trigger-b",
         name: "Trigger B",
         condition: { eventType: "THREAD_PAUSED" as EventType },
-        action: { type: "pause_thread", parameters: { threadId: "test-thread" } },
+        action: { type: "pause_thread", parameters: { executionId: "test-thread" } },
         enabled: true,
       };
 
@@ -227,7 +227,7 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
       // Simulate triggering the first event.
       const event1: BaseEvent = {
         type: "THREAD_STARTED",
-        threadId: "test-thread",
+        executionId: "test-thread",
         workflowId: "workflow-123",
         timestamp: Date.now(),
       };
@@ -240,7 +240,7 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
       // Simulate triggering the second event.
       const event2: BaseEvent = {
         type: "THREAD_PAUSED",
-        threadId: "test-thread",
+        executionId: "test-thread",
         workflowId: "workflow-123",
         timestamp: Date.now(),
       };
@@ -258,7 +258,7 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
         id: "trigger-1",
         name: "Test Trigger",
         condition: { eventType: "THREAD_STARTED" as EventType },
-        action: { type: "pause_thread", parameters: { threadId: "test-thread" } },
+        action: { type: "pause_thread", parameters: { executionId: "test-thread" } },
         enabled: true,
         maxTriggers: 3,
       };
@@ -268,7 +268,7 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
       // First trigger
       const event: BaseEvent = {
         type: "THREAD_STARTED",
-        threadId: "test-thread",
+        executionId: "test-thread",
         workflowId: "workflow-123",
         timestamp: Date.now(),
       };
@@ -298,7 +298,7 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
         id: "trigger-1",
         name: "Test Trigger",
         condition: { eventType: "THREAD_STARTED" as EventType },
-        action: { type: "pause_thread", parameters: { threadId: "test-thread" } },
+        action: { type: "pause_thread", parameters: { executionId: "test-thread" } },
         enabled: true,
         maxTriggers: 10,
       };
@@ -307,7 +307,7 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
 
       const event: BaseEvent = {
         type: "THREAD_STARTED",
-        threadId: "test-thread",
+        executionId: "test-thread",
         workflowId: "workflow-123",
         timestamp: Date.now(),
       };
@@ -328,7 +328,7 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
         id: "trigger-1",
         name: "Test Trigger",
         condition: { eventType: "THREAD_STARTED" as EventType },
-        action: { type: "pause_thread", parameters: { threadId: "test-thread" } },
+        action: { type: "pause_thread", parameters: { executionId: "test-thread" } },
         enabled: true,
         maxTriggers: 5,
       };
@@ -358,7 +358,7 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
         id: "trigger-1",
         name: "Test Trigger",
         condition: { eventType: "THREAD_STARTED" as EventType },
-        action: { type: "pause_thread", parameters: { threadId: "test-thread" } },
+        action: { type: "pause_thread", parameters: { executionId: "test-thread" } },
         enabled: true,
       };
 
@@ -369,7 +369,7 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
 
       const event: BaseEvent = {
         type: "THREAD_STARTED",
-        threadId: "test-thread",
+        executionId: "test-thread",
         workflowId: "workflow-123",
         timestamp: Date.now(),
       };
@@ -384,14 +384,14 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
           id: "trigger-1",
           name: "Failed trigger",
           condition: { eventType: "THREAD_STARTED" as EventType },
-          action: { type: "pause_thread", parameters: { threadId: "test-thread" } },
+          action: { type: "pause_thread", parameters: { executionId: "test-thread" } },
           enabled: true,
         },
         {
           id: "trigger-2",
           name: "Successful trigger",
           condition: { eventType: "THREAD_STARTED" as EventType },
-          action: { type: "pause_thread", parameters: { threadId: "test-thread" } },
+          action: { type: "pause_thread", parameters: { executionId: "test-thread" } },
           enabled: true,
         },
       ];
@@ -403,7 +403,7 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
 
       const event: BaseEvent = {
         type: "THREAD_STARTED",
-        threadId: "test-thread",
+        executionId: "test-thread",
         workflowId: "workflow-123",
         timestamp: Date.now(),
       };
@@ -427,7 +427,7 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
         id: "trigger-1",
         name: "Test Trigger",
         condition: { eventType: "THREAD_STARTED" as EventType },
-        action: { type: "pause_thread", parameters: { threadId: "test-thread" } },
+        action: { type: "pause_thread", parameters: { executionId: "test-thread" } },
         enabled: true,
       };
 
@@ -435,7 +435,7 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
 
       const event: BaseEvent = {
         type: "THREAD_STARTED",
-        threadId: "test-thread",
+        executionId: "test-thread",
         workflowId: "workflow-123",
         timestamp: Date.now(),
       };
@@ -456,7 +456,7 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
           id: `trigger-${i}`,
           name: `trigger ${i}`,
           condition: { eventType: "THREAD_STARTED" as EventType },
-          action: { type: "pause_thread", parameters: { threadId: "test-thread" } },
+          action: { type: "pause_thread", parameters: { executionId: "test-thread" } },
           enabled: true,
         });
       }
@@ -465,7 +465,7 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
 
       const event: BaseEvent = {
         type: "THREAD_STARTED",
-        threadId: "test-thread",
+        executionId: "test-thread",
         workflowId: "workflow-123",
         timestamp: Date.now(),
       };
@@ -484,7 +484,7 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
         id: "trigger-1",
         name: "Test Trigger",
         condition: { eventType: "THREAD_STARTED" as EventType },
-        action: { type: "pause_thread", parameters: { threadId: "test-thread" } },
+        action: { type: "pause_thread", parameters: { executionId: "test-thread" } },
         enabled: true,
       };
 
@@ -496,7 +496,7 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
       for (let i = 0; i < eventCount; i++) {
         events.push({
           type: "THREAD_STARTED",
-          threadId: "test-thread",
+          executionId: "test-thread",
           workflowId: "workflow-123",
           timestamp: Date.now(),
         });
@@ -520,7 +520,7 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
         id: "trigger-1",
         name: "Test Trigger",
         condition: { eventType: "THREAD_STARTED" as EventType },
-        action: { type: "pause_thread", parameters: { threadId: "test-thread" } },
+        action: { type: "pause_thread", parameters: { executionId: "test-thread" } },
         enabled: true,
         maxTriggers: 100,
       };
@@ -529,7 +529,7 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
 
       const event: BaseEvent = {
         type: "THREAD_STARTED",
-        threadId: "test-thread",
+        executionId: "test-thread",
         workflowId: "workflow-123",
         timestamp: Date.now(),
       };
@@ -579,7 +579,7 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
         },
         action: {
           type: "pause_thread",
-          parameters: { threadId: "test-thread" },
+          parameters: { executionId: "test-thread" },
         },
         enabled: true,
       };
@@ -588,7 +588,7 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
 
       const event: NodeCustomEvent = {
         type: "NODE_CUSTOM_EVENT",
-        threadId: "test-thread",
+        executionId: "test-thread",
         workflowId: "workflow-123",
         nodeId: "node-1",
         nodeType: "LLM",
@@ -612,14 +612,14 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
           id: "trigger-1",
           name: "Trigger 1",
           condition: { eventType: "THREAD_STARTED" as EventType },
-          action: { type: "pause_thread", parameters: { threadId: "test-thread" } },
+          action: { type: "pause_thread", parameters: { executionId: "test-thread" } },
           enabled: true,
         },
         {
           id: "trigger-2",
           name: "Trigger 2",
           condition: { eventType: "THREAD_COMPLETED" as EventType },
-          action: { type: "pause_thread", parameters: { threadId: "test-thread" } },
+          action: { type: "pause_thread", parameters: { executionId: "test-thread" } },
           enabled: true,
         },
       ];

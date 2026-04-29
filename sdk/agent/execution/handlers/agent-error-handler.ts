@@ -38,7 +38,7 @@ function buildAgentErrorContext(
   additionalContext?: Partial<ErrorContext>,
 ): ErrorContext {
   return {
-    threadId: entity.id,
+    executionId: entity.id,
     nodeId: entity.nodeId,
     operation,
     iteration: entity.state.currentIteration,
@@ -114,7 +114,7 @@ export async function handleAgentError(
 
   // Use stateless error handling utility functions (logging and triggering events)
   await handleError(eventManager, standardizedError, {
-    threadId: entity.id,
+    executionId: entity.id,
     workflowId: context.workflowId || "",
     nodeId: context.nodeId,
   });
@@ -182,7 +182,7 @@ export async function handleAgentInterruption(
 
   // Use a stateless error handling utility function
   await handleError(eventManager, interruptionError, {
-    threadId: entity.id,
+    executionId: entity.id,
     workflowId: context.workflowId || "",
     nodeId: context.nodeId,
   });

@@ -81,7 +81,7 @@ export interface LLMContextFactoryConfig {
 
   // Contextual relevant (optional)
   /** Thread Registry */
-  threadRegistry?: WorkflowExecutionRegistry;
+  executionRegistry?: WorkflowExecutionRegistry;
   /** Interrupt Detector */
   interruptionDetector?: InterruptionDetector;
   /** Checkpoint State Manager */
@@ -110,18 +110,18 @@ export class LLMContextFactory {
   /**
    * Create a tool approval context
    *
-   * @param threadId Thread ID
+   * @param executionId Execution ID
    * @param nodeId Node ID
    * @returns Tool approval context
    * @throws ExecutionError When required dependencies are missing
    */
-  createToolApprovalContext(threadId: string, nodeId: string): ToolApprovalContext {
-    if (!this.config.threadRegistry) {
+  createToolApprovalContext(executionId: string, nodeId: string): ToolApprovalContext {
+    if (!this.config.executionRegistry) {
       throw new ExecutionError(
         "WorkflowExecutionRegistry is required for tool approval context",
         nodeId,
         undefined,
-        { threadId },
+        { executionId },
       );
     }
 
@@ -130,16 +130,15 @@ export class LLMContextFactory {
         "CheckpointState is required for tool approval context",
         nodeId,
         undefined,
-        { threadId },
+        { executionId },
       );
     }
 
     return {
-      workflowExecutionRegistry: this.config.threadRegistry,
+      workflowExecutionRegistry: this.config.executionRegistry,
       checkpointStateManager: this.config.checkpointStateManager,
       workflowRegistry: this.config.workflowRegistry,
       graphRegistry: this.config.graphRegistry,
-      workflowGraphRegistry: this.config.graphRegistry,
     };
   }
 
@@ -150,7 +149,7 @@ export class LLMContextFactory {
    */
   createInterruptionContext(): InterruptionContext {
     return {
-      workflowExecutionRegistry: this.config.threadRegistry,
+      workflowExecutionRegistry: this.config.executionRegistry,
       interruptionDetector: this.config.interruptionDetector,
     };
   }
@@ -200,7 +199,7 @@ export class LLMContextFactory {
    * @returns Whether it is supported
    */
   hasToolApprovalSupport(): boolean {
-    return !!(this.config.threadRegistry && this.config.checkpointStateManager);
+    return !!(this.config.executionRegistry && this.config.checkpointStateManager);
   }
 
   /**
@@ -209,14 +208,14 @@ export class LLMContextFactory {
    * @returns Whether it is supported
    */
   hasInterruptionSupport(): boolean {
-    return !!(this.config.interruptionDetector || this.config.threadRegistry);
+    return !!(this.config.interruptionDetector || this.config.executionRegistry);
   }
 
   /**
    * Get the thread registry
    */
   getThreadRegistry(): WorkflowExecutionRegistry | undefined {
-    return this.config.threadRegistry;
+    return this.config.executionRegistry;
   }
 
   /**

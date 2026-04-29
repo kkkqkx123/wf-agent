@@ -42,7 +42,7 @@ import { logError, emitErrorEvent } from "../../../core/utils/error-utils.js";
  * Workflow Execution Build Result (simplified interface for TriggeredSubworkflowHandler)
  */
 interface ThreadBuildResultSimple {
-  threadEntity: WorkflowExecutionEntity;
+  executionEntity: WorkflowExecutionEntity;
   stateCoordinator: WorkflowStateCoordinator;
   conversationManager: ConversationSession;
 }
@@ -82,7 +82,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
   /**
    * Thread Builder
    */
-  private threadBuilder: {
+  private executionBuilder: {
     build: (
       subgraphId: string,
       options: { input: Record<string, unknown> },
@@ -100,13 +100,13 @@ export class TriggeredSubworkflowHandler implements TaskManager {
    */
   private activeTasks: Map<
     string,
-    { taskId: string; threadId: string; submitTime: number; timeout: number }
+    { taskId: string; executionId: string; submitTime: number; timeout: number }
   > = new Map();
 
   /**
    * Constructor
    * @param workflowExecutionRegistry: Thread registry
-   * @param threadBuilder: Thread builder
+   * @param executionBuilder: Thread builder
    * @param taskQueueManager: Task queue manager
    * @param eventManager: Event manager
    * @param threadPoolService: Thread pool service
@@ -116,7 +116,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
       register: (entity: WorkflowExecutionEntity) => void;
       get: (id: string) => WorkflowExecutionEntity | undefined;
     },
-    threadBuilder: {
+    executionBuilder: {
       build: (
         subgraphId: string,
         options: { input: Record<string, unknown> },
@@ -127,7 +127,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     threadPoolService: WorkflowExecutionPool,
   ) {
     this.workflowExecutionRegistry = workflowExecutionRegistry;
-    this.threadBuilder = threadBuilder;
+    this.executionBuilder = executionBuilder;
     this.taskQueueManager = taskQueueManager;
     this.eventManager = eventManager;
     this.threadPoolService = threadPoolService;
@@ -218,7 +218,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     task: TriggeredSubgraphTask,
     input: Record<string, unknown>,
   ): Promise<WorkflowExecutionEntity> {
-    const { threadEntity: subgraphEntity } = await this.threadBuilder.build(task.subgraphId, {
+    const { executionEntity: subgraphEntity } = await this.executionBuilder.build(task.subgraphId, {
       input,
     });
 
@@ -262,7 +262,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
    * @returns: Task submission result
    */
   private executeAsync(subgraphEntity: WorkflowExecutionEntity, timeout: number): TaskSubmissionResult {
-    const threadId = subgraphEntity.id;
+    const executionId = subgraphEntity.id;
 
     // First, register the task with the global TaskRegistry.
     const taskId = this.taskRegistry.register(subgraphEntity, "thread", this, timeout);
@@ -273,15 +273,15 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     // Register the callback directly without creating a Promise.
     // This can prevent memory leaks caused by uncleaned Promise references.
     this.callbackState.registerCallback(
-      threadId,
-      (result: ExecutedSubgraphResult) => this.handleSubgraphCompleted(threadId, result),
-      (error: Error) => this.handleSubgraphFailed(threadId, error),
+      executionId,
+      (result: ExecutedSubgraphResult) => this.handleSubgraphCompleted(executionId, result),
+      (error: Error) => this.handleSubgraphFailed(executionId, error),
     );
 
     // Store task information for subsequent cleanup.
-    this.activeTasks.set(threadId, {
+    this.activeTasks.set(executionId, {
       taskId,
-      threadId,
+      executionId,
       submitTime: now(),
       timeout,
     });
@@ -296,15 +296,15 @@ export class TriggeredSubworkflowHandler implements TaskManager {
 
   /**
    * Sub-workflow processing completed.
-   * @param threadId: Thread ID
+   * @param executionId: Execution ID
    * @param result: Execution result
    */
-  private handleSubgraphCompleted(threadId: string, result: ExecutedSubgraphResult): void {
+  private handleSubgraphCompleted(executionId: string, result: ExecutedSubgraphResult): void {
     // Trigger the completion event
-    this.emitCompletedEvent(threadId, result);
+    this.emitCompletedEvent(executionId, result);
 
     // Cancel the parent-child relationship
-    const subgraphEntity = this.workflowExecutionRegistry.get(threadId);
+    const subgraphEntity = this.workflowExecutionRegistry.get(executionId);
     if (subgraphEntity) {
       this.unregisterParentChildRelationship(subgraphEntity);
     }
@@ -312,30 +312,30 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     // Clean up the task records in TaskRegistry.
     const taskInfo = this.taskRegistry
       .getAll()
-      .find(t => t.instanceType === "thread" && t.instance.id === threadId);
+      .find(t => t.instanceType === "thread" && t.instance.id === executionId);
     if (taskInfo) {
       this.taskRegistry.delete(taskInfo.id);
     }
 
     // Clean up active task information
-    this.activeTasks.delete(threadId);
+    this.activeTasks.delete(executionId);
 
     // Finally trigger the callback (the callback will be cleaned up internally).
     // The `triggerCallback` function already cleans up the callbacks internally, so there is no need to call the `cleanupCallback` function as well.
-    this.callbackState.triggerCallback(threadId, result);
+    this.callbackState.triggerCallback(executionId, result);
   }
 
   /**
    * Sub-workflow processing failed.
-   * @param threadId: Thread ID
+   * @param executionId: Execution ID
    * @param error: Error message
    */
-  private handleSubgraphFailed(threadId: string, error: Error): void {
+  private handleSubgraphFailed(executionId: string, error: Error): void {
     // Trigger a failure event.
-    this.emitFailedEvent(threadId, error);
+    this.emitFailedEvent(executionId, error);
 
     // Cancel the parent-child relationship
-    const subgraphEntity = this.workflowExecutionRegistry.get(threadId);
+    const subgraphEntity = this.workflowExecutionRegistry.get(executionId);
     if (subgraphEntity) {
       this.unregisterParentChildRelationship(subgraphEntity);
     }
@@ -343,17 +343,17 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     // Clean up task records in the TaskRegistry.
     const taskInfo = this.taskRegistry
       .getAll()
-      .find(t => t.instanceType === "thread" && t.instance.id === threadId);
+      .find(t => t.instanceType === "thread" && t.instance.id === executionId);
     if (taskInfo) {
       this.taskRegistry.delete(taskInfo.id);
     }
 
     // Clean up active task information
-    this.activeTasks.delete(threadId);
+    this.activeTasks.delete(executionId);
 
     // The final error callback is triggered (the callback will be cleaned up internally).
     // The `triggerErrorCallback` function already cleans up the callback internally, so there is no need to call the `cleanupCallback` function again.
-    this.callbackState.triggerErrorCallback(threadId, error);
+    this.callbackState.triggerErrorCallback(executionId, error);
   }
 
   /**
@@ -382,7 +382,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     _subgraphEntity: WorkflowExecutionEntity,
   ): Promise<void> {
     const startedEvent = buildTriggeredSubgraphStartedEvent({
-      threadId: task.mainThreadEntity.id,
+      executionId: task.mainThreadEntity.id,
       workflowId: task.mainThreadEntity.getWorkflowId(),
       subgraphId: task.subgraphId,
       triggerId: task.triggerId,
@@ -393,20 +393,20 @@ export class TriggeredSubworkflowHandler implements TaskManager {
 
   /**
    * Trigger the completion event
-   * @param threadId: Thread ID
+   * @param executionId: Execution ID
    * @param result: Execution result
    */
   private async emitCompletedEvent(
-    threadId: string,
+    executionId: string,
     result: ExecutedSubgraphResult,
   ): Promise<void> {
-    const subgraphEntity = this.workflowExecutionRegistry.get(threadId);
+    const subgraphEntity = this.workflowExecutionRegistry.get(executionId);
     if (!subgraphEntity) {
       return;
     }
 
     const completedEvent = buildTriggeredSubgraphCompletedEvent({
-      threadId: subgraphEntity.id,
+      executionId: subgraphEntity.id,
       workflowId: subgraphEntity.getWorkflowId(),
       subgraphId: subgraphEntity.getTriggeredSubworkflowId() || "",
       triggerId: "",
@@ -418,17 +418,17 @@ export class TriggeredSubworkflowHandler implements TaskManager {
 
   /**
    * Trigger a failure event
-   * @param threadId: Thread ID
+   * @param executionId: Execution ID
    * @param error: Error message
    */
-  private async emitFailedEvent(threadId: string, error: Error): Promise<void> {
-    const subgraphEntity = this.workflowExecutionRegistry.get(threadId);
+  private async emitFailedEvent(executionId: string, error: Error): Promise<void> {
+    const subgraphEntity = this.workflowExecutionRegistry.get(executionId);
     if (!subgraphEntity) {
       return;
     }
 
     const failedEvent = buildTriggeredSubgraphFailedEvent({
-      threadId: subgraphEntity.id,
+      executionId: subgraphEntity.id,
       workflowId: subgraphEntity.getWorkflowId(),
       subgraphId: subgraphEntity.getTriggeredSubworkflowId() || "",
       triggerId: "",
@@ -494,7 +494,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
    */
   async shutdown(): Promise<void> {
     // Cancel all active tasks.
-    for (const [threadId, task] of this.activeTasks.entries()) {
+    for (const [executionId, task] of this.activeTasks.entries()) {
       try {
         await this.cancelTask(task.taskId);
       } catch (error) {
@@ -502,12 +502,12 @@ export class TriggeredSubworkflowHandler implements TaskManager {
         const sdkError = new SDKError(
           `Failed to cancel task ${task.taskId}`,
           "warning",
-          { threadId, taskId: task.taskId },
+          { executionId, taskId: task.taskId },
           errorObj,
         );
-        logError(sdkError, { threadId, taskId: task.taskId });
+        logError(sdkError, { executionId, taskId: task.taskId });
         emitErrorEvent(this.eventManager, {
-          threadId,
+          executionId,
           workflowId: "",
           error: sdkError,
         });

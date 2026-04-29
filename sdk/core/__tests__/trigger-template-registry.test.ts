@@ -33,7 +33,7 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
         action: {
           type: "pause_thread",
           parameters: {
-            threadId: "${threadId}",
+            executionId: "${executionId}",
           },
         },
         enabled: true,
@@ -58,7 +58,7 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
         action: {
           type: "pause_thread",
           parameters: {
-            threadId: "${threadId}",
+            executionId: "${executionId}",
           },
         },
         createdAt: Date.now(),
@@ -76,7 +76,7 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
           name: "template-1",
           description: "Template 1",
           condition: { eventType: "THREAD_STARTED" },
-          action: { type: "pause_thread", parameters: { threadId: "${threadId}" } },
+          action: { type: "pause_thread", parameters: { executionId: "${executionId}" } },
           createdAt: Date.now(),
           updatedAt: Date.now(),
         },
@@ -84,7 +84,7 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
           name: "template-2",
           description: "Template 2",
           condition: { eventType: "THREAD_COMPLETED" },
-          action: { type: "pause_thread", parameters: { threadId: "${threadId}" } },
+          action: { type: "pause_thread", parameters: { executionId: "${executionId}" } },
           createdAt: Date.now(),
           updatedAt: Date.now(),
         },
@@ -92,7 +92,7 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
           name: "template-3",
           description: "Template 3",
           condition: { eventType: "NODE_FAILED" },
-          action: { type: "resume_thread", parameters: { threadId: "${threadId}" } },
+          action: { type: "resume_thread", parameters: { executionId: "${executionId}" } },
           createdAt: Date.now(),
           updatedAt: Date.now(),
         },
@@ -110,7 +110,7 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
       const template: any = {
         name: "test-template",
         // "Condition is missing"
-        action: { type: "pause_thread", parameters: { threadId: "${threadId}" } },
+        action: { type: "pause_thread", parameters: { executionId: "${executionId}" } },
       };
 
       expect(() => registry.register(template)).toThrow(ConfigurationValidationError);
@@ -122,7 +122,7 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
         condition: {
           eventType: "INVALID_EVENT_TYPE",
         },
-        action: { type: "pause_thread", parameters: { threadId: "${threadId}" } },
+        action: { type: "pause_thread", parameters: { executionId: "${executionId}" } },
       };
 
       expect(() => registry.register(template)).toThrow(ConfigurationValidationError);
@@ -136,7 +136,7 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
         },
         action: {
           type: "invalid_action_type",
-          parameters: { threadId: "${threadId}" },
+          parameters: { executionId: "${executionId}" },
         },
       };
 
@@ -151,7 +151,7 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
           name: "template-1",
           description: "First template",
           condition: { eventType: "THREAD_STARTED" },
-          action: { type: "pause_thread", parameters: { threadId: "${threadId}" } },
+          action: { type: "pause_thread", parameters: { executionId: "${executionId}" } },
           metadata: { category: "lifecycle", tags: ["thread"] },
           createdAt: Date.now(),
           updatedAt: Date.now(),
@@ -160,7 +160,7 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
           name: "template-2",
           description: "Second template",
           condition: { eventType: "NODE_FAILED" },
-          action: { type: "pause_thread", parameters: { threadId: "${threadId}" } },
+          action: { type: "pause_thread", parameters: { executionId: "${executionId}" } },
           metadata: { category: "error", tags: ["node", "error"] },
           createdAt: Date.now(),
           updatedAt: Date.now(),
@@ -223,7 +223,7 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
         name: "test-template",
         description: "original description",
         condition: { eventType: "THREAD_STARTED" },
-        action: { type: "pause_thread", parameters: { threadId: "${threadId}" } },
+        action: { type: "pause_thread", parameters: { executionId: "${executionId}" } },
         enabled: true,
         createdAt: Date.now(),
         updatedAt: Date.now(),
@@ -290,7 +290,7 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
           name: "template-1",
           description: "Template 1",
           condition: { eventType: "THREAD_STARTED" },
-          action: { type: "pause_thread", parameters: { threadId: "${threadId}" } },
+          action: { type: "pause_thread", parameters: { executionId: "${executionId}" } },
           createdAt: Date.now(),
           updatedAt: Date.now(),
         },
@@ -298,7 +298,7 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
           name: "template-2",
           description: "Template 2",
           condition: { eventType: "THREAD_COMPLETED" },
-          action: { type: "pause_thread", parameters: { threadId: "${threadId}" } },
+          action: { type: "pause_thread", parameters: { executionId: "${executionId}" } },
           createdAt: Date.now(),
           updatedAt: Date.now(),
         },
@@ -306,7 +306,7 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
           name: "template-3",
           description: "Template 3",
           condition: { eventType: "NODE_FAILED" },
-          action: { type: "resume_thread", parameters: { threadId: "${threadId}" } },
+          action: { type: "resume_thread", parameters: { executionId: "${executionId}" } },
           createdAt: Date.now(),
           updatedAt: Date.now(),
         },
@@ -331,7 +331,7 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
           name: "template-1",
           description: "Template 1",
           condition: { eventType: "THREAD_STARTED" },
-          action: { type: "pause_thread", parameters: { threadId: "${threadId}" } },
+          action: { type: "pause_thread", parameters: { executionId: "${executionId}" } },
           createdAt: Date.now(),
           updatedAt: Date.now(),
         },
@@ -339,7 +339,7 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
           name: "template-2",
           description: "Template 2",
           condition: { eventType: "THREAD_COMPLETED" },
-          action: { type: "pause_thread", parameters: { threadId: "${threadId}" } },
+          action: { type: "pause_thread", parameters: { executionId: "${executionId}" } },
           createdAt: Date.now(),
           updatedAt: Date.now(),
         },
@@ -363,7 +363,7 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
           name: "thread-started-template",
           description: "Triggered when thread is started",
           condition: { eventType: "THREAD_STARTED" },
-          action: { type: "pause_thread", parameters: { threadId: "${threadId}" } },
+          action: { type: "pause_thread", parameters: { executionId: "${executionId}" } },
           metadata: { category: "lifecycle", tags: ["thread", "lifecycle"] },
           createdAt: Date.now(),
           updatedAt: Date.now(),
@@ -372,7 +372,7 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
           name: "node-failed-template",
           description: "Triggered on node failure",
           condition: { eventType: "NODE_FAILED" },
-          action: { type: "pause_thread", parameters: { threadId: "${threadId}" } },
+          action: { type: "pause_thread", parameters: { executionId: "${executionId}" } },
           metadata: { category: "error", tags: ["node", "error"] },
           createdAt: Date.now(),
           updatedAt: Date.now(),
@@ -444,7 +444,7 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
         action: {
           type: "pause_thread",
           parameters: {
-            threadId: "${threadId}",
+            executionId: "${executionId}",
           },
         },
         metadata: { key: "value" },
@@ -478,7 +478,7 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
         name: "import-test-template",
         description: "Templates imported from JSON",
         condition: { eventType: "THREAD_COMPLETED" },
-        action: { type: "pause_thread", parameters: { threadId: "${threadId}" } },
+        action: { type: "pause_thread", parameters: { executionId: "${executionId}" } },
         createdAt: Date.now(),
         updatedAt: Date.now(),
       });
@@ -501,7 +501,7 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
       const invalidConfig = JSON.stringify({
         name: "invalid-template",
         // "condition is missing"
-        action: { type: "pause_thread", parameters: { threadId: "${threadId}" } },
+        action: { type: "pause_thread", parameters: { executionId: "${executionId}" } },
       });
 
       expect(() => {
@@ -529,7 +529,7 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
         action: {
           type: "pause_thread",
           parameters: {
-            threadId: "${threadId}",
+            executionId: "${executionId}",
           },
         },
         enabled: true,
@@ -631,7 +631,7 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
         name: "template-with-special-chars_123!@#",
         description: "Templates containing special characters",
         condition: { eventType: "THREAD_STARTED" },
-        action: { type: "pause_thread", parameters: { threadId: "${threadId}" } },
+        action: { type: "pause_thread", parameters: { executionId: "${executionId}" } },
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -654,7 +654,7 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
         name: "large-metadata-template",
         description: "Templates with lots of metadata",
         condition: { eventType: "THREAD_STARTED" },
-        action: { type: "pause_thread", parameters: { threadId: "${threadId}" } },
+        action: { type: "pause_thread", parameters: { executionId: "${executionId}" } },
         metadata: largeMetadata,
         createdAt: Date.now(),
         updatedAt: Date.now(),

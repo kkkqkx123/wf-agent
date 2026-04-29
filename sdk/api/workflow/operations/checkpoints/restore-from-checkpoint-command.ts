@@ -49,18 +49,18 @@ export class RestoreFromCheckpointCommand extends BaseCommand<Thread> {
    * Execute the command
    */
   protected async executeInternal(): Promise<Thread> {
-    const threadRegistry = this.dependencies.getThreadRegistry();
+    const executionRegistry = this.dependencies.getWorkflowExecutionRegistry();
     const dependencies = {
-      workflowExecutionRegistry: threadRegistry as unknown as import("../../../../workflow/stores/workflow-execution-registry.js").WorkflowExecutionRegistry,
+      workflowExecutionRegistry: executionRegistry as unknown as import("../../../../workflow/stores/workflow-execution-registry.js").WorkflowExecutionRegistry,
       checkpointStateManager: this.dependencies.getCheckpointStateManager(),
       workflowRegistry: this.dependencies.getWorkflowRegistry(),
-      workflowGraphRegistry: this.dependencies.getGraphRegistry(),
+      workflowGraphRegistry: this.dependencies.getWorkflowGraphRegistry(),
     };
 
     const { workflowExecutionEntity } = await CheckpointCoordinator.restoreFromCheckpoint(
       this.params.checkpointId,
       dependencies,
     );
-    return workflowExecutionEntity.getThread();
+    return workflowExecutionEntity.getExecution();
   }
 }

@@ -45,7 +45,7 @@ export class VariableCoordinator {
   constructor(
     private stateManager: VariableState,
     private eventManager?: EventRegistry,
-    private threadId?: string,
+    private executionId?: string,
     private workflowId?: string,
   ) {}
 
@@ -61,11 +61,11 @@ export class VariableCoordinator {
    * Retrieve the value of a variable (searching based on scope priority)
    * Priority: loop > local > thread > global
    * Supports on-demand initialization: Variables in the thread, local, and loop scopes are initialized the first time they are accessed.
-   * @param threadEntity WorkflowExecutionEntity instance
+   * @param executionEntity WorkflowExecutionEntity instance
    * @param name Variable name
    * @returns Variable value
    */
-  getVariable(threadEntity: WorkflowExecutionEntity, name: string): unknown {
+  getVariable(executionEntity: WorkflowExecutionEntity, name: string): unknown {
     const scopes = this.stateManager.getVariableScopes();
 
     // Loop Scope (Highest Priority)
@@ -140,13 +140,13 @@ export class VariableCoordinator {
 
   /**
    * Update the value of a defined variable
-   * @param threadEntity WorkflowExecutionEntity instance
+   * @param executionEntity WorkflowExecutionEntity instance
    * @param name Variable name
    * @param value New variable value
    * @param explicitScope Explicitly specified scope (optional)
    */
   async updateVariable(
-    threadEntity: WorkflowExecutionEntity,
+    executionEntity: WorkflowExecutionEntity,
     name: string,
     value: unknown,
     explicitScope?: VariableScope,
@@ -160,7 +160,7 @@ export class VariableCoordinator {
           operation: "setVariable",
           field: "variableName",
           value: name,
-          context: { threadId: this.threadId, workflowId: this.workflowId },
+          context: { executionId: this.executionId, workflowId: this.workflowId },
         },
       );
     }
@@ -170,7 +170,7 @@ export class VariableCoordinator {
         operation: "setVariable",
         field: "variableName",
         value: name,
-        context: { threadId: this.threadId, workflowId: this.workflowId },
+        context: { executionId: this.executionId, workflowId: this.workflowId },
       });
     }
 
@@ -182,7 +182,7 @@ export class VariableCoordinator {
           field: "variableValue",
           value: value,
           context: {
-            threadId: this.threadId,
+            executionId: this.executionId,
             workflowId: this.workflowId,
             variableName: name,
             expectedType: variableDef.type,
@@ -199,17 +199,17 @@ export class VariableCoordinator {
     this.stateManager.setVariableValue(name, value, targetScope);
 
     // Trigger a variable change event
-    await this.emitVariableChangedEvent(threadEntity, name, value, targetScope);
+    await this.emitVariableChangedEvent(executionEntity, name, value, targetScope);
   }
 
   /**
    * Check if the variable exists
-   * @param threadEntity WorkflowExecutionEntity instance
+   * @param executionEntity WorkflowExecutionEntity instance
    * @param name Variable name
    * @returns Whether the variable exists
    */
-  hasVariable(threadEntity: WorkflowExecutionEntity, name: string): boolean {
-    return this.getVariable(threadEntity, name) !== undefined;
+  hasVariable(executionEntity: WorkflowExecutionEntity, name: string): boolean {
+    return this.getVariable(executionEntity, name) !== undefined;
   }
 
   /**
@@ -306,14 +306,14 @@ export class VariableCoordinator {
    * @param threadContext: Thread context
    * @returns: VariableAccessor instance
    */
-  createAccessor(threadEntity: WorkflowExecutionEntity): VariableAccessor {
-    return new VariableAccessor(threadEntity);
+  createAccessor(executionEntity: WorkflowExecutionEntity): VariableAccessor {
+    return new VariableAccessor(executionEntity);
   }
 
   /**
    * 通过路径获取变量值
    * 支持嵌套路径和命名空间
-   * @param threadEntity Thread 实体
+   * @param executionEntity Thread 实体
    * @param path 变量路径
    * @returns 变量值
    *
@@ -332,20 +332,20 @@ export class VariableCoordinator {
    * getVariableByPath(entity, 'subgraph.temp')
    * getVariableByPath(entity, 'loop.item')
    */
-  getVariableByPath(threadEntity: WorkflowExecutionEntity, path: string): unknown {
-    const accessor = this.createAccessor(threadEntity);
+  getVariableByPath(executionEntity: WorkflowExecutionEntity, path: string): unknown {
+    const accessor = this.createAccessor(executionEntity);
     return accessor.get(path);
   }
 
   /**
    * Trigger a variable change event
-   * @param threadEntity WorkflowExecutionEntity instance
+   * @param executionEntity WorkflowExecutionEntity instance
    * @param name Variable name
    * @param value New value
    * @param scope Scope of the variable
    */
   private async emitVariableChangedEvent(
-    threadEntity: WorkflowExecutionEntity,
+    executionEntity: WorkflowExecutionEntity,
     name: string,
     value: unknown,
     scope: VariableScope,
@@ -356,8 +356,8 @@ export class VariableCoordinator {
 
     try {
       const event = buildVariableChangedEvent({
-        threadId: threadEntity.id,
-        workflowId: threadEntity.getWorkflowId(),
+        executionId: executionEntity.id,
+        workflowId: executionEntity.getWorkflowId(),
         variableName: name,
         variableValue: value,
         variableScope: scope,
@@ -376,14 +376,14 @@ export class VariableCoordinator {
 
       // Record error logs
       logError(eventSystemError, {
-        threadId: this.threadId,
+        executionId: this.executionId,
         workflowId: this.workflowId,
         variableName: name,
       });
 
       // Trigger an error event
       await emitErrorEvent(this.eventManager, {
-        threadId: this.threadId || "",
+        executionId: this.executionId || "",
         workflowId: this.workflowId || "",
         error: eventSystemError,
       });

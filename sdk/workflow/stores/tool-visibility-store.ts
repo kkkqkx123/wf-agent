@@ -23,21 +23,21 @@ import type { LifecycleCapable } from "../../core/types/lifecycle-capable.js";
  * - Lifecycle management: Implements the LifecycleCapable interface
  */
 export class ToolVisibilityStore implements LifecycleCapable {
-  /** Tool Visibility Context Mapping: threadId -> ToolVisibilityContext */
+  /** Tool Visibility Context Mapping: executionId -> ToolVisibilityContext */
   private contexts: Map<string, ToolVisibilityContext> = new Map();
 
   /**
    * Initialize visibility context
-   * @param threadId Thread ID
+   * @param executionId Execution ID
    * @param availableTools List of available tool IDs
    * @param scope Scope
    * @param scopeId Scope ID
    */
   initializeContext(
-    threadId: string,
+    executionId: string,
     availableTools: string[],
     scope: ToolScope = "THREAD",
-    scopeId: string = threadId,
+    scopeId: string = executionId,
   ): void {
     const context: ToolVisibilityContext = {
       currentScope: scope,
@@ -48,39 +48,39 @@ export class ToolVisibilityStore implements LifecycleCapable {
       initializedAt: Date.now(),
     };
 
-    this.contexts.set(threadId, context);
+    this.contexts.set(executionId, context);
   }
 
   /**
    * Get visibility context
-   * @param threadId: Thread ID
+   * @param executionId: Execution ID
    * @returns: Tool visibility context; returns undefined if not present
    */
-  getContext(threadId: string): ToolVisibilityContext | undefined {
-    return this.contexts.get(threadId);
+  getContext(executionId: string): ToolVisibilityContext | undefined {
+    return this.contexts.get(executionId);
   }
 
   /**
    * Get the visible set of tools
-   * @param threadId Thread ID
+   * @param executionId Execution ID
    * @returns The visible set of tools
    */
-  getVisibleTools(threadId: string): Set<string> {
-    const context = this.contexts.get(threadId);
+  getVisibleTools(executionId: string): Set<string> {
+    const context = this.contexts.get(executionId);
     return context ? context.visibleTools : new Set();
   }
 
   /**
    * Update visibility
-   * @param threadId Thread ID
+   * @param executionId Execution ID
    * @param newTools List of new tool IDs
    * @param scope Scope
    * @param scopeId Scope ID
    */
-  updateVisibility(threadId: string, newTools: string[], scope: ToolScope, scopeId: string): void {
-    const context = this.contexts.get(threadId);
+  updateVisibility(executionId: string, newTools: string[], scope: ToolScope, scopeId: string): void {
+    const context = this.contexts.get(executionId);
     if (!context) {
-      this.initializeContext(threadId, newTools, scope, scopeId);
+      this.initializeContext(executionId, newTools, scope, scopeId);
       return;
     }
 
@@ -91,11 +91,11 @@ export class ToolVisibilityStore implements LifecycleCapable {
 
   /**
    * Add tools to the visibility set
-   * @param threadId Thread ID
+   * @param executionId Execution ID
    * @param toolIds List of tool IDs
    */
-  addTools(threadId: string, toolIds: string[]): void {
-    const context = this.contexts.get(threadId);
+  addTools(executionId: string, toolIds: string[]): void {
+    const context = this.contexts.get(executionId);
     if (!context) {
       return;
     }
@@ -105,11 +105,11 @@ export class ToolVisibilityStore implements LifecycleCapable {
 
   /**
    * Remove tools from the visibility set
-   * @param threadId Thread ID
+   * @param executionId Execution ID
    * @param toolIds List of tool IDs
    */
-  removeTools(threadId: string, toolIds: string[]): void {
-    const context = this.contexts.get(threadId);
+  removeTools(executionId: string, toolIds: string[]): void {
+    const context = this.contexts.get(executionId);
     if (!context) {
       return;
     }
@@ -119,12 +119,12 @@ export class ToolVisibilityStore implements LifecycleCapable {
 
   /**
    * Check if the tool is visible
-   * @param threadId Thread ID
+   * @param executionId Execution ID
    * @param toolId Tool ID
    * @returns Whether it is visible
    */
-  isToolVisible(threadId: string, toolId: string): boolean {
-    const context = this.contexts.get(threadId);
+  isToolVisible(executionId: string, toolId: string): boolean {
+    const context = this.contexts.get(executionId);
     if (!context) {
       return false;
     }
@@ -133,10 +133,10 @@ export class ToolVisibilityStore implements LifecycleCapable {
 
   /**
    * Remove visibility context
-   * @param threadId Thread ID
+   * @param executionId Execution ID
    */
-  deleteContext(threadId: string): void {
-    this.contexts.delete(threadId);
+  deleteContext(executionId: string): void {
+    this.contexts.delete(executionId);
   }
 
   /**
@@ -153,8 +153,8 @@ export class ToolVisibilityStore implements LifecycleCapable {
    */
   createSnapshot(): Map<string, ToolVisibilityContext> {
     const snapshot = new Map<string, ToolVisibilityContext>();
-    for (const [threadId, context] of this.contexts.entries()) {
-      snapshot.set(threadId, {
+    for (const [executionId, context] of this.contexts.entries()) {
+      snapshot.set(executionId, {
         ...context,
         visibleTools: new Set(context.visibleTools),
         declarationHistory: [...context.declarationHistory],
@@ -169,8 +169,8 @@ export class ToolVisibilityStore implements LifecycleCapable {
    */
   restoreFromSnapshot(snapshot: Map<string, ToolVisibilityContext>): void {
     this.contexts.clear();
-    for (const [threadId, context] of snapshot.entries()) {
-      this.contexts.set(threadId, {
+    for (const [executionId, context] of snapshot.entries()) {
+      this.contexts.set(executionId, {
         ...context,
         visibleTools: new Set(context.visibleTools),
         declarationHistory: [...context.declarationHistory],
@@ -180,11 +180,11 @@ export class ToolVisibilityStore implements LifecycleCapable {
 
   /**
    * Get a snapshot of the visibility context
-   * @param threadId: Thread ID
+   * @param executionId: Execution ID
    * @returns: Snapshot of the visibility context
    */
-  getSnapshot(threadId: string): ToolVisibilityContext | undefined {
-    const context = this.contexts.get(threadId);
+  getSnapshot(executionId: string): ToolVisibilityContext | undefined {
+    const context = this.contexts.get(executionId);
     if (!context) {
       return undefined;
     }
@@ -198,11 +198,11 @@ export class ToolVisibilityStore implements LifecycleCapable {
 
   /**
    * Restore visibility context from a snapshot
-   * @param threadId: Thread ID
+   * @param executionId: Execution ID
    * @param snapshot: Visibility context snapshot
    */
-  restoreSnapshot(threadId: string, snapshot: ToolVisibilityContext): void {
-    this.contexts.set(threadId, {
+  restoreSnapshot(executionId: string, snapshot: ToolVisibilityContext): void {
+    this.contexts.set(executionId, {
       ...snapshot,
       visibleTools: new Set(snapshot.visibleTools),
       declarationHistory: [...snapshot.declarationHistory],
@@ -210,8 +210,8 @@ export class ToolVisibilityStore implements LifecycleCapable {
   }
 
   /**
-   * Get all thread IDs
-   * @returns List of all thread IDs
+   * Get all execution IDs
+   * @returns List of all execution IDs
    */
   getAllThreadIds(): string[] {
     return Array.from(this.contexts.keys());

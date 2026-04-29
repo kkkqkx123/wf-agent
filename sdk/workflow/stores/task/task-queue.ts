@@ -87,20 +87,20 @@ export class TaskQueue {
   /**
    * Submit a synchronization task
    * @param taskId Task ID (registered by the manager)
-   * @param threadEntity Thread entity
+   * @param executionEntity Thread entity
    * @param timeout Timeout period (in milliseconds)
    * @returns Execution result
    */
   async submitSync(
     taskId: string,
-    threadEntity: WorkflowExecutionEntity,
+    executionEntity: WorkflowExecutionEntity,
     timeout?: number,
   ): Promise<ExecutedSubgraphResult> {
     return new Promise((resolve, reject) => {
       const queueTask: QueueTask = {
         taskId,
-        threadEntity,
-        workflowExecutionEntity: threadEntity,
+        executionEntity,
+        workflowExecutionEntity: executionEntity,
         resolve: resolve as (
           value: ExecutedSubgraphResult | PromiseLike<ExecutedSubgraphResult>,
         ) => void,
@@ -119,15 +119,15 @@ export class TaskQueue {
   /**
    * Submit an asynchronous task
    * @param taskId Task ID (already registered by the manager)
-   * @param threadEntity Thread entity
+   * @param executionEntity Thread entity
    * @param timeout Timeout period (in milliseconds)
    * @returns Task submission result
    */
-  submitAsync(taskId: string, threadEntity: WorkflowExecutionEntity, timeout?: number): TaskSubmissionResult {
+  submitAsync(taskId: string, executionEntity: WorkflowExecutionEntity, timeout?: number): TaskSubmissionResult {
     const queueTask: QueueTask = {
       taskId,
-      threadEntity,
-      workflowExecutionEntity: threadEntity,
+      executionEntity,
+      workflowExecutionEntity: executionEntity,
       resolve: () => {}, // Asynchronous tasks do not require resolve
       reject: () => {}, // Asynchronous tasks do not require reject
       submitTime: now(),
@@ -177,7 +177,7 @@ export class TaskQueue {
       const sdkError = new SDKError("Error processing queue", "error", {}, errorObj);
       logError(sdkError);
       emitErrorEvent(this.eventManager, {
-        threadId: "",
+        executionId: "",
         workflowId: "",
         error: sdkError,
       });
@@ -196,7 +196,7 @@ export class TaskQueue {
 
     try {
       // Execute Thread
-      const threadResult = await executor.executeWorkflow(queueTask.threadEntity);
+      const threadResult = await executor.executeWorkflow(queueTask.executionEntity);
 
       const executionTime = diffTimestamp(startTime, now());
 
@@ -235,11 +235,11 @@ export class TaskQueue {
 
     // Trigger the completion event
     const completedEvent = buildTriggeredSubgraphCompletedEvent({
-      threadId: queueTask.workflowExecutionEntity.id,
-      workflowId: queueTask.threadEntity.getWorkflowId(),
-      subgraphId: queueTask.threadEntity.getTriggeredSubworkflowId() || "",
+      executionId: queueTask.workflowExecutionEntity.id,
+      workflowId: queueTask.executionEntity.getWorkflowId(),
+      subgraphId: queueTask.executionEntity.getTriggeredSubworkflowId() || "",
       triggerId: "",
-      output: queueTask.threadEntity.getOutput(),
+      output: queueTask.executionEntity.getOutput(),
       executionTime,
     });
     await emit(this.eventManager, completedEvent);
@@ -247,7 +247,7 @@ export class TaskQueue {
     // If it is a synchronous task, call resolve.
     if (queueTask.resolve) {
       const result: ExecutedSubgraphResult = {
-        subgraphEntity: queueTask.threadEntity,
+        subgraphEntity: queueTask.executionEntity,
         threadResult,
         executionTime,
       };
@@ -274,9 +274,9 @@ export class TaskQueue {
 
     // Trigger a failure event.
     const failedEvent = buildTriggeredSubgraphFailedEvent({
-      threadId: queueTask.workflowExecutionEntity.id,
-      workflowId: queueTask.threadEntity.getWorkflowId(),
-      subgraphId: queueTask.threadEntity.getTriggeredSubworkflowId() || "",
+      executionId: queueTask.workflowExecutionEntity.id,
+      workflowId: queueTask.executionEntity.getWorkflowId(),
+      subgraphId: queueTask.executionEntity.getTriggeredSubworkflowId() || "",
       triggerId: "",
       error: getErrorOrNew(error),
     });
@@ -306,9 +306,9 @@ export class TaskQueue {
 
       // Trigger the cancellation event (using the FAILED event type, as the CANCELLED event type does not exist)
       const cancelledEvent = buildTriggeredSubgraphFailedEvent({
-        threadId: queueTask.workflowExecutionEntity.id,
-        workflowId: queueTask.threadEntity.getWorkflowId(),
-        subgraphId: queueTask.threadEntity.getTriggeredSubworkflowId() || "",
+        executionId: queueTask.workflowExecutionEntity.id,
+        workflowId: queueTask.executionEntity.getWorkflowId(),
+        subgraphId: queueTask.executionEntity.getTriggeredSubworkflowId() || "",
         triggerId: "",
         error: new Error("Task cancelled"),
       });

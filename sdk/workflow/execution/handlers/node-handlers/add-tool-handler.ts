@@ -108,7 +108,7 @@ export async function addToolHandler(
     await context.eventManager.emit(
       buildToolAddedEvent({
         workflowId: thread.workflowId,
-        threadId: thread.id,
+        executionId: thread.id,
         nodeId: node.id,
         toolIds: validToolIds,
         scope,

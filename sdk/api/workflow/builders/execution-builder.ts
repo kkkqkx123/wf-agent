@@ -186,7 +186,7 @@ export class ExecutionBuilder {
     }
 
     const workflowId = this.workflowId; // The workflowId has been determined to exist here
-    let threadId: string | undefined;
+    let executionId: string | undefined;
 
     return create((observer: Observer<ExecutionEvent>) => {
       // Creating an AbortController for canceling execution
@@ -214,7 +214,6 @@ export class ExecutionBuilder {
             timestamp: now(),
             workflowId,
             executionId: executionId,
-            threadId: executionId, // Backward compatibility
             result: result.value,
             executionStats: {
               duration: result.value.executionTime,
@@ -230,8 +229,7 @@ export class ExecutionBuilder {
               type: "cancelled",
               timestamp: now(),
               workflowId,
-              executionId: threadId || "unknown",
-              threadId: threadId || "unknown",
+              executionId: executionId || "unknown",
               reason: result.error.message,
             } as CancelledEvent);
             observer.complete();
@@ -241,8 +239,7 @@ export class ExecutionBuilder {
               type: "error",
               timestamp: now(),
               workflowId,
-              executionId: threadId || "unknown",
-              threadId: threadId || "unknown",
+              executionId: executionId || "unknown",
               error: result.error,
             } as ErrorEvent);
             observer.error(result.error);
@@ -318,7 +315,7 @@ export class ExecutionBuilder {
           type: "progress",
           timestamp: now(),
           workflowId: this.workflowId!,
-          threadId: (progressRecord["threadId"] as string) || "unknown",
+          executionId: (progressRecord["executionId"] as string) || "unknown",
           progress: {
             status: (progressRecord["status"] as string) || "running",
             currentStep: (progressRecord["currentStep"] as number) || 0,
@@ -361,7 +358,7 @@ export class ExecutionBuilder {
           type: "nodeExecuted",
           timestamp: now(),
           workflowId: this.workflowId!,
-          threadId: (resultRecord["threadId"] as string) || "unknown",
+          executionId: (resultRecord["executionId"] as string) || "unknown",
           nodeId: (resultRecord["nodeId"] as string) || "unknown",
           nodeType: (resultRecord["nodeType"] as string) || "unknown",
           nodeResult: result,
@@ -400,7 +397,7 @@ export class ExecutionBuilder {
           type: "error",
           timestamp: now(),
           workflowId: this.workflowId!,
-          threadId: (errorRecord["threadId"] as string) || "unknown",
+          executionId: (errorRecord["executionId"] as string) || "unknown",
           error: getErrorOrNew(error),
         } as ErrorEvent);
       };

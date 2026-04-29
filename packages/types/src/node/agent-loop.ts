@@ -88,8 +88,8 @@ export interface AgentLoopNodeResult {
 export interface AgentLoopExecutionData {
   /** Node ID */
   nodeId: ID;
-  /** Thread ID */
-  threadId: ID;
+  /** Execution ID */
+  executionId: ID;
   /** Enter the prompt */
   prompt?: string;
   /** Node Configuration */

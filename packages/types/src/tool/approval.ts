@@ -99,7 +99,7 @@ export interface ToolApprovalRequest {
   toolCall: LLMToolCall;
   /** Tool description */
   toolDescription?: string;
-  /** Context ID (thread ID, session ID, etc.) */
+  /** Context ID (execution ID, session ID, etc.) */
   contextId: string;
   /** Node ID (optional) */
   nodeId?: string;

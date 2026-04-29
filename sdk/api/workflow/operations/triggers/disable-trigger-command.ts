@@ -10,8 +10,8 @@ import type { APIDependencyManager } from "../../../shared/core/sdk-dependencies
  * Disable trigger parameters
  */
 export interface DisableTriggerParams {
-  /** Thread ID */
-  threadId: string;
+  /** Execution ID */
+  executionId: string;
   /** Trigger ID */
   triggerId: string;
 }
@@ -33,8 +33,8 @@ export class DisableTriggerCommand extends BaseCommand<void> {
   validate(): CommandValidationResult {
     const errors: string[] = [];
 
-    if (!this.params.threadId || this.params.threadId.trim() === "") {
-      errors.push("Thread ID cannot be null");
+    if (!this.params.executionId || this.params.executionId.trim() === "") {
+      errors.push("Execution ID cannot be null");
     }
 
     if (!this.params.triggerId || this.params.triggerId.trim() === "") {
@@ -51,7 +51,7 @@ export class DisableTriggerCommand extends BaseCommand<void> {
    * Execute the command
    */
   protected async executeInternal(): Promise<void> {
-    const triggerManager = (await this.getTriggerManager(this.params.threadId)) as {
+    const triggerManager = (await this.getTriggerManager(this.params.executionId)) as {
       disable: (triggerId: string) => void;
     };
     triggerManager.disable(this.params.triggerId);
@@ -60,11 +60,11 @@ export class DisableTriggerCommand extends BaseCommand<void> {
   /**
    * Obtain the Trigger Manager
    */
-  private async getTriggerManager(threadId: string) {
-    const threadContext = this.dependencies.getThreadRegistry().get(threadId);
-    if (!threadContext) {
-      throw new WorkflowExecutionNotFoundError(`Thread not found: ${threadId}`, threadId);
+  private async getTriggerManager(executionId: string) {
+    const executionContext = this.dependencies.getWorkflowExecutionRegistry().get(executionId);
+    if (!executionContext) {
+      throw new WorkflowExecutionNotFoundError(`Workflow execution not found: ${executionId}`, executionId);
     }
-    return threadContext.triggerManager;
+    return executionContext.triggerManager;
   }
 }

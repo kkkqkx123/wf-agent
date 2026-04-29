@@ -12,15 +12,15 @@ import { resolvePath } from "@wf-agent/common-utils";
 /**
  * Check whether the node can be executed.
  */
-function canExecute(threadEntity: WorkflowExecutionEntity, node: Node): boolean {
-  if (threadEntity.getStatus() !== "RUNNING") {
+function canExecute(executionEntity: WorkflowExecutionEntity, node: Node): boolean {
+  if (executionEntity.getStatus() !== "RUNNING") {
     return false;
   }
 
   const config = node.config as VariableNodeConfig;
 
   // Check if the variable is read-only.
-  const thread = threadEntity.getThread();
+  const thread = executionEntity.getExecution();
   const existingVariable = thread.variables?.find((v: { name: string; readonly?: boolean }) => v.name === config.variableName);
   if (existingVariable && existingVariable.readonly) {
     return false;
@@ -164,29 +164,29 @@ function convertType(value: unknown, targetType: string): unknown {
 
 /**
  * Variable Node Processing Function
- * @param threadEntity WorkflowExecutionEntity instance
+ * @param executionEntity WorkflowExecutionEntity instance
  * @param node Node definition
  * @param context Processor context (optional)
  * @returns Execution result
  */
 export async function variableHandler(
-  threadEntity: WorkflowExecutionEntity,
+  executionEntity: WorkflowExecutionEntity,
   node: Node,
   _context?: unknown,
 ): Promise<unknown> {
   // Check if it is possible to execute.
-  if (!canExecute(threadEntity, node)) {
+  if (!canExecute(executionEntity, node)) {
     return {
       nodeId: node.id,
       nodeType: node.type,
       status: "SKIPPED",
-      step: threadEntity.getNodeResults().length + 1,
+      step: executionEntity.getNodeResults().length + 1,
       executionTime: 0,
     };
   }
 
   const config = node.config as VariableNodeConfig;
-  const thread = workflowExecutionEntity.getThread();
+  const thread = workflowExecutionEntity.getExecution();
 
   // Parse variable references in expressions
   const evaluatedExpression = resolveVariableReferences(config.expression, thread);
@@ -236,8 +236,8 @@ export async function variableHandler(
   }
 
   // Record execution history
-  threadEntity.addNodeResult({
-    step: threadEntity.getNodeResults().length + 1,
+  executionEntity.addNodeResult({
+    step: executionEntity.getNodeResults().length + 1,
     nodeId: node.id,
     nodeType: node.type,
     status: "COMPLETED",

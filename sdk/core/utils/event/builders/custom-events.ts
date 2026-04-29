@@ -15,7 +15,7 @@ import type { NodeCustomEvent, AgentCustomEvent, Metadata } from "@wf-agent/type
  */
 export const buildNodeCustomEvent = (params: {
   workflowId: string;
-  threadId: string;
+  executionId: string;
   nodeId: string;
   nodeType: string;
   eventName: string;
@@ -35,7 +35,7 @@ export const buildNodeCustomEvent = (params: {
  * Build agent custom event
  */
 export const buildAgentCustomEvent = (params: {
-  threadId: string;
+  executionId: string;
   agentLoopId: string;
   eventName: string;
   eventData: Record<string, unknown>;

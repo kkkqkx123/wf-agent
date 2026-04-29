@@ -328,7 +328,7 @@ describe("createAuditLoggingHook", () => {
     expect(mockLog).toHaveBeenCalledWith(
       expect.objectContaining({
         eventType: "NODE_EXECUTION_ATTEMPT",
-        threadId: "test-thread",
+        executionId: "test-thread",
         nodeId: "test-node",
         nodeName: "Test Node",
         nodeType: "SCRIPT",

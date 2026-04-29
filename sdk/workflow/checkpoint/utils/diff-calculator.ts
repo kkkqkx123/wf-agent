@@ -8,7 +8,7 @@ import {
   DeltaCalculator,
   type DeltaCalculatorContext,
 } from "../../../core/utils/checkpoint/delta-calculator.js";
-import type { ThreadStateSnapshot, CheckpointDelta, NodeExecutionResult } from "@wf-agent/types";
+import type { WorkflowExecutionStateSnapshot, CheckpointDelta, NodeExecutionResult } from "@wf-agent/types";
 
 /**
  * Checkpoint Diff Calculator
@@ -16,7 +16,7 @@ import type { ThreadStateSnapshot, CheckpointDelta, NodeExecutionResult } from "
  * Extends the generic DeltaCalculator with Workflow/WorkflowExecution specific logic.
  */
 export class CheckpointDiffCalculator extends DeltaCalculator<
-  ThreadStateSnapshot,
+  WorkflowExecutionStateSnapshot,
   CheckpointDelta
 > {
   constructor() {
@@ -31,8 +31,8 @@ export class CheckpointDiffCalculator extends DeltaCalculator<
    * @returns Delta data
    */
   calculateDelta(
-    previous: ThreadStateSnapshot,
-    current: ThreadStateSnapshot,
+    previous: WorkflowExecutionStateSnapshot,
+    current: WorkflowExecutionStateSnapshot,
     _context?: DeltaCalculatorContext,
   ): CheckpointDelta {
     const delta: CheckpointDelta = {};
@@ -111,8 +111,8 @@ export class CheckpointDiffCalculator extends DeltaCalculator<
    * Calculate other state changes specific to WorkflowExecution
    */
   private calculateOtherChanges(
-    previous: ThreadStateSnapshot,
-    current: ThreadStateSnapshot,
+    previous: WorkflowExecutionStateSnapshot,
+    current: WorkflowExecutionStateSnapshot,
   ): Record<string, { from: unknown; to: unknown }> {
     const changes: Record<string, { from: unknown; to: unknown }> = {};
 

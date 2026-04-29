@@ -240,7 +240,7 @@ export class ExecutionQueue<T extends ExecutionInstance> {
       const sdkError = new SDKError("Error processing queue", "error", {}, errorObj);
       logError(sdkError);
       emitErrorEvent(this.eventManager, {
-        threadId: "",
+        executionId: "",
         workflowId: "",
         error: sdkError,
       });
@@ -299,7 +299,7 @@ export class ExecutionQueue<T extends ExecutionInstance> {
     // Trigger the completion event (for thread instances)
     if (isThreadInstance(queueTask.instance)) {
       const completedEvent = buildTriggeredSubgraphCompletedEvent({
-        threadId: queueTask.instance.id,
+        executionId: queueTask.instance.id,
         workflowId: queueTask.instance.getWorkflowId(),
         subgraphId: queueTask.instance.getTriggeredSubworkflowId() || "",
         triggerId: "",
@@ -341,7 +341,7 @@ export class ExecutionQueue<T extends ExecutionInstance> {
     // Trigger a failure event (for thread instances)
     if (isThreadInstance(queueTask.instance)) {
       const failedEvent = buildTriggeredSubgraphFailedEvent({
-        threadId: queueTask.instance.id,
+        executionId: queueTask.instance.id,
         workflowId: queueTask.instance.getWorkflowId(),
         subgraphId: queueTask.instance.getTriggeredSubworkflowId() || "",
         triggerId: "",
@@ -375,7 +375,7 @@ export class ExecutionQueue<T extends ExecutionInstance> {
       // Trigger the cancellation event (for thread instances)
       if (isThreadInstance(queueTask.instance)) {
         const cancelledEvent = buildTriggeredSubgraphFailedEvent({
-          threadId: queueTask.instance.id,
+          executionId: queueTask.instance.id,
           workflowId: queueTask.instance.getWorkflowId(),
           subgraphId: queueTask.instance.getTriggeredSubworkflowId() || "",
           triggerId: "",

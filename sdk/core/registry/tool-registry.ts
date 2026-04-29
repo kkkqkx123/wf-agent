@@ -201,18 +201,18 @@ class ToolRegistry {
    * @param toolId: Tool ID
    * @param parameters: Tool parameters
    * @param options: Execution options
-   * @param threadId: Thread ID (optional, for stateful tools)
+   * @param executionId: Execution ID (optional, for stateful tools)
    * @returns: Result<ToolExecutionResult, ToolError>
    */
   async execute(
     toolId: string,
     parameters: Record<string, unknown>,
     options: ToolExecutionOptions = {},
-    threadId?: string,
+    executionId?: string,
   ): Promise<Result<ToolExecutionResult, ToolError>> {
     logger.debug("Tool execution started", {
       toolId,
-      threadId,
+      executionId,
       hasParameters: Object.keys(parameters).length > 0,
     });
 
@@ -252,7 +252,7 @@ class ToolRegistry {
     // Use `tryCatchAsyncWithSignal` to ensure that the signal is passed correctly.
     const result = await tryCatchAsyncWithSignal(
       (signal: AbortSignal | undefined) =>
-        executor.execute(tool, parameters, { ...options, signal }, threadId),
+        executor.execute(tool, parameters, { ...options, signal }, executionId),
       options?.signal,
     );
 
@@ -267,7 +267,7 @@ class ToolRegistry {
   /**
    * 批量执行工具
    * @param executions 执行任务数组
-   * @param threadId 线程 ID（可选，用于有状态工具）
+   * @param executionId 线程 ID（可选，用于有状态工具）
    * @returns Result<ToolExecutionResult[], ToolError>
    */
   async executeBatch(
@@ -276,11 +276,11 @@ class ToolRegistry {
       parameters: Record<string, unknown>;
       options?: ToolExecutionOptions;
     }>,
-    threadId?: string,
+    executionId?: string,
   ): Promise<Result<ToolExecutionResult[], ToolError>> {
     // Execute all tools in parallel.
     const results = await Promise.all(
-      executions.map(exec => this.execute(exec.toolId, exec.parameters, exec.options, threadId)),
+      executions.map(exec => this.execute(exec.toolId, exec.parameters, exec.options, executionId)),
     );
 
     // Combine the results; return success if everything is successful, otherwise return the first error.
@@ -329,20 +329,20 @@ class ToolRegistry {
 
   /**
    * Clean up all stateful tool instances for the specified thread.
-   * @param threadId: Thread ID
+   * @param executionId: Execution ID
    */
-  cleanupThread(threadId: string): void {
-    logger.debug("Cleaning up thread stateful tools", { threadId });
+  cleanupThread(executionId: string): void {
+    logger.debug("Cleaning up thread stateful tools", { executionId });
     const statefulExecutor = this.executors.get("STATEFUL");
     if (
       statefulExecutor &&
-      typeof (statefulExecutor as { cleanupThread?: (threadId: string) => void }).cleanupThread ===
+      typeof (statefulExecutor as { cleanupThread?: (executionId: string) => void }).cleanupThread ===
         "function"
     ) {
-      (statefulExecutor as unknown as { cleanupThread: (threadId: string) => void }).cleanupThread(
-        threadId,
+      (statefulExecutor as unknown as { cleanupThread: (executionId: string) => void }).cleanupThread(
+        executionId,
       );
-      logger.debug("Thread stateful tools cleaned up", { threadId });
+      logger.debug("Thread stateful tools cleaned up", { executionId });
     }
   }
 
@@ -428,11 +428,11 @@ class ToolRegistry {
    * @param context Context to update
    */
   updateBuiltinContext(context: {
-    threadId?: string;
+    executionId?: string;
     parentThreadEntity?: unknown;
-    threadRegistry?: unknown;
+    executionRegistry?: unknown;
     eventManager?: unknown;
-    threadBuilder?: unknown;
+    executionBuilder?: unknown;
     taskQueueManager?: unknown;
   }): void {
     this.builtinExecutor.updateDefaultContext(context);

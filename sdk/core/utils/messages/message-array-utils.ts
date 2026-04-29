@@ -50,8 +50,8 @@ export interface MessageSnapshot {
   messages: LLMMessage[];
   /** Snapshot timestamp */
   timestamp: number;
-  /** Thread ID */
-  threadId?: string;
+  /** Execution ID */
+  executionId?: string;
   /** Workflow ID */
   workflowId?: string;
   /** Number of messages */
@@ -391,14 +391,14 @@ export class MessageArrayUtils {
     messages: LLMMessage[],
     metadata?: {
       timestamp?: number;
-      threadId?: string;
+      executionId?: string;
       workflowId?: string;
     },
   ): MessageSnapshot {
     return {
       messages: this.cloneMessages(messages),
       timestamp: metadata?.timestamp || Date.now(),
-      threadId: metadata?.threadId,
+      executionId: metadata?.executionId,
       workflowId: metadata?.workflowId,
       messageCount: messages.length,
     };

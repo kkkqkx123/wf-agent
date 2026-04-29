@@ -29,7 +29,7 @@ export async function emitHookEvent(
 
   const event = buildNodeCustomEvent({
     workflowId: thread.workflowId,
-    threadId: thread.id,
+    executionId: thread.id,
     nodeId: node.id,
     nodeType: node.type,
     eventName,

@@ -8,6 +8,7 @@ import type {
   CheckpointStorageCallback,
   WorkflowStorageCallback,
   WorkflowExecutionStorageCallback,
+  TaskStorageCallback,
 } from "@wf-agent/storage";
 
 /**
@@ -26,8 +27,8 @@ export interface SDKOptions {
   checkpointStorageCallback?: CheckpointStorageCallback;
   /** Workflow storage callback interface (implemented by the application layer) */
   workflowStorageCallback?: WorkflowStorageCallback;
-  /** Thread storage callback interface (implemented by the application layer) */
-  threadStorageCallback?: ThreadStorageCallback;
+  /** Task storage callback interface (implemented by the application layer) */
+  taskStorageCallback?: TaskStorageCallback;
   /** Whether to enable verification */
   enableValidation?: boolean;
   /** Predefined feature options */
@@ -72,7 +73,7 @@ export interface SDKDependencies {
   /** Workflow Registry */
   workflowRegistry?: unknown;
   /** Thread Registry */
-  threadRegistry?: unknown;
+  executionRegistry?: unknown;
   /** Tool Registry */
   toolRegistry?: unknown;
   /** Script Registry */

@@ -89,7 +89,7 @@ describe("Triggered Subworkflow Manager - Triggered Subworkflow Manager", () => 
       getTriggeredSubworkflowId: vi.fn(() => "subgraph-1"),
     };
 
-    // Mock threadBuilder.build
+    // Mock executionBuilder.build
     mockWorkflowExecutionBuilder.build.mockResolvedValue(mockSubgraphEntity);
   });
 
@@ -107,7 +107,7 @@ describe("Triggered Subworkflow Manager - Triggered Subworkflow Manager", () => 
       };
 
       const mockThreadResult: WorkflowExecutionResult = {
-        threadId: "subgraph-thread-456",
+        executionId: "subgraph-thread-456",
         output: { compressed: "context" },
         executionTime: 100,
         nodeResults: [],
@@ -160,7 +160,7 @@ describe("Triggered Subworkflow Manager - Triggered Subworkflow Manager", () => 
       };
 
       const mockThreadResult: WorkflowExecutionResult = {
-        threadId: "subgraph-thread-456",
+        executionId: "subgraph-thread-456",
         output: { data: "test" },
         executionTime: 200,
         nodeResults: [],
@@ -277,7 +277,7 @@ describe("Triggered Subworkflow Manager - Triggered Subworkflow Manager", () => 
       };
 
       const mockThreadResult: WorkflowExecutionResult = {
-        threadId: "subgraph-thread-456",
+        executionId: "subgraph-thread-456",
         output: {},
         executionTime: 50,
         nodeResults: [],
@@ -312,7 +312,7 @@ describe("Triggered Subworkflow Manager - Triggered Subworkflow Manager", () => 
         status: "RUNNING" as TaskStatus,
         instanceType: "thread" as ExecutionInstanceType,
         instance: mockSubgraphEntity,
-        threadEntity: mockSubgraphEntity,
+        executionEntity: mockSubgraphEntity,
         taskManager: manager,
         submitTime: Date.now(),
       };
@@ -359,7 +359,7 @@ describe("Triggered Subworkflow Manager - Triggered Subworkflow Manager", () => 
       };
 
       const mockThreadResult: WorkflowExecutionResult = {
-        threadId: "subgraph-thread-456",
+        executionId: "subgraph-thread-456",
         output: {},
         executionTime: 50,
         nodeResults: [],
@@ -399,7 +399,7 @@ describe("Triggered Subworkflow Manager - Triggered Subworkflow Manager", () => 
       };
 
       const mockThreadResult: WorkflowExecutionResult = {
-        threadId: "subgraph-thread-456",
+        executionId: "subgraph-thread-456",
         output: {},
         executionTime: 50,
         nodeResults: [],

@@ -144,23 +144,23 @@ function checkThreadReferences(
   // Detailed inspection: Only perform a thorough traversal on active workflows.
   const allThreads = workflowExecutionRegistry.getAll();
 
-  for (const threadEntity of allThreads) {
+  for (const executionEntity of allThreads) {
     // Check whether the main thread is using this workflow.
-    if (threadEntity.getWorkflowId() === workflowId) {
-      references.push(createMainWorkflowReference(threadEntity));
+    if (executionEntity.getWorkflowId() === workflowId) {
+      references.push(createMainWorkflowReference(executionEntity));
     }
 
     // Check the context of the triggered sub-workflow.
-    const triggeredSubworkflowId = threadEntity.getTriggeredSubworkflowId();
+    const triggeredSubworkflowId = executionEntity.getTriggeredSubworkflowId();
     if (triggeredSubworkflowId === workflowId) {
-      references.push(createTriggeredSubworkflowReference(threadEntity));
+      references.push(createTriggeredSubworkflowReference(executionEntity));
     }
 
     // Check subgraph execution stack references (new feature).
-    const subgraphStack = threadEntity.getSubgraphStack();
+    const subgraphStack = executionEntity.getSubgraphStack();
     for (const context of subgraphStack) {
       if (context.workflowId === workflowId) {
-        references.push(createSubgraphStackReference(threadEntity, context));
+        references.push(createSubgraphStackReference(executionEntity, context));
       }
     }
   }
@@ -171,15 +171,15 @@ function checkThreadReferences(
 /**
  * Create a main workflow reference
  */
-function createMainWorkflowReference(threadEntity: WorkflowExecutionEntity): WorkflowReference {
+function createMainWorkflowReference(executionEntity: WorkflowExecutionEntity): WorkflowReference {
   return {
     type: "thread",
-    sourceId: threadEntity.id,
-    sourceName: `Thread ${threadEntity.id}`,
+    sourceId: executionEntity.id,
+    sourceName: `Thread ${executionEntity.id}`,
     isRuntimeReference: true,
     details: {
-      threadStatus: threadEntity.getStatus(),
-      threadType: threadEntity.getThreadType?.() ?? "main",
+      threadStatus: executionEntity.getStatus(),
+      threadType: executionEntity.getThreadType?.() ?? "main",
       referenceType: "main-workflow",
     },
   };
@@ -188,15 +188,15 @@ function createMainWorkflowReference(threadEntity: WorkflowExecutionEntity): Wor
 /**
  * Create a reference to the triggered sub-workflow.
  */
-function createTriggeredSubworkflowReference(threadEntity: WorkflowExecutionEntity): WorkflowReference {
+function createTriggeredSubworkflowReference(executionEntity: WorkflowExecutionEntity): WorkflowReference {
   return {
     type: "thread",
-    sourceId: threadEntity.id,
-    sourceName: `Thread ${threadEntity.id} (Triggered Subworkflow)`,
+    sourceId: executionEntity.id,
+    sourceName: `Thread ${executionEntity.id} (Triggered Subworkflow)`,
     isRuntimeReference: true,
     details: {
-      threadStatus: threadEntity.getStatus(),
-      threadType: threadEntity.getThreadType?.() ?? "triggered",
+      threadStatus: executionEntity.getStatus(),
+      threadType: executionEntity.getThreadType?.() ?? "triggered",
       contextType: "triggered-subworkflow",
     },
   };
@@ -206,17 +206,17 @@ function createTriggeredSubworkflowReference(threadEntity: WorkflowExecutionEnti
  * Create a reference to the subgraph execution stack
  */
 function createSubgraphStackReference(
-  threadEntity: WorkflowExecutionEntity,
+  executionEntity: WorkflowExecutionEntity,
   context: { depth?: number; parentWorkflowId?: string },
 ): WorkflowReference {
   return {
     type: "thread",
-    sourceId: threadEntity.id,
-    sourceName: `Thread ${threadEntity.id} (Subgraph Stack)`,
+    sourceId: executionEntity.id,
+    sourceName: `Thread ${executionEntity.id} (Subgraph Stack)`,
     isRuntimeReference: true,
     details: {
-      threadStatus: threadEntity.getStatus(),
-      threadType: threadEntity.getThreadType?.() ?? "subgraph",
+      threadStatus: executionEntity.getStatus(),
+      threadType: executionEntity.getThreadType?.() ?? "subgraph",
       contextType: "subgraph-stack",
       depth: context.depth,
       parentWorkflowId: context.parentWorkflowId,

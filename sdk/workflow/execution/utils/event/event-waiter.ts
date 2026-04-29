@@ -31,49 +31,49 @@ export { WAIT_FOREVER, waitForCondition, waitForAllConditions, waitForAnyConditi
  * Wait for the thread pause event
  *
  * @param eventManager Event manager
- * @param threadId Thread ID
+ * @param executionId Execution ID
  * @param timeout Timeout period in milliseconds; default is 5000ms. Use WAIT_FOREVER or -1 to indicate waiting indefinitely
  * @returns Promise: Resolved when the timeout occurs or the event is triggered
  *
  * @example
  * // Use default timeout (5000ms)
- * await waitForThreadPaused(eventManager, threadId);
+ * await waitForThreadPaused(eventManager, executionId);
  *
  * @example
  * // Custom timeout (10 seconds)
- * await waitForThreadPaused(eventManager, threadId, 10000);
+ * await waitForThreadPaused(eventManager, executionId, 10000);
  *
  * @example
  * // Wait indefinitely
- * await waitForThreadPaused(eventManager, threadId, WAIT_FOREVER);
+ * await waitForThreadPaused(eventManager, executionId, WAIT_FOREVER);
  */
 export async function waitForThreadPaused(
   eventManager: EventRegistry,
-  threadId: string,
+  executionId: string,
   timeout: number = 5000,
 ): Promise<void> {
   const actualTimeout = timeout === WAIT_FOREVER ? undefined : timeout;
-  await eventManager.waitFor("THREAD_PAUSED", actualTimeout, event => event.threadId === threadId);
+  await eventManager.waitFor("THREAD_PAUSED", actualTimeout, event => event.executionId === executionId);
 }
 
 /**
  * Wait for the thread cancellation event
  *
  * @param eventManager  Event manager
- * @param threadId  Thread ID
+ * @param executionId  Execution ID
  * @param timeout  Timeout period in milliseconds; the default is 5000ms. Use WAIT_foreVER or -1 to indicate waiting indefinitely
  * @returns Promise: Resolved when the timeout occurs or the event is triggered
  */
 export async function waitForThreadCancelled(
   eventManager: EventRegistry,
-  threadId: string,
+  executionId: string,
   timeout: number = 5000,
 ): Promise<void> {
   const actualTimeout = timeout === WAIT_FOREVER ? undefined : timeout;
   await eventManager.waitFor(
     "THREAD_CANCELLED",
     actualTimeout,
-    event => event.threadId === threadId,
+    event => event.executionId === executionId,
   );
 }
 
@@ -81,20 +81,20 @@ export async function waitForThreadCancelled(
  * Wait for the Thread to complete the event
  *
  * @param eventManager  Event manager
- * @param threadId  Thread ID
+ * @param executionId  Execution ID
  * @param timeout  Timeout period in milliseconds; the default is 30000ms. Use WAIT_foreVER or -1 to indicate waiting indefinitely
  * @returns Promise: Resolves when the timeout occurs or the event is triggered
  */
 export async function waitForThreadCompleted(
   eventManager: EventRegistry,
-  threadId: string,
+  executionId: string,
   timeout: number = 30000,
 ): Promise<void> {
   const actualTimeout = timeout === WAIT_FOREVER ? undefined : timeout;
   await eventManager.waitFor(
     "THREAD_COMPLETED",
     actualTimeout,
-    event => event.threadId === threadId,
+    event => event.executionId === executionId,
   );
 }
 
@@ -102,47 +102,47 @@ export async function waitForThreadCompleted(
  * Waiting for the thread failure event
  *
  * @param eventManager  Event manager
- * @param threadId  Thread ID
+ * @param executionId  Execution ID
  * @param timeout  Timeout period in milliseconds; the default is 30000ms. Use WAIT_FOREVER or -1 to indicate waiting indefinitely
  * @returns Promise: Resolved when the timeout occurs or the event is triggered
  */
 export async function waitForThreadFailed(
   eventManager: EventRegistry,
-  threadId: string,
+  executionId: string,
   timeout: number = 30000,
 ): Promise<void> {
   const actualTimeout = timeout === WAIT_FOREVER ? undefined : timeout;
-  await eventManager.waitFor("THREAD_FAILED", actualTimeout, event => event.threadId === threadId);
+  await eventManager.waitFor("THREAD_FAILED", actualTimeout, event => event.executionId === executionId);
 }
 
 /**
  * Waiting for the thread recovery event
  *
  * @param eventManager: Event manager
- * @param threadId: Thread ID
+ * @param executionId: Execution ID
  * @param timeout: Timeout period in milliseconds; the default is 5000ms. Use WAIT_foreVER or -1 to indicate waiting indefinitely
  * @returns: Promise, resolved when the timeout is reached or the event is triggered
  */
 export async function waitForThreadResumed(
   eventManager: EventRegistry,
-  threadId: string,
+  executionId: string,
   timeout: number = 5000,
 ): Promise<void> {
   const actualTimeout = timeout === WAIT_FOREVER ? undefined : timeout;
-  await eventManager.waitFor("THREAD_RESUMED", actualTimeout, event => event.threadId === threadId);
+  await eventManager.waitFor("THREAD_RESUMED", actualTimeout, event => event.executionId === executionId);
 }
 
 /**
  * Wait for any Thread lifecycle event
  *
  * @param eventManager  Event manager
- * @param threadId  Thread ID
+ * @param executionId  Execution ID
  * @param timeout  Timeout period in milliseconds; the default is 5000ms. Use WAIT_foreVER or -1 to wait indefinitely
  * @returns Promise: Resolved when the timeout occurs or any lifecycle event is triggered
  */
 export async function waitForAnyLifecycleEvent(
   eventManager: EventRegistry,
-  threadId: string,
+  executionId: string,
   timeout: number = 5000,
 ): Promise<void> {
   const actualTimeout = timeout === WAIT_FOREVER ? undefined : timeout;
@@ -156,9 +156,9 @@ export async function waitForAnyLifecycleEvent(
     "THREAD_RESUMED",
   ];
 
-  // Create multiple waiting Promises, each using the threadId filter.
+  // Create multiple waiting Promises, each using the executionId filter.
   const promises = events.map(eventType =>
-    eventManager.waitFor(eventType, actualTimeout, event => event.threadId === threadId),
+    eventManager.waitFor(eventType, actualTimeout, event => event.executionId === executionId),
   );
 
   // Wait for either of the events to trigger.
@@ -169,7 +169,7 @@ export async function waitForAnyLifecycleEvent(
  * Wait for multiple threads to complete
  *
  * @param eventManager  Event manager
- * @param threadIds  Array of thread IDs
+ * @param threadIds  Array of execution IDs
  * @param timeout  Timeout period in milliseconds; the default is 30000ms. Use WAIT_foreVER or -1 to indicate waiting indefinitely
  * @returns Promise: Resolved when all threads have completed or the timeout has expired
  */
@@ -178,8 +178,8 @@ export async function waitForMultipleThreadsCompleted(
   threadIds: string[],
   timeout: number = 30000,
 ): Promise<void> {
-  const promises = threadIds.map(threadId =>
-    waitForThreadCompleted(eventManager, threadId, timeout),
+  const promises = threadIds.map(executionId =>
+    waitForThreadCompleted(eventManager, executionId, timeout),
   );
 
   await Promise.all(promises);
@@ -189,7 +189,7 @@ export async function waitForMultipleThreadsCompleted(
  * Wait for any thread to complete
  *
  * @param eventManager  Event manager
- * @param threadIds  Array of thread IDs
+ * @param threadIds  Array of execution IDs
  * @param timeout  Timeout period in milliseconds; the default is 30000ms. Use WAIT_foreVER or -1 to indicate waiting indefinitely
  * @returns Promise: Resolves when any thread completes or the timeout occurs, returning the ID of the completed thread
  */
@@ -198,8 +198,8 @@ export async function waitForAnyThreadCompleted(
   threadIds: string[],
   timeout: number = 30000,
 ): Promise<string> {
-  const promises = threadIds.map(threadId =>
-    waitForThreadCompleted(eventManager, threadId, timeout).then(() => threadId),
+  const promises = threadIds.map(executionId =>
+    waitForThreadCompleted(eventManager, executionId, timeout).then(() => executionId),
   );
 
   return await Promise.race(promises);
@@ -209,25 +209,25 @@ export async function waitForAnyThreadCompleted(
  * Wait for either a thread to complete or fail
  *
  * @param eventManager  Event manager
- * @param threadIds  Array of thread IDs
+ * @param threadIds  Array of execution IDs
  * @param timeout  Timeout period in milliseconds; the default is 30000ms. Use WAIT_foreVER or -1 to indicate waiting indefinitely
- * @returns Promise: Resolves when either a thread completes or fails, returning the thread ID and its status
+ * @returns Promise: Resolves when either a thread completes or fails, returning the execution ID and its status
  */
 export async function waitForAnyThreadCompletion(
   eventManager: EventRegistry,
   threadIds: string[],
   timeout: number = 30000,
-): Promise<{ threadId: string; status: "COMPLETED" | "FAILED" }> {
-  const completedPromises = threadIds.map(threadId =>
-    waitForThreadCompleted(eventManager, threadId, timeout).then(() => ({
-      threadId,
+): Promise<{ executionId: string; status: "COMPLETED" | "FAILED" }> {
+  const completedPromises = threadIds.map(executionId =>
+    waitForThreadCompleted(eventManager, executionId, timeout).then(() => ({
+      executionId,
       status: "COMPLETED" as const,
     })),
   );
 
-  const failedPromises = threadIds.map(threadId =>
-    waitForThreadFailed(eventManager, threadId, timeout).then(() => ({
-      threadId,
+  const failedPromises = threadIds.map(executionId =>
+    waitForThreadFailed(eventManager, executionId, timeout).then(() => ({
+      executionId,
       status: "FAILED" as const,
     })),
   );
@@ -239,14 +239,14 @@ export async function waitForAnyThreadCompletion(
  * Wait for the node to complete
  *
  * @param eventManager  Event manager
- * @param threadId  Thread ID
+ * @param executionId  Execution ID
  * @param nodeId  Node ID
  * @param timeout  Timeout period in milliseconds; the default is 30000ms. Use WAIT_FOREVER or -1 to indicate waiting indefinitely
  * @returns Promise: Resolved when the timeout occurs or the event is triggered
  */
 export async function waitForNodeCompleted(
   eventManager: EventRegistry,
-  threadId: string,
+  executionId: string,
   nodeId: string,
   timeout: number = 30000,
 ): Promise<void> {
@@ -254,8 +254,8 @@ export async function waitForNodeCompleted(
   await eventManager.waitFor(
     "NODE_COMPLETED",
     actualTimeout,
-    (event: { threadId?: string; nodeId?: string }) =>
-      event.threadId === threadId && event.nodeId === nodeId,
+    (event: { executionId?: string; nodeId?: string }) =>
+      event.executionId === executionId && event.nodeId === nodeId,
   );
 }
 
@@ -263,14 +263,14 @@ export async function waitForNodeCompleted(
  * Node waiting failed
  *
  * @param eventManager  Event manager
- * @param threadId  Thread ID
+ * @param executionId  Execution ID
  * @param nodeId  Node ID
  * @param timeout  Timeout period in milliseconds; the default is 30000ms. Use WAIT_foreVER or -1 to indicate waiting indefinitely
  * @returns Promise, resolved when the timeout is reached or the event is triggered
  */
 export async function waitForNodeFailed(
   eventManager: EventRegistry,
-  threadId: string,
+  executionId: string,
   nodeId: string,
   timeout: number = 30000,
 ): Promise<void> {
@@ -278,7 +278,7 @@ export async function waitForNodeFailed(
   await eventManager.waitFor(
     "NODE_FAILED",
     actualTimeout,
-    (event: { threadId?: string; nodeId?: string }) =>
-      event.threadId === threadId && event.nodeId === nodeId,
+    (event: { executionId?: string; nodeId?: string }) =>
+      event.executionId === executionId && event.nodeId === nodeId,
   );
 }

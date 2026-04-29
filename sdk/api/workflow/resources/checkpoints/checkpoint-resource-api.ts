@@ -22,8 +22,8 @@ import { buildCheckpointRestoredEvent } from "../../../../core/utils/event/build
 export interface CheckpointFilter {
   /** Checkpoint ID list */
   ids?: string[];
-  /** Thread ID */
-  threadId?: string;
+  /** Execution ID */
+  executionId?: string;
   /** Workflow ID */
   workflowId?: string;
   /** Trigger Type */
@@ -46,8 +46,8 @@ export interface CheckpointFilter {
 export interface CheckpointSummary {
   /** Checkpoint ID */
   id: string;
-  /** Thread ID */
-  threadId: string;
+  /** Execution ID */
+  executionId: string;
   /** Workflow ID */
   workflowId: string;
   /** Thread Status */
@@ -142,7 +142,7 @@ export class CheckpointResourceAPI extends CrudResourceAPI<Checkpoint, string, C
       if (filter.ids && !filter.ids.some(id => cp.id.includes(id))) {
         return false;
       }
-      if (filter.threadId && cp.threadId !== filter.threadId) {
+      if (filter.executionId && cp.executionId !== filter.executionId) {
         return false;
       }
       if (filter.workflowId && cp.workflowId !== filter.workflowId) {
@@ -185,14 +185,14 @@ export class CheckpointResourceAPI extends CrudResourceAPI<Checkpoint, string, C
 
   /**
    * Create a thread checkpoint
-   * @param threadId Thread ID
+   * @param executionId Execution ID
    * @param metadata Checkpoint metadata
    * @returns Checkpoint ID
    */
-  async createThreadCheckpoint(threadId: string, metadata?: CheckpointMetadata): Promise<string> {
+  async createThreadCheckpoint(executionId: string, metadata?: CheckpointMetadata): Promise<string> {
     // Obtain global services from the DI container.
     const container = getContainer();
-    const threadRegistry = container.get(
+    const executionRegistry = container.get(
       Identifiers.WorkflowExecutionRegistry,
     ) as import("../../../../workflow/stores/workflow-execution-registry.js").WorkflowExecutionRegistry;
     const workflowRegistry = container.get(
@@ -204,14 +204,14 @@ export class CheckpointResourceAPI extends CrudResourceAPI<Checkpoint, string, C
 
     const dependencies = {
       workflowExecutionRegistry:
-        threadRegistry as unknown as import("../../../../workflow/stores/workflow-execution-registry.js").WorkflowExecutionRegistry,
+        executionRegistry as unknown as import("../../../../workflow/stores/workflow-execution-registry.js").WorkflowExecutionRegistry,
       checkpointStateManager: this.stateManager,
       workflowRegistry,
       workflowGraphRegistry: graphRegistry,
     };
 
     const checkpointId = await CheckpointCoordinator.createCheckpoint(
-      threadId,
+      executionId,
       dependencies,
       metadata,
     );
@@ -226,7 +226,7 @@ export class CheckpointResourceAPI extends CrudResourceAPI<Checkpoint, string, C
   async restoreFromCheckpoint(checkpointId: string): Promise<string> {
     // Obtain global services from the DI container.
     const container = getContainer();
-    const threadRegistry = container.get(
+    const executionRegistry = container.get(
       Identifiers.WorkflowExecutionRegistry,
     ) as import("../../../../workflow/stores/workflow-execution-registry.js").WorkflowExecutionRegistry;
     const workflowRegistry = container.get(
@@ -238,7 +238,7 @@ export class CheckpointResourceAPI extends CrudResourceAPI<Checkpoint, string, C
 
     const dependencies = {
       workflowExecutionRegistry:
-        threadRegistry as unknown as import("../../../../workflow/stores/workflow-execution-registry.js").WorkflowExecutionRegistry,
+        executionRegistry as unknown as import("../../../../workflow/stores/workflow-execution-registry.js").WorkflowExecutionRegistry,
       checkpointStateManager: this.stateManager,
       workflowRegistry,
       workflowGraphRegistry: graphRegistry,
@@ -256,7 +256,7 @@ export class CheckpointResourceAPI extends CrudResourceAPI<Checkpoint, string, C
         await this.eventManager.emit(
           buildCheckpointRestoredEvent({
             workflowId: checkpoint.workflowId,
-            threadId: workflowExecutionEntity.id,
+            executionId: workflowExecutionEntity.id,
             checkpointId,
             description: checkpoint.metadata?.description,
           }),
@@ -269,11 +269,11 @@ export class CheckpointResourceAPI extends CrudResourceAPI<Checkpoint, string, C
 
   /**
    * Get the list of checkpoints for the thread
-   * @param threadId: Thread ID
+   * @param executionId: Execution ID
    * @returns: Array of checkpoints
    */
-  async getThreadCheckpoints(threadId: string): Promise<Checkpoint[]> {
-    const result = await this.getAll({ threadId });
+  async getThreadCheckpoints(executionId: string): Promise<Checkpoint[]> {
+    const result = await this.getAll({ executionId });
     if (!isSuccess(result)) {
       throw new Error(getErrorMessage(result) || "Failed to get thread checkpoints");
     }
@@ -283,11 +283,11 @@ export class CheckpointResourceAPI extends CrudResourceAPI<Checkpoint, string, C
 
   /**
    * Get the latest checkpoint
-   * @param threadId Thread ID
+   * @param executionId Execution ID
    * @returns The latest checkpoint; returns null if it does not exist
    */
-  async getLatestCheckpoint(threadId: string): Promise<Checkpoint | null> {
-    const checkpoints = await this.getThreadCheckpoints(threadId);
+  async getLatestCheckpoint(executionId: string): Promise<Checkpoint | null> {
+    const checkpoints = await this.getThreadCheckpoints(executionId);
     if (checkpoints.length === 0) {
       return null;
     }
@@ -316,7 +316,7 @@ export class CheckpointResourceAPI extends CrudResourceAPI<Checkpoint, string, C
     const byWorkflow: Record<string, number> = {};
 
     for (const checkpoint of checkpoints) {
-      byThread[checkpoint.threadId] = (byThread[checkpoint.threadId] || 0) + 1;
+      byThread[checkpoint.executionId] = (byThread[checkpoint.executionId] || 0) + 1;
       byWorkflow[checkpoint.workflowId] = (byWorkflow[checkpoint.workflowId] || 0) + 1;
     }
 

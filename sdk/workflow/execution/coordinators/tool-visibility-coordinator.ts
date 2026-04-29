@@ -59,58 +59,58 @@ export class ToolVisibilityCoordinator {
 
   /**
    * Initialize visibility context
-   * @param threadId Thread ID
+   * @param executionId Execution ID
    * @param initialTools List of initial tool IDs
    * @param scope Initial scope
    * @param scopeId Scope ID
    */
   initializeContext(
-    threadId: string,
+    executionId: string,
     initialTools: string[],
     scope: ToolScope = "THREAD",
-    scopeId: string = threadId,
+    scopeId: string = executionId,
   ): void {
-    this.toolVisibilityStore.initializeContext(threadId, initialTools, scope, scopeId);
+    this.toolVisibilityStore.initializeContext(executionId, initialTools, scope, scopeId);
   }
 
   /**
    * Get visibility context
-   * @param threadId Thread ID
+   * @param executionId Execution ID
    * @returns Tool visibility context; returns undefined if it does not exist
    */
-  getContext(threadId: string): ToolVisibilityContext | undefined {
-    return this.toolVisibilityStore.getContext(threadId);
+  getContext(executionId: string): ToolVisibilityContext | undefined {
+    return this.toolVisibilityStore.getContext(executionId);
   }
 
   /**
    * Update visibility when scope is switched
    * Generate and add new visibility declaration messages
-   * @param threadEntity Thread entity
+   * @param executionEntity Thread entity
    * @param newScope New scope
    * @param newScopeId New scope ID
    * @param availableTools List of available tool IDs
    * @param changeType Type of change
    */
   async updateVisibilityOnScopeChange(
-    threadEntity: WorkflowExecutionEntity,
+    executionEntity: WorkflowExecutionEntity,
     newScope: ToolScope,
     newScopeId: string,
     availableTools: string[],
     changeType: VisibilityChangeType = "enter_scope",
   ): Promise<void> {
-    const threadId = threadEntity.id;
-    const context = this.getContext(threadId);
+    const executionId = executionEntity.id;
+    const context = this.getContext(executionId);
 
     if (!context) {
       // If the context does not exist, initialize it first.
-      this.initializeContext(threadId, availableTools, newScope, newScopeId);
+      this.initializeContext(executionId, availableTools, newScope, newScopeId);
     } else {
       // Update the status in the store.
-      this.toolVisibilityStore.updateVisibility(threadId, availableTools, newScope, newScopeId);
+      this.toolVisibilityStore.updateVisibility(executionId, availableTools, newScope, newScopeId);
     }
 
     // Check if it is necessary to skip duplicate declarations.
-    if (this.shouldSkipDeclaration(threadId, availableTools, changeType)) {
+    if (this.shouldSkipDeclaration(executionId, availableTools, changeType)) {
       return;
     }
 
@@ -134,7 +134,7 @@ export class ToolVisibilityCoordinator {
       ),
     };
 
-    threadEntity.addMessage(llmMessage);
+    executionEntity.addMessage(llmMessage);
 
     // Update the statement history.
     const declaration: VisibilityDeclaration = {
@@ -142,24 +142,24 @@ export class ToolVisibilityCoordinator {
       scope: newScope,
       scopeId: newScopeId,
       toolIds: [...availableTools],
-      messageIndex: threadEntity.getMessages().length - 1,
+      messageIndex: executionEntity.getMessages().length - 1,
       changeType,
     };
 
-    const updatedContext = this.getContext(threadId)!;
+    const updatedContext = this.getContext(executionId)!;
     updatedContext.declarationHistory.push(declaration);
     updatedContext.lastDeclarationIndex = declaration.messageIndex;
   }
 
   /**
    * Check whether to skip duplicate declarations
-   * @param threadId Thread ID
+   * @param executionId Execution ID
    * @param availableTools List of available tool IDs
    * @param changeType Type of change
    * @returns Whether to skip the process
    */
   private shouldSkipDeclaration(
-    threadId: string,
+    executionId: string,
     availableTools: string[],
     changeType: VisibilityChangeType,
   ): boolean {
@@ -168,7 +168,7 @@ export class ToolVisibilityCoordinator {
       return false;
     }
 
-    const context = this.getContext(threadId);
+    const context = this.getContext(executionId);
     if (!context) {
       return false;
     }
@@ -203,28 +203,28 @@ export class ToolVisibilityCoordinator {
   /**
    * Dynamically add tools
    * Generate incremental visibility declarations
-   * @param threadEntity Thread entity
+   * @param executionEntity Thread entity
    * @param toolIds List of tool IDs
    * @param scope Scope
    */
   async addToolsDynamically(
-    threadEntity: WorkflowExecutionEntity,
+    executionEntity: WorkflowExecutionEntity,
     toolIds: string[],
     scope: ToolScope,
   ): Promise<void> {
-    const threadId = threadEntity.id;
-    const context = this.getContext(threadId);
+    const executionId = executionEntity.id;
+    const context = this.getContext(executionId);
 
     if (!context) {
-      throw new Error(`Tool visibility context not found for thread: ${threadId}`);
+      throw new Error(`Tool visibility context not found for thread: ${executionId}`);
     }
 
     // Add the visible tool collection to the store.
-    this.toolVisibilityStore.addTools(threadId, toolIds);
+    this.toolVisibilityStore.addTools(executionId, toolIds);
 
     // Generate the declaration immediately.
     await this.updateVisibilityOnScopeChange(
-      threadEntity,
+      executionEntity,
       scope,
       context.scopeId,
       Array.from(context.visibleTools),
@@ -242,14 +242,14 @@ export class ToolVisibilityCoordinator {
    * - The SDK does not provide default implementations for message operations; these are defined by the application layer.
    * - New statements are generated only when there are changes to the toolkit.
    *
-   * @param threadEntity Thread Entity
+   * @param executionEntity Thread Entity
    */
-  async refreshDeclaration(threadEntity: WorkflowExecutionEntity): Promise<void> {
-    const threadId = threadEntity.id;
-    const context = this.getContext(threadId);
+  async refreshDeclaration(executionEntity: WorkflowExecutionEntity): Promise<void> {
+    const executionId = executionEntity.id;
+    const context = this.getContext(executionId);
 
     if (!context) {
-      throw new Error(`Tool visibility context not found for thread: ${threadId}`);
+      throw new Error(`Tool visibility context not found for thread: ${executionId}`);
     }
 
     // Check if a refresh is needed (to see if there have been any changes to the toolkit).
@@ -271,7 +271,7 @@ export class ToolVisibilityCoordinator {
 
     // The toolkit has changed, so new declarations need to be generated.
     await this.updateVisibilityOnScopeChange(
-      threadEntity,
+      executionEntity,
       context.currentScope,
       context.scopeId,
       currentTools,
@@ -281,40 +281,40 @@ export class ToolVisibilityCoordinator {
 
   /**
    * Get the current valid set of tools (used for performing interceptions)
-   * @param threadId Thread ID
+   * @param executionId Execution ID
    * @returns The currently visible set of tools
    */
-  getEffectiveVisibleTools(threadId: string): Set<string> {
-    return this.toolVisibilityStore.getVisibleTools(threadId);
+  getEffectiveVisibleTools(executionId: string): Set<string> {
+    return this.toolVisibilityStore.getVisibleTools(executionId);
   }
 
   /**
    * Check if the tool is within the current visibility context.
-   * @param threadId: Thread ID
+   * @param executionId: Execution ID
    * @param toolId: Tool ID
    * @returns: Whether it is visible or not
    */
-  isToolVisible(threadId: string, toolId: string): boolean {
-    return this.toolVisibilityStore.isToolVisible(threadId, toolId);
+  isToolVisible(executionId: string, toolId: string): boolean {
+    return this.toolVisibilityStore.isToolVisible(executionId, toolId);
   }
 
   /**
    * Verify the integrity of the declaration history
-   * @param threadId: Thread ID
-   * @param threadEntity: Thread entity
+   * @param executionId: Execution ID
+   * @param executionEntity: Thread entity
    * @returns: Verification result
    */
   validateDeclarationHistory(
-    threadId: string,
-    threadEntity: WorkflowExecutionEntity,
+    executionId: string,
+    executionEntity: WorkflowExecutionEntity,
   ): { valid: boolean; errors: string[] } {
-    const context = this.getContext(threadId);
+    const context = this.getContext(executionId);
     if (!context) {
       return { valid: false, errors: ["Context not found"] };
     }
 
     const errors: string[] = [];
-    const conversationHistory = threadEntity.getMessages();
+    const conversationHistory = executionEntity.getMessages();
 
     // Check each declaration record.
     for (let i = 0; i < context.declarationHistory.length; i++) {
@@ -369,21 +369,21 @@ export class ToolVisibilityCoordinator {
   /**
    * Update the declaration history after message operations
    * This method is called when a message is truncated, filtered, or cleared.
-   * @param threadId: Thread ID
-   * @param threadEntity: Thread entity
+   * @param executionId: Execution ID
+   * @param executionEntity: Thread entity
    * @param operation: Type of operation
    */
   async updateDeclarationHistoryAfterMessageOperation(
-    threadId: string,
-    threadEntity: WorkflowExecutionEntity,
+    executionId: string,
+    executionEntity: WorkflowExecutionEntity,
     operation: "truncate" | "filter" | "clear",
   ): Promise<void> {
-    const context = this.getContext(threadId);
+    const context = this.getContext(executionId);
     if (!context) {
       return;
     }
 
-    const conversationHistory = threadEntity.getMessages();
+    const conversationHistory = executionEntity.getMessages();
 
     if (operation === "clear") {
       // Clear all declaration history
@@ -392,7 +392,7 @@ export class ToolVisibilityCoordinator {
 
       // Regenerate the initial declaration
       await this.updateVisibilityOnScopeChange(
-        threadEntity,
+        executionEntity,
         context.currentScope,
         context.scopeId,
         Array.from(context.visibleTools),
@@ -413,7 +413,7 @@ export class ToolVisibilityCoordinator {
 
         // Regenerate the current visibility statement
         await this.updateVisibilityOnScopeChange(
-          threadEntity,
+          executionEntity,
           context.currentScope,
           context.scopeId,
           Array.from(context.visibleTools),
@@ -426,16 +426,16 @@ export class ToolVisibilityCoordinator {
   /**
    * Automatic repair declaration history
    * This method is called when verification fails.
-   * @param threadId: Thread ID
-   * @param threadEntity: Thread entity
+   * @param executionId: Execution ID
+   * @param executionEntity: Thread entity
    */
-  async repairDeclarationHistory(threadId: string, threadEntity: WorkflowExecutionEntity): Promise<void> {
-    const context = this.getContext(threadId);
+  async repairDeclarationHistory(executionId: string, executionEntity: WorkflowExecutionEntity): Promise<void> {
+    const context = this.getContext(executionId);
     if (!context) {
       return;
     }
 
-    const conversationHistory = threadEntity.getMessages();
+    const conversationHistory = executionEntity.getMessages();
 
     // 1. Scan all tool visibility declaration messages in the conversation history.
     const declarationMessages: Array<{ index: number; message: LLMMessage }> = [];
@@ -456,7 +456,7 @@ export class ToolVisibilityCoordinator {
         rebuiltHistory.push({
           timestamp: (metadata["timestamp"] as number) || now(),
           scope: (metadata["scope"] as ToolScope) || "THREAD",
-          scopeId: (metadata["scopeId"] as string) || threadId,
+          scopeId: (metadata["scopeId"] as string) || executionId,
           toolIds: (metadata["toolIds"] as string[]) || [],
           messageIndex: index,
           changeType: (metadata["changeType"] as VisibilityChangeType) || "refresh",
@@ -472,7 +472,7 @@ export class ToolVisibilityCoordinator {
     // 4. If no declaration is made, generate an initial declaration.
     if (rebuiltHistory.length === 0) {
       await this.updateVisibilityOnScopeChange(
-        threadEntity,
+        executionEntity,
         context.currentScope,
         context.scopeId,
         Array.from(context.visibleTools),
@@ -483,10 +483,10 @@ export class ToolVisibilityCoordinator {
 
   /**
    * Remove visibility context
-   * @param threadId Thread ID
+   * @param executionId Execution ID
    */
-  deleteContext(threadId: string): void {
-    this.toolVisibilityStore.deleteContext(threadId);
+  deleteContext(executionId: string): void {
+    this.toolVisibilityStore.deleteContext(executionId);
   }
 
   /**
@@ -500,19 +500,19 @@ export class ToolVisibilityCoordinator {
 
   /**
    * Get a snapshot of the visibility context
-   * @param threadId: Thread ID
+   * @param executionId: Execution ID
    * @returns: Snapshot of the visibility context
    */
-  getSnapshot(threadId: string): ToolVisibilityContext | undefined {
-    return this.toolVisibilityStore.getSnapshot(threadId);
+  getSnapshot(executionId: string): ToolVisibilityContext | undefined {
+    return this.toolVisibilityStore.getSnapshot(executionId);
   }
 
   /**
    * Restore visibility context from a snapshot
-   * @param threadId: Thread ID
+   * @param executionId: Execution ID
    * @param snapshot: Visibility context snapshot
    */
-  restoreSnapshot(threadId: string, snapshot: ToolVisibilityContext): void {
-    this.toolVisibilityStore.restoreSnapshot(threadId, snapshot);
+  restoreSnapshot(executionId: string, snapshot: ToolVisibilityContext): void {
+    this.toolVisibilityStore.restoreSnapshot(executionId, snapshot);
   }
 }

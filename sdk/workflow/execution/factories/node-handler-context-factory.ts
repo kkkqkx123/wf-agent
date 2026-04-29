@@ -38,7 +38,7 @@ export interface NodeHandlerContextFactoryConfig {
   /** Agent Loop Executor Factory (optional) */
   agentLoopExecutorFactory?: unknown;
   /** Thread Registry (optional) */
-  threadRegistry?: unknown;
+  executionRegistry?: unknown;
   /** Workflow Execution Registry (optional) */
   workflowExecutionRegistry?: unknown;
 }
@@ -58,26 +58,26 @@ export class NodeHandlerContextFactory {
    * Create a node processor context
    *
    * @param node Node definition
-   * @param threadEntity Thread entity
+   * @param executionEntity Thread entity
    * @returns Processor context
    * @throws ExecutionError When required dependencies are missing
    */
-  createHandlerContext(node: Node, threadEntity: WorkflowExecutionEntity): Record<string, unknown> {
+  createHandlerContext(node: Node, executionEntity: WorkflowExecutionEntity): Record<string, unknown> {
     switch (node.type) {
       case "USER_INTERACTION":
-        return this.createUserInteractionContext(node, threadEntity);
+        return this.createUserInteractionContext(node, executionEntity);
 
       case "CONTEXT_PROCESSOR":
-        return this.createContextProcessorContext(threadEntity);
+        return this.createContextProcessorContext(executionEntity);
 
       case "LLM":
         return this.createLLMContext();
 
       case "AGENT_LOOP":
-        return this.createAgentLoopContext(node, threadEntity);
+        return this.createAgentLoopContext(node, executionEntity);
 
       case "ADD_TOOL":
-        return this.createAddToolContext(node, threadEntity);
+        return this.createAddToolContext(node, executionEntity);
 
       default:
         // Other node types do not require any special context.
@@ -90,13 +90,13 @@ export class NodeHandlerContextFactory {
    */
   private createUserInteractionContext(
     node: Node,
-    threadEntity: WorkflowExecutionEntity,
+    executionEntity: WorkflowExecutionEntity,
   ): Record<string, unknown> {
     if (!this.config.userInteractionHandler) {
       throw new ExecutionError(
         "UserInteractionHandler is not provided",
         node.id,
-        threadEntity.getWorkflowId(),
+        executionEntity.getWorkflowId(),
       );
     }
 
@@ -109,11 +109,11 @@ export class NodeHandlerContextFactory {
   /**
    * Create a Context Processor node context
    */
-  private createContextProcessorContext(threadEntity: WorkflowExecutionEntity): Record<string, unknown> {
+  private createContextProcessorContext(executionEntity: WorkflowExecutionEntity): Record<string, unknown> {
     return {
       conversationManager: this.config.conversationManager,
-      threadEntity: threadEntity,
-      workflowExecutionRegistry: this.config.threadRegistry,
+      executionEntity: executionEntity,
+      workflowExecutionRegistry: this.config.executionRegistry,
     };
   }
 
@@ -132,12 +132,12 @@ export class NodeHandlerContextFactory {
   /**
    * Create a tool to add node context
    */
-  private createAddToolContext(node: Node, threadEntity: WorkflowExecutionEntity): Record<string, unknown> {
+  private createAddToolContext(node: Node, executionEntity: WorkflowExecutionEntity): Record<string, unknown> {
     if (!this.config.toolContextStore || !this.config.toolService) {
       throw new ExecutionError(
         "ToolContextStore or ToolRegistry is not provided",
         node.id,
-        threadEntity.getWorkflowId(),
+        executionEntity.getWorkflowId(),
       );
     }
 
@@ -145,19 +145,19 @@ export class NodeHandlerContextFactory {
       toolContextStore: this.config.toolContextStore,
       toolService: this.config.toolService,
       eventManager: this.config.eventManager,
-      threadEntity,
+      executionEntity,
     };
   }
 
   /**
    * Create an Agent Loop node context
    */
-  private createAgentLoopContext(node: Node, threadEntity: WorkflowExecutionEntity): Record<string, unknown> {
+  private createAgentLoopContext(node: Node, executionEntity: WorkflowExecutionEntity): Record<string, unknown> {
     if (!this.config.agentLoopExecutorFactory) {
       throw new ExecutionError(
         "AgentLoopExecutorFactory is not provided",
         node.id,
-        threadEntity.getWorkflowId(),
+        executionEntity.getWorkflowId(),
       );
     }
 

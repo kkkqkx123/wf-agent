@@ -297,8 +297,8 @@ export class SkillLoader {
       buildSkillLoadStartedEvent({
         skillName,
         loadType,
-        threadId:
-          ((context?.agentContext as Record<string, unknown>)?.["threadId"] as string) ||
+        executionId:
+          ((context?.agentContext as Record<string, unknown>)?.["executionId"] as string) ||
           "skill-loader",
       }),
     );
@@ -320,7 +320,7 @@ export class SkillLoader {
         success: true,
         cached,
         loadTime: Date.now() - startTime,
-        threadId: "skill-loader",
+        executionId: "skill-loader",
       }),
     );
   }
@@ -340,7 +340,7 @@ export class SkillLoader {
         loadType,
         error: error instanceof Error ? error : new Error(String(error)),
         loadTime: Date.now() - startTime,
-        threadId: "skill-loader",
+        executionId: "skill-loader",
       }),
     );
   }

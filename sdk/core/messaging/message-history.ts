@@ -284,7 +284,7 @@ export class MessageHistory {
       const checkpointId = `batch-${currentBatch}-${Date.now()}`;
 
       await checkpointStorage.save(checkpointId, checkpointData, {
-        threadId: "message-history",
+        executionId: "message-history",
         workflowId: "batch-checkpoint",
         timestamp: Date.now(),
       });

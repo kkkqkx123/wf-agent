@@ -78,7 +78,7 @@ describe("Trigger Coordinator", () => {
       workflowGraphRegistry: mockGraphRegistry,
       eventManager: mockEventManager,
       threadLifecycleCoordinator: mockWorkflowLifecycleCoordinator,
-      threadBuilder: mockWorkflowExecutionBuilder,
+      executionBuilder: mockWorkflowExecutionBuilder,
       taskQueueManager: mockTaskQueueManager,
       checkpointStateManager: mockCheckpointStateManager,
     });
@@ -111,7 +111,7 @@ describe("Trigger Coordinator", () => {
         },
         action: {
           type: "pause_thread",
-          parameters: { threadId: "test-thread" },
+          parameters: { executionId: "test-thread" },
         },
         enabled: true,
         maxTriggers: 5,
@@ -122,7 +122,7 @@ describe("Trigger Coordinator", () => {
       expect(stateManager.hasState("trigger-1")).toBe(true);
       const state = stateManager.getState("trigger-1");
       expect(state?.triggerId).toBe("trigger-1");
-      expect(state?.threadId).toBe("test-thread");
+      expect(state?.executionId).toBe("test-thread");
       expect(state?.workflowId).toBe("workflow-123");
       expect(state?.status).toBe("enabled");
       expect(state?.triggerCount).toBe(0);
@@ -137,7 +137,7 @@ describe("Trigger Coordinator", () => {
         },
         action: {
           type: "pause_thread",
-          parameters: { threadId: "test-thread" },
+          parameters: { executionId: "test-thread" },
         },
         enabled: true,
       };
@@ -158,7 +158,7 @@ describe("Trigger Coordinator", () => {
         },
         action: {
           type: "pause_thread",
-          parameters: { threadId: "test-thread" },
+          parameters: { executionId: "test-thread" },
         },
         enabled: true,
       };
@@ -188,7 +188,7 @@ describe("Trigger Coordinator", () => {
         },
         action: {
           type: "pause_thread",
-          parameters: { threadId: "test-thread" },
+          parameters: { executionId: "test-thread" },
         },
         enabled: true,
       };
@@ -259,7 +259,7 @@ describe("Trigger Coordinator", () => {
         },
         action: {
           type: "pause_thread",
-          parameters: { threadId: "test-thread" },
+          parameters: { executionId: "test-thread" },
         },
         enabled: true,
         maxTriggers: 5,
@@ -287,7 +287,7 @@ describe("Trigger Coordinator", () => {
       expect(trigger?.metadata).toEqual({ key: "value" });
       expect(trigger?.status).toBe("enabled");
       expect(trigger?.triggerCount).toBe(1);
-      expect(trigger?.threadId).toBe("test-thread");
+      expect(trigger?.executionId).toBe("test-thread");
     });
 
     it("Test to retrieve all triggers: The getAll method returns all triggers.", () => {
@@ -312,7 +312,7 @@ describe("Trigger Coordinator", () => {
         },
         action: {
           type: "pause_thread",
-          parameters: { threadId: "test-thread" },
+          parameters: { executionId: "test-thread" },
         },
         enabled: true,
       };
@@ -337,7 +337,7 @@ describe("Trigger Coordinator", () => {
         },
         action: {
           type: "pause_thread",
-          parameters: { threadId: "test-thread" },
+          parameters: { executionId: "test-thread" },
         },
         enabled: true,
         maxTriggers: 5,
@@ -351,7 +351,7 @@ describe("Trigger Coordinator", () => {
         },
         action: {
           type: "pause_thread",
-          parameters: { threadId: "test-thread" },
+          parameters: { executionId: "test-thread" },
         },
         enabled: true,
       };
@@ -364,7 +364,7 @@ describe("Trigger Coordinator", () => {
         },
         action: {
           type: "resume_thread",
-          parameters: { threadId: "test-thread" },
+          parameters: { executionId: "test-thread" },
         },
         enabled: false,
       };
@@ -377,7 +377,7 @@ describe("Trigger Coordinator", () => {
     it("Test matching event: The handleEvent method correctly matches and executes the trigger.", async () => {
       const event: BaseEvent = {
         type: "THREAD_STARTED",
-        threadId: "test-thread",
+        executionId: "test-thread",
         workflowId: "workflow-123",
         timestamp: Date.now(),
       };
@@ -391,7 +391,7 @@ describe("Trigger Coordinator", () => {
     it("Test mismatch events: Mismatching events should not be triggered.", async () => {
       const event: BaseEvent = {
         type: "NODE_STARTED",
-        threadId: "test-thread",
+        executionId: "test-thread",
         workflowId: "workflow-123",
         timestamp: Date.now(),
       };
@@ -405,7 +405,7 @@ describe("Trigger Coordinator", () => {
     it("Testing that disabling triggers does not cause them to execute: Triggers that are in a disabled state should not be executed.", async () => {
       const event: BaseEvent = {
         type: "THREAD_STARTED",
-        threadId: "test-thread",
+        executionId: "test-thread",
         workflowId: "workflow-123",
         timestamp: Date.now(),
       };
@@ -424,7 +424,7 @@ describe("Trigger Coordinator", () => {
 
       const event: BaseEvent = {
         type: "THREAD_STARTED",
-        threadId: "test-thread",
+        executionId: "test-thread",
         workflowId: "workflow-123",
         timestamp: Date.now(),
       };
@@ -445,7 +445,7 @@ describe("Trigger Coordinator", () => {
         },
         action: {
           type: "pause_thread",
-          parameters: { threadId: "test-thread" },
+          parameters: { executionId: "test-thread" },
         },
         enabled: true,
       };
@@ -454,7 +454,7 @@ describe("Trigger Coordinator", () => {
 
       const event: NodeCustomEvent = {
         type: "NODE_CUSTOM_EVENT",
-        threadId: "test-thread",
+        executionId: "test-thread",
         workflowId: "workflow-123",
         nodeId: "node-1",
         nodeType: "LLM",
@@ -479,7 +479,7 @@ describe("Trigger Coordinator", () => {
         },
         action: {
           type: "pause_thread",
-          parameters: { threadId: "test-thread" },
+          parameters: { executionId: "test-thread" },
         },
         enabled: true,
       };
@@ -488,7 +488,7 @@ describe("Trigger Coordinator", () => {
 
       const event: NodeCustomEvent = {
         type: "NODE_CUSTOM_EVENT",
-        threadId: "test-thread",
+        executionId: "test-thread",
         workflowId: "workflow-123",
         nodeId: "node-1",
         nodeType: "LLM",
@@ -514,7 +514,7 @@ describe("Trigger Coordinator", () => {
         },
         action: {
           type: "pause_thread",
-          parameters: { threadId: "test-thread" },
+          parameters: { executionId: "test-thread" },
         },
         enabled: true,
         createCheckpoint: true,
@@ -527,7 +527,7 @@ describe("Trigger Coordinator", () => {
     it("Create a checkpoint before the test is triggered: The checkpoint is created correctly using the createCheckpoint configuration.", async () => {
       const event: BaseEvent = {
         type: "THREAD_STARTED",
-        threadId: "test-thread",
+        executionId: "test-thread",
         workflowId: "workflow-123",
         timestamp: Date.now(),
       };
@@ -544,7 +544,7 @@ describe("Trigger Coordinator", () => {
 
       const event: BaseEvent = {
         type: "THREAD_STARTED",
-        threadId: "test-thread",
+        executionId: "test-thread",
         workflowId: "workflow-123",
         timestamp: Date.now(),
       };
@@ -563,7 +563,7 @@ describe("Trigger Coordinator", () => {
         id: "trigger-1",
         name: "Trigger 1",
         condition: { eventType: "THREAD_STARTED" as EventType },
-        action: { type: "pause_thread", parameters: { threadId: "test-thread" } },
+        action: { type: "pause_thread", parameters: { executionId: "test-thread" } },
         enabled: true,
       };
 
@@ -571,7 +571,7 @@ describe("Trigger Coordinator", () => {
         id: "trigger-2",
         name: "Trigger 2",
         condition: { eventType: "THREAD_COMPLETED" as EventType },
-        action: { type: "pause_thread", parameters: { threadId: "test-thread" } },
+        action: { type: "pause_thread", parameters: { executionId: "test-thread" } },
         enabled: true,
       };
 
@@ -591,7 +591,7 @@ describe("Trigger Coordinator", () => {
     it("Test handling of events without triggers: should be handled normally", async () => {
       const event: BaseEvent = {
         type: "THREAD_STARTED",
-        threadId: "test-thread",
+        executionId: "test-thread",
         workflowId: "workflow-123",
         timestamp: Date.now(),
       };
@@ -605,7 +605,7 @@ describe("Trigger Coordinator", () => {
         id: "trigger-1",
         name: "Trigger 1",
         condition: { eventType: "THREAD_STARTED" as EventType },
-        action: { type: "pause_thread", parameters: { threadId: "test-thread" } },
+        action: { type: "pause_thread", parameters: { executionId: "test-thread" } },
         enabled: true,
       };
 
@@ -613,7 +613,7 @@ describe("Trigger Coordinator", () => {
         id: "trigger-2",
         name: "Trigger 2",
         condition: { eventType: "THREAD_STARTED" as EventType },
-        action: { type: "pause_thread", parameters: { threadId: "test-thread" } },
+        action: { type: "pause_thread", parameters: { executionId: "test-thread" } },
         enabled: true,
       };
 
@@ -622,7 +622,7 @@ describe("Trigger Coordinator", () => {
 
       const event: BaseEvent = {
         type: "THREAD_STARTED",
-        threadId: "test-thread",
+        executionId: "test-thread",
         workflowId: "workflow-123",
         timestamp: Date.now(),
       };

@@ -19,7 +19,7 @@ import { sdkLogger as logger } from "../../utils/logger.js";
  * Defines the fields automatically extracted in error handling
  */
 export interface StandardErrorContext {
-  threadId?: string;
+  executionId?: string;
   workflowId?: string;
   nodeId?: string;
   agentLoopId?: string;
@@ -46,11 +46,11 @@ export function extractErrorContext(source: unknown, operation?: string): Standa
 
   // Extract WorkflowExecutionEntity-related fields
   if (src["id"] !== undefined) {
-    // Use the threadId field preferentially, followed by the id.
-    const threadId = src["threadId"];
+    // Use the executionId field preferentially, followed by the id.
+    const executionId = src["executionId"];
     const id = src["id"];
-    context.threadId =
-      (typeof threadId === "string" ? threadId : null) ||
+    context.executionId =
+      (typeof executionId === "string" ? executionId : null) ||
       (typeof id === "string" ? id : null) ||
       undefined;
   }
@@ -126,7 +126,7 @@ export function logError(error: SDKError, context?: Record<string, unknown>): vo
 export async function emitErrorEvent(
   eventManager: EventRegistry | undefined,
   params: {
-    threadId: string;
+    executionId: string;
     workflowId: string;
     nodeId?: string;
     error: Error;
@@ -147,7 +147,7 @@ export async function handleError(
   eventManager: EventRegistry | undefined,
   error: SDKError,
   params: {
-    threadId: string;
+    executionId: string;
     workflowId: string;
     nodeId?: string;
   },
@@ -161,7 +161,7 @@ export async function handleError(
 
 /**
  * Unified error handling (with automatic context extraction)
- * Automatically extracts context information such as threadId, nodeId, workflowId, etc. from entities
+ * Automatically extracts context information such as executionId, nodeId, workflowId, etc. from entities
  *
  * @param eventManager  Event manager
  * @param error SDKError object
@@ -191,7 +191,7 @@ export async function handleErrorWithContext(
   // Log recording and event triggering
   logError(enhancedError, mergedContext);
   await emitErrorEvent(eventManager, {
-    threadId: mergedContext.threadId || "",
+    executionId: mergedContext.executionId || "",
     workflowId: mergedContext.workflowId || "",
     nodeId: mergedContext.nodeId,
     error: enhancedError,

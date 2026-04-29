@@ -15,9 +15,9 @@ import {
   type AgentLoopEntityOptions,
   type AgentLoopCheckpointDependencies,
   type AgentLoopEntity,
-} from "@wf-agent/sdk";
+} from "@wf-agent/sdk/agent";
 import type { AgentLoopConfig, AgentLoopResult, ID } from "@wf-agent/types";
-import { LLMExecutor, LLMWrapper, ToolRegistry, EventRegistry } from "@wf-agent/sdk";
+import { LLMExecutor, LLMWrapper, ToolRegistry, EventRegistry } from "@wf-agent/sdk/core";
 import { CLINotFoundError } from "../types/cli-types.js";
 
 /**

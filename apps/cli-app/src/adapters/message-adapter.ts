@@ -51,12 +51,12 @@ export class MessageAdapter extends BaseAdapter {
   }
 
   /**
-   * List messages by thread ID
+   * List messages by execution ID
    */
   async listMessagesByThread(threadId: string): Promise<LLMMessage[]> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.messages;
-      const result = await api.getAll({ threadId });
+      const result = await api.getAll({ executionId: threadId });
       const messages = (result as any).data || result;
       return messages as LLMMessage[];
     }, "List Threaded Messages");

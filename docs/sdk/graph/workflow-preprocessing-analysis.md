@@ -19,14 +19,14 @@ if (this.enablePreprocessing) {
 }
 ```
 
-### 2. ThreadBuilder构建ThreadContext时按需预处理
+### 2. WorkflowExecutionBuilder构建WorkflowExecutionContext时按需预处理（原 ThreadBuilder）
 
-当调用`ThreadBuilder.build()`方法构建线程上下文时，如果发现工作流尚未预处理，会主动触发预处理。
+当调用`WorkflowExecutionBuilder.build()`方法构建执行实例上下文时，如果发现工作流尚未预处理，会主动触发预处理。
 
-**代码位置**: [`sdk/core/execution/thread-builder.ts`](sdk/core/execution/thread-builder.ts:57)
+**代码位置**: [`sdk/core/execution/workflow-execution-builder.ts`](sdk/core/execution/workflow-execution-builder.ts:57)（原 thread-builder.ts）
 
 ```typescript
-// 在 ThreadBuilder.build() 方法中
+// 在 WorkflowExecutionBuilder.build() 方法中（原 ThreadBuilder.build）
 let processedWorkflow = this.workflowRegistry.getProcessed(workflowId);
 
 if (!processedWorkflow) {
@@ -129,10 +129,10 @@ if (this.params.workflowDefinition) {
   - `register()`: 注册图数据
   - `get()`: 获取图数据
 
-### ThreadBuilder
-- **职责**: 按需触发预处理并构建ThreadContext
+### WorkflowExecutionBuilder（原 ThreadBuilder）
+- **职责**: 按需触发预处理并构建WorkflowExecutionContext
 - **关键方法**:
-  - `build()`: 构建ThreadContext，按需预处理
+  - `build()`: 构建WorkflowExecutionContext，按需预处理
 
 ## 预处理输出
 

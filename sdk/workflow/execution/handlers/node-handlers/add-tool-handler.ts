@@ -82,7 +82,7 @@ export async function addToolHandler(
     }
 
     // 2. Add tools to the context
-    const scope = config.scope || "THREAD";
+    const scope = config.scope || "EXECUTION";
     const overwrite = config.overwrite || false;
 
     const addedCount = context.toolContextStore.addTools(

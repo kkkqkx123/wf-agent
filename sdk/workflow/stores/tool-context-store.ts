@@ -4,14 +4,14 @@
  *
  * Core Responsibilities:
  * 1. Manages the runtime context of tools (tool ID, scope, metadata)
- * 2. Provides thread-isolated tool management
- * 3. Supports tools with different scopes (THREAD, LOCAL, GLOBAL)
+ * 2. Provides execution-isolated tool management
+ * 3. Supports tools with different scopes (EXECUTION, LOCAL, GLOBAL)
  * 4. Offers atomic tool operations
  *
  * Design Principles:
  * - Only manages tool context; does not include business logic
- * - Thread isolation, with each thread having its own independent tool context
- * - Supports multiple levels of scopes (THREAD, LOCAL, GLOBAL)
+ * - Execution isolation, with each workflow execution having its own independent tool context
+ * - Supports multiple levels of scopes (EXECUTION, LOCAL, GLOBAL)
  * - Atomic operations to ensure consistency of the tool context
  */
 
@@ -20,8 +20,13 @@ import { now } from "@wf-agent/common-utils";
 
 /**
  * Tool Scope Types
+ * 
+ * Scope Hierarchy (from most specific to most general):
+ * - EXECUTION: Tools available only in the current workflow execution instance
+ * - LOCAL: Tools available in the current local/subgraph context
+ * - GLOBAL: Tools available across all execution instances
  */
-export type ToolScope = "GLOBAL" | "THREAD" | "LOCAL";
+export type ToolScope = "GLOBAL" | "EXECUTION" | "LOCAL";
 
 /**
  * Tool metadata
@@ -41,11 +46,11 @@ export interface ToolMetadata {
  * Tool Context Structure
  */
 export interface ToolContext {
-  /** Thread Scope Tools */
-  threadTools: Map<string, ToolMetadata>;
-  /** Local Scope Tool */
+  /** Execution Scope Tools (tools specific to this workflow execution instance) */
+  executionTools: Map<string, ToolMetadata>;
+  /** Local Scope Tools (tools specific to subgraph/local context) */
   localTools: Map<string, ToolMetadata>;
-  /** Global Scope Tool */
+  /** Global Scope Tools (tools available across all executions) */
   globalTools: Map<string, ToolMetadata>;
 }
 
@@ -54,15 +59,15 @@ export interface ToolContext {
  *
  * Responsibilities:
  * - Manages the runtime context of tools
- * - Provides thread-isolated tool management
+ * - Provides execution-isolated tool management
  * - Supports tool management across different scopes
  * - Offers atomic tool operations
  *
  * Design Principles:
  * - Stateful design: Maintains the tool context
  * - Context management: Provides operations for creating, deleting, modifying, and querying tools
- * - Thread isolation: Each thread has its own independent tool context
- * - Scope support: Supports three scopes: THREAD, LOCAL, and GLOBAL
+ * - Execution isolation: Each workflow execution has its own independent tool context
+ * - Scope support: Supports three scopes: EXECUTION, LOCAL, and GLOBAL
  */
 export class ToolContextStore {
   /** Tool context mapping: executionId -> ToolContext */
@@ -74,7 +79,7 @@ export class ToolContextStore {
   private getOrCreateContext(executionId: string): ToolContext {
     if (!this.contexts.has(executionId)) {
       this.contexts.set(executionId, {
-        threadTools: new Map(),
+        executionTools: new Map(),
         localTools: new Map(),
         globalTools: new Map(),
       });
@@ -98,7 +103,7 @@ export class ToolContextStore {
     executionId: string,
     workflowId: ID,
     toolIds: string[],
-    scope: ToolScope = "THREAD",
+    scope: ToolScope = "EXECUTION",
     overwrite: boolean = false,
     descriptionTemplate?: string,
     customMetadata?: Record<string, unknown>,
@@ -117,8 +122,8 @@ export class ToolContextStore {
       let targetMap: Map<string, ToolMetadata>;
 
       switch (scope) {
-        case "THREAD":
-          targetMap = context.threadTools;
+        case "EXECUTION":
+          targetMap = context.executionTools;
           break;
         case "LOCAL":
           targetMap = context.localTools;
@@ -159,8 +164,8 @@ export class ToolContextStore {
 
     if (scope) {
       switch (scope) {
-        case "THREAD":
-          return new Set(context.threadTools.keys());
+        case "EXECUTION":
+          return new Set(context.executionTools.keys());
         case "LOCAL":
           return new Set(context.localTools.keys());
         case "GLOBAL":
@@ -170,7 +175,7 @@ export class ToolContextStore {
 
     // Tools to return all scopes
     const allTools = new Set<string>();
-    context.threadTools.forEach((_, toolId) => allTools.add(toolId));
+    context.executionTools.forEach((_, toolId) => allTools.add(toolId));
     context.localTools.forEach((_, toolId) => allTools.add(toolId));
     context.globalTools.forEach((_, toolId) => allTools.add(toolId));
 
@@ -193,8 +198,8 @@ export class ToolContextStore {
 
     if (scope) {
       switch (scope) {
-        case "THREAD":
-          return context.threadTools.get(toolId);
+        case "EXECUTION":
+          return context.executionTools.get(toolId);
         case "LOCAL":
           return context.localTools.get(toolId);
         case "GLOBAL":
@@ -204,7 +209,7 @@ export class ToolContextStore {
 
     // Search all scopes
     return (
-      context.threadTools.get(toolId) ||
+      context.executionTools.get(toolId) ||
       context.localTools.get(toolId) ||
       context.globalTools.get(toolId)
     );
@@ -229,8 +234,8 @@ export class ToolContextStore {
     if (scope) {
       let targetMap: Map<string, ToolMetadata>;
       switch (scope) {
-        case "THREAD":
-          targetMap = context.threadTools;
+        case "EXECUTION":
+          targetMap = context.executionTools;
           break;
         case "LOCAL":
           targetMap = context.localTools;
@@ -248,7 +253,7 @@ export class ToolContextStore {
     } else {
       // Remove from all scopes
       for (const toolId of toolIds) {
-        if (context.threadTools.delete(toolId)) {
+        if (context.executionTools.delete(toolId)) {
           removedCount++;
         }
         if (context.localTools.delete(toolId)) {
@@ -280,9 +285,9 @@ export class ToolContextStore {
 
     if (scope) {
       switch (scope) {
-        case "THREAD":
-          clearedCount = context.threadTools.size;
-          context.threadTools.clear();
+        case "EXECUTION":
+          clearedCount = context.executionTools.size;
+          context.executionTools.clear();
           break;
         case "LOCAL":
           clearedCount = context.localTools.size;
@@ -294,8 +299,8 @@ export class ToolContextStore {
           break;
       }
     } else {
-      clearedCount = context.threadTools.size + context.localTools.size + context.globalTools.size;
-      context.threadTools.clear();
+      clearedCount = context.executionTools.size + context.localTools.size + context.globalTools.size;
+      context.executionTools.clear();
       context.localTools.clear();
       context.globalTools.clear();
     }
@@ -319,8 +324,8 @@ export class ToolContextStore {
 
     if (scope) {
       switch (scope) {
-        case "THREAD":
-          return context.threadTools.has(toolId);
+        case "EXECUTION":
+          return context.executionTools.has(toolId);
         case "LOCAL":
           return context.localTools.has(toolId);
         case "GLOBAL":
@@ -329,7 +334,7 @@ export class ToolContextStore {
     }
 
     return (
-      context.threadTools.has(toolId) ||
+      context.executionTools.has(toolId) ||
       context.localTools.has(toolId) ||
       context.globalTools.has(toolId)
     );
@@ -348,7 +353,7 @@ export class ToolContextStore {
     }
 
     return {
-      threadTools: new Map(context.threadTools),
+      executionTools: new Map(context.executionTools),
       localTools: new Map(context.localTools),
       globalTools: new Map(context.globalTools),
     };
@@ -362,7 +367,7 @@ export class ToolContextStore {
    */
   restoreSnapshot(executionId: string, snapshot: ToolContext): void {
     this.contexts.set(executionId, {
-      threadTools: new Map(snapshot.threadTools),
+      executionTools: new Map(snapshot.executionTools),
       localTools: new Map(snapshot.localTools),
       globalTools: new Map(snapshot.globalTools),
     });
@@ -389,7 +394,7 @@ export class ToolContextStore {
    *
    * @returns List of execution IDs
    */
-  getAllThreadIds(): string[] {
+  getAllExecutionIds(): string[] {
     return Array.from(this.contexts.keys());
   }
 }

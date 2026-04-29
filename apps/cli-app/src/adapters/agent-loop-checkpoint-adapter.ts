@@ -9,9 +9,9 @@ import {
   restoreFromCheckpoint,
   type CheckpointDependencies,
   type CreateCheckpointOptions,
-} from "@wf-agent/sdk";
+  type AgentLoopEntity,
+} from "@wf-agent/sdk/agent";
 import { AgentLoopCheckpointResourceAPI } from "@wf-agent/sdk";
-import type { AgentLoopEntity } from "@wf-agent/sdk";
 import type { AgentLoopCheckpoint } from "@wf-agent/types";
 import { CLINotFoundError } from "../types/cli-types.js";
 

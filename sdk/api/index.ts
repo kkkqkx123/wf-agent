@@ -337,3 +337,19 @@ export {
   findMatchingRule,
   sortRulesByPriority,
 } from "./shared/component-message/routing-utils.js";
+
+// ============================================================================
+// Shared - Configuration Parsing Utilities
+// ============================================================================
+export {
+  loadConfigContent,
+  parseToml,
+  parseJson,
+  parseWorkflow,
+  parseNodeTemplate,
+  parseTriggerTemplate,
+  parseScript,
+  parseLLMProfile,
+  parseAndValidateAgentLoopConfig,
+  loadAgentLoopConfig,
+} from "./shared/config/index.js";

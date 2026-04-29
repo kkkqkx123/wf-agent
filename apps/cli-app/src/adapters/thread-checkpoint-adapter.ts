@@ -27,7 +27,7 @@ export class ThreadCheckpointAdapter extends BaseAdapter {
     return this.executeWithErrorHandling(async () => {
       const checkpoint = {
         id: `checkpoint-${Date.now()}`,
-        threadId,
+        executionId: threadId,
         workflowId: "default", // Default workflow ID, which should be obtained from the Thread during actual use.
         timestamp: Date.now(),
         metadata: {

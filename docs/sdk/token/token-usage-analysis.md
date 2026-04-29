@@ -203,8 +203,8 @@ setState(
 ```typescript
 // 恢复Token统计
 conversationManager.getTokenUsageTracker().setState(
-  checkpoint.threadState.conversationState.tokenUsage,
-  checkpoint.threadState.conversationState.currentRequestUsage
+  checkpoint.workflowExecutionState.conversationState.tokenUsage,  // 原 checkpoint.threadState
+  checkpoint.workflowExecutionState.conversationState.currentRequestUsage  // 原 checkpoint.threadState
 );
 ```
 

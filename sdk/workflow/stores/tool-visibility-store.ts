@@ -36,7 +36,7 @@ export class ToolVisibilityStore implements LifecycleCapable {
   initializeContext(
     executionId: string,
     availableTools: string[],
-    scope: ToolScope = "THREAD",
+    scope: ToolScope = "EXECUTION",
     scopeId: string = executionId,
   ): void {
     const context: ToolVisibilityContext = {
@@ -213,7 +213,7 @@ export class ToolVisibilityStore implements LifecycleCapable {
    * Get all execution IDs
    * @returns List of all execution IDs
    */
-  getAllThreadIds(): string[] {
+  getAllExecutionIds(): string[] {
     return Array.from(this.contexts.keys());
   }
 

@@ -44,8 +44,8 @@ interface ToolVisibilityContext {
   /** 当前作用域 */
   currentScope: ToolScope;
   
-  /** 当前作用域ID（线程ID/工作流ID） */
-  scopeId: string;
+  /** 当前作用域ID（执行实例ID/工作流ID） */
+  scopeId: string;  // executionId or workflowId
   
   /** 当前可见工具集合 */
   visibleTools: Set<string>;
@@ -56,7 +56,9 @@ interface ToolVisibilityContext {
   /** 上次声明的消息索引 */
   lastDeclarationIndex: number;
 }
+```
 
+**注意**：原设计中提到"线程ID/工作流ID"，应改为"执行实例ID/工作流ID"以符合新的命名体系。
 interface VisibilityDeclaration {
   timestamp: number;
   scope: ToolScope;
@@ -80,14 +82,14 @@ class ToolVisibilityCoordinator {
   /**
    * 初始化可见性上下文
    */
-  initializeContext(threadId: string, initialTools: string[]): ToolVisibilityContext;
+  initializeContext(executionId: string, initialTools: string[]): ToolVisibilityContext;  // 原 threadId
   
   /**
    * 作用域切换时更新可见性
    * 生成并添加新的可见性声明消息
    */
   async updateVisibilityOnScopeChange(
-    context: ThreadContext,
+    context: WorkflowExecutionContext,  // 原 ThreadContext
     newScope: ToolScope,
     newScopeId: string,
     availableTools: string[]
@@ -98,7 +100,7 @@ class ToolVisibilityCoordinator {
    * 生成增量可见性声明
    */
   async addToolsDynamically(
-    context: ThreadContext,
+    context: WorkflowExecutionContext,  // 原 ThreadContext
     toolIds: string[],
     scope: ToolScope
   ): Promise<void>;
@@ -219,10 +221,10 @@ timestamp: 2024-01-15T10:30:00Z
 
 ### 2.5 与现有组件的集成
 
-#### 2.5.1 ThreadContext 集成
+#### 2.5.1 WorkflowExecutionContext 集成（原 ThreadContext）
 
 ```typescript
-class ThreadContext {
+class WorkflowExecutionContext {  // 原 ThreadContext
   private toolVisibilityCoordinator: ToolVisibilityCoordinator;
   private toolVisibilityContext: ToolVisibilityContext;
   
@@ -238,7 +240,7 @@ class ThreadContext {
     const subgraphTools = this.getSubgraphAvailableTools(workflowId);
     await this.toolVisibilityCoordinator.updateVisibilityOnScopeChange(
       this,
-      'WORKFLOW',
+      'LOCAL',  // 原 WORKFLOW，改为 LOCAL 表示局部/子图作用域
       workflowId,
       subgraphTools
     );
@@ -257,7 +259,7 @@ class ThreadContext {
     const parentTools = this.getAvailableToolsForScope(parentScopeId);
     await this.toolVisibilityCoordinator.updateVisibilityOnScopeChange(
       this,
-      'WORKFLOW',
+      'EXECUTION',  // 原 THREAD，改为 EXECUTION 表示执行实例级别
       parentScopeId,
       parentTools
     );
@@ -266,7 +268,7 @@ class ThreadContext {
   /**
    * 动态添加工具
    */
-  async addDynamicTools(toolIds: string[]): void {
+  async addDynamicTools(toolIds: string[]): Promise<void> {
     // 更新可用工具集合
     toolIds.forEach(id => this.availableTools.add(id));
     
@@ -279,6 +281,11 @@ class ThreadContext {
   }
 }
 ```
+
+**重要说明**：
+- 原设计中的 `THREAD` 作用域应改为 `EXECUTION`，与 `WorkflowExecution` 概念对应
+- 原设计中的 `WORKFLOW` 作用域应改为 `LOCAL`，更准确表示局部/子图范围
+- 这样命名更符合层次结构：EXECUTION > LOCAL > GLOBAL
 
 #### 2.5.2 ConversationManager 集成
 
@@ -530,9 +537,9 @@ forkBranches.forEach(branch => {
 // JOIN时
 const mergedTools = mergeToolSets(forkedContexts);
 await toolVisibilityCoordinator.updateVisibilityOnScopeChange(
-  threadContext,
-  'THREAD',
-  threadId,
+  workflowExecutionContext,  // 原 threadContext
+  'EXECUTION',  // 原 THREAD，改为 EXECUTION
+  executionId,  // 原 threadId
   mergedTools
 );
 ```

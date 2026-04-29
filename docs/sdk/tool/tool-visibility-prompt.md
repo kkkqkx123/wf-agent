@@ -4,9 +4,29 @@
 
 ### 1. 作用域类型定义
 系统支持三种工具作用域（[`ToolContextManager.ts:23`](sdk/core/execution/managers/tool-context-manager.ts:23)）：
-- **THREAD**：线程作用域，仅当前线程可用
-- **WORKFLOW**：工作流作用域，同一工作流的所有线程可用
-- **GLOBAL**：全局作用域，所有线程可用
+- **EXECUTION**：执行实例作用域，仅当前工作流执行实例可用（原THREAD）
+- **LOCAL**：局部作用域，当前子图或局部上下文可用
+- **GLOBAL**：全局作用域，所有执行实例可用
+
+**命名问题分析与改进**：
+
+原有命名存在严重问题：
+1. **THREAD** - 与新的`WorkflowExecution`概念不一致，容易引起混淆
+2. **LOCAL** - 语义模糊，不清楚是相对于什么的"局部"
+3. 作用域层次不清晰
+
+**推荐的新命名方案**：
+
+| 当前命名 | 建议命名 | 说明 |
+|---------|---------|------|
+| THREAD | EXECUTION | 工作流执行实例级别，与WorkflowExecution对应 |
+| LOCAL | SUBGRAPH 或 CONTEXT | 更明确表示子图或上下文级别 |
+| GLOBAL | GLOBAL | 保持不变，语义清晰 |
+
+或者采用更清晰的三层架构：
+- **INSTANCE** - 执行实例级别（最具体）
+- **WORKFLOW** - 工作流定义级别（中等范围）
+- **GLOBAL** - 全局级别（最广泛）
 
 ### 2. 作用域管理架构
 核心管理器：[`ToolContextManager`](sdk/core/execution/managers/tool-context-manager.ts:66)
@@ -14,26 +34,26 @@
 **数据结构**（[`ToolContextManager.ts:42-49`](sdk/core/execution/managers/tool-context-manager.ts:42-49)）：
 ```typescript
 interface ToolContext {
-  threadTools: Map<string, ToolMetadata>;    // 线程作用域工具
-  workflowTools: Map<string, ToolMetadata>;  // 工作流作用域工具
-  globalTools: Map<string, ToolMetadata>;    // 全局作用域工具
+  executionTools: Map<string, ToolMetadata>;    // 执行实例作用域工具（原threadTools）
+  localTools: Map<string, ToolMetadata>;        // 局部作用域工具
+  globalTools: Map<string, ToolMetadata>;       // 全局作用域工具
 }
 ```
 
 **关键特性**：
-- 线程隔离：每个线程维护独立的工具上下文（[`ToolContextManager.ts:68`](sdk/core/execution/managers/tool-context-manager.ts:68)）
+- 执行实例隔离：每个工作流执行实例维护独立的工具上下文（[`ToolContextManager.ts:68`](sdk/core/execution/managers/tool-context-manager.ts:68））
 - 原子操作：提供增删改查的原子化方法
-- 快照支持：支持保存和恢复工具上下文快照（[`ToolContextManager.ts:343-368`](sdk/core/execution/managers/tool-context-manager.ts:343-368)）
+- 快照支持：支持保存和恢复工具上下文快照（[`ToolContextManager.ts:343-368`](sdk/core/execution/managers/tool-context-manager.ts:343-368））
 
 ### 3. 作用域操作方法
 
 **添加工具**（[`ToolContextManager.ts:96-144`](sdk/core/execution/managers/tool-context-manager.ts:96-144)）：
 ```typescript
 addTools(
-  threadId: string,
+  executionId: string,      // 原threadId
   workflowId: ID,
   toolIds: string[],
-  scope: ToolScope = 'THREAD',
+  scope: ToolScope = 'EXECUTION',  // 原THREAD
   overwrite: boolean = false,
   descriptionTemplate?: string,
   customMetadata?: Record<string, any>
@@ -51,8 +71,8 @@ addTools(
 
 ### 4. 作用域优先级
 在查询工具时，系统会按以下优先级查找：
-1. THREAD 作用域（最高优先级）
-2. WORKFLOW 作用域
+1. EXECUTION 作用域（最高优先级，原THREAD）
+2. LOCAL 作用域（局部/子图级别）
 3. GLOBAL 作用域（最低优先级）
 
 ## 二、工具描述处理方式
@@ -232,9 +252,12 @@ if (!executor) {
 
 | 作用域 | 范围 | 管理组件 |
 |--------|------|----------|
-| **THREAD** | 当前线程隔离 | `ToolContextManager.threadTools` |
-| **WORKFLOW** | 工作流内共享 | `ToolContextManager.workflowTools` |
+| **EXECUTION** | 当前执行实例隔离（原THREAD） | `ToolContextManager.executionTools` |
+| **LOCAL** | 局部/子图内共享 | `ToolContextManager.localTools` |
 | **GLOBAL** | 全局共享 | `ToolContextManager.globalTools` |
+
+**命名问题说明**：
+原有THREAD/WORKFLOW/LOCAL命名存在严重问题，建议改为EXECUTION/LOCAL/GLOBAL或INSTANCE/SUBGRAPH/GLOBAL
 
 ### 1.2 当前可见域处理流程
 1. **工具注册阶段**：通过 `ToolService.registerTool()` 注册到全局注册表

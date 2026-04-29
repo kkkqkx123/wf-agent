@@ -67,7 +67,7 @@ export class ToolVisibilityCoordinator {
   initializeContext(
     executionId: string,
     initialTools: string[],
-    scope: ToolScope = "THREAD",
+    scope: ToolScope = "EXECUTION",
     scopeId: string = executionId,
   ): void {
     this.toolVisibilityStore.initializeContext(executionId, initialTools, scope, scopeId);
@@ -455,7 +455,7 @@ export class ToolVisibilityCoordinator {
       if (metadata) {
         rebuiltHistory.push({
           timestamp: (metadata["timestamp"] as number) || now(),
-          scope: (metadata["scope"] as ToolScope) || "THREAD",
+          scope: (metadata["scope"] as ToolScope) || "EXECUTION",
           scopeId: (metadata["scopeId"] as string) || executionId,
           toolIds: (metadata["toolIds"] as string[]) || [],
           messageIndex: index,

@@ -35,9 +35,9 @@
 - `buildVisibilityDeclarationMessage()`: 构建声明消息
 - `isToolVisible()`: 检查工具可见性
 
-### 3. ThreadContext 集成 (`sdk/core/execution/context/thread-context.ts`)
+### 3. WorkflowExecutionContext 集成 (`sdk/core/execution/context/workflow-execution-context.ts`)
 
-在 ThreadContext 中集成了工具可见性协调器：
+在 WorkflowExecutionContext 中集成了工具可见性协调器：
 
 - 添加 `toolVisibilityCoordinator` 属性
 - 实现 `initializeToolVisibility()` 方法
@@ -71,11 +71,11 @@
 
 ### 1. ThreadBuilder (`sdk/core/execution/thread-builder.ts`)
 
-在所有创建 ThreadContext 的地方添加初始化调用：
+在所有创建 WorkflowExecutionContext 的地方添加初始化调用：
 
-- `buildThread()`: 添加 `initializeToolVisibility()`
-- `copyThread()`: 添加 `initializeToolVisibility()`
-- `forkThread()`: 添加 `initializeToolVisibility()`
+- `buildWorkflowExecution()`: 添加 `initializeToolVisibility()`（原 buildThread）
+- `copyWorkflowExecution()`: 添加 `initializeToolVisibility()`（原 copyThread）
+- `forkWorkflowExecution()`: 添加 `initializeToolVisibility()`（原 forkThread）
 
 ### 2. CheckpointCoordinator (`sdk/core/execution/coordinators/checkpoint-coordinator.ts`)
 
@@ -95,10 +95,10 @@
 ### 1. 初始化流程
 
 ```
-ThreadBuilder.buildThread()
-  → 创建 ThreadContext（包含 ToolVisibilityCoordinator）
+ThreadBuilder.buildWorkflowExecution()（原 buildThread）
+  → 创建 WorkflowExecutionContext（包含 ToolVisibilityCoordinator）（原 ThreadContext）
   → initializeToolVisibility()
-  → 初始化可见性上下文（THREAD 作用域）
+  → 初始化可见性上下文（EXECUTION 作用域，原 THREAD）
 ```
 
 ### 2. 作用域切换流程

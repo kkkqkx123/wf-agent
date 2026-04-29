@@ -169,47 +169,47 @@ const graphAnalysis = GraphValidator.analyze(buildResult.graph);
 
 ### 阶段 2：执行准备阶段
 
-#### 2.1 ThreadBuilder 中的图初始化
+#### 2.1 WorkflowExecutionBuilder 中的图初始化（原 ThreadBuilder）
 
-**位置**: `sdk/core/execution/thread-builder.ts` (L55-73)
+**位置**: `sdk/core/execution/workflow-execution-builder.ts` (L55-73)（原 thread-builder.ts）
 
 **流程**:
 ```typescript
-async build(workflowId: string, options: ThreadOptions) {
+async build(workflowId: string, options: WorkflowExecutionOptions) {  // 原 ThreadOptions
   // 获取预处理后的工作流定义（包含 graph）
   const processedWorkflow = await this.workflowRegistry.ensureProcessed(workflowId);
   
-  // 从预处理定义构建线程
+  // 从预处理定义构建执行实例
   return this.buildFromProcessedDefinition(processedWorkflow, options);
 }
 
 private buildFromProcessedDefinition(processedWorkflow: ProcessedWorkflowDefinition) {
   // 从 processedWorkflow.graph 获取图数据
-  const threadGraphData = processedWorkflow.graph;
+  const workflowGraphData = processedWorkflow.graph;
   
-  // 创建 ThreadContext，并将图附加到 Thread 对象
-  const thread = new Thread({
+  // 创建 WorkflowExecutionContext，并将图附加到 WorkflowExecution 对象
+  const workflowExecution = new WorkflowExecution({  // 原 Thread
     ...
-    graph: threadGraphData,  // 图成为 Thread 的成员
+    graph: workflowGraphData,  // 图成为 WorkflowExecution 的成员
     ...
   });
   
-  return threadContext;
+  return workflowExecutionContext;
 }
 ```
 
 **关键点**:
 - 图是从缓存的预处理工作流中获取的（避免重复处理）
-- 图作为不可变的定义数据附加到 Thread 对象
-- 所有线程共享同一个图定义（节省内存）
+- 图作为不可变的定义数据附加到 WorkflowExecution 对象
+- 所有执行实例共享同一个图定义（节省内存）
 
 #### 2.2 GraphNavigator 初始化
 
-**位置**: `sdk/core/execution/context/thread-context.ts`
+**位置**: `sdk/core/execution/context/workflow-execution-context.ts`（原 thread-context.ts）
 
 **初始化**:
 ```typescript
-this.navigator = new GraphNavigator(this.thread.graph);
+this.navigator = new GraphNavigator(this.workflowExecution.graph);  // 原 this.thread.graph
 ```
 
 **GraphNavigator 设计原则**:
@@ -284,13 +284,13 @@ getNodeInfo(nodeId: ID) {
 
 **3.2.1 推断 FORK/JOIN 状态** (L239-245)
 ```typescript
-if (thread.graph) {
-  const currentNode = thread.graph.getNode(checkpoint.threadState.currentNodeId);
+if (workflowExecution.graph) {  // 原 thread.graph
+  const currentNode = workflowExecution.graph.getNode(checkpoint.workflowExecutionState.currentNodeId);  // 原 checkpoint.threadState
   if (currentNode && currentNode.type === 'JOIN') {
     const forkJoinState = this.inferForkJoinState(
-      checkpoint.threadState.currentNodeId,
-      checkpoint.threadState.nodeResults,
-      thread.graph
+      checkpoint.workflowExecutionState.currentNodeId,  // 原 checkpoint.threadState
+      checkpoint.workflowExecutionState.nodeResults,  // 原 checkpoint.threadState
+      workflowExecution.graph  // 原 thread.graph
     );
   }
 }
@@ -315,11 +315,11 @@ const forkPaths = (forkNode.config as any)?.forkPaths || [];
 
 **序列化过程** (L140-173):
 ```typescript
-// GraphData 通过 Thread 对象被序列化
-// Thread 包含 graph 字段
+// GraphData 通过 WorkflowExecution 对象被序列化（原 Thread）
+// WorkflowExecution 包含 graph 字段
 const serialized = {
-  ...thread,
-  graph: thread.graph  // GraphData 直接序列化
+  ...workflowExecution,
+  graph: workflowExecution.graph  // GraphData 直接序列化
 };
 ```
 

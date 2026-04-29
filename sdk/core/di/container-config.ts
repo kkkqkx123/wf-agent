@@ -248,8 +248,8 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
   container
     .bind(Identifiers.WorkflowRegistry)
     .toDynamicValue((c: IContainer): WorkflowRegistry => {
-      const threadRegistry = c.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry;
-      return new WorkflowRegistry({ maxRecursionDepth: 10 }, threadRegistry);
+      const workflowExecutionRegistry = c.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry;
+      return new WorkflowRegistry({ maxRecursionDepth: 10 }, workflowExecutionRegistry);
     })
     .inSingletonScope();
 
@@ -334,7 +334,6 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
             eventManager,
             workflowConversationSession,
             workflowExecutionRegistry,
-            taskRegistry,
           );
         },
       };
@@ -747,9 +746,9 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
           workflowRegistry: c.get(Identifiers.WorkflowRegistry) as WorkflowRegistry,
           workflowGraphRegistry: c.get(Identifiers.WorkflowGraphRegistry) as WorkflowGraphRegistry,
         },
-        createCheckpoint: (threadId: string, metadata?: Record<string, unknown>) => {
+        createCheckpoint: (workflowExecutionId: string, metadata?: Record<string, unknown>) => {
           return CheckpointCoordinator.createCheckpoint(
-            threadId,
+            workflowExecutionId,
             {
               workflowExecutionRegistry: c.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry,
               checkpointStateManager: c.get(Identifiers.CheckpointState) as CheckpointState,

@@ -87,6 +87,7 @@ export function createExecuteWorkflowHandler() {
       subgraphId: workflowId,
       input,
       mainThreadEntity: workflowContext.parentThreadEntity,
+      mainWorkflowExecutionEntity: workflowContext.parentThreadEntity,
       triggerId: `builtin-${Date.now()}`,
       config: {
         waitForCompletion,

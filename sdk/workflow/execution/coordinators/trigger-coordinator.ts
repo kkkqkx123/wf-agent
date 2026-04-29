@@ -265,7 +265,7 @@ export class TriggerCoordinator {
     const {
       checkpointStateManager,
       graphRegistry,
-      threadRegistry,
+      workflowExecutionRegistry,
       workflowRegistry,
       threadLifecycleCoordinator,
       eventManager,
@@ -285,7 +285,7 @@ export class TriggerCoordinator {
       } else {
         try {
           const dependencies: CheckpointDependencies = {
-            workflowExecutionRegistry: threadRegistry!,
+            workflowExecutionRegistry: workflowExecutionRegistry!,
             checkpointStateManager: checkpointStateManager,
             workflowRegistry: workflowRegistry!,
             workflowGraphRegistry: graphRegistry,
@@ -293,7 +293,7 @@ export class TriggerCoordinator {
 
           await createCheckpoint(
             {
-              threadId: trigger.threadId,
+              workflowExecutionId: trigger.threadId,
               description: trigger.checkpointDescription || `Trigger: ${trigger.name}`,
             },
             dependencies,
@@ -329,25 +329,25 @@ export class TriggerCoordinator {
         break;
 
       case "skip_node":
-        if (!threadRegistry || !eventManager) {
+        if (!workflowExecutionRegistry || !eventManager) {
           throw new DependencyInjectionError(
             "WorkflowExecutionRegistry or EventRegistry not provided",
             "WorkflowExecutionRegistry/EventRegistry",
           );
         }
-        await handler(trigger.action, trigger.id, threadRegistry, eventManager);
+        await handler(trigger.action, trigger.id, workflowExecutionRegistry, eventManager);
         break;
 
       case "set_variable":
       case "apply_message_operation":
-        if (!threadRegistry) {
+        if (!workflowExecutionRegistry) {
           throw new DependencyInjectionError("WorkflowExecutionRegistry not provided", "WorkflowExecutionRegistry");
         }
-        await handler(trigger.action, trigger.id, threadRegistry);
+        await handler(trigger.action, trigger.id, workflowExecutionRegistry);
         break;
 
       case "execute_triggered_subgraph":
-        if (!threadRegistry || !eventManager || !threadBuilder || !taskQueueManager) {
+        if (!workflowExecutionRegistry || !eventManager || !threadBuilder || !taskQueueManager) {
           throw new DependencyInjectionError(
             "Required dependencies not provided for execute_triggered_subgraph",
             "WorkflowExecutionRegistry/EventRegistry/ThreadBuilder/TaskQueue",
@@ -356,7 +356,7 @@ export class TriggerCoordinator {
         await handler(
           trigger.action,
           trigger.id,
-          threadRegistry,
+          workflowExecutionRegistry,
           eventManager,
           threadBuilder,
           taskQueueManager,

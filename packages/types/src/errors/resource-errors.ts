@@ -114,6 +114,13 @@ export class ThreadContextNotFoundError extends NotFoundError {
 }
 
 /**
+ * Workflow Execution Not Found Error Type (alias for ThreadContextNotFoundError)
+ * @deprecated Use ThreadContextNotFoundError instead
+ */
+export const WorkflowExecutionNotFoundError = ThreadContextNotFoundError;
+export type WorkflowExecutionNotFoundErrorType = typeof ThreadContextNotFoundError;
+
+/**
  * Checkpoint not found error type
  *
  * Specialized for checkpoint not found scenarios

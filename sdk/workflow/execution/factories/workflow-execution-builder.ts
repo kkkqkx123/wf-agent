@@ -17,6 +17,7 @@ import type { WorkflowGraph } from "@wf-agent/types";
 import type { WorkflowExecution, ThreadOptions, WorkflowExecutionStatus } from "@wf-agent/types";
 import { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
 import { WorkflowExecutionState } from "../../state-managers/workflow-execution-state.js";
+import { ExecutionState } from "../../state-managers/execution-state.js";
 import { WorkflowStateCoordinator } from "../../state-managers/workflow-state-coordinator.js";
 import { generateId, now as getCurrentTimestamp } from "@wf-agent/common-utils";
 import { ExecutionError, RuntimeValidationError } from "@wf-agent/types";
@@ -39,6 +40,8 @@ export interface WorkflowExecutionBuildResult {
   workflowExecutionEntity: WorkflowExecutionEntity;
   stateCoordinator: WorkflowStateCoordinator;
   conversationManager: ConversationSession;
+  /** @deprecated Use workflowExecutionEntity instead */
+  threadEntity: WorkflowExecutionEntity; // Backward compatibility
 }
 
 /**
@@ -183,6 +186,7 @@ export class WorkflowExecutionBuilder {
       variableScopes: {
         global: {},
         thread: {},
+        workflowExecution: {},
         local: [],
         loop: [],
       },
@@ -202,9 +206,13 @@ export class WorkflowExecutionBuilder {
     // Step 5: Create WorkflowExecutionState
     const workflowExecutionState = new WorkflowExecutionState();
 
+    // Step 5.1: Create ExecutionState (for subgraph stack management)
+    const executionState = new ExecutionState();
+
     // Step 6: Create WorkflowExecutionEntity (without ConversationManager)
     const workflowExecutionEntity = new WorkflowExecutionEntity(
       workflowExecution,
+      executionState,
       workflowExecutionState,
     );
 
@@ -225,6 +233,7 @@ export class WorkflowExecutionBuilder {
       workflowExecutionEntity,
       stateCoordinator,
       conversationManager,
+      threadEntity: workflowExecutionEntity, // Backward compatibility
     };
   }
 
@@ -277,6 +286,7 @@ export class WorkflowExecutionBuilder {
       variableScopes: {
         global: sourceWorkflowExecution.variableScopes.global,
         thread: { ...sourceWorkflowExecution.variableScopes.thread },
+        workflowExecution: { ...sourceWorkflowExecution.variableScopes.workflowExecution },
         local: [],
         loop: [],
       },
@@ -295,9 +305,13 @@ export class WorkflowExecutionBuilder {
     // Create WorkflowExecutionState
     const workflowExecutionState = new WorkflowExecutionState();
 
+    // Create ExecutionState (for subgraph stack management)
+    const executionState = new ExecutionState();
+
     // Create WorkflowExecutionEntity (without ConversationManager)
     const copiedWorkflowExecutionEntity = new WorkflowExecutionEntity(
       copiedWorkflowExecution,
+      executionState,
       workflowExecutionState,
     );
 
@@ -325,6 +339,7 @@ export class WorkflowExecutionBuilder {
       workflowExecutionEntity: copiedWorkflowExecutionEntity,
       stateCoordinator,
       conversationManager,
+      threadEntity: copiedWorkflowExecutionEntity,
     };
   }
 
@@ -371,6 +386,7 @@ export class WorkflowExecutionBuilder {
       // 4-level scopes: global is shared via references, workflowExecution creates deep copies, while local and loop scopes clear their contents upon exit
       variableScopes: {
         global: parentWorkflowExecution.variableScopes.global,
+        thread: { ...parentWorkflowExecution.variableScopes.thread },
         workflowExecution: { ...parentWorkflowExecution.variableScopes.workflowExecution },
         local: [],
         loop: [],
@@ -389,9 +405,13 @@ export class WorkflowExecutionBuilder {
     // Create WorkflowExecutionState
     const workflowExecutionState = new WorkflowExecutionState();
 
+    // Create ExecutionState (for subgraph stack management)
+    const executionState = new ExecutionState();
+
     // Create WorkflowExecutionEntity (without ConversationManager)
     const forkWorkflowExecutionEntity = new WorkflowExecutionEntity(
       forkWorkflowExecution,
+      executionState,
       workflowExecutionState,
     );
 
@@ -419,6 +439,7 @@ export class WorkflowExecutionBuilder {
       workflowExecutionEntity: forkWorkflowExecutionEntity,
       stateCoordinator,
       conversationManager,
+      threadEntity: forkWorkflowExecutionEntity,
     };
   }
 

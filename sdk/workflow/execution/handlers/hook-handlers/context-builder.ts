@@ -34,8 +34,8 @@ export interface HookEvaluationContext {
  * @returns Evaluation context
  */
 export function buildHookEvaluationContext(context: HookExecutionContext): HookEvaluationContext {
-  const { threadEntity, node, result } = context;
-  const thread = workflowExecutionEntity.getThread();
+  const { workflowExecutionEntity, node, result } = context;
+  const thread = workflowExecutionEntity.getExecution();
 
   return {
     output: thread.output,

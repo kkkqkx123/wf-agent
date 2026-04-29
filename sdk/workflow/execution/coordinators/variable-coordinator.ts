@@ -356,7 +356,7 @@ export class VariableCoordinator {
 
     try {
       const event = buildVariableChangedEvent({
-        threadId: workflowExecutionEntity.id,
+        threadId: threadEntity.id,
         workflowId: threadEntity.getWorkflowId(),
         variableName: name,
         variableValue: value,

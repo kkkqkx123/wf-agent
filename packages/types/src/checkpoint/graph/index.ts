@@ -6,7 +6,7 @@
 export type { CheckpointDelta, Checkpoint } from "./checkpoint.js";
 
 // Snapshot Type
-export type { ThreadStateSnapshot } from "./snapshot.js";
+export type { WorkflowExecutionStateSnapshot } from "./snapshot.js";
 
 // Configuration type
 export type {

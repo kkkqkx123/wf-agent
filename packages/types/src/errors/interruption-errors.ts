@@ -64,6 +64,13 @@ export class ThreadInterruptedException extends InterruptedException {
 }
 
 /**
+ * Workflow Execution Interrupt Exception Type (alias for ThreadInterruptedException)
+ * @deprecated Use ThreadInterruptedException instead
+ */
+export const WorkflowExecutionInterruptedException = ThreadInterruptedException;
+export type WorkflowExecutionInterruptedExceptionType = typeof ThreadInterruptedException;
+
+/**
  * Agent 中断异常类型（Agent 模块）
  *
  * 说明：

@@ -26,6 +26,7 @@ import type {
 export const variableScopeSchema: z.ZodType<VariableScope> = z.enum([
   "global",
   "thread",
+  "workflowExecution",
   "local",
   "loop",
 ]);

@@ -204,16 +204,17 @@ export class ExecutionBuilder {
       const executePromise = this.executeWithSignal(signal);
 
       // Listening to execution results
-      let threadId: string | undefined;
+      let executionId: string | undefined;
       executePromise.then(result => {
         if (result.isOk()) {
-          threadId = result.value.id;
+          executionId = result.value.executionId;
           // Send Completion Event
           observer.next({
             type: "complete",
             timestamp: now(),
             workflowId,
-            threadId: threadId,
+            executionId: executionId,
+            threadId: executionId, // Backward compatibility
             result: result.value,
             executionStats: {
               duration: result.value.executionTime,
@@ -229,6 +230,7 @@ export class ExecutionBuilder {
               type: "cancelled",
               timestamp: now(),
               workflowId,
+              executionId: threadId || "unknown",
               threadId: threadId || "unknown",
               reason: result.error.message,
             } as CancelledEvent);
@@ -239,6 +241,7 @@ export class ExecutionBuilder {
               type: "error",
               timestamp: now(),
               workflowId,
+              executionId: threadId || "unknown",
               threadId: threadId || "unknown",
               error: result.error,
             } as ErrorEvent);

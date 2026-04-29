@@ -50,3 +50,24 @@ export * from "./hook-events.js";
 
 // Custom events
 export * from "./custom-events.js";
+
+// =============================================================================
+// Backward Compatibility Aliases
+// =============================================================================
+
+// Re-export new functions with old names for backward compatibility
+export {
+  buildWorkflowExecutionStartedEvent as buildThreadStartedEvent,
+  buildWorkflowExecutionCompletedEvent as buildThreadCompletedEvent,
+  buildWorkflowExecutionFailedEvent as buildThreadFailedEvent,
+  buildWorkflowExecutionPausedEvent as buildThreadPausedEvent,
+  buildWorkflowExecutionResumedEvent as buildThreadResumedEvent,
+  buildWorkflowExecutionCancelledEvent as buildThreadCancelledEvent,
+  buildWorkflowExecutionStateChangedEvent as buildThreadStateChangedEvent,
+  buildWorkflowExecutionForkStartedEvent as buildThreadForkStartedEvent,
+  buildWorkflowExecutionForkCompletedEvent as buildThreadForkCompletedEvent,
+  buildWorkflowExecutionJoinStartedEvent as buildThreadJoinStartedEvent,
+  buildWorkflowExecutionJoinConditionMetEvent as buildThreadJoinConditionMetEvent,
+  buildWorkflowExecutionCopyStartedEvent as buildThreadCopyStartedEvent,
+  buildWorkflowExecutionCopyCompletedEvent as buildThreadCopyCompletedEvent,
+} from "./workflow-execution-events.js";

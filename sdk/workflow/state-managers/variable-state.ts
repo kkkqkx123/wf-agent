@@ -47,6 +47,7 @@ export class VariableState implements LifecycleCapable<{
   private variableScopes: VariableScopes = {
     global: {},
     thread: {},
+    workflowExecution: {},
     local: [],
     loop: [],
   };
@@ -70,6 +71,7 @@ export class VariableState implements LifecycleCapable<{
       this.variableScopes = {
         global: {},
         thread: {},
+        workflowExecution: {},
         local: [],
         loop: [],
       };
@@ -95,6 +97,7 @@ export class VariableState implements LifecycleCapable<{
     this.variableScopes = {
       global: {},
       thread: {},
+      workflowExecution: {},
       local: [],
       loop: [],
     };
@@ -128,6 +131,7 @@ export class VariableState implements LifecycleCapable<{
       this.variableScopes = {
         global: {},
         thread: {},
+        workflowExecution: {},
         local: [],
         loop: [],
       };
@@ -141,6 +145,7 @@ export class VariableState implements LifecycleCapable<{
     this.variableScopes = {
       global: {},
       thread: {},
+      workflowExecution: {},
       local: [],
       loop: [],
     };
@@ -392,6 +397,7 @@ export class VariableState implements LifecycleCapable<{
       variableScopes: {
         global: { ...this.variableScopes.global },
         thread: { ...this.variableScopes.thread },
+        workflowExecution: { ...this.variableScopes.workflowExecution },
         local: this.variableScopes.local.map(scope => ({ ...scope })),
         loop: this.variableScopes.loop.map(scope => ({ ...scope })),
       },
@@ -411,6 +417,7 @@ export class VariableState implements LifecycleCapable<{
     this.variableScopes = {
       global: { ...snapshot.variableScopes.global },
       thread: { ...snapshot.variableScopes.thread },
+      workflowExecution: { ...snapshot.variableScopes.workflowExecution },
       local: snapshot.variableScopes.local.map(scope => ({ ...scope })),
       loop: snapshot.variableScopes.loop.map(scope => ({ ...scope })),
     };
@@ -427,6 +434,7 @@ export class VariableState implements LifecycleCapable<{
     this.variableScopes = {
       global: sourceStateManager.variableScopes.global,
       thread: { ...sourceStateManager.variableScopes.thread },
+      workflowExecution: { ...sourceStateManager.variableScopes.workflowExecution },
       local: [],
       loop: [],
     };
@@ -440,6 +448,7 @@ export class VariableState implements LifecycleCapable<{
     return {
       global: { ...this.variableScopes.global },
       thread: { ...this.variableScopes.thread },
+      workflowExecution: { ...this.variableScopes.workflowExecution },
       local: this.variableScopes.local.map(scope => ({ ...scope })),
       loop: this.variableScopes.loop.map(scope => ({ ...scope })),
     };
@@ -544,6 +553,7 @@ export class VariableState implements LifecycleCapable<{
     this.variableScopes = {
       global: {},
       thread: {},
+      workflowExecution: {},
       local: [],
       loop: [],
     };

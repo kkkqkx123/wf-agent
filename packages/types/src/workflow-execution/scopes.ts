@@ -10,7 +10,7 @@
  * Variable Scope Type (Single Value)
  * Define the scope level of the variable in the workflow
  */
-export type VariableScope = "global" | "thread" | "local" | "loop";
+export type VariableScope = "global" | "thread" | "workflowExecution" | "local" | "loop";
 
 /**
  * Variable Scope Structure (Runtime State)
@@ -72,6 +72,22 @@ export interface VariableScopes {
    * ```
    */
   thread: Record<string, unknown>;
+
+  /**
+   * Workflow Execution Scope - Within single execution (alias for thread)
+   *
+   * Characteristics:
+   * - Same as thread scope, provided for naming consistency
+   * - Each execution has its own independent object
+   * - Deep copy on fork, child execution has independent copy
+   *
+   * Example:
+   * ```typescript
+   * execution.variableScopes.workflowExecution['result'] = data;
+   * // Only visible in this execution
+   * ```
+   */
+  workflowExecution: Record<string, unknown>;
 
   /**
    * Local Scope Stack - Supports nesting

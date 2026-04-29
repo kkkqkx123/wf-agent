@@ -39,6 +39,9 @@ export class WorkflowExecutionState {
   /** Error message */
   private _error: unknown = null;
 
+  /** Interrupted flag */
+  private _interrupted: boolean = false;
+
   /**
    * Get the current status
    */
@@ -72,6 +75,20 @@ export class WorkflowExecutionState {
    */
   get error(): unknown {
     return this._error;
+  }
+
+  /**
+   * Get the interrupted flag
+   */
+  get interrupted(): boolean {
+    return this._interrupted;
+  }
+
+  /**
+   * Set the interrupted flag
+   */
+  set interrupted(value: boolean) {
+    this._interrupted = value;
   }
 
   /**

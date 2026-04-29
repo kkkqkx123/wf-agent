@@ -96,6 +96,8 @@ export interface WorkflowExecution {
   // ========== Execution types and relationship management ==========
   /** Execution type */
   executionType?: WorkflowExecutionType;
+  /** Thread type (deprecated, use executionType) */
+  threadType?: WorkflowExecutionType;
 
   /** FORK/JOIN context (only present if executionType is FORK_JOIN) */
   forkJoinContext?: ForkJoinContext;
@@ -103,3 +105,9 @@ export interface WorkflowExecution {
   /** Triggered subworkflow context (only present if executionType is TRIGGERED_SUBWORKFLOW) */
   triggeredSubworkflowContext?: TriggeredSubworkflowContext;
 }
+
+/**
+ * Thread (deprecated, use WorkflowExecution)
+ * @deprecated Use WorkflowExecution instead
+ */
+export type Thread = WorkflowExecution;

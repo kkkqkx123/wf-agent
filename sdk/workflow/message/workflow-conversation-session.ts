@@ -18,11 +18,11 @@ import type {
 import {
   ConversationSession,
   type ConversationSessionConfig,
-} from "../../../core/messaging/conversation-session.js";
-import type { ToolRegistry } from "../../../core/registry/tool-registry.js";
+} from "../../core/messaging/conversation-session.js";
+import type { ToolRegistry } from "../../core/registry/tool-registry.js";
 import { getErrorOrNew } from "@wf-agent/common-utils";
-import { createContextualLogger } from "../../../utils/contextual-logger.js";
-import { generateToolDescriptionMessage } from "../../../resources/dynamic/prompts/fragments/available-tools.js";
+import { createContextualLogger } from "../../utils/contextual-logger.js";
+import { generateToolDescriptionMessage } from "../../resources/dynamic/prompts/fragments/available-tools.js";
 
 const logger = createContextualLogger({ component: "WorkflowConversationSession" });
 
@@ -168,4 +168,4 @@ export class WorkflowConversationSession extends ConversationSession {
 }
 
 // Re-export MessageHistoryState for convenience
-export type { MessageHistoryState } from "../../../core/messaging/message-history.js";
+export type { MessageHistoryState } from "../../core/messaging/message-history.js";

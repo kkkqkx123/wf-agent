@@ -155,10 +155,10 @@ class SDK {
   }
 
   /**
-   * Obtain the thread API
+   * Obtain the workflow execution API
    */
-  get threads() {
-    return this.factory.createThreadAPI();
+  get executions() {
+    return this.factory.createWorkflowExecutionAPI();
   }
 
   /**
@@ -269,7 +269,7 @@ class SDK {
     const details: Record<string, unknown> = {};
     const modules = [
       { name: "workflows", check: async () => getData(await this.workflows.count()) },
-      { name: "threads", check: async () => getData(await this.threads.count()) },
+      { name: "executions", check: async () => getData(await this.executions.count()) },
       { name: "tools", check: async () => getData(await this.tools.count()) },
       { name: "scripts", check: async () => getData(await this.scripts.count()) },
       { name: "nodeTemplates", check: async () => getData(await this.nodeTemplates.count()) },
@@ -307,7 +307,7 @@ class SDK {
     // Clean up the resources of each module.
     const cleanupTasks = [
       { name: "workflows", task: () => this.workflows.clear() },
-      { name: "threads", task: () => this.threads.clear() },
+      { name: "executions", task: () => this.executions.clear() },
       { name: "tools", task: () => this.tools.clear() },
       { name: "scripts", task: () => this.scripts.clear() },
       { name: "nodeTemplates", task: () => this.nodeTemplates.clear() },

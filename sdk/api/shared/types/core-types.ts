@@ -3,11 +3,11 @@
  * Defines types related to core execution
  */
 
-import type { ThreadOptions } from "@wf-agent/types";
+import type { WorkflowExecutionOptions } from "@wf-agent/types";
 import type {
   CheckpointStorageCallback,
   WorkflowStorageCallback,
-  ThreadStorageCallback,
+  WorkflowExecutionStorageCallback,
 } from "@wf-agent/storage";
 
 /**

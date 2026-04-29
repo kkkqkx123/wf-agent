@@ -30,9 +30,9 @@ export * from "./script-security/index.js";
 // Dependency Injection Container
 export * from "./di/index.js";
 
-// AbortSignal and thread interruption tools
+// AbortSignal and workflow execution interruption tools
 export * from "./utils/signal/abort-utils.js";
-export * from "./utils/signal/thread-interruption-utils.js";
+export * from "./utils/signal/workflow-execution-interruption-utils.js";
 export * from "./utils/signal/interruption-types.js";
 
 // Log system (selective export to avoid naming conflicts)

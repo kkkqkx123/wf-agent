@@ -32,7 +32,8 @@ export interface CompleteEvent {
   type: "complete";
   timestamp: number;
   workflowId: string;
-  threadId: string;
+  executionId: string;
+  threadId: string; // Backward compatibility
   result: WorkflowExecutionResult;
   executionStats: {
     duration: number;
@@ -48,7 +49,8 @@ export interface ErrorEvent {
   type: "error";
   timestamp: number;
   workflowId: string;
-  threadId: string;
+  executionId: string;
+  threadId: string; // Backward compatibility
   error: Error;
 }
 
@@ -59,7 +61,8 @@ export interface CancelledEvent {
   type: "cancelled";
   timestamp: number;
   workflowId: string;
-  threadId: string;
+  executionId: string;
+  threadId: string; // Backward compatibility
   reason: string;
 }
 
@@ -70,7 +73,8 @@ export interface ProgressEvent {
   type: "progress";
   timestamp: number;
   workflowId: string;
-  threadId: string;
+  executionId: string;
+  threadId: string; // Backward compatibility
   progress: {
     status: "running" | "paused" | "completed" | "failed" | "cancelled";
     currentStep: number;
@@ -87,7 +91,8 @@ export interface NodeExecutedEvent {
   type: "nodeExecuted";
   timestamp: number;
   workflowId: string;
-  threadId: string;
+  executionId: string;
+  threadId: string; // Backward compatibility
   nodeId: string;
   nodeType: string;
   nodeResult: unknown;

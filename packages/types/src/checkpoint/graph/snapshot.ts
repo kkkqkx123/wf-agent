@@ -1,19 +1,19 @@
 /**
- * Thread state snapshot type definition
+ * Workflow Execution state snapshot type definition
  */
 
 import type { ID } from "../../common.js";
 import { WorkflowExecutionStatus } from "../../workflow-execution/index.js";
-import type { NodeExecutionResult, VariableScopes } from "../../workflow-execution/index.js";
+import type { NodeExecutionResult, VariableScopes, TriggeredSubworkflowContext } from "../../workflow-execution/index.js";
 import type { TriggerRuntimeState } from "../../trigger/index.js";
 import type { TokenUsageStats } from "../../llm/index.js";
 import type { MessageMarkMap } from "../../message/index.js";
 
 /**
- * Thread state snapshot type
+ * Workflow Execution state snapshot type
  */
-export interface ThreadStateSnapshot {
-  /** Thread Status */
+export interface WorkflowExecutionStateSnapshot {
+  /** Execution Status */
   status: WorkflowExecutionStatus;
   /** Current node ID */
   currentNodeId: ID;
@@ -64,9 +64,5 @@ export interface ThreadStateSnapshot {
     forkPathId: string;
   };
   /** Triggered Sub-workflow Context (Master-Slave Separation Mode) */
-  triggeredSubworkflowContext?: {
-    parentThreadId: ID;
-    childThreadIds: ID[];
-    triggeredSubworkflowId: ID;
-  };
+  triggeredSubworkflowContext?: TriggeredSubworkflowContext;
 }

@@ -22,10 +22,10 @@ import {
   type ExecutorWrapper,
   type PoolStats,
   type ExecutionPoolConfig,
-} from "../../../core/types/index.js";
+} from "../../core/types/index.js";
 import { now } from "@wf-agent/common-utils";
 import { StateManagementError } from "@wf-agent/types";
-import { createContextualLogger } from "../../../utils/contextual-logger.js";
+import { createContextualLogger } from "../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "WorkflowExecutionPool" });
 

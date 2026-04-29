@@ -52,3 +52,9 @@ export interface WorkflowTemplate {
     initial: Set<string>;
   };
 }
+
+/**
+ * Workflow Definition
+ * Alias for WorkflowTemplate for backward compatibility
+ */
+export type WorkflowDefinition = WorkflowTemplate;

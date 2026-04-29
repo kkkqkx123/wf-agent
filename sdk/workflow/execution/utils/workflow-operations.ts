@@ -6,7 +6,7 @@
 
 import type { Thread } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../entities/index.js";
-import type { ThreadBuilder } from "../factories/thread-builder.js";
+import type { WorkflowExecutionBuilder } from "../factories/workflow-execution-builder.js";
 import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-registry.js";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import { ExecutionError, RuntimeValidationError } from "@wf-agent/types";
@@ -71,7 +71,7 @@ export interface JoinResult {
 export async function fork(
   parentThreadEntity: WorkflowExecutionEntity,
   forkConfig: ForkConfig,
-  threadBuilder: ThreadBuilder,
+  threadBuilder: WorkflowExecutionBuilder,
   eventManager?: EventRegistry,
 ): Promise<WorkflowExecutionEntity> {
   // Step 1: Verify the Fork configuration
@@ -161,7 +161,7 @@ export async function join(
 
   // Trigger the WORKFLOW_EXECUTION_JOIN_STARTED event
   if (eventManager && parentThreadId) {
-    const parentThreadEntity = threadRegistry.get(parentThreadId);
+    const parentThreadEntity = workflowExecutionRegistry.get(parentThreadId);
     if (parentThreadEntity) {
       const joinStartedEvent = buildWorkflowExecutionJoinStartedEvent({
         threadId: parentThreadEntity.id,
@@ -182,7 +182,7 @@ export async function join(
   const result = await waitForCompletion(
     childThreadIds,
     joinStrategy,
-    threadRegistry,
+    workflowExecutionRegistry,
     timeoutMs,
     parentThreadId,
     eventManager,
@@ -205,7 +205,7 @@ export async function join(
 
   // Step 5: Merge the main thread's conversation history into the parent thread
   if (parentThreadId && mainPathId) {
-    const parentThreadEntity = threadRegistry.get(parentThreadId);
+    const parentThreadEntity = workflowExecutionRegistry.get(parentThreadId);
     if (parentThreadEntity) {
       // Find the sub-thread corresponding to the mainPathId.
       const mainThread = completedThreads.find(
@@ -221,7 +221,7 @@ export async function join(
         );
       }
 
-      const mainThreadEntity = threadRegistry.get(mainThread.id);
+      const mainThreadEntity = workflowExecutionRegistry.get(mainThread.id);
       if (!mainThreadEntity) {
         throw new ExecutionError(
           `Main thread entity not found for threadId: ${mainThread.id}`,
@@ -270,7 +270,7 @@ export async function join(
  */
 export async function copy(
   sourceThreadEntity: WorkflowExecutionEntity,
-  threadBuilder: ThreadBuilder,
+  threadBuilder: WorkflowExecutionBuilder,
   eventManager?: EventRegistry,
 ): Promise<WorkflowExecutionEntity> {
   // Step 1: Verify that the source thread exists.
@@ -325,7 +325,7 @@ async function waitForCompletion(
     return await waitForCompletionByPolling(
       childThreadIds,
       joinStrategy,
-      threadRegistry,
+      workflowExecutionRegistry,
       timeout,
       parentThreadId,
       eventManager,
@@ -341,7 +341,7 @@ async function waitForCompletion(
       await waitForMultipleThreadsCompleted(eventManager, childThreadIds, timeout);
       // Collect all completed threads.
       for (const threadId of childThreadIds) {
-        const threadEntity = threadRegistry.get(threadId);
+        const threadEntity = workflowExecutionRegistry.get(threadId);
         if (threadEntity) {
           const thread = threadEntity.getThread();
           const status = threadEntity.getStatus();
@@ -360,7 +360,7 @@ async function waitForCompletion(
       await waitForAnyThreadCompleted(eventManager, childThreadIds, timeout);
       // Collected threads
       for (const threadId of childThreadIds) {
-        const threadEntity = threadRegistry.get(threadId);
+        const threadEntity = workflowExecutionRegistry.get(threadId);
         if (threadEntity) {
           const thread = threadEntity.getThread();
           const status = threadEntity.getStatus();
@@ -380,7 +380,7 @@ async function waitForCompletion(
       await waitForMultipleThreadsCompleted(eventManager, childThreadIds, timeout);
       // Collect all failed threads.
       for (const threadId of childThreadIds) {
-        const threadEntity = threadRegistry.get(threadId);
+        const threadEntity = workflowExecutionRegistry.get(threadId);
         if (threadEntity) {
           const thread = threadEntity.getThread();
           const status = threadEntity.getStatus();
@@ -399,7 +399,7 @@ async function waitForCompletion(
       await waitForAnyThreadCompletion(eventManager, childThreadIds, timeout);
       // Collect all thread states
       for (const threadId of childThreadIds) {
-        const threadEntity = threadRegistry.get(threadId);
+        const threadEntity = workflowExecutionRegistry.get(threadId);
         if (threadEntity) {
           const thread = threadEntity.getThread();
           const status = threadEntity.getStatus();
@@ -419,7 +419,7 @@ async function waitForCompletion(
       await waitForAnyThreadCompleted(eventManager, childThreadIds, timeout);
       // Collect all thread states
       for (const threadId of childThreadIds) {
-        const threadEntity = threadRegistry.get(threadId);
+        const threadEntity = workflowExecutionRegistry.get(threadId);
         if (threadEntity) {
           const thread = threadEntity.getThread();
           const status = threadEntity.getStatus();
@@ -442,7 +442,7 @@ async function waitForCompletion(
 
   // Trigger the WORKFLOW_EXECUTION_JOIN_CONDITION_MET event
   if (parentThreadId && conditionMet) {
-    const parentThreadEntity = threadRegistry.get(parentThreadId);
+    const parentThreadEntity = workflowExecutionRegistry.get(parentThreadId);
     if (parentThreadEntity) {
       const joinConditionMetEvent = buildWorkflowExecutionJoinConditionMetEvent({
         threadId: parentThreadEntity.id,
@@ -483,7 +483,7 @@ async function waitForCompletionByPolling(
   while (pendingThreads.size > 0) {
     // Check the status of the sub-thread.
     for (const threadId of Array.from(pendingThreads)) {
-      const threadEntity = threadRegistry.get(threadId);
+      const threadEntity = workflowExecutionRegistry.get(threadId);
       if (!threadEntity) {
         continue;
       }
@@ -519,7 +519,7 @@ async function waitForCompletionByPolling(
 
   // Trigger the WORKFLOW_EXECUTION_JOIN_CONDITION_MET event
   if (eventManager && parentThreadId && conditionMet) {
-    const parentThreadEntity = threadRegistry.get(parentThreadId);
+    const parentThreadEntity = workflowExecutionRegistry.get(parentThreadId);
     if (parentThreadEntity) {
       const joinConditionMetEvent = buildWorkflowExecutionJoinConditionMetEvent({
         threadId: parentThreadEntity.id,

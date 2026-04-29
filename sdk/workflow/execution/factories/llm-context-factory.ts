@@ -25,16 +25,20 @@ import { ExecutionError } from "@wf-agent/types";
  */
 export interface ToolApprovalContext {
   workflowExecutionRegistry: WorkflowExecutionRegistry;
+  /** @deprecated Use workflowExecutionRegistry instead */
+  threadRegistry?: WorkflowExecutionRegistry;
   checkpointStateManager: CheckpointState;
   workflowRegistry?: WorkflowRegistry;
   graphRegistry?: WorkflowGraphRegistry;
+  /** @deprecated Use graphRegistry instead */
+  workflowGraphRegistry?: WorkflowGraphRegistry;
 }
 
 /**
  * Interrupt detection context
  */
 export interface InterruptionContext {
-  threadRegistry?: WorkflowExecutionRegistry;
+  workflowExecutionRegistry?: WorkflowExecutionRegistry;
   interruptionDetector?: InterruptionDetector;
 }
 
@@ -138,6 +142,7 @@ export class LLMContextFactory {
       workflowExecutionRegistry: this.config.threadRegistry,
       checkpointStateManager: this.config.checkpointStateManager,
       workflowRegistry: this.config.workflowRegistry,
+      graphRegistry: this.config.graphRegistry,
       workflowGraphRegistry: this.config.graphRegistry,
     };
   }

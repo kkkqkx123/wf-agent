@@ -197,16 +197,16 @@ export class NodeExecutionCoordinator {
     nodeId: string,
     type: "PAUSE" | "STOP",
   ): Promise<void> {
-    logger.info("Handling interruption", { executionId, nodeId, type });
+    logger.info("Handling interruption", { executionId: workflowExecutionId, nodeId, type });
 
     if (!this.workflowExecutionRegistry) {
-      logger.debug("WorkflowExecutionRegistry not available, skipping interruption handling", { executionId });
+      logger.debug("WorkflowExecutionRegistry not available, skipping interruption handling", { executionId: workflowExecutionId });
       return;
     }
 
-    const workflowExecutionContext = this.workflowExecutionRegistry.get(executionId);
+    const workflowExecutionContext = this.workflowExecutionRegistry.get(workflowExecutionId);
     if (!workflowExecutionContext) {
-      logger.warn("WorkflowExecutionContext not found for interruption", { executionId, nodeId });
+      logger.warn("WorkflowExecutionContext not found for interruption", { executionId: workflowExecutionId, nodeId });
       return;
     }
 
@@ -215,7 +215,7 @@ export class NodeExecutionCoordinator {
       try {
         await createCheckpoint(
           {
-            executionId,
+            workflowExecutionId,
             nodeId,
             description: `Workflow execution ${type.toLowerCase()} at node: ${nodeId}`,
             metadata: {
@@ -227,7 +227,7 @@ export class NodeExecutionCoordinator {
           },
           this.checkpointDependencies,
         );
-        logger.debug("Interruption checkpoint created", { executionId, nodeId, type });
+        logger.debug("Interruption checkpoint created", { executionId: workflowExecutionId, nodeId, type });
       } catch (error) {
         // `workflowExecutionContext` is of the `WorkflowExecutionEntity` type.
         await handleErrorWithContext(
@@ -245,13 +245,13 @@ export class NodeExecutionCoordinator {
       workflowExecutionContext.setStatus("PAUSED");
       const pausedEvent = buildWorkflowExecutionPausedEvent(workflowExecutionContext);
       await emit(this.eventManager, pausedEvent);
-      logger.info("Workflow execution paused event emitted", { executionId, nodeId });
+      logger.info("Workflow execution paused event emitted", { executionId: workflowExecutionId, nodeId });
     } else if (type === "STOP") {
       workflowExecutionContext.setStatus("CANCELLED");
       workflowExecutionContext.state.cancel();
       const cancelledEvent = buildWorkflowExecutionCancelledEvent(workflowExecutionContext, "user_requested");
       await emit(this.eventManager, cancelledEvent);
-      logger.info("Workflow execution cancelled event emitted", { executionId, nodeId });
+      logger.info("Workflow execution cancelled event emitted", { executionId: workflowExecutionId, nodeId });
     }
   }
 
@@ -314,6 +314,7 @@ export class NodeExecutionCoordinator {
     try {
       // Step 1: Trigger the node start event
       const nodeStartedEvent = workflowExecutionEntity.buildEvent(buildNodeStartedEvent, {
+        nodeId,
         nodeType,
       });
       await emit(this.eventManager, nodeStartedEvent);
@@ -431,6 +432,7 @@ export class NodeExecutionCoordinator {
       // Step 8: Trigger the node completion event
       if (nodeResult.status === "COMPLETED") {
         const nodeCompletedEvent = workflowExecutionEntity.buildEvent(buildNodeCompletedEvent, {
+          nodeId,
           output: workflowExecutionEntity.getOutput(),
           executionTime: nodeResult.executionTime || 0,
         });

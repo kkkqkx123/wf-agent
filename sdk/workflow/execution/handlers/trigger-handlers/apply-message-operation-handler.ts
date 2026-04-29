@@ -12,7 +12,7 @@ import type {
 } from "@wf-agent/types";
 import { RuntimeValidationError } from "@wf-agent/types";
 import type { WorkflowExecutionRegistry } from "../../../stores/workflow-execution-registry.js";
-import type { ThreadStateCoordinator } from "../../../state-managers/thread-state-coordinator.js";
+import type { WorkflowStateCoordinator } from "../../../state-managers/workflow-state-coordinator.js";
 import { getErrorMessage, now } from "@wf-agent/common-utils";
 
 function createSuccessResult(
@@ -57,7 +57,7 @@ export async function applyMessageOperationHandler(
   action: TriggerAction,
   triggerId: string,
   workflowExecutionRegistry: WorkflowExecutionRegistry,
-  stateCoordinatorMap?: Map<string, ThreadStateCoordinator>,
+  stateCoordinatorMap?: Map<string, WorkflowStateCoordinator>,
 ): Promise<TriggerExecutionResult> {
   const executionTime = now();
 
@@ -81,9 +81,9 @@ export async function applyMessageOperationHandler(
       );
     }
 
-    const threadEntity = threadRegistry.get(threadId);
-    if (!threadEntity) {
-      throw new Error(`Thread not found: ${threadId}`);
+    const workflowExecutionEntity = workflowExecutionRegistry.get(threadId);
+    if (!workflowExecutionEntity) {
+      throw new Error(`Workflow execution not found: ${threadId}`);
     }
 
     // Get ConversationSession from stateCoordinatorMap

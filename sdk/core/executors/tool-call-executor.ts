@@ -103,7 +103,7 @@ export interface EventBuilder {
  * Checkpoint creation function type
  */
 export type CheckpointCreator = (
-  options: { threadId: string; toolId?: string; description?: string },
+  options: { workflowExecutionId: string; toolId?: string; description?: string },
   dependencies: CheckpointDependencies,
 ) => Promise<string>;
 
@@ -389,7 +389,7 @@ export class ToolCallExecutor {
         try {
           await this.createCheckpointFn(
             {
-              threadId,
+              workflowExecutionId: threadId,
               toolId: toolCall.name,
               description:
                 toolConfig.checkpointDescriptionTemplate || `Before tool: ${toolCall.name}`,
@@ -554,7 +554,7 @@ export class ToolCallExecutor {
         try {
           await this.createCheckpointFn(
             {
-              threadId,
+              workflowExecutionId: threadId,
               toolId: toolCall.name,
               description:
                 toolConfig.checkpointDescriptionTemplate || `After tool: ${toolCall.name}`,

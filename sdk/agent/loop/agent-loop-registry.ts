@@ -208,4 +208,52 @@ export class AgentLoopRegistry {
   getPausedByParentThreadId(threadId: ID): AgentLoopEntity[] {
     return this.getByParentThreadId(threadId).filter(entity => entity.isPaused());
   }
+
+  // ========== Parent Workflow Execution Relation Methods (Aliases) ==========
+
+  /**
+   * Get AgentLoopEntities by parent workflow execution ID
+   * @param workflowExecutionId Parent workflow execution ID
+   * @returns Array of AgentLoopEntity with the specified parent workflow execution ID
+   */
+  getByParentWorkflowExecutionId(workflowExecutionId: ID): AgentLoopEntity[] {
+    return this.getByParentThreadId(workflowExecutionId);
+  }
+
+  /**
+   * Get AgentLoopEntity IDs by parent workflow execution ID
+   * @param workflowExecutionId Parent workflow execution ID
+   * @returns Array of AgentLoopEntity IDs
+   */
+  getIdsByParentWorkflowExecutionId(workflowExecutionId: ID): ID[] {
+    return this.getIdsByParentThreadId(workflowExecutionId);
+  }
+
+  /**
+   * Cleanup AgentLoopEntities by parent workflow execution ID
+   * Stops and removes all AgentLoopEntities associated with the specified workflow execution.
+   * @param workflowExecutionId Parent workflow execution ID
+   * @returns Number of instances cleaned up
+   */
+  cleanupByParentWorkflowExecutionId(workflowExecutionId: ID): number {
+    return this.cleanupByParentThreadId(workflowExecutionId);
+  }
+
+  /**
+   * Get running AgentLoopEntities by parent workflow execution ID
+   * @param workflowExecutionId Parent workflow execution ID
+   * @returns Array of running AgentLoopEntity
+   */
+  getRunningByParentWorkflowExecutionId(workflowExecutionId: ID): AgentLoopEntity[] {
+    return this.getRunningByParentThreadId(workflowExecutionId);
+  }
+
+  /**
+   * Get paused AgentLoopEntities by parent workflow execution ID
+   * @param workflowExecutionId Parent workflow execution ID
+   * @returns Array of paused AgentLoopEntity
+   */
+  getPausedByParentWorkflowExecutionId(workflowExecutionId: ID): AgentLoopEntity[] {
+    return this.getPausedByParentThreadId(workflowExecutionId);
+  }
 }

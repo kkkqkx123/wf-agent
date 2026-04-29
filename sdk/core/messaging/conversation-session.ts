@@ -41,6 +41,8 @@ export interface ConversationSessionConfig {
   eventManager?: EventRegistry;
   /** Thread ID */
   threadId?: string;
+  /** Workflow Execution ID */
+  workflowExecutionId?: string;
   /** Workflow ID */
   workflowId?: string;
   /** Token Limitation */

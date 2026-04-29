@@ -1,5 +1,5 @@
 /**
- * Thread Interruption Utility Functions
+ * Workflow Execution Interruption Utility Functions
  * Use a return value labeling system to handle control flow interruptions in place of an error system.
  *
  * Design Principles:
@@ -29,23 +29,23 @@ export function checkInterruption(signal?: AbortSignal): InterruptionCheckResult
 
   const reason = getAbortReason(signal);
 
-  // Check if it is a thread interruption.
+  // Check if it is a workflow execution interruption.
   if (reason && typeof reason === "object" && "interruptionType" in reason) {
     const interruption = reason as Record<string, unknown>;
     const type = interruption["interruptionType"] as InterruptionType;
-    const threadId = interruption["threadId"] as string | undefined;
+    const executionId = interruption["executionId"] as string | undefined;
     const nodeId = interruption["nodeId"] as string | undefined;
 
     if (type === "PAUSE") {
       return {
         type: "paused",
-        threadId,
+        threadId: executionId, // Keep threadId for backward compatibility
         nodeId: nodeId || "unknown",
       };
     } else if (type === "STOP") {
       return {
         type: "stopped",
-        threadId,
+        threadId: executionId, // Keep threadId for backward compatibility
         nodeId: nodeId || "unknown",
       };
     }
@@ -59,20 +59,20 @@ export function checkInterruption(signal?: AbortSignal): InterruptionCheckResult
 }
 
 /**
- * Create thread interruption information
+ * Create workflow execution interruption information
  * @param type: Type of interruption
- * @param threadId: Thread ID
+ * @param executionId: Execution ID
  * @param nodeId: Node ID
  * @returns: Interruption information
  */
 export function createInterruptionInfo(
   type: Exclude<InterruptionType, null>,
-  threadId: string,
+  executionId: string,
   nodeId: string,
 ): InterruptionInfo {
   return {
     type,
-    threadId,
+    threadId: executionId, // Keep threadId for backward compatibility
     nodeId,
     timestamp: Date.now(),
   };
@@ -123,13 +123,13 @@ export function getNodeId(result: InterruptionCheckResult): string | undefined {
 }
 
 /**
- * Get thread ID
+ * Get execution ID
  * @param result: Interrupt check result
- * @returns: Thread ID or undefined
+ * @returns: Execution ID or undefined
  */
-export function getThreadId(result: InterruptionCheckResult): string | undefined {
+export function getExecutionId(result: InterruptionCheckResult): string | undefined {
   if (result.type === "paused" || result.type === "stopped") {
-    return result.threadId;
+    return result.threadId; // Use threadId which now stores executionId
   }
   return undefined;
 }
@@ -144,9 +144,9 @@ export function getInterruptionDescription(result: InterruptionCheckResult): str
     case "continue":
       return "Execution continuing";
     case "paused":
-      return `Thread paused at node: ${result.nodeId}`;
+      return `Workflow execution paused at node: ${result.nodeId}`;
     case "stopped":
-      return `Thread stopped at node: ${result.nodeId}`;
+      return `Workflow execution stopped at node: ${result.nodeId}`;
     case "aborted":
       return result.reason ? String(result.reason) : "Operation aborted";
     default:

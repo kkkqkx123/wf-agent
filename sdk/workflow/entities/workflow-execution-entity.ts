@@ -197,30 +197,32 @@ export class WorkflowExecutionEntity {
   registerChildExecution(childExecutionId: ID): void {
     if (!this.workflowExecution.triggeredSubworkflowContext) {
       this.workflowExecution.triggeredSubworkflowContext = {
+        parentExecutionId: "",
         parentThreadId: "",
+        childExecutionIds: [],
         childThreadIds: [],
         triggeredSubworkflowId: "",
       };
     }
-    if (!this.workflowExecution.triggeredSubworkflowContext.childThreadIds) {
-      this.workflowExecution.triggeredSubworkflowContext.childThreadIds = [];
+    if (!this.workflowExecution.triggeredSubworkflowContext.childExecutionIds) {
+      this.workflowExecution.triggeredSubworkflowContext.childExecutionIds = [];
     }
-    if (!this.workflowExecution.triggeredSubworkflowContext.childThreadIds.includes(childExecutionId)) {
-      this.workflowExecution.triggeredSubworkflowContext.childThreadIds.push(childExecutionId);
+    if (!this.workflowExecution.triggeredSubworkflowContext.childExecutionIds.includes(childExecutionId)) {
+      this.workflowExecution.triggeredSubworkflowContext.childExecutionIds.push(childExecutionId);
     }
   }
 
   unregisterChildExecution(childExecutionId: ID): void {
-    if (this.workflowExecution.triggeredSubworkflowContext?.childThreadIds) {
-      this.workflowExecution.triggeredSubworkflowContext.childThreadIds =
-        this.workflowExecution.triggeredSubworkflowContext.childThreadIds.filter(
+    if (this.workflowExecution.triggeredSubworkflowContext?.childExecutionIds) {
+      this.workflowExecution.triggeredSubworkflowContext.childExecutionIds =
+        this.workflowExecution.triggeredSubworkflowContext.childExecutionIds.filter(
           (id: ID) => id !== childExecutionId,
         );
     }
   }
 
   getParentExecutionId(): ID | undefined {
-    return this.workflowExecution.triggeredSubworkflowContext?.parentThreadId;
+    return this.workflowExecution.triggeredSubworkflowContext?.parentExecutionId;
   }
 
   getChildExecutionIds(): ID[] {
@@ -230,11 +232,14 @@ export class WorkflowExecutionEntity {
   setParentExecutionId(parentExecutionId: ID): void {
     if (!this.workflowExecution.triggeredSubworkflowContext) {
       this.workflowExecution.triggeredSubworkflowContext = {
+        parentExecutionId: parentExecutionId,
         parentThreadId: parentExecutionId,
+        childExecutionIds: [],
         childThreadIds: [],
         triggeredSubworkflowId: "",
       };
     }
+    this.workflowExecution.triggeredSubworkflowContext.parentExecutionId = parentExecutionId;
     this.workflowExecution.triggeredSubworkflowContext.parentThreadId = parentExecutionId;
   }
 
@@ -245,7 +250,9 @@ export class WorkflowExecutionEntity {
   setTriggeredSubworkflowId(subworkflowId: ID): void {
     if (!this.workflowExecution.triggeredSubworkflowContext) {
       this.workflowExecution.triggeredSubworkflowContext = {
+        parentExecutionId: "",
         parentThreadId: "",
+        childExecutionIds: [],
         childThreadIds: [],
         triggeredSubworkflowId: subworkflowId,
       };
@@ -401,6 +408,14 @@ export class WorkflowExecutionEntity {
   }
 
   /**
+   * Get the raw WorkflowExecution data object (alias for getThread for compatibility)
+   * @returns WorkflowExecution data object
+   */
+  getExecution(): WorkflowExecution {
+    return this.workflowExecution;
+  }
+
+  /**
    * Get the raw WorkflowExecution data object
    * @returns WorkflowExecution data object
    * @internal For internal use only
@@ -455,5 +470,144 @@ export class WorkflowExecutionEntity {
       return;
     }
     (this.triggerManager as { restoreTriggers: (triggers: unknown[]) => void }).restoreTriggers(snapshot.triggers);
+  }
+
+  // Lifecycle Control Methods ============
+
+  /**
+   * Pause the workflow execution
+   */
+  pause(): void {
+    this.state.status = "PAUSED";
+  }
+
+  /**
+   * Resume the workflow execution
+   */
+  resume(): void {
+    this.state.status = "RUNNING";
+  }
+
+  /**
+   * Stop the workflow execution
+   */
+  stop(): void {
+    this.state.status = "STOPPED";
+    if (this.abortController) {
+      this.abortController.abort();
+    }
+  }
+
+  /**
+   * Interrupt the workflow execution
+   */
+  interrupt(): void {
+    this.state.interrupted = true;
+  }
+
+  /**
+   * Reset the interrupt flag
+   */
+  resetInterrupt(): void {
+    this.state.interrupted = false;
+  }
+
+  // Parent-Child Thread Management ============
+
+  /**
+   * Set parent thread ID
+   * @param parentId Parent thread ID
+   */
+  setParentThreadId(parentId: string): void {
+    if (!this.workflowExecution.triggeredSubworkflowContext) {
+      this.workflowExecution.triggeredSubworkflowContext = {
+        parentExecutionId: parentId,
+        parentThreadId: parentId,
+        childExecutionIds: [],
+        childThreadIds: [],
+        triggeredSubworkflowId: "",
+      };
+    } else {
+      this.workflowExecution.triggeredSubworkflowContext.parentExecutionId = parentId;
+      this.workflowExecution.triggeredSubworkflowContext.parentThreadId = parentId;
+    }
+  }
+
+  /**
+   * Get parent thread ID
+   * @returns Parent thread ID or undefined
+   */
+  getParentThreadId(): string | undefined {
+    return this.workflowExecution.triggeredSubworkflowContext?.parentThreadId;
+  }
+
+  /**
+   * Register child thread ID
+   * @param childId Child thread ID
+   */
+  registerChildThread(childId: string): void {
+    if (!this.workflowExecution.triggeredSubworkflowContext) {
+      this.workflowExecution.triggeredSubworkflowContext = {
+        parentExecutionId: "",
+        parentThreadId: "",
+        childExecutionIds: [],
+        childThreadIds: [],
+        triggeredSubworkflowId: "",
+      };
+    }
+    if (!this.workflowExecution.triggeredSubworkflowContext.childExecutionIds) {
+      this.workflowExecution.triggeredSubworkflowContext.childExecutionIds = [];
+    }
+    this.workflowExecution.triggeredSubworkflowContext.childExecutionIds.push(childId);
+  }
+
+  /**
+   * Unregister child thread ID
+   * @param childId Child thread ID
+   */
+  unregisterChildThread(childId: string): void {
+    if (!this.workflowExecution.triggeredSubworkflowContext?.childExecutionIds) {
+      return;
+    }
+    const index = this.workflowExecution.triggeredSubworkflowContext.childExecutionIds.indexOf(childId);
+    if (index !== -1) {
+      this.workflowExecution.triggeredSubworkflowContext.childExecutionIds.splice(index, 1);
+    }
+  }
+
+  /**
+   * Get thread type (alias for getExecutionType for compatibility)
+   * @returns Workflow execution type
+   */
+  getThreadType(): WorkflowExecutionType {
+    return this.getExecutionType();
+  }
+
+  /**
+   * Set thread type (alias for setExecutionType for compatibility)
+   * @param type Workflow execution type
+   */
+  setThreadType(type: WorkflowExecutionType): void {
+    this.setExecutionType(type);
+  }
+
+  // Event Building ============
+
+  /**
+   * Build an event using the provided builder function
+   * @param builder Event builder function
+   * @param params Additional parameters for the event builder
+   * @returns Built event object
+   */
+  buildEvent<T extends (params: any) => any>(
+    builder: T,
+    params?: Omit<Parameters<T>[0], "executionId" | "workflowId">,
+  ): ReturnType<T> {
+    const fullParams = {
+      executionId: this.id,
+      workflowId: this.workflowExecution.workflowId,
+      ...params,
+    };
+    return builder(fullParams);
   }
 }

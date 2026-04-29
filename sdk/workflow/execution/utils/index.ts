@@ -76,7 +76,7 @@ export {
   waitForAnyCondition,
 } from "../../../core/utils/event/condition-waiter.js";
 
-// Thread Operation Tool
+// Workflow Operation Tool
 export {
   fork,
   join,
@@ -84,16 +84,16 @@ export {
   type ForkConfig,
   type JoinStrategy,
   type JoinResult,
-} from "./thread-operations.js";
+} from "./workflow-operations.js";
 
-// Thread Status Verification Tool
+// Workflow Status Verification Tool
 export {
   validateTransition,
   isValidTransition,
   getAllowedTransitions,
   isTerminalStatus,
   isActiveStatus,
-} from "./thread-state-validator.js";
+} from "./workflow-state-validator.js";
 
 export { VariableAccessor, VariableNamespace } from "./variable-accessor.js";
 
@@ -101,7 +101,7 @@ export { checkWorkflowReferences } from "./workflow-reference-checker.js";
 
 // Hook Creator Tool (reexports the common parts from core/utils/hook)
 export {
-  createThreadStateCheckHook,
+  createWorkflowExecutionStateCheckHook,
   createCustomValidationHook,
   createPermissionCheckHook,
   createAuditLoggingHook,

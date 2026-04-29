@@ -12,7 +12,7 @@ import type {
 } from "@wf-agent/types";
 import {
   MessageCategory as MsgCategory,
-  ThreadMessageType,
+  WorkflowExecutionMessageType,
   AgentMessageType,
   SubgraphMessageType,
   ToolMessageType,
@@ -40,10 +40,10 @@ export class MessagePublisher {
   }
 
   /**
-   * Publish a Thread message
+   * Publish a Workflow Execution message
    */
-  publishThread(
-    type: ThreadMessageType,
+  publishWorkflowExecution(
+    type: WorkflowExecutionMessageType,
     entity: EntityIdentity,
     data: unknown,
     level: MessageLevel = "info",

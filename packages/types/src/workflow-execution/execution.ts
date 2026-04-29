@@ -29,6 +29,12 @@ export interface WorkflowExecutionOptions {
 }
 
 /**
+ * Thread Options (deprecated, use WorkflowExecutionOptions)
+ * @deprecated Use WorkflowExecutionOptions instead
+ */
+export type ThreadOptions = WorkflowExecutionOptions;
+
+/**
  * Workflow execution result type
  *
  * Design principle:
@@ -39,6 +45,8 @@ export interface WorkflowExecutionOptions {
 export interface WorkflowExecutionResult {
   /** Execution ID */
   executionId: ID;
+  /** @deprecated Use executionId instead. Kept for backward compatibility */
+  id: ID;
   /** Output data */
   output: Record<string, unknown>;
   /** Execution time (milliseconds) */

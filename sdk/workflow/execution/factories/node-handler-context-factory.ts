@@ -39,6 +39,8 @@ export interface NodeHandlerContextFactoryConfig {
   agentLoopExecutorFactory?: unknown;
   /** Thread Registry (optional) */
   threadRegistry?: unknown;
+  /** Workflow Execution Registry (optional) */
+  workflowExecutionRegistry?: unknown;
 }
 
 /**

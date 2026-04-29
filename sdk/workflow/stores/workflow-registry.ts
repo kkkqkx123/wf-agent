@@ -32,7 +32,7 @@ import {
   WorkflowNotFoundError,
 } from "@wf-agent/types";
 import type { WorkflowGraphRegistry } from "./workflow-graph-registry.js";
-import { processWorkflow, type ProcessOptions } from "../graph-builder/workflow-processor.js";
+import { WorkflowGraphBuilder } from "../builder/workflow-graph-builder.js";
 import { getContainer } from "../../core/di/container-config.js";
 import * as Identifiers from "../../core/di/service-identifiers.js";
 import { getErrorMessage } from "@wf-agent/common-utils";
@@ -330,17 +330,21 @@ export class WorkflowRegistry {
       return;
     }
 
-    // Call processWorkflow to perform preprocessing.
-    const processOptions: ProcessOptions = {
-      workflowRegistry: this,
-      maxRecursionDepth: this.maxRecursionDepth,
-      validate: true,
-      computeTopologicalOrder: true,
+    // Use WorkflowGraphBuilder to build and validate the graph
+    const { graph, isValid, errors } = WorkflowGraphBuilder.buildAndValidate(workflow, {
       detectCycles: true,
       analyzeReachability: true,
-    };
+    });
 
-    const processedGraph = await processWorkflow(workflow, processOptions);
+    if (!isValid) {
+      throw new ConfigurationValidationError(
+        `Workflow validation failed: ${errors.join(", ")}`,
+        { workflowId: workflow.id, errors },
+      );
+    }
+
+    // Convert WorkflowGraphData to WorkflowGraph format
+    const processedGraph = graph.toWorkflowGraph(workflow.id);
 
     // Cache processing results
     graphRegistry.register(processedGraph);

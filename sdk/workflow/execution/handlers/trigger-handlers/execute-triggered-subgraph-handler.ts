@@ -23,7 +23,7 @@ import {
 } from "@wf-agent/types";
 import type { WorkflowExecutionRegistry } from "../../../stores/workflow-execution-registry.js";
 import type { EventRegistry } from "../../../../core/registry/event-registry.js";
-import type { ThreadBuilder } from "../../factories/thread-builder.js";
+import type { WorkflowExecutionBuilder } from "../../factories/workflow-execution-builder.js";
 import type { TaskQueue } from "../../../stores/task/task-queue.js";
 import { getErrorMessage, now, diffTimestamp } from "@wf-agent/common-utils";
 import type { TriggeredSubgraphTask } from "../../types/triggered-subworkflow.types.js";
@@ -110,7 +110,7 @@ export async function executeTriggeredSubgraphHandler(
   triggerId: string,
   workflowExecutionRegistry: WorkflowExecutionRegistry,
   eventManager: EventRegistry,
-  threadBuilder: ThreadBuilder,
+  threadBuilder: WorkflowExecutionBuilder,
   taskQueueManager: TaskQueue,
   currentThreadId?: string,
 ): Promise<TriggerExecutionResult> {
@@ -135,10 +135,10 @@ export async function executeTriggeredSubgraphHandler(
       throw new ThreadContextNotFoundError("Current thread ID not provided", "current");
     }
 
-    const mainThreadEntity = threadRegistry.get(threadId);
+    const mainWorkflowExecutionEntity = workflowExecutionRegistry.get(threadId);
 
-    if (!mainThreadEntity) {
-      throw new ThreadContextNotFoundError(`Main thread entity not found: ${threadId}`, threadId);
+    if (!mainWorkflowExecutionEntity) {
+      throw new ThreadContextNotFoundError(`Main workflow execution entity not found: ${threadId}`, threadId);
     }
 
     const container = getContainer();
@@ -154,8 +154,8 @@ export async function executeTriggeredSubgraphHandler(
 
     const input: Record<string, unknown> = {
       triggerId,
-      output: mainThreadEntity.getOutput(),
-      input: mainThreadEntity.getInput(),
+      output: mainWorkflowExecutionEntity.getOutput(),
+      input: mainWorkflowExecutionEntity.getInput(),
     };
 
     const manager = container.get(
@@ -166,7 +166,8 @@ export async function executeTriggeredSubgraphHandler(
       subgraphId: triggeredWorkflowId,
       input,
       triggerId,
-      mainThreadEntity,
+      mainThreadEntity: mainWorkflowExecutionEntity,
+      mainWorkflowExecutionEntity,
       config: {
         waitForCompletion,
         timeout,

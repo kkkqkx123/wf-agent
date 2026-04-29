@@ -220,7 +220,8 @@ export class WorkflowExecutionRegistryAPI extends CrudResourceAPI<
     }
 
     return {
-      threadId: execution.id,
+      executionId: execution.id,
+      id: execution.id,
       output: execution.output,
       executionTime: startTime && endTime ? endTime - startTime : 0,
       nodeResults: execution.nodeResults,
@@ -253,6 +254,7 @@ export class WorkflowExecutionRegistryAPI extends CrudResourceAPI<
       FAILED: 0,
       CANCELLED: 0,
       TIMEOUT: 0,
+      STOPPED: 0,
     };
     const byWorkflow: Record<string, number> = {};
 

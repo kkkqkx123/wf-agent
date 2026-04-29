@@ -33,7 +33,7 @@ export function checkWorkflowReferences(
   references.push(...triggerRefs);
 
   // Check runtime thread references.
-  const threadRefs = checkThreadReferences(threadRegistry, workflowId);
+  const threadRefs = checkThreadReferences(workflowExecutionRegistry, workflowId);
   references.push(...threadRefs);
 
   const runtimeRefs = references.filter(ref => ref.isRuntimeReference).length;
@@ -137,12 +137,12 @@ function checkThreadReferences(
   const references: WorkflowReference[] = [];
 
   // Quick Check: Use the active workflow set for quick filtering.
-  if (!threadRegistry.isWorkflowActive(workflowId)) {
+  if (!workflowExecutionRegistry.isWorkflowActive(workflowId)) {
     return references;
   }
 
   // Detailed inspection: Only perform a thorough traversal on active workflows.
-  const allThreads = threadRegistry.getAll();
+  const allThreads = workflowExecutionRegistry.getAll();
 
   for (const threadEntity of allThreads) {
     // Check whether the main thread is using this workflow.

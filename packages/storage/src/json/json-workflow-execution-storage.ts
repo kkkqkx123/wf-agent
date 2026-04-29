@@ -1,44 +1,44 @@
 /**
- * JSON File Thread Storage Implementation
- * Thread persistence storage based on JSON file system with metadata-data separation
+ * JSON File Workflow Execution Storage Implementation
+ * Workflow execution persistence storage based on JSON file system with metadata-data separation
  */
 
 import * as path from "path";
-import type { ThreadStorageMetadata, ThreadListOptions, WorkflowExecutionStatus } from "@wf-agent/types";
-import type { ThreadStorageCallback } from "../types/callback/index.js";
+import type { WorkflowExecutionStorageMetadata, WorkflowExecutionListOptions, WorkflowExecutionStatus } from "@wf-agent/types";
+import type { WorkflowExecutionStorageCallback } from "../types/callback/workflow-execution-callback.js";
 import { BaseJsonStorage, BaseJsonStorageConfig } from "./base-json-storage.js";
 import { StorageError } from "../types/storage-errors.js";
 
 /**
- * JSON File Thread Storage
- * Implements the ThreadStorageCallback interface
+ * JSON File Workflow Execution Storage
+ * Implements the WorkflowExecutionStorageCallback interface
  */
-export class JsonThreadStorage
-  extends BaseJsonStorage<ThreadStorageMetadata>
-  implements ThreadStorageCallback
+export class JsonWorkflowExecutionStorage
+  extends BaseJsonStorage<WorkflowExecutionStorageMetadata>
+  implements WorkflowExecutionStorageCallback
 {
   constructor(config: BaseJsonStorageConfig) {
     super(config);
   }
 
   /**
-   * Get metadata directory path for threads
+   * Get metadata directory path for workflow executions
    */
   protected override getMetadataDir(): string {
-    return path.join(this.config.baseDir, "metadata", "thread");
+    return path.join(this.config.baseDir, "metadata", "workflow-execution");
   }
 
   /**
-   * Get data directory path for threads
+   * Get data directory path for workflow executions
    */
   protected override getDataDir(): string {
-    return path.join(this.config.baseDir, "data", "thread");
+    return path.join(this.config.baseDir, "data", "workflow-execution");
   }
 
   /**
-   * List thread IDs
+   * List workflow execution IDs
    */
-  async list(options?: ThreadListOptions): Promise<string[]> {
+  async list(options?: WorkflowExecutionListOptions): Promise<string[]> {
     this.ensureInitialized();
 
     let ids = this.getAllIds();
@@ -143,27 +143,27 @@ export class JsonThreadStorage
   }
 
   /**
-   * Update thread status
+   * Update workflow execution status
    * Only updates metadata file, no need to touch data file
    */
-  async updateThreadStatus(threadId: string, status: WorkflowExecutionStatus): Promise<void> {
+  async updateExecutionStatus(executionId: string, status: WorkflowExecutionStatus): Promise<void> {
     this.ensureInitialized();
 
-    const indexEntry = this["metadataIndex"].get(threadId);
+    const indexEntry = this["metadataIndex"].get(executionId);
     if (!indexEntry) {
-      throw new StorageError(`Thread not found: ${threadId}`, "updateStatus", { threadId });
+      throw new StorageError(`Workflow execution not found: ${executionId}`, "updateStatus", { executionId });
     }
 
     // Update metadata only
-    const updatedMetadata: ThreadStorageMetadata = {
+    const updatedMetadata: WorkflowExecutionStorageMetadata = {
       ...indexEntry.metadata,
       status,
     };
 
     // Save with existing data
-    const data = await this.load(threadId);
+    const data = await this.load(executionId);
     if (data) {
-      await this.save(threadId, data, updatedMetadata);
+      await this.save(executionId, data, updatedMetadata);
     }
   }
 }

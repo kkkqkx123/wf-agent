@@ -89,8 +89,15 @@ export const TaskRegistry: ServiceIdentifier<unknown> = Symbol("TaskRegistry");
 /**
  * ThreadBuilder - Thread Construction Tool
  * Constructs WorkflowExecutionEntity instances from workflow definitions
+ * @deprecated Use WorkflowExecutionBuilder instead
  */
 export const ThreadBuilder: ServiceIdentifier<unknown> = Symbol("ThreadBuilder");
+
+/**
+ * WorkflowExecutionBuilder - Workflow Execution Builder
+ * Constructs WorkflowExecutionEntity instances from workflow definitions
+ */
+export const WorkflowExecutionBuilder: ServiceIdentifier<unknown> = ThreadBuilder;
 
 /**
  * ThreadExecutor - Thread Executor

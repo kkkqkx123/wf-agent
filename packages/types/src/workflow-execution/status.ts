@@ -12,6 +12,8 @@ export type WorkflowExecutionStatus =
   | "RUNNING"
   /** Paused */
   | "PAUSED"
+  /** Stopped */
+  | "STOPPED"
   /** Completed */
   | "COMPLETED"
   /** Failed */

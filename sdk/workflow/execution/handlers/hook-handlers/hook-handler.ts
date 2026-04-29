@@ -31,7 +31,7 @@ const logger = createContextualLogger();
  */
 export interface HookExecutionContext extends BaseHookContext {
   /** WorkflowExecutionEntity instance */
-  threadEntity: WorkflowExecutionEntity;
+  workflowExecutionEntity: WorkflowExecutionEntity;
   /** Node Definition */
   node: Node;
   /** Node execution results (available at AFTER_EXECUTE) */
@@ -69,7 +69,7 @@ function createCheckpointHandler(): HookHandler<HookExecutionContext> {
     try {
       await createCheckpoint(
         {
-          threadId: context.workflowExecutionEntity.id,
+          workflowExecutionId: context.workflowExecutionEntity.id,
           nodeId: context.node.id,
           description: nodeHook.checkpointDescription || `Hook: ${hook.eventName}`,
         },
@@ -81,8 +81,8 @@ function createCheckpointHandler(): HookHandler<HookExecutionContext> {
         {
           eventName: hook.eventName,
           nodeId: context.node.id,
-          threadId: context.workflowExecutionEntity.id,
-          workflowId: context.threadEntity.getWorkflowId(),
+          executionId: context.workflowExecutionEntity.id,
+          workflowId: context.workflowExecutionEntity.getWorkflowId(),
           operation: "checkpoint_creation",
           suggestion: "Check checkpoint storage configuration and retry",
         },
@@ -106,7 +106,7 @@ function createCustomHandler(): HookHandler<HookExecutionContext> {
         throw new ExecutionError(
           "Custom handler execution failed",
           context.node.id,
-          context.threadEntity.getWorkflowId(),
+          context.workflowExecutionEntity.getWorkflowId(),
           {
             eventName: hook.eventName,
             nodeId: context.node.id,

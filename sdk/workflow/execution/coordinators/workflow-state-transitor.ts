@@ -200,7 +200,7 @@ export class WorkflowStateTransitor {
     workflowExecutionEntity.getErrors().push(error.message);
     this.workflowConversationSession.cleanup();
 
-    const failedEvent = buildWorkflowExecutionFailedEvent({ workflowExecutionId: workflowExecutionEntity.id, error });
+    const failedEvent = buildWorkflowExecutionFailedEvent({ executionId: workflowExecutionEntity.id, error });
     await emit(this.eventManager, failedEvent);
 
     const stateChangedEvent = buildWorkflowExecutionStateChangedEvent(workflowExecutionEntity, previousStatus, "FAILED");

@@ -34,7 +34,7 @@ export const buildWorkflowExecutionStartedEvent = (workflowExecutionEntity: Work
   type: "WORKFLOW_EXECUTION_STARTED",
   timestamp: now(),
   workflowId: workflowExecutionEntity.getWorkflowId(),
-  threadId: workflowExecutionEntity.id,
+  executionId: workflowExecutionEntity.id,
   input: workflowExecutionEntity.getInput(),
 });
 
@@ -48,7 +48,7 @@ export const buildWorkflowExecutionCompletedEvent = (
   type: "WORKFLOW_EXECUTION_COMPLETED",
   timestamp: now(),
   workflowId: workflowExecutionEntity.getWorkflowId(),
-  threadId: workflowExecutionEntity.id,
+  executionId: workflowExecutionEntity.id,
   output: result.output,
   executionTime: result.executionTime,
 });
@@ -65,7 +65,7 @@ export const buildWorkflowExecutionPausedEvent = (workflowExecutionEntity: Workf
   type: "WORKFLOW_EXECUTION_PAUSED",
   timestamp: now(),
   workflowId: workflowExecutionEntity.getWorkflowId(),
-  threadId: workflowExecutionEntity.id,
+  executionId: workflowExecutionEntity.id,
 });
 
 /**
@@ -75,7 +75,7 @@ export const buildWorkflowExecutionResumedEvent = (workflowExecutionEntity: Work
   type: "WORKFLOW_EXECUTION_RESUMED",
   timestamp: now(),
   workflowId: workflowExecutionEntity.getWorkflowId(),
-  threadId: workflowExecutionEntity.id,
+  executionId: workflowExecutionEntity.id,
 });
 
 /**
@@ -88,7 +88,7 @@ export const buildWorkflowExecutionCancelledEvent = (
   type: "WORKFLOW_EXECUTION_CANCELLED",
   timestamp: now(),
   workflowId: workflowExecutionEntity.getWorkflowId(),
-  threadId: workflowExecutionEntity.id,
+  executionId: workflowExecutionEntity.id,
   reason,
 });
 
@@ -103,7 +103,7 @@ export const buildWorkflowExecutionStateChangedEvent = (
   type: "WORKFLOW_EXECUTION_STATE_CHANGED",
   timestamp: now(),
   workflowId: workflowExecutionEntity.getWorkflowId(),
-  threadId: workflowExecutionEntity.id,
+  executionId: workflowExecutionEntity.id,
   previousStatus,
   newStatus,
 });

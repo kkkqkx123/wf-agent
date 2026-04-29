@@ -102,7 +102,7 @@ export { TriggerTemplateRegistryAPI } from "./workflow/resources/templates/trigg
 export { CheckpointResourceAPI } from "./workflow/resources/checkpoints/checkpoint-resource-api.js";
 export {
   MessageResourceAPI,
-  type MessageFilter,
+  type MessageFilter as WorkflowMessageFilter,
   type MessageStats,
 } from "./workflow/resources/messages/message-resource-api.js";
 export {
@@ -206,7 +206,7 @@ export {
 // Workflow - Hook Creator
 // ============================================================================
 export {
-  createThreadStateCheckHook,
+  createWorkflowExecutionStateCheckHook,
   createPermissionCheckHook,
   createAuditLoggingHook,
 } from "../workflow/execution/utils/hook-creators.js";
@@ -328,14 +328,12 @@ export {
 } from "./shared/component-message/message-bus.js";
 
 export {
-  PublisherAPI,
-  type PublishOptions,
-  type PublishResult,
+  MessagePublisher,
+  createMessagePublisher,
 } from "./shared/component-message/publisher-api.js";
 
 export {
-  routeMessage,
-  createMessageRouter,
-  type MessageRouter,
-  type MessageRoute,
+  matchesRoutingRule,
+  findMatchingRule,
+  sortRulesByPriority,
 } from "./shared/component-message/routing-utils.js";

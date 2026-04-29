@@ -126,7 +126,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     eventManager: EventRegistry,
     threadPoolService: WorkflowExecutionPool,
   ) {
-    this.threadRegistry = threadRegistry;
+    this.workflowExecutionRegistry = workflowExecutionRegistry;
     this.threadBuilder = threadBuilder;
     this.taskQueueManager = taskQueueManager;
     this.eventManager = eventManager;
@@ -169,7 +169,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     const subgraphEntity = await this.createSubgraphContext(task, input);
 
     // Register with WorkflowExecutionRegistry
-    this.threadRegistry.register(subgraphEntity);
+    this.workflowExecutionRegistry.register(subgraphEntity);
 
     // Establish a parent-child thread relationship
     const parentThreadId = task.mainThreadEntity.id;
@@ -304,7 +304,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     this.emitCompletedEvent(threadId, result);
 
     // Cancel the parent-child relationship
-    const subgraphEntity = this.threadRegistry.get(threadId);
+    const subgraphEntity = this.workflowExecutionRegistry.get(threadId);
     if (subgraphEntity) {
       this.unregisterParentChildRelationship(subgraphEntity);
     }
@@ -335,7 +335,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     this.emitFailedEvent(threadId, error);
 
     // Cancel the parent-child relationship
-    const subgraphEntity = this.threadRegistry.get(threadId);
+    const subgraphEntity = this.workflowExecutionRegistry.get(threadId);
     if (subgraphEntity) {
       this.unregisterParentChildRelationship(subgraphEntity);
     }
@@ -365,7 +365,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     const childThreadId = subgraphEntity.id;
 
     if (parentThreadId) {
-      const parentEntity = this.threadRegistry.get(parentThreadId);
+      const parentEntity = this.workflowExecutionRegistry.get(parentThreadId);
       if (parentEntity) {
         parentEntity.unregisterChildThread(childThreadId);
       }
@@ -400,7 +400,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     threadId: string,
     result: ExecutedSubgraphResult,
   ): Promise<void> {
-    const subgraphEntity = this.threadRegistry.get(threadId);
+    const subgraphEntity = this.workflowExecutionRegistry.get(threadId);
     if (!subgraphEntity) {
       return;
     }
@@ -422,7 +422,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
    * @param error: Error message
    */
   private async emitFailedEvent(threadId: string, error: Error): Promise<void> {
-    const subgraphEntity = this.threadRegistry.get(threadId);
+    const subgraphEntity = this.workflowExecutionRegistry.get(threadId);
     if (!subgraphEntity) {
       return;
     }

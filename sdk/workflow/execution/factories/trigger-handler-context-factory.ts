@@ -76,6 +76,8 @@ export interface TriggerHandlerContextFactoryConfig {
   checkpointStateManager?: CheckpointState;
   /** Workflow Graph Registry */
   graphRegistry?: WorkflowGraphRegistry;
+  /** @deprecated Use graphRegistry instead */
+  workflowGraphRegistry?: WorkflowGraphRegistry;
   /** Event Manager */
   eventManager?: EventRegistry;
   /** Workflow Execution Builder */

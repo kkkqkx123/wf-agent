@@ -56,7 +56,7 @@ export async function skipNodeHandler(
 
     const { threadId, nodeId } = action.parameters;
 
-    const threadEntity = threadRegistry.get(threadId);
+    const threadEntity = workflowExecutionRegistry.get(threadId);
 
     if (!threadEntity) {
       throw new ThreadContextNotFoundError(`WorkflowExecutionEntity not found: ${threadId}`, threadId);

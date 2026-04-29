@@ -34,6 +34,9 @@ import {
 import { SDKError } from "@wf-agent/types";
 import { logError, emitErrorEvent } from "../../../core/utils/error-utils.js";
 
+/** @deprecated Use WorkflowExecutor instead */
+type ThreadExecutor = WorkflowExecutor;
+
 /**
  * TaskQueue - Task Queue Manager
  */
@@ -100,6 +103,7 @@ export class TaskQueue {
       const queueTask: QueueTask = {
         taskId,
         threadEntity,
+        workflowExecutionEntity: threadEntity,
         resolve: resolve as (
           value: ExecutedSubgraphResult | PromiseLike<ExecutedSubgraphResult>,
         ) => void,
@@ -126,6 +130,7 @@ export class TaskQueue {
     const queueTask: QueueTask = {
       taskId,
       threadEntity,
+      workflowExecutionEntity: threadEntity,
       resolve: () => {}, // Asynchronous tasks do not require resolve
       reject: () => {}, // Asynchronous tasks do not require reject
       submitTime: now(),
@@ -194,7 +199,7 @@ export class TaskQueue {
 
     try {
       // Execute Thread
-      const threadResult = await executor.executeThread(queueTask.threadEntity);
+      const threadResult = await executor.executeWorkflow(queueTask.threadEntity);
 
       const executionTime = diffTimestamp(startTime, now());
 

@@ -1,6 +1,6 @@
 /**
- * Hook Creator Tool (Thread-specific section)
- * Provides functions for creating Thread-related Hook configurations
+ * Hook Creator Tool (WorkflowExecution-specific section)
+ * Provides functions for creating WorkflowExecution-related Hook configurations
  *
  * Note: The SDK fully trusts user configurations and does not implement any default validation logic.
  * The application layer should implement custom validation logic based on actual requirements.
@@ -16,22 +16,22 @@ import { ExecutionError } from "@wf-agent/types";
 export { createCustomValidationHook } from "../../../core/utils/hook/creators.js";
 
 /**
- * Create a thread status check Hook
- * @param allowedStates List of allowed thread statuses
+ * Create a workflow execution status check Hook
+ * @param allowedStates List of allowed workflow execution statuses
  * @returns NodeHook configuration
  */
-export function createThreadStateCheckHook(allowedStates: string[] = ["RUNNING"]): NodeHook {
+export function createWorkflowExecutionStateCheckHook(allowedStates: string[] = ["RUNNING"]): NodeHook {
   return {
     hookType: "BEFORE_EXECUTE",
-    eventName: "validation.thread_status_check",
+    eventName: "validation.workflow_execution_status_check",
     weight: 200,
     eventPayload: {
       allowedStates,
       handler: async (context: HookExecutionContext) => {
-        const status = context.threadEntity.getStatus();
+        const status = context.workflowExecutionEntity.getStatus();
         if (!allowedStates.includes(status)) {
           throw new ExecutionError(
-            `Thread is in ${status} state, expected: ${allowedStates.join(", ")}`,
+            `Workflow execution is in ${status} state, expected: ${allowedStates.join(", ")}`,
             context.node.id,
           );
         }
@@ -53,8 +53,8 @@ export function createPermissionCheckHook(requiredPermissions: string[]): NodeHo
     eventPayload: {
       requiredPermissions,
       handler: async (context: HookExecutionContext) => {
-        const thread = context.threadEntity.getThread();
-        const userPermissions = (thread.variableScopes.thread?.["permissions"] || []) as string[];
+        const execution = context.workflowExecutionEntity.getExecution();
+        const userPermissions = (execution.variableScopes.thread?.["permissions"] || []) as string[];
         const missing = requiredPermissions.filter(p => !userPermissions.includes(p));
 
         if (missing.length > 0) {
@@ -80,16 +80,16 @@ export function createAuditLoggingHook(auditService: {
     eventPayload: {
       handler: async (context: HookExecutionContext) => {
         const config = context.node.config as ScriptNodeConfig;
-        const thread = context.threadEntity.getThread();
+        const execution = context.workflowExecutionEntity.getExecution();
 
         await auditService.log({
           eventType: "NODE_EXECUTION_ATTEMPT",
           timestamp: new Date(),
-          threadId: context.threadEntity.id,
+          executionId: context.workflowExecutionEntity.id,
           nodeId: context.node.id,
           nodeName: context.node.name,
           nodeType: context.node.type,
-          userId: thread.variableScopes.thread?.["userId"],
+          userId: execution.variableScopes.thread?.["userId"],
           scriptName: config.scriptName,
           riskLevel: config.risk,
         });

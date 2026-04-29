@@ -13,21 +13,21 @@ export {
   type SystemErrorData,
 } from "./system.js";
 
-// Thread messages
+// Workflow Execution messages
 export {
-  ThreadMessageType,
-  type ThreadStartData,
-  type ThreadEndData,
-  type ThreadNodeData,
-  type ThreadVariableData,
-  type ThreadForkData,
-  type ThreadForkBranchData,
-  type ThreadJoinData,
-  type ThreadAgentCallData,
-  type ThreadAgentReturnData,
-  type ThreadSubgraphCallData,
-  type ThreadSubgraphReturnData,
-} from "./thread.js";
+  WorkflowExecutionMessageType,
+  type WorkflowExecutionStartData,
+  type WorkflowExecutionEndData,
+  type WorkflowExecutionNodeData,
+  type WorkflowExecutionVariableData,
+  type WorkflowExecutionForkData,
+  type WorkflowExecutionForkBranchData,
+  type WorkflowExecutionJoinData,
+  type WorkflowExecutionAgentCallData,
+  type WorkflowExecutionAgentReturnData,
+  type WorkflowExecutionSubgraphCallData,
+  type WorkflowExecutionSubgraphReturnData,
+} from "./workflow-execution.js";
 
 // Agent messages
 export {

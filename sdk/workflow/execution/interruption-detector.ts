@@ -56,7 +56,7 @@ export class InterruptionDetectorImpl implements InterruptionDetector {
    * @returns: AbortSignal
    */
   getAbortSignal(threadId: string): AbortSignal {
-    const threadContext = this.threadRegistry.get(threadId);
+    const threadContext = this.workflowExecutionRegistry.get(threadId);
     if (!threadContext) {
       return new AbortController().signal;
     }

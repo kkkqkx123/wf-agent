@@ -16,11 +16,14 @@ import { convertToolsToOpenAIFormat } from "../utils/index.js";
  * OpenAI Response API Format Converter
  */
 export class OpenAIResponseFormatter extends BaseFormatter {
-  getSupportedProvider(): string {
+  override getSupportedProvider(): string {
     return "OPENAI_RESPONSE";
   }
 
-  buildRequest(request: LLMRequest, config: FormatterConfig): BuildRequestResult {
+  /**
+   * Build request in native function-calling mode
+   */
+  protected buildNativeRequest(request: LLMRequest, config: FormatterConfig): BuildRequestResult {
     const body = this.buildRequestBody(request, config);
 
     // Constructing request headers
@@ -55,7 +58,10 @@ export class OpenAIResponseFormatter extends BaseFormatter {
     };
   }
 
-  parseResponse(data: unknown): LLMResult {
+  /**
+   * Parse response in native function-calling mode
+   */
+  protected parseNativeResponse(data: unknown, config: FormatterConfig): LLMResult {
     const dataRecord = data as Record<string, unknown>;
     const output = (dataRecord["output"] as Array<Record<string, unknown>>) || [];
     const lastOutput = output[output.length - 1] || {};

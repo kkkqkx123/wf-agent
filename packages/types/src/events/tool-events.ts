@@ -74,7 +74,7 @@ export interface ToolAddedEvent extends BaseEvent {
   /** Tool ID List */
   toolIds: ID[];
   /** scope (computing) */
-  scope: "GLOBAL" | "THREAD" | "LOCAL";
+  scope: "GLOBAL" | "EXECUTION" | "LOCAL";
   /** Number of tools successfully added */
   addedCount: number;
   /** Number of tools skipped */

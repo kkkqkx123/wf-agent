@@ -15,19 +15,18 @@ import type { LLMProvider } from "@wf-agent/types";
 import { sdkLogger as logger } from "../../../utils/index.js";
 
 /**
- * Formatter Registry
+ * Formatter Registry - Singleton instance for managing formatters
  */
 export class FormatterRegistry {
   private formatters: Map<string, BaseFormatter> = new Map();
   private static instance: FormatterRegistry | null = null;
 
   private constructor() {
-    // Register the default format converter
     this.registerDefaults();
   }
 
   /**
-   * Obtain a registry form instance
+   * Get singleton instance
    */
   static getInstance(): FormatterRegistry {
     if (!FormatterRegistry.instance) {
@@ -37,7 +36,7 @@ export class FormatterRegistry {
   }
 
   /**
-   * Register the default format converter
+   * Register default formatters
    */
   private registerDefaults(): void {
     this.register(new OpenAIChatFormatter());
@@ -48,9 +47,9 @@ export class FormatterRegistry {
   }
 
   /**
-   * Register Format Converter
+   * Register a formatter instance
    *
-   * @param formatter Format converter instance
+   * @param formatter Formatter instance to register
    */
   register(formatter: BaseFormatter): void {
     const provider = formatter.getSupportedProvider();
@@ -63,53 +62,53 @@ export class FormatterRegistry {
   }
 
   /**
-   * Get Format Converter
+   * Get formatter for a provider
    *
-   * @param provider: Type of the provider
-   * @returns: An instance of the format converter; returns undefined if it does not exist
+   * @param provider Provider type
+   * @returns Formatter instance or undefined if not found
    */
   get(provider: LLMProvider | string): BaseFormatter | undefined {
     return this.formatters.get(provider);
   }
 
   /**
-   * Check if it is registered
+   * Check if a formatter is registered for a provider
    *
-   * @param provider Type of the provider
-   * @returns Whether it is registered
+   * @param provider Provider type
+   * @returns True if registered
    */
   has(provider: LLMProvider | string): boolean {
     return this.formatters.has(provider);
   }
 
   /**
-   * Get all registered providers
+   * Get all registered provider names
    *
-   * @returns List of providers
+   * @returns Array of provider names
    */
   getRegisteredProviders(): string[] {
     return Array.from(this.formatters.keys());
   }
 
   /**
-   * Cancel Format Converter
+   * Unregister a formatter
    *
-   * @param provider Type of the provider
-   * @returns Whether the cancellation was successful
+   * @param provider Provider type
+   * @returns True if successfully unregistered
    */
   unregister(provider: LLMProvider | string): boolean {
     return this.formatters.delete(provider);
   }
 
   /**
-   * Clear all registrations.
+   * Clear all registrations
    */
   clear(): void {
     this.formatters.clear();
   }
 
   /**
-   * Reset to default registration
+   * Reset to default registrations
    */
   reset(): void {
     this.clear();
@@ -118,15 +117,16 @@ export class FormatterRegistry {
 }
 
 /**
- * Export the default registry instance
+ * Default registry instance
  */
 export const formatterRegistry = FormatterRegistry.getInstance();
 
 /**
- * Convenient function: Get Format Converter
+ * Get formatter for a provider (throws if not found)
  *
- * @param provider: Type of the provider
- * @returns: Instance of the format converter
+ * @param provider Provider type
+ * @returns Formatter instance
+ * @throws Error if no formatter is registered for the provider
  */
 export function getFormatter(provider: LLMProvider | string): BaseFormatter {
   const formatter = formatterRegistry.get(provider);
@@ -137,9 +137,9 @@ export function getFormatter(provider: LLMProvider | string): BaseFormatter {
 }
 
 /**
- * Convenient function: Registering a format converter
+ * Register a custom formatter
  *
- * @param formatter: An instance of the format converter
+ * @param formatter Formatter instance to register
  */
 export function registerFormatter(formatter: BaseFormatter): void {
   formatterRegistry.register(formatter);

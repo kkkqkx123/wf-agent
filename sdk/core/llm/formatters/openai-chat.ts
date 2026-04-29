@@ -6,10 +6,14 @@
  */
 
 import { BaseFormatter } from "./base.js";
-import type { LLMRequest, LLMResult, LLMMessage, LLMToolCall } from "@wf-agent/types";
+import type { LLMRequest, LLMResult, LLMMessage, LLMToolCall, ToolCallFormat } from "@wf-agent/types";
 import type { ToolSchema } from "@wf-agent/types";
 import type { FormatterConfig, BuildRequestResult, ParseStreamChunkResult } from "./types.js";
 import { convertToolsToOpenAIFormat } from "../utils/index.js";
+import { ToolDeclarationFormatter } from "@wf-agent/prompt-templates";
+import { getToolCallParserOptions } from "./tool-format-selector.js";
+import { ToolCallParser } from "./tool-call-parser.js";
+import { HistoryConverter } from "../../messages/history-converter.js";
 
 /**
  * OpenAI Chat Format Converter
@@ -19,42 +23,10 @@ export class OpenAIChatFormatter extends BaseFormatter {
     return "OPENAI_CHAT";
   }
 
-  buildRequest(request: LLMRequest, config: FormatterConfig): BuildRequestResult {
-    const body = this.buildRequestBody(request, config);
-
-    // Constructing request headers
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      ...config.profile.headers,
-    };
-
-    // Add authentication headers (supporting both bearer and native methods)
-    if (config.profile.apiKey) {
-      Object.assign(headers, this.buildAuthHeader(config.profile.apiKey, config, "Authorization"));
-    }
-
-    // Add custom request headers
-    Object.assign(headers, this.buildCustomHeaders(config));
-
-    // Apply a custom request body.
-    const finalBody = this.applyCustomBody(body, config);
-
-    // Construct query parameters
-    const queryString = this.buildQueryString(config);
-
-    return {
-      httpRequest: {
-        url: `/chat/completions${queryString}`,
-        method: "POST",
-        headers,
-        body: finalBody,
-        timeout: config.timeout,
-      },
-      transformedBody: finalBody,
-    };
-  }
-
-  parseResponse(data: unknown): LLMResult {
+  /**
+   * Parse response in native function-calling mode
+   */
+  protected parseNativeResponse(data: unknown, config: FormatterConfig): LLMResult {
     const dataRecord = data as Record<string, unknown>;
     const choices = dataRecord["choices"] as Array<Record<string, unknown>> | undefined;
     const choice = choices?.[0];
@@ -204,7 +176,249 @@ export class OpenAIChatFormatter extends BaseFormatter {
   }
 
   /**
-   * Construct the request body
+   * Parse response in text-based mode (XML/JSON)
+   */
+  protected override parseTextModeResponse(data: unknown, config: FormatterConfig): LLMResult {
+    const dataRecord = data as Record<string, unknown>;
+    const choices = dataRecord["choices"] as Array<Record<string, unknown>> | undefined;
+    const choice = choices?.[0];
+    const message = choice?.["message"] as Record<string, unknown> | undefined;
+
+    const content = (message?.["content"] as string) || "";
+    const format = this.getToolCallFormat(config);
+
+    // Parse tool calls from content using ToolCallParser
+    const toolCalls = ToolCallParser.parseFromText(
+      content,
+      getToolCallParserOptions(format, config.toolCallFormat?.markers)
+    );
+
+    // Extract reasoning content (for DeepSeek R1, o1, etc.)
+    const reasoningContent = message?.["reasoning_content"] as string | undefined;
+    // Extract reasoning tokens from usage details
+    const usage = dataRecord["usage"] as Record<string, unknown> | undefined;
+    const completionTokensDetails = usage?.["completion_tokens_details"] as
+      | Record<string, number>
+      | undefined;
+    const reasoningTokens = completionTokensDetails?.["reasoning_tokens"] || 0;
+
+    return {
+      id: dataRecord["id"] as string,
+      model: dataRecord["model"] as string,
+      content,
+      message: {
+        role: "assistant",
+        content,
+        toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+      },
+      toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+      usage: usage
+        ? {
+            promptTokens: usage["prompt_tokens"] as number,
+            completionTokens: usage["completion_tokens"] as number,
+            totalTokens: usage["total_tokens"] as number,
+            reasoningTokens: reasoningTokens > 0 ? reasoningTokens : undefined,
+          }
+        : undefined,
+      finishReason: choice?.["finish_reason"] as string,
+      duration: 0,
+      metadata: {
+        created: dataRecord["created"] as number,
+        systemFingerprint: dataRecord["system_fingerprint"] as string,
+      },
+      reasoningContent,
+      reasoningTokens: reasoningTokens > 0 ? reasoningTokens : undefined,
+    };
+  }
+
+  /**
+   * Inject tool declarations into system message
+   */
+  private injectToolDeclarations(
+    messages: LLMMessage[],
+    toolDeclarations: string,
+    format: ToolCallFormat
+  ): LLMMessage[] {
+    const instructions = this.getToolUsageInstructions(format);
+    const fullInjection = `${instructions}\n\n${toolDeclarations}`;
+
+    const systemMsgIndex = messages.findIndex(m => m.role === 'system');
+
+    if (systemMsgIndex >= 0) {
+      const updated = [...messages];
+      const msg = updated[systemMsgIndex];
+      if (!msg) {
+        return messages;
+      }
+      const existingContent = msg.content;
+      updated[systemMsgIndex] = {
+        role: msg.role,
+        content: typeof existingContent === 'string' 
+          ? `${existingContent}\n\n${fullInjection}`
+          : fullInjection,
+      };
+      return updated;
+    } else {
+      return [
+        {
+          role: 'system',
+          content: fullInjection,
+        },
+        ...messages,
+      ];
+    }
+  }
+
+  /**
+   * Get tool usage instructions based on format
+   */
+  private getToolUsageInstructions(format: ToolCallFormat): string {
+    if (format === 'xml') {
+      return `## Tool Usage Instructions
+
+When you need to use a tool, format your response as follows:
+
+<tool_use>
+  <tool_name>tool_name_here</tool_name>
+  <parameters>
+    <param1>value1</param1>
+    <param2>value2</param2>
+  </parameters>
+</tool_use>
+
+You can use multiple tools in one response by including multiple <tool_use> blocks.`;
+    } else if (format === 'json_wrapped') {
+      return `## Tool Usage Instructions
+
+When you need to use a tool, format your response as follows:
+
+<<<TOOL_CALL>>>
+{
+  "tool": "tool_name_here",
+  "parameters": {
+    "param1": "value1",
+    "param2": "value2"
+  }
+}
+<<<END_TOOL_CALL>>>
+
+You can use multiple tools in one response by including multiple blocks.`;
+    }
+
+    return '';
+  }
+
+  /**
+   * Build request in native function-calling mode
+   */
+  protected buildNativeRequest(request: LLMRequest, config: FormatterConfig): BuildRequestResult {
+    const body = this.buildRequestBody(request, config);
+
+    // Constructing request headers
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...config.profile.headers,
+    };
+
+    if (config.profile.apiKey) {
+      Object.assign(headers, this.buildAuthHeader(config.profile.apiKey, config, "Authorization"));
+    }
+
+    Object.assign(headers, this.buildCustomHeaders(config));
+    const finalBody = this.applyCustomBody(body, config);
+    const queryString = this.buildQueryString(config);
+
+    return {
+      httpRequest: {
+        url: `/chat/completions${queryString}`,
+        method: "POST",
+        headers,
+        body: finalBody,
+        timeout: config.timeout,
+      },
+      transformedBody: finalBody,
+    };
+  }
+
+  /**
+   * Build request in text-based mode (XML/JSON)
+   */
+  protected override buildTextModeRequest(request: LLMRequest, config: FormatterConfig): BuildRequestResult {
+    const format = this.getToolCallFormat(config);
+
+    // 1. Generate tool declarations
+    const toolDeclarations = ToolDeclarationFormatter.formatTools(
+      request.tools || [],
+      {
+        format: format === 'json_wrapped' || format === 'json_raw' ? 'json' : 'xml',
+        xmlTags: config.toolCallFormat?.xmlTags,
+        markers: config.toolCallFormat?.markers,
+        includeDescription: config.toolCallFormat?.includeDescription,
+      }
+    );
+
+    // 2. Convert history to text mode (if needed)
+    const convertedMessages = HistoryConverter.convertToTextMode(
+      request.messages,
+      format,
+      {
+        xmlTags: config.toolCallFormat?.xmlTags,
+        markers: config.toolCallFormat?.markers,
+      }
+    );
+
+    // 3. Inject tool declarations into system message
+    const messagesWithTools = this.injectToolDeclarations(
+      convertedMessages,
+      toolDeclarations,
+      format
+    );
+
+    // 4. Build request WITHOUT tools field
+    const parameters = this.mergeParameters(config.profile.parameters, request.parameters);
+    const body: Record<string, unknown> = {
+      model: config.profile.model,
+      messages: this.convertMessages(messagesWithTools),
+      stream: config.stream || false,
+    };
+
+    const { stream: _stream, ...otherParams } = parameters;
+    Object.assign(body, otherParams);
+
+    // NO tools field!
+
+    if (config.stream && config.streamOptions?.includeUsage) {
+      body["stream_options"] = this.buildStreamOptions(config);
+    }
+
+    // Constructing request headers
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...config.profile.headers,
+    };
+
+    if (config.profile.apiKey) {
+      Object.assign(headers, this.buildAuthHeader(config.profile.apiKey, config, "Authorization"));
+    }
+
+    Object.assign(headers, this.buildCustomHeaders(config));
+    const finalBody = this.applyCustomBody(body, config);
+    const queryString = this.buildQueryString(config);
+
+    return {
+      httpRequest: {
+        url: `/chat/completions${queryString}`,
+        method: "POST",
+        headers,
+        body: finalBody,
+        timeout: config.timeout,
+      },
+      transformedBody: finalBody,
+    };
+  }
+
+  /**
+   * Construct the request body (used by native mode)
    */
   private buildRequestBody(request: LLMRequest, config: FormatterConfig): Record<string, unknown> {
     const parameters = this.mergeParameters(config.profile.parameters, request.parameters);

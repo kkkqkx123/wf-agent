@@ -5,7 +5,7 @@
  * Format converters from all providers inherit from this class
  */
 
-import type { LLMRequest, LLMResult, LLMMessage, LLMToolCall } from "@wf-agent/types";
+import type { LLMRequest, LLMResult, LLMMessage, LLMToolCall, ToolCallFormat } from "@wf-agent/types";
 import { sdkLogger as logger } from "../../../utils/logger.js";
 import { getErrorOrNew } from "@wf-agent/common-utils";
 import type { ToolSchema } from "@wf-agent/types";
@@ -35,20 +35,30 @@ export abstract class BaseFormatter {
   /**
    * Construct an HTTP request
    *
+   * NOTE: Do not override this method. Override buildNativeRequest 
+   * and optionally buildTextModeRequest instead.
+   *
    * @param request: A unified LLM request
    * @param config: Configuration for the format converter
    * @returns: HTTP request options
    */
-  abstract buildRequest(request: LLMRequest, config: FormatterConfig): BuildRequestResult;
+  buildRequest(request: LLMRequest, config: FormatterConfig): BuildRequestResult {
+    return this.buildModeAwareRequest(request, config);
+  }
 
   /**
    * Parse non-streaming responses
+   *
+   * NOTE: Do not override this method. Override parseNativeResponse 
+   * and optionally parseTextModeResponse instead.
    *
    * @param data: Raw response data
    * @param config: Format converter configuration
    * @returns: LLM results
    */
-  abstract parseResponse(data: unknown, config: FormatterConfig): LLMResult;
+  parseResponse(data: unknown, config: FormatterConfig): LLMResult {
+    return this.parseModeAwareResponse(data, config);
+  }
 
   /**
    * Parse Streaming Response Blocks
@@ -353,7 +363,7 @@ export abstract class BaseFormatter {
             continue;
           }
 
-          const rawKey = item.key.trim();
+          const key = item.key.trim();
           let value: unknown;
 
           // Try to parse the value as JSON.
@@ -364,22 +374,7 @@ export abstract class BaseFormatter {
             value = item.value;
           }
 
-          // 处理嵌套路径键名(如 "extra_body.google")
-          if (rawKey.includes(".")) {
-            const parts = rawKey.split(".");
-            const nestedObj: Record<string, unknown> = {};
-            let current: Record<string, unknown> = nestedObj;
-            for (let i = 0; i < parts.length - 1; i++) {
-              const part = parts[i]!;
-              current[part] = {};
-              current = current[part] as Record<string, unknown>;
-            }
-            const lastPart = parts[parts.length - 1]!;
-            current[lastPart] = value;
-            result = this.deepMerge(result, nestedObj) as Record<string, unknown>;
-          } else {
-            result = this.deepMerge(result, { [rawKey]: value }) as Record<string, unknown>;
-          }
+          result = this.deepMerge(result, { [key]: value }) as Record<string, unknown>;
         }
       } else if (customBody.mode === "advanced" && customBody.json) {
         // Advanced mode: Parse the complete JSON and perform deep merging.
@@ -434,59 +429,106 @@ export abstract class BaseFormatter {
     return Object.keys(options).length > 0 ? options : undefined;
   }
 
-  // ==================== Multi-format Tool Invocation Parsing Method (Delegated to ToolCallParser) ====================
+  // ==================== Multi-format Tool Invocation Parsing Method ====================
+
+  // ==================== Mode-Aware Methods ====================
 
   /**
-   * Parse tool calls from XML format text
-   *
-   * Supported formats:
-   * ```xml
-   * <tool_use>
-   * <tool_name>tool_name</tool_name>
-   * <parameters>
-   * <param1>value1</param1>
-   * <param2>value2</param2>
-   * </parameters>
-   * </tool_use>
-   * ```
-   *
-   * @param xmlText: The XML text containing the tool calls
-   * @returns: An array of parsed tool calls, converted to the standard LLMToolCall format
+   * Check if using text-based tool format (XML/JSON)
    */
-  parseXMLToolCalls(xmlText: string): LLMToolCall[] {
-    return ToolCallParser.parseXMLToolCalls(xmlText);
+  protected isTextBasedToolMode(config: FormatterConfig): boolean {
+    const format = config.toolCallFormat?.format || 'function_call';
+    return format === 'xml' || format === 'json_wrapped' || format === 'json_raw';
   }
 
   /**
-   * Parse tool calls from JSON format text
-   *
-   * Supported formats:
-   * ```
-   * <<<TOOL_CALL>>>
-   * {"tool": "tool_name", "parameters": {...}}
-   * <<<END_TOOL_CALL>>>
-   * ```
-   *
-   * @param text: Text containing JSON tool calls
-   * @param options: Parsing options
-   * @returns: Array of parsed tool calls (converted to the standard LLMToolCall format)
+   * Get tool call format from config
    */
-  parseJSONToolCalls(text: string, options?: ToolCallParseOptions): LLMToolCall[] {
-    return ToolCallParser.parseJSONToolCalls(text, options);
+  protected getToolCallFormat(config: FormatterConfig): ToolCallFormat {
+    return config.toolCallFormat?.format || 'function_call';
   }
 
   /**
-   * Attempt to parse tool calls from the text (automatically detect the format).
-   *
-   * Try in the following order:
-   * 1. XML format
-   * 2. JSON format
-   *
-   * @param text: The text containing the tool calls
-   * @param options: Parsing options
-   * @returns: An array of the parsed tool calls
+   * Build request with mode awareness
+   * Routes to either native or text mode based on configuration
    */
-  parseToolCallsFromText(text: string, options?: ToolCallParseOptions): LLMToolCall[] {
-    return ToolCallParser.parseFromText(text, options);
+  protected buildModeAwareRequest(
+    request: LLMRequest,
+    config: FormatterConfig
+  ): BuildRequestResult {
+    if (this.isTextBasedToolMode(config)) {
+      return this.buildTextModeRequest(request, config);
+    }
+    return this.buildNativeRequest(request, config);
+  }
+
+  /**
+   * Parse response with mode awareness
+   * Routes to either native or text mode based on configuration
+   */
+  protected parseModeAwareResponse(
+    data: unknown,
+    config: FormatterConfig
+  ): LLMResult {
+    if (this.isTextBasedToolMode(config)) {
+      return this.parseTextModeResponse(data, config);
+    }
+    return this.parseNativeResponse(data, config);
+  }
+
+  /**
+   * Build request in native function-calling mode
+   * Subclasses must implement this method
+   */
+  protected abstract buildNativeRequest(
+    request: LLMRequest,
+    config: FormatterConfig
+  ): BuildRequestResult;
+
+  /**
+   * Build request in text-based mode (XML/JSON)
+   * 
+   * OPTIONAL: Override only if your provider supports text-based tool formats.
+   * Default implementation delegates to native mode, which is suitable for most providers
+   * that don't have a separate text-based tool calling mechanism.
+   * 
+   * @param request: LLM request
+   * @param config: Format converter configuration
+   * @returns: HTTP request options
+   */
+  protected buildTextModeRequest(
+    request: LLMRequest,
+    config: FormatterConfig
+  ): BuildRequestResult {
+    // Default: delegate to native mode for providers without text mode support
+    return this.buildNativeRequest(request, config);
+  }
+
+  /**
+   * Parse response in native function-calling mode
+   * Subclasses must implement this method
+   */
+  protected abstract parseNativeResponse(
+    data: unknown,
+    config: FormatterConfig
+  ): LLMResult;
+
+  /**
+   * Parse response in text-based mode (XML/JSON)
+   * 
+   * OPTIONAL: Override only if your provider supports text-based tool formats.
+   * Default implementation delegates to native mode, which is suitable for most providers
+   * that don't have a separate text-based tool calling mechanism.
+   * 
+   * @param data: Raw response data
+   * @param config: Format converter configuration
+   * @returns: LLM result
+   */
+  protected parseTextModeResponse(
+    data: unknown,
+    config: FormatterConfig
+  ): LLMResult {
+    // Default: delegate to native mode for providers without text mode support
+    return this.parseNativeResponse(data, config);
   }
 }

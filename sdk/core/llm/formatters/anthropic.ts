@@ -5,10 +5,14 @@
  */
 
 import { BaseFormatter } from "./base.js";
-import type { LLMRequest, LLMResult, LLMMessage, LLMToolCall } from "@wf-agent/types";
+import type { LLMRequest, LLMResult, LLMMessage, LLMToolCall, ToolCallFormat } from "@wf-agent/types";
 import type { ToolSchema } from "@wf-agent/types";
 import type { FormatterConfig, BuildRequestResult, ParseStreamChunkResult } from "./types.js";
 import { convertToolsToAnthropicFormat } from "../utils/index.js";
+import { ToolDeclarationFormatter } from "@wf-agent/prompt-templates";
+import { getToolCallParserOptions } from "./tool-format-selector.js";
+import { ToolCallParser } from "./tool-call-parser.js";
+import { HistoryConverter } from "../../messages/history-converter.js";
 
 /**
  * Anthropic format converter
@@ -25,7 +29,10 @@ export class AnthropicFormatter extends BaseFormatter {
     return "ANTHROPIC";
   }
 
-  buildRequest(request: LLMRequest, config: FormatterConfig): BuildRequestResult {
+  /**
+   * Build request in native function-calling mode
+   */
+  protected buildNativeRequest(request: LLMRequest, config: FormatterConfig): BuildRequestResult {
     const body = this.buildRequestBody(request, config);
 
     // Constructing request headers
@@ -62,7 +69,92 @@ export class AnthropicFormatter extends BaseFormatter {
     };
   }
 
-  parseResponse(data: unknown): LLMResult {
+  /**
+   * Build request in text-based mode (XML/JSON)
+   */
+  protected override buildTextModeRequest(request: LLMRequest, config: FormatterConfig): BuildRequestResult {
+    const format = this.getToolCallFormat(config);
+
+    // 1. Generate tool declarations
+    const toolDeclarations = ToolDeclarationFormatter.formatTools(
+      request.tools || [],
+      {
+        format: format === 'json_wrapped' || format === 'json_raw' ? 'json' : 'xml',
+        xmlTags: config.toolCallFormat?.xmlTags,
+        markers: config.toolCallFormat?.markers,
+        includeDescription: config.toolCallFormat?.includeDescription,
+      }
+    );
+
+    // 2. Convert history to text mode (if needed)
+    const convertedMessages = HistoryConverter.convertToTextMode(
+      request.messages,
+      format,
+      {
+        xmlTags: config.toolCallFormat?.xmlTags,
+        markers: config.toolCallFormat?.markers,
+      }
+    );
+
+    // 3. For Anthropic, inject tools into system field
+    const { systemMessage, filteredMessages } = this.extractSystemMessage(convertedMessages);
+    const existingSystem = systemMessage?.content || '';
+    const instructions = this.getToolUsageInstructions(format);
+    
+    const systemContent = `${existingSystem}\n\n${instructions}\n\n${toolDeclarations}`.trim();
+
+    // 3. Build request WITHOUT tools field
+    const parameters = this.mergeParameters(config.profile.parameters, request.parameters);
+    const body: Record<string, unknown> = {
+      model: config.profile.model,
+      messages: this.convertMessages(filteredMessages),
+      system: systemContent,
+      stream: config.stream || false,
+    };
+
+    const { stream: _stream, ...otherParams } = parameters;
+    Object.assign(body, otherParams);
+
+    // NO tools field!
+
+    // Constructing request headers
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "anthropic-version": (config.profile.metadata?.["apiVersion"] as string) || this.apiVersion,
+      "anthropic-dangerous-direct-browser-access": "false",
+      ...config.profile.headers,
+    };
+
+    // Add authentication headers
+    if (config.profile.apiKey) {
+      Object.assign(headers, this.buildAuthHeader(config.profile.apiKey, config, "x-api-key"));
+    }
+
+    // Add custom request headers
+    Object.assign(headers, this.buildCustomHeaders(config));
+
+    // Apply a custom request body
+    const finalBody = this.applyCustomBody(body, config);
+
+    // Construct query parameters
+    const queryString = this.buildQueryString(config);
+
+    return {
+      httpRequest: {
+        url: `/v1/messages${queryString}`,
+        method: "POST",
+        headers,
+        body: finalBody,
+        timeout: config.timeout,
+      },
+      transformedBody: finalBody,
+    };
+  }
+
+  /**
+   * Parse response in native function-calling mode
+   */
+  protected parseNativeResponse(data: unknown, config: FormatterConfig): LLMResult {
     const dataRecord = data as Record<string, unknown>;
     const content = this.extractContent(dataRecord["content"]);
     const toolCalls = this.extractToolCalls(dataRecord["content"]);
@@ -97,6 +189,93 @@ export class AnthropicFormatter extends BaseFormatter {
       },
       reasoningContent: thinkingContent,
     };
+  }
+
+  /**
+   * Parse response in text-based mode (XML/JSON)
+   */
+  protected override parseTextModeResponse(data: unknown, config: FormatterConfig): LLMResult {
+    const dataRecord = data as Record<string, unknown>;
+    const content = this.extractContent(dataRecord["content"]);
+    const format = this.getToolCallFormat(config);
+
+    // Parse tool calls from content using ToolCallParser
+    const toolCalls = config.toolCallFormat
+      ? ToolCallParser.parseFromText(
+          content,
+          getToolCallParserOptions(config.toolCallFormat.format, config.toolCallFormat.markers)
+        )
+      : [];
+
+    // Extract thinking content (for Claude extended thinking)
+    const thinkingContent = this.extractThinkingContent(dataRecord["content"]);
+
+    const usage = dataRecord["usage"] as Record<string, number> | undefined;
+
+    return {
+      id: dataRecord["id"] as string,
+      model: dataRecord["model"] as string,
+      content,
+      message: {
+        role: "assistant",
+        content,
+        toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+      },
+      toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+      usage: usage
+        ? {
+            promptTokens: usage["input_tokens"] ?? 0,
+            completionTokens: usage["output_tokens"] ?? 0,
+            totalTokens: (usage["input_tokens"] ?? 0) + (usage["output_tokens"] ?? 0),
+          }
+        : undefined,
+      finishReason: dataRecord["stop_reason"] as string,
+      duration: 0,
+      metadata: {
+        type: dataRecord["type"] as string,
+        stopReason: dataRecord["stop_reason"] as string,
+      },
+      reasoningContent: thinkingContent,
+    };
+  }
+
+  /**
+   * Get tool usage instructions based on format
+   */
+  private getToolUsageInstructions(format: ToolCallFormat): string {
+    if (format === 'xml') {
+      return `## Tool Usage Instructions
+
+When you need to use a tool, format your response as follows:
+
+<tool_use>
+  <tool_name>tool_name_here</tool_name>
+  <parameters>
+    <param1>value1</param1>
+    <param2>value2</param2>
+  </parameters>
+</tool_use>
+
+You can use multiple tools in one response by including multiple <tool_use> blocks.`;
+    } else if (format === 'json_wrapped') {
+      return `## Tool Usage Instructions
+
+When you need to use a tool, format your response as follows:
+
+<<<TOOL_CALL>>>
+{
+  "tool": "tool_name_here",
+  "parameters": {
+    "param1": "value1",
+    "param2": "value2"
+  }
+}
+<<<END_TOOL_CALL>>>
+
+You can use multiple tools in one response by including multiple blocks.`;
+    }
+
+    return '';
   }
 
   parseStreamChunk(data: unknown): ParseStreamChunkResult {

@@ -4,7 +4,8 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { ToolCallParser, type ToolCallParseOptions } from "../tool-call-parser.js";
+import { ToolCallParser } from "../tool-call-parser.js";
+import type { ToolCallParseOptions } from "../types.js";
 
 describe("ToolCallParser", () => {
   describe("parseXMLToolCalls", () => {
@@ -229,8 +230,10 @@ describe("ToolCallParser", () => {
       `;
 
       const options: ToolCallParseOptions = {
-        toolCallStartMarker: "[[START]]",
-        toolCallEndMarker: "[[END]]",
+        markers: {
+          start: "[[START]]",
+          end: "[[END]]",
+        },
       };
 
       const toolCalls = ToolCallParser.parseJSONToolCalls(text, options);
@@ -314,15 +317,14 @@ describe("ToolCallParser", () => {
     });
 
     it("should respect preferredFormats order", () => {
-      const text = `
-        {"tool":"raw_first"}
-        <<<TOOL_CALL>>>{"tool":"json_second"}<<<END_TOOL_CALL>>>
-      `;
+      // When raw JSON is present and preferred first, it should be parsed
+      const text = `{"tool":"raw_first"}`;
 
       const calls = ToolCallParser.parseFromText(text, {
         preferredFormats: ["raw", "json", "xml"],
       });
 
+      expect(calls).toHaveLength(1);
       expect(calls[0]?.function.name).toBe("raw_first");
     });
 

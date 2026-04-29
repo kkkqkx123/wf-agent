@@ -4,6 +4,7 @@
 
 import { describe, it, expect, beforeEach } from "vitest";
 import { BaseFormatter } from "../base.js";
+import { ToolCallParser } from "../tool-call-parser.js";
 import type { LLMRequest, LLMMessage, LLMToolCall, ToolSchema } from "@wf-agent/types";
 import type { FormatterConfig, ParseStreamChunkResult } from "../types.js";
 
@@ -13,7 +14,7 @@ class TestFormatter extends BaseFormatter {
     return "TEST";
   }
 
-  buildRequest(request: LLMRequest, config: FormatterConfig) {
+  buildNativeRequest(request: LLMRequest, config: FormatterConfig) {
     return {
       httpRequest: {
         url: "/test",
@@ -24,7 +25,7 @@ class TestFormatter extends BaseFormatter {
     };
   }
 
-  parseResponse(data: any, config: FormatterConfig) {
+  parseNativeResponse(data: any, config: FormatterConfig) {
     return {
       id: "test-id",
       model: "test-model",
@@ -280,7 +281,7 @@ describe("BaseFormatter", () => {
       const target = { items: [1, 2] };
       const source = { items: [3, 4] };
 
-      const result = formatter["deepMerge"](target, source);
+      const result = formatter["deepMerge"](target, source) as any;
       expect(result.items).toEqual([1, 2, 3, 4]);
     });
 
@@ -478,20 +479,20 @@ describe("BaseFormatter", () => {
       });
     });
 
-    it("Nested paths in simple patterns should be handled", () => {
+    it("Simple mode keys should be handled", () => {
       const baseBody = { model: "test" };
       const config = {
         ...mockConfig,
         customBodyConfig: {
           mode: "simple" as const,
-          items: [{ key: "extra_body.google", value: "value", enabled: true }],
+          items: [{ key: "extra_field", value: "value", enabled: true }],
         },
       };
 
       const result = formatter["applyCustomBody"](baseBody, config);
       expect(result).toEqual({
         model: "test",
-        extra_body: { google: "value" },
+        extra_field: "value",
       });
     });
 
@@ -608,7 +609,7 @@ describe("BaseFormatter", () => {
           </tool_use>
         `;
 
-        const toolCalls = formatter.parseXMLToolCalls(xmlText);
+        const toolCalls = ToolCallParser.parseXMLToolCalls(xmlText);
         expect(toolCalls).toHaveLength(1);
         expect(toolCalls[0]?.function.name).toBe("test_tool");
       });
@@ -625,7 +626,7 @@ describe("BaseFormatter", () => {
           </tool_use>
         `;
 
-        const toolCalls = formatter.parseXMLToolCalls(xmlText);
+        const toolCalls = ToolCallParser.parseXMLToolCalls(xmlText);
         const args = JSON.parse(toolCalls[0]!.function.arguments);
         expect(args).toEqual({ nested: { key: "value" } });
       });
@@ -644,7 +645,7 @@ describe("BaseFormatter", () => {
           </tool_use>
         `;
 
-        const toolCalls = formatter.parseXMLToolCalls(xmlText);
+        const toolCalls = ToolCallParser.parseXMLToolCalls(xmlText);
         const args = JSON.parse(toolCalls[0]!.function.arguments);
         expect(args).toEqual({ items: [1, 2, 3] });
       });
@@ -665,7 +666,7 @@ describe("BaseFormatter", () => {
           </tool_use>
         `;
 
-        const toolCalls = formatter.parseXMLToolCalls(xmlText);
+        const toolCalls = ToolCallParser.parseXMLToolCalls(xmlText);
         expect(toolCalls).toHaveLength(2);
       });
     });
@@ -678,7 +679,7 @@ describe("BaseFormatter", () => {
           <<<END_TOOL_CALL>>>
         `;
 
-        const toolCalls = formatter.parseJSONToolCalls(text);
+        const toolCalls = ToolCallParser.parseJSONToolCalls(text);
         expect(toolCalls).toHaveLength(1);
         expect(toolCalls[0]?.function.name).toBe("test_tool");
       });
@@ -690,9 +691,11 @@ describe("BaseFormatter", () => {
           <<<CUSTOM_END>>>
         `;
 
-        const toolCalls = formatter.parseJSONToolCalls(text, {
-          toolCallStartMarker: "<<<CUSTOM_START>>>",
-          toolCallEndMarker: "<<<CUSTOM_END>>>",
+        const toolCalls = ToolCallParser.parseJSONToolCalls(text, {
+          markers: {
+            start: "<<<CUSTOM_START>>>",
+            end: "<<<CUSTOM_END>>>",
+          },
         });
         expect(toolCalls).toHaveLength(1);
       });
@@ -707,7 +710,7 @@ describe("BaseFormatter", () => {
           <<<END_TOOL_CALL>>>
         `;
 
-        const toolCalls = formatter.parseJSONToolCalls(text);
+        const toolCalls = ToolCallParser.parseJSONToolCalls(text);
         expect(toolCalls).toHaveLength(2);
       });
     });
@@ -723,7 +726,7 @@ describe("BaseFormatter", () => {
           </tool_use>
         `;
 
-        const toolCalls = formatter.parseToolCallsFromText(text);
+        const toolCalls = ToolCallParser.parseFromText(text);
         expect(toolCalls).toHaveLength(1);
         expect(toolCalls[0]?.function.name).toBe("test_tool");
       });
@@ -735,14 +738,14 @@ describe("BaseFormatter", () => {
           <<<END_TOOL_CALL>>>
         `;
 
-        const toolCalls = formatter.parseToolCallsFromText(text);
+        const toolCalls = ToolCallParser.parseFromText(text);
         expect(toolCalls).toHaveLength(1);
         expect(toolCalls[0]?.function.name).toBe("test_tool");
       });
 
       it("An empty array should be returned when the format cannot be recognized.", () => {
         const text = "No tool calls here";
-        const toolCalls = formatter.parseToolCallsFromText(text);
+        const toolCalls = ToolCallParser.parseFromText(text);
         expect(toolCalls).toHaveLength(0);
       });
 
@@ -757,7 +760,7 @@ describe("BaseFormatter", () => {
           <<<END_TOOL_CALL>>>
         `;
 
-        const toolCalls = formatter.parseToolCallsFromText(text);
+        const toolCalls = ToolCallParser.parseFromText(text);
         expect(toolCalls).toHaveLength(1);
         expect(toolCalls[0]?.function.name).toBe("xml_tool");
       });

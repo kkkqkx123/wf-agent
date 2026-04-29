@@ -17,11 +17,14 @@ import { convertToolsToOpenAIFormat } from "../utils/index.js";
  * Gemini OpenAI Compatible Format Converter
  */
 export class GeminiOpenAIFormatter extends BaseFormatter {
-  getSupportedProvider(): string {
+  override getSupportedProvider(): string {
     return "GEMINI_OPENAI";
   }
 
-  buildRequest(request: LLMRequest, config: FormatterConfig): BuildRequestResult {
+  /**
+   * Build request in native function-calling mode
+   */
+  protected buildNativeRequest(request: LLMRequest, config: FormatterConfig): BuildRequestResult {
     const body = this.buildRequestBody(request, config);
 
     // Constructing request headers
@@ -56,7 +59,10 @@ export class GeminiOpenAIFormatter extends BaseFormatter {
     };
   }
 
-  parseResponse(data: unknown, config: FormatterConfig): LLMResult {
+  /**
+   * Parse response in native function-calling mode
+   */
+  protected parseNativeResponse(data: unknown, config: FormatterConfig): LLMResult {
     const dataRecord = data as Record<string, unknown>;
     const candidates = dataRecord["candidates"] as Array<Record<string, unknown>> | undefined;
     const candidate = candidates?.[0];

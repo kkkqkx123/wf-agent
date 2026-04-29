@@ -15,7 +15,6 @@ export type {
   AuthType,
   CustomHeader,
   CustomBodyConfig,
-  ToolCallParseOptions,
 } from "./types.js";
 
 // Base class export

@@ -48,7 +48,7 @@ export async function pauseThreadHandler(
   const executionTime = now();
 
   try {
-    if (action.type !== "pause_thread") {
+    if (action.type !== "pause_workflow_execution") {
       throw new RuntimeValidationError("Action type must be pause_thread", {
         operation: "handle",
         field: "type",

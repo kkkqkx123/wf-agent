@@ -316,9 +316,9 @@ export class TriggerCoordinator {
     // Pass different dependencies depending on the type of handler.
 
     switch (trigger.action.type) {
-      case "stop_thread":
-      case "pause_thread":
-      case "resume_thread":
+      case "stop_workflow_execution":
+      case "pause_workflow_execution":
+      case "resume_workflow_execution":
         if (!threadLifecycleCoordinator) {
           throw new DependencyInjectionError(
             "WorkflowLifecycleCoordinator not provided",

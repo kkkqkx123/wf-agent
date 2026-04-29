@@ -12,7 +12,7 @@
 
 import type { Node, LLMNodeConfig } from "@wf-agent/types";
 import type { GraphLLMExecutionConfig } from "@wf-agent/types";
-import type { Thread, LLMMessage } from "@wf-agent/types";
+import type { WorkflowExecution, LLMMessage } from "@wf-agent/types";
 import type { HumanRelayHandler } from "@wf-agent/types";
 import { ExecutionError } from "@wf-agent/types";
 import { now, diffTimestamp, getErrorOrNew } from "@wf-agent/common-utils";
@@ -90,7 +90,7 @@ function resolvePrompt(config: LLMNodeConfig): string {
  * @returns Execution result
  */
 export async function llmHandler(
-  thread: Thread,
+  thread: WorkflowExecution,
   node: Node,
   context: LLMHandlerContext,
 ): Promise<LLMExecutionResult> {
@@ -165,7 +165,7 @@ export async function llmHandler(
  * Execute the HumanRelay LLM node
  */
 async function executeHumanRelayLLMNode(
-  thread: Thread,
+  thread: WorkflowExecution,
   node: Node,
   requestData: { prompt?: string; parameters?: { timeout?: number } },
   context: LLMHandlerContext,

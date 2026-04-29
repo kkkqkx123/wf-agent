@@ -4,7 +4,7 @@
  */
 
 import type { Node, LoopStartNodeConfig } from "@wf-agent/types";
-import type { Thread } from "@wf-agent/types";
+import type { WorkflowExecution } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import { ExecutionError, ValidationError, RuntimeValidationError } from "@wf-agent/types";
 import { now, getErrorMessage } from "@wf-agent/common-utils";
@@ -29,7 +29,7 @@ function canExecute(executionEntity: WorkflowExecutionEntity, node: Node): boole
     return false;
   }
 
-  const thread = workflowExecutionEntity.getExecution();
+  const thread = executionEntity.getExecution();
   const config = node.config as LoopStartNodeConfig;
   const loopState = getLoopState(thread);
 
@@ -62,7 +62,7 @@ function isValidIterable(iterable: unknown): boolean {
  * - Direct values: [1,2,3], {a:1}, 5, "hello"
  * - Variable expressions: {{input.list}}, {{thread.items}}, {{global.data}}
  */
-function resolveIterable(iterableConfig: unknown, thread: Thread): unknown {
+function resolveIterable(iterableConfig: unknown, thread: WorkflowExecution): unknown {
   // If no iterable configuration is provided, return null (counting loop mode).
   if (iterableConfig === undefined || iterableConfig === null) {
     return null;
@@ -166,7 +166,7 @@ function resolveIterable(iterableConfig: unknown, thread: Thread): unknown {
 /**
  * Get the loop status
  */
-function getLoopState(thread: Thread): LoopState | undefined {
+function getLoopState(thread: WorkflowExecution): LoopState | undefined {
   const currentLoopScope = thread.variableScopes.loop[thread.variableScopes.loop.length - 1] as
     | Record<string, unknown>
     | undefined;
@@ -179,7 +179,7 @@ function getLoopState(thread: Thread): LoopState | undefined {
 /**
  * Set the loop state within the loop scope.
  */
-function setLoopState(thread: Thread, loopState: LoopState): void {
+function setLoopState(thread: WorkflowExecution, loopState: LoopState): void {
   const currentLoopScope = thread.variableScopes.loop[thread.variableScopes.loop.length - 1];
   if (currentLoopScope) {
     currentLoopScope[`__loop_state`] = loopState;
@@ -189,7 +189,7 @@ function setLoopState(thread: Thread, loopState: LoopState): void {
 /**
  * Clear the loop state (only delete the state objects; the scope is cleared upon exit).
  */
-function clearLoopState(thread: Thread): void {
+function clearLoopState(thread: WorkflowExecution): void {
   const currentLoopScope = thread.variableScopes.loop[thread.variableScopes.loop.length - 1];
   if (currentLoopScope) {
     delete currentLoopScope[`__loop_state`];
@@ -269,7 +269,7 @@ function getCurrentValue(loopState: LoopState): unknown {
 /**
  * Set the loop variable within the scope of the loop.
  */
-function setLoopVariable(thread: Thread, variableName: string, value: unknown): void {
+function setLoopVariable(thread: WorkflowExecution, variableName: string, value: unknown): void {
   // 循环作用域应该在 loopStartHandler 中通过 enterLoopScope() 创建
   const currentLoopScope = thread.variableScopes.loop[thread.variableScopes.loop.length - 1];
   if (currentLoopScope) {
@@ -287,7 +287,7 @@ function updateLoopState(loopState: LoopState): void {
 
 /**
  * LoopStart node processing function
- * @param thread: Thread instance
+ * @param thread: WorkflowExecution instance
  * @param node: Node definition
  * @param context: Processor context (optional)
  * @returns: Execution result
@@ -297,7 +297,7 @@ export async function loopStartHandler(
   node: Node,
   _context?: unknown,
 ): Promise<unknown> {
-  const thread = workflowExecutionEntity.getExecution();
+  const thread = executionEntity.getExecution();
 
   // Check if it is possible to execute.
   if (!canExecute(executionEntity, node)) {
@@ -344,6 +344,7 @@ export async function loopStartHandler(
       thread.variableScopes = {
         global: {},
         thread: {},
+        workflowExecution: {},
         local: [],
         loop: [],
       };

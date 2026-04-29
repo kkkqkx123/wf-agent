@@ -119,7 +119,6 @@ export class WorkflowExecutionCoordinator {
 
     return {
       executionId,
-      id: executionId,
       output: this.workflowExecutionEntity.getOutput(),
       executionTime,
       nodeResults: this.workflowExecutionEntity.getNodeResults(),

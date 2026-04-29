@@ -132,7 +132,6 @@ export const TaskSerializationUtils = {
   deserializeThreadResult(serialized: SerializedThreadResult): WorkflowExecutionResult {
     return {
       executionId: serialized.id,
-      id: serialized.id,
       output: serialized.output,
       executionTime: serialized.executionTime,
       nodeResults: serialized.nodeResults,

@@ -231,7 +231,6 @@ export class WorkflowExecutionBuilder {
       workflowExecutionEntity,
       stateCoordinator,
       conversationManager,
-      executionEntity: workflowExecutionEntity, // Backward compatibility
     };
   }
 
@@ -337,7 +336,6 @@ export class WorkflowExecutionBuilder {
       workflowExecutionEntity: copiedWorkflowExecutionEntity,
       stateCoordinator,
       conversationManager,
-      executionEntity: copiedWorkflowExecutionEntity,
     };
   }
 
@@ -437,7 +435,6 @@ export class WorkflowExecutionBuilder {
       workflowExecutionEntity: forkWorkflowExecutionEntity,
       stateCoordinator,
       conversationManager,
-      executionEntity: forkWorkflowExecutionEntity,
     };
   }
 

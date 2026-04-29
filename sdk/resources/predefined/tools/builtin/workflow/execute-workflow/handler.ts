@@ -44,7 +44,7 @@ export function createExecuteWorkflowHandler() {
         value: params,
         context: {
           executionId: context.executionId,
-          hasParentThread: !!context.parentThreadEntity,
+          hasParentThread: !!context.parentExecutionEntity,
         },
       });
     }
@@ -86,7 +86,6 @@ export function createExecuteWorkflowHandler() {
     const task: TriggeredSubgraphTask = {
       subgraphId: workflowId,
       input,
-      mainThreadEntity: workflowContext.parentThreadEntity,
       mainWorkflowExecutionEntity: workflowContext.parentThreadEntity,
       triggerId: `builtin-${Date.now()}`,
       config: {

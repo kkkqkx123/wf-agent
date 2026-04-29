@@ -23,13 +23,13 @@ export class BuiltinExecutor extends BaseExecutor {
    * Specific implementation of executing a builtin tool
    * @param tool Tool definition
    * @param parameters Tool parameters
-   * @param threadId Thread ID (optional)
+   * @param executionId Execution ID (optional)
    * @returns Execution result
    */
   protected async doExecute(
     tool: Tool,
     parameters: Record<string, unknown>,
-    threadId?: string,
+    executionId?: string,
   ): Promise<unknown> {
     // Get the builtin tool config
     const config = tool.config as BuiltinToolConfig;
@@ -51,7 +51,7 @@ export class BuiltinExecutor extends BaseExecutor {
     try {
       // Build execution context
       const context: BuiltinToolExecutionContext = {
-        threadId,
+        executionId,
         ...this.defaultContext,
       };
 

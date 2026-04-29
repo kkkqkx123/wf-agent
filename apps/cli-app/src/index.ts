@@ -116,7 +116,7 @@ program
       presets: config.presets,
       checkpointStorageCallback: storageManager?.getCheckpointStorage() ?? undefined,
       workflowStorageCallback: storageManager?.getWorkflowStorage() ?? undefined,
-      threadStorageCallback: storageManager?.getThreadStorage() ?? undefined,
+      taskStorageCallback: storageManager?.getTaskStorage() ?? undefined,
     });
 
     // Wait for SDK bootstrap to complete

@@ -3,7 +3,7 @@
  * Responsible for executing the VARIABLE node, evaluating variable expressions, and updating variable values.
  */
 
-import type { Node, VariableNodeConfig, Thread } from "@wf-agent/types";
+import type { Node, VariableNodeConfig, WorkflowExecution } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import { RuntimeValidationError } from "@wf-agent/types";
 import { now } from "@wf-agent/common-utils";
@@ -33,7 +33,7 @@ function canExecute(executionEntity: WorkflowExecutionEntity, node: Node): boole
  * Parse variable references in expressions
  * Use a unified path parsing logic
  */
-function resolveVariableReferences(expression: string, thread: Thread): string {
+function resolveVariableReferences(expression: string, thread: WorkflowExecution): string {
   const variablePattern = /\{\{(\w+(?:\.\w+)*)\}\}/g;
 
   return expression.replace(variablePattern, (match, varPath) => {
@@ -74,7 +74,7 @@ function resolveVariableReferences(expression: string, thread: Thread): string {
 /**
  * Evaluate the expression.
  */
-function evaluateExpression(expression: string, variableType: string, thread: Thread): unknown {
+function evaluateExpression(expression: string, variableType: string, thread: WorkflowExecution): unknown {
   try {
     // Handling empty string expressions
     if (!expression.trim()) {
@@ -186,7 +186,7 @@ export async function variableHandler(
   }
 
   const config = node.config as VariableNodeConfig;
-  const thread = workflowExecutionEntity.getExecution();
+  const thread = executionEntity.getExecution();
 
   // Parse variable references in expressions
   const evaluatedExpression = resolveVariableReferences(config.expression, thread);
@@ -198,7 +198,7 @@ export async function variableHandler(
   const typedResult = convertType(result, config.variableType);
 
   // Update the variable
-  const variable = thread.variables.find(v => v.name === config.variableName);
+  const variable = thread.variables.find((v: any) => v.name === config.variableName);
   const variableScope = config.scope || "thread";
 
   if (variable) {

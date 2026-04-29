@@ -4,7 +4,7 @@
  */
 
 import type { Node, LoopEndNodeConfig } from "@wf-agent/types";
-import type { Thread } from "@wf-agent/types";
+import type { WorkflowExecution } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import type { Condition, EvaluationContext } from "@wf-agent/types";
 import { ExecutionError, NotFoundError } from "@wf-agent/types";
@@ -46,7 +46,7 @@ function canExecute(workflowExecutionEntity: WorkflowExecutionEntity, node: Node
 /**
  * Get the loop status
  */
-function getLoopState(workflowExecution: Thread): LoopState | undefined {
+function getLoopState(workflowExecution: WorkflowExecution): LoopState | undefined {
   const currentLoopScope = workflowExecution.variableScopes.loop[workflowExecution.variableScopes.loop.length - 1] as
     | Record<string, unknown>
     | undefined;
@@ -59,7 +59,7 @@ function getLoopState(workflowExecution: Thread): LoopState | undefined {
 /**
  * Clear loop state and scope.
  */
-function clearLoopState(workflowExecution: Thread): void {
+function clearLoopState(workflowExecution: WorkflowExecution): void {
   // Clear the loop state object
   const currentLoopScope = workflowExecution.variableScopes.loop[workflowExecution.variableScopes.loop.length - 1];
   if (currentLoopScope) {
@@ -75,7 +75,7 @@ function clearLoopState(workflowExecution: Thread): void {
 /**
  * Evaluating interrupt conditions
  */
-function evaluateBreakCondition(breakCondition: Condition, workflowExecution: Thread): boolean {
+function evaluateBreakCondition(breakCondition: Condition, workflowExecution: WorkflowExecution): boolean {
   try {
     // Constructing the evaluation context
     const context: EvaluationContext = {

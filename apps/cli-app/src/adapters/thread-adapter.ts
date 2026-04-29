@@ -57,53 +57,53 @@ export class ThreadAdapter extends BaseAdapter {
   }
 
   /**
-   * List all threads
+   * List all workflow executions
    */
   async listThreads(filter?: any): Promise<any[]> {
     return this.executeWithErrorHandling(async () => {
-      const api = this.sdk.threads;
+      const api = this.sdk.executions;
       const result = await api.getAll();
-      const threads = (result as any).data || result;
+      const executions = (result as any).data || result;
 
       // Conversion to summary format
-      const summaries = (threads as any[]).map((thread: any) => ({
-        id: thread.id,
-        workflowId: thread.workflowId,
-        status: thread.status,
-        createdAt: thread.createdAt || new Date().toISOString(),
-        updatedAt: thread.updatedAt || new Date().toISOString(),
+      const summaries = (executions as any[]).map((execution: any) => ({
+        id: execution.id,
+        workflowId: execution.workflowId,
+        status: execution.status,
+        createdAt: execution.createdAt || new Date().toISOString(),
+        updatedAt: execution.updatedAt || new Date().toISOString(),
       }));
 
       return summaries;
-    }, "List threads");
+    }, "List workflow executions");
   }
 
   /**
-   * Get thread details
+   * Get workflow execution details
    */
   async getThread(threadId: string): Promise<any> {
     return this.executeWithErrorHandling(async () => {
-      const api = this.sdk.threads;
+      const api = this.sdk.executions;
       const result = await api.get(threadId);
-      const thread = (result as any).data || result;
+      const execution = (result as any).data || result;
 
-      if (!thread) {
-        throw new CLINotFoundError(`Thread not found: ${threadId}`, "Thread", threadId);
+      if (!execution) {
+        throw new CLINotFoundError(`Workflow execution not found: ${threadId}`, "WorkflowExecution", threadId);
       }
 
-      return thread;
-    }, "Get thread details");
+      return execution;
+    }, "Get workflow execution details");
   }
 
   /**
-   * Delete thread
+   * Delete workflow execution
    */
   async deleteThread(threadId: string): Promise<void> {
     return this.executeWithErrorHandling(async () => {
-      const api = this.sdk.threads;
+      const api = this.sdk.executions;
       await api.delete(threadId);
 
-      this.output.infoLog(`Thread deleted: ${threadId}`);
-    }, "Delete thread");
+      this.output.infoLog(`Workflow execution deleted: ${threadId}`);
+    }, "Delete workflow execution");
   }
 }

@@ -221,7 +221,6 @@ export class WorkflowExecutionRegistryAPI extends CrudResourceAPI<
 
     return {
       executionId: execution.id,
-      id: execution.id,
       output: execution.output,
       executionTime: startTime && endTime ? endTime - startTime : 0,
       nodeResults: execution.nodeResults,

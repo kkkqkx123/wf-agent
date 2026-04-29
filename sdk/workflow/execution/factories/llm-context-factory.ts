@@ -24,6 +24,7 @@ import { ExecutionError } from "@wf-agent/types";
  * Tool Approval Context
  */
 export interface ToolApprovalContext {
+  executionRegistry?: WorkflowExecutionRegistry;
   workflowExecutionRegistry: WorkflowExecutionRegistry;
   checkpointStateManager: CheckpointState;
   workflowRegistry?: WorkflowRegistry;
@@ -135,6 +136,7 @@ export class LLMContextFactory {
     }
 
     return {
+      executionRegistry: this.config.executionRegistry,
       workflowExecutionRegistry: this.config.executionRegistry,
       checkpointStateManager: this.config.checkpointStateManager,
       workflowRegistry: this.config.workflowRegistry,

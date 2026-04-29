@@ -42,7 +42,7 @@ import { logError, emitErrorEvent } from "../../../core/utils/error-utils.js";
  * Workflow Execution Build Result (simplified interface for TriggeredSubworkflowHandler)
  */
 interface ThreadBuildResultSimple {
-  executionEntity: WorkflowExecutionEntity;
+  workflowExecutionEntity: WorkflowExecutionEntity;
   stateCoordinator: WorkflowStateCoordinator;
   conversationManager: ConversationSession;
 }
@@ -155,10 +155,10 @@ export class TriggeredSubworkflowHandler implements TaskManager {
       });
     }
 
-    if (!task.mainThreadEntity) {
-      throw new RuntimeValidationError("mainThreadEntity is required", {
+    if (!task.mainWorkflowExecutionEntity) {
+      throw new RuntimeValidationError("mainWorkflowExecutionEntity is required", {
         operation: "executeTriggeredSubgraph",
-        field: "mainThreadEntity",
+        field: "mainWorkflowExecutionEntity",
       });
     }
 
@@ -172,9 +172,9 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     this.workflowExecutionRegistry.register(subgraphEntity);
 
     // Establish a parent-child thread relationship
-    const parentThreadId = task.mainThreadEntity.id;
+    const parentThreadId = task.mainWorkflowExecutionEntity.id;
     const childThreadId = subgraphEntity.id;
-    task.mainThreadEntity.registerChildThread(childThreadId);
+    task.mainWorkflowExecutionEntity.registerChildThread(childThreadId);
     subgraphEntity.setParentThreadId(parentThreadId);
     subgraphEntity.setTriggeredSubworkflowId(task.subgraphId);
 
@@ -202,8 +202,8 @@ export class TriggeredSubworkflowHandler implements TaskManager {
   private prepareInputData(task: TriggeredSubgraphTask): Record<string, unknown> {
     return {
       triggerId: task.triggerId,
-      output: task.mainThreadEntity.getOutput(),
-      input: task.mainThreadEntity.getInput(),
+      output: task.mainWorkflowExecutionEntity.getOutput(),
+      input: task.mainWorkflowExecutionEntity.getInput(),
       ...task.input,
     };
   }
@@ -218,7 +218,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     task: TriggeredSubgraphTask,
     input: Record<string, unknown>,
   ): Promise<WorkflowExecutionEntity> {
-    const { executionEntity: subgraphEntity } = await this.executionBuilder.build(task.subgraphId, {
+    const { workflowExecutionEntity: subgraphEntity } = await this.executionBuilder.build(task.subgraphId, {
       input,
     });
 
@@ -382,8 +382,8 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     _subgraphEntity: WorkflowExecutionEntity,
   ): Promise<void> {
     const startedEvent = buildTriggeredSubgraphStartedEvent({
-      executionId: task.mainThreadEntity.id,
-      workflowId: task.mainThreadEntity.getWorkflowId(),
+      executionId: task.mainWorkflowExecutionEntity.id,
+      workflowId: task.mainWorkflowExecutionEntity.getWorkflowId(),
       subgraphId: task.subgraphId,
       triggerId: task.triggerId,
       input: task.input,

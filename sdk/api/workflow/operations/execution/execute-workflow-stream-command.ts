@@ -105,12 +105,12 @@ export class ExecuteWorkflowStreamCommand extends BaseCommand<AsyncGenerator<Wor
     };
 
     const eventTypes: Array<BaseEvent["type"]> = [
-      "THREAD_STARTED",
-      "THREAD_COMPLETED",
-      "THREAD_FAILED",
-      "THREAD_PAUSED",
-      "THREAD_RESUMED",
-      "THREAD_CANCELLED",
+      "WORKFLOW_EXECUTION_STARTED",
+      "WORKFLOW_EXECUTION_COMPLETED",
+      "WORKFLOW_EXECUTION_FAILED",
+      "WORKFLOW_EXECUTION_PAUSED",
+      "WORKFLOW_EXECUTION_RESUMED",
+      "WORKFLOW_EXECUTION_CANCELLED",
       "NODE_STARTED",
       "NODE_COMPLETED",
       "NODE_FAILED",

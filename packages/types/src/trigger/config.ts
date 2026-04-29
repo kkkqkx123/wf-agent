@@ -249,9 +249,9 @@ export interface ExecuteScriptAction extends BaseTriggerAction {
  * Implementing type safety with recognizable unions
  */
 export type TriggerAction =
-  | StopThreadAction
-  | PauseThreadAction
-  | ResumeThreadAction
+  | StopWorkflowExecutionAction
+  | PauseWorkflowExecutionAction
+  | ResumeWorkflowExecutionAction
   | SkipNodeAction
   | SetVariableAction
   | SendNotificationAction

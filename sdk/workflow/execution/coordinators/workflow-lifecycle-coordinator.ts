@@ -100,10 +100,7 @@ export class WorkflowLifecycleCoordinator {
       throw new WorkflowExecutionNotFoundError(`WorkflowExecutionEntity not found`, executionId);
     }
 
-    // 1. Request to pause (InterruptionState will automatically trigger the AbortController)
-    workflowExecutionEntity.interrupt("PAUSE");
-
-    // 2. Fully delegate the state transition and event triggering to the Transitor.
+    // Fully delegate the state transition and event triggering to the Transitor.
     await this.workflowStateTransitor.pauseWorkflowExecution(workflowExecutionEntity);
   }
 
@@ -156,10 +153,7 @@ export class WorkflowLifecycleCoordinator {
       throw new WorkflowExecutionNotFoundError(`WorkflowExecutionEntity not found`, executionId);
     }
 
-    // 1. Request to stop (InterruptionState will automatically trigger the AbortController)
-    workflowExecutionEntity.interrupt("STOP");
-
-    // 2. Fully delegate the state transitions and event triggering to the Manager.
+    // Fully delegate the state transitions and event triggering to the Manager.
     await this.workflowStateTransitor.cancelWorkflowExecution(workflowExecutionEntity, "user_requested");
 
     // 3. Cascading cancellation of child workflow executions

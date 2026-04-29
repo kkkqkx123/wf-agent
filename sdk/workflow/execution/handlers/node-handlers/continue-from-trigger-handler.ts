@@ -64,10 +64,10 @@ export async function continueFromTriggerHandler(
 
   const config = node.config as ContinueFromTriggerNodeConfig;
 
-  // Retrieve the main thread entity (from the context).
-  const mainThreadEntity = context?.mainThreadEntity;
-  if (!mainThreadEntity) {
-    throw new Error("Main thread entity is required for CONTINUE_FROM_TRIGGER node");
+  // Retrieve the main workflow execution entity (from the context).
+  const mainWorkflowExecutionEntity = context?.mainWorkflowExecutionEntity;
+  if (!mainWorkflowExecutionEntity) {
+    throw new Error("Main workflow execution entity is required for CONTINUE_FROM_TRIGGER node");
   }
 
   // Handling variable callbacks
@@ -77,7 +77,7 @@ export async function continueFromTriggerHandler(
       // Return all variables
       const allVariables = thread.variables || [];
       for (const v of allVariables) {
-        mainThreadEntity.setVariable(v.name, v.value);
+        mainWorkflowExecutionEntity.setVariable(v.name, v.value);
       }
     } else if (config.variableCallback.includeVariables) {
       // Selective variable return
@@ -85,7 +85,7 @@ export async function continueFromTriggerHandler(
         config.variableCallback?.includeVariables?.includes(v.name),
       );
       for (const v of variablesToCallback) {
-        mainThreadEntity.setVariable(v.name, v.value);
+        mainWorkflowExecutionEntity.setVariable(v.name, v.value);
       }
     }
   }

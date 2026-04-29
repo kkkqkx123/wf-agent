@@ -198,9 +198,7 @@ export class WorkflowExecutionEntity {
     if (!this.workflowExecution.triggeredSubworkflowContext) {
       this.workflowExecution.triggeredSubworkflowContext = {
         parentExecutionId: "",
-        parentThreadId: "",
         childExecutionIds: [],
-        childThreadIds: [],
         triggeredSubworkflowId: "",
       };
     }
@@ -233,14 +231,11 @@ export class WorkflowExecutionEntity {
     if (!this.workflowExecution.triggeredSubworkflowContext) {
       this.workflowExecution.triggeredSubworkflowContext = {
         parentExecutionId: parentExecutionId,
-        parentThreadId: parentExecutionId,
         childExecutionIds: [],
-        childThreadIds: [],
         triggeredSubworkflowId: "",
       };
     }
     this.workflowExecution.triggeredSubworkflowContext.parentExecutionId = parentExecutionId;
-    this.workflowExecution.triggeredSubworkflowContext.parentThreadId = parentExecutionId;
   }
 
   getTriggeredSubworkflowId(): ID | undefined {
@@ -251,9 +246,7 @@ export class WorkflowExecutionEntity {
     if (!this.workflowExecution.triggeredSubworkflowContext) {
       this.workflowExecution.triggeredSubworkflowContext = {
         parentExecutionId: "",
-        parentThreadId: "",
         childExecutionIds: [],
-        childThreadIds: [],
         triggeredSubworkflowId: subworkflowId,
       };
     }
@@ -506,62 +499,37 @@ export class WorkflowExecutionEntity {
   /**
    * Set parent execution ID
    * @param parentId Parent execution ID
+   * @deprecated Use setParentExecutionId instead
    */
   setParentThreadId(parentId: string): void {
-    if (!this.workflowExecution.triggeredSubworkflowContext) {
-      this.workflowExecution.triggeredSubworkflowContext = {
-        parentExecutionId: parentId,
-        parentThreadId: parentId,
-        childExecutionIds: [],
-        childThreadIds: [],
-        triggeredSubworkflowId: "",
-      };
-    } else {
-      this.workflowExecution.triggeredSubworkflowContext.parentExecutionId = parentId;
-      this.workflowExecution.triggeredSubworkflowContext.parentThreadId = parentId;
-    }
+    this.setParentExecutionId(parentId);
   }
 
   /**
    * Get parent execution ID
    * @returns Parent execution ID or undefined
+   * @deprecated Use getParentExecutionId instead
    */
   getParentThreadId(): string | undefined {
-    return this.workflowExecution.triggeredSubworkflowContext?.parentThreadId;
+    return this.getParentExecutionId();
   }
 
   /**
    * Register child execution ID
    * @param childId Child execution ID
+   * @deprecated Use registerChildExecution instead
    */
   registerChildThread(childId: string): void {
-    if (!this.workflowExecution.triggeredSubworkflowContext) {
-      this.workflowExecution.triggeredSubworkflowContext = {
-        parentExecutionId: "",
-        parentThreadId: "",
-        childExecutionIds: [],
-        childThreadIds: [],
-        triggeredSubworkflowId: "",
-      };
-    }
-    if (!this.workflowExecution.triggeredSubworkflowContext.childExecutionIds) {
-      this.workflowExecution.triggeredSubworkflowContext.childExecutionIds = [];
-    }
-    this.workflowExecution.triggeredSubworkflowContext.childExecutionIds.push(childId);
+    this.registerChildExecution(childId);
   }
 
   /**
    * Unregister child execution ID
    * @param childId Child execution ID
+   * @deprecated Use unregisterChildExecution instead
    */
   unregisterChildThread(childId: string): void {
-    if (!this.workflowExecution.triggeredSubworkflowContext?.childExecutionIds) {
-      return;
-    }
-    const index = this.workflowExecution.triggeredSubworkflowContext.childExecutionIds.indexOf(childId);
-    if (index !== -1) {
-      this.workflowExecution.triggeredSubworkflowContext.childExecutionIds.splice(index, 1);
-    }
+    this.unregisterChildExecution(childId);
   }
 
   /**

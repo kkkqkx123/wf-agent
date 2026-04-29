@@ -10,7 +10,7 @@ import {
 } from "@wf-agent/types";
 import { CheckpointType } from "@wf-agent/types";
 import { DEFAULT_DELTA_STORAGE_CONFIG } from "../../core/utils/checkpoint/constants.js";
-import type { Thread } from "@wf-agent/types";
+import type { WorkflowExecution } from "@wf-agent/types";
 import type {
   Checkpoint,
   CheckpointMetadata,
@@ -197,7 +197,7 @@ export class CheckpointCoordinator {
    */
   private static extractWorkflowExecutionState(
     workflowExecutionEntity: WorkflowExecutionEntity,
-    workflowExecution: Thread,
+    workflowExecution: WorkflowExecution,
     conversationManager?: ConversationSession,
     ): WorkflowExecutionStateSnapshot {
     // Create a variable snapshot using VariableState
@@ -341,7 +341,7 @@ export class CheckpointCoordinator {
     // Convert nodeResults Record back to array format
     const nodeResultsArray = Object.values(workflowExecutionState.nodeResults || {});
 
-    const workflowExecution: Partial<Thread> = {
+    const workflowExecution: Partial<WorkflowExecution> = {
       id: checkpoint.executionId,
       workflowId: checkpoint.workflowId,
       workflowVersion: "1.0.0", // TODO: Retrieve the version from the checkpoint metadata
@@ -366,7 +366,7 @@ export class CheckpointCoordinator {
     // Step 7: Create WorkflowExecutionEntity (without ConversationManager)
     const executionState = new ExecutionState();
     const workflowExecutionEntity = new WorkflowExecutionEntity(
-      workflowExecution as Thread,
+      workflowExecution as WorkflowExecution,
       executionState,
     );
 
@@ -418,8 +418,8 @@ export class CheckpointCoordinator {
 
     // Step 14: Restore the context of the Triggered sub-workflow (if any).
     if (workflowExecutionState.triggeredSubworkflowContext) {
-      workflowExecutionEntity.setParentThreadId(
-        workflowExecutionState.triggeredSubworkflowContext.parentThreadId,
+      workflowExecutionEntity.setParentExecutionId(
+        workflowExecutionState.triggeredSubworkflowContext.parentExecutionId,
       );
       workflowExecutionEntity.setTriggeredSubworkflowId(
         workflowExecutionState.triggeredSubworkflowContext.triggeredSubworkflowId,
@@ -439,11 +439,11 @@ export class CheckpointCoordinator {
 
     // Step 16: Reverting to the sub-workflow execution (Option 3: Master-Slave Separation Mode)
     if (
-      workflowExecutionState.triggeredSubworkflowContext?.childThreadIds &&
-      workflowExecutionState.triggeredSubworkflowContext.childThreadIds.length > 0
+      workflowExecutionState.triggeredSubworkflowContext?.childExecutionIds &&
+      workflowExecutionState.triggeredSubworkflowContext.childExecutionIds.length > 0
     ) {
       for (const childWorkflowExecutionId of workflowExecutionState.triggeredSubworkflowContext
-        .childThreadIds) {
+        .childExecutionIds) {
         // Find the Checkpoint of the SubWorkflowExecution
         const childCheckpointId = await this.findChildCheckpoint(
           childWorkflowExecutionId,
@@ -453,11 +453,11 @@ export class CheckpointCoordinator {
           // Recover the sub-workflow execution
           const childResult = await this.restoreFromCheckpoint(childCheckpointId, dependencies);
           // Reestablish the parent-child relationship
-          childResult.workflowExecutionEntity.setParentThreadId(workflowExecutionEntity.id);
+          childResult.workflowExecutionEntity.setParentExecutionId(workflowExecutionEntity.id);
           // Register with WorkflowExecutionRegistry
           workflowExecutionRegistry.register(childResult.workflowExecutionEntity);
           // Register the child workflow execution in the main workflow execution.
-          workflowExecutionEntity.registerChildThread(childWorkflowExecutionId);
+          workflowExecutionEntity.registerChildExecution(childWorkflowExecutionId);
         }
       }
     }

@@ -48,7 +48,7 @@ export async function stopThreadHandler(
   const executionTime = now();
 
   try {
-    if (action.type !== "stop_thread") {
+    if (action.type !== "stop_workflow_execution") {
       throw new RuntimeValidationError("Action type must be stop_thread", {
         operation: "handle",
         field: "type",

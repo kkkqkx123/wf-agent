@@ -74,7 +74,7 @@ export function createHumanRelayRequest(task: HumanRelayTask): HumanRelayRequest
     prompt: task.prompt,
     timeout: task.timeout,
     metadata: {
-      workflowId: task.executionEntity.getWorkflowId(),
+      workflowId: task.workflowExecutionEntity.getWorkflowId(),
       executionId: task.workflowExecutionEntity.id,
       nodeId: task.nodeId,
     },
@@ -96,16 +96,16 @@ export function createHumanRelayContext(task: HumanRelayTask): HumanRelayContext
 
   return {
     executionId: task.workflowExecutionEntity.id,
-    workflowId: task.executionEntity.getWorkflowId(),
+    workflowId: task.workflowExecutionEntity.getWorkflowId(),
     nodeId: task.nodeId,
     getVariable: (variableName: string) => {
-      return task.executionEntity.getVariable(variableName);
+      return task.workflowExecutionEntity.getVariable(variableName);
     },
     setVariable: async (variableName: string, value: unknown) => {
-      task.executionEntity.setVariable(variableName, value);
+      task.workflowExecutionEntity.setVariable(variableName, value);
     },
     getVariables: () => {
-      return task.executionEntity.getAllVariables();
+      return task.workflowExecutionEntity.getAllVariables();
     },
     timeout: task.timeout,
     cancelToken,
@@ -125,7 +125,7 @@ export async function emitHumanRelayRequestedEvent(
 ): Promise<void> {
   await eventManager.emit(
     buildHumanRelayRequestedEvent({
-      workflowId: task.executionEntity.getWorkflowId(),
+      workflowId: task.workflowExecutionEntity.getWorkflowId(),
       executionId: task.workflowExecutionEntity.id,
       requestId: request.requestId,
       prompt: request.prompt,
@@ -148,7 +148,7 @@ export async function emitHumanRelayRespondedEvent(
 ): Promise<void> {
   await eventManager.emit(
     buildHumanRelayRespondedEvent({
-      workflowId: task.executionEntity.getWorkflowId(),
+      workflowId: task.workflowExecutionEntity.getWorkflowId(),
       executionId: task.workflowExecutionEntity.id,
       requestId: response.requestId,
       content: response.content,
@@ -171,7 +171,7 @@ export async function emitHumanRelayProcessedEvent(
 ): Promise<void> {
   await eventManager.emit(
     buildHumanRelayProcessedEvent({
-      workflowId: task.executionEntity.getWorkflowId(),
+      workflowId: task.workflowExecutionEntity.getWorkflowId(),
       executionId: task.workflowExecutionEntity.id,
       requestId: task.requestId,
       message: {
@@ -197,7 +197,7 @@ export async function emitHumanRelayFailedEvent(
 ): Promise<void> {
   await eventManager.emit(
     buildHumanRelayFailedEvent({
-      workflowId: task.executionEntity.getWorkflowId(),
+      workflowId: task.workflowExecutionEntity.getWorkflowId(),
       executionId: task.workflowExecutionEntity.id,
       requestId: task.requestId,
       reason: getErrorMessage(error),
@@ -263,7 +263,7 @@ export function convertToLLMMessage(
     metadata: {
       source: "human-relay",
       nodeId: task.nodeId,
-      workflowId: task.executionEntity.getWorkflowId(),
+      workflowId: task.workflowExecutionEntity.getWorkflowId(),
       executionId: task.workflowExecutionEntity.id,
     },
   };
@@ -296,7 +296,6 @@ export async function executeHumanRelay(
     messages,
     prompt,
     timeout,
-    executionEntity,
     workflowExecutionEntity: executionEntity,
     requestId,
     nodeId,

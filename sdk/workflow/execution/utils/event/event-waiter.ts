@@ -53,7 +53,7 @@ export async function waitForThreadPaused(
   timeout: number = 5000,
 ): Promise<void> {
   const actualTimeout = timeout === WAIT_FOREVER ? undefined : timeout;
-  await eventManager.waitFor("THREAD_PAUSED", actualTimeout, event => event.executionId === executionId);
+  await eventManager.waitFor("WORKFLOW_EXECUTION_PAUSED", actualTimeout, event => event.executionId === executionId);
 }
 
 /**
@@ -71,7 +71,7 @@ export async function waitForThreadCancelled(
 ): Promise<void> {
   const actualTimeout = timeout === WAIT_FOREVER ? undefined : timeout;
   await eventManager.waitFor(
-    "THREAD_CANCELLED",
+    "WORKFLOW_EXECUTION_CANCELLED",
     actualTimeout,
     event => event.executionId === executionId,
   );
@@ -92,7 +92,7 @@ export async function waitForThreadCompleted(
 ): Promise<void> {
   const actualTimeout = timeout === WAIT_FOREVER ? undefined : timeout;
   await eventManager.waitFor(
-    "THREAD_COMPLETED",
+    "WORKFLOW_EXECUTION_COMPLETED",
     actualTimeout,
     event => event.executionId === executionId,
   );
@@ -112,7 +112,7 @@ export async function waitForThreadFailed(
   timeout: number = 30000,
 ): Promise<void> {
   const actualTimeout = timeout === WAIT_FOREVER ? undefined : timeout;
-  await eventManager.waitFor("THREAD_FAILED", actualTimeout, event => event.executionId === executionId);
+  await eventManager.waitFor("WORKFLOW_EXECUTION_FAILED", actualTimeout, event => event.executionId === executionId);
 }
 
 /**
@@ -129,7 +129,7 @@ export async function waitForThreadResumed(
   timeout: number = 5000,
 ): Promise<void> {
   const actualTimeout = timeout === WAIT_FOREVER ? undefined : timeout;
-  await eventManager.waitFor("THREAD_RESUMED", actualTimeout, event => event.executionId === executionId);
+  await eventManager.waitFor("WORKFLOW_EXECUTION_RESUMED", actualTimeout, event => event.executionId === executionId);
 }
 
 /**
@@ -149,11 +149,11 @@ export async function waitForAnyLifecycleEvent(
 
   // Use Promise.race to wait for any lifecycle event
   const events: EventType[] = [
-    "THREAD_PAUSED",
-    "THREAD_CANCELLED",
-    "THREAD_COMPLETED",
-    "THREAD_FAILED",
-    "THREAD_RESUMED",
+    "WORKFLOW_EXECUTION_PAUSED",
+    "WORKFLOW_EXECUTION_CANCELLED",
+    "WORKFLOW_EXECUTION_COMPLETED",
+    "WORKFLOW_EXECUTION_FAILED",
+    "WORKFLOW_EXECUTION_RESUMED",
   ];
 
   // Create multiple waiting Promises, each using the executionId filter.

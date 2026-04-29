@@ -39,12 +39,12 @@ export class VariableAdapter extends BaseAdapter {
   }
 
   /**
-   * List all variables of a thread
+   * List all variables of a workflow execution
    */
-  async listVariables(threadId: string): Promise<Record<string, any>> {
+  async listVariables(executionId: string): Promise<Record<string, any>> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.variables;
-      const result = await api.getAll({ threadId });
+      const result = await api.getAll({ executionId });
       const variables = (result as any).data || result;
       return variables as Record<string, any>;
     }, "List variables");

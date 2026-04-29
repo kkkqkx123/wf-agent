@@ -4,7 +4,7 @@
  */
 
 import { now } from "@wf-agent/common-utils";
-import type { Thread, WorkflowExecutionResult } from "@wf-agent/types";
+import type { WorkflowExecution, WorkflowExecutionResult } from "@wf-agent/types";
 import type {
   WorkflowExecutionStartedEvent,
   WorkflowExecutionCompletedEvent,

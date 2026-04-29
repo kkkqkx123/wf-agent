@@ -6,7 +6,7 @@
  * Allows for the reference of predefined system prompt templates via the systemPromptTemplateId.
  */
 
-import type { Node, Thread, AgentLoopNodeConfig, LLMMessage } from "@wf-agent/types";
+import type { Node, WorkflowExecution, AgentLoopNodeConfig, LLMMessage } from "@wf-agent/types";
 import { ExecutionError } from "@wf-agent/types";
 import { now, diffTimestamp, getErrorOrNew } from "@wf-agent/common-utils";
 import { resolveSystemPrompt } from "../../../../core/prompt/system-prompt-resolver.js";
@@ -86,7 +86,7 @@ function createCoordinator(context: AgentLoopHandlerContext): AgentLoopCoordinat
  * Agent Loop Node Processor
  */
 export async function agentLoopHandler(
-  thread: Thread,
+  thread: WorkflowExecution,
   node: Node,
   context: AgentLoopHandlerContext,
 ): Promise<AgentLoopExecutionResult> {
@@ -197,7 +197,7 @@ export async function agentLoopHandler(
  * Stream Agent Loop Node Processor
  */
 export async function* agentLoopStreamHandler(
-  thread: Thread,
+  thread: WorkflowExecution,
   node: Node,
   context: AgentLoopHandlerContext,
 ): AsyncGenerator<unknown, AgentLoopExecutionResult, unknown> {

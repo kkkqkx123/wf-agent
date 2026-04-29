@@ -209,7 +209,7 @@ export class SqliteCheckpointStorage
 
         insertMetadata.run(
           id,
-          metadata.threadId,
+          metadata.executionId,
           metadata.workflowId,
           metadata.timestamp,
           checkpointType,
@@ -311,9 +311,9 @@ export class SqliteCheckpointStorage
       const conditions: string[] = [];
 
       // Construct filter criteria
-      if (options?.threadId) {
+      if (options?.executionId) {
         conditions.push("thread_id = ?");
-        params.push(options.threadId);
+        params.push(options.executionId);
       }
 
       if (options?.workflowId) {
@@ -362,7 +362,7 @@ export class SqliteCheckpointStorage
     try {
       const stmt = db.prepare(`
         SELECT
-          thread_id as "threadId",
+          thread_id as "executionId",
           workflow_id as "workflowId",
           timestamp,
           tags,
@@ -371,7 +371,7 @@ export class SqliteCheckpointStorage
       `);
       const row = stmt.get(id) as
         | {
-            threadId: string;
+            executionId: string;
             workflowId: string;
             timestamp: number;
             tags: string | null;
@@ -384,7 +384,7 @@ export class SqliteCheckpointStorage
       }
 
       return {
-        threadId: row.threadId,
+        executionId: row.executionId,
         workflowId: row.workflowId,
         timestamp: row.timestamp,
         tags: row.tags ? JSON.parse(row.tags) : undefined,

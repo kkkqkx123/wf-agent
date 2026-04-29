@@ -48,7 +48,7 @@ export async function resumeThreadHandler(
   const executionTime = now();
 
   try {
-    if (action.type !== "resume_thread") {
+    if (action.type !== "resume_workflow_execution") {
       throw new RuntimeValidationError("Action type must be resume_thread", {
         operation: "handle",
         field: "type",

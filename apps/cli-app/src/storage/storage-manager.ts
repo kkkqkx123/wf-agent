@@ -6,19 +6,18 @@
 import type {
   CheckpointStorageCallback,
   WorkflowStorageCallback,
-  ThreadStorageCallback,
+  WorkflowExecutionStorageCallback,
   TaskStorageCallback,
 } from "@wf-agent/storage";
 import {
   JsonCheckpointStorage,
   JsonWorkflowStorage,
-  JsonThreadStorage,
+  JsonWorkflowExecutionStorage,
   JsonTaskStorage,
   JsonNoteStorage,
   type BaseJsonStorageConfig,
   SqliteCheckpointStorage,
   SqliteWorkflowStorage,
-  SqliteThreadStorage,
   SqliteTaskStorage,
   type BaseSqliteStorageConfig,
 } from "@wf-agent/storage";
@@ -34,7 +33,7 @@ registerLogger("cli-app.storage-manager", logger);
  */
 export class StorageManager {
   private workflowStorage: WorkflowStorageCallback | null = null;
-  private threadStorage: ThreadStorageCallback | null = null;
+  private workflowExecutionStorage: WorkflowExecutionStorageCallback | null = null;
   private checkpointStorage: CheckpointStorageCallback | null = null;
   private taskStorage: TaskStorageCallback | null = null;
   private initialized: boolean = false;
@@ -95,9 +94,9 @@ export class StorageManager {
     await this.workflowStorage.initialize();
     logger.info("WorkflowStorage initialized", { baseDir });
 
-    this.threadStorage = new JsonThreadStorage(baseConfig);
-    await this.threadStorage.initialize();
-    logger.info("ThreadStorage initialized", { baseDir });
+    this.workflowExecutionStorage = new JsonWorkflowExecutionStorage(baseConfig);
+    await this.workflowExecutionStorage.initialize();
+    logger.info("WorkflowExecutionStorage initialized", { baseDir });
 
     this.checkpointStorage = new JsonCheckpointStorage(baseConfig);
     await this.checkpointStorage.initialize();
@@ -138,9 +137,10 @@ export class StorageManager {
     await this.workflowStorage.initialize();
     logger.info("WorkflowStorage initialized", { dbPath, enableWAL });
 
-    this.threadStorage = new SqliteThreadStorage(baseConfig);
-    await this.threadStorage.initialize();
-    logger.info("ThreadStorage initialized", { dbPath, enableWAL });
+    // Note: SQLite WorkflowExecutionStorage not yet implemented
+    // this.workflowExecutionStorage = new SqliteWorkflowExecutionStorage(baseConfig);
+    // await this.workflowExecutionStorage.initialize();
+    // logger.info("WorkflowExecutionStorage initialized", { dbPath, enableWAL });
 
     this.checkpointStorage = new SqliteCheckpointStorage(baseConfig);
     await this.checkpointStorage.initialize();
@@ -159,10 +159,10 @@ export class StorageManager {
   }
 
   /**
-   * Get thread storage
+   * Get workflow execution storage
    */
-  getThreadStorage(): ThreadStorageCallback | null {
-    return this.threadStorage;
+  getWorkflowExecutionStorage(): WorkflowExecutionStorageCallback | null {
+    return this.workflowExecutionStorage;
   }
 
   /**
@@ -192,8 +192,8 @@ export class StorageManager {
     if (this.workflowStorage) {
       promises.push(this.workflowStorage.close());
     }
-    if (this.threadStorage) {
-      promises.push(this.threadStorage.close());
+    if (this.workflowExecutionStorage) {
+      promises.push(this.workflowExecutionStorage.close());
     }
     if (this.checkpointStorage) {
       promises.push(this.checkpointStorage.close());
@@ -220,8 +220,8 @@ export class StorageManager {
     if (this.workflowStorage) {
       promises.push(this.workflowStorage.clear());
     }
-    if (this.threadStorage) {
-      promises.push(this.threadStorage.clear());
+    if (this.workflowExecutionStorage) {
+      promises.push(this.workflowExecutionStorage.clear());
     }
     if (this.checkpointStorage) {
       promises.push(this.checkpointStorage.clear());

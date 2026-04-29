@@ -166,7 +166,6 @@ export async function executeTriggeredSubgraphHandler(
       subgraphId: triggeredWorkflowId,
       input,
       triggerId,
-      mainThreadEntity: mainWorkflowExecutionEntity,
       mainWorkflowExecutionEntity,
       config: {
         waitForCompletion,

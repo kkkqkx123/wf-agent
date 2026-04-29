@@ -9,7 +9,7 @@
  */
 
 import type { Node, UserInteractionNodeConfig } from "@wf-agent/types";
-import type { Thread } from "@wf-agent/types";
+import type { WorkflowExecution } from "@wf-agent/types";
 import type {
   UserInteractionHandler as AppUserInteractionHandler,
   UserInteractionRequest,
@@ -70,7 +70,7 @@ function createInteractionRequest(
  * Create an interactive context
  */
 function createInteractionContext(
-  thread: Thread,
+  thread: WorkflowExecution,
   node: Node,
   timeout: number,
   _conversationManager?: unknown,
@@ -175,7 +175,7 @@ function evaluateExpression(expression: string, inputData: unknown): unknown {
 async function processVariableUpdate(
   config: UserInteractionNodeConfig,
   inputData: unknown,
-  thread: Thread,
+  thread: WorkflowExecution,
 ): Promise<Record<string, unknown>> {
   if (!config.variables || config.variables.length === 0) {
     throw new ExecutionError("No variables defined for UPDATE_VARIABLES operation", thread.id);
@@ -237,7 +237,7 @@ function processMessageAdd(
 async function processUserInput(
   config: UserInteractionNodeConfig,
   inputData: unknown,
-  thread: Thread,
+  thread: WorkflowExecution,
   conversationManager?: UserInteractionHandlerContext["conversationManager"],
 ): Promise<unknown> {
   switch (config.operationType) {
@@ -260,7 +260,7 @@ async function processUserInput(
  * @returns Execution result
  */
 export async function userInteractionHandler(
-  thread: Thread,
+  thread: WorkflowExecution,
   node: Node,
   context: UserInteractionHandlerContext,
 ): Promise<UserInteractionExecutionResult> {

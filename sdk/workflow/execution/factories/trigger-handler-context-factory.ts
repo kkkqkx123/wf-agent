@@ -108,9 +108,9 @@ export class TriggerHandlerContextFactory {
     const actionType = trigger.action.type;
 
     switch (actionType) {
-      case "stop_thread":
-      case "pause_thread":
-      case "resume_thread":
+      case "stop_workflow_execution":
+      case "pause_workflow_execution":
+      case "resume_workflow_execution":
         return this.createLifecycleContext(trigger.id, trigger.action.type);
 
       case "skip_node":

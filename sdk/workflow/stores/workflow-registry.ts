@@ -339,15 +339,12 @@ export class WorkflowRegistry {
     if (!isValid) {
       throw new ConfigurationValidationError(
         `Workflow validation failed: ${errors.join(", ")}`,
-        { workflowId: workflow.id, errors },
+        { configPath: workflow.id, context: { errors } },
       );
     }
 
-    // Convert WorkflowGraphData to WorkflowGraph format
-    const processedGraph = graph.toWorkflowGraph(workflow.id);
-
-    // Cache processing results
-    graphRegistry.register(processedGraph);
+    // Cache processing results - WorkflowGraphData is already compatible with WorkflowGraph
+    graphRegistry.register(graph as unknown as import("@wf-agent/types").WorkflowGraph);
   }
 
   /**

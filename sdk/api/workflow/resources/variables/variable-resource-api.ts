@@ -6,7 +6,7 @@
 import { now } from "@wf-agent/common-utils";
 import { ReadonlyResourceAPI } from "../../../shared/resources/generic-resource-api.js";
 import type { WorkflowExecutionRegistry } from "../../../../workflow/stores/workflow-execution-registry.js";
-import type { Thread } from "@wf-agent/types";
+import type { WorkflowExecution } from "@wf-agent/types";
 import { NotFoundError, WorkflowExecutionNotFoundError } from "@wf-agent/types";
 import { getContainer } from "../../../../core/di/index.js";
 import * as Identifiers from "../../../../core/di/service-identifiers.js";
@@ -278,7 +278,7 @@ export class VariableResourceAPI extends ReadonlyResourceAPI<unknown, string, Va
   /**
    * Obtain a thread instance
    */
-  private async getWorkflowExecution(executionId: string): Promise<Thread> {
+  private async getWorkflowExecution(executionId: string): Promise<WorkflowExecution> {
     const threadContext = this.registry.get(executionId);
     if (!threadContext) {
       throw new WorkflowExecutionNotFoundError(`Workflow execution not found: ${executionId}`, executionId);

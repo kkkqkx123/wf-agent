@@ -264,6 +264,7 @@ export class VariableState implements LifecycleCapable<{
         return loopScope ? loopScope[name] : undefined;
       }
     }
+    return undefined;
   }
 
   /**
@@ -381,6 +382,7 @@ export class VariableState implements LifecycleCapable<{
         }
         return { ...this.variableScopes.loop[this.variableScopes.loop.length - 1] };
     }
+    return {};
   }
 
   /**

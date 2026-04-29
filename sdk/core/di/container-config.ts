@@ -463,7 +463,7 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
     .bind(Identifiers.InterruptionState)
     .toDynamicValue(() => {
       return {
-        create: (executionId: string, nodeId: string) => new InterruptionState(executionId, nodeId),
+        create: (executionId: string, nodeId: string) => new InterruptionState({ contextId: executionId, nodeId }),
       };
     })
     .inSingletonScope();
@@ -607,7 +607,7 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
             workflowRegistry,
             stateManager,
             checkpointStateManager,
-            workflowGraphRegistry: workflowGraphRegistry,
+            graphRegistry: workflowGraphRegistry,
             eventManager,
             executionBuilder: workflowExecutionBuilder,
             taskQueueManager,

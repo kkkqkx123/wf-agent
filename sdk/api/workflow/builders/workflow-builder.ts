@@ -309,7 +309,7 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowDefinition> {
       description?: string;
       required?: boolean;
       readonly?: boolean;
-      scope?: "global" | "thread" | "local" | "loop";
+      scope?: "global" | "workflowExecution" | "local" | "loop";
     },
   ): this {
     const variable: WorkflowVariable = {

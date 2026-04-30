@@ -20,7 +20,7 @@ import {
   type ExecutionInstance,
   type ExecutionInstanceType,
   isAgentInstance,
-  isThreadInstance,
+  isWorkflowExecutionInstance,
   type QueueStats,
 } from "../types/index.js";
 import type { WorkflowExecutionResult } from "@wf-agent/types";
@@ -59,7 +59,7 @@ export interface QueueTask {
 export interface ExecutionResult {
   /** Execution instance */
   instance: ExecutionInstance;
-  /** Thread result (for thread execution) */
+  /** Workflow execution result (for workflow execution) */
   threadResult?: WorkflowExecutionResult;
   /** Agent result (for agent execution) */
   agentResult?: unknown;
@@ -296,8 +296,8 @@ export class ExecutionQueue<T extends ExecutionInstance> {
     // Remove from the running tasks.
     this.runningTasks.delete(queueTask.taskId);
 
-    // Trigger the completion event (for thread instances)
-    if (isThreadInstance(queueTask.instance)) {
+    // Trigger the completion event (for workflow execution instances)
+    if (isWorkflowExecutionInstance(queueTask.instance)) {
       const completedEvent = buildTriggeredSubgraphCompletedEvent({
         executionId: queueTask.instance.id,
         workflowId: queueTask.instance.getWorkflowId(),
@@ -313,7 +313,7 @@ export class ExecutionQueue<T extends ExecutionInstance> {
     if (queueTask.resolve) {
       const execResult: ExecutionResult = {
         instance: queueTask.instance,
-        threadResult: isThreadInstance(queueTask.instance) ? (result as WorkflowExecutionResult) : undefined,
+        threadResult: isWorkflowExecutionInstance(queueTask.instance) ? (result as WorkflowExecutionResult) : undefined,
         agentResult: isAgentInstance(queueTask.instance) ? result : undefined,
         executionTime,
       };
@@ -338,8 +338,8 @@ export class ExecutionQueue<T extends ExecutionInstance> {
     // Remove from the running tasks.
     this.runningTasks.delete(queueTask.taskId);
 
-    // Trigger a failure event (for thread instances)
-    if (isThreadInstance(queueTask.instance)) {
+    // Trigger a failure event (for workflow execution instances)
+    if (isWorkflowExecutionInstance(queueTask.instance)) {
       const failedEvent = buildTriggeredSubgraphFailedEvent({
         executionId: queueTask.instance.id,
         workflowId: queueTask.instance.getWorkflowId(),
@@ -372,8 +372,8 @@ export class ExecutionQueue<T extends ExecutionInstance> {
 
       this.taskRegistry.updateStatusToCancelled(taskId);
 
-      // Trigger the cancellation event (for thread instances)
-      if (isThreadInstance(queueTask.instance)) {
+      // Trigger the cancellation event (for workflow execution instances)
+      if (isWorkflowExecutionInstance(queueTask.instance)) {
         const cancelledEvent = buildTriggeredSubgraphFailedEvent({
           executionId: queueTask.instance.id,
           workflowId: queueTask.instance.getWorkflowId(),

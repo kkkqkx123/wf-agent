@@ -10,7 +10,7 @@
  * Variable Scope Type (Single Value)
  * Define the scope level of the variable in the workflow
  */
-export type VariableScope = "global" | "thread" | "workflowExecution" | "local" | "loop";
+export type VariableScope = "global" | "workflowExecution" | "local" | "loop";
 
 /**
  * Variable Scope Structure (Runtime State)
@@ -22,19 +22,19 @@ export type VariableScope = "global" | "thread" | "workflowExecution" | "local" 
  *
  * Scope Characteristics:
  * - **global**: Workflow-level global variables, shared across executions with same object reference
- * - **thread**: Execution-level variables, each execution has its own, deep copied on fork
+ * - **workflowExecution**: Execution-level variables, each execution has its own, deep copied on fork
  * - **local**: Local scope stack, supports nesting (e.g., entering subgraph)
  * - **loop**: Loop scope stack, supports nested loops
  *
  * Access Priority (from low to high):
- * global < thread < local[...] < loop[...]
+ * global < workflowExecution < local[...] < loop[...]
  *
  * Description:
  * - When accessing variables, search in higher priority scopes first
  * - local and loop are stack structures, use top of stack (innermost) value when accessing
  * - Usage examples:
  *   - global: Workflow configuration, constants, global state
- *   - thread: Temporary variables during workflow execution, intermediate results
+ *   - workflowExecution: Temporary variables during workflow execution, intermediate results
  *   - local: Local variables within subgraph (destroyed after subgraph ends)
  *   - loop: Loop iteration variables (destroyed after loop ends)
  */
@@ -57,29 +57,13 @@ export interface VariableScopes {
   global: Record<string, unknown>;
 
   /**
-   * Thread Scope - Within single execution
+   * WorkflowExecution Scope - Within single execution
    *
    * Characteristics:
    * - Each execution has its own independent object, no interference
    * - Deep copy on fork, child execution has independent copy
    * - Modifications don't affect other executions
    * - Most commonly used variable storage location
-   *
-   * Example:
-   * ```typescript
-   * execution.variableScopes.thread['result'] = data;
-   * // Only visible in this execution
-   * ```
-   */
-  thread: Record<string, unknown>;
-
-  /**
-   * Workflow Execution Scope - Within single execution (alias for thread)
-   *
-   * Characteristics:
-   * - Same as thread scope, provided for naming consistency
-   * - Each execution has its own independent object
-   * - Deep copy on fork, child execution has independent copy
    *
    * Example:
    * ```typescript
@@ -96,7 +80,7 @@ export interface VariableScopes {
    * - Array-based stack structure, each element is a scope
    * - Push new object when entering local scope (e.g., entering subgraph)
    * - Pop when exiting local scope
-   * - Higher priority than global/thread scope
+   * - Higher priority than global/workflowExecution scope
    * - Automatically destroyed after local scope ends, doesn't affect parent scope
    *
    * Use Cases:

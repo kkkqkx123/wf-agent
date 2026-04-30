@@ -3,13 +3,13 @@
  *
  * Core responsibilities:
  * 1. Manage the runtime status of triggers (enabled/disabled, number of triggers fired, etc.)
- * 2. Provide thread-isolated state management
+ * 2. Provide workflow-execution-isolated state management
  * 3. Support state snapshots and restoration (for use as checkpoints)
  * 4. Ensure concurrent safety
  *
  * Design principles:
  * - Only manage the state, not the trigger definitions
- * - Thread isolation, with each thread having its own independent state
+ * - Workflow execution isolation, with each workflow execution having its own independent state
  * - Support for snapshots and restoration
  * - Concurrency safety
  *

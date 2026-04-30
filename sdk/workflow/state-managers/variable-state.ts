@@ -4,13 +4,13 @@
  *
  * Core Responsibilities:
  * 1. Manage the runtime state of variables (values, scopes)
- * 2. Provide thread-isolated state management
+ * 2. Provide workflow-execution-isolated state management
  * 3. Support state snapshots and restoration (for use in checkpoints)
  * 4. Offer atomic state operations
  *
  * Design Principles:
  * - Only manage state; do not include business logic
- * - Thread isolation, with each thread having its own independent state instance
+ * - WorkflowExecution isolation, with each workflow execution having its own independent state instance
  * - Support for snapshots and state restoration
  * - Atomic operations to ensure state consistency
  */
@@ -36,7 +36,7 @@ const logger = createContextualLogger({ component: "variable-state-manager" });
  * Design Principles:
  * - Stateful design: Maintain the state of variables
  * - State management: Provide operations for creating, reading, updating, and deleting states
- * - Thread isolation: Each thread has its own independent state instance
+ * - WorkflowExecution isolation: Each workflow execution has its own independent state instance
  * - Atomic operations: Ensure state consistency
  */
 export class VariableState implements LifecycleCapable<{
@@ -46,7 +46,6 @@ export class VariableState implements LifecycleCapable<{
   private variables: WorkflowExecutionVariable[] = [];
   private variableScopes: VariableScopes = {
     global: {},
-    thread: {},
     workflowExecution: {},
     local: [],
     loop: [],
@@ -70,7 +69,6 @@ export class VariableState implements LifecycleCapable<{
       this.variables = [];
       this.variableScopes = {
         global: {},
-        thread: {},
         workflowExecution: {},
         local: [],
         loop: [],
@@ -84,7 +82,7 @@ export class VariableState implements LifecycleCapable<{
         name: v.name,
         value: v.defaultValue,
         type: v.type,
-        scope: v.scope || "thread",
+        scope: v.scope || "workflowExecution",
         readonly: v.readonly || false,
         metadata: {
           description: v.description,
@@ -96,7 +94,6 @@ export class VariableState implements LifecycleCapable<{
     // Initialize a level 4 scope
     this.variableScopes = {
       global: {},
-      thread: {},
       workflowExecution: {},
       local: [],
       loop: [],
@@ -104,17 +101,17 @@ export class VariableState implements LifecycleCapable<{
 
     // Assign variable values based on their scope.
     // Only variables with global scope are assigned values directly during initialization.
-    // Variables in the thread, local, and loop scopes are initialized as needed.
+    // Variables in the workflowExecution, local, and loop scopes are initialized as needed.
     for (const variable of this.variables) {
       switch (variable.scope) {
         case "global":
           // Global scope variables are initialized immediately.
           this.variableScopes.global[variable.name] = variable.value;
           break;
-        case "thread":
+        case "workflowExecution":
         case "local":
         case "loop":
-          // Variables in the thread, local, and loop scopes are initialized as needed.
+          // Variables in the workflowExecution, local, and loop scopes are initialized as needed.
           // This section only contains declarations; no values are initialized.
           break;
       }
@@ -123,14 +120,13 @@ export class VariableState implements LifecycleCapable<{
 
   /**
    * Initialize variable state from WorkflowExecutionVariable
-   * @param threadVariables Definition of Thread variables
+   * @param workflowExecutionVariables Definition of WorkflowExecution variables
    */
-  initializeFromThreadVariables(threadVariables: WorkflowExecutionVariable[]): void {
-    if (!threadVariables || threadVariables.length === 0) {
+  initializeFromWorkflowExecutionVariables(workflowExecutionVariables: WorkflowExecutionVariable[]): void {
+    if (!workflowExecutionVariables || workflowExecutionVariables.length === 0) {
       this.variables = [];
       this.variableScopes = {
         global: {},
-        thread: {},
         workflowExecution: {},
         local: [],
         loop: [],
@@ -144,7 +140,6 @@ export class VariableState implements LifecycleCapable<{
     // Initialize a level-4 scope
     this.variableScopes = {
       global: {},
-      thread: {},
       workflowExecution: {},
       local: [],
       loop: [],
@@ -152,17 +147,17 @@ export class VariableState implements LifecycleCapable<{
 
     // Assign variable values based on their scope.
     // Only variables with global scope are assigned values directly upon initialization.
-    // Variables in the thread, local, and loop scopes are initialized as needed.
+    // Variables in the workflowExecution, local, and loop scopes are initialized as needed.
     for (const variable of this.variables) {
       switch (variable.scope) {
         case "global":
           // Global scope variables are initialized immediately.
           this.variableScopes.global[variable.name] = variable.value;
           break;
-        case "thread":
+        case "workflowExecution":
         case "local":
         case "loop":
-          // Variables in the thread, local, and loop scopes are initialized as needed.
+          // Variables in the workflowExecution, local, and loop scopes are initialized as needed.
           // This section only makes declarations; no values are initialized.
           break;
       }
@@ -199,8 +194,8 @@ export class VariableState implements LifecycleCapable<{
       case "global":
         this.variableScopes.global[name] = value;
         break;
-      case "thread":
-        this.variableScopes.thread[name] = value;
+      case "workflowExecution":
+        this.variableScopes.workflowExecution[name] = value;
         break;
       case "local": {
         if (this.variableScopes.local.length === 0) {
@@ -247,8 +242,8 @@ export class VariableState implements LifecycleCapable<{
     switch (scope) {
       case "global":
         return this.variableScopes.global[name];
-      case "thread":
-        return this.variableScopes.thread[name];
+      case "workflowExecution":
+        return this.variableScopes.workflowExecution[name];
       case "local": {
         if (this.variableScopes.local.length === 0) {
           return undefined;
@@ -369,8 +364,8 @@ export class VariableState implements LifecycleCapable<{
     switch (scope) {
       case "global":
         return { ...this.variableScopes.global };
-      case "thread":
-        return { ...this.variableScopes.thread };
+      case "workflowExecution":
+        return { ...this.variableScopes.workflowExecution };
       case "local":
         if (this.variableScopes.local.length === 0) {
           return {};
@@ -398,7 +393,6 @@ export class VariableState implements LifecycleCapable<{
       variables: this.variables.map(v => ({ ...v })),
       variableScopes: {
         global: { ...this.variableScopes.global },
-        thread: { ...this.variableScopes.thread },
         workflowExecution: { ...this.variableScopes.workflowExecution },
         local: this.variableScopes.local.map(scope => ({ ...scope })),
         loop: this.variableScopes.loop.map(scope => ({ ...scope })),
@@ -418,7 +412,6 @@ export class VariableState implements LifecycleCapable<{
     this.variables = snapshot.variables.map(v => ({ ...v }));
     this.variableScopes = {
       global: { ...snapshot.variableScopes.global },
-      thread: { ...snapshot.variableScopes.thread },
       workflowExecution: { ...snapshot.variableScopes.workflowExecution },
       local: snapshot.variableScopes.local.map(scope => ({ ...scope })),
       loop: snapshot.variableScopes.loop.map(scope => ({ ...scope })),
@@ -435,7 +428,6 @@ export class VariableState implements LifecycleCapable<{
     // The global scope is shared through references.
     this.variableScopes = {
       global: sourceStateManager.variableScopes.global,
-      thread: { ...sourceStateManager.variableScopes.thread },
       workflowExecution: { ...sourceStateManager.variableScopes.workflowExecution },
       local: [],
       loop: [],
@@ -449,7 +441,6 @@ export class VariableState implements LifecycleCapable<{
   getVariableScopes(): VariableScopes {
     return {
       global: { ...this.variableScopes.global },
-      thread: { ...this.variableScopes.thread },
       workflowExecution: { ...this.variableScopes.workflowExecution },
       local: this.variableScopes.local.map(scope => ({ ...scope })),
       loop: this.variableScopes.loop.map(scope => ({ ...scope })),
@@ -554,7 +545,6 @@ export class VariableState implements LifecycleCapable<{
     this.variables = [];
     this.variableScopes = {
       global: {},
-      thread: {},
       workflowExecution: {},
       local: [],
       loop: [],

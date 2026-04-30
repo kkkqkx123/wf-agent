@@ -336,13 +336,13 @@ class ToolRegistry {
     const statefulExecutor = this.executors.get("STATEFUL");
     if (
       statefulExecutor &&
-      typeof (statefulExecutor as { cleanupThread?: (executionId: string) => void }).cleanupThread ===
+      typeof (statefulExecutor as { cleanupWorkflowExecution?: (executionId: string) => void }).cleanupWorkflowExecution ===
         "function"
     ) {
-      (statefulExecutor as unknown as { cleanupThread: (executionId: string) => void }).cleanupThread(
+      (statefulExecutor as unknown as { cleanupWorkflowExecution: (executionId: string) => void }).cleanupWorkflowExecution(
         executionId,
       );
-      logger.debug("Thread stateful tools cleaned up", { executionId });
+      logger.debug("Workflow execution stateful tools cleaned up", { executionId });
     }
   }
 

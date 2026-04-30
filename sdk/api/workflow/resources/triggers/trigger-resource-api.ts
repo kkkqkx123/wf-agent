@@ -47,7 +47,7 @@ export class TriggerResourceAPI extends ReadonlyResourceAPI<Trigger, string, Tri
    * @returns: Trigger object; returns null if the trigger does not exist
    */
   protected async getResource(id: string): Promise<Trigger | null> {
-    // Triggers are usually obtained through thread entities, and in this case, it is necessary to iterate through all threads.
+    // Triggers are usually obtained through workflow execution entities, and in this case, it is necessary to iterate through all workflow executions.
     const threadEntities = this.registry.getAll();
     for (const executionEntity of threadEntities) {
       const triggerManager = executionEntity.triggerManager as { getAll: () => Trigger[] } | undefined;
@@ -100,7 +100,7 @@ export class TriggerResourceAPI extends ReadonlyResourceAPI<Trigger, string, Tri
   // ============================================================================
 
   /**
-   * Get all triggers for the thread
+   * Get all triggers for the workflow execution
    * @param executionId: Execution ID
    * @param filter: Filter criteria
    * @returns: Array of triggers
@@ -118,7 +118,7 @@ export class TriggerResourceAPI extends ReadonlyResourceAPI<Trigger, string, Tri
   }
 
   /**
-   * Get the specified trigger for a thread
+   * Get the specified trigger for a workflow execution
    * @param executionId: Execution ID
    * @param triggerId: Trigger ID
    * @returns: Trigger object
@@ -289,11 +289,11 @@ export class TriggerResourceAPI extends ReadonlyResourceAPI<Trigger, string, Tri
   }
 
   /**
-   * Export thread trigger
+   * Export workflow execution trigger
    * @param executionId: Execution ID
    * @returns: JSON string
    */
-  async exportThreadTriggers(executionId: string): Promise<string> {
+  async exportWorkflowExecutionTriggers(executionId: string): Promise<string> {
     const triggers = await this.getThreadTriggers(executionId);
     return JSON.stringify(triggers, null, 2);
   }

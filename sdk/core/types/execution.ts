@@ -19,10 +19,10 @@ import type { AgentLoopEntity } from "../../agent/entities/agent-loop-entity.js"
 // ============================================================================
 
 /**
- * Execution instance type
- * Used to distinguish between Agent and Thread execution instances
+ * Execution Instance Type
+ * Used to distinguish between Agent and WorkflowExecution execution instances
  */
-export type ExecutionInstanceType = "agent" | "thread";
+export type ExecutionInstanceType = "agent" | "workflowExecution";
 
 /**
  * Unified execution instance type
@@ -48,7 +48,7 @@ export function isAgentInstance(instance: ExecutionInstance): instance is AgentL
  * @param instance Execution instance
  * @returns True if the instance is a WorkflowExecutionEntity
  */
-export function isThreadInstance(instance: ExecutionInstance): instance is WorkflowExecutionEntity {
+export function isWorkflowExecutionInstance(instance: ExecutionInstance): instance is WorkflowExecutionEntity {
   return "getThreadId" in instance && "getWorkflowId" in instance;
 }
 
@@ -58,7 +58,7 @@ export function isThreadInstance(instance: ExecutionInstance): instance is Workf
  * @returns The type of the execution instance
  */
 export function getExecutionInstanceType(instance: ExecutionInstance): ExecutionInstanceType {
-  return isAgentInstance(instance) ? "agent" : "thread";
+  return isAgentInstance(instance) ? "agent" : "workflowExecution";
 }
 
 /**

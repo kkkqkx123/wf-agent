@@ -1,7 +1,7 @@
 /**
- * Restore Thread Handling Function
+ * Restore Workflow Execution Handling Function
  *
- * Responsible for initiating the actions required to restore the thread
+ * Responsible for initiating the actions required to restore the workflow execution
  * Coordinates the recovery process through the WorkflowStateTransitor
  */
 
@@ -40,7 +40,7 @@ function createFailureResult(
   };
 }
 
-export async function resumeThreadHandler(
+export async function resumeExecutionHandler(
   action: TriggerAction,
   triggerId: string,
   workflowExecutionRegistry: WorkflowExecutionRegistry,

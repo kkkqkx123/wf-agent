@@ -50,7 +50,7 @@ export interface CheckpointSummary {
   executionId: string;
   /** Workflow ID */
   workflowId: string;
-  /** Thread Status */
+  /** Workflow Execution Status */
   threadStatus: WorkflowExecutionStatus;
   /** Current node ID */
   currentNodeId: string;
@@ -184,7 +184,7 @@ export class CheckpointResourceAPI extends CrudResourceAPI<Checkpoint, string, C
   // ============================================================================
 
   /**
-   * Create a thread checkpoint
+   * Create a workflow execution checkpoint
    * @param executionId Execution ID
    * @param metadata Checkpoint metadata
    * @returns Checkpoint ID

@@ -2,7 +2,7 @@
  * Application message operation processing function
  *
  * Responsible for executing application message operations (such as context compression, message truncation, etc.)
- * Obtains the ConversationSession of the thread through ThreadStateCoordinator to perform the operations
+ * Obtains the ConversationSession of the workflow execution through WorkflowExecutionStateCoordinator to perform the operations
  */
 
 import type {
@@ -51,7 +51,7 @@ function createFailureResult(
  * @param action Trigger action
  * @param triggerId Trigger ID
  * @param executionRegistry Thread registry
- * @param stateCoordinatorMap Optional map of ThreadStateCoordinator by executionId
+ * @param stateCoordinatorMap Optional map of WorkflowExecutionStateCoordinator by executionId
  */
 export async function applyMessageOperationHandler(
   action: TriggerAction,
@@ -89,7 +89,7 @@ export async function applyMessageOperationHandler(
     // Get ConversationSession from stateCoordinatorMap
     const stateCoordinator = stateCoordinatorMap?.get(executionId);
     if (!stateCoordinator) {
-      throw new Error(`ThreadStateCoordinator not found for thread: ${executionId}`);
+      throw new Error(`WorkflowExecutionStateCoordinator not found for workflow execution: ${executionId}`);
     }
     const conversationManager = stateCoordinator.getConversationManager();
     const result = await conversationManager.executeMessageOperation(operationConfig);

@@ -7,12 +7,12 @@
  */
 export interface WorkflowReference {
   /** reference type */
-  type: "subgraph" | "trigger" | "thread";
+  type: "subgraph" | "trigger" | "workflowExecution";
   /** Reference source ID (parent workflow ID, trigger ID, execution ID, etc.) */
   sourceId: string;
   /** Cite source name */
   sourceName: string;
-  /** Whether it is a runtime reference (active thread or trigger) */
+  /** Whether it is a runtime reference (active workflow execution or trigger) */
   isRuntimeReference: boolean;
   /** Citation details */
   details: Record<string, unknown>;
@@ -32,7 +32,7 @@ export interface WorkflowReferenceInfo {
   stats: {
     subgraphReferences: number;
     triggerReferences: number;
-    threadReferences: number;
+    workflowExecutionReferences: number;
     runtimeReferences: number;
   };
 }
@@ -40,7 +40,7 @@ export interface WorkflowReferenceInfo {
 /**
  * Workflow reference types
  */
-export type WorkflowReferenceType = "subgraph" | "trigger" | "thread";
+export type WorkflowReferenceType = "subgraph" | "trigger" | "workflowExecution";
 
 /**
  * Workflow referencing relationships

@@ -1,7 +1,7 @@
 /**
- * Thread Suspension Handling Function
+ * Workflow Execution Suspension Handling Function
  *
- * Responsible for initiating the action to suspend a thread
+ * Responsible for initiating the action to suspend a workflow execution
  * The suspension process is coordinated through the WorkflowStateTransitor.
  */
 
@@ -40,7 +40,7 @@ function createFailureResult(
   };
 }
 
-export async function pauseThreadHandler(
+export async function pauseExecutionHandler(
   action: TriggerAction,
   triggerId: string,
   workflowExecutionRegistry: WorkflowExecutionRegistry,

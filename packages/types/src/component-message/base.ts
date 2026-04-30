@@ -22,8 +22,8 @@ export enum MessageCategory {
   /** System-level messages (startup, shutdown, config changes) */
   SYSTEM = "system",
 
-  /** Thread execution messages (lifecycle, nodes, workflow) */
-  THREAD = "thread",
+  /** Workflow execution messages (lifecycle, nodes, workflow) */
+  WORKFLOW_EXECUTION = "workflow_execution",
 
   /** Agent loop messages (iterations, LLM interaction, tools) */
   AGENT = "agent",

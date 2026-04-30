@@ -41,7 +41,7 @@ import { logError, emitErrorEvent } from "../../../core/utils/error-utils.js";
 /**
  * Workflow Execution Build Result (simplified interface for TriggeredSubworkflowHandler)
  */
-interface ThreadBuildResultSimple {
+interface WorkflowExecutionBuildResultSimple {
   workflowExecutionEntity: WorkflowExecutionEntity;
   stateCoordinator: WorkflowStateCoordinator;
   conversationManager: ConversationSession;
@@ -120,7 +120,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
       build: (
         subgraphId: string,
         options: { input: Record<string, unknown> },
-      ) => Promise<ThreadBuildResultSimple>;
+      ) => Promise<WorkflowExecutionBuildResultSimple>;
     },
     taskQueueManager: TaskQueue,
     eventManager: EventRegistry,
@@ -239,7 +239,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     timeout: number,
   ): Promise<ExecutedSubgraphResult> {
     // First, register the task with the global TaskRegistry.
-    const taskId = this.taskRegistry.register(subgraphEntity, "thread", this, timeout);
+    const taskId = this.taskRegistry.register(subgraphEntity, "workflowExecution", this, timeout);
 
     try {
       const result = await this.taskQueueManager.submitSync(taskId, subgraphEntity, timeout);
@@ -265,7 +265,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     const executionId = subgraphEntity.id;
 
     // First, register the task with the global TaskRegistry.
-    const taskId = this.taskRegistry.register(subgraphEntity, "thread", this, timeout);
+    const taskId = this.taskRegistry.register(subgraphEntity, "workflowExecution", this, timeout);
 
     // Submit to the task queue
     const submissionResult = this.taskQueueManager.submitAsync(taskId, subgraphEntity, timeout);
@@ -312,7 +312,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     // Clean up the task records in TaskRegistry.
     const taskInfo = this.taskRegistry
       .getAll()
-      .find(t => t.instanceType === "thread" && t.instance.id === executionId);
+      .find(t => t.instanceType === "workflowExecution" && t.instance.id === executionId);
     if (taskInfo) {
       this.taskRegistry.delete(taskInfo.id);
     }
@@ -343,7 +343,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     // Clean up task records in the TaskRegistry.
     const taskInfo = this.taskRegistry
       .getAll()
-      .find(t => t.instanceType === "thread" && t.instance.id === executionId);
+      .find(t => t.instanceType === "workflowExecution" && t.instance.id === executionId);
     if (taskInfo) {
       this.taskRegistry.delete(taskInfo.id);
     }
@@ -456,7 +456,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
 
     if (success) {
       const taskInfo = this.taskRegistry.get(taskId);
-      if (taskInfo && taskInfo.instanceType === "thread") {
+      if (taskInfo && taskInfo.instanceType === "workflowExecution") {
         // Cancel the parent-child relationship.
         this.unregisterParentChildRelationship(taskInfo.instance as WorkflowExecutionEntity);
       }

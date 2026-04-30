@@ -60,7 +60,7 @@ export class MessageResourceAPI extends ReadonlyResourceAPI<LLMMessage, string, 
    * @returns: Message object; returns null if the message does not exist
    */
   protected async getResource(id: string): Promise<LLMMessage | null> {
-    // Messages are usually obtained through thread entities, and here it is necessary to iterate through all threads.
+    // Messages are usually obtained through workflow execution entities, and here it is necessary to iterate through all workflow executions.
     const threadEntities = this.registry.getAll();
     for (const executionEntity of threadEntities) {
       const messages = executionEntity.getMessages() || [];
@@ -115,7 +115,7 @@ export class MessageResourceAPI extends ReadonlyResourceAPI<LLMMessage, string, 
   // ============================================================================
 
   /**
-   * Get thread message list
+   * Get workflow execution message list
    * @param executionId Execution ID
    * @param limit Limit on the number of messages to return
    * @param offset Offset for starting the message retrieval

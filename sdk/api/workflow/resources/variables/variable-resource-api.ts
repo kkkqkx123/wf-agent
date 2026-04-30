@@ -18,7 +18,7 @@ export interface VariableFilter {
   /** Variable names (fuzzy matching is supported) */
   name?: string;
   /** Variable Scope */
-  scope?: "global" | "thread" | "subgraph" | "loop";
+  scope?: "global" | "workflowExecution" | "subgraph" | "loop";
   /** Variable Types */
   type?: string;
   /** Execution ID */
@@ -78,13 +78,13 @@ export class VariableResourceAPI extends ReadonlyResourceAPI<unknown, string, Va
    */
   protected async getResource(id: string): Promise<unknown | null> {
     const [executionId, variableName] = this.parseVariableId(id);
-    const thread = await this.getWorkflowExecution(executionId);
+    const execution = await this.getWorkflowExecution(executionId);
 
-    if (!(variableName in thread.variableScopes.thread)) {
+    if (!(variableName in execution.variableScopes.workflowExecution)) {
       return null;
     }
 
-    return thread.variableScopes.thread[variableName];
+    return execution.variableScopes.workflowExecution[variableName];
   }
 
   /**
@@ -101,17 +101,17 @@ export class VariableResourceAPI extends ReadonlyResourceAPI<unknown, string, Va
   // ============================================================================
 
   /**
-   * Get all variable values of the thread
+   * Get all variable values of the workflow execution
    * @param executionId: Execution ID
    * @returns: Record of variable values
    */
   async getThreadVariables(executionId: string): Promise<Record<string, unknown>> {
     const executionEntity = await this.getWorkflowExecution(executionId);
-    return { ...executionEntity.variableScopes.thread };
+    return { ...executionEntity.variableScopes.workflowExecution };
   }
 
   /**
-   * Get the value of a specified variable for a thread
+   * Get the value of a specified variable for a workflow execution
    * @param executionId: Execution ID
    * @param name: Variable name
    * @returns: Variable value
@@ -119,26 +119,26 @@ export class VariableResourceAPI extends ReadonlyResourceAPI<unknown, string, Va
   async getThreadVariable(executionId: string, name: string): Promise<unknown> {
     const executionEntity = await this.getWorkflowExecution(executionId);
 
-    if (!(name in executionEntity.variableScopes.thread)) {
+    if (!(name in executionEntity.variableScopes.workflowExecution)) {
       throw new NotFoundError(`Variable not found: ${name}`, "Variable", name);
     }
 
-    return executionEntity.variableScopes.thread[name];
+    return executionEntity.variableScopes.workflowExecution[name];
   }
 
   /**
-   * Check if the specified variable exists in the thread.
+   * Check if the specified variable exists in the workflow execution.
    * @param executionId: Execution ID
    * @param name: Variable name
    * @returns: Whether the variable exists
    */
   async hasThreadVariable(executionId: string, name: string): Promise<boolean> {
-    const thread = await this.getWorkflowExecution(executionId);
-    return name in thread.variableScopes.thread;
+    const execution = await this.getWorkflowExecution(executionId);
+    return name in execution.variableScopes.workflowExecution;
   }
 
   /**
-   * Get variable definitions for a thread
+   * Get variable definitions for a workflow execution
    * @returns: Record of variable definitions
    */
   async getThreadVariableDefinitions(): Promise<Record<string, unknown>> {
@@ -166,8 +166,8 @@ export class VariableResourceAPI extends ReadonlyResourceAPI<unknown, string, Va
 
     for (const executionEntity of threadContexts) {
       const executionId = executionEntity.id;
-      const thread = executionEntity.getExecution();
-      const variables = thread.variableScopes.thread;
+      const execution = executionEntity.getExecution();
+      const variables = execution.variableScopes.workflowExecution;
 
       stats.byThread[executionId] = Object.keys(variables).length;
       stats.totalVariables += Object.keys(variables).length;
@@ -226,7 +226,7 @@ export class VariableResourceAPI extends ReadonlyResourceAPI<unknown, string, Va
    * @param executionId Execution ID
    * @returns JSON string
    */
-  async exportThreadVariables(executionId: string): Promise<string> {
+  async exportWorkflowExecutionVariables(executionId: string): Promise<string> {
     const variables = await this.getThreadVariables(executionId);
     return JSON.stringify(variables, null, 2);
   }

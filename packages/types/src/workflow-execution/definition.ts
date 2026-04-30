@@ -56,7 +56,7 @@ export interface WorkflowExecution {
    *
    * Note: Difference between this field and variables
    * - WorkflowExecution.input: Initial input of the workflow, read-only
-   * - WorkflowExecution.variableScopes.thread: Variables used during workflow execution, mutable
+   * - WorkflowExecution.variableScopes.workflowExecution: Variables used during workflow execution, mutable
    */
   input: Record<string, unknown>;
   /**
@@ -83,7 +83,7 @@ export interface WorkflowExecution {
    *
    * Note: Difference between this field and variables
    * - WorkflowExecution.output: Final output of the workflow, read-only
-   * - WorkflowExecution.variableScopes.thread: Variables used during workflow execution, mutable
+   * - WorkflowExecution.variableScopes.workflowExecution: Variables used during workflow execution, mutable
    */
   output: Record<string, unknown>;
   /** Execution history (stored in order of execution) */

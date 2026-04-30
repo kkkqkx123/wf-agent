@@ -29,7 +29,7 @@ export interface CheckpointCreateData {
   checkpointId: string;
 
   /** Entity type */
-  entityType: "thread" | "agent";
+  entityType: "workflowExecution" | "agent";
 
   /** Entity ID */
   entityId: string;
@@ -45,7 +45,7 @@ export interface CheckpointCreateData {
     /** Iteration number (for agent) */
     iteration?: number;
 
-    /** Node ID (for thread) */
+    /** Node ID (for workflow execution) */
     nodeId?: string;
 
     /** Custom metadata */
@@ -61,7 +61,7 @@ export interface CheckpointRestoreData {
   checkpointId: string;
 
   /** Entity type */
-  entityType: "thread" | "agent";
+  entityType: "workflowExecution" | "agent";
 
   /** Entity ID */
   entityId: string;
@@ -90,7 +90,7 @@ export interface CheckpointDeleteData {
   checkpointId: string;
 
   /** Entity type */
-  entityType: "thread" | "agent";
+  entityType: "workflowExecution" | "agent";
 
   /** Entity ID */
   entityId: string;
@@ -107,7 +107,7 @@ export interface CheckpointFailData {
   checkpointId?: string;
 
   /** Entity type */
-  entityType: "thread" | "agent";
+  entityType: "workflowExecution" | "agent";
 
   /** Entity ID */
   entityId: string;

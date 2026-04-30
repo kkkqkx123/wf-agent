@@ -38,7 +38,7 @@ export interface QueueStats {
 }
 
 /**
- * Thread Pool Statistics Interface
+ * Workflow Execution Pool Statistics Interface
  */
 export interface PoolStats {
   /** Total number of executors */

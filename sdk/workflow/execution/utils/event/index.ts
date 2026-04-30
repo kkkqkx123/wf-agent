@@ -41,20 +41,6 @@ export {
   buildCheckpointDeletedEvent,
   buildUserInteractionRequestedEvent,
   buildUserInteractionProcessedEvent,
-  // Backward compatibility
-  buildThreadStartedEvent,
-  buildThreadCompletedEvent,
-  buildThreadFailedEvent,
-  buildThreadPausedEvent,
-  buildThreadResumedEvent,
-  buildThreadCancelledEvent,
-  buildThreadStateChangedEvent,
-  buildThreadForkStartedEvent,
-  buildThreadForkCompletedEvent,
-  buildThreadJoinStartedEvent,
-  buildThreadJoinConditionMetEvent,
-  buildThreadCopyStartedEvent,
-  buildThreadCopyCompletedEvent,
 } from "../../../../core/utils/event/builders/index.js";
 
 // Event Trigger Tool Function
@@ -71,15 +57,15 @@ export {
 
 // Event Waiting Tool Function
 export {
-  waitForThreadPaused,
-  waitForThreadCancelled,
-  waitForThreadCompleted,
-  waitForThreadFailed,
-  waitForThreadResumed,
+  waitForWorkflowExecutionPaused,
+  waitForWorkflowExecutionCancelled,
+  waitForWorkflowExecutionCompleted,
+  waitForWorkflowExecutionFailed,
+  waitForWorkflowExecutionResumed,
   waitForAnyLifecycleEvent,
-  waitForMultipleThreadsCompleted,
-  waitForAnyThreadCompleted,
-  waitForAnyThreadCompletion,
+  waitForMultipleWorkflowExecutionsCompleted,
+  waitForAnyWorkflowExecutionCompleted,
+  waitForAnyWorkflowExecutionCompletion,
   waitForNodeCompleted,
   waitForNodeFailed,
   waitForCondition,

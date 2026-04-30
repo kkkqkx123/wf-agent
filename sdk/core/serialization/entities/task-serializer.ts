@@ -23,8 +23,8 @@ export interface TaskSnapshot extends SnapshotBase {
   _entityType: "task";
   /** Task ID */
   id: string;
-  /** Execution instance type (agent or thread) */
-  instanceType: "agent" | "thread";
+  /** Execution instance type (agent or workflowExecution) */
+  instanceType: "agent" | "workflowExecution";
   /** Instance ID (executionId or agentLoopId) */
   instanceId: string;
   /** Workflow ID */
@@ -40,7 +40,7 @@ export interface TaskSnapshot extends SnapshotBase {
   /** Completion time */
   completeTime?: number;
   /** Execution result (upon success) - serialized with full data */
-  result?: SerializedThreadResult;
+  result?: SerializedWorkflowExecutionResult;
   /** Error message (in case of failure) */
   error?: SerializedError;
   /** Timeout period (in milliseconds) */
@@ -48,10 +48,10 @@ export interface TaskSnapshot extends SnapshotBase {
 }
 
 /**
- * Serialized Thread Result Metadata
+ * Serialized WorkflowExecution Result Metadata
  */
-export interface SerializedThreadResultMetadata {
-  /** Thread state status */
+export interface SerializedWorkflowExecutionResultMetadata {
+  /** Workflow execution state status */
   status: WorkflowExecutionStatus;
   /** Starting time */
   startTime: number;
@@ -66,9 +66,9 @@ export interface SerializedThreadResultMetadata {
 }
 
 /**
- * Serialized Thread Result
+ * Serialized WorkflowExecution Result
  */
-export interface SerializedThreadResult {
+export interface SerializedWorkflowExecutionResult {
   /** Execution ID */
   id: string;
   /** Output data */
@@ -78,7 +78,7 @@ export interface SerializedThreadResult {
   /** Complete array of node execution results */
   nodeResults: NodeExecutionResult[];
   /** Complete metadata */
-  metadata: SerializedThreadResultMetadata;
+  metadata: SerializedWorkflowExecutionResultMetadata;
 }
 
 /**
@@ -109,7 +109,7 @@ export const TaskSerializationUtils = {
   /**
    * Serialize WorkflowExecutionResult for storage
    */
-  serializeThreadResult(result: WorkflowExecutionResult): SerializedThreadResult {
+  serializeWorkflowExecutionResult(result: WorkflowExecutionResult): SerializedWorkflowExecutionResult {
     return {
       id: result.executionId,
       output: result.output,
@@ -129,7 +129,7 @@ export const TaskSerializationUtils = {
   /**
    * Deserialize WorkflowExecutionResult from serialized format
    */
-  deserializeThreadResult(serialized: SerializedThreadResult): WorkflowExecutionResult {
+  deserializeWorkflowExecutionResult(serialized: SerializedWorkflowExecutionResult): WorkflowExecutionResult {
     return {
       executionId: serialized.id,
       output: serialized.output,
@@ -151,7 +151,7 @@ export const TaskSerializationUtils = {
    */
   createTaskSnapshotFromTaskInfo(taskInfo: {
     id: string;
-    instanceType: "agent" | "thread";
+    instanceType: "agent" | "workflowExecution";
     instance: { id: string; getThreadId?: () => string; getWorkflowId?: () => string };
     status: TaskStatus;
     submitTime: number;
@@ -176,7 +176,7 @@ export const TaskSerializationUtils = {
       timeout: taskInfo.timeout,
     };
 
-    if (taskInfo.instanceType === "thread") {
+    if (taskInfo.instanceType === "workflowExecution") {
       snapshot.id = taskInfo.instance.id;
       if (taskInfo.instance.getWorkflowId) {
         snapshot.workflowId = taskInfo.instance.getWorkflowId();
@@ -186,7 +186,7 @@ export const TaskSerializationUtils = {
     }
 
     if (taskInfo.result) {
-      snapshot.result = TaskSerializationUtils.serializeThreadResult(taskInfo.result);
+      snapshot.result = TaskSerializationUtils.serializeWorkflowExecutionResult(taskInfo.result);
     }
 
     if (taskInfo.error) {

@@ -2,13 +2,13 @@
  * CallbackState - Callback State Manager
  *
  * Responsibilities:
- * - Manages callback functions for asynchronous thread execution
+ * - Manages callback functions for asynchronous workflow execution
  * - Supports Promise-based callbacks
  * - Provides functions for registering, triggering, and cleaning up callbacks
  *
  * Design Principles:
  * - Stateful with multiple instances, held by the State Holder
- * - Thread-safe callback management
+ * - Execution-safe callback management
  * - Supports generics to adapt to different result types
  */
 
@@ -92,7 +92,7 @@ export class CallbackState<T = unknown> {
     } catch (error) {
       const errorObj = getErrorOrNew(error);
       const sdkError = new SDKError(
-        `Error triggering callback for thread ${executionId}`,
+        `Error triggering callback for workflow execution ${executionId}`,
         "warning",
         { executionId },
         errorObj,
@@ -123,7 +123,7 @@ export class CallbackState<T = unknown> {
       this.callbacks.delete(executionId);
       return true;
     } catch (err) {
-      logger.error(`Error triggering error callback for thread ${executionId}`, { err, executionId });
+      logger.error(`Error triggering error callback for workflow execution ${executionId}`, { err, executionId });
       this.callbacks.delete(executionId);
       return false;
     }
@@ -154,10 +154,10 @@ export class CallbackState<T = unknown> {
     // Loop through all callbacks and call the reject function.
     this.callbacks.forEach((callbackInfo, executionId) => {
       try {
-        const error = new Error(`Callback cleanup for thread ${executionId}`);
+        const error = new Error(`Callback cleanup for workflow execution ${executionId}`);
         callbackInfo.reject(error);
       } catch (error) {
-        logger.error(`Error cleaning up callback for thread ${executionId}`, { error, executionId });
+        logger.error(`Error cleaning up callback for workflow execution ${executionId}`, { error, executionId });
       }
     });
 
@@ -177,10 +177,10 @@ export class CallbackState<T = unknown> {
     }
 
     try {
-      const error = new Error(`Callback cleanup for thread ${executionId}`);
+      const error = new Error(`Callback cleanup for workflow execution ${executionId}`);
       callbackInfo.reject(error);
     } catch (error) {
-      logger.error(`Error cleaning up callback for thread ${executionId}`, { error, executionId });
+      logger.error(`Error cleaning up callback for workflow execution ${executionId}`, { error, executionId });
     }
 
     this.callbacks.delete(executionId);

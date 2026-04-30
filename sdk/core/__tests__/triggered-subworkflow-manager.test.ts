@@ -5,7 +5,7 @@
  * - Synchronous Execution
  * - Asynchronous Execution
  * - Task Management
- * - Parent-Child Thread Relationships
+ * - Parent-Child Workflow Execution Relationships
  * - Statistical Information
  */
 
@@ -66,9 +66,9 @@ describe("Triggered Subworkflow Manager - Triggered Subworkflow Manager", () => 
       mockWorkflowExecutionPoolService,
     );
 
-    // Mock Main Thread Entity
+    // Mock Main Workflow Execution Entity
     mockMainThreadEntity = {
-      id: "main-thread-123",
+      id: "main-execution-123",
       getThreadId: vi.fn(() => "main-thread-123"),
       getWorkflowId: vi.fn(() => "workflow-123"),
       getInput: vi.fn(() => ({ key: "value" })),

@@ -1,8 +1,8 @@
 /**
- * Thread termination function
+ * Workflow execution termination function
  *
- * Responsible for initiating the action to stop a thread
- * Coordinates the termination process through the WorkflowStateTransitor, which includes cascading the cancellation of child threads
+ * Responsible for initiating the action to stop a workflow execution
+ * Coordinates the termination process through the WorkflowStateTransitor, which includes cascading the cancellation of child workflow executions
  */
 
 import type { TriggerAction, TriggerExecutionResult } from "@wf-agent/types";
@@ -40,7 +40,7 @@ function createFailureResult(
   };
 }
 
-export async function stopThreadHandler(
+export async function stopExecutionHandler(
   action: TriggerAction,
   triggerId: string,
   workflowExecutionRegistry: WorkflowExecutionRegistry,
@@ -49,7 +49,7 @@ export async function stopThreadHandler(
 
   try {
     if (action.type !== "stop_workflow_execution") {
-      throw new RuntimeValidationError("Action type must be stop_thread", {
+      throw new RuntimeValidationError("Action type must be stop_workflow_execution", {
         operation: "handle",
         field: "type",
       });

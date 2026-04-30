@@ -5,8 +5,8 @@
 
 export {
   type TaskSnapshot,
-  type SerializedThreadResult,
-  type SerializedThreadResultMetadata,
+  type SerializedWorkflowExecutionResult,
+  type SerializedWorkflowExecutionResultMetadata,
   TaskSerializationUtils,
   TaskSnapshotSerializer,
 } from "../../serialization/entities/task-serializer.js";

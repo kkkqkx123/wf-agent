@@ -2,13 +2,13 @@
  * Entity Identity Types
  *
  * Defines types for identifying and tracking execution entities
- * (Thread, Agent, Subgraph) in the component message system.
+ * (WorkflowExecution, Agent, Subgraph) in the component message system.
  */
 
 /**
  * Entity Type
  */
-export type EntityType = "thread" | "agent" | "subgraph";
+export type EntityType = "workflowExecution" | "agent" | "subgraph";
 
 /**
  * Parallel Group Information

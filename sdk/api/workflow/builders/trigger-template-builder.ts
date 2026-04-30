@@ -120,7 +120,7 @@ export class TriggerTemplateBuilder extends TemplateBuilder<TriggerTemplate> {
   }
 
   /**
-   * Set the action to stop the thread
+   * Set the action to stop the workflow execution
    * @param reason: The reason for stopping
    * @param parameters: Additional parameters
    * @returns: This

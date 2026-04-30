@@ -10,7 +10,7 @@
  * Design Principles:
  * - Single Responsibility Principle: Responsible only for interrupt status management
  * - Encapsulation: Hides internal implementation details
- * - Thread Safety: Ensures atomicity of state changes
+ * - Execution Safety: Ensures atomicity of state changes
  * - Unified Use of AbortSignal as the primary interrupt mechanism
  * - Portability: Can be shared by both the Graph module and the Agent module
  */

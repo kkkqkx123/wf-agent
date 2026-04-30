@@ -4,8 +4,8 @@
 
 import { readFile, stat } from "fs/promises";
 import { existsSync } from "fs";
+import * as path from "path";
 import type { ToolOutput } from "@wf-agent/types";
-import { detectBinaryFile } from "@wf-agent/sdk";
 import type { ReadFileConfig } from "../../../types.js";
 import { IgnoreController, IgnoreMode, ProtectController } from "@wf-agent/sdk/services";
 
@@ -18,6 +18,41 @@ function resolvePath(filePath: string, workspaceDir?: string): string {
   }
   const baseDir = workspaceDir ?? process.cwd();
   return `${baseDir}/${filePath}`.replace(/\\/g, "/");
+}
+
+/**
+ * Check if a file is likely a plain text file based on extension
+ * Returns true for common text/code file extensions
+ */
+function isLikelyTextFile(filePath: string): boolean {
+  const ext = path.extname(filePath).toLowerCase();
+  
+  // Common text and code file extensions
+  const textExtensions = new Set([
+    // Plain text
+    '.txt', '.md', '.markdown', '.rst', '.text',
+    // Code files
+    '.js', '.ts', '.jsx', '.tsx', '.py', '.java', '.cpp', '.c', '.h', '.hpp',
+    '.cs', '.go', '.rs', '.rb', '.php', '.swift', '.kt', '.scala',
+    // Web files
+    '.html', '.htm', '.css', '.scss', '.sass', '.less',
+    // Config files
+    '.json', '.yaml', '.yml', '.toml', '.xml', '.ini', '.cfg', '.conf',
+    // Shell scripts
+    '.sh', '.bash', '.zsh', '.fish', '.ps1', '.bat', '.cmd',
+    // Data files
+    '.csv', '.tsv', '.sql',
+    // Other text formats
+    '.log', '.env', '.gitignore', '.dockerignore',
+    '.vue', '.svelte', '.astro',
+  ]);
+  
+  // Files without extension are often text files (scripts, configs)
+  if (!ext) {
+    return true;
+  }
+  
+  return textExtensions.has(ext);
 }
 
 /**
@@ -95,13 +130,22 @@ export function createReadFileHandler(config: ReadFileConfig = {}) {
         };
       }
 
-      // Check for binary files
-      const binaryDetection = await detectBinaryFile(absolutePath, filePath);
-      if (binaryDetection.isBinary) {
+      // Quick check: reject obvious non-text files by extension
+      if (!isLikelyTextFile(filePath)) {
         return {
           success: false,
           content: "",
-          error: `${binaryDetection.message || "Binary file detected"}. Text reading not supported for this file type.`,
+          error: `Cannot read '${filePath}' with read_file. This appears to be a special format file (extension: ${path.extname(filePath)}).
+
+For special format files, use dedicated extraction tools or scripts:
+- PDF files: Use extract_pdf script or pdfplumber
+- Word documents (.docx): Use extract_docx script or python-docx
+- Excel files (.xlsx): Use extract_xlsx script or openpyxl/pandas
+- Images: Use analyze_image script or PIL/OpenCV
+- Archives (.zip, .tar, etc.): Use appropriate archive tools
+- Other binary formats: Use specialized parsers
+
+If this is actually a text file with an unusual extension, you can try reading it with a script executor.`,
         };
       }
 

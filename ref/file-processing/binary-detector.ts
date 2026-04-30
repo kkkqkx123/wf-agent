@@ -117,20 +117,11 @@ export async function detectBinaryFile(
 }
 
 /**
- * Check if a file extension is a supported image format
- * 
- * @param extension - File extension (e.g., ".png", ".jpg")
- * @returns True if the extension is a supported image format
- */
-export function isSupportedImageFormat(extension: string): boolean {
-  return IMAGE_EXTENSIONS.has(extension.toLowerCase());
-}
-
-/**
  * Check if a file extension is a supported binary format for text extraction
  * 
  * @param extension - File extension (e.g., ".pdf", ".docx")
  * @returns True if the extension is supported for text extraction
+ * @deprecated Special format files should use dedicated extraction scripts instead
  */
 export function isSupportedBinaryFormat(extension: string): boolean {
   return SUPPORTED_BINARY_FORMATS.has(extension.toLowerCase());

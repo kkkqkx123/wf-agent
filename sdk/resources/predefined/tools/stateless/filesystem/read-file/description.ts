@@ -16,7 +16,7 @@ export const READ_FILE_TOOL_DESCRIPTION: ToolDescriptionData = {
     " PREFER indentation mode when you have a specific line number from search results, error messages, or definition lookups - it guarantees complete, syntactically valid code blocks without mid-function truncation." +
     " IMPORTANT: Indentation mode requires anchor_line to be useful. Without it, only header content (imports) is returned. Obtain anchor_line from: search results, error stack traces, definition lookups, or condensed file summaries (e.g., '14--28 | export class UserService' means anchor_line=14)." +
     " By default, returns up to 2000 lines per file. Lines longer than 2000 characters are truncated." +
-    " Automatically detects binary files (images, PDFs, executables). Images are flagged for vision model processing. PDF/DOCX text extraction supported. Other binaries show clear error messages." +
+    " NOTE: This tool only supports plain text files (code, configs, markdown, etc.). For special formats (PDF, DOCX, XLSX, images), use dedicated extraction scripts instead." +
     " Example: { path: 'src/app.ts' }" +
     " Example (indentation mode): { path: 'src/app.ts', mode: 'indentation', indentation: { anchor_line: 42 } }",
   parameters: [

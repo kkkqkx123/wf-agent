@@ -75,6 +75,8 @@ export interface ReadFileConfig {
   enableIgnore?: boolean;
   /** Enable write protection */
   enableProtect?: boolean;
+  /** Model ID for conditional processing (e.g., HTML entity unescaping) */
+  modelId?: string;
 }
 
 /**

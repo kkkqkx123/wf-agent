@@ -13,7 +13,7 @@ import {
   decompressBlob,
   CompressionConfig,
   DEFAULT_COMPRESSION_CONFIG,
-} from "../sqlite/compression.js";
+} from "../compression/index.js";
 
 const logger = createModuleLogger("json-storage");
 

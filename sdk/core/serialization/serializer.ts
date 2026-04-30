@@ -2,7 +2,7 @@
  * Generic Serializer
  *
  * Provides serialization and deserialization functionality for snapshots.
- * Supports version control and migration.
+ * Supports version control, migration, and optional compression.
  */
 
 import type {
@@ -11,13 +11,14 @@ import type {
   DeserializationOptions,
   SerializedError,
 } from "@wf-agent/types";
+import { compressBlob, decompressBlob } from "@wf-agent/storage";
 
 /**
  * Default serialization options
  */
 const DEFAULT_SERIALIZATION_OPTIONS: Required<SerializationOptions> = {
   prettyPrint: false,
-  compression: false,
+  compression: true, // Enable compression by default for better storage efficiency
   targetVersion: 1,
 };
 
@@ -29,20 +30,22 @@ const DEFAULT_SERIALIZATION_OPTIONS: Required<SerializationOptions> = {
 export class Serializer<TSnapshot extends SnapshotBase> {
   protected readonly currentVersion: number;
   protected readonly prettyPrint: boolean;
+  protected readonly compression: boolean;
 
   constructor(options?: SerializationOptions) {
     const opts = { ...DEFAULT_SERIALIZATION_OPTIONS, ...options };
     this.currentVersion = opts.targetVersion;
     this.prettyPrint = opts.prettyPrint;
+    this.compression = opts.compression;
   }
 
   /**
    * Serialize a snapshot to Uint8Array
    *
    * @param snapshot The snapshot to serialize
-   * @returns Serialized data as byte array
+   * @returns Serialized data as byte array (compressed if enabled)
    */
-  serialize(snapshot: TSnapshot): Uint8Array {
+  async serialize(snapshot: TSnapshot): Promise<Uint8Array> {
     const data = {
       ...snapshot,
       _version: this.currentVersion,
@@ -50,18 +53,43 @@ export class Serializer<TSnapshot extends SnapshotBase> {
     };
 
     const json = this.prettyPrint ? JSON.stringify(data, null, 2) : JSON.stringify(data);
-    return new TextEncoder().encode(json);
+    const bytes = new TextEncoder().encode(json);
+
+    // Apply compression if enabled
+    if (this.compression) {
+      const result = await compressBlob(bytes, {
+        enabled: true,
+        algorithm: "gzip",
+        threshold: 512, // Compress data larger than 512 bytes
+      });
+      return result.compressed;
+    }
+
+    return bytes;
   }
 
   /**
    * Deserialize data to a snapshot
    *
-   * @param data The serialized data
+   * @param data The serialized data (may be compressed)
    * @param options Deserialization options
    * @returns The deserialized snapshot
    */
-  deserialize(data: Uint8Array, options?: DeserializationOptions): TSnapshot {
-    const json = new TextDecoder().decode(data);
+  async deserialize(data: Uint8Array, options?: DeserializationOptions): Promise<TSnapshot> {
+    let bytes = data;
+
+    // Try to detect and decompress if needed
+    // Check if data appears to be compressed (gzip magic number: 0x1f 0x8b)
+    if (data.length > 2 && data[0] === 0x1f && data[1] === 0x8b) {
+      try {
+        bytes = await decompressBlob(data, "gzip");
+      } catch (error) {
+        // If decompression fails, assume data is not compressed
+        console.warn("Failed to decompress data, treating as uncompressed:", error);
+      }
+    }
+
+    const json = new TextDecoder().decode(bytes);
     const snapshot = JSON.parse(json) as TSnapshot;
 
     return this.migrateIfNeeded(snapshot, options?.targetVersion);

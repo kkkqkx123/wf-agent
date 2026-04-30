@@ -88,10 +88,10 @@ export class SerializationRegistry {
    * @param options Serialization options
    * @returns Serialized data
    */
-  serialize<TSnapshot extends SnapshotBase>(
+  async serialize<TSnapshot extends SnapshotBase>(
     snapshot: TSnapshot,
     options?: SerializationOptions,
-  ): Uint8Array {
+  ): Promise<Uint8Array> {
     const serializer = this.getSerializer(snapshot._entityType);
 
     if (serializer) {
@@ -110,19 +110,19 @@ export class SerializationRegistry {
    * @param options Deserialization options
    * @returns The deserialized snapshot
    */
-  deserialize<TSnapshot extends SnapshotBase>(
+  async deserialize<TSnapshot extends SnapshotBase>(
     entityType: string,
     data: Uint8Array,
     options?: DeserializationOptions,
-  ): TSnapshot {
+  ): Promise<TSnapshot> {
     const serializer = this.getSerializer(entityType);
 
     if (serializer) {
-      return serializer.deserialize(data, options) as TSnapshot;
+      return (await serializer.deserialize(data, options)) as TSnapshot;
     }
 
     const defaultSerializer = new Serializer<TSnapshot>();
-    return defaultSerializer.deserialize(data, options);
+    return await defaultSerializer.deserialize(data, options);
   }
 
   /**

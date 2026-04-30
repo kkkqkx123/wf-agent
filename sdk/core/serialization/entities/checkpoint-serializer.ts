@@ -36,7 +36,7 @@ export class CheckpointSnapshotSerializer extends Serializer<CheckpointSnapshot>
   /**
    * Serialize a Checkpoint directly to Uint8Array
    */
-  serializeCheckpoint(checkpoint: Checkpoint): Uint8Array {
+  async serializeCheckpoint(checkpoint: Checkpoint): Promise<Uint8Array> {
     const snapshot: CheckpointSnapshot = {
       _version: 1,
       _timestamp: Date.now(),
@@ -49,8 +49,8 @@ export class CheckpointSnapshotSerializer extends Serializer<CheckpointSnapshot>
   /**
    * Deserialize to a Checkpoint directly
    */
-  deserializeCheckpoint(data: Uint8Array): Checkpoint {
-    const snapshot = this.deserialize(data);
+  async deserializeCheckpoint(data: Uint8Array): Promise<Checkpoint> {
+    const snapshot = await this.deserialize(data);
     return snapshot.checkpoint;
   }
 }

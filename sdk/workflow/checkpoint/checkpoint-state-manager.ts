@@ -112,7 +112,7 @@ export class CheckpointState implements LifecycleCapable<void> {
     for (const checkpointId of checkpointIds) {
       const data = await this.storageCallback.load(checkpointId);
       if (data) {
-        const checkpoint = deserializeCheckpoint(data);
+        const checkpoint = await deserializeCheckpoint(data);
         const metadata = extractStorageMetadata(checkpoint);
         checkpointInfoArray.push({ checkpointId, metadata });
         this.checkpointSizes.set(checkpointId, data.length);
@@ -185,7 +185,7 @@ export class CheckpointState implements LifecycleCapable<void> {
 
     try {
       // Use the passed checkpointData.id instead of generating a new ID
-      const data = serializeCheckpoint(checkpointData);
+      const data = await serializeCheckpoint(checkpointData);
       const storageMetadata = extractStorageMetadata(checkpointData);
 
       await this.storageCallback.save(checkpointId, data, storageMetadata);
@@ -260,7 +260,7 @@ export class CheckpointState implements LifecycleCapable<void> {
     if (!data) {
       return null;
     }
-    return deserializeCheckpoint(data);
+    return await deserializeCheckpoint(data);
   }
 
   /**

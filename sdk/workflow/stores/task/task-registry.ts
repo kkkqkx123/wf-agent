@@ -171,7 +171,7 @@ export class TaskRegistry {
       for (const taskId of taskIds) {
         const data = await this.storageCallback.load(taskId);
         if (data) {
-          const snapshot = registry.deserialize<TaskSnapshot>("task", data);
+          const snapshot = await registry.deserialize<TaskSnapshot>("task", data);
           const storedTask: StoredTaskInfo = {
             id: snapshot.id,
             instanceType: snapshot.instanceType,
@@ -254,7 +254,7 @@ export class TaskRegistry {
         }
       }
 
-      const data = registry.serialize(snapshot);
+      const data = await registry.serialize(snapshot);
 
       const metadata: TaskStorageMetadata = {
         taskId: snapshot.id,

@@ -24,6 +24,9 @@ export { logger, createModuleLogger } from "./logger.js";
 // Core Type Definition
 export * from "./types/index.js";
 
+// Compression Utilities (shared across all storage backends)
+export * from "./compression/index.js";
+
 // JSON File Storage Implementation
 export * from "./json/index.js";
 

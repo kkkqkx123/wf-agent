@@ -6,6 +6,7 @@ export { BaseSqliteStorage, type BaseSqliteStorageConfig } from "./base-sqlite-s
 export { SqliteCheckpointStorage } from "./sqlite-checkpoint-storage.js";
 export { SqliteWorkflowStorage } from "./sqlite-workflow-storage.js";
 export { SqliteTaskStorage } from "./sqlite-task-storage.js";
+// Re-export compression utilities for backward compatibility
 export {
   compressBlob,
   decompressBlob,
@@ -14,4 +15,4 @@ export {
   type CompressionConfig,
   type CompressionResult,
   DEFAULT_COMPRESSION_CONFIG,
-} from "./compression.js";
+} from "../compression/index.js";

@@ -14,7 +14,7 @@ import type {
 import type { WorkflowStorageCallback } from "../types/callback/index.js";
 import { BaseJsonStorage, BaseJsonStorageConfig } from "./base-json-storage.js";
 import { StorageError, SerializationError } from "../types/storage-errors.js";
-import { compressBlob, decompressBlob, DEFAULT_COMPRESSION_CONFIG } from "../sqlite/compression.js";
+import { compressBlob, decompressBlob, DEFAULT_COMPRESSION_CONFIG } from "../compression/index.js";
 import { createHash } from "crypto";
 
 /**

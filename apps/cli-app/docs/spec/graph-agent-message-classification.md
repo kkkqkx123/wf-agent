@@ -12,21 +12,21 @@
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
 │  │                         Graph (工作流引擎)                            │   │
 │  │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────┐  │   │
-│  │  │   Thread 实例    │  │   Thread 实例    │  │     Thread 实例      │  │   │
+│  │  │ WorkflowExec    │  │ WorkflowExec    │  │   WorkflowExec      │  │   │
 │  │  │  (session-001)  │  │  (session-002)  │  │    (session-003)    │  │   │
 │  │  │                 │  │                 │  │                     │  │   │
 │  │  │ ┌─────────────┐ │  │ ┌─────────────┐ │  │ ┌─────────────────┐ │  │   │
 │  │  │ │ Agent Node  │ │  │ │  LLM Node   │ │  │ │  Subgraph Node  │ │  │   │
 │  │  │ │             │─┼──┼▶│             │ │  │ │                 │ │  │   │
 │  │  │ │ ┌─────────┐ │ │  │ │             │ │  │ │ ┌─────────────┐ │ │  │   │
-│  │  │ │ │ Agent   │ │ │  │ │             │ │  │ │ │  Subthread  │ │ │  │   │
+│  │  │ │ │ Agent   │ │ │  │ │             │ │  │ │ │ Sub-Exec  │ │ │  │   │
 │  │  │ │ │ Loop    │◀┼─┼──┼─┤             │ │  │ │ │   实例      │─┼─┼──┤   │
 │  │  │ │ │(loop-1) │ │ │  │ │             │ │  │ │ │(session-004)│ │ │  │   │
 │  │  │ │ └─────────┘ │ │  │ └─────────────┘ │  │ │ └─────────────┘ │ │  │   │
 │  │  │ └─────────────┘ │  │                 │  │ └─────────────────┘ │  │   │
 │  │  └─────────────────┘  └─────────────────┘  └─────────────────────┘  │   │
 │  │                                                                     │   │
-│  │  • Thread 是 Graph 的执行实例                                          │   │
+│  │  • WorkflowExecution is the execution instance of Graph                                          │   │
 │  │  • 支持 Fork/Join 并行执行                                             │   │
 │  │  • 支持 Subgraph 嵌套调用                                              │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
@@ -55,17 +55,17 @@
 | 概念 | 说明 | 消息前缀 |
 |------|------|----------|
 | **Graph** | 工作流定义，包含节点和边的静态结构 | - |
-| **Thread** | Graph 的执行实例，有独立状态和生命周期 | `thread.{id}` |
+| **WorkflowExecution** | Graph 的执行实例，有独立状态和生命周期 | `execution.{id}` |
 | **Agent** | Agent Loop 定义，包含配置和工具 | - |
 | **Agent Loop** | Agent 的执行实例，有独立迭代状态 | `agent.{id}` |
-| **Subgraph** | Graph 中的子工作流节点，创建子 Thread | `subgraph.{id}` |
+| **Subgraph** | Graph 中的子工作流节点，创建子 WorkflowExecution | `subgraph.{id}` |
 
 ### 1.3 互调用关系
 
 ```
 场景 1: Graph 调用 Agent
 ─────────────────────────
-Thread (session-main)
+WorkflowExecution (session-main)
   └── Agent Node
       └── Agent Loop (loop-001) [独立实例]
           └── 迭代执行
@@ -79,18 +79,18 @@ Agent Loop (loop-standalone) [独立实例]
 
 场景 3: Graph 嵌套 Subgraph
 ─────────────────────────
-Thread (session-parent)
+WorkflowExecution (session-parent)
   └── Subgraph Node
-      └── Subthread (session-child) [独立实例]
+      └── Sub-Execution (session-child) [独立实例]
           └── Agent Node
               └── Agent Loop (loop-nested) [独立实例]
 
 场景 4: 并行执行 Fork/Join
 ─────────────────────────
-Thread (session-main)
+WorkflowExecution (session-main)
   └── Fork Node
-      ├── Branch 1 → Thread (session-branch-1)
-      └── Branch 2 → Thread (session-branch-2)
+      ├── Branch 1 → WorkflowExecution (session-branch-1)
+      └── Branch 2 → WorkflowExecution (session-branch-2)
   └── Join Node [等待所有分支]
 ```
 
@@ -106,13 +106,13 @@ Thread (session-main)
  * 格式: {entityType}.{entityId}.{messageCategory}.{messageType}
  * 
  * 示例:
- * - thread.session-001.workflow.node_start
+ * - execution.session-001.workflow.node_start
  * - agent.loop-001.iteration.start
  * - subgraph.session-sub-001.agent.stream
  */
 interface MessageIdentity {
-  /** 实体类型: thread | agent | subgraph */
-  entityType: 'thread' | 'agent' | 'subgraph';
+  /** 实体类型: execution | agent | subgraph */
+  entityType: 'execution' | 'agent' | 'subgraph';
   
   /** 实体实例 ID */
   entityId: string;
@@ -148,61 +148,61 @@ interface EntityMessage extends BaseMessage {
 }
 ```
 
-### 2.2 Thread 消息分类
+### 2.2 WorkflowExecution Message Classification
 
 ```typescript
 /**
- * Thread 消息类别
- * 前缀: thread.{threadId}
+ * WorkflowExecution message categories
+ * Prefix: execution.{executionId}
  */
-enum ThreadMessageType {
-  // 生命周期 (1000-1099)
-  THREAD_START = 'thread.start',
-  THREAD_PAUSE = 'thread.pause',
-  THREAD_RESUME = 'thread.resume',
-  THREAD_END = 'thread.end',
-  THREAD_CANCEL = 'thread.cancel',
+enum WorkflowExecutionMessageType {
+  // Lifecycle (1000-1099)
+  EXECUTION_START = 'execution.start',
+  EXECUTION_PAUSE = 'execution.pause',
+  EXECUTION_RESUME = 'execution.resume',
+  EXECUTION_END = 'execution.end',
+  EXECUTION_CANCEL = 'execution.cancel',
   
-  // 节点执行 (1100-1199)
+  // Node execution (1100-1199)
   NODE_START = 'node.start',
   NODE_END = 'node.end',
   NODE_ERROR = 'node.error',
   NODE_SKIP = 'node.skip',
   
-  // 工作流状态 (1200-1299)
+  // Workflow status (1200-1299)
   WORKFLOW_START = 'workflow.start',
   WORKFLOW_END = 'workflow.end',
   WORKFLOW_CHECKPOINT = 'workflow.checkpoint',
   
-  // 变量变更 (1300-1399)
+  // Variable changes (1300-1399)
   VARIABLE_SET = 'variable.set',
   VARIABLE_GET = 'variable.get',
   
-  // 并行执行 (1400-1499)
+  // Parallel execution (1400-1499)
   FORK_START = 'fork.start',
   FORK_BRANCH_START = 'fork.branch_start',
   FORK_BRANCH_END = 'fork.branch_end',
   JOIN_WAIT = 'join.wait',
   JOIN_COMPLETE = 'join.complete',
   
-  // 子图调用 (1500-1599)
+  // Subgraph calls (1500-1599)
   SUBGRAPH_CALL = 'subgraph.call',
   SUBGRAPH_RETURN = 'subgraph.return',
   
-  // Agent 节点调用 (1600-1699)
+  // Agent node calls (1600-1699)
   AGENT_NODE_CALL = 'agent_node.call',
   AGENT_NODE_RETURN = 'agent_node.return',
 }
 
 /**
- * Thread 消息数据
+ * WorkflowExecution message data
  */
-interface ThreadMessageData {
-  threadId: string;
-  graphId: string;
+interface WorkflowExecutionMessageData {
+  executionId: string;
+  workflowId: string;
   nodeId?: string;
   nodeType?: string;
-  parentThreadId?: string;
+  parentExecutionId?: string;
   parallelGroupId?: string;
 }
 ```

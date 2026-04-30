@@ -223,15 +223,15 @@ export class Formatter {
   }
 
   /**
-   * Format thread
+   * Format workflow execution
    */
-  thread(thread: { id?: string; workflowId?: string; status?: string }): string {
-    const id = thread.id || "N/A";
-    const status = this.status(thread.status || "unknown");
-    const workflowId = thread.workflowId || "N/A";
+  workflowExecution(execution: { id?: string; workflowId?: string; status?: string }): string {
+    const id = execution.id || "N/A";
+    const status = this.status(execution.status || "unknown");
+    const workflowId = execution.workflowId || "N/A";
 
     if (!this._colorEnabled) {
-      return `${id} - ${thread.status || "unknown"} - ${workflowId}`;
+      return `${id} - ${execution.status || "unknown"} - ${workflowId}`;
     }
     return `\x1b[36m${id}\x1b[0m - ${status} - \x1b[90m${workflowId}\x1b[0m`;
   }

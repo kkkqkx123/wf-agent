@@ -46,38 +46,38 @@ export function formatWorkflowList(
 }
 
 // ============================================
-// Thread Formatters
+// Workflow Execution Formatters
 // ============================================
 
-export function formatThread(thread: any, options?: { verbose?: boolean }): string {
+export function formatWorkflowExecution(execution: any, options?: { verbose?: boolean }): string {
   const formatter = getGlobalFormatter();
   if (options?.verbose) {
-    return formatter.json(thread);
+    return formatter.json(execution);
   }
-  return formatter.thread(thread);
+  return formatter.workflowExecution(execution);
 }
 
-export function formatThreadList(
-  threads: any[],
+export function formatWorkflowExecutionList(
+  executions: any[],
   options?: { table?: boolean; verbose?: boolean },
 ): string {
   const formatter = getGlobalFormatter();
-  if (threads.length === 0) {
-    return "No thread found.";
+  if (executions.length === 0) {
+    return "No workflow execution found.";
   }
 
   if (options?.table) {
-    const headers = ["Thread ID", "Workflow ID", "Status", "Creation time"];
-    const rows = threads.map(t => [
-      t.id?.substring(0, 8) || "N/A",
-      t.workflowId?.substring(0, 8) || "N/A",
-      t.status || "unknown",
-      t.createdAt || "N/A",
+    const headers = ["Execution ID", "Workflow ID", "Status", "Creation time"];
+    const rows = executions.map(e => [
+      e.id?.substring(0, 8) || "N/A",
+      e.workflowId?.substring(0, 8) || "N/A",
+      e.status || "unknown",
+      e.createdAt || "N/A",
     ]);
     return formatter.table(headers, rows);
   }
 
-  return threads.map(t => formatThread(t, options)).join("\n");
+  return executions.map(e => formatWorkflowExecution(e, options)).join("\n");
 }
 
 // ============================================
@@ -99,10 +99,10 @@ export function formatCheckpointList(checkpoints: any[], options?: { table?: boo
   }
 
   if (options?.table) {
-    const headers = ["Checkpoint ID", "Thread ID", "Creation time"];
+    const headers = ["Checkpoint ID", "Execution ID", "Creation time"];
     const rows = checkpoints.map(c => [
       c.id?.substring(0, 8) || "N/A",
-      c.threadId?.substring(0, 8) || "N/A",
+      c.executionId?.substring(0, 8) || "N/A",
       c.createdAt || "N/A",
     ]);
     return formatter.table(headers, rows);
@@ -243,12 +243,12 @@ export function formatTriggerList(triggers: any[], options?: { table?: boolean }
   }
 
   if (options?.table) {
-    const headers = ["Trigger ID", "Type", "Status", "Thread ID"];
+    const headers = ["Trigger ID", "Type", "Status", "Execution ID"];
     const rows = triggers.map(t => [
       t.id?.substring(0, 8) || "N/A",
       t.type || "N/A",
       t.status || "unknown",
-      t.threadId?.substring(0, 8) || "N/A",
+      t.executionId?.substring(0, 8) || "N/A",
     ]);
     return formatter.table(headers, rows);
   }
@@ -354,11 +354,11 @@ export function formatEventList(events: any[], options?: { table?: boolean }): s
   }
 
   if (options?.table) {
-    const headers = ["Type", "Time", "Thread ID", "Workflow ID"];
+    const headers = ["Type", "Time", "Execution ID", "Workflow ID"];
     const rows = events.map(e => [
       e.type || "N/A",
       e.timestamp || "N/A",
-      e.threadId?.substring(0, 8) || "N/A",
+      e.executionId?.substring(0, 8) || "N/A",
       e.workflowId?.substring(0, 8) || "N/A",
     ]);
     return formatter.table(headers, rows);

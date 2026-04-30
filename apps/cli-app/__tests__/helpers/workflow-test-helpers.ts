@@ -203,7 +203,7 @@ eventType = "NODE_COMPLETED"
 type = "set_variable"
 
 [triggers.action.parameters]
-threadId = "current"
+executionId = "current"
 
 [triggers.action.parameters.variables]
 status = "completed"

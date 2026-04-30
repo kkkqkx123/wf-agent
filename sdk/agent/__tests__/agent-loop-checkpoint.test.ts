@@ -57,7 +57,8 @@ describe("Agent Loop Checkpoint", () => {
       entity.state.start();
       entity.addMessage({ role: "user", content: "Test" });
 
-      const checkpointId = await AgentLoopCheckpointCoordinator.createCheckpoint(
+      const coordinator = new AgentLoopCheckpointCoordinator();
+      const checkpointId = await coordinator.createCheckpoint(
         entity,
         mockDependencies,
       );
@@ -73,7 +74,8 @@ describe("Agent Loop Checkpoint", () => {
       entity.addMessage({ role: "user", content: "Test" });
       entity.setVariable("key1", "value1");
 
-      const checkpointId = await AgentLoopCheckpointCoordinator.createCheckpoint(
+      const coordinator = new AgentLoopCheckpointCoordinator();
+      const checkpointId = await coordinator.createCheckpoint(
         entity,
         mockDependencies,
       );
@@ -91,7 +93,8 @@ describe("Agent Loop Checkpoint", () => {
         tags: ["test"],
       };
 
-      const checkpointId = await AgentLoopCheckpointCoordinator.createCheckpoint(
+      const coordinator = new AgentLoopCheckpointCoordinator();
+      const checkpointId = await coordinator.createCheckpoint(
         entity,
         mockDependencies,
         { metadata },
@@ -104,8 +107,9 @@ describe("Agent Loop Checkpoint", () => {
     it("should generate unique checkpoint ID", async () => {
       entity.state.start();
 
-      const id1 = await AgentLoopCheckpointCoordinator.createCheckpoint(entity, mockDependencies);
-      const id2 = await AgentLoopCheckpointCoordinator.createCheckpoint(entity, mockDependencies);
+      const coordinator = new AgentLoopCheckpointCoordinator();
+      const id1 = await coordinator.createCheckpoint(entity, mockDependencies);
+      const id2 = await coordinator.createCheckpoint(entity, mockDependencies);
 
       expect(id1).not.toBe(id2);
     });
@@ -115,14 +119,15 @@ describe("Agent Loop Checkpoint", () => {
     it("should create delta checkpoint after first checkpoint", async () => {
       entity.state.start();
 
+      const coordinator = new AgentLoopCheckpointCoordinator();
       // First checkpoint (full)
-      await AgentLoopCheckpointCoordinator.createCheckpoint(entity, mockDependencies);
+      await coordinator.createCheckpoint(entity, mockDependencies);
 
       // Add more data
       entity.addMessage({ role: "assistant", content: "Response" });
 
       // Second checkpoint (should be delta)
-      const checkpointId = await AgentLoopCheckpointCoordinator.createCheckpoint(
+      const checkpointId = await coordinator.createCheckpoint(
         entity,
         mockDependencies,
       );
@@ -135,11 +140,12 @@ describe("Agent Loop Checkpoint", () => {
       entity.state.start();
       entity.addMessage({ role: "user", content: "Message 1" });
 
-      await AgentLoopCheckpointCoordinator.createCheckpoint(entity, mockDependencies);
+      const coordinator = new AgentLoopCheckpointCoordinator();
+      await coordinator.createCheckpoint(entity, mockDependencies);
 
       entity.addMessage({ role: "assistant", content: "Response" });
 
-      const checkpointId = await AgentLoopCheckpointCoordinator.createCheckpoint(
+      const checkpointId = await coordinator.createCheckpoint(
         entity,
         mockDependencies,
       );
@@ -153,14 +159,15 @@ describe("Agent Loop Checkpoint", () => {
     it("should reference previous checkpoint", async () => {
       entity.state.start();
 
-      const firstId = await AgentLoopCheckpointCoordinator.createCheckpoint(
+      const coordinator = new AgentLoopCheckpointCoordinator();
+      const firstId = await coordinator.createCheckpoint(
         entity,
         mockDependencies,
       );
 
       entity.addMessage({ role: "user", content: "New" });
 
-      const secondId = await AgentLoopCheckpointCoordinator.createCheckpoint(
+      const secondId = await coordinator.createCheckpoint(
         entity,
         mockDependencies,
       );
@@ -176,10 +183,11 @@ describe("Agent Loop Checkpoint", () => {
     it("should create full checkpoint at baseline interval", async () => {
       entity.state.start();
 
+      const coordinator = new AgentLoopCheckpointCoordinator();
       // Create checkpoints up to baseline interval
       for (let i = 0; i < 10; i++) {
         entity.addMessage({ role: "user", content: `Message ${i}` });
-        await AgentLoopCheckpointCoordinator.createCheckpoint(entity, mockDependencies);
+        await coordinator.createCheckpoint(entity, mockDependencies);
       }
 
       const list = await mockDependencies.listCheckpoints(entity.id);
@@ -192,12 +200,13 @@ describe("Agent Loop Checkpoint", () => {
     it("should create delta checkpoint between baseline intervals", async () => {
       entity.state.start();
 
+      const coordinator = new AgentLoopCheckpointCoordinator();
       // First checkpoint (full)
-      await AgentLoopCheckpointCoordinator.createCheckpoint(entity, mockDependencies);
+      await coordinator.createCheckpoint(entity, mockDependencies);
 
       // Second checkpoint (delta)
       entity.addMessage({ role: "user", content: "New" });
-      const secondId = await AgentLoopCheckpointCoordinator.createCheckpoint(
+      const secondId = await coordinator.createCheckpoint(
         entity,
         mockDependencies,
       );
@@ -218,9 +227,10 @@ describe("Agent Loop Checkpoint", () => {
 
       entity.state.start();
 
-      await AgentLoopCheckpointCoordinator.createCheckpoint(entity, disabledDependencies);
+      const coordinator = new AgentLoopCheckpointCoordinator();
+      await coordinator.createCheckpoint(entity, disabledDependencies);
       entity.addMessage({ role: "user", content: "New" });
-      const secondId = await AgentLoopCheckpointCoordinator.createCheckpoint(
+      const secondId = await coordinator.createCheckpoint(
         entity,
         disabledDependencies,
       );
@@ -236,12 +246,13 @@ describe("Agent Loop Checkpoint", () => {
       entity.addMessage({ role: "user", content: "Test" });
       entity.setVariable("key1", "value1");
 
-      const checkpointId = await AgentLoopCheckpointCoordinator.createCheckpoint(
+      const coordinator = new AgentLoopCheckpointCoordinator();
+      const checkpointId = await coordinator.createCheckpoint(
         entity,
         mockDependencies,
       );
 
-      const restored = await AgentLoopCheckpointCoordinator.restoreFromCheckpoint(
+      const restored = await coordinator.restoreFromCheckpoint(
         checkpointId,
         mockDependencies,
       );
@@ -255,19 +266,20 @@ describe("Agent Loop Checkpoint", () => {
       entity.state.start();
       entity.addMessage({ role: "user", content: "Message 1" });
 
-      const firstId = await AgentLoopCheckpointCoordinator.createCheckpoint(
+      const coordinator = new AgentLoopCheckpointCoordinator();
+      const firstId = await coordinator.createCheckpoint(
         entity,
         mockDependencies,
       );
 
       entity.addMessage({ role: "assistant", content: "Response" });
 
-      const secondId = await AgentLoopCheckpointCoordinator.createCheckpoint(
+      const secondId = await coordinator.createCheckpoint(
         entity,
         mockDependencies,
       );
 
-      const restored = await AgentLoopCheckpointCoordinator.restoreFromCheckpoint(
+      const restored = await coordinator.restoreFromCheckpoint(
         secondId,
         mockDependencies,
       );
@@ -280,12 +292,13 @@ describe("Agent Loop Checkpoint", () => {
       entity.state.startIteration();
       entity.state.endIteration("Test");
 
-      const checkpointId = await AgentLoopCheckpointCoordinator.createCheckpoint(
+      const coordinator = new AgentLoopCheckpointCoordinator();
+      const checkpointId = await coordinator.createCheckpoint(
         entity,
         mockDependencies,
       );
 
-      const restored = await AgentLoopCheckpointCoordinator.restoreFromCheckpoint(
+      const restored = await coordinator.restoreFromCheckpoint(
         checkpointId,
         mockDependencies,
       );
@@ -294,8 +307,9 @@ describe("Agent Loop Checkpoint", () => {
     });
 
     it("should throw error for non-existent checkpoint", async () => {
+      const coordinator = new AgentLoopCheckpointCoordinator();
       await expect(
-        AgentLoopCheckpointCoordinator.restoreFromCheckpoint("non-existent", mockDependencies),
+        coordinator.restoreFromCheckpoint("non-existent", mockDependencies),
       ).rejects.toThrow();
     });
   });
@@ -312,8 +326,9 @@ describe("Agent Loop Checkpoint", () => {
 
       checkpoints.set("invalid", invalidCheckpoint);
 
+      const coordinator = new AgentLoopCheckpointCoordinator();
       await expect(
-        AgentLoopCheckpointCoordinator.restoreFromCheckpoint("invalid", mockDependencies),
+        coordinator.restoreFromCheckpoint("invalid", mockDependencies),
       ).rejects.toThrow();
     });
 
@@ -328,8 +343,9 @@ describe("Agent Loop Checkpoint", () => {
 
       checkpoints.set("invalid-delta", invalidDelta);
 
+      const coordinator = new AgentLoopCheckpointCoordinator();
       await expect(
-        AgentLoopCheckpointCoordinator.restoreFromCheckpoint("invalid-delta", mockDependencies),
+        coordinator.restoreFromCheckpoint("invalid-delta", mockDependencies),
       ).rejects.toThrow();
     });
 
@@ -348,8 +364,9 @@ describe("Agent Loop Checkpoint", () => {
 
       checkpoints.set("invalid-snapshot", invalidSnapshot);
 
+      const coordinator = new AgentLoopCheckpointCoordinator();
       await expect(
-        AgentLoopCheckpointCoordinator.restoreFromCheckpoint("invalid-snapshot", mockDependencies),
+        coordinator.restoreFromCheckpoint("invalid-snapshot", mockDependencies),
       ).rejects.toThrow();
     });
   });

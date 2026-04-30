@@ -60,3 +60,6 @@ export {
 
 // Tool Utilities
 export * from "./tool-utils.js";
+
+// Misc Utilities (file processing, binary detection, etc.)
+export * from "./misc/index.js";

@@ -42,7 +42,7 @@ export class EventAdapter extends BaseAdapter {
   async getEventStats(filter?: EventFilter): Promise<{
     total: number;
     byType: Record<string, number>;
-    byThread: Record<string, number>;
+    byExecution: Record<string, number>;
     byWorkflow: Record<string, number>;
   }> {
     return this.executeWithErrorHandling(async () => {

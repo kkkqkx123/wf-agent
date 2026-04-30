@@ -57,56 +57,56 @@ export function createTriggerCommands(): Command {
 
   // Enable trigger command
   triggerCmd
-    .command("enable <threadId> <triggerId>")
+    .command("enable <executionId> <triggerId>")
     .description("Enable the trigger")
-    .action(async (threadId, triggerId) => {
+    .action(async (executionId, triggerId) => {
       try {
         output.infoLog(`Enabling trigger: ${triggerId}`);
 
         const adapter = new TriggerAdapter();
-        await adapter.enableTrigger(threadId, triggerId);
+        await adapter.enableTrigger(executionId, triggerId);
       } catch (error) {
         handleError(error, {
           operation: "enable-trigger",
-          additionalInfo: { threadId, triggerId },
+          additionalInfo: { executionId, triggerId },
         });
       }
     });
 
   // Disable trigger command
   triggerCmd
-    .command("disable <threadId> <triggerId>")
+    .command("disable <executionId> <triggerId>")
     .description("Disable the trigger.")
-    .action(async (threadId, triggerId) => {
+    .action(async (executionId, triggerId) => {
       try {
         output.infoLog(`Disabling trigger: ${triggerId}`);
 
         const adapter = new TriggerAdapter();
-        await adapter.disableTrigger(threadId, triggerId);
+        await adapter.disableTrigger(executionId, triggerId);
       } catch (error) {
         handleError(error, {
           operation: "disable-trigger",
-          additionalInfo: { threadId, triggerId },
+          additionalInfo: { executionId, triggerId },
         });
       }
     });
 
-  // List trigger commands by thread
+  // List trigger commands by execution entity
   triggerCmd
-    .command("list-by-thread <thread-id>")
-    .description("List triggers by thread ID")
+    .command("list-by-execution <execution-id>")
+    .description("List triggers by workflow execution ID")
     .option("-t, --table", "Output in table format:")
     .option("-v, --verbose", "Detailed output")
-    .action(async (threadId, options: CommandOptions) => {
+    .action(async (executionId, options: CommandOptions) => {
       try {
         const adapter = new TriggerAdapter();
-        const triggers = await adapter.listTriggersByThread(threadId);
+        const triggers = await adapter.listTriggersByWorkflowExecution(executionId);
 
         output.output(formatTriggerList(triggers, { table: options.table }));
       } catch (error) {
         handleError(error, {
-          operation: "list-triggers-by-thread",
-          additionalInfo: { threadId },
+          operation: "list-triggers-by-execution",
+          additionalInfo: { executionId },
         });
       }
     });

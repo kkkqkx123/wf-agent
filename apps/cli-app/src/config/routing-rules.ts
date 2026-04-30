@@ -71,11 +71,11 @@ export const CLI_ROUTING_RULES: RoutingRule[] = [
     priority: 100,
   },
 
-  // Rule 5: Thread node events -> TUI + FILE_DISPLAY
+  // Rule 5: WorkflowExecution node events -> TUI + FILE_DISPLAY
   {
-    name: "thread-node",
+    name: "workflow-execution-node",
     match: {
-      types: ["thread.node.start", "thread.node.end"],
+      types: ["workflow-execution.node.start", "workflow-execution.node.end"],
     },
     decision: {
       targets: [OutputTarget.TUI, OutputTarget.FILE_DISPLAY],
@@ -86,11 +86,11 @@ export const CLI_ROUTING_RULES: RoutingRule[] = [
     priority: 100,
   },
 
-  // Rule 6: Thread fork branch -> FILE_DISPLAY + aggregate
+  // Rule 6: WorkflowExecution fork branch -> FILE_DISPLAY + aggregate
   {
-    name: "thread-fork-branch",
+    name: "workflow-execution-fork-branch",
     match: {
-      types: ["thread.fork.branch_start", "thread.fork.branch_end"],
+      types: ["workflow-execution.fork.branch_start", "workflow-execution.fork.branch_end"],
     },
     decision: {
       targets: [OutputTarget.FILE_DISPLAY],

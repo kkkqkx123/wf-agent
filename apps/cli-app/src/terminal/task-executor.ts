@@ -204,7 +204,7 @@ export class TaskExecutor {
     const inputJson = JSON.stringify(input).replace(/"/g, '\\"').replace(/'/g, "\\'");
 
     // Build command
-    let command = `modular-agent thread run ${workflowId}`;
+    let command = `modular-agent execution run ${workflowId}`;
 
     if (Object.keys(input).length > 0) {
       command += ` --input '${inputJson}'`;

@@ -20,21 +20,21 @@ export type TriggerHandlerFn = (
   ...dependencies: unknown[]
 ) => Promise<TriggerExecutionResult>;
 
-export function getTriggerHandler(actionType: string): TriggerHandlerFn {
-  const handlers: Record<string, TriggerHandlerFn> = {
-    apply_message_operation: applyMessageOperationHandler as unknown as TriggerHandlerFn,
-    custom: customHandler as unknown as TriggerHandlerFn,
-    execute_script: executeScriptHandler as unknown as TriggerHandlerFn,
-    execute_triggered_subgraph: executeTriggeredSubgraphHandler as unknown as TriggerHandlerFn,
-    pause_workflow_execution: pauseExecutionHandler as unknown as TriggerHandlerFn,
-    resume_workflow_execution: resumeExecutionHandler as unknown as TriggerHandlerFn,
-    send_notification: sendNotificationHandler as unknown as TriggerHandlerFn,
-    set_variable: setVariableHandler as unknown as TriggerHandlerFn,
-    skip_node: skipNodeHandler as unknown as TriggerHandlerFn,
-    stop_workflow_execution: stopExecutionHandler as unknown as TriggerHandlerFn,
-  };
+export const triggerHandlers: Record<string, TriggerHandlerFn> = {
+  apply_message_operation: applyMessageOperationHandler as unknown as TriggerHandlerFn,
+  custom: customHandler as unknown as TriggerHandlerFn,
+  execute_script: executeScriptHandler as unknown as TriggerHandlerFn,
+  execute_triggered_subgraph: executeTriggeredSubgraphHandler as unknown as TriggerHandlerFn,
+  pause_workflow_execution: pauseExecutionHandler as unknown as TriggerHandlerFn,
+  resume_workflow_execution: resumeExecutionHandler as unknown as TriggerHandlerFn,
+  send_notification: sendNotificationHandler as unknown as TriggerHandlerFn,
+  set_variable: setVariableHandler as unknown as TriggerHandlerFn,
+  skip_node: skipNodeHandler as unknown as TriggerHandlerFn,
+  stop_workflow_execution: stopExecutionHandler as unknown as TriggerHandlerFn,
+};
 
-  const handler = handlers[actionType];
+export function getTriggerHandler(actionType: string): TriggerHandlerFn {
+  const handler = triggerHandlers[actionType];
   if (!handler) {
     throw new Error(`Unknown trigger action type: ${actionType}`);
   }

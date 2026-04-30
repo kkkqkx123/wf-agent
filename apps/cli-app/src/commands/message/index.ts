@@ -23,13 +23,13 @@ export function createMessageCommands(): Command {
     .description("List all messages")
     .option("-t, --table", "Output in table format:")
     .option("-v, --verbose", "Detailed output")
-    .option("--thread-id <threadId>", "Filter by thread ID")
+    .option("--execution-id <executionId>", "Filter by execution ID")
     .option("--role <role>", "Filter by role")
     .option("--content <content>", "Filter by content keywords")
     .action(
       async (
         options: CommandOptions & {
-          threadId?: string;
+          executionId?: string;
           role?: string;
           content?: string;
         },
@@ -37,7 +37,7 @@ export function createMessageCommands(): Command {
         try {
           const adapter = new MessageAdapter();
           const filter: any = {};
-          if (options.threadId) filter.threadId = options.threadId;
+          if (options.executionId) filter.executionId = options.executionId;
           if (options.role) filter.role = options.role;
           if (options.content) filter.content = options.content;
 
@@ -48,7 +48,7 @@ export function createMessageCommands(): Command {
           handleError(error, {
             operation: "listMessages",
             additionalInfo: {
-              filter: { threadId: options.threadId, role: options.role, content: options.content },
+              filter: { executionId: options.executionId, role: options.role, content: options.content },
             },
           });
         }
@@ -74,22 +74,22 @@ export function createMessageCommands(): Command {
       }
     });
 
-  // Command to list messages by thread
+  // Command to list messages by execution
   messageCmd
-    .command("list-by-thread <thread-id>")
-    .description("List messages by thread ID")
+    .command("list-by-execution <execution-id>")
+    .description("List messages by execution ID")
     .option("-t, --table", "Output in table format:")
     .option("-v, --verbose", "Detailed output")
-    .action(async (threadId, options: CommandOptions) => {
+    .action(async (executionId, options: CommandOptions) => {
       try {
         const adapter = new MessageAdapter();
-        const messages = await adapter.listMessagesByThread(threadId);
+        const messages = await adapter.listMessagesByExecution(executionId);
 
         output.output(formatMessageList(messages, { table: options.table }));
       } catch (error) {
         handleError(error, {
-          operation: "listMessagesByThread",
-          additionalInfo: { threadId },
+          operation: "listMessagesByExecution",
+          additionalInfo: { executionId },
         });
       }
     });
@@ -98,11 +98,11 @@ export function createMessageCommands(): Command {
   messageCmd
     .command("stats")
     .description("Get message statistics")
-    .option("--thread-id <threadId>", "Count by thread ID")
-    .action(async (options: { threadId?: string }) => {
+    .option("--execution-id <executionId>", "Count by execution ID")
+    .action(async (options: { executionId?: string }) => {
       try {
         const adapter = new MessageAdapter();
-        const stats = await adapter.getMessageStats(options.threadId);
+        const stats = await adapter.getMessageStats(options.executionId);
 
         output.newLine();
         output.subsection("Message Statistics:");
@@ -115,14 +115,14 @@ export function createMessageCommands(): Command {
       } catch (error) {
         handleError(error, {
           operation: "getMessageStats",
-          additionalInfo: { threadId: options.threadId },
+          additionalInfo: { executionId: options.executionId },
         });
       }
     });
 
   // Compress context command
   messageCmd
-    .command("compress <threadId>")
+    .command("compress <executionId>")
     .description("Manually trigger context compression")
     .option(
       "-s, --strategy <strategy>",
@@ -130,14 +130,14 @@ export function createMessageCommands(): Command {
       "TRUNCATE",
     )
     .option("--keep-recent <count>", "Retain the number of recent messages.", "10")
-    .action(async (threadId: string, options: any) => {
+    .action(async (executionId: string, options: any) => {
       try {
         const { EventAdapter } = await import("../../adapters/event-adapter.js");
         const adapter = new EventAdapter();
         const event = {
           type: "CONTEXT_COMPRESSION_REQUESTED",
           timestamp: Date.now(),
-          threadId,
+          executionId,
           data: {
             strategy: options.strategy,
             keepRecent: parseInt(options.keepRecent, 10),
@@ -146,7 +146,7 @@ export function createMessageCommands(): Command {
         await adapter.dispatchEvent(event as any);
         output.newLine();
         output.output(
-          `Context compression request sent to thread ${threadId} (strategy: ${options.strategy})`,
+          `Context compression request sent to execution ${executionId} (strategy: ${options.strategy})`,
         );
         output.output(
           `Note: You need to configure the corresponding trigger in the workflow (trigger event: CONTEXT_COMPRESSION_REQUESTED) to execute.`,
@@ -154,7 +154,7 @@ export function createMessageCommands(): Command {
       } catch (error) {
         handleError(error, {
           operation: "dispatchContextCompressionEvent",
-          additionalInfo: { threadId, strategy: options.strategy, keepRecent: options.keepRecent },
+          additionalInfo: { executionId, strategy: options.strategy, keepRecent: options.keepRecent },
         });
       }
     });

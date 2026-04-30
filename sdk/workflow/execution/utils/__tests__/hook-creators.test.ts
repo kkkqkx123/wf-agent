@@ -84,7 +84,7 @@ describe("createWorkflowExecutionStateCheckHook", () => {
     const context: HookExecutionContext = { ...baseContext, workflowExecutionEntity: mockEntity };
 
     // No errors should be thrown.
-    await expect(hook.eventPayload!["handler"](context)).resolves.toBeUndefined();
+    await expect((hook.eventPayload!["handler"] as Function)(context)).resolves.toBeUndefined();
   });
 
   it("Throws ExecutionError when the workflow execution state is not in the allowed list.", async () => {
@@ -96,9 +96,9 @@ describe("createWorkflowExecutionStateCheckHook", () => {
     } as any;
     const context: HookExecutionContext = { ...baseContext, workflowExecutionEntity: mockEntity };
 
-    await expect(hook.eventPayload!["handler"](context)).rejects.toThrow(ExecutionError);
+    await expect((hook.eventPayload!["handler"] as Function)(context)).rejects.toThrow(ExecutionError);
 
-    await expect(hook.eventPayload!["handler"](context)).rejects.toThrow(
+    await expect((hook.eventPayload!["handler"] as Function)(context)).rejects.toThrow(
       "Workflow execution is in COMPLETED state, expected: RUNNING",
     );
   });
@@ -110,32 +110,32 @@ describe("createWorkflowExecutionStateCheckHook", () => {
     const baseContext1 = createMockExecutionContext();
     const mockEntity1 = { ...baseContext1.workflowExecutionEntity, getStatus: () => "RUNNING" } as any;
     const context1: HookExecutionContext = { ...baseContext1, workflowExecutionEntity: mockEntity1 };
-    await expect(hook.eventPayload!["handler"](context1)).resolves.toBeUndefined();
+    await expect((hook.eventPayload!["handler"] as Function)(context1)).resolves.toBeUndefined();
 
     // Testing the PAUSED state
     const baseContext2 = createMockExecutionContext();
     const mockEntity2 = { ...baseContext2.workflowExecutionEntity, getStatus: () => "PAUSED" } as any;
     const context2: HookExecutionContext = { ...baseContext2, workflowExecutionEntity: mockEntity2 };
-    await expect(hook.eventPayload!["handler"](context2)).resolves.toBeUndefined();
+    await expect((hook.eventPayload!["handler"] as Function)(context2)).resolves.toBeUndefined();
 
     // Test the CREATED status.
     const baseContext3 = createMockExecutionContext();
     const mockEntity3 = { ...baseContext3.workflowExecutionEntity, getStatus: () => "CREATED" } as any;
     const context3: HookExecutionContext = { ...baseContext3, workflowExecutionEntity: mockEntity3 };
-    await expect(hook.eventPayload!["handler"](context3)).resolves.toBeUndefined();
+    await expect((hook.eventPayload!["handler"] as Function)(context3)).resolves.toBeUndefined();
 
     // Testing states that are not allowed.
     const baseContext4 = createMockExecutionContext();
     const mockEntity4 = { ...baseContext4.workflowExecutionEntity, getStatus: () => "FAILED" } as any;
     const context4: HookExecutionContext = { ...baseContext4, workflowExecutionEntity: mockEntity4 };
-    await expect(hook.eventPayload!["handler"](context4)).rejects.toThrow();
+    await expect((hook.eventPayload!["handler"] as Function)(context4)).rejects.toThrow();
   });
 
   it("Using the default list of allowed states", async () => {
     const hook = createWorkflowExecutionStateCheckHook(); // Default ['RUNNING']
     const context = createMockExecutionContext();
 
-    await expect(hook.eventPayload!["handler"](context)).resolves.toBeUndefined();
+    await expect((hook.eventPayload!["handler"] as Function)(context)).resolves.toBeUndefined();
   });
 });
 
@@ -172,7 +172,7 @@ describe("createCustomValidationHook", () => {
     const hook = createCustomValidationHook(validator);
     const context = createMockExecutionContext();
 
-    await expect(hook.eventPayload!["handler"](context)).resolves.toBeUndefined();
+    await expect((hook.eventPayload!["handler"] as Function)(context)).resolves.toBeUndefined();
     expect(validator).toHaveBeenCalledWith(context);
   });
 
@@ -181,7 +181,7 @@ describe("createCustomValidationHook", () => {
     const hook = createCustomValidationHook(validator);
     const context = createMockExecutionContext();
 
-    await expect(hook.eventPayload!["handler"](context)).rejects.toThrow("Validation failed");
+    await expect((hook.eventPayload!["handler"] as Function)(context)).rejects.toThrow("Validation failed");
   });
 
   it("Support for synchronized validation functions", async () => {
@@ -190,7 +190,7 @@ describe("createCustomValidationHook", () => {
     const context = createMockExecutionContext();
 
     // Synchronous functions are called directly and do not return a Promise.
-    const result = hook.eventPayload!["handler"](context);
+    const result = (hook.eventPayload!["handler"] as Function)(context);
     expect(result).toBeUndefined();
     expect(validator).toHaveBeenCalledWith(context);
   });
@@ -198,14 +198,15 @@ describe("createCustomValidationHook", () => {
   it("Verify that the function has access to context information", async () => {
     const validator = vi.fn().mockImplementation((ctx: HookExecutionContext) => {
       // The validation function should have access to the context.
-      expect(ctx.workflowExecution.id).toBe("test-workflow-execution");
+      const execution = ctx.workflowExecutionEntity.getExecution();
+      expect(execution.id).toBe("test-workflow-execution");
       expect(ctx.node.id).toBe("test-node");
     });
 
     const hook = createCustomValidationHook(validator);
     const context = createMockExecutionContext();
 
-    await hook.eventPayload!["handler"](context);
+    await (hook.eventPayload!["handler"] as Function)(context);
     expect(validator).toHaveBeenCalled();
   });
 });
@@ -225,35 +226,43 @@ describe("createPermissionCheckHook", () => {
   it("Do not throw an error when the user has the required privileges", async () => {
     const hook = createPermissionCheckHook(["read", "write"]);
     const baseContext = createMockExecutionContext();
+    const mockWorkflowExecution = baseContext.workflowExecutionEntity.getExecution();
     const context = createMockExecutionContext({
-      workflowExecution: {
-        ...baseContext.workflowExecution,
-        variableScopes: {
-          ...baseContext.workflowExecution.variableScopes,
-          workflowExecution: { permissions: ["read", "write", "delete"] },
-        },
-      },
+      workflowExecutionEntity: {
+        ...baseContext.workflowExecutionEntity,
+        getExecution: () => ({
+          ...mockWorkflowExecution,
+          variableScopes: {
+            ...mockWorkflowExecution.variableScopes,
+            workflowExecution: { permissions: ["read", "write", "delete"] },
+          },
+        }),
+      } as any,
     });
 
-    await expect(hook.eventPayload!["handler"](context)).resolves.toBeUndefined();
+    await expect((hook.eventPayload!["handler"] as Function)(context)).resolves.toBeUndefined();
   });
 
   it("Throws ExecutionError when the user lacks privileges.", async () => {
     const hook = createPermissionCheckHook(["read", "write", "admin"]);
     const baseContext = createMockExecutionContext();
+    const mockWorkflowExecution = baseContext.workflowExecutionEntity.getExecution();
     const context = createMockExecutionContext({
-      workflowExecution: {
-        ...baseContext.workflowExecution,
-        variableScopes: {
-          ...baseContext.workflowExecution.variableScopes,
-          workflowExecution: { permissions: ["read"] },
-        },
-      },
+      workflowExecutionEntity: {
+        ...baseContext.workflowExecutionEntity,
+        getExecution: () => ({
+          ...mockWorkflowExecution,
+          variableScopes: {
+            ...mockWorkflowExecution.variableScopes,
+            workflowExecution: { permissions: ["read"] },
+          },
+        }),
+      } as any,
     });
 
-    await expect(hook.eventPayload!["handler"](context)).rejects.toThrow(ExecutionError);
+    await expect((hook.eventPayload!["handler"] as Function)(context)).rejects.toThrow(ExecutionError);
 
-    await expect(hook.eventPayload!["handler"](context)).rejects.toThrow(
+    await expect((hook.eventPayload!["handler"] as Function)(context)).rejects.toThrow(
       "Missing permissions: write, admin",
     );
   });
@@ -261,17 +270,21 @@ describe("createPermissionCheckHook", () => {
   it("Throw an error with all required permissions when the user does not have any permissions", async () => {
     const hook = createPermissionCheckHook(["read", "write"]);
     const baseContext = createMockExecutionContext();
+    const mockWorkflowExecution = baseContext.workflowExecutionEntity.getExecution();
     const context = createMockExecutionContext({
-      workflowExecution: {
-        ...baseContext.workflowExecution,
-        variableScopes: {
-          ...baseContext.workflowExecution.variableScopes,
-          workflowExecution: { permissions: [] },
-        },
-      },
+      workflowExecutionEntity: {
+        ...baseContext.workflowExecutionEntity,
+        getExecution: () => ({
+          ...mockWorkflowExecution,
+          variableScopes: {
+            ...mockWorkflowExecution.variableScopes,
+            workflowExecution: { permissions: [] },
+          },
+        }),
+      } as any,
     });
 
-    await expect(hook.eventPayload!["handler"](context)).rejects.toThrow(
+    await expect((hook.eventPayload!["handler"] as Function)(context)).rejects.toThrow(
       "Missing permissions: read, write",
     );
   });
@@ -279,17 +292,21 @@ describe("createPermissionCheckHook", () => {
   it("When a workflow execution scope has no permissions, it is considered to have no permissions at all", async () => {
     const hook = createPermissionCheckHook(["read"]);
     const baseContext = createMockExecutionContext();
+    const mockWorkflowExecution = baseContext.workflowExecutionEntity.getExecution();
     const context = createMockExecutionContext({
-      workflowExecution: {
-        ...baseContext.workflowExecution,
-        variableScopes: {
-          ...baseContext.workflowExecution.variableScopes,
-          workflowExecution: {},
-        },
-      },
+      workflowExecutionEntity: {
+        ...baseContext.workflowExecutionEntity,
+        getExecution: () => ({
+          ...mockWorkflowExecution,
+          variableScopes: {
+            ...mockWorkflowExecution.variableScopes,
+            workflowExecution: {},
+          },
+        }),
+      } as any,
     });
 
-    await expect(hook.eventPayload!["handler"](context)).rejects.toThrow(
+    await expect((hook.eventPayload!["handler"] as Function)(context)).rejects.toThrow(
       "Missing permissions: read",
     );
   });
@@ -313,14 +330,18 @@ describe("createAuditLoggingHook", () => {
     const hook = createAuditLoggingHook(auditService);
 
     const baseContext = createMockExecutionContext();
+    const mockWorkflowExecution = baseContext.workflowExecutionEntity.getExecution();
     const context = createMockExecutionContext({
-      workflowExecution: {
-        ...baseContext.workflowExecution,
-        variableScopes: {
-          ...baseContext.workflowExecution.variableScopes,
-          workflowExecution: { userId: "user-123" },
-        },
-      },
+      workflowExecutionEntity: {
+        ...baseContext.workflowExecutionEntity,
+        getExecution: () => ({
+          ...mockWorkflowExecution,
+          variableScopes: {
+            ...mockWorkflowExecution.variableScopes,
+            workflowExecution: { userId: "user-123" },
+          },
+        }),
+      } as any,
       node: {
         ...baseContext.node,
         type: "SCRIPT",
@@ -332,7 +353,7 @@ describe("createAuditLoggingHook", () => {
       },
     }) as any;
 
-    await hook.eventPayload!["handler"](context);
+    await (hook.eventPayload!["handler"] as Function)(context);
 
     expect(mockLog).toHaveBeenCalledTimes(1);
     expect(mockLog).toHaveBeenCalledWith(
@@ -356,7 +377,7 @@ describe("createAuditLoggingHook", () => {
     const context = createMockExecutionContext();
 
     if (hook.eventPayload) {
-      await hook.eventPayload["handler"](context);
+      await (hook.eventPayload["handler"] as Function)(context);
 
       const loggedEvent = mockLog.mock.calls[0]![0];
       expect(loggedEvent.timestamp).toBeInstanceOf(Date);
@@ -369,6 +390,6 @@ describe("createAuditLoggingHook", () => {
     const hook = createAuditLoggingHook(auditService);
     const context = createMockExecutionContext();
 
-    await expect(hook.eventPayload!["handler"](context)).rejects.toThrow("Audit service error");
+    await expect((hook.eventPayload!["handler"] as Function)(context)).rejects.toThrow("Audit service error");
   });
 });

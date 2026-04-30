@@ -46,12 +46,11 @@ describe("parsePatch", () => {
 
       const result = parsePatch(patch);
       expect(result.hunks).toHaveLength(1);
-      expect(result.hunks[0].type).toBe("UpdateFile");
-      if (result.hunks[0].type === "UpdateFile") {
+      if (result.hunks[0]?.type === "UpdateFile") {
         expect(result.hunks[0].path).toBe("test.txt");
         expect(result.hunks[0].chunks).toHaveLength(1);
-        expect(result.hunks[0].chunks[0].oldLines).toEqual(["Hello"]);
-        expect(result.hunks[0].chunks[0].newLines).toEqual(["Hello World"]);
+        expect(result.hunks[0].chunks[0]?.oldLines).toEqual(["Hello"]);
+        expect(result.hunks[0].chunks[0]?.newLines).toEqual(["Hello World"]);
       }
     });
   });
@@ -191,9 +190,9 @@ invalid line
 
       const result = parsePatch(patch);
       expect(result.hunks).toHaveLength(3);
-      expect(result.hunks[0].type).toBe("AddFile");
-      expect(result.hunks[1].type).toBe("DeleteFile");
-      expect(result.hunks[2].type).toBe("UpdateFile");
+      expect(result.hunks[0]?.type).toBe("AddFile");
+      expect(result.hunks[1]?.type).toBe("DeleteFile");
+      expect(result.hunks[2]?.type).toBe("UpdateFile");
     });
 
     it("should parse UpdateFile with move", () => {
@@ -207,7 +206,7 @@ invalid line
 
       const result = parsePatch(patch);
       expect(result.hunks).toHaveLength(1);
-      if (result.hunks[0].type === "UpdateFile") {
+      if (result.hunks[0]?.type === "UpdateFile") {
         expect(result.hunks[0].movePath).toBe("new.txt");
       }
     });
@@ -225,7 +224,7 @@ invalid line
 
       const result = parsePatch(patch);
       expect(result.hunks).toHaveLength(1);
-      if (result.hunks[0].type === "UpdateFile") {
+      if (result.hunks[0]?.type === "UpdateFile") {
         expect(result.hunks[0].chunks).toHaveLength(2);
       }
     });

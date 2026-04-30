@@ -6,10 +6,10 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { logError, emitErrorEvent, handleError } from "../error-utils.js";
 import { SDKError } from "@wf-agent/types";
-import type { EventRegistry } from "../../managers/event-manager.js";
+import type { EventRegistry } from "../../registry/event-registry.js";
 
 // Mock logger
-vi.mock("../../../utils/logger", () => ({
+vi.mock("../../utils/logger", () => ({
   logger: {
     error: vi.fn(),
     warn: vi.fn(),

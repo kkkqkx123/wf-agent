@@ -12,8 +12,8 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { TriggerCoordinator } from "../../workflow/execution/coordinators/trigger-coordinator.js";
 import { TriggerState } from "../../workflow/state-managers/trigger-state.js";
-import { WorkflowRegistry } from "../../workflow/workflow/workflow-registry.js";
-import { WorkflowGraphRegistry } from "../../workflow/graph-structure/graph-registry.js";
+import { WorkflowRegistry } from "../../workflow/stores/workflow-registry.js";
+import { WorkflowGraphRegistry } from "../../workflow/stores/workflow-graph-registry.js";
 import { WorkflowExecutionRegistry } from "../../workflow/stores/workflow-execution-registry.js";
 import type { WorkflowTrigger, Trigger, BaseEvent, NodeCustomEvent } from "@wf-agent/types";
 import { EventType } from "@wf-agent/types";
@@ -75,7 +75,7 @@ describe("Trigger Coordinator", () => {
       workflowExecutionRegistry: mockWorkflowExecutionRegistry,
       workflowRegistry: mockWorkflowRegistry,
       stateManager: stateManager,
-      workflowGraphRegistry: mockGraphRegistry,
+      graphRegistry: mockGraphRegistry,
       eventManager: mockEventManager,
       workflowLifecycleCoordinator: mockWorkflowLifecycleCoordinator,
       executionBuilder: mockWorkflowExecutionBuilder,

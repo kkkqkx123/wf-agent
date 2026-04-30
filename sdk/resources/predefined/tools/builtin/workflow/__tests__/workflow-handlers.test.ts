@@ -86,8 +86,10 @@ describe("Workflow Builtin Tools Handlers", () => {
 
       expect(result.success).toBe(true);
       expect(result.status).toBe("completed");
-      expect(result.output).toEqual({ data: "test" });
-      expect(result.executionTime).toBe(100);
+      if (result.status === "completed") {
+        expect(result.output).toEqual({ data: "test" });
+        expect(result.executionTime).toBe(100);
+      }
       expect(mockTriggeredSubworkflowManager.executeTriggeredSubgraph).toHaveBeenCalledWith(
         expect.objectContaining({
           subgraphId: "test-workflow",
@@ -125,8 +127,10 @@ describe("Workflow Builtin Tools Handlers", () => {
 
       expect(result.success).toBe(true);
       expect(result.status).toBe("submitted");
-      expect(result.taskId).toBe("task-123");
-      expect(result.message).toBe("Task submitted");
+      if (result.status === "submitted") {
+        expect(result.taskId).toBe("task-123");
+        expect(result.message).toBe("Task submitted");
+      }
     });
 
     it("should throw error when workflowId is missing", async () => {

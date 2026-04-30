@@ -147,7 +147,7 @@ export interface CLIConfig {
   debug: boolean;
   logLevel: LogLevel;
   outputFormat: OutputFormat;
-  maxConcurrentThreads: number;
+  maxConcurrentExecutions: number;
   storage?: StorageConfig;
   output?: OutputConfig;
   presets?: PresetsConfig;

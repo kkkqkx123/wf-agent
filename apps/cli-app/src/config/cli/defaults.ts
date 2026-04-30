@@ -14,7 +14,7 @@ export const DEFAULT_CONFIG: CLIConfig = {
   debug: false,
   logLevel: "warn",
   outputFormat: "table",
-  maxConcurrentThreads: 5,
+  maxConcurrentExecutions: 5,
   storage: {
     type: "json",
     json: {

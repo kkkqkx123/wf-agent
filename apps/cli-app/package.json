@@ -5,7 +5,7 @@
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "modular-agent": "./scripts/modular-agent.js"
+    "wf-agent": "./scripts/modular-agent.js"
   },
   "scripts": {
     "build": "tsc",

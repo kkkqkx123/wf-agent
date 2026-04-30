@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { TriggerTemplateRegistry } from "../services/trigger-template-registry.js";
+import { TriggerTemplateRegistry } from "../registry/trigger-template-registry.js";
 import type { TriggerTemplate, TriggerTemplateSummary } from "@wf-agent/types";
 import { EventType } from "@wf-agent/types";
 import { ConfigurationValidationError, TriggerTemplateNotFoundError } from "@wf-agent/types";

@@ -426,7 +426,7 @@ CLI应用支持多种配置文件格式，按优先级顺序查找：
   "debug": false,
   "logLevel": "warn",
   "outputFormat": "table",
-  "maxConcurrentThreads": 5,
+  "maxConcurrentExecutions": 5,
   "storage": {
     "type": "sqlite",
     "sqlite": {
@@ -467,7 +467,7 @@ verbose: false
 debug: false
 logLevel: warn
 outputFormat: table
-maxConcurrentThreads: 5
+maxConcurrentExecutions: 5
 
 storage:
   type: sqlite

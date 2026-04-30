@@ -306,10 +306,10 @@ export class CLIOutput {
   }
 
   /**
-   * Format thread
+   * Format workflow execution
    */
-  thread(thread: { id?: string; workflowId?: string; status?: string }): string {
-    return getFormatter().thread(thread);
+  workflowExecution(execution: { id?: string; workflowId?: string; status?: string }): string {
+    return getFormatter().workflowExecution(execution);
   }
 
   /**

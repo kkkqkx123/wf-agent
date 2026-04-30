@@ -265,7 +265,7 @@ const ConfigSchema = z.object({
   /** Output format */
   outputFormat: z.enum(["json", "table", "plain"]).default("table"),
   /** Maximum concurrent threads */
-  maxConcurrentThreads: z.number().positive().default(5),
+  maxConcurrentExecutions: z.number().positive().default(5),
   /** Storage configuration */
   storage: StorageConfigSchema.optional(),
   /** Output configuration */
@@ -288,7 +288,7 @@ const DEFAULT_CONFIG: Partial<CLIConfig> = {
   debug: false,
   logLevel: "warn",
   outputFormat: "table",
-  maxConcurrentThreads: 5,
+  maxConcurrentExecutions: 5,
   storage: {
     type: "json",
     json: {
@@ -756,7 +756,7 @@ export class ConfigManager {
    * Get max concurrent threads
    */
   getMaxConcurrentThreads(): number {
-    return this.config.maxConcurrentThreads;
+    return this.config.maxConcurrentExecutions;
   }
 
   /**

@@ -2,10 +2,10 @@
  * The logic executed by the read_file tool
  */
 
-import { readFile } from "fs/promises";
+import { readFile, stat } from "fs/promises";
 import { existsSync } from "fs";
 import type { ToolOutput } from "@wf-agent/types";
-import { formatLineNumbers, truncateText } from "@wf-agent/sdk";
+import { detectBinaryFile } from "@wf-agent/sdk";
 import type { ReadFileConfig } from "../../../types.js";
 import { IgnoreController, IgnoreMode, ProtectController } from "@wf-agent/sdk/services";
 
@@ -33,6 +33,16 @@ export function createReadFileHandler(config: ReadFileConfig = {}) {
         offset,
         limit,
       } = params as { path: string; offset?: number; limit?: number };
+
+      // Validate 1-indexed line number parameters
+      if (offset !== undefined && offset < 1) {
+        return {
+          success: false,
+          content: "",
+          error: `offset must be a 1-indexed line number (got ${offset}). Line numbers start at 1.`,
+        };
+      }
+
       const absolutePath = resolvePath(filePath, config.workspaceDir);
       const workspaceDir = config.workspaceDir ?? process.cwd();
 
@@ -64,6 +74,7 @@ export function createReadFileHandler(config: ReadFileConfig = {}) {
         };
       }
 
+      // Check if file exists
       if (!existsSync(absolutePath)) {
         return {
           success: false,
@@ -72,26 +83,56 @@ export function createReadFileHandler(config: ReadFileConfig = {}) {
         };
       }
 
-      // Read the contents of the file.
-      const content = await readFile(absolutePath, "utf-8");
+      // Check if path is a directory
+      const stats = await stat(absolutePath);
+      if (stats.isDirectory()) {
+        return {
+          success: false,
+          content: "",
+          error: `Cannot read '${filePath}' because it is a directory. Use list_files tool instead.`,
+        };
+      }
+
+      // Check for binary files
+      const binaryDetection = await detectBinaryFile(absolutePath, filePath);
+      if (binaryDetection.isBinary) {
+        return {
+          success: false,
+          content: "",
+          error: `${binaryDetection.message || "Binary file detected"}. Text reading not supported for this file type.`,
+        };
+      }
+
+      // Read the contents of the file as buffer first for graceful UTF-8 handling
+      const buffer = await readFile(absolutePath);
+      const content = buffer.toString("utf-8");
       const lines = content.split("\n");
 
       // Apply offsets and restrictions
-      const start = offset ? Math.max(0, offset - 1) : 0;
+      const start = offset ? Math.max(0, offset - 1) : 0; // Convert 1-indexed to 0-indexed
       const end = limit ? Math.min(lines.length, start + limit) : lines.length;
       const selectedLines = lines.slice(start, end);
 
-      // Formatted with line numbers
-      const numberedContent = formatLineNumbers(selectedLines, start + 1);
+      // Format with line numbers (convert back to 1-indexed for display)
+      const formattedLines = selectedLines.map(
+        (line, index) => `${(start + index + 1).toString().padStart(6, " ")}|${line}`
+      );
+      const numberedContent = formattedLines.join("\n");
 
-      // App truncation
-      const truncatedContent = truncateText(numberedContent, maxFileSize);
+      // Add truncation notice if needed
+      let finalContent = numberedContent;
+      if (end < lines.length) {
+        const nextOffset = end + 1;
+        const effectiveLimit = limit || 100;
+        finalContent = `IMPORTANT: File content truncated.\nStatus: Showing lines ${start + 1}-${end} of ${lines.length} total lines.\nTo read more: Use the read_file tool with offset=${nextOffset} and limit=${effectiveLimit}.\n\n${numberedContent}`;
+      } else if (selectedLines.length === 0) {
+        finalContent = "Note: File is empty";
+      }
 
       // Add protection notice if applicable
-      let finalContent = truncatedContent;
       if (isProtected) {
         const protectionNotice = `\n\n[This file is write-protected and requires approval for modifications]`;
-        finalContent = truncatedContent + protectionNotice;
+        finalContent = finalContent + protectionNotice;
       }
 
       return {

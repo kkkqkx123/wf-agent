@@ -3,7 +3,7 @@
  */
 
 import { Command } from "commander";
-import { ThreadCheckpointAdapter } from "../../adapters/thread-checkpoint-adapter.js";
+import { WorkflowExecutionCheckpointAdapter } from "../../adapters/workflow-execution-checkpoint-adapter.js";
 import { getOutput } from "../../utils/output.js";
 import { formatCheckpoint, formatCheckpointList } from "../../utils/cli-formatters.js";
 import { handleError } from "../../utils/error-handler.js";
@@ -19,22 +19,22 @@ export function createCheckpointCommands(): Command {
 
   // Create Checkpoint Command
   checkpointCmd
-    .command("create <thread-id>")
+    .command("create <execution-id>")
     .description("Create checkpoint")
     .option("-n, --name <name>", "Name of checkpoint")
     .option("-v, --verbose", "Detailed output")
-    .action(async (threadId, options: CommandOptions & { name?: string }) => {
+    .action(async (executionId, options: CommandOptions & { name?: string }) => {
       try {
-        output.infoLog(`Creating checkpoint for thread: ${threadId}`);
+        output.infoLog(`Creating checkpoint for workflow execution: ${executionId}`);
 
-        const adapter = new ThreadCheckpointAdapter();
-        const checkpoint = await adapter.createCheckpoint(threadId, options.name);
+        const adapter = new WorkflowExecutionCheckpointAdapter();
+        const checkpoint = await adapter.createCheckpoint(executionId, options.name);
 
         output.output(formatCheckpoint(checkpoint, { verbose: options.verbose }));
       } catch (error) {
         handleError(error, {
           operation: "create-checkpoint",
-          additionalInfo: { threadId, name: options.name },
+          additionalInfo: { executionId, name: options.name },
         });
       }
     });
@@ -47,7 +47,7 @@ export function createCheckpointCommands(): Command {
       try {
         output.infoLog(`Loading checkpoint: ${checkpointId}`);
 
-        const adapter = new ThreadCheckpointAdapter();
+        const adapter = new WorkflowExecutionCheckpointAdapter();
         await adapter.loadCheckpoint(checkpointId);
       } catch (error) {
         handleError(error, {
@@ -65,7 +65,7 @@ export function createCheckpointCommands(): Command {
     .option("-v, --verbose", "Detailed output")
     .action(async (options: CommandOptions) => {
       try {
-        const adapter = new ThreadCheckpointAdapter();
+        const adapter = new WorkflowExecutionCheckpointAdapter();
         const checkpoints = await adapter.listCheckpoints();
 
         output.output(formatCheckpointList(checkpoints, { table: options.table }));
@@ -83,7 +83,7 @@ export function createCheckpointCommands(): Command {
     .option("-v, --verbose", "Detailed output")
     .action(async (checkpointId, options: CommandOptions) => {
       try {
-        const adapter = new ThreadCheckpointAdapter();
+        const adapter = new WorkflowExecutionCheckpointAdapter();
         const checkpoint = await adapter.getCheckpoint(checkpointId);
 
         output.output(formatCheckpoint(checkpoint, { verbose: options.verbose }));
@@ -109,7 +109,7 @@ export function createCheckpointCommands(): Command {
           return;
         }
 
-        const adapter = new ThreadCheckpointAdapter();
+        const adapter = new WorkflowExecutionCheckpointAdapter();
         await adapter.deleteCheckpoint(checkpointId);
       } catch (error) {
         handleError(error, {

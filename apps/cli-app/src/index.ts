@@ -18,7 +18,7 @@ import {
   getStorageManager,
 } from "./storage/index.js";
 import { createWorkflowCommands } from "./commands/workflow/index.js";
-import { createThreadCommands } from "./commands/thread/index.js";
+import { createWorkflowExecutionCommands } from "./commands/workflow-execution/index.js";
 import { createCheckpointCommands } from "./commands/checkpoint/index.js";
 import { createTemplateCommands } from "./commands/template/index.js";
 import { createLLMProfileCommands } from "./commands/llm-profile/index.js";
@@ -139,8 +139,8 @@ program
 // Add workflow command groups
 program.addCommand(createWorkflowCommands());
 
-// Add thread command group
-program.addCommand(createThreadCommands());
+// Add workflow execution command group
+program.addCommand(createWorkflowExecutionCommands());
 
 // Add a checkpoint command group
 program.addCommand(createCheckpointCommands());

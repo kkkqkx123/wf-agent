@@ -8,8 +8,8 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { TriggerTemplateRegistry } from "../services/trigger-template-registry.js";
-import { WorkflowRegistry } from "../../workflow/workflow/workflow-registry.js";
+import { TriggerTemplateRegistry } from "../registry/trigger-template-registry.js";
+import { WorkflowRegistry } from "../../workflow/stores/workflow-registry.js";
 import {
   registerContextCompressionTrigger,
   registerContextCompressionWorkflow,
@@ -26,19 +26,22 @@ import {
   createCustomContextCompressionTrigger,
   createCustomContextCompressionWorkflow,
 } from "../../resources/predefined/index.js";
-import type { TriggerTemplate, WorkflowDefinition } from "@wf-agent/types";
-import { EventType, TriggerActionType } from "@wf-agent/types";
 import { initializeContainer, resetContainer, setStorageCallback } from "../di/container-config.js";
-import type { WorkflowGraphRegistry } from "../../workflow/graph-structure/graph-registry.js";
+import type { WorkflowGraphRegistry } from "../../workflow/stores/workflow-graph-registry.js";
 import type { WorkflowExecutionRegistry } from "../../workflow/stores/workflow-execution-registry.js";
 import * as Identifiers from "../di/service-identifiers.js";
 
 // Mock storage callback
 const mockStorageCallback = {
-  loadCheckpoint: vi.fn(),
-  saveCheckpoint: vi.fn(),
-  deleteCheckpoint: vi.fn(),
-  listCheckpoints: vi.fn(),
+  save: vi.fn(),
+  load: vi.fn(),
+  delete: vi.fn(),
+  list: vi.fn(),
+  exists: vi.fn(),
+  getMetadata: vi.fn(),
+  initialize: vi.fn(),
+  close: vi.fn(),
+  clear: vi.fn(),
 };
 
 describe("Predefined Triggers -predefined triggers", () => {
@@ -55,12 +58,12 @@ describe("Predefined Triggers -predefined triggers", () => {
 
     // Get instances from container
     const container = initializeContainer(mockStorageCallback);
-    graphRegistry = container.get(Identifiers.WorkflowGraphRegistry);
-    executionRegistry = container.get(Identifiers.WorkflowExecutionRegistry);
+    workflowGraphRegistry = container.get(Identifiers.WorkflowGraphRegistry) as WorkflowGraphRegistry;
+    workflowExecutionRegistry = container.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry;
 
     // Create registries with proper dependencies
     triggerRegistry = new TriggerTemplateRegistry();
-    workflowRegistry = new WorkflowRegistry({}, executionRegistry);
+    workflowRegistry = new WorkflowRegistry({}, workflowExecutionRegistry);
   });
 
   afterEach(() => {
@@ -305,8 +308,8 @@ describe("Predefined Triggers -predefined triggers", () => {
       const workflow = workflowRegistry.get(CONTEXT_COMPRESSION_WORKFLOW_ID);
       expect(workflow).toBeDefined();
 
-      const llmNode = workflow?.nodes.find(n => n.type === "LLM");
-      expect(llmNode?.config["prompt"]).toBe(customPrompt);
+      const llmNode = workflow?.nodes.find((n: any) => n.type === "LLM");
+      expect((llmNode?.config as any)["prompt"]).toBe(customPrompt);
     });
 
     it("Test logout workflow: unregisterContextCompressionWorkflow successfully logout", () => {

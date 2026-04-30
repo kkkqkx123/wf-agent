@@ -25,14 +25,14 @@ export function createEventCommands(): Command {
     .option("-t, --table", "Output in table format:")
     .option("-v, --verbose", "Detailed output")
     .option("--type <type>", "Filter by event type")
-    .option("--thread-id <threadId>", "Filter by thread ID")
+    .option("--execution-id <executionId>", "Filter by execution ID")
     .option("--workflow-id <workflowId>", "Filter by workflow ID")
     .option("--limit <limit>", "Limit the number of returned items.")
     .action(
       async (
         options: CommandOptions & {
           type?: string;
-          threadId?: string;
+          executionId?: string;
           workflowId?: string;
           limit?: string;
         },
@@ -41,7 +41,7 @@ export function createEventCommands(): Command {
           const adapter = new EventAdapter();
           const filter: any = {};
           if (options.type) filter.type = options.type;
-          if (options.threadId) filter.threadId = options.threadId;
+          if (options.executionId) filter.executionId = options.executionId;
           if (options.workflowId) filter.workflowId = options.workflowId;
           if (options.limit) filter.limit = parseInt(options.limit, 10);
 
@@ -54,7 +54,7 @@ export function createEventCommands(): Command {
             additionalInfo: {
               filter: {
                 type: options.type,
-                threadId: options.threadId,
+                executionId: options.executionId,
                 workflowId: options.workflowId,
                 limit: options.limit,
               },
@@ -88,14 +88,14 @@ export function createEventCommands(): Command {
     .command("stats")
     .description("Obtain event statistics information")
     .option("--type <type>", "Filter by event type")
-    .option("--thread-id <threadId>", "Filter by thread ID")
+    .option("--execution-id <executionId>", "Filter by execution ID")
     .option("--workflow-id <workflowId>", "Filter by workflow ID")
-    .action(async (options: { type?: string; threadId?: string; workflowId?: string }) => {
+    .action(async (options: { type?: string; executionId?: string; workflowId?: string }) => {
       try {
         const adapter = new EventAdapter();
         const filter: any = {};
         if (options.type) filter.type = options.type;
-        if (options.threadId) filter.threadId = options.threadId;
+        if (options.executionId) filter.executionId = options.executionId;
         if (options.workflowId) filter.workflowId = options.workflowId;
 
         const stats = await adapter.getEventStats(filter);
@@ -109,9 +109,9 @@ export function createEventCommands(): Command {
           output.output(`    ${type}: ${count}`);
         });
         output.newLine();
-        output.output("By thread:");
-        Object.entries(stats.byThread).forEach(([threadId, count]) => {
-          output.output(`    ${threadId.substring(0, 8)}: ${count}`);
+        output.output("By execution:");
+        Object.entries(stats.byExecution).forEach(([executionId, count]) => {
+          output.output(`    ${executionId.substring(0, 8)}: ${count}`);
         });
         output.newLine();
         output.output("By workflow:");
@@ -124,7 +124,7 @@ export function createEventCommands(): Command {
           additionalInfo: {
             filter: {
               type: options.type,
-              threadId: options.threadId,
+              executionId: options.executionId,
               workflowId: options.workflowId,
             },
           },

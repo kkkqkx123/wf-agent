@@ -20,49 +20,49 @@ export function createVariableCommands(): Command {
 
   // List variable commands
   variableCmd
-    .command("list <thread-id>")
-    .description("List all variables of the thread")
+    .command("list <execution-id>")
+    .description("List all variables of the workflow execution")
     .option("-t, --table", "Output in table format:")
     .option("-v, --verbose", "Detailed output")
-    .action(async (threadId, options: CommandOptions) => {
+    .action(async (executionId, options: CommandOptions) => {
       try {
         const adapter = new VariableAdapter();
-        const variables = await adapter.listVariables(threadId);
+        const variables = await adapter.listVariables(executionId);
 
         output.output(formatVariableList(variables, { table: options.table }));
       } catch (error) {
         handleError(error, {
           operation: "listVariables",
-          additionalInfo: { threadId },
+          additionalInfo: { executionId },
         });
       }
     });
 
   // View variable value command
   variableCmd
-    .command("show <thread-id> <variable-name>")
+    .command("show <execution-id> <variable-name>")
     .description("View the variable value")
     .option("-v, --verbose", "Detailed output")
-    .action(async (threadId, variableName, options: CommandOptions) => {
+    .action(async (executionId, variableName, options: CommandOptions) => {
       try {
         const adapter = new VariableAdapter();
-        const value = await adapter.getVariable(threadId, variableName);
+        const value = await adapter.getVariable(executionId, variableName);
 
         output.output(formatVariable(variableName, value, { verbose: options.verbose }));
       } catch (error) {
         handleError(error, {
           operation: "getVariable",
-          additionalInfo: { threadId, variableName },
+          additionalInfo: { executionId, variableName },
         });
       }
     });
 
   // Command to set variable values
   variableCmd
-    .command("set <thread-id> <variable-name> <value>")
+    .command("set <execution-id> <variable-name> <value>")
     .description("Set variable values")
     .option("-j, --json", "The value is in JSON format.")
-    .action(async (threadId, variableName, value, options: { json?: boolean }) => {
+    .action(async (executionId, variableName, value, options: { json?: boolean }) => {
       try {
         output.infoLog(`Setting variable: ${variableName}`);
 
@@ -74,28 +74,28 @@ export function createVariableCommands(): Command {
           } catch (error) {
             handleError(new CLIValidationError("The value must be in a valid JSON format."), {
               operation: "setVariable",
-              additionalInfo: { threadId, variableName, value },
+              additionalInfo: { executionId, variableName, value },
             });
             return;
           }
         }
 
         const adapter = new VariableAdapter();
-        await adapter.setVariable(threadId, variableName, parsedValue);
+        await adapter.setVariable(executionId, variableName, parsedValue);
       } catch (error) {
         handleError(error, {
           operation: "setVariable",
-          additionalInfo: { threadId, variableName },
+          additionalInfo: { executionId, variableName },
         });
       }
     });
 
   // Delete variable command
   variableCmd
-    .command("delete <thread-id> <variable-name>")
+    .command("delete <execution-id> <variable-name>")
     .description("Delete the variable")
     .option("-f, --force", "Forced deletion, without prompting for confirmation.")
-    .action(async (threadId, variableName, options: { force?: boolean }) => {
+    .action(async (executionId, variableName, options: { force?: boolean }) => {
       try {
         if (!options.force) {
           output.warnLog(`About to delete variable: ${variableName}`);
@@ -105,23 +105,23 @@ export function createVariableCommands(): Command {
         }
 
         const adapter = new VariableAdapter();
-        await adapter.deleteVariable(threadId, variableName);
+        await adapter.deleteVariable(executionId, variableName);
       } catch (error) {
         handleError(error, {
           operation: "deleteVariable",
-          additionalInfo: { threadId, variableName },
+          additionalInfo: { executionId, variableName },
         });
       }
     });
 
   // Command to retrieve variable definitions
   variableCmd
-    .command("definition <thread-id> <variable-name>")
+    .command("definition <execution-id> <variable-name>")
     .description("Obtain variable definition information")
-    .action(async (threadId, variableName) => {
+    .action(async (executionId, variableName) => {
       try {
         const adapter = new VariableAdapter();
-        const definition = await adapter.getVariableDefinition(threadId, variableName);
+        const definition = await adapter.getVariableDefinition(executionId, variableName);
 
         if (definition) {
           output.output(`\nVariable Definition:`);
@@ -142,7 +142,7 @@ export function createVariableCommands(): Command {
       } catch (error) {
         handleError(error, {
           operation: "getVariableDefinition",
-          additionalInfo: { threadId, variableName },
+          additionalInfo: { executionId, variableName },
         });
       }
     });

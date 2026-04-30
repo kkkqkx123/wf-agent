@@ -19,7 +19,7 @@ describe("Agent Loop Lifecycle", () => {
   };
 
   const mockDependencies = {
-    saveCheckpoint: async (checkpoint: AgentLoopCheckpoint) => checkpoint.id,
+    saveCheckpoint: async (checkpoint: unknown) => "mock-checkpoint-id",
     getCheckpoint: async () => null,
     listCheckpoints: async () => [],
   };

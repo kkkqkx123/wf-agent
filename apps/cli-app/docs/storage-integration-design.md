@@ -2,13 +2,13 @@
 
 ## 1. 概述
 
-本文档描述了 CLI 应用如何集成 `@wf-agent/storage` 包的 JSON 存储实现，以实现工作流、线程、检查点等数据的持久化存储。
+本文档描述了 CLI 应用如何集成 `@wf-agent/storage` 包的 JSON 存储实现，以实现工作流、工作流执行实例、检查点等数据的持久化存储。
 
 ## 2. 当前问题分析
 
 ### 2.1 存在的问题
 
-1. **数据丢失**：当前 CLI 应用在退出后，所有注册的工作流、线程等数据都会丢失，因为没有持久化存储。
+1. **数据丢失**：当前 CLI 应用在退出后，所有注册的工作流、工作流执行实例等数据都会丢失，因为没有持久化存储。
 
 2. **测试复杂度高**：测试模式需要设置多个环境变量（`TEST_MODE`、`LOG_DIR`、`DISABLE_LOG_TERMINAL`、`DISABLE_SDK_LOGS`、`SDK_LOG_LEVEL`），使用繁琐。
 
@@ -16,7 +16,7 @@
 
 ### 2.2 根本原因
 
-- SDK 默认使用内存存储（`GraphRegistry`、`ThreadRegistry` 等），没有集成持久化存储。
+- SDK 默认使用内存存储（`WorkflowRegistry`、`WorkflowExecutionRegistry` 等），没有集成持久化存储。
 - CLI 应用没有提供存储回调接口的实现。
 - 配置系统只支持应用级配置（如 API URL、超时等），不支持存储相关配置。
 
@@ -38,7 +38,7 @@
 │  │              Storage Integration Layer                │  │
 │  │  - StorageManager (main integration point)            │  │
 │  │  - JsonWorkflowStorage                               │  │
-│  │  - JsonThreadStorage                                  │  │
+│  │  - JsonWorkflowExecutionStorage                       │  │
 │  │  - JsonCheckpointStorage                              │  │
 │  │  - JsonTaskStorage                                    │  │
 │  │  - JsonNoteStorage                                    │  │
@@ -48,7 +48,7 @@
 │  │              Storage Callback Adapter                 │  │
 │  │  - CheckpointStorageCallback (SDK interface)          │  │
 │  │  - WorkflowStorageCallback (SDK interface)            │  │
-│  │  - ThreadStorageCallback (SDK interface)              │  │
+│  │  - WorkflowExecutionStorageCallback (SDK interface)   │  │
 │  │  - TaskStorageCallback (SDK interface)                │  │
 │  └───────────────────────────────────────────────────────┘  │
 │                              ↓                                │
@@ -64,13 +64,13 @@
 │  │  storage/                                             │  │
 │  │    ├── metadata/                                      │  │
 │  │    │   ├── workflow/                                  │  │
-│  │    │   ├── thread/                                    │  │
+│  │    │   ├── workflow-execution/                        │  │
 │  │    │   ├── checkpoint/                                │  │
 │  │    │   ├── task/                                      │  │
 │  │    │   └── note/                                      │  │
 │  │    └── data/                                          │  │
 │  │        ├── workflow/                                  │  │
-│  │        ├── thread/                                    │  │
+│  │        ├── workflow-execution/                        │  │
 │  │        ├── checkpoint/                                │  │
 │  │        ├── task/                                      │  │
 │  │        └── note/                                      │  │
@@ -83,7 +83,7 @@
 | SDK 存储接口 | JSON 存储实现 | 存储的数据 |
 |--------------|--------------|-----------|
 | `WorkflowStorageCallback` | `JsonWorkflowStorage` | 工作流定义、版本历史 |
-| `ThreadStorageCallback` | `JsonThreadStorage` | 线程状态、消息历史 |
+| `WorkflowExecutionStorageCallback` | `JsonWorkflowExecutionStorage` | 工作流执行实例状态、消息历史 |
 | `CheckpointStorageCallback` | `JsonCheckpointStorage` | 检查点状态快照 |
 | `TaskStorageCallback` | `JsonTaskStorage` | 任务执行状态 |
 | `NoteStorageCallback` | `JsonNoteStorage` | 会话笔记 |
@@ -235,14 +235,14 @@ enabled = true
 import type {
   CheckpointStorageCallback,
   WorkflowStorageCallback,
-  ThreadStorageCallback,
+  WorkflowExecutionStorageCallback,
   TaskStorageCallback,
   NoteStorageCallback,
 } from "@wf-agent/storage";
 import {
   JsonCheckpointStorage,
   JsonWorkflowStorage,
-  JsonThreadStorage,
+  JsonWorkflowExecutionStorage,
   JsonTaskStorage,
   JsonNoteStorage,
   type BaseJsonStorageConfig,
@@ -256,7 +256,7 @@ import { logger } from "../utils/logger.js";
  */
 export class StorageManager {
   private workflowStorage: WorkflowStorageCallback | null = null;
-  private threadStorage: ThreadStorageCallback | null = null;
+  private workflowExecutionStorage: WorkflowExecutionStorageCallback | null = null;
   private checkpointStorage: CheckpointStorageCallback | null = null;
   private taskStorage: TaskStorageCallback | null = null;
   private noteStorage: NoteStorageCallback | null = null;
@@ -317,10 +317,10 @@ export class StorageManager {
     await this.workflowStorage.initialize();
     logger.info("WorkflowStorage initialized", { baseDir });
 
-    // Initialize thread storage
-    this.threadStorage = new JsonThreadStorage(baseConfig);
-    await this.threadStorage.initialize();
-    logger.info("ThreadStorage initialized", { baseDir });
+    // Initialize workflow execution storage
+    this.workflowExecutionStorage = new JsonWorkflowExecutionStorage(baseConfig);
+    await this.workflowExecutionStorage.initialize();
+    logger.info("WorkflowExecutionStorage initialized", { baseDir });
 
     // Initialize checkpoint storage
     this.checkpointStorage = new JsonCheckpointStorage(baseConfig);
@@ -346,10 +346,10 @@ export class StorageManager {
   }
 
   /**
-   * Get thread storage
+   * Get workflow execution storage
    */
-  getThreadStorage(): ThreadStorageCallback | null {
-    return this.threadStorage;
+  getWorkflowExecutionStorage(): WorkflowExecutionStorageCallback | null {
+    return this.workflowExecutionStorage;
   }
 
   /**
@@ -386,8 +386,8 @@ export class StorageManager {
     if (this.workflowStorage) {
       promises.push(this.workflowStorage.close());
     }
-    if (this.threadStorage) {
-      promises.push(this.threadStorage.close());
+    if (this.workflowExecutionStorage) {
+      promises.push(this.workflowExecutionStorage.close());
     }
     if (this.checkpointStorage) {
       promises.push(this.checkpointStorage.close());
@@ -417,8 +417,8 @@ export class StorageManager {
     if (this.workflowStorage) {
       promises.push(this.workflowStorage.clear());
     }
-    if (this.threadStorage) {
-      promises.push(this.threadStorage.clear());
+    if (this.workflowExecutionStorage) {
+      promises.push(this.workflowExecutionStorage.clear());
     }
     if (this.checkpointStorage) {
       promises.push(this.checkpointStorage.clear());

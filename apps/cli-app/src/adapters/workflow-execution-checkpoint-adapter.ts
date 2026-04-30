@@ -1,6 +1,6 @@
 /**
- * Thread Checkpoint Adapter
- * Encapsulates SDK API calls related to Thread (Workflow) Checkpoints
+ * Workflow Execution Checkpoint Adapter
+ * Encapsulates SDK API calls related to Workflow Execution Checkpoints
  */
 
 import { BaseAdapter } from "./base-adapter.js";
@@ -8,9 +8,9 @@ import { CheckpointResourceAPI } from "@wf-agent/sdk";
 import { CLINotFoundError } from "../types/cli-types.js";
 
 /**
- * Thread Checkpoint Adapter
+ * Workflow Execution Checkpoint Adapter
  */
-export class ThreadCheckpointAdapter extends BaseAdapter {
+export class WorkflowExecutionCheckpointAdapter extends BaseAdapter {
   private checkpointAPI: CheckpointResourceAPI;
 
   constructor() {
@@ -19,16 +19,16 @@ export class ThreadCheckpointAdapter extends BaseAdapter {
   }
 
   /**
-   * Create Thread checkpoint
-   * @param threadId Thread ID
+   * Create workflow execution checkpoint
+   * @param executionId Execution ID
    * @param name Checkpoint name
    */
-  async createCheckpoint(threadId: string, name?: string): Promise<any> {
+  async createCheckpoint(executionId: string, name?: string): Promise<any> {
     return this.executeWithErrorHandling(async () => {
       const checkpoint = {
         id: `checkpoint-${Date.now()}`,
-        executionId: threadId,
-        workflowId: "default", // Default workflow ID, which should be obtained from the Thread during actual use.
+        executionId: executionId,
+        workflowId: "default", // Default workflow ID, which should be obtained from the execution during actual use.
         timestamp: Date.now(),
         metadata: {
           name: name || `Checkpoint ${new Date().toISOString()}`,
@@ -39,11 +39,11 @@ export class ThreadCheckpointAdapter extends BaseAdapter {
       await this.checkpointAPI.create(checkpoint);
       this.output.infoLog(`Checkpoint created: ${checkpoint.id}`);
       return checkpoint;
-    }, "Create a Thread checkpoint");
+    }, "Create a workflow execution checkpoint");
   }
 
   /**
-   * Restore Thread from checkpoint
+   * Restore workflow execution from checkpoint
    * @param checkpointId Checkpoint ID
    */
   async loadCheckpoint(checkpointId: string): Promise<void> {
@@ -54,19 +54,19 @@ export class ThreadCheckpointAdapter extends BaseAdapter {
       if (!checkpoint) {
         throw new CLINotFoundError(
           `Checkpoint not found: ${checkpointId}`,
-          "ThreadCheckpoint",
+          "WorkflowExecutionCheckpoint",
           checkpointId,
         );
       }
 
       // Restore the checkpoint
       await this.checkpointAPI.restoreFromCheckpoint(checkpointId);
-      this.output.infoLog(`Thread restored from checkpoint: ${checkpointId}`);
-    }, "Load Thread Checkpoint");
+      this.output.infoLog(`Workflow execution restored from checkpoint: ${checkpointId}`);
+    }, "Load workflow execution checkpoint");
   }
 
   /**
-   * List all Thread checkpoints
+   * List all workflow execution checkpoints
    * @param filter Filter conditions
    */
   async listCheckpoints(filter?: any): Promise<any[]> {
@@ -77,17 +77,17 @@ export class ThreadCheckpointAdapter extends BaseAdapter {
       // **Summary Format**
       const summaries = checkpoints.map((cp: any) => ({
         id: cp.id,
-        threadId: cp.threadId,
+        executionId: cp.executionId,
         timestamp: cp.timestamp,
         metadata: cp.metadata,
       }));
 
       return summaries;
-    }, "List Thread Checkpoints");
+    }, "List workflow execution checkpoints");
   }
 
   /**
-   * Get Thread checkpoint details
+   * Get workflow execution checkpoint details
    * @param checkpointId Checkpoint ID
    */
   async getCheckpoint(checkpointId: string): Promise<any> {
@@ -98,17 +98,17 @@ export class ThreadCheckpointAdapter extends BaseAdapter {
       if (!checkpoint) {
         throw new CLINotFoundError(
           `Checkpoint not found: ${checkpointId}`,
-          "ThreadCheckpoint",
+          "WorkflowExecutionCheckpoint",
           checkpointId,
         );
       }
 
       return checkpoint;
-    }, "Get Thread checkpoint details");
+    }, "Get workflow execution checkpoint details");
   }
 
   /**
-   * Delete Thread checkpoint
+   * Delete workflow execution checkpoint
    * @param checkpointId Checkpoint ID
    */
   async deleteCheckpoint(checkpointId: string): Promise<void> {
@@ -116,57 +116,59 @@ export class ThreadCheckpointAdapter extends BaseAdapter {
       await this.checkpointAPI.delete(checkpointId);
 
       this.output.infoLog(`Checkpoint deleted: ${checkpointId}`);
-    }, "Delete Thread checkpoint");
+    }, "Delete workflow execution checkpoint");
   }
 
   /**
-   * Create Thread checkpoint (using API method)
-   * @param threadId Thread ID
+   * Create workflow execution checkpoint (using API method)
+   * @param executionId Execution ID
    * @param metadata Checkpoint metadata
    */
-  async createThreadCheckpoint(threadId: string, metadata?: any): Promise<string> {
+  async createWorkflowExecutionCheckpoint(executionId: string, metadata?: any): Promise<string> {
     return this.executeWithErrorHandling(async () => {
-      const checkpointId = await this.checkpointAPI.createThreadCheckpoint(threadId, metadata);
-      this.output.infoLog(`Thread checkpoint created: ${checkpointId}`);
+      const checkpointId = await this.checkpointAPI.createWorkflowExecutionCheckpoint(executionId, metadata);
+      this.output.infoLog(`Workflow execution checkpoint created: ${checkpointId}`);
       return checkpointId;
-    }, "Create a Thread checkpoint");
+    }, "Create a workflow execution checkpoint");
   }
 
   /**
-   * Restore Thread from checkpoint (using API method)
+   * Restore workflow execution from checkpoint (using API method)
    * @param checkpointId Checkpoint ID
    */
   async restoreFromCheckpoint(checkpointId: string): Promise<string> {
     return this.executeWithErrorHandling(async () => {
-      const threadId = await this.checkpointAPI.restoreFromCheckpoint(checkpointId);
-      this.output.infoLog(`Thread restored from checkpoint: ${checkpointId}`);
-      return threadId;
-    }, "Restore Thread from checkpoint");
+      const executionId = await this.checkpointAPI.restoreFromCheckpoint(checkpointId);
+      this.output.infoLog(`Workflow execution restored from checkpoint: ${checkpointId}`);
+      return executionId;
+    }, "Restore workflow execution from checkpoint");
   }
 
   /**
-   * Get checkpoint list for a Thread
-   * @param threadId Thread ID
+   * Get checkpoint list for a workflow execution
+   * @param executionId Execution ID
    */
-  async getThreadCheckpoints(threadId: string): Promise<any[]> {
+  async getWorkflowExecutionCheckpoints(executionId: string): Promise<any[]> {
     return this.executeWithErrorHandling(async () => {
-      const checkpoints = await this.checkpointAPI.getThreadCheckpoints(threadId);
-      return checkpoints;
-    }, "Get Thread checkpoint list");
+      // Get all checkpoints and filter by executionId
+      const allCheckpoints = await this.checkpointAPI.getAll();
+      const checkpoints = (allCheckpoints as any).data || allCheckpoints;
+      return checkpoints.filter((cp: any) => cp.executionId === executionId);
+    }, "Get workflow execution checkpoint list");
   }
 
   /**
-   * Get the latest checkpoint for a Thread
-   * @param threadId Thread ID
+   * Get the latest checkpoint for a workflow execution
+   * @param executionId Execution ID
    */
-  async getLatestCheckpoint(threadId: string): Promise<any> {
+  async getLatestCheckpoint(executionId: string): Promise<any> {
     return this.executeWithErrorHandling(async () => {
-      const checkpoint = await this.checkpointAPI.getLatestCheckpoint(threadId);
+      const checkpoint = await this.checkpointAPI.getLatestCheckpoint(executionId);
       if (!checkpoint) {
-        throw new Error(`No checkpoint found for Thread: ${threadId}`);
+        throw new Error(`No checkpoint found for workflow execution: ${executionId}`);
       }
       return checkpoint;
-    }, "Get the latest Thread checkpoint");
+    }, "Get the latest workflow execution checkpoint");
   }
 
   /**
@@ -176,6 +178,6 @@ export class ThreadCheckpointAdapter extends BaseAdapter {
     return this.executeWithErrorHandling(async () => {
       const stats = await this.checkpointAPI.getCheckpointStatistics();
       return stats;
-    }, "Get Thread checkpoint statistics");
+    }, "Get workflow execution checkpoint statistics");
   }
 }

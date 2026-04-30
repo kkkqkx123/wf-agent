@@ -11,17 +11,20 @@ describe("available-tools fragment", () => {
     {
       id: "tool-1",
       name: "readFile",
+      type: "STATELESS",
       description: "Read content from a file",
       parameters: {
         type: "object",
         properties: {
           path: { type: "string" },
         },
+        required: ["path"],
       },
     },
     {
       id: "tool-2",
       name: "writeFile",
+      type: "STATELESS",
       description: "Write content to a file",
       parameters: {
         type: "object",
@@ -29,6 +32,7 @@ describe("available-tools fragment", () => {
           path: { type: "string" },
           content: { type: "string" },
         },
+        required: ["path", "content"],
       },
     },
   ];
@@ -82,7 +86,13 @@ describe("available-tools fragment", () => {
         {
           id: "tool-3",
           name: "getTime",
+          type: "STATELESS",
           description: "Get current time",
+          parameters: {
+            type: "object",
+            properties: {},
+            required: [],
+          },
         },
       ];
       const result = generateAvailableToolsContent({ tools: toolsWithoutParams });
@@ -96,6 +106,13 @@ describe("available-tools fragment", () => {
         {
           id: "tool-4",
           name: "unknownTool",
+          type: "STATELESS",
+          description: "",
+          parameters: {
+            type: "object",
+            properties: {},
+            required: [],
+          },
         },
       ];
       const result = generateAvailableToolsContent({ tools: toolsWithoutDesc });

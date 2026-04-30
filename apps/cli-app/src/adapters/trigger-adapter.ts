@@ -37,10 +37,10 @@ export class TriggerAdapter extends BaseAdapter {
   /**
    * Enable trigger
    */
-  async enableTrigger(threadId: string, triggerId: string): Promise<void> {
+  async enableTrigger(executionId: string, triggerId: string): Promise<void> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.triggers;
-      await api.enableTrigger(threadId, triggerId);
+      await api.enableTrigger(executionId, triggerId);
       this.output.infoLog(`Trigger enabled: ${triggerId}`);
     }, "Enable trigger");
   }
@@ -48,22 +48,22 @@ export class TriggerAdapter extends BaseAdapter {
   /**
    * Disable trigger
    */
-  async disableTrigger(threadId: string, triggerId: string): Promise<void> {
+  async disableTrigger(executionId: string, triggerId: string): Promise<void> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.triggers;
-      await api.disableTrigger(threadId, triggerId);
+      await api.disableTrigger(executionId, triggerId);
       this.output.infoLog(`Trigger disabled: ${triggerId}`);
     }, "Disable trigger");
   }
 
   /**
-   * List triggers by thread ID
+   * List triggers by workflow execution ID
    */
-  async listTriggersByThread(threadId: string): Promise<Trigger[]> {
+  async listTriggersByWorkflowExecution(executionId: string): Promise<Trigger[]> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.triggers;
-      const result = await api.getThreadTriggers(threadId);
+      const result = await api.getWorkflowExecutionTriggers(executionId);
       return result;
-    }, "List thread triggers");
+    }, "List workflow execution triggers");
   }
 }

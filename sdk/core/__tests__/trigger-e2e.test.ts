@@ -11,18 +11,15 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { TriggerCoordinator } from "../../workflow/execution/coordinators/trigger-coordinator.js";
 import { TriggerState } from "../../workflow/state-managers/trigger-state.js";
-import { TriggerTemplateRegistry } from "../services/trigger-template-registry.js";
-import { WorkflowRegistry } from "../../workflow/workflow/workflow-registry.js";
-import { WorkflowGraphRegistry } from "../../workflow/graph-structure/graph-registry.js";
-import { WorkflowExecutionRegistry } from "../../workflow/stores/workflow-execution-registry.js";
+import { TriggerTemplateRegistry } from "../registry/trigger-template-registry.js";
+import { WorkflowRegistry } from "../../workflow/stores/workflow-registry.js";
 import {
   registerContextCompression,
   CONTEXT_COMPRESSION_TRIGGER_NAME,
   CONTEXT_COMPRESSION_WORKFLOW_ID,
 } from "../../resources/predefined/index.js";
 import type { WorkflowTrigger, BaseEvent, NodeCustomEvent } from "@wf-agent/types";
-import { EventType, TriggerActionType } from "@wf-agent/types";
-import { ExecutionError, ConfigurationValidationError } from "@wf-agent/types";
+import { EventType } from "@wf-agent/types";
 
 // Mock implementations
 const mockWorkflowExecutionRegistry = {
@@ -88,7 +85,7 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
       workflowExecutionRegistry: mockWorkflowExecutionRegistry,
       workflowRegistry: mockWorkflowRegistry,
       stateManager: stateManager,
-      workflowGraphRegistry: mockGraphRegistry,
+      graphRegistry: mockGraphRegistry,
       eventManager: mockEventManager,
       workflowLifecycleCoordinator: mockWorkflowLifecycleCoordinator,
       executionBuilder: mockWorkflowExecutionBuilder,

@@ -44,9 +44,9 @@ export interface WorkflowCommandOptions extends CommandOptions {
 }
 
 /**
- * Thread command options
+ * WorkflowExecution command options
  */
-export interface ThreadCommandOptions extends CommandOptions {
+export interface WorkflowExecutionCommandOptions extends CommandOptions {
   input?: string;
   detached?: boolean;
   timeout?: number;

@@ -13,10 +13,10 @@ export class VariableAdapter extends BaseAdapter {
   /**
    * Get variable value
    */
-  async getVariable(threadId: string, variableName: string): Promise<any> {
+  async getVariable(executionId: string, variableName: string): Promise<any> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.variables;
-      const result = await api.get(`${threadId}:${variableName}`);
+      const result = await api.get(`${executionId}:${variableName}`);
       const variable = (result as any).data || result;
       return variable;
     }, "Get variable");
@@ -25,15 +25,15 @@ export class VariableAdapter extends BaseAdapter {
   /**
    * Set variable value
    */
-  async setVariable(threadId: string, variableName: string, value: any): Promise<void> {
+  async setVariable(executionId: string, variableName: string, value: any): Promise<void> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.variables;
       const registry = api.getRegistry();
-      const threadContext = registry.get(threadId);
-      if (!threadContext) {
-        throw new CLINotFoundError(`Thread not found: ${threadId}`, "Thread", threadId);
+      const executionContext = registry.get(executionId);
+      if (!executionContext) {
+        throw new CLINotFoundError(`WorkflowExecution not found: ${executionId}`, "WorkflowExecution", executionId);
       }
-      await threadContext.setVariable(variableName, value);
+      await executionContext.setVariable(variableName, value);
       this.output.infoLog(`Variable set: ${variableName}`);
     }, "Set variable");
   }
@@ -53,15 +53,15 @@ export class VariableAdapter extends BaseAdapter {
   /**
    * Delete variable
    */
-  async deleteVariable(threadId: string, variableName: string): Promise<void> {
+  async deleteVariable(executionId: string, variableName: string): Promise<void> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.variables;
       const registry = api.getRegistry();
-      const threadContext = registry.get(threadId);
-      if (!threadContext) {
-        throw new CLINotFoundError(`Thread not found: ${threadId}`, "Thread", threadId);
+      const executionContext = registry.get(executionId);
+      if (!executionContext) {
+        throw new CLINotFoundError(`WorkflowExecution not found: ${executionId}`, "WorkflowExecution", executionId);
       }
-      await threadContext.deleteVariable(variableName);
+      await executionContext.deleteVariable(variableName);
       this.output.infoLog(`Variable deleted: ${variableName}`);
     }, "Delete variable");
   }
@@ -70,7 +70,7 @@ export class VariableAdapter extends BaseAdapter {
    * Get variable definition information
    */
   async getVariableDefinition(
-    threadId: string,
+    executionId: string,
     variableName: string,
   ): Promise<{
     name: string;
@@ -81,7 +81,7 @@ export class VariableAdapter extends BaseAdapter {
   } | null> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.variables;
-      const definitions = await api.getThreadVariableDefinitions();
+      const definitions = await api.getWorkflowExecutionVariableDefinitions();
       const definition = definitions[variableName] || null;
       return definition as {
         name: string;

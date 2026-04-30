@@ -180,10 +180,10 @@ export class ToolRegistry {
   }
 
   /**
-   * Cleanup stateful tool instances for specified thread (reusing StatefulExecutor capability)
+   * Cleanup stateful tool instances for specified workflow execution (reusing StatefulExecutor capability)
    */
-  cleanupThread(threadId: string): void {
-    this.statefulExecutor.cleanupThread(threadId);
+  cleanupWorkflowExecution(executionId: string): void {
+    this.statefulExecutor.cleanupExecution(executionId);
   }
 
   /**

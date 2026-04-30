@@ -10,8 +10,8 @@ import type { LLMMessage } from "@wf-agent/types";
  * Message Filter
  */
 interface MessageFilter {
-  /** Thread ID */
-  threadId?: string;
+  /** Execution ID */
+  executionId?: string;
   /** Role Filtering */
   role?: string;
   /** Content Keywords */
@@ -53,13 +53,13 @@ export class MessageAdapter extends BaseAdapter {
   /**
    * List messages by execution ID
    */
-  async listMessagesByThread(threadId: string): Promise<LLMMessage[]> {
+  async listMessagesByExecution(executionId: string): Promise<LLMMessage[]> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.messages;
-      const result = await api.getAll({ executionId: threadId });
+      const result = await api.getAll({ executionId });
       const messages = (result as any).data || result;
       return messages as LLMMessage[];
-    }, "List Threaded Messages");
+    }, "List Execution Messages");
   }
 
   /**

@@ -150,7 +150,7 @@ export const CLIConfigSchema = z.object({
   debug: z.boolean().default(false),
   logLevel: z.enum(["error", "warn", "info", "debug"]).default("warn"),
   outputFormat: z.enum(["json", "table", "plain"]).default("table"),
-  maxConcurrentThreads: z.number().positive().default(5),
+  maxConcurrentExecutions: z.number().positive().default(5),
   storage: StorageConfigSchema.optional(),
   output: OutputConfigSchema.optional(),
   presets: PresetsConfigSchema.optional(),

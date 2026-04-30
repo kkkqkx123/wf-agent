@@ -219,9 +219,9 @@ export class CheckpointResourceAPI extends CrudResourceAPI<Checkpoint, string, C
   }
 
   /**
-   * Restore a thread from a checkpoint
+   * Restore a workflow execution from a checkpoint
    * @param checkpointId Checkpoint ID
-   * @returns ID of the restored thread
+   * @returns ID of the restored workflow execution
    */
   async restoreFromCheckpoint(checkpointId: string): Promise<string> {
     // Obtain global services from the DI container.
@@ -303,7 +303,7 @@ export class CheckpointResourceAPI extends CrudResourceAPI<Checkpoint, string, C
    */
   async getCheckpointStatistics(): Promise<{
     total: number;
-    byThread: Record<string, number>;
+    byExecution: Record<string, number>;
     byWorkflow: Record<string, number>;
   }> {
     const result = await this.getAll();
@@ -312,17 +312,17 @@ export class CheckpointResourceAPI extends CrudResourceAPI<Checkpoint, string, C
     }
     const checkpoints = getData(result) || [];
 
-    const byThread: Record<string, number> = {};
+    const byExecution: Record<string, number> = {};
     const byWorkflow: Record<string, number> = {};
 
     for (const checkpoint of checkpoints) {
-      byThread[checkpoint.executionId] = (byThread[checkpoint.executionId] || 0) + 1;
+      byExecution[checkpoint.executionId] = (byExecution[checkpoint.executionId] || 0) + 1;
       byWorkflow[checkpoint.workflowId] = (byWorkflow[checkpoint.workflowId] || 0) + 1;
     }
 
     return {
       total: checkpoints.length,
-      byThread,
+      byExecution,
       byWorkflow,
     };
   }

@@ -22,7 +22,7 @@ export interface SnapshotBase {
   _version: SnapshotVersion;
   /** Timestamp when the snapshot was created */
   _timestamp: Timestamp;
-  /** Entity type identifier (e.g., 'task', 'checkpoint', 'thread') */
+  /** Entity type identifier (e.g., 'task', 'checkpoint', 'execution') */
   _entityType: string;
 }
 

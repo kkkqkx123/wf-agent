@@ -79,7 +79,7 @@ export class AgentLoopEntity {
   abortController?: AbortController;
 
   /** Parent Execution ID (if executed as a Graph node) */
-  parentThreadId?: ID;
+  parentExecutionId?: ID;
 
   /** Node ID (if executed as a Graph node) */
   nodeId?: ID;

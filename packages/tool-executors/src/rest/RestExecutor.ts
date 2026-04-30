@@ -65,13 +65,13 @@ export class RestExecutor extends BaseExecutor {
    * Specific implementation of executing a REST tool
    * @param tool: Tool definition
    * @param parameters: Tool parameters
-   * @param threadId: Thread ID (optional; not used by the REST tool)
+   * @param executionId: Execution ID (optional; not used by the REST tool)
    * @returns: Execution result
    */
   protected async doExecute(
     tool: Tool,
     parameters: Record<string, unknown>,
-    _threadId?: string,
+    _executionId?: string,
   ): Promise<unknown> {
     // Get the REST configuration from the config.
     const toolConfig = tool.config as RestToolConfig;

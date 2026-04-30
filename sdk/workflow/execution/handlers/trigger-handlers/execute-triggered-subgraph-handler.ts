@@ -6,12 +6,12 @@
  * - Trigger the execution of the sub-workflow
  * - Pass in input data related to the trigger event
  * - Support both synchronous and asynchronous execution modes
- * - Manage execution using a task queue and thread pool
+ * - Manage execution using a task queue and workflow execution pool
  *
  * Note:
  * - Data transfer (variables, conversation history) is handled by the node processor
  * - The START_FROM_TRIGGER node is responsible for receiving input data
- * - The CONTINUE_FROM_TRIGGER node is responsible for sending data back to the main thread
+ * - The CONTINUE_FROM_TRIGGER node is responsible for sending data back to the main workflow execution
  */
 
 import type { TriggerAction, TriggerExecutionResult } from "@wf-agent/types";
@@ -112,7 +112,7 @@ export async function executeTriggeredSubgraphHandler(
   eventManager: EventRegistry,
   executionBuilder: WorkflowExecutionBuilder,
   taskQueueManager: TaskQueue,
-  currentThreadId?: string,
+  currentExecutionId?: string,
 ): Promise<TriggerExecutionResult> {
   const startTime = now();
 
@@ -129,7 +129,7 @@ export async function executeTriggeredSubgraphHandler(
       });
     }
 
-    const executionId = currentThreadId;
+    const executionId = currentExecutionId;
 
     if (!executionId) {
       throw new WorkflowExecutionNotFoundError("Current execution ID not provided", "current");

@@ -70,7 +70,7 @@ function createInteractionRequest(
  * Create an interactive context
  */
 function createInteractionContext(
-  thread: WorkflowExecution,
+  workflowExecution: WorkflowExecution,
   node: Node,
   timeout: number,
   _conversationManager?: unknown,
@@ -83,22 +83,22 @@ function createInteractionContext(
   };
 
   return {
-    executionId: thread.id,
-    workflowId: thread.workflowId,
+    executionId: workflowExecution.id,
+    workflowId: workflowExecution.workflowId,
     nodeId: node.id,
     getVariable: (variableName: string, _scope?: VariableScope) => {
-      // Simplify the implementation; in reality, the variable should be retrieved from the thread.
-      return thread.variableScopes.workflowExecution?.[variableName];
+      // Simplify the implementation; in reality, the variable should be retrieved from the workflow execution.
+      return workflowExecution.variableScopes.workflowExecution?.[variableName];
     },
     setVariable: async (variableName: string, value: unknown, _scope?: VariableScope) => {
-      // Simplify the implementation; in reality, the variable in the thread should be updated.
-      if (!thread.variableScopes.workflowExecution) {
-        thread.variableScopes.workflowExecution = {};
+      // Simplify the implementation; in reality, the variable in the workflow execution should be updated.
+      if (!workflowExecution.variableScopes.workflowExecution) {
+        workflowExecution.variableScopes.workflowExecution = {};
       }
-      thread.variableScopes.workflowExecution[variableName] = value;
+      workflowExecution.variableScopes.workflowExecution[variableName] = value;
     },
     getVariables: (_scope?: VariableScope) => {
-      return thread.variableScopes.workflowExecution || {};
+      return workflowExecution.variableScopes.workflowExecution || {};
     },
     timeout,
     cancelToken,
@@ -175,10 +175,10 @@ function evaluateExpression(expression: string, inputData: unknown): unknown {
 async function processVariableUpdate(
   config: UserInteractionNodeConfig,
   inputData: unknown,
-  thread: WorkflowExecution,
+  workflowExecution: WorkflowExecution,
 ): Promise<Record<string, unknown>> {
   if (!config.variables || config.variables.length === 0) {
-    throw new ExecutionError("No variables defined for UPDATE_VARIABLES operation", thread.id);
+    throw new ExecutionError("No variables defined for UPDATE_VARIABLES operation", workflowExecution.id);
   }
 
   const results: Record<string, unknown> = {};
@@ -191,10 +191,10 @@ async function processVariableUpdate(
     const value = evaluateExpression(expression, inputData);
 
     // Update the variable
-    if (!thread.variableScopes.workflowExecution) {
-      thread.variableScopes.workflowExecution = {};
+    if (!workflowExecution.variableScopes.workflowExecution) {
+      workflowExecution.variableScopes.workflowExecution = {};
     }
-    thread.variableScopes.workflowExecution[variableConfig.variableName] = value;
+    workflowExecution.variableScopes.workflowExecution[variableConfig.variableName] = value;
 
     results[variableConfig.variableName] = value;
   }
@@ -237,12 +237,12 @@ function processMessageAdd(
 async function processUserInput(
   config: UserInteractionNodeConfig,
   inputData: unknown,
-  thread: WorkflowExecution,
+  workflowExecution: WorkflowExecution,
   conversationManager?: UserInteractionHandlerContext["conversationManager"],
 ): Promise<unknown> {
   switch (config.operationType) {
     case "UPDATE_VARIABLES":
-      return await processVariableUpdate(config, inputData, thread);
+      return await processVariableUpdate(config, inputData, workflowExecution);
 
     case "ADD_MESSAGE":
       return processMessageAdd(config, inputData, conversationManager);
@@ -254,13 +254,13 @@ async function processUserInput(
 
 /**
  * User Interaction Node Processor
- * @param thread Thread instance
+ * @param workflowExecution Workflow execution instance
  * @param node Node definition
  * @param context Processor context
  * @returns Execution result
  */
 export async function userInteractionHandler(
-  thread: WorkflowExecution,
+  workflowExecution: WorkflowExecution,
   node: Node,
   context: UserInteractionHandlerContext,
 ): Promise<UserInteractionExecutionResult> {
@@ -273,7 +273,7 @@ export async function userInteractionHandler(
 
   // 2. Create an interactive context
   const interactionContext = createInteractionContext(
-    thread,
+    workflowExecution,
     node,
     request.timeout,
     context.conversationManager,
@@ -287,7 +287,7 @@ export async function userInteractionHandler(
   );
 
   // 4. Processing user input
-  const results = await processUserInput(config, inputData, thread, context.conversationManager);
+  const results = await processUserInput(config, inputData, workflowExecution, context.conversationManager);
 
   const executionTime = diffTimestamp(startTime, now());
 

@@ -13,38 +13,38 @@ describe("Agent Loop Factory", () => {
   };
 
   describe("Create New Instance", () => {
-    it("should create basic agent loop entity", () => {
-      const entity = AgentLoopFactory.create(basicConfig);
+    it("should create basic agent loop entity", async () => {
+      const entity = await AgentLoopFactory.create(basicConfig);
 
       expect(entity).toBeDefined();
       expect(entity.id).toBeDefined();
       expect(entity.config).toEqual(basicConfig);
     });
 
-    it("should initialize message history", () => {
+    it("should initialize message history", async () => {
       const initialMessages: LLMMessage[] = [{ role: "user", content: "Hello" }];
 
-      const entity = AgentLoopFactory.create(basicConfig, { initialMessages });
+      const entity = await AgentLoopFactory.create(basicConfig, { initialMessages });
 
       expect(entity.getMessages().length).toBe(1);
     });
 
-    it("should initialize variable state", () => {
+    it("should initialize variable state", async () => {
       const initialVariables = { key1: "value1", key2: "value2" };
 
-      const entity = AgentLoopFactory.create(basicConfig, { initialVariables });
+      const entity = await AgentLoopFactory.create(basicConfig, { initialVariables });
 
       expect(entity.getVariable("key1")).toBe("value1");
       expect(entity.getVariable("key2")).toBe("value2");
     });
 
-    it("should set parent context", () => {
-      const entity = AgentLoopFactory.create(basicConfig, {
-        parentThreadId: "thread-123",
+    it("should set parent context", async () => {
+      const entity = await AgentLoopFactory.create(basicConfig, {
+        parentExecutionId: "wfexec-123",
         nodeId: "node-456",
       });
 
-      expect(entity.parentThreadId).toBe("thread-123");
+      expect(entity.parentExecutionId).toBe("wfexec-123");
       expect(entity.nodeId).toBe("node-456");
     });
   });

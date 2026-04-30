@@ -15,8 +15,8 @@ import type { Condition } from "../../graph/condition.js";
 export interface DataSource {
   /** Iterable objects or variable expressions
    * - Direct values: arrays, objects, numbers, strings
-   * - Variable expressions: support {{variable.path}} syntax, parsed at runtime from threads and inputs
-   * Example: [1,2,3] or "{{input.list}}" or "{{thread.items}}"
+   * - Variable expressions: support {{variable.path}} syntax, parsed at runtime from workflowExecutions and inputs
+   * Example: [1,2,3] or "{{input.list}}" or "{{workflowExecution.items}}"
    */
   iterable: unknown;
   /** Loop variable name, storing the current iteration value (in loop-level scope) */

@@ -10,7 +10,7 @@
  *
  * Design Principles:
  * - Global singleton, accessible through SingletonRegistry
- * - Thread-safe management of task information
+ * - Workflow-execution-safe management of task information
  * - Supports regular cleaning of expired tasks
  * - Provides manager routing functionality
  * - Optional persistence layer for task data
@@ -290,7 +290,7 @@ export class TaskRegistry {
   }
 
   /**
-   * Register a task (unified method for both Agent and Thread)
+   * Register a task (unified method for both Agent and WorkflowExecution)
    * @param instance Execution instance (AgentLoopEntity or WorkflowExecutionEntity)
    * @param instanceType Execution instance type
    * @param manager Task manager
@@ -575,7 +575,7 @@ export class TaskRegistry {
   }
 
   /**
-   * Get a task by instance ID (works for both Agent and Thread)
+   * Get a task by instance ID (works for both Agent and WorkflowExecution)
    * @param instanceId Instance ID
    * @returns Task information
    */

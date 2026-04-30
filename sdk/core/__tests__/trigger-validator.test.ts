@@ -517,7 +517,7 @@ describe("Trigger Validator - Trigger Validator", () => {
       const workflowTrigger: WorkflowTrigger = {
         id: "trigger-1",
         name: "Trigger 1",
-        condition: { eventType: "THREAD_STARTED" as EventType },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" as EventType },
         action: { type: "pause_workflow_execution", parameters: { executionId: "workflow-execution-123" } },
       };
 

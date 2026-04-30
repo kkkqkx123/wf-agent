@@ -426,7 +426,7 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
     });
 
     it("Testing for case-insensitive searches: searches should be case-insensitive", () => {
-      const results1 = registry.search("THREAD");
+      const results1 = registry.search("WORKFLOW_EXECUTION");
       const results2 = registry.search("workflowExecution");
 
       expect(results1).toHaveLength(1);

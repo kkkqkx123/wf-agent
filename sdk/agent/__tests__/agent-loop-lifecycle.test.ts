@@ -139,12 +139,12 @@ describe("Agent Loop Lifecycle", () => {
     });
 
     it("should preserve parent context", () => {
-      entity.parentThreadId = "thread-123";
+      entity.parentExecutionId = "wfexec-123";
       entity.nodeId = "node-456";
 
       const cloned = cloneAgentLoop(entity);
 
-      expect(cloned.parentThreadId).toBe("thread-123");
+      expect(cloned.parentExecutionId).toBe("wfexec-123");
       expect(cloned.nodeId).toBe("node-456");
     });
   });

@@ -59,12 +59,12 @@ export interface ContextProcessorHandlerContext {
     }>;
     getMessages: () => unknown[];
   };
-  /** Thread entity (optional, used to identify the parent thread) */
+  /** Workflow execution entity (optional, used to identify the parent workflow execution) */
   executionEntity?: {
     getParentExecutionId: () => string | undefined;
     getConversationManager: () => unknown;
   };
-  /** Thread Registry (optional, used to obtain the parent thread entity) */
+  /** Workflow Execution Registry (optional, used to obtain the parent workflow execution entity) */
   executionRegistry?: {
     get: (executionId: string) =>
       | {
@@ -94,13 +94,13 @@ export interface ContextProcessorHandlerContext {
 
 /**
  * Context processor node handler
- * @param thread Thread instance
+ * @param workflowExecution Workflow execution instance
  * @param node Node definition
  * @param context Processor context
  * @returns Execution result
  */
 export async function contextProcessorHandler(
-  thread: WorkflowExecution,
+  workflowExecution: WorkflowExecution,
   node: Node,
   context: ContextProcessorHandlerContext,
 ): Promise<ContextProcessorExecutionResult> {
@@ -132,7 +132,7 @@ export async function contextProcessorHandler(
             parentExecutionEntity.getConversationManager() as ContextProcessorHandlerContext["conversationManager"];
           logger.info(`Targeting parent workflow execution: ${parentExecutionId} for context processing`, {
             nodeId: node.id,
-            executionId: thread.id,
+            executionId: workflowExecution.id,
             parentExecutionId,
           });
         }
@@ -155,8 +155,8 @@ export async function contextProcessorHandler(
             {
               operation: config.operationConfig.operation,
               nodeId: node.id,
-              executionId: thread.id,
-              workflowId: thread.workflowId,
+              executionId: workflowExecution.id,
+              workflowId: workflowExecution.workflowId,
               suggestion:
                 "Tool visibility may be stale. Check tool visibility coordinator configuration and retry",
             },

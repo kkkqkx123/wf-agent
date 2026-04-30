@@ -284,7 +284,7 @@ export class TokenUsageTracker {
   }
 
   /**
-   * Fully reset tokens using statistics (including lifecycle statistics). Use only when a complete reset is necessary, such as when a thread is destroyed.
+   * Fully reset tokens using statistics (including lifecycle statistics). Use only when a complete reset is necessary, such as when an execution is destroyed.
    *
    */
   fullReset(): void {

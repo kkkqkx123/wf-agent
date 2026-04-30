@@ -25,7 +25,7 @@ import { EventType, TriggerActionType } from "@wf-agent/types";
 import { ExecutionError, ConfigurationValidationError } from "@wf-agent/types";
 
 // Mock implementations
-const mockThreadRegistry = {
+const mockWorkflowExecutionRegistry = {
   get: vi.fn(),
   register: vi.fn(),
   update: vi.fn(),
@@ -85,7 +85,7 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
 
     // Create a coordinator
     coordinator = new TriggerCoordinator({
-      workflowExecutionRegistry: mockThreadRegistry,
+      workflowExecutionRegistry: mockWorkflowExecutionRegistry,
       workflowRegistry: mockWorkflowRegistry,
       stateManager: stateManager,
       workflowGraphRegistry: mockGraphRegistry,
@@ -417,7 +417,7 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
     it("Error message when test dependencies are missing", async () => {
       // Create a coordinator without any necessary dependencies.
       const incompleteCoordinator = new TriggerCoordinator({
-        workflowExecutionRegistry: mockThreadRegistry,
+        workflowExecutionRegistry: mockWorkflowExecutionRegistry,
         workflowRegistry: mockWorkflowRegistry,
         stateManager: stateManager,
         // Missing workflowLifecycleCoordinator

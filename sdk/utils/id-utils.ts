@@ -30,11 +30,11 @@ const idSchemas = {
       /^wflow_[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i,
       "Invalid workflow ID format",
     ),
-  thread: z
+  workflowExecution: z
     .string()
     .regex(
-      /^thrd_[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i,
-      "Invalid execution ID format",
+      /^wfexec_[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i,
+      "Invalid workflow execution ID format",
     ),
   node: z.string().regex(/^node_[a-z0-9_]+$/, "Invalid node ID format"),
   edge: z.string().regex(/^edge_[a-z0-9_]+$/, "Invalid edge ID format"),
@@ -51,7 +51,7 @@ const idSchemas = {
 /**
  * Verify if the ID format is compliant with the specifications.
  * @param id: The ID to be verified
- * @param entityType: Entity type: workflow, thread, node, edge, checkpoint, toolCall, event
+ * @param entityType: Entity type: workflow, workflowExecution, node, edge, checkpoint, toolCall, event
  * @returns: Whether the format is in compliance with the specifications
  */
 export function validateId(id: ID, entityType: string): boolean {

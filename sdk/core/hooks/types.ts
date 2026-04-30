@@ -33,7 +33,7 @@ export interface BaseHookDefinition {
  *
  * Specific modules need to extend this interface to add context data specific to the scenario.
  * For example:
- * - Graph: Add thread, node, result, etc.
+ * - Graph: Add execution, node, result, etc.
  * - Agent: Add messageHistory, toolCall, iteration, etc.
  */
 export interface BaseHookContext {

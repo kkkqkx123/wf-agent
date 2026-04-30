@@ -11,7 +11,7 @@
  * Design Principles:
  * - Acts as a global singleton service, managed by a Dependency Injection (DI) container
  * - Handles resources shared across executions (execution pool, task queue)
- * - No thread isolation required; all triggered sub-workflows share the same instance
+ * - No workflow-execution isolation required; all triggered sub-workflows share the same instance
  * - Implements the TaskManager interface for use in conjunction with TaskRegistry
  */
 
@@ -72,7 +72,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
   private eventManager: EventRegistry;
 
   /**
-   * Thread Registry
+   * Workflow Execution Registry
    */
   private workflowExecutionRegistry: {
     register: (entity: WorkflowExecutionEntity) => void;

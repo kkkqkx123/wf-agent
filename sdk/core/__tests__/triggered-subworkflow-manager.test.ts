@@ -450,10 +450,10 @@ describe("Triggered Subworkflow Manager - Triggered Subworkflow Manager", () => 
 
     it("Testing workflow execution pool statistics: getPoolStats returns the correct workflow execution pool statistics", () => {
       const poolStats = {
-        activeThreads: 3,
-        idleThreads: 2,
-        totalThreads: 5,
-        maxThreads: 10,
+        activeExecutions: 3,
+        idleExecutions: 2,
+        totalExecutions: 5,
+        maxExecutions: 10,
       };
 
       mockWorkflowExecutionPoolService.getStats.mockReturnValue(poolStats);
@@ -507,11 +507,11 @@ describe("Triggered Subworkflow Manager - Triggered Subworkflow Manager", () => 
       await expect(manager.executeTriggeredSubgraph(task)).rejects.toThrow();
     });
 
-    it("Test missing mainThreadEntity: should throw error", async () => {
+    it("Test missing mainWorkflowExecutionEntity: should throw error", async () => {
       const task: any = {
         subgraphId: "subgraph-1",
         triggerId: "trigger-1",
-        // `mainThreadEntity` is missing.
+        // `mainWorkflowExecutionEntity` is missing.
       };
 
       await expect(manager.executeTriggeredSubgraph(task)).rejects.toThrow();

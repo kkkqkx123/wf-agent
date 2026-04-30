@@ -37,7 +37,7 @@ export type VariableNamespace =
   | "input" /** Input data */
   | "output" /** Output data */
   | "global" /** Global scope */
-  | "workflowExecution" /** Thread scope */
+  | "workflowExecution" /** Workflow execution scope */
   | "local" /** Local scope */
   | "loop"; /** Loop Scope */
 
@@ -205,7 +205,7 @@ export class VariableAccessor {
 
   /**
    * Retrieve a value from a scope variable (searched in order of priority)
-   * Priority: loop > subgraph > thread > global
+   * Priority: loop > subgraph > workflowExecution > global
    * @param path The path to the variable
    * @returns The value of the variable
    */

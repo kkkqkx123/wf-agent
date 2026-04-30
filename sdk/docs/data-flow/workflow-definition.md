@@ -497,9 +497,9 @@ search(keyword: string): WorkflowSummary[] {
 
 ### 1. 单一职责
 
-- WorkflowRegistry 只负责 WorkflowDefinition 的存储和管理
+- WorkflowRegistry 只负责 WorkflowTemplate 的存储和管理
 - 不负责预处理（由 processWorkflow 处理）
-- 不负责执行（由 ThreadExecutor 处理）
+- 不负责执行（由 WorkflowExecutor 处理）
 
 ### 2. 验证分离
 

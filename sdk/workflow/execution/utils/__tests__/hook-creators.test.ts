@@ -13,7 +13,7 @@ import {
 import { HookType } from "@wf-agent/types";
 import { ExecutionError } from "@wf-agent/types";
 import type { HookExecutionContext } from "../../handlers/hook-handlers/hook-handler.js";
-import type { Thread } from "@wf-agent/types";
+import type { WorkflowExecution } from "@wf-agent/types";
 
 /**
  * Create a simulated HookExecutionContext
@@ -21,20 +21,18 @@ import type { Thread } from "@wf-agent/types";
 function createMockExecutionContext(
   overrides?: Partial<HookExecutionContext>,
 ): HookExecutionContext {
-  const mockThread: Thread = {
-    id: "test-thread",
+  const mockWorkflowExecution: WorkflowExecution = {
+    id: "test-workflow-execution",
     workflowId: "test-workflow",
     workflowVersion: "1.0.0.0",
-    status: "RUNNING",
     currentNodeId: "test-node",
     input: {},
     output: {},
     nodeResults: [],
     errors: [],
-    startTime: Date.now(),
     graph: {} as any,
     variables: [],
-    workflowExecutionType: "MAIN",
+    executionType: "MAIN",
     variableScopes: {
       global: {},
       workflowExecution: {},
@@ -43,8 +41,16 @@ function createMockExecutionContext(
     },
   };
 
+  // Mock entity with getStatus method
+  const mockEntity = {
+    getExecution: () => mockWorkflowExecution,
+    getStatus: () => "RUNNING",
+    id: "test-workflow-execution",
+    getWorkflowId: () => "test-workflow",
+  } as any;
+
   return {
-    thread: mockThread,
+    workflowExecutionEntity: mockEntity,
     node: {
       id: "test-node",
       type: "SCRIPT",
@@ -61,7 +67,7 @@ describe("createWorkflowExecutionStateCheckHook", () => {
     const hook = createWorkflowExecutionStateCheckHook(["RUNNING"]);
 
     expect(hook.hookType).toBe("BEFORE_EXECUTE");
-    expect(hook.eventName).toBe("validation.thread_status_check");
+    expect(hook.eventName).toBe("validation.workflow_execution_status_check");
     expect(hook.weight).toBe(200);
     expect(hook.eventPayload).toBeDefined();
     expect(hook.eventPayload!["allowedStates"]).toEqual(["RUNNING"]);
@@ -70,9 +76,12 @@ describe("createWorkflowExecutionStateCheckHook", () => {
 
   it("No error is thrown when the workflow execution state is in the allowed list", async () => {
     const hook = createWorkflowExecutionStateCheckHook(["RUNNING", "PAUSED"]);
-    const context = createMockExecutionContext({
-      thread: { ...createMockExecutionContext().workflowExecution, status: "RUNNING" },
-    });
+    const baseContext = createMockExecutionContext();
+    const mockEntity = {
+      ...baseContext.workflowExecutionEntity,
+      getStatus: () => "RUNNING",
+    } as any;
+    const context: HookExecutionContext = { ...baseContext, workflowExecutionEntity: mockEntity };
 
     // No errors should be thrown.
     await expect(hook.eventPayload!["handler"](context)).resolves.toBeUndefined();
@@ -80,9 +89,12 @@ describe("createWorkflowExecutionStateCheckHook", () => {
 
   it("Throws ExecutionError when the workflow execution state is not in the allowed list.", async () => {
     const hook = createWorkflowExecutionStateCheckHook(["RUNNING"]);
-    const context = createMockExecutionContext({
-      thread: { ...createMockExecutionContext().workflowExecution, status: "COMPLETED" },
-    });
+    const baseContext = createMockExecutionContext();
+    const mockEntity = {
+      ...baseContext.workflowExecutionEntity,
+      getStatus: () => "COMPLETED",
+    } as any;
+    const context: HookExecutionContext = { ...baseContext, workflowExecutionEntity: mockEntity };
 
     await expect(hook.eventPayload!["handler"](context)).rejects.toThrow(ExecutionError);
 
@@ -95,35 +107,33 @@ describe("createWorkflowExecutionStateCheckHook", () => {
     const hook = createWorkflowExecutionStateCheckHook(["RUNNING", "PAUSED", "CREATED"]);
 
     // Testing the RUNNING state
-    const context1 = createMockExecutionContext({
-      thread: { ...createMockExecutionContext().workflowExecution, status: "RUNNING" },
-    });
+    const baseContext1 = createMockExecutionContext();
+    const mockEntity1 = { ...baseContext1.workflowExecutionEntity, getStatus: () => "RUNNING" } as any;
+    const context1: HookExecutionContext = { ...baseContext1, workflowExecutionEntity: mockEntity1 };
     await expect(hook.eventPayload!["handler"](context1)).resolves.toBeUndefined();
 
     // Testing the PAUSED state
-    const context2 = createMockExecutionContext({
-      thread: { ...createMockExecutionContext().workflowExecution, status: "PAUSED" },
-    });
+    const baseContext2 = createMockExecutionContext();
+    const mockEntity2 = { ...baseContext2.workflowExecutionEntity, getStatus: () => "PAUSED" } as any;
+    const context2: HookExecutionContext = { ...baseContext2, workflowExecutionEntity: mockEntity2 };
     await expect(hook.eventPayload!["handler"](context2)).resolves.toBeUndefined();
 
     // Test the CREATED status.
-    const context3 = createMockExecutionContext({
-      thread: { ...createMockExecutionContext().workflowExecution, status: "CREATED" },
-    });
+    const baseContext3 = createMockExecutionContext();
+    const mockEntity3 = { ...baseContext3.workflowExecutionEntity, getStatus: () => "CREATED" } as any;
+    const context3: HookExecutionContext = { ...baseContext3, workflowExecutionEntity: mockEntity3 };
     await expect(hook.eventPayload!["handler"](context3)).resolves.toBeUndefined();
 
     // Testing states that are not allowed.
-    const context4 = createMockExecutionContext({
-      thread: { ...createMockExecutionContext().workflowExecution, status: "FAILED" },
-    });
+    const baseContext4 = createMockExecutionContext();
+    const mockEntity4 = { ...baseContext4.workflowExecutionEntity, getStatus: () => "FAILED" } as any;
+    const context4: HookExecutionContext = { ...baseContext4, workflowExecutionEntity: mockEntity4 };
     await expect(hook.eventPayload!["handler"](context4)).rejects.toThrow();
   });
 
   it("Using the default list of allowed states", async () => {
     const hook = createWorkflowExecutionStateCheckHook(); // Default ['RUNNING']
-    const context = createMockExecutionContext({
-      thread: { ...createMockExecutionContext().workflowExecution, status: "RUNNING" },
-    });
+    const context = createMockExecutionContext();
 
     await expect(hook.eventPayload!["handler"](context)).resolves.toBeUndefined();
   });
@@ -188,7 +198,7 @@ describe("createCustomValidationHook", () => {
   it("Verify that the function has access to context information", async () => {
     const validator = vi.fn().mockImplementation((ctx: HookExecutionContext) => {
       // The validation function should have access to the context.
-      expect(ctx.workflowExecution.id).toBe("test-thread");
+      expect(ctx.workflowExecution.id).toBe("test-workflow-execution");
       expect(ctx.node.id).toBe("test-node");
     });
 
@@ -216,11 +226,11 @@ describe("createPermissionCheckHook", () => {
     const hook = createPermissionCheckHook(["read", "write"]);
     const baseContext = createMockExecutionContext();
     const context = createMockExecutionContext({
-      thread: {
+      workflowExecution: {
         ...baseContext.workflowExecution,
         variableScopes: {
           ...baseContext.workflowExecution.variableScopes,
-          thread: { permissions: ["read", "write", "delete"] },
+          workflowExecution: { permissions: ["read", "write", "delete"] },
         },
       },
     });
@@ -232,11 +242,11 @@ describe("createPermissionCheckHook", () => {
     const hook = createPermissionCheckHook(["read", "write", "admin"]);
     const baseContext = createMockExecutionContext();
     const context = createMockExecutionContext({
-      thread: {
+      workflowExecution: {
         ...baseContext.workflowExecution,
         variableScopes: {
           ...baseContext.workflowExecution.variableScopes,
-          thread: { permissions: ["read"] },
+          workflowExecution: { permissions: ["read"] },
         },
       },
     });
@@ -252,11 +262,11 @@ describe("createPermissionCheckHook", () => {
     const hook = createPermissionCheckHook(["read", "write"]);
     const baseContext = createMockExecutionContext();
     const context = createMockExecutionContext({
-      thread: {
+      workflowExecution: {
         ...baseContext.workflowExecution,
         variableScopes: {
           ...baseContext.workflowExecution.variableScopes,
-          thread: { permissions: [] },
+          workflowExecution: { permissions: [] },
         },
       },
     });
@@ -266,15 +276,15 @@ describe("createPermissionCheckHook", () => {
     );
   });
 
-  it("When a thread scope has no permissions, it is considered to have no permissions at all", async () => {
+  it("When a workflow execution scope has no permissions, it is considered to have no permissions at all", async () => {
     const hook = createPermissionCheckHook(["read"]);
     const baseContext = createMockExecutionContext();
     const context = createMockExecutionContext({
-      thread: {
+      workflowExecution: {
         ...baseContext.workflowExecution,
         variableScopes: {
           ...baseContext.workflowExecution.variableScopes,
-          thread: {},
+          workflowExecution: {},
         },
       },
     });
@@ -304,11 +314,11 @@ describe("createAuditLoggingHook", () => {
 
     const baseContext = createMockExecutionContext();
     const context = createMockExecutionContext({
-      thread: {
+      workflowExecution: {
         ...baseContext.workflowExecution,
         variableScopes: {
           ...baseContext.workflowExecution.variableScopes,
-          thread: { userId: "user-123" },
+          workflowExecution: { userId: "user-123" },
         },
       },
       node: {
@@ -328,7 +338,7 @@ describe("createAuditLoggingHook", () => {
     expect(mockLog).toHaveBeenCalledWith(
       expect.objectContaining({
         eventType: "NODE_EXECUTION_ATTEMPT",
-        executionId: "test-thread",
+        executionId: "test-workflow-execution",
         nodeId: "test-node",
         nodeName: "Test Node",
         nodeType: "SCRIPT",

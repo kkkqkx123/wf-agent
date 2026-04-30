@@ -25,11 +25,11 @@ export async function emitHookEvent(
   emitEvent: (event: NodeCustomEvent) => Promise<void>,
 ): Promise<void> {
   const { workflowExecutionEntity, node } = context;
-  const thread = workflowExecutionEntity.getExecution();
+  const workflowExecution = workflowExecutionEntity.getExecution();
 
   const event = buildNodeCustomEvent({
-    workflowId: thread.workflowId,
-    executionId: thread.id,
+    workflowId: workflowExecution.workflowId,
+    executionId: workflowExecution.id,
     nodeId: node.id,
     nodeType: node.type,
     eventName,

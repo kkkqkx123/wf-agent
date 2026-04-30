@@ -98,7 +98,7 @@ export async function applyMessageOperationHandler(
       triggerId,
       action,
       {
-        message: `Message operation ${operationConfig.operation} applied successfully to thread ${executionId}`,
+        message: `Message operation ${operationConfig.operation} applied successfully to workflow execution ${executionId}`,
         stats: result.stats,
       },
       executionTime,

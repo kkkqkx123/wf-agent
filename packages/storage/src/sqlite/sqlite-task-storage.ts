@@ -55,7 +55,7 @@ export class SqliteTaskStorage
     db.exec(`
       CREATE TABLE IF NOT EXISTS task_metadata (
         id TEXT PRIMARY KEY,
-        thread_id TEXT NOT NULL,
+        execution_id TEXT NOT NULL,
         workflow_id TEXT NOT NULL,
         status TEXT NOT NULL,
         submit_time INTEGER NOT NULL,
@@ -86,7 +86,7 @@ export class SqliteTaskStorage
     `);
 
     // Create indexes for optimized queries
-    db.exec(`CREATE INDEX IF NOT EXISTS idx_task_meta_thread_id ON task_metadata(thread_id)`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_task_meta_execution_id ON task_metadata(execution_id)`);
     db.exec(`CREATE INDEX IF NOT EXISTS idx_task_meta_workflow_id ON task_metadata(workflow_id)`);
     db.exec(`CREATE INDEX IF NOT EXISTS idx_task_meta_status ON task_metadata(status)`);
     db.exec(`CREATE INDEX IF NOT EXISTS idx_task_meta_submit_time ON task_metadata(submit_time)`);
@@ -132,13 +132,13 @@ export class SqliteTaskStorage
 
       const insertMetadata = db.prepare(`
         INSERT INTO task_metadata (
-          id, thread_id, workflow_id, status, submit_time, start_time,
+          id, execution_id, workflow_id, status, submit_time, start_time,
           complete_time, timeout, execution_duration, error, error_stack,
           blob_size, blob_hash, tags, custom_fields, created_at, updated_at
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
-          thread_id = excluded.thread_id,
+          execution_id = excluded.execution_id,
           workflow_id = excluded.workflow_id,
           status = excluded.status,
           submit_time = excluded.submit_time,
@@ -270,7 +270,7 @@ export class SqliteTaskStorage
       const conditions: string[] = [];
 
       if (options?.executionId) {
-        conditions.push("thread_id = ?");
+        conditions.push("execution_id = ?");
         params.push(options.executionId);
       }
 
@@ -370,7 +370,7 @@ export class SqliteTaskStorage
       const stmt = db.prepare(`
         SELECT
           id,
-          thread_id as "executionId",
+          execution_id as "executionId",
           workflow_id as "workflowId",
           status,
           submit_time as "submitTime",

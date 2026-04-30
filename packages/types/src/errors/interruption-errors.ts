@@ -20,7 +20,7 @@ export type InterruptionType = "PAUSE" | "STOP" | null;
  * 4. subclasses can add module-specific context information
  *
  * Usage Scenario:
- * - WorkflowExecutionInterruptedException: Thread interruption in Graph module.
+ * - WorkflowExecutionInterruptedException: Workflow execution interruption in Graph module.
  * - AgentInterruptedException: Session interruption in the Agent module.
  */
 export class InterruptedException extends SDKError {

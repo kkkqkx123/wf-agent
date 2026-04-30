@@ -10,7 +10,7 @@
  *
  * Design Principles:
  * - Pure approval coordination logic
- * - No business-specific features (checkpoint, thread management)
+ * - No business-specific features (checkpoint, execution management)
  * - Reusable across modules (Graph, Agent, etc.)
  * - Layer-independent: uses generic event types from types package
  */

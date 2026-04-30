@@ -24,7 +24,7 @@ import { DependencyInjectionError } from "@wf-agent/types";
 
 /**
  * Lifecycle Trigger Context
- * Used for stop_thread, pause_thread, resume_thread actions
+ * Used for stop_workflow_execution, pause_workflow_execution, resume_workflow_execution actions
  */
 export interface LifecycleTriggerContext {
   workflowLifecycleCoordinator: WorkflowStateTransitor;
@@ -56,7 +56,7 @@ export interface ExecuteSubgraphTriggerContext {
   eventManager: EventRegistry;
   executionBuilder: WorkflowExecutionBuilder;
   taskQueueManager: TaskQueue;
-  parentThreadId: string;
+  parentExecutionId: string;
 }
 
 /**
@@ -195,14 +195,14 @@ export class TriggerHandlerContextFactory {
    *
    * @param triggerId The trigger ID (for error reporting)
    * @param actionType The action type (for error reporting)
-   * @param parentThreadId The parent execution ID
+   * @param parentExecutionId The parent execution ID
    * @returns The execution subgraph trigger context
    * @throws DependencyInjectionError When a required dependency is missing
    */
   private createSubgraphContext(
     triggerId: string,
     actionType: string,
-    parentThreadId: string | undefined,
+    parentExecutionId: string | undefined,
   ): ExecuteSubgraphTriggerContext {
     if (!this.config.eventManager) {
       throw new DependencyInjectionError(
@@ -242,7 +242,7 @@ export class TriggerHandlerContextFactory {
       eventManager: this.config.eventManager,
       executionBuilder: this.config.executionBuilder,
       taskQueueManager: this.config.taskQueueManager,
-      parentThreadId: parentThreadId || "",
+      parentExecutionId: parentExecutionId || "",
     };
   }
 

@@ -1,19 +1,19 @@
 # Graph 预处理
 
-本文档详细描述从 WorkflowDefinition 到 PreprocessedGraph 的预处理流程。
+本文档详细描述从 WorkflowTemplate 到 WorkflowGraph 的预处理流程。
 
 ## 概述
 
-预处理是将 WorkflowDefinition 转换为可执行的 PreprocessedGraph 的过程，包括验证、构建、分析和优化。
+预处理是将 WorkflowTemplate 转换为可执行的 WorkflowGraph 的过程，包括验证、构建、分析和优化。
 
 ## 核心类型
 
-### PreprocessedGraph
+### WorkflowGraph
 
-**位置**：`sdk/graph/entities/preprocessed-graph-data.ts`
+**位置**：`sdk/workflow/entities/workflow-graph.ts`
 
 ```typescript
-class PreprocessedGraphData extends GraphData implements PreprocessedGraph {
+class WorkflowGraphData extends GraphData implements WorkflowGraph {
   // 继承自 GraphData 的图结构
   nodes: Map<ID, GraphNode>;                    // 节点映射
   edges: Map<ID, GraphEdge>;                    // 边映射
@@ -146,17 +146,17 @@ WorkflowDefinition
 └─────────────────────────────────────┘
        ↓
 ┌─────────────────────────────────────┐
-│ 9. 创建 PreprocessedGraphData       │  组装结果
+│ 9. 创建 WorkflowGraphData             │  组装结果
 └─────────────────────────────────────┘
        ↓
-PreprocessedGraph
+WorkflowGraph
 ```
 
 ### 详细步骤
 
 #### 1. 验证 WorkflowDefinition
 
-**位置**：`sdk/graph/validation/workflow-validator.ts`
+**位置**：`sdk/workflow/validation/workflow-validator.ts`
 
 ```typescript
 const validationResult = validator.validate(workflow);
@@ -318,36 +318,36 @@ const idMappingResult = await idMappingBuilder.build(buildResult.graph, expanded
 #### 9. 组装结果
 
 ```typescript
-const preprocessedGraph = new PreprocessedGraphData();
+const workflowGraph = new WorkflowGraphData();
 
 // 复制图结构
-preprocessedGraph.nodes = buildResult.graph.nodes;
-preprocessedGraph.edges = buildResult.graph.edges;
-preprocessedGraph.adjacencyList = buildResult.graph.adjacencyList;
-preprocessedGraph.reverseAdjacencyList = buildResult.graph.reverseAdjacencyList;
-preprocessedGraph.startNodeId = buildResult.graph.startNodeId;
-preprocessedGraph.endNodeIds = buildResult.graph.endNodeIds;
+workflowGraph.nodes = buildResult.graph.nodes;
+workflowGraph.edges = buildResult.graph.edges;
+workflowGraph.adjacencyList = buildResult.graph.adjacencyList;
+workflowGraph.reverseAdjacencyList = buildResult.graph.reverseAdjacencyList;
+workflowGraph.startNodeId = buildResult.graph.startNodeId;
+workflowGraph.endNodeIds = buildResult.graph.endNodeIds;
 
 // 设置 ID 映射
-preprocessedGraph.idMapping = idMappingResult.idMapping;
-preprocessedGraph.nodeConfigs = idMappingResult.nodeConfigs;
-preprocessedGraph.triggerConfigs = idMappingResult.triggerConfigs;
-preprocessedGraph.subgraphRelationships = idMappingResult.subgraphRelationships;
+workflowGraph.idMapping = idMappingResult.idMapping;
+workflowGraph.nodeConfigs = idMappingResult.nodeConfigs;
+workflowGraph.triggerConfigs = idMappingResult.triggerConfigs;
+workflowGraph.subgraphRelationships = idMappingResult.subgraphRelationships;
 
 // 设置分析结果
-preprocessedGraph.graphAnalysis = graphAnalysis;
-preprocessedGraph.validationResult = preprocessValidation;
-preprocessedGraph.topologicalOrder = graphAnalysis.topologicalSort.sortedNodes;
+workflowGraph.graphAnalysis = graphAnalysis;
+workflowGraph.validationResult = preprocessValidation;
+workflowGraph.topologicalOrder = graphAnalysis.topologicalSort.sortedNodes;
 
 // 设置 Workflow 元数据
-preprocessedGraph.workflowId = expandedWorkflow.id;
-preprocessedGraph.workflowVersion = expandedWorkflow.version;
-preprocessedGraph.triggers = expandedTriggers;
-preprocessedGraph.variables = expandedWorkflow.variables;
-preprocessedGraph.hasSubgraphs = hasSubgraphs;
-preprocessedGraph.subworkflowIds = subworkflowIds;
+workflowGraph.workflowId = expandedWorkflow.id;
+workflowGraph.workflowVersion = expandedWorkflow.version;
+workflowGraph.triggers = expandedTriggers;
+workflowGraph.variables = expandedWorkflow.variables;
+workflowGraph.hasSubgraphs = hasSubgraphs;
+workflowGraph.subworkflowIds = subworkflowIds;
 
-return preprocessedGraph;
+return workflowGraph;
 ```
 
 ---
@@ -356,23 +356,23 @@ return preprocessedGraph;
 
 ### 职责
 
-GraphRegistry 负责 PreprocessedGraph 的存储和查询。
+WorkflowGraphRegistry 负责 WorkflowGraph 的存储和查询。
 
-**位置**：`sdk/graph/stores/graph-registry.ts`
+**位置**：`sdk/workflow/stores/workflow-graph-registry.ts`
 
 ### 主要方法
 
 ```typescript
-class GraphRegistry {
-  private graphs: Map<string, PreprocessedGraph> = new Map();
+class WorkflowGraphRegistry {
+  private graphs: Map<string, WorkflowGraph> = new Map();
   
   // 注册预处理图
-  register(graph: PreprocessedGraph): void {
+  register(graph: WorkflowGraph): void {
     this.graphs.set(graph.workflowId, graph);
   }
   
   // 获取预处理图
-  get(workflowId: string): PreprocessedGraph | undefined {
+  get(workflowId: string): WorkflowGraph | undefined {
     return this.graphs.get(workflowId);
   }
   
@@ -397,25 +397,25 @@ class GraphRegistry {
 
 ## 图导航
 
-### GraphNavigator
+### WorkflowNavigator
 
-**位置**：`sdk/graph/graph-builder/graph-navigator.ts`
+**位置**：`sdk/workflow/builder/workflow-navigator.ts`
 
 提供图的导航功能：
 
 ```typescript
-class GraphNavigator {
-  private graph: PreprocessedGraph;
+class WorkflowNavigator {
+  private graph: WorkflowGraph;
   
   // 获取下一个节点
-  getNextNode(currentNodeId: string): { nextNodeId: string; edge: GraphEdge } | null {
+  getNextNode(currentNodeId: string): { nextNodeId: string; edge: WorkflowEdge } | null {
     const outgoingEdges = this.graph.getOutgoingEdges(currentNodeId);
     // 根据边条件选择下一个节点
     // 返回下一个节点 ID 和边信息
   }
   
   // 获取图
-  getGraph(): PreprocessedGraph {
+  getGraph(): WorkflowGraph {
     return this.graph;
   }
 }
@@ -468,9 +468,9 @@ cycleDetection: {
 
 ### 1. 不可变性
 
-- PreprocessedGraph 创建后不可修改
+- WorkflowGraph 创建后不可修改
 - 确保执行期间图结构稳定
-- 支持多 Thread 共享
+- 支持多 WorkflowExecution 共享
 
 ### 2. 完整性
 
@@ -496,4 +496,4 @@ cycleDetection: {
 
 - [整体数据流](./README.md)
 - [Workflow 定义与管理](./workflow-definition.md)
-- [Thread 执行实例](./thread-execution.md)
+- [Workflow 执行实例](./workflow-execution.md)

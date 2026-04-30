@@ -166,7 +166,7 @@ export class CallbackState<T = unknown> {
   }
 
   /**
-   * Clean up the callbacks for the specified thread
+   * Clean up the callbacks for the specified workflow execution
    * @param executionId Execution ID
    * @returns Whether the cleanup was successful
    */

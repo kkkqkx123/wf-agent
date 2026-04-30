@@ -45,8 +45,8 @@ export const AddToolNodeConfigSchema = z.object({
     .array(z.string().min(1, "Tool ID must not be empty"))
     .min(1, "At least one tool ID is required"),
   descriptionTemplate: z.string().optional(),
-  scope: z.enum(["GLOBAL", "THREAD", "LOCAL"], {
-    message: "Scope must be one of: GLOBAL, THREAD, LOCAL",
+  scope: z.enum(["GLOBAL", "WORKFLOW_EXECUTION", "LOCAL"], {
+    message: "Scope must be one of: GLOBAL, WORKFLOW_EXECUTION, LOCAL",
   }).optional(),
   overwrite: z.boolean().optional(),
   metadata: z.record(z.string(), z.any()).optional(),

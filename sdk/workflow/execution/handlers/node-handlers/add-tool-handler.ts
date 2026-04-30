@@ -50,13 +50,13 @@ export interface AddToolHandlerContext {
 
 /**
  * Tool adds a node processor
- * @param thread Thread instance
+ * @param workflowExecution Workflow execution instance
  * @param node Node definition
  * @param context Processor context
  * @returns Execution result
  */
 export async function addToolHandler(
-  thread: WorkflowExecution,
+  workflowExecution: WorkflowExecution,
   node: Node,
   context: AddToolHandlerContext,
 ): Promise<AddToolExecutionResult> {
@@ -86,8 +86,8 @@ export async function addToolHandler(
     const overwrite = config.overwrite || false;
 
     const addedCount = context.toolContextStore.addTools(
-      thread.id,
-      thread.workflowId,
+      workflowExecution.id,
+      workflowExecution.workflowId,
       validToolIds,
       scope,
       overwrite,
@@ -107,8 +107,8 @@ export async function addToolHandler(
     // 5. Triggering the tool to add an event
     await context.eventManager.emit(
       buildToolAddedEvent({
-        workflowId: thread.workflowId,
-        executionId: thread.id,
+        workflowId: workflowExecution.workflowId,
+        executionId: workflowExecution.id,
         nodeId: node.id,
         toolIds: validToolIds,
         scope,

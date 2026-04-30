@@ -328,11 +328,11 @@ class ToolRegistry {
   }
 
   /**
-   * Clean up all stateful tool instances for the specified thread.
+   * Clean up all stateful tool instances for the specified execution.
    * @param executionId: Execution ID
    */
-  cleanupThread(executionId: string): void {
-    logger.debug("Cleaning up thread stateful tools", { executionId });
+  cleanupWorkflowExecution(executionId: string): void {
+    logger.debug("Cleaning up execution stateful tools", { executionId });
     const statefulExecutor = this.executors.get("STATEFUL");
     if (
       statefulExecutor &&
@@ -429,7 +429,7 @@ class ToolRegistry {
    */
   updateBuiltinContext(context: {
     executionId?: string;
-    parentThreadEntity?: unknown;
+    parentWorkflowExecutionEntity?: unknown;
     executionRegistry?: unknown;
     eventManager?: unknown;
     executionBuilder?: unknown;

@@ -2,20 +2,20 @@
 ⚠️ 问题 1：文档与代码的一致性
 发现：文档描述的某些细节与实际代码存在细微差异
 
-文档中 ThreadEntity 的结构描述包含 conversationManager，但实际代码中是可选的（conversationManager?: ConversationSession）
+文档中 WorkflowExecutionEntity 的结构描述包含 conversationManager，但实际代码中是可选的（conversationManager?: ConversationSession）
 文档中描述的某些方法签名与实际实现略有不同
 建议：
 
 定期同步文档与代码，确保一致性
 在代码注释中引用文档位置，建立双向链接
 ⚠️ 问题 2：状态管理的复杂性
-发现：ThreadEntity 持有多个状态管理器，增加了理解成本
+发现：WorkflowExecutionEntity 持有多个状态管理器，增加了理解成本
 
 
 typescript
  
-class ThreadEntity {
-  readonly state: ThreadState;                    // 运行时状态
+class WorkflowExecutionEntity {
+  readonly state: WorkflowExecutionState;                    // 运行时状态
   private readonly executionState: ExecutionState; // 子图执行栈
   readonly messageHistoryManager: MessageHistory;  // 消息历史
   readonly variableStateManager: VariableState;    // 变量状态
@@ -58,9 +58,9 @@ code
 ⚠️ 问题 5：Fork/Join 并行执行的数据流
 发现：文档对 Fork/Join 场景的数据流描述不够详细
 
-Fork 创建子线程时，input 如何继承？
-Join 时如何汇总多个子线程的 output？
-子线程之间的数据隔离如何保证？
+Fork 创建子工作流执行实例时，input 如何继承？
+Join 时如何汇总多个子工作流执行实例的 output？
+子工作流执行实例之间的数据隔离如何保证？
 建议：
 
 补充 Fork/Join 数据流的详细说明

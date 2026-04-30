@@ -216,7 +216,7 @@ export class ToolVisibilityCoordinator {
     const context = this.getContext(executionId);
 
     if (!context) {
-      throw new Error(`Tool visibility context not found for thread: ${executionId}`);
+      throw new Error(`Tool visibility context not found for workflow execution: ${executionId}`);
     }
 
     // Add the visible tool collection to the store.
@@ -242,14 +242,14 @@ export class ToolVisibilityCoordinator {
    * - The SDK does not provide default implementations for message operations; these are defined by the application layer.
    * - New statements are generated only when there are changes to the toolkit.
    *
-   * @param executionEntity Thread Entity
+   * @param executionEntity Workflow Execution Entity
    */
   async refreshDeclaration(executionEntity: WorkflowExecutionEntity): Promise<void> {
     const executionId = executionEntity.id;
     const context = this.getContext(executionId);
 
     if (!context) {
-      throw new Error(`Tool visibility context not found for thread: ${executionId}`);
+      throw new Error(`Tool visibility context not found for workflow execution: ${executionId}`);
     }
 
     // Check if a refresh is needed (to see if there have been any changes to the toolkit).

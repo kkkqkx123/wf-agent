@@ -27,9 +27,9 @@ class TestExecutor extends BaseExecutor {
   protected async doExecute(
     tool: Tool,
     parameters: Record<string, any>,
-    threadId?: string,
+    executionId?: string,
   ): Promise<any> {
-    return this.mockExecute(tool, parameters, threadId);
+    return this.mockExecute(tool, parameters, executionId);
   }
 
   getExecutorType(): string {
@@ -104,9 +104,9 @@ describe("BaseExecutor", () => {
       it("The correct parameters should be passed to doExecute.", async () => {
         mockExecute.mockResolvedValue("success");
 
-        await executor.execute(tool, { input: "test-value" }, {}, "thread-123");
+        await executor.execute(tool, { input: "test-value" }, {}, "workflowExecution-123");
 
-        expect(mockExecute).toHaveBeenCalledWith(tool, { input: "test-value" }, "thread-123");
+        expect(mockExecute).toHaveBeenCalledWith(tool, { input: "test-value" }, "workflowExecution-123");
       });
     });
 

@@ -243,10 +243,10 @@ export class ContextualLogger {
  * // 创建带工作流上下文的日志器
  * const logger = createContextualLogger({ workflowId: 'wf-123' });
  *
- * // 创建带线程上下文的日志器
- * const threadLogger = createContextualLogger({
+ * // 创建带执行上下文的日志器
+ * const executionLogger = createContextualLogger({
  *   workflowId: 'wf-123',
- *   executionId: 'thread-456'
+ *   executionId: 'exec-456'
  * });
  */
 export function createContextualLogger(baseContext?: ErrorContext): ContextualLogger {

@@ -98,7 +98,7 @@ export class AgentLoopCoordinator {
     logger.info("Agent Loop execution started", {
       agentLoopId: entity.id,
       nodeId: entity.nodeId,
-      parentThreadId: entity.parentThreadId,
+      parentExecutionId: entity.parentExecutionId,
     });
 
     try {
@@ -168,7 +168,7 @@ export class AgentLoopCoordinator {
     logger.info("Agent Loop stream execution started", {
       agentLoopId: entity.id,
       nodeId: entity.nodeId,
-      parentThreadId: entity.parentThreadId,
+      parentExecutionId: entity.parentExecutionId,
     });
 
     try {
@@ -228,7 +228,7 @@ export class AgentLoopCoordinator {
     logger.info("Agent Loop async execution started", {
       agentLoopId: entity.id,
       nodeId: entity.nodeId,
-      parentThreadId: entity.parentThreadId,
+      parentExecutionId: entity.parentExecutionId,
     });
 
     // 4. Asynchronous execution (without waiting for results)

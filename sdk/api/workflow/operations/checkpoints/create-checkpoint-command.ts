@@ -1,5 +1,5 @@
 /**
- * CreateCheckpointCommand - Create Thread Checkpoint Command
+ * CreateCheckpointCommand - Create Workflow Execution Checkpoint Command
  *
  * Responsibilities:
  * - Encapsulates checkpoint creation operation as Command pattern

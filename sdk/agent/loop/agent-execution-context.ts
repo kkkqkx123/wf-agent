@@ -10,7 +10,7 @@
  * Design Principles:
  * - Unified execution management for Agent instances
  * - Uses shared Pool/Queue infrastructure
- * - Independent configuration from Thread execution
+ * - Independent configuration from workflow execution
  * - Fault isolation from Graph execution
  */
 

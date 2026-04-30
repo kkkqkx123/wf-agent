@@ -60,7 +60,7 @@ export interface AgentLoopHandlerContext {
   eventManager: EventRegistry;
   /** Agent Loop registry (optional, used for cross-request management) */
   agentLoopRegistry?: AgentLoopRegistry;
-  /** Thread Registry (used for checking interrupts) */
+  /** Execution Registry (used for checking interrupts) */
   executionRegistry?: unknown;
 }
 
@@ -86,7 +86,7 @@ function createCoordinator(context: AgentLoopHandlerContext): AgentLoopCoordinat
  * Agent Loop Node Processor
  */
 export async function agentLoopHandler(
-  thread: WorkflowExecution,
+  execution: WorkflowExecution,
   node: Node,
   context: AgentLoopHandlerContext,
 ): Promise<AgentLoopExecutionResult> {
@@ -105,7 +105,7 @@ export async function agentLoopHandler(
     // 1. Prepare the initial message
     const initialMessages: LLMMessage[] = [];
     const inputPrompt =
-      thread.variableScopes?.workflowExecution?.["input"] || thread.variableScopes?.workflowExecution?.["prompt"];
+      execution.variableScopes?.workflowExecution?.["input"] || execution.variableScopes?.workflowExecution?.["prompt"];
 
     if (inputPrompt && typeof inputPrompt === "string") {
       initialMessages.push({ role: "user", content: inputPrompt });
@@ -114,7 +114,7 @@ export async function agentLoopHandler(
       await safeEmit(
         context.eventManager,
         buildMessageAddedEvent({
-          executionId: thread.id,
+          executionId: execution.id,
           role: "user",
           content: inputPrompt,
           nodeId: node.id,
@@ -135,7 +135,7 @@ export async function agentLoopHandler(
       },
       {
         conversationManager: context.conversationManager,
-        parentThreadId: thread.id,
+        parentExecutionId: execution.id,
         nodeId: node.id,
       },
     );
@@ -151,7 +151,7 @@ export async function agentLoopHandler(
       await safeEmit(
         context.eventManager,
         buildMessageAddedEvent({
-          executionId: thread.id,
+          executionId: execution.id,
           role: "assistant",
           content: result.content,
           nodeId: node.id,
@@ -163,7 +163,7 @@ export async function agentLoopHandler(
     await safeEmit(
       context.eventManager,
       buildConversationStateChangedEvent({
-        executionId: thread.id,
+        executionId: execution.id,
         messageCount: context.conversationManager.getMessages().length,
         tokenUsage: 0, // Not counting the total consumption for now.
         nodeId: node.id,
@@ -171,10 +171,10 @@ export async function agentLoopHandler(
     );
 
     // 4. Update the variable
-    if (thread.variableScopes?.workflowExecution) {
-      thread.variableScopes.workflowExecution["output"] = result.content;
-      thread.variableScopes.workflowExecution["agentLoopIterations"] = result.iterations;
-      thread.variableScopes.workflowExecution["agentLoopToolCallCount"] = result.toolCallCount;
+    if (execution.variableScopes?.workflowExecution) {
+      execution.variableScopes.workflowExecution["output"] = result.content;
+      execution.variableScopes.workflowExecution["agentLoopIterations"] = result.iterations;
+      execution.variableScopes.workflowExecution["agentLoopToolCallCount"] = result.toolCallCount;
     }
 
     return {
@@ -197,7 +197,7 @@ export async function agentLoopHandler(
  * Stream Agent Loop Node Processor
  */
 export async function* agentLoopStreamHandler(
-  thread: WorkflowExecution,
+  execution: WorkflowExecution,
   node: Node,
   context: AgentLoopHandlerContext,
 ): AsyncGenerator<unknown, AgentLoopExecutionResult, unknown> {
@@ -216,7 +216,7 @@ export async function* agentLoopStreamHandler(
     // 1. Prepare the initial message
     const initialMessages: LLMMessage[] = [];
     const inputPrompt =
-      thread.variableScopes?.workflowExecution?.["input"] || thread.variableScopes?.workflowExecution?.["prompt"];
+      execution.variableScopes?.workflowExecution?.["input"] || execution.variableScopes?.workflowExecution?.["prompt"];
 
     if (inputPrompt && typeof inputPrompt === "string") {
       initialMessages.push({ role: "user", content: inputPrompt });
@@ -235,14 +235,14 @@ export async function* agentLoopStreamHandler(
       },
       {
         conversationManager: context.conversationManager,
-        parentThreadId: thread.id,
+        parentExecutionId: execution.id,
         nodeId: node.id,
       },
     )) {
       // Forward streaming events
       yield {
         type: "agent_loop_event",
-        executionId: thread.id,
+        executionId: execution.id,
         nodeId: node.id,
         event,
       };
@@ -258,10 +258,10 @@ export async function* agentLoopStreamHandler(
       .pop()?.content;
 
     // 4. Update the variable
-    if (thread.variableScopes?.workflowExecution) {
-      thread.variableScopes.workflowExecution["output"] = content;
-      thread.variableScopes.workflowExecution["agentLoopIterations"] = iterations;
-      thread.variableScopes.workflowExecution["agentLoopToolCallCount"] = toolCallCount;
+    if (execution.variableScopes?.workflowExecution) {
+      execution.variableScopes.workflowExecution["output"] = content;
+      execution.variableScopes.workflowExecution["agentLoopIterations"] = iterations;
+      execution.variableScopes.workflowExecution["agentLoopToolCallCount"] = toolCallCount;
     }
 
     return {

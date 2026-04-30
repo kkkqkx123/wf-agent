@@ -25,7 +25,7 @@ describe("Trigger State Manager", () => {
     it("Test registration status: register method stores the status correctly", () => {
       const state: TriggerRuntimeState = {
         triggerId: "trigger-1",
-        executionId: "test-thread",
+        executionId: "test-workflow-execution",
         workflowId: "workflow-123",
         status: "enabled",
         triggerCount: 0,
@@ -57,7 +57,7 @@ describe("Trigger State Manager", () => {
     it("Test workflow ID validation: the workflowId in the state must match the manager's workflowId", () => {
       const state: TriggerRuntimeState = {
         triggerId: "trigger-1",
-        executionId: "test-thread",
+        executionId: "test-workflow-execution",
         workflowId: "different-workflow", // Does not match
         status: "enabled",
         triggerCount: 0,
@@ -72,7 +72,7 @@ describe("Trigger State Manager", () => {
     it("Test Trigger ID is null: an error should be thrown", () => {
       const state: any = {
         triggerId: "", // Empty ID
-        executionId: "test-thread",
+        executionId: "test-workflow-execution",
         workflowId: "workflow-123",
         status: "enabled",
         triggerCount: 0,
@@ -102,7 +102,7 @@ describe("Trigger State Manager", () => {
     it("Test workflow ID is empty: an error should be thrown", () => {
       const state: any = {
         triggerId: "trigger-1",
-        executionId: "test-thread",
+        executionId: "test-workflow-execution",
         workflowId: "", // Empty ID
         status: "enabled",
         triggerCount: 0,
@@ -117,7 +117,7 @@ describe("Trigger State Manager", () => {
     it("Testing for duplicate registrations: duplicate registrations should throw an error", () => {
       const state: TriggerRuntimeState = {
         triggerId: "trigger-1",
-        executionId: "test-thread",
+        executionId: "test-workflow-execution",
         workflowId: "workflow-123",
         status: "enabled",
         triggerCount: 0,
@@ -137,7 +137,7 @@ describe("Trigger State Manager", () => {
 
       const state: TriggerRuntimeState = {
         triggerId: "trigger-1",
-        executionId: "test-thread",
+        executionId: "test-workflow-execution",
         workflowId: null as any,
         status: "enabled",
         triggerCount: 0,
@@ -154,7 +154,7 @@ describe("Trigger State Manager", () => {
     beforeEach(() => {
       const state: TriggerRuntimeState = {
         triggerId: "trigger-1",
-        executionId: "test-thread",
+        executionId: "test-workflow-execution",
         workflowId: "workflow-123",
         status: "enabled",
         triggerCount: 0,
@@ -300,7 +300,7 @@ describe("Trigger State Manager", () => {
       // Add more states
       const additionalState: TriggerRuntimeState = {
         triggerId: "trigger-3",
-        executionId: "test-thread",
+        executionId: "test-workflow-execution",
         workflowId: "workflow-123",
         status: "triggered",
         triggerCount: 2,
@@ -421,7 +421,7 @@ describe("Trigger State Manager", () => {
 
       stateManager.register({
         triggerId: "trigger-3",
-        executionId: "test-thread",
+        executionId: "test-workflow-execution",
         workflowId: "workflow-123",
         status: "enabled",
         triggerCount: 0,
@@ -480,7 +480,7 @@ describe("Trigger State Manager", () => {
 
   describe("Getter Methods", () => {
     it("Test to get execution ID: getExecutionId returns the correct execution ID", () => {
-      expect(stateManager.getExecutionId()).toBe("test-thread");
+      expect(stateManager.getExecutionId()).toBe("test-workflow-execution");
     });
 
     it("Test to get workflow ID: getWorkflowId returns the correct workflow ID", () => {
@@ -525,7 +525,7 @@ describe("Trigger State Manager", () => {
     it("Test concurrent status updates: status should be updated correctly", () => {
       const state: TriggerRuntimeState = {
         triggerId: "trigger-1",
-        executionId: "test-thread",
+        executionId: "test-workflow-execution",
         workflowId: "workflow-123",
         status: "enabled",
         triggerCount: 0,

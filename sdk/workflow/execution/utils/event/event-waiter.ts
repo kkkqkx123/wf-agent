@@ -57,7 +57,7 @@ export async function waitForWorkflowExecutionPaused(
 }
 
 /**
- * Wait for the thread cancellation event
+ * Wait for the workflow execution cancellation event
  *
  * @param eventManager  Event manager
  * @param executionId  Execution ID
@@ -99,7 +99,7 @@ export async function waitForWorkflowExecutionCompleted(
 }
 
 /**
- * Waiting for the thread failure event
+ * Waiting for the workflow execution failure event
  *
  * @param eventManager  Event manager
  * @param executionId  Execution ID
@@ -116,7 +116,7 @@ export async function waitForWorkflowExecutionFailed(
 }
 
 /**
- * Waiting for the thread recovery event
+ * Waiting for the workflow execution recovery event
  *
  * @param eventManager: Event manager
  * @param executionId: Execution ID
@@ -133,7 +133,7 @@ export async function waitForWorkflowExecutionResumed(
 }
 
 /**
- * Wait for any Thread lifecycle event
+ * Wait for any WorkflowExecution lifecycle event
  *
  * @param eventManager  Event manager
  * @param executionId  Execution ID
@@ -166,7 +166,7 @@ export async function waitForAnyLifecycleEvent(
 }
 
 /**
- * Wait for multiple threads to complete
+ * Wait for multiple workflow executions to complete
  *
  * @param eventManager  Event manager
  * @param executionIds  Array of execution IDs
@@ -186,7 +186,7 @@ export async function waitForMultipleWorkflowExecutionsCompleted(
 }
 
 /**
- * Wait for any thread to complete
+ * Wait for any workflow execution to complete
  *
  * @param eventManager  Event manager
  * @param executionIds  Array of execution IDs
@@ -206,7 +206,7 @@ export async function waitForAnyWorkflowExecutionCompleted(
 }
 
 /**
- * Wait for either a thread to complete or fail
+ * Wait for either a workflow execution to complete or fail
  *
  * @param eventManager  Event manager
  * @param executionIds  Array of execution IDs

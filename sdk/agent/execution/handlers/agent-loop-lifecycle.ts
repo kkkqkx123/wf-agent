@@ -115,7 +115,7 @@ export function cloneAgentLoop(entity: AgentLoopEntity): AgentLoopEntity {
   const variableSnapshot = entity.variableStateManager.createSnapshot();
   cloned.variableStateManager.restoreFromSnapshot(variableSnapshot);
 
-  cloned.parentThreadId = entity.parentThreadId;
+  cloned.parentExecutionId = entity.parentExecutionId;
   cloned.nodeId = entity.nodeId;
 
   logger.info("Agent Loop entity cloned successfully", {

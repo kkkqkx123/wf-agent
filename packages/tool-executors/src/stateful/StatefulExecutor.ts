@@ -1,6 +1,6 @@
 /**
  * Stateful Tool Executor
- * Executes stateful tools provided by the application layer, directly manages tool instances, and supports thread isolation.
+ * Executes stateful tools provided by the application layer, directly manages tool instances, and supports execution isolation.
  */
 
 import { now } from "@wf-agent/common-utils";
@@ -19,8 +19,8 @@ import type { StatefulExecutorConfig } from "./types.js";
  */
 export class StatefulExecutor extends BaseExecutor {
   private config: StatefulExecutorConfig;
-  // Manage instances by thread ID and tool name: Map<threadId, Map<toolName, { instance, createdAt }>>
-  private threadInstances: Map<
+  // Manage instances by execution ID and tool name: Map<executionId, Map<toolName, { instance, createdAt }>>
+  private executionInstances: Map<
     string,
     Map<string, { instance: StatefulToolInstance; createdAt: number }>
   > = new Map();
@@ -46,20 +46,20 @@ export class StatefulExecutor extends BaseExecutor {
    * Specific implementation of executing a stateful tool
    * @param tool Tool definition
    * @param parameters Tool parameters
-   * @param threadId Thread ID (required, for thread isolation)
+   * @param executionId Execution ID (required, for execution isolation)
    * @returns Execution result
    */
   protected async doExecute(
     tool: Tool,
     parameters: Record<string, unknown>,
-    threadId?: string,
+    executionId?: string,
   ): Promise<unknown> {
-    if (!threadId) {
+    if (!executionId) {
       throw new ToolError(
-        `ThreadId is required for stateful tool '${tool.name}'`,
+        `ExecutionId is required for stateful tool '${tool.name}'`,
         tool.id,
         "STATEFUL",
-        { toolName: tool.name, threadIdRequired: true },
+        { toolName: tool.name, executionIdRequired: true },
       );
     }
 
@@ -81,8 +81,8 @@ export class StatefulExecutor extends BaseExecutor {
     }
 
     try {
-      // Obtain or create a tool instance (thread-isolated).
-      const instance = this.getOrCreateInstance(threadId!, tool.id, toolConfig.factory);
+      // Obtain or create a tool instance (execution-isolated).
+      const instance = this.getOrCreateInstance(executionId!, tool.id, toolConfig.factory);
 
       // Call the execute method of the instance.
       if (typeof instance.execute !== "function") {
@@ -100,14 +100,14 @@ export class StatefulExecutor extends BaseExecutor {
       if (!output.success) {
         throw new ToolError(output.error || "Tool execution failed", tool.id, "STATEFUL", {
           parameters,
-          threadId,
+          executionId,
         });
       }
 
       // Returns the result, with ToolOutput.content as the result.
       return {
         result: output.content,
-        threadId,
+        executionId,
       };
     } catch (error) {
       if (error instanceof ToolError) {
@@ -117,39 +117,39 @@ export class StatefulExecutor extends BaseExecutor {
         `Stateful tool execution failed: ${error instanceof Error ? error.message : "Unknown error"}`,
         tool.id,
         "STATEFUL",
-        { parameters, threadId },
+        { parameters, executionId },
         error instanceof Error ? error : undefined,
       );
     }
   }
 
   /**
-   * Get or create a tool instance (thread-isolated)
-   * @param threadId: Thread ID
+   * Get or create a tool instance (execution-isolated)
+   * @param executionId: Execution ID
    * @param toolName: Tool name
    * @param factory: Factory function
    * @returns: Tool instance
    */
   private getOrCreateInstance(
-    threadId: string,
+    executionId: string,
     toolName: string,
     factory: StatefulToolFactory,
   ): StatefulToolInstance {
-    // Get or create an instance map for that thread.
-    if (!this.threadInstances.has(threadId)) {
-      this.threadInstances.set(threadId, new Map());
+    // Get or create an instance map for that execution.
+    if (!this.executionInstances.has(executionId)) {
+      this.executionInstances.set(executionId, new Map());
     }
 
-    const threadMap = this.threadInstances.get(threadId)!;
+    const executionMap = this.executionInstances.get(executionId)!;
 
     // If an instance already exists, return it directly.
-    if (threadMap.has(toolName)) {
-      return threadMap.get(toolName)!.instance;
+    if (executionMap.has(toolName)) {
+      return executionMap.get(toolName)!.instance;
     }
 
     // Create a new instance
     const instance = factory.create();
-    threadMap.set(toolName, {
+    executionMap.set(toolName, {
       instance,
       createdAt: now(),
     });
@@ -171,32 +171,32 @@ export class StatefulExecutor extends BaseExecutor {
    */
   private cleanupExpiredInstances(): void {
     const currentTime = now();
-    for (const [threadId, threadMap] of this.threadInstances.entries()) {
-      for (const [toolName, { createdAt }] of threadMap.entries()) {
+    for (const [executionId, executionMap] of this.executionInstances.entries()) {
+      for (const [toolName, { createdAt }] of executionMap.entries()) {
         if (currentTime - createdAt > this.config.instanceExpirationTime!) {
-          threadMap.delete(toolName);
+          executionMap.delete(toolName);
         }
       }
-      // If the thread no longer has any instances, delete the thread mapping.
-      if (threadMap.size === 0) {
-        this.threadInstances.delete(threadId);
+      // If the execution no longer has any instances, delete the execution mapping.
+      if (executionMap.size === 0) {
+        this.executionInstances.delete(executionId);
       }
     }
   }
 
   /**
-   * Clean up all instances of the specified thread.
-   * @param threadId: Thread ID
+   * Clean up all instances of the specified execution.
+   * @param executionId: Execution ID
    */
-  cleanupThread(threadId: string): void {
-    const threadMap = this.threadInstances.get(threadId);
-    if (threadMap) {
-      for (const [_toolName, { instance }] of threadMap.entries()) {
+  cleanupExecution(executionId: string): void {
+    const executionMap = this.executionInstances.get(executionId);
+    if (executionMap) {
+      for (const [_toolName, { instance }] of executionMap.entries()) {
         if (typeof instance.destroy === "function") {
           instance.destroy();
         }
       }
-      this.threadInstances.delete(threadId);
+      this.executionInstances.delete(executionId);
     }
   }
 
@@ -209,14 +209,14 @@ export class StatefulExecutor extends BaseExecutor {
       this.cleanupTimer = undefined;
     }
     // Clean up all instances.
-    for (const [, threadMap] of this.threadInstances.entries()) {
-      for (const [_toolName, { instance }] of threadMap.entries()) {
+    for (const [, executionMap] of this.executionInstances.entries()) {
+      for (const [_toolName, { instance }] of executionMap.entries()) {
         if (typeof instance.destroy === "function") {
           await instance.destroy();
         }
       }
     }
-    this.threadInstances.clear();
+    this.executionInstances.clear();
   }
 
   /**

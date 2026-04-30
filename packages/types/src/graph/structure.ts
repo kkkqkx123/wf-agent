@@ -83,7 +83,7 @@ export type EdgeMap = Map<ID, WorkflowEdge>;
  * Design Notes:
  * - Defines the interface specification for graph data structures
  * - The GraphData class implements this interface at the core level.
- * - Thread and other types use this interface to reference graph data.
+ * - WorkflowExecution and other types use this interface to reference graph data.
  * - Provide basic operations and query functions for graphs
  */
 export interface WorkflowGraphStructure {

@@ -45,12 +45,12 @@ export interface Thread {
 ### 1.3 生命周期
 
 1. **初始化阶段**
-   - 在 `ThreadBuilder.build()` 方法中初始化
-   - 从 `ThreadOptions.input` 参数获取
+   - 在 `WorkflowExecutionBuilder.build()` 方法中初始化
+   - 从 `WorkflowExecutionOptions.input` 参数获取
    - 默认值为空对象 `{}`
    
    ```typescript
-   // sdk/graph/execution/factories/thread-builder.ts (第 167 行)
+   // sdk/workflow/execution/factories/workflow-execution-builder.ts (第 167 行)
    const thread: Thread = {
      // ...
      input: options.input || {},
@@ -68,7 +68,7 @@ export interface Thread {
    - **子工作流**: 触发子工作流时 input 会被复制传递
    
    ```typescript
-   // sdk/graph/execution/factories/thread-builder.ts (第 334 行)
+   // sdk/workflow/execution/factories/workflow-execution-builder.ts (第 334 行)
    input: { ...parentThread.input },
    ```
 
@@ -104,7 +104,7 @@ Hello {{input.userName}}, your timeout is {{input.config.timeout}}
 #### 直接获取
 
 ```typescript
-// 通过 ThreadEntity 获取完整 input 对象
+// 通过 WorkflowExecutionEntity 获取完整 input 对象
 const input = threadEntity.getInput();
 
 // 通过底层 Thread 对象获取
@@ -156,7 +156,7 @@ export interface Thread {
 | 特性 | 说明 |
 |------|------|
 | **最终结果** | 存储工作流执行完毕后的输出数据 |
-| **结果返回** | 作为 `ThreadResult` 的一部分返回给调用者 |
+| **结果返回** | 作为 `WorkflowExecutionResult` 的一部分返回给调用者 |
 | **节点设置** | 通常由 END 节点或最后一个执行节点设置 |
 | **数据聚合** | 可聚合多个节点的执行结果 |
 
@@ -166,7 +166,7 @@ export interface Thread {
    - 创建 Thread 时初始化为空对象 `{}`
    
    ```typescript
-   // sdk/graph/execution/factories/thread-builder.ts (第 168 行)
+   // sdk/workflow/execution/factories/workflow-execution-builder.ts (第 168 行)
    output: {},
    ```
 
@@ -175,10 +175,10 @@ export interface Thread {
    - 通常在 END 节点执行时最终设置
 
 3. **返回阶段**
-   - 作为 `ThreadResult.output` 返回
+   - 作为 `WorkflowExecutionResult.output` 返回
    
    ```typescript
-   // sdk/graph/execution/coordinators/thread-execution-coordinator.ts (第 124 行)
+   // sdk/workflow/execution/coordinators/workflow-execution-coordinator.ts (第 124 行)
    return {
      threadId,
      output: this.threadEntity.getOutput(),
@@ -193,7 +193,7 @@ export interface Thread {
 #### 设置输出
 
 ```typescript
-// 通过 ThreadEntity 设置输出
+// 通过 WorkflowExecutionEntity 设置输出
 threadEntity.setOutput({
   result: 'Task completed',
   status: 'success',
@@ -215,7 +215,7 @@ const accessor = new VariableAccessor(threadEntity);
 const result = accessor.get('output.result');
 const data = accessor.get('output.data.count');
 
-// 通过 ThreadEntity 获取完整输出
+// 通过 WorkflowExecutionEntity 获取完整输出
 const output = threadEntity.getOutput();
 
 // 在表达式中使用
@@ -226,7 +226,7 @@ const output = threadEntity.getOutput();
 #### 从执行结果获取
 
 ```typescript
-// 执行完成后从 ThreadResult 获取
+// 执行完成后从 WorkflowExecutionResult 获取
 const result = await threadExecutor.executeThread(threadEntity);
 const output = result.output;
 const executionTime = result.executionTime;
@@ -237,7 +237,7 @@ const executionTime = result.executionTime;
 在子工作流场景中，输出具有继承和隔离特性：
 
 ```typescript
-// sdk/graph/execution/factories/thread-builder.ts (第 247 行)
+// sdk/workflow/execution/factories/workflow-execution-builder.ts (第 247 行)
 // 创建子线程时，output 被清空
 output: {},
 ```
@@ -329,17 +329,17 @@ get(path: string): unknown {
          │ 1. 传入 input 数据
          ▼
 ┌─────────────────┐
-│  ThreadBuilder  │
-│  (创建 Thread)   │
+│  WorkflowExecutionBuilder  │
+│  (创建 WorkflowExecution)   │
 └────────┬────────┘
          │
          │ 2. 初始化 input/output
          ▼
 ┌─────────────────┐
-│   ThreadEntity  │
+│   WorkflowExecutionEntity  │
 │   (执行实例)     │
 │   input: {...}  │
-│   output: {}    │
+│   output: {}    |
 └────────┬────────┘
          │
          │ 3. 执行工作流节点
@@ -348,11 +348,11 @@ get(path: string): unknown {
          │    - 设置 output
          ▼
 ┌─────────────────┐
-│ ThreadExecution │
+│ WorkflowExecution │
 │ Coordinator     │
 └────────┬────────┘
          │
-         │ 4. 返回 ThreadResult
+         │ 4. 返回 WorkflowExecutionResult
          │    { output: {...} }
          ▼
 ┌─────────────────┐
@@ -366,7 +366,7 @@ get(path: string): unknown {
 ```
 START Node
     │
-    ├─> 初始化 input (从 ThreadOptions)
+    ├─> 初始化 input (从 WorkflowExecutionOptions)
     │
     ▼
 Processing Nodes
@@ -382,7 +382,7 @@ END Node
     └─> 设置 output.*
     │
     ▼
-Return ThreadResult.output
+Return WorkflowExecutionResult.output
 ```
 
 ---
@@ -473,19 +473,19 @@ const result = accessor.get('output.result');
 ## 6. 相关代码位置
 
 ### 6.1 类型定义
-- `packages/types/src/thread/definition.ts` - Thread 接口定义
-- `packages/types/src/thread/execution.ts` - ThreadOptions 和 ThreadResult
+- `packages/types/src/workflow-execution/definition.ts` - WorkflowExecution 接口定义
+- `packages/types/src/workflow-execution/execution.ts` - WorkflowExecutionOptions 和 WorkflowExecutionResult
 
 ### 6.2 核心实现
-- `sdk/graph/entities/thread-entity.ts` - ThreadEntity 类
-- `sdk/graph/execution/factories/thread-builder.ts` - Thread 构建逻辑
-- `sdk/graph/execution/coordinators/thread-execution-coordinator.ts` - 执行协调器
-- `sdk/graph/execution/utils/variable-accessor.ts` - 变量访问器
-- `sdk/graph/execution/coordinators/variable-coordinator.ts` - 变量协调器
+- `sdk/workflow/entities/workflow-execution-entity.ts` - WorkflowExecutionEntity 类
+- `sdk/workflow/execution/factories/workflow-execution-builder.ts` - WorkflowExecution 构建逻辑
+- `sdk/workflow/execution/coordinators/workflow-execution-coordinator.ts` - 执行协调器
+- `sdk/workflow/execution/utils/variable-accessor.ts` - 变量访问器
+- `sdk/workflow/execution/coordinators/variable-coordinator.ts` - 变量协调器
 
 ### 6.3 状态管理
-- `sdk/graph/state-managers/variable-state.ts` - 变量状态管理
-- `sdk/graph/execution/thread-execution-context.ts` - 执行上下文
+- `sdk/workflow/state-managers/variable-state.ts` - 变量状态管理
+- `sdk/workflow/execution/workflow-execution-context.ts` - 执行上下文
 
 ---
 

@@ -4,7 +4,7 @@
  * Responsible for creating instances of AgentLoopEntity, including:
  * - Creating new instances
  * - Restoring from checkpoints
- * - Registering with parent Thread for lifecycle management
+ * - Registering with parent workflow execution for lifecycle management
  *
  * Design principles:
  * - Centralized management of instance creation logic
@@ -36,7 +36,7 @@ export interface AgentLoopEntityOptions {
   /** Dialogue Manager */
   conversationManager?: ConversationSession;
   /** Parent Execution ID */
-  parentThreadId?: ID;
+  parentExecutionId?: ID;
   /** Node ID */
   nodeId?: ID;
 }
@@ -107,20 +107,20 @@ export class AgentLoopFactory {
     }
 
     // Set the parent Execution ID and node ID
-    entity.parentThreadId = options.parentThreadId;
+    entity.parentExecutionId = options.parentExecutionId;
     entity.nodeId = options.nodeId;
 
-    if (options.parentThreadId || options.nodeId) {
+    if (options.parentExecutionId || options.nodeId) {
       logger.debug("Agent Loop set with parent context", {
         agentLoopId: id,
-        parentThreadId: options.parentThreadId,
+        parentExecutionId: options.parentExecutionId,
         nodeId: options.nodeId,
       });
     }
 
-    // Register with parent Thread for lifecycle management
-    if (options.parentThreadId) {
-      await this.registerWithParentThread(id, options.parentThreadId);
+    // Register with parent Execution for lifecycle management
+    if (options.parentExecutionId) {
+      await this.registerWithParentExecution(id, options.parentExecutionId);
     }
 
     logger.info("Agent Loop entity created successfully", { agentLoopId: id });
@@ -128,38 +128,38 @@ export class AgentLoopFactory {
   }
 
   /**
-   * Register AgentLoop with parent Thread for lifecycle management
+   * Register AgentLoop with parent Execution for lifecycle management
    * @param agentLoopId AgentLoop ID
-   * @param parentThreadId Parent Execution ID
+   * @param parentExecutionId Parent Execution ID
    */
-  private static async registerWithParentThread(
+  private static async registerWithParentExecution(
     agentLoopId: string,
-    parentThreadId: string,
+    parentExecutionId: string,
   ): Promise<void> {
     try {
       const container = getContainer();
       const executionRegistry = container.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry;
 
       if (executionRegistry) {
-        const executionEntity = executionRegistry.get(parentThreadId);
+        const executionEntity = executionRegistry.get(parentExecutionId);
         if (executionEntity) {
           executionEntity.registerChildAgentLoop(agentLoopId);
-          logger.debug("AgentLoop registered with parent Thread", {
+          logger.debug("AgentLoop registered with parent Execution", {
             agentLoopId,
-            parentThreadId,
+            parentExecutionId,
           });
         } else {
           logger.warn("Parent Workflow execution not found for AgentLoop registration", {
             agentLoopId,
-            parentThreadId,
+            parentExecutionId,
           });
         }
       }
     } catch (error) {
       // Log error but don't throw - registration failure should not prevent creation
-      logger.warn("Failed to register AgentLoop with parent Thread", {
+      logger.warn("Failed to register AgentLoop with parent Execution", {
         agentLoopId,
-        parentThreadId,
+        parentExecutionId,
         error: error instanceof Error ? error.message : String(error),
       });
     }

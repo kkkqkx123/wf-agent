@@ -81,21 +81,21 @@ export function getSubgraphOutput(executionEntity: WorkflowExecutionEntity): Rec
 /**
  * Create subgraph context metadata
  * @param triggerId Trigger ID (optional)
- * @param mainThreadId Main execution ID (optional)
+ * @param mainExecutionId Main execution ID (optional)
  * @returns Subgraph context metadata
  */
 export function createSubgraphMetadata(
   triggerId?: string,
-  mainThreadId?: string,
+  mainExecutionId?: string,
 ): Record<string, unknown> {
   const metadata: Record<string, unknown> = {
     timestamp: now(),
   };
 
-  if (triggerId || mainThreadId) {
+  if (triggerId || mainExecutionId) {
     metadata["triggeredBy"] = {
       triggerId,
-      mainThreadId,
+      mainExecutionId,
       timestamp: now(),
     };
     metadata["isTriggeredSubgraph"] = true;

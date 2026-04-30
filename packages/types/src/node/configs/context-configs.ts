@@ -20,7 +20,7 @@ export interface ContextProcessorNodeConfig {
     visibleOnly?: boolean;
     /** Whether to automatically create new batches */
     autoCreateBatch?: boolean;
-    /** Operation target: self (current thread, default) or parent (parent thread) */
+    /** Operation target: self (current execution, default) or parent (parent execution) */
     target?: 'self' | 'parent';
   };
 }

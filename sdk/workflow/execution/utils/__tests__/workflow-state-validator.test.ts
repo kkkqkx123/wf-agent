@@ -82,24 +82,24 @@ describe("isValidTransition", () => {
 
 describe("validateTransition", () => {
   it("Do not throw an error when a state transition is legal", () => {
-    expect(() => validateTransition("thread-1", "CREATED", "RUNNING")).not.toThrow();
-    expect(() => validateTransition("thread-1", "RUNNING", "COMPLETED")).not.toThrow();
-    expect(() => validateTransition("thread-1", "PAUSED", "RUNNING")).not.toThrow();
+    expect(() => validateTransition("wfexec-1", "CREATED", "RUNNING")).not.toThrow();
+    expect(() => validateTransition("wfexec-1", "RUNNING", "COMPLETED")).not.toThrow();
+    expect(() => validateTransition("wfexec-1", "PAUSED", "RUNNING")).not.toThrow();
   });
 
   it("Throws RuntimeValidationError when a state transition is not legal.", () => {
-    expect(() => validateTransition("thread-1", "CREATED", "COMPLETED")).toThrow(
+    expect(() => validateTransition("wfexec-1", "CREATED", "COMPLETED")).toThrow(
       RuntimeValidationError,
     );
 
-    expect(() => validateTransition("thread-1", "CREATED", "COMPLETED")).toThrow(
+    expect(() => validateTransition("wfexec-1", "CREATED", "COMPLETED")).toThrow(
       "Invalid state transition: CREATED -> COMPLETED",
     );
   });
 
   it("Error messages contain current and target status", () => {
     try {
-      validateTransition("thread-1", "COMPLETED", "RUNNING");
+      validateTransition("wfexec-1", "COMPLETED", "RUNNING");
       expect.fail("Should have thrown");
     } catch (error) {
       expect(error).toBeInstanceOf(RuntimeValidationError);
@@ -110,13 +110,13 @@ describe("validateTransition", () => {
 
   it("Error messages contain operation and field information", () => {
     try {
-      validateTransition("thread-1", "FAILED", "RUNNING");
+      validateTransition("wfexec-1", "FAILED", "RUNNING");
       expect.fail("Should have thrown");
     } catch (error) {
       expect(error).toBeInstanceOf(RuntimeValidationError);
       const validationError = error as RuntimeValidationError;
       expect(validationError.context?.["operation"]).toBe("validateStateTransition");
-      expect(validationError.context?.["field"]).toBe("thread.status");
+      expect(validationError.context?.["field"]).toBe("workflowExecution.status");
     }
   });
 });

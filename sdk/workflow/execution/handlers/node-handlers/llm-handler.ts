@@ -84,13 +84,13 @@ function resolvePrompt(config: LLMNodeConfig): string {
 
 /**
  * LLM Node Processor
- * @param thread Thread instance
+ * @param workflowExecution Workflow execution instance
  * @param node Node definition
  * @param context Processor context
  * @returns Execution result
  */
 export async function llmHandler(
-  thread: WorkflowExecution,
+  workflowExecution: WorkflowExecution,
   node: Node,
   context: LLMHandlerContext,
 ): Promise<LLMExecutionResult> {
@@ -110,7 +110,7 @@ export async function llmHandler(
     // 2. Check if it is a HumanRelay provider.
     const profile = context.llmWrapper.getProfile(executionData.profileId || "DEFAULT");
     if (profile?.provider === "HUMAN_RELAY") {
-      return await executeHumanRelayLLMNode(thread, node, executionData, context, startTime);
+      return await executeHumanRelayLLMNode(workflowExecution, node, executionData, context, startTime);
     }
 
     // 3. Create execution configuration
@@ -118,15 +118,15 @@ export async function llmHandler(
       profileId: executionData.profileId,
       parameters: executionData.parameters,
       maxToolCallsPerRequest: executionData.maxToolCallsPerRequest,
-      workflowId: thread.workflowId,
+      workflowId: workflowExecution.workflowId,
       nodeId: node.id,
-      executionId: thread.id,
+      executionId: workflowExecution.id,
     };
 
     // 4. Call LLMExecutionCoordinator
     const result = await context.llmCoordinator.executeLLM(
       {
-        executionId: thread.id,
+        executionId: workflowExecution.id,
         nodeId: node.id,
         prompt: executionData.prompt,
         profileId: executionData.profileId,
@@ -165,7 +165,7 @@ export async function llmHandler(
  * Execute the HumanRelay LLM node
  */
 async function executeHumanRelayLLMNode(
-  thread: WorkflowExecution,
+  workflowExecution: WorkflowExecution,
   node: Node,
   requestData: { prompt?: string; parameters?: { timeout?: number } },
   context: LLMHandlerContext,
@@ -184,7 +184,7 @@ async function executeHumanRelayLLMNode(
       messages as LLMMessage[],
       requestData.prompt || "Please provide your input:",
       requestData.parameters?.timeout || 300000,
-      { workflowExecutionEntity: thread, conversationManager: context.conversationManager } as unknown as WorkflowExecutionEntity, // Simplify the processing; in reality, the complete WorkflowExecutionContext should be passed in.
+      { workflowExecutionEntity: workflowExecution, conversationManager: context.conversationManager } as unknown as WorkflowExecutionEntity, // Simplify the processing; in reality, the complete WorkflowExecutionContext should be passed in.
       context.eventManager,
       context.humanRelayHandler as HumanRelayHandler,
       node.id,

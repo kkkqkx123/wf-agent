@@ -24,16 +24,16 @@ describe("Trigger Limiter - Trigger Limiter", () => {
       const trigger1: BaseTriggerDefinition = {
         id: "trigger-1",
         name: "Trigger 1",
-        condition: { eventType: "THREAD_STARTED" },
-        action: { type: "pause_thread", parameters: {} },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+        action: { type: "pause_workflow_execution", parameters: {} },
         enabled: true,
       };
 
       const trigger2: BaseTriggerDefinition = {
         id: "trigger-2",
         name: "Trigger 2",
-        condition: { eventType: "THREAD_STARTED" },
-        action: { type: "pause_thread", parameters: {} },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+        action: { type: "pause_workflow_execution", parameters: {} },
         // enabled is not set
       };
 
@@ -45,8 +45,8 @@ describe("Trigger Limiter - Trigger Limiter", () => {
       const trigger: BaseTriggerDefinition = {
         id: "trigger-1",
         name: "Trigger 1",
-        condition: { eventType: "THREAD_STARTED" },
-        action: { type: "pause_thread", parameters: {} },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+        action: { type: "pause_workflow_execution", parameters: {} },
         enabled: false,
       };
 
@@ -57,8 +57,8 @@ describe("Trigger Limiter - Trigger Limiter", () => {
       const trigger: BaseTriggerDefinition = {
         id: "trigger-1",
         name: "Trigger 1",
-        condition: { eventType: "THREAD_STARTED" },
-        action: { type: "pause_thread", parameters: {} },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+        action: { type: "pause_workflow_execution", parameters: {} },
         enabled: true,
         maxTriggers: 5,
         triggerCount: 2,
@@ -71,8 +71,8 @@ describe("Trigger Limiter - Trigger Limiter", () => {
       const trigger: BaseTriggerDefinition = {
         id: "trigger-1",
         name: "Trigger 1",
-        condition: { eventType: "THREAD_STARTED" },
-        action: { type: "pause_thread", parameters: {} },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+        action: { type: "pause_workflow_execution", parameters: {} },
         enabled: true,
         maxTriggers: 5,
         triggerCount: 5,
@@ -85,8 +85,8 @@ describe("Trigger Limiter - Trigger Limiter", () => {
       const trigger: BaseTriggerDefinition = {
         id: "trigger-1",
         name: "Trigger 1",
-        condition: { eventType: "THREAD_STARTED" },
-        action: { type: "pause_thread", parameters: {} },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+        action: { type: "pause_workflow_execution", parameters: {} },
         enabled: true,
         maxTriggers: 5,
         triggerCount: 6,
@@ -99,8 +99,8 @@ describe("Trigger Limiter - Trigger Limiter", () => {
       const trigger1: BaseTriggerDefinition = {
         id: "trigger-1",
         name: "Trigger 1",
-        condition: { eventType: "THREAD_STARTED" },
-        action: { type: "pause_thread", parameters: {} },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+        action: { type: "pause_workflow_execution", parameters: {} },
         enabled: true,
         maxTriggers: 0,
         triggerCount: 1000,
@@ -109,8 +109,8 @@ describe("Trigger Limiter - Trigger Limiter", () => {
       const trigger2: BaseTriggerDefinition = {
         id: "trigger-2",
         name: "Trigger 2",
-        condition: { eventType: "THREAD_STARTED" },
-        action: { type: "pause_thread", parameters: {} },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+        action: { type: "pause_workflow_execution", parameters: {} },
         enabled: true,
         triggerCount: 1000,
         // `maxTriggers` is not set.
@@ -124,8 +124,8 @@ describe("Trigger Limiter - Trigger Limiter", () => {
       const trigger: BaseTriggerDefinition = {
         id: "trigger-1",
         name: "Trigger 1",
-        condition: { eventType: "THREAD_STARTED" },
-        action: { type: "pause_thread", parameters: {} },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+        action: { type: "pause_workflow_execution", parameters: {} },
         enabled: true,
         maxTriggers: 3,
         // `triggerCount` is not set; the default value is 0.
@@ -140,8 +140,8 @@ describe("Trigger Limiter - Trigger Limiter", () => {
       const trigger: BaseTriggerDefinition = {
         id: "trigger-1",
         name: "Trigger 1",
-        condition: { eventType: "THREAD_STARTED" },
-        action: { type: "pause_thread", parameters: {} },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+        action: { type: "pause_workflow_execution", parameters: {} },
         enabled: true,
         // `triggerCount` is not set; the default value is 0.
       };
@@ -153,8 +153,8 @@ describe("Trigger Limiter - Trigger Limiter", () => {
       const trigger: BaseTriggerDefinition = {
         id: "trigger-1",
         name: "Trigger 1",
-        condition: { eventType: "THREAD_STARTED" },
-        action: { type: "pause_thread", parameters: {} },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+        action: { type: "pause_workflow_execution", parameters: {} },
         enabled: true,
         triggerCount: 1,
       };
@@ -166,8 +166,8 @@ describe("Trigger Limiter - Trigger Limiter", () => {
       const trigger: BaseTriggerDefinition = {
         id: "trigger-1",
         name: "Trigger 1",
-        condition: { eventType: "THREAD_STARTED" },
-        action: { type: "pause_thread", parameters: {} },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+        action: { type: "pause_workflow_execution", parameters: {} },
         enabled: false,
         triggerCount: 0,
       };
@@ -179,8 +179,8 @@ describe("Trigger Limiter - Trigger Limiter", () => {
       const trigger: BaseTriggerDefinition = {
         id: "trigger-1",
         name: "Trigger 1",
-        condition: { eventType: "THREAD_STARTED" },
-        action: { type: "pause_thread", parameters: {} },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+        action: { type: "pause_workflow_execution", parameters: {} },
         enabled: false,
         triggerCount: 5,
       };
@@ -192,8 +192,8 @@ describe("Trigger Limiter - Trigger Limiter", () => {
       const trigger: BaseTriggerDefinition = {
         id: "trigger-1",
         name: "Trigger 1",
-        condition: { eventType: "THREAD_STARTED" },
-        action: { type: "pause_thread", parameters: {} },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+        action: { type: "pause_workflow_execution", parameters: {} },
         enabled: true,
         maxTriggers: 5,
         triggerCount: 5,
@@ -206,8 +206,8 @@ describe("Trigger Limiter - Trigger Limiter", () => {
       const trigger: BaseTriggerDefinition = {
         id: "trigger-1",
         name: "Trigger 1",
-        condition: { eventType: "THREAD_STARTED" },
-        action: { type: "pause_thread", parameters: {} },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+        action: { type: "pause_workflow_execution", parameters: {} },
         enabled: true,
         maxTriggers: 5,
         triggerCount: 5,
@@ -220,8 +220,8 @@ describe("Trigger Limiter - Trigger Limiter", () => {
       const trigger: BaseTriggerDefinition = {
         id: "trigger-1",
         name: "Trigger 1",
-        condition: { eventType: "THREAD_STARTED" },
-        action: { type: "pause_thread", parameters: {} },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+        action: { type: "pause_workflow_execution", parameters: {} },
         enabled: true,
         maxTriggers: 5,
         triggerCount: 6,
@@ -236,8 +236,8 @@ describe("Trigger Limiter - Trigger Limiter", () => {
       const trigger: BaseTriggerDefinition = {
         id: "trigger-1",
         name: "Trigger 1",
-        condition: { eventType: "THREAD_STARTED" },
-        action: { type: "pause_thread", parameters: {} },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+        action: { type: "pause_workflow_execution", parameters: {} },
         enabled: true,
         triggerCount: 2,
       };
@@ -252,8 +252,8 @@ describe("Trigger Limiter - Trigger Limiter", () => {
       const trigger: BaseTriggerDefinition = {
         id: "trigger-1",
         name: "Trigger 1",
-        condition: { eventType: "THREAD_STARTED" },
-        action: { type: "pause_thread", parameters: {} },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+        action: { type: "pause_workflow_execution", parameters: {} },
         enabled: true,
         // `triggerCount` is not set; the default value is `undefined`.
       };
@@ -268,8 +268,8 @@ describe("Trigger Limiter - Trigger Limiter", () => {
       const trigger: BaseTriggerDefinition = {
         id: "trigger-1",
         name: "Trigger 1",
-        condition: { eventType: "THREAD_STARTED" },
-        action: { type: "pause_thread", parameters: {} },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+        action: { type: "pause_workflow_execution", parameters: {} },
         enabled: true,
         triggerCount: 10,
       };
@@ -283,8 +283,8 @@ describe("Trigger Limiter - Trigger Limiter", () => {
       const trigger: BaseTriggerDefinition = {
         id: "trigger-1",
         name: "Trigger 1",
-        condition: { eventType: "THREAD_STARTED" },
-        action: { type: "pause_thread", parameters: {} },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+        action: { type: "pause_workflow_execution", parameters: {} },
         enabled: true,
       };
 
@@ -299,8 +299,8 @@ describe("Trigger Limiter - Trigger Limiter", () => {
       const trigger: BaseTriggerDefinition = {
         id: "trigger-1",
         name: "Trigger 1",
-        condition: { eventType: "THREAD_STARTED" },
-        action: { type: "pause_thread", parameters: {} },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+        action: { type: "pause_workflow_execution", parameters: {} },
         enabled: true,
         maxTriggers: 5,
         triggerCount: 2,
@@ -315,8 +315,8 @@ describe("Trigger Limiter - Trigger Limiter", () => {
       const trigger: BaseTriggerDefinition = {
         id: "trigger-1",
         name: "Trigger 1",
-        condition: { eventType: "THREAD_STARTED" },
-        action: { type: "pause_thread", parameters: {} },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+        action: { type: "pause_workflow_execution", parameters: {} },
         enabled: true,
         maxTriggers: 5,
         triggerCount: 5,
@@ -331,8 +331,8 @@ describe("Trigger Limiter - Trigger Limiter", () => {
       const trigger: BaseTriggerDefinition = {
         id: "trigger-1",
         name: "Trigger 1",
-        condition: { eventType: "THREAD_STARTED" },
-        action: { type: "pause_thread", parameters: {} },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+        action: { type: "pause_workflow_execution", parameters: {} },
         enabled: true,
         maxTriggers: 0,
         triggerCount: 100,
@@ -347,8 +347,8 @@ describe("Trigger Limiter - Trigger Limiter", () => {
       const trigger: BaseTriggerDefinition = {
         id: "trigger-1",
         name: "Trigger 1",
-        condition: { eventType: "THREAD_STARTED" },
-        action: { type: "pause_thread", parameters: {} },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+        action: { type: "pause_workflow_execution", parameters: {} },
         enabled: true,
         triggerCount: 100,
         // `maxTriggers` is not set.
@@ -363,8 +363,8 @@ describe("Trigger Limiter - Trigger Limiter", () => {
       const trigger: BaseTriggerDefinition = {
         id: "trigger-1",
         name: "Trigger 1",
-        condition: { eventType: "THREAD_STARTED" },
-        action: { type: "pause_thread", parameters: {} },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+        action: { type: "pause_workflow_execution", parameters: {} },
         enabled: true,
         maxTriggers: 5,
         triggerCount: 7,
@@ -379,8 +379,8 @@ describe("Trigger Limiter - Trigger Limiter", () => {
       const trigger: BaseTriggerDefinition = {
         id: "trigger-1",
         name: "Trigger 1",
-        condition: { eventType: "THREAD_STARTED" },
-        action: { type: "pause_thread", parameters: {} },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+        action: { type: "pause_workflow_execution", parameters: {} },
         enabled: true,
         maxTriggers: 3,
       };
@@ -416,8 +416,8 @@ describe("Trigger Limiter - Trigger Limiter", () => {
       const trigger: BaseTriggerDefinition = {
         id: "trigger-1",
         name: "Trigger 1",
-        condition: { eventType: "THREAD_STARTED" },
-        action: { type: "pause_thread", parameters: {} },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+        action: { type: "pause_workflow_execution", parameters: {} },
         enabled: true,
         maxTriggers: 5,
         triggerCount: 2,
@@ -430,8 +430,8 @@ describe("Trigger Limiter - Trigger Limiter", () => {
       const trigger: BaseTriggerDefinition = {
         id: "trigger-1",
         name: "Trigger 1",
-        condition: { eventType: "THREAD_STARTED" },
-        action: { type: "pause_thread", parameters: {} },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+        action: { type: "pause_workflow_execution", parameters: {} },
         enabled: true,
         maxTriggers: 5,
         triggerCount: 5,
@@ -444,8 +444,8 @@ describe("Trigger Limiter - Trigger Limiter", () => {
       const trigger: BaseTriggerDefinition = {
         id: "trigger-1",
         name: "Trigger 1",
-        condition: { eventType: "THREAD_STARTED" },
-        action: { type: "pause_thread", parameters: {} },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+        action: { type: "pause_workflow_execution", parameters: {} },
         enabled: true,
         maxTriggers: 5,
         triggerCount: 6,
@@ -458,8 +458,8 @@ describe("Trigger Limiter - Trigger Limiter", () => {
       const trigger1: BaseTriggerDefinition = {
         id: "trigger-1",
         name: "Trigger 1",
-        condition: { eventType: "THREAD_STARTED" },
-        action: { type: "pause_thread", parameters: {} },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+        action: { type: "pause_workflow_execution", parameters: {} },
         enabled: true,
         maxTriggers: 0,
         triggerCount: 1000,
@@ -468,8 +468,8 @@ describe("Trigger Limiter - Trigger Limiter", () => {
       const trigger2: BaseTriggerDefinition = {
         id: "trigger-2",
         name: "Trigger 2",
-        condition: { eventType: "THREAD_STARTED" },
-        action: { type: "pause_thread", parameters: {} },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+        action: { type: "pause_workflow_execution", parameters: {} },
         enabled: true,
         triggerCount: 1000,
         // `maxTriggers` is not set.
@@ -483,8 +483,8 @@ describe("Trigger Limiter - Trigger Limiter", () => {
       const trigger: BaseTriggerDefinition = {
         id: "trigger-1",
         name: "Trigger 1",
-        condition: { eventType: "THREAD_STARTED" },
-        action: { type: "pause_thread", parameters: {} },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+        action: { type: "pause_workflow_execution", parameters: {} },
         enabled: true,
         maxTriggers: 1,
       };
@@ -502,8 +502,8 @@ describe("Trigger Limiter - Trigger Limiter", () => {
       const trigger: BaseTriggerDefinition = {
         id: "trigger-1",
         name: "Trigger 1",
-        condition: { eventType: "THREAD_STARTED" },
-        action: { type: "pause_thread", parameters: {} },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+        action: { type: "pause_workflow_execution", parameters: {} },
         enabled: true,
         maxTriggers: -1,
         triggerCount: 100,
@@ -518,8 +518,8 @@ describe("Trigger Limiter - Trigger Limiter", () => {
       const trigger: BaseTriggerDefinition = {
         id: "trigger-1",
         name: "Trigger 1",
-        condition: { eventType: "THREAD_STARTED" },
-        action: { type: "pause_thread", parameters: {} },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+        action: { type: "pause_workflow_execution", parameters: {} },
         enabled: true,
         maxTriggers: 1,
       };
@@ -532,8 +532,8 @@ describe("Trigger Limiter - Trigger Limiter", () => {
       const trigger: BaseTriggerDefinition = {
         id: "trigger-1",
         name: "Trigger 1",
-        condition: { eventType: "THREAD_STARTED" },
-        action: { type: "pause_thread", parameters: {} },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+        action: { type: "pause_workflow_execution", parameters: {} },
         enabled: false,
         maxTriggers: 5,
         triggerCount: 5,

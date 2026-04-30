@@ -36,8 +36,8 @@ export interface ExecutorConfig {
  * execution context
  */
 export interface ExecutionContext {
-  /** Thread ID (for thread isolation) */
-  threadId?: string;
+  /** Execution ID (for execution isolation) */
+  executionId?: string;
   /** Job Catalog */
   workingDirectory?: string;
   /** environment variable */

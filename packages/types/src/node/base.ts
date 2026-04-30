@@ -44,9 +44,9 @@ export type NodeType =
   | "END"
   /** Variable Operations node. The primary use is to change the values of workflow variables to provide data for edge condition evaluation. */
   | "VARIABLE"
-  /** Fork node. Used to control the fork operation of thread. */
+  /** Fork node. Used to control the fork operation of execution. */
   | "FORK"
-  /** Connection node. Used to control the join operation of thread. */
+  /** Connection node. Used to control the join operation of execution. */
   | "JOIN"
   /** Subgraph node. Used to link to a subworkflow. This node is automatically replaced by merge during the workflow processing phase to connect to the subworkflow with the start node of the subworkflow. */
   | "SUBGRAPH"

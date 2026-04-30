@@ -19,7 +19,7 @@ import { AgentLoopStatus } from "@wf-agent/types";
  *
  * Design Principles:
  * - Singleton model (managed via DI container)
- * - Thread-safe (Map operations)
+ * - Workflow-execution-safe (Map operations)
  * - Support for cleaning up expired instances
  */
 export class AgentLoopRegistry {
@@ -149,15 +149,15 @@ export class AgentLoopRegistry {
     this.entities.clear();
   }
 
-  // ========== Parent Thread Relation Methods ==========
+  // ========== Parent Execution Relation Methods ==========
 
   /**
    * Get AgentLoopEntities by parent execution ID
    * @param executionId Parent execution ID
    * @returns Array of AgentLoopEntity with the specified parent execution ID
    */
-  getByParentThreadId(executionId: ID): AgentLoopEntity[] {
-    return this.getAll().filter(entity => entity.parentThreadId === executionId);
+  getByParentExecutionId(executionId: ID): AgentLoopEntity[] {
+    return this.getAll().filter(entity => entity.parentExecutionId === executionId);
   }
 
   /**
@@ -165,18 +165,18 @@ export class AgentLoopRegistry {
    * @param executionId Parent execution ID
    * @returns Array of AgentLoopEntity IDs
    */
-  getIdsByParentThreadId(executionId: ID): ID[] {
-    return this.getByParentThreadId(executionId).map(entity => entity.id);
+  getIdsByParentExecutionId(executionId: ID): ID[] {
+    return this.getByParentExecutionId(executionId).map(entity => entity.id);
   }
 
   /**
    * Cleanup AgentLoopEntities by parent execution ID
-   * Stops and removes all AgentLoopEntities associated with the specified thread.
+   * Stops and removes all AgentLoopEntities associated with the specified workflow execution.
    * @param executionId Parent execution ID
    * @returns Number of instances cleaned up
    */
-  cleanupByParentThreadId(executionId: ID): number {
-    const entities = this.getByParentThreadId(executionId);
+  cleanupByParentExecutionId(executionId: ID): number {
+    const entities = this.getByParentExecutionId(executionId);
     for (const entity of entities) {
       // Stop the entity if it's running
       if (entity.isRunning()) {
@@ -196,8 +196,8 @@ export class AgentLoopRegistry {
    * @param executionId Parent execution ID
    * @returns Array of running AgentLoopEntity
    */
-  getRunningByParentThreadId(executionId: ID): AgentLoopEntity[] {
-    return this.getByParentThreadId(executionId).filter(entity => entity.isRunning());
+  getRunningByParentExecutionId(executionId: ID): AgentLoopEntity[] {
+    return this.getByParentExecutionId(executionId).filter(entity => entity.isRunning());
   }
 
   /**
@@ -205,8 +205,8 @@ export class AgentLoopRegistry {
    * @param executionId Parent execution ID
    * @returns Array of paused AgentLoopEntity
    */
-  getPausedByParentThreadId(executionId: ID): AgentLoopEntity[] {
-    return this.getByParentThreadId(executionId).filter(entity => entity.isPaused());
+  getPausedByParentExecutionId(executionId: ID): AgentLoopEntity[] {
+    return this.getByParentExecutionId(executionId).filter(entity => entity.isPaused());
   }
 
   // ========== Parent Workflow Execution Relation Methods (Aliases) ==========
@@ -217,7 +217,7 @@ export class AgentLoopRegistry {
    * @returns Array of AgentLoopEntity with the specified parent workflow execution ID
    */
   getByParentWorkflowExecutionId(workflowExecutionId: ID): AgentLoopEntity[] {
-    return this.getByParentThreadId(workflowExecutionId);
+    return this.getByParentExecutionId(workflowExecutionId);
   }
 
   /**
@@ -226,7 +226,7 @@ export class AgentLoopRegistry {
    * @returns Array of AgentLoopEntity IDs
    */
   getIdsByParentWorkflowExecutionId(workflowExecutionId: ID): ID[] {
-    return this.getIdsByParentThreadId(workflowExecutionId);
+    return this.getIdsByParentExecutionId(workflowExecutionId);
   }
 
   /**
@@ -236,7 +236,7 @@ export class AgentLoopRegistry {
    * @returns Number of instances cleaned up
    */
   cleanupByParentWorkflowExecutionId(workflowExecutionId: ID): number {
-    return this.cleanupByParentThreadId(workflowExecutionId);
+    return this.cleanupByParentExecutionId(workflowExecutionId);
   }
 
   /**
@@ -245,7 +245,7 @@ export class AgentLoopRegistry {
    * @returns Array of running AgentLoopEntity
    */
   getRunningByParentWorkflowExecutionId(workflowExecutionId: ID): AgentLoopEntity[] {
-    return this.getRunningByParentThreadId(workflowExecutionId);
+    return this.getRunningByParentExecutionId(workflowExecutionId);
   }
 
   /**
@@ -254,6 +254,6 @@ export class AgentLoopRegistry {
    * @returns Array of paused AgentLoopEntity
    */
   getPausedByParentWorkflowExecutionId(workflowExecutionId: ID): AgentLoopEntity[] {
-    return this.getPausedByParentThreadId(workflowExecutionId);
+    return this.getPausedByParentExecutionId(workflowExecutionId);
   }
 }

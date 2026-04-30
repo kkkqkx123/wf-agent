@@ -107,8 +107,8 @@ export const WorkflowLifecycleCoordinator: ServiceIdentifier<unknown> = Symbol(
 );
 
 /**
- * WorkflowStateTransitor - Thread State Transitor
- * Manages the transition of thread lifecycle states
+ * WorkflowStateTransitor - Workflow Execution State Transitor
+ * Manages the transition of workflow execution lifecycle states
  */
 export const WorkflowStateTransitor: ServiceIdentifier<unknown> = Symbol("WorkflowStateTransitor");
 
@@ -126,7 +126,7 @@ export const ToolContextStore: ServiceIdentifier<unknown> = Symbol("ToolContextS
 
 /**
  * GraphConversationSession - Graph Conversation Session
- * Manages the conversation session for Graph workflows, with thread isolation.
+ * Manages the conversation session for Graph workflows, with execution isolation.
  */
 export const GraphConversationSession: ServiceIdentifier<unknown> = Symbol(
   "GraphConversationSession",
@@ -242,7 +242,7 @@ export const TriggerState: ServiceIdentifier<unknown> = Symbol("TriggerState");
 
 /**
  * InterruptionState - Interrupt Manager
- * Manages the thread interruption status and operations in a unified manner
+ * Manages the workflow execution interruption status and operations in a unified manner
  */
 export const InterruptionState: ServiceIdentifier<unknown> = Symbol("InterruptionState");
 

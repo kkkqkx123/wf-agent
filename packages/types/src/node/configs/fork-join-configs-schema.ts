@@ -37,11 +37,11 @@ export const ForkNodeConfigSchema = z
  * Join node configuration schema
  *
  * Description:
- * - `childThreadIds` is not defined in the schema because the child execution IDs are dynamic values that are generated at runtime.
+ * - `childExecutionIds` is not defined in the schema because the child execution IDs are dynamic values that are generated at runtime.
  *   They are stored in the execution context when the FORK node is executed and are read from the execution context when the JOIN node is executed.
  * - `timeout` can be 0 (no timeout) or a positive number. A value of 0 indicates that the node will always wait without setting a timeout.
  * - `forkPathIds` must match exactly the `pathId` in the `forkPaths` of the paired FORK node, including the order.
- * - `mainPathId` specifies the path of the main thread and must be one of the values in `forkPathIds`.
+ * - `mainPathId` specifies the path of the main execution and must be one of the values in `forkPathIds`.
  */
 export const JoinNodeConfigSchema = z
   .object({

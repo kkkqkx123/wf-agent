@@ -14,8 +14,8 @@ export const VariableNodeConfigSchema = z.object({
     message: "Variable type must be one of: number, string, boolean, array, object",
   }),
   expression: z.string().min(1, "Expression is required"),
-  scope: z.enum(["global", "thread", "subgraph", "loop"], {
-    message: "Variable scope must be one of: global, thread, subgraph, loop",
+  scope: z.enum(["global", "workflowExecution", "subgraph", "loop"], {
+    message: "Variable scope must be one of: global, workflowExecution, subgraph, loop",
   }).optional(),
   readonly: z.boolean().optional(),
 });

@@ -3,7 +3,7 @@
  *
  * Provides functionality:
  * - Preload mode (preloaded during SDK initialization)
- * - Singleton pattern ensuring thread safety
+ * - Singleton pattern ensuring workflow-execution safety
  * - Test-friendly reset capability
  * - Clear error handling
  *

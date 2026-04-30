@@ -12,7 +12,7 @@ import type { LifecycleCapable } from "../../core/types/lifecycle-capable.js";
  *
  * Responsibilities:
  * - Manages the visibility status of tools
- * - Provides thread-isolated visibility management
+ * - Provides workflow-execution-isolated visibility management
  * - Supports tool visibility in different scopes
  * - Offers functionality for taking and restoring state snapshots
  *

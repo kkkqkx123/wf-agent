@@ -16,7 +16,7 @@ describe("SqliteTaskStorage", () => {
 
   const createMetadata = (overrides?: Partial<TaskStorageMetadata>): TaskStorageMetadata => ({
     taskId: "task-1",
-    threadId: "thread-1",
+    executionId: "execution-1",
     workflowId: "workflow-1",
     status: "QUEUED",
     submitTime: Date.now(),
@@ -85,7 +85,7 @@ describe("SqliteTaskStorage", () => {
         new Uint8Array([1]),
         createMetadata({
           taskId: "task-1",
-          threadId: "thread-1",
+          executionId: "execution-1",
           workflowId: "workflow-1",
           status: "QUEUED",
           submitTime: 1000,
@@ -96,7 +96,7 @@ describe("SqliteTaskStorage", () => {
         new Uint8Array([2]),
         createMetadata({
           taskId: "task-2",
-          threadId: "thread-1",
+          executionId: "execution-1",
           workflowId: "workflow-2",
           status: "RUNNING",
           submitTime: 2000,
@@ -108,7 +108,7 @@ describe("SqliteTaskStorage", () => {
         new Uint8Array([3]),
         createMetadata({
           taskId: "task-3",
-          threadId: "thread-2",
+          executionId: "execution-2",
           workflowId: "workflow-1",
           status: "COMPLETED",
           submitTime: 3000,
@@ -123,8 +123,8 @@ describe("SqliteTaskStorage", () => {
       expect(ids).toHaveLength(3);
     });
 
-    it("should filter by threadId", async () => {
-      const ids = await storage.list({ threadId: "thread-1" });
+    it("should filter by executionId", async () => {
+      const ids = await storage.list({ executionId: "execution-1" });
       expect(ids).toHaveLength(2);
     });
 
@@ -200,7 +200,7 @@ describe("SqliteTaskStorage", () => {
       const loaded = await storage.getMetadata("task-1");
       expect(loaded).not.toBeNull();
       expect(loaded?.taskId).toBe("task-1");
-      expect(loaded?.threadId).toBe("thread-1");
+      expect(loaded?.executionId).toBe("execution-1");
       expect(loaded?.workflowId).toBe("workflow-1");
       expect(loaded?.status).toBe("QUEUED");
     });

@@ -49,7 +49,7 @@ export class SqliteCheckpointStorage
     db.exec(`
       CREATE TABLE IF NOT EXISTS checkpoint_metadata (
         id TEXT PRIMARY KEY,
-        thread_id TEXT NOT NULL,
+        execution_id TEXT NOT NULL,
         workflow_id TEXT NOT NULL,
         timestamp INTEGER NOT NULL,
         checkpoint_type TEXT,
@@ -79,7 +79,7 @@ export class SqliteCheckpointStorage
 
     // Create indexes for optimized queries
     db.exec(
-      `CREATE INDEX IF NOT EXISTS idx_checkpoint_meta_thread_id ON checkpoint_metadata(thread_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_checkpoint_meta_execution_id ON checkpoint_metadata(execution_id)`,
     );
     db.exec(
       `CREATE INDEX IF NOT EXISTS idx_checkpoint_meta_workflow_id ON checkpoint_metadata(workflow_id)`,
@@ -91,7 +91,7 @@ export class SqliteCheckpointStorage
       `CREATE INDEX IF NOT EXISTS idx_checkpoint_meta_type ON checkpoint_metadata(checkpoint_type)`,
     );
     db.exec(
-      `CREATE INDEX IF NOT EXISTS idx_checkpoint_meta_thread_timestamp ON checkpoint_metadata(thread_id, timestamp)`,
+      `CREATE INDEX IF NOT EXISTS idx_checkpoint_meta_execution_timestamp ON checkpoint_metadata(execution_id, timestamp)`,
     );
     db.exec(
       `CREATE INDEX IF NOT EXISTS idx_checkpoint_meta_workflow_timestamp ON checkpoint_metadata(workflow_id, timestamp)`,
@@ -112,9 +112,9 @@ export class SqliteCheckpointStorage
       const jsonStr = decoder.decode(data);
       const checkpoint = JSON.parse(jsonStr);
 
-      const threadState = checkpoint.threadState;
-      const messageCount = threadState?.conversationState?.messages?.length ?? 0;
-      const variableCount = threadState?.variables?.length ?? 0;
+      const executionState = checkpoint.executionState;
+      const messageCount = executionState?.conversationState?.messages?.length ?? 0;
+      const variableCount = executionState?.variables?.length ?? 0;
 
       // Simple hash for deduplication detection
       const blobHash = this.computeHash(data);
@@ -160,13 +160,13 @@ export class SqliteCheckpointStorage
       // Use transaction to ensure atomicity
       const insertMetadata = db.prepare(`
         INSERT INTO checkpoint_metadata (
-          id, thread_id, workflow_id, timestamp, checkpoint_type,
+          id, execution_id, workflow_id, timestamp, checkpoint_type,
           base_checkpoint_id, previous_checkpoint_id, message_count, variable_count,
           blob_size, blob_hash, tags, custom_fields, created_at, updated_at
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
-          thread_id = excluded.thread_id,
+          execution_id = excluded.execution_id,
           workflow_id = excluded.workflow_id,
           timestamp = excluded.timestamp,
           checkpoint_type = excluded.checkpoint_type,
@@ -312,7 +312,7 @@ export class SqliteCheckpointStorage
 
       // Construct filter criteria
       if (options?.executionId) {
-        conditions.push("thread_id = ?");
+        conditions.push("execution_id = ?");
         params.push(options.executionId);
       }
 
@@ -362,7 +362,7 @@ export class SqliteCheckpointStorage
     try {
       const stmt = db.prepare(`
         SELECT
-          thread_id as "executionId",
+          execution_id as "executionId",
           workflow_id as "workflowId",
           timestamp,
           tags,

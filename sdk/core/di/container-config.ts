@@ -5,7 +5,7 @@
  * Design Principles:
  * - Configure service bindings in the order of dependencies to avoid circular dependencies.
  * - Use the singleton lifecycle for stateless global services (such as Registry, Manager).
- * - Use the factory pattern for thread-isolated services (such as GraphConversationSession, ConversationSession).
+ * - Use the factory pattern for execution-isolated services (such as GraphConversationSession, ConversationSession).
  * - Factory functions are used to create instances that require runtime parameters (such as executionId, nodeId).
  *
  * Service Layering:
@@ -137,16 +137,16 @@ export function getWorkflowStorageCallback(): WorkflowStorageCallback | null {
 }
 
 /**
- * Set thread storage callback
- * @param callback Implementation of the thread storage callback interface
+ * Set workflow execution storage callback
+ * @param callback Implementation of the workflow execution storage callback interface
  */
 export function setTaskStorageCallback(callback: TaskStorageCallback): void {
   taskStorageCallback = callback;
 }
 
 /**
- * Get the thread storage callback
- * @returns Implementation of the thread storage callback interface or null
+ * Get the workflow execution storage callback
+ * @returns Implementation of the workflow execution storage callback interface or null
  */
 export function getTaskStorageCallback(): TaskStorageCallback | null {
   return taskStorageCallback;
@@ -305,8 +305,8 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
     .inSingletonScope();
 
   // WorkflowConversationSession - Workflow Conversation Session Factory
-  // WorkflowConversationSession is thread-isolated and requires a separate instance for each thread.
-  // Create instances using the factory pattern to ensure data isolation between threads
+  // WorkflowConversationSession is execution-isolated and requires a separate instance for each execution.
+  // Create instances using the factory pattern to ensure data isolation between executions
   container
     .bind(Identifiers.GraphConversationSession)
     .toDynamicValue(() => {
@@ -501,8 +501,8 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
     .inSingletonScope();
 
   // ConversationSession - Conversation Manager Factory
-  // ConversationSession is stateful and requires a separate instance for each thread to achieve thread isolation
-  // Creating instances using the factory pattern ensures that the session data for each thread is independent of each other
+  // ConversationSession is stateful and requires a separate instance for each execution to achieve execution isolation
+  // Creating instances using the factory pattern ensures that the session data for each execution is independent of each other
   container
     .bind(Identifiers.ConversationSession)
     .toDynamicValue(

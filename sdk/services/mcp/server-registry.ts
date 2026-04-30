@@ -49,7 +49,7 @@ export class McpServerRegistry {
 
   /**
    * Get the singleton McpConnectionManager instance
-   * Thread-safe implementation using promise-based lock
+   * Workflow-execution-safe implementation using promise-based lock
    */
   static async getInstance(): Promise<McpConnectionManager> {
     // Increment reference count

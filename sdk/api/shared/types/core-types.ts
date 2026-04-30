@@ -72,7 +72,7 @@ export interface SDKOptions {
 export interface SDKDependencies {
   /** Workflow Registry */
   workflowRegistry?: unknown;
-  /** Thread Registry */
+  /** Workflow Execution Registry */
   executionRegistry?: unknown;
   /** Tool Registry */
   toolRegistry?: unknown;

@@ -8,7 +8,6 @@
  *
  * Component messages support:
  * - Multiple output targets (TUI, files, logs)
- * - Entity hierarchy tracking (Thread/Agent/Subgraph)
  * - Flexible routing rules
  * - Aggregation and parent notification
  */

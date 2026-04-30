@@ -19,7 +19,7 @@ export interface IScriptExecutor {
    * Execute the script
    * @param script: Script definition
    * @param options: Execution options
-   * @param context: Execution context (such as thread isolation)
+   * @param context: Execution context (such as execution isolation)
    * @returns: Execution result
    */
   execute(

@@ -44,7 +44,7 @@ export function createExecuteWorkflowHandler() {
         value: params,
         context: {
           executionId: context.executionId,
-          hasParentThread: !!context.parentExecutionEntity,
+          hasParentExecution: !!context.parentExecutionEntity,
         },
       });
     }

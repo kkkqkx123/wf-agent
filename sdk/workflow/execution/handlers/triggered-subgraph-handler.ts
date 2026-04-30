@@ -34,7 +34,7 @@ import {
  * Sub-workflow Executor Interface
  */
 export interface SubgraphExecutor {
-  executeThread(executionEntity: WorkflowExecutionEntity): Promise<unknown>;
+  executeWorkflowExecution(executionEntity: WorkflowExecutionEntity): Promise<unknown>;
 }
 
 /**
@@ -96,7 +96,7 @@ export async function emitSubgraphStartedEvent(
  * Trigger the completion event of a sub-workflow
  * @param mainWorkflowExecutionEntity: The main workflow execution entity
  * @param task: The sub-workflow task that was triggered
- * @param subgraphEntity: The sub-workflow thread entity
+ * @param subgraphEntity: The sub-workflow execution entity
  * @param executionTime: Execution time (in milliseconds)
  * @param eventManager: The event manager
  */
@@ -170,7 +170,7 @@ export async function executeSingleTriggeredSubgraph(
     await emitSubgraphStartedEvent(task.mainWorkflowExecutionEntity, task, eventManager);
 
     // Execute the sub-workflow
-    const executionResult = await subgraphExecutor.executeThread(subgraphEntity);
+    const executionResult = await subgraphExecutor.executeWorkflowExecution(subgraphEntity);
 
     const executionTime = diffTimestamp(startTime, now());
 

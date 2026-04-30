@@ -31,15 +31,15 @@ export interface ForkNodeConfig {
 
 /**
  * Connection Node Configuration
- * 
+ *
  * Description:
  * - Subexecution IDs are dynamically determined at runtime, generated during FORK node execution and stored in the execution context.
  * The JOIN node reads it from the execution context when it executes and is not defined in the node configuration.
- * - timeout is the maximum time (in seconds) to wait for the completion of the child thread.
+ * - timeout is the maximum time (in seconds) to wait for the completion of the child execution.
  * When timeout = 0, no timeout is set, and the node waits until the condition is met;
  * When timeout > 0, it means wait for the maximum number of seconds, and throws TimeoutError if timeout is exceeded.
  * - forkPathIds must be identical to the paired FORK nodes (including order)
- * - mainPathId specifies the main thread path, must be one of the values in forkPathIds
+ * - mainPathId specifies the main execution path, must be one of the values in forkPathIds
  */
 export interface JoinNodeConfig {
   /**
@@ -52,6 +52,6 @@ export interface JoinNodeConfig {
   threshold?: number;
   /** Wait timeout in seconds. 0 means no timeout, always wait; >0 means the maximum number of seconds to wait. Default 0 (no timeout) */
   timeout?: number;
-  /** Main thread path ID, must be a value in forkPathIds (required) */
+  /** Main execution path ID, must be a value in forkPathIds (required) */
   mainPathId: ID;
 }

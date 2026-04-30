@@ -11,7 +11,7 @@ import type { VariableValueType } from "../workflow-execution/variables.js";
  *
  * Description:
  * - Declare variables at workflow definition time, providing type information and default values
- * - At execution time, converted to WorkflowExecutionVariable, stored in WorkflowExecution.variableScopes.thread
+ * - At execution time, converted to WorkflowExecutionVariable, stored in WorkflowExecution.variableScopes.execution
  * - Modified via VARIABLE node, accessed via expressions ({{variableName}})
  *
  * Example:
@@ -22,7 +22,7 @@ import type { VariableValueType } from "../workflow-execution/variables.js";
  * ]
  *
  * // At execution time
- * execution.variableScopes.thread = {
+ * execution.variableScopes.execution = {
  *   userName: 'Alice',
  *   userAge: 25
  * }

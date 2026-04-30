@@ -59,7 +59,7 @@ export function createContextCompressionWorkflow(compressionPrompt?: string): Wo
       id: startNodeId,
       type: "START_FROM_TRIGGER",
       name: "Start Compression",
-      description: "Receive the full context passed in by the main thread",
+      description: "Receive the full context passed in by the main workflow execution",
       config: {},
       outgoingEdgeIds: [],
       incomingEdgeIds: [],
@@ -94,7 +94,7 @@ export function createContextCompressionWorkflow(compressionPrompt?: string): Wo
       id: endNodeId,
       type: "CONTINUE_FROM_TRIGGER",
       name: "Complete Compression",
-      description: "Passes compression results back to the main thread",
+      description: "Passes compression results back to the main workflow execution",
       config: {
         conversationHistoryCallback: {
           operation: "TRUNCATE",

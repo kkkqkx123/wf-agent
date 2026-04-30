@@ -20,12 +20,12 @@ describe("Trigger Matcher - Trigger Matcher", () => {
   describe("Basic Matching Function", () => {
     it("Test event type matching: same event type should match successfully", () => {
       const condition: BaseTriggerCondition = {
-        eventType: "THREAD_STARTED",
+        eventType: "WORKFLOW_EXECUTION_STARTED",
         eventName: "test-event",
       };
 
       const event: BaseEventData = {
-        type: "THREAD_STARTED",
+        type: "WORKFLOW_EXECUTION_STARTED",
         eventName: "test-event",
         timestamp: Date.now(),
       };
@@ -35,12 +35,12 @@ describe("Trigger Matcher - Trigger Matcher", () => {
 
     it("Test event type mismatch: different event types should fail to match", () => {
       const condition: BaseTriggerCondition = {
-        eventType: "THREAD_STARTED",
+        eventType: "WORKFLOW_EXECUTION_STARTED",
         eventName: "test-event",
       };
 
       const event: BaseEventData = {
-        type: "THREAD_COMPLETED",
+        type: "WORKFLOW_EXECUTION_COMPLETED",
         eventName: "test-event",
         timestamp: Date.now(),
       };
@@ -50,12 +50,12 @@ describe("Trigger Matcher - Trigger Matcher", () => {
 
     it("Test event name match: when eventName is specified, the event name should match", () => {
       const condition: BaseTriggerCondition = {
-        eventType: "THREAD_STARTED",
+        eventType: "WORKFLOW_EXECUTION_STARTED",
         eventName: "custom-event",
       };
 
       const event: BaseEventData = {
-        type: "THREAD_STARTED",
+        type: "WORKFLOW_EXECUTION_STARTED",
         eventName: "custom-event",
         timestamp: Date.now(),
       };
@@ -65,12 +65,12 @@ describe("Trigger Matcher - Trigger Matcher", () => {
 
     it("Test event name mismatch: different event names should fail to match when eventName is specified", () => {
       const condition: BaseTriggerCondition = {
-        eventType: "THREAD_STARTED",
+        eventType: "WORKFLOW_EXECUTION_STARTED",
         eventName: "custom-event",
       };
 
       const event: BaseEventData = {
-        type: "THREAD_STARTED",
+        type: "WORKFLOW_EXECUTION_STARTED",
         eventName: "different-event",
         timestamp: Date.now(),
       };
@@ -80,17 +80,17 @@ describe("Trigger Matcher - Trigger Matcher", () => {
 
     it("Test for unspecified event name: when eventName is not specified, only the event type is matched", () => {
       const condition: BaseTriggerCondition = {
-        eventType: "THREAD_STARTED",
+        eventType: "WORKFLOW_EXECUTION_STARTED",
       };
 
       const event1: BaseEventData = {
-        type: "THREAD_STARTED",
+        type: "WORKFLOW_EXECUTION_STARTED",
         eventName: "any-event",
         timestamp: Date.now(),
       };
 
       const event2: BaseEventData = {
-        type: "THREAD_STARTED",
+        type: "WORKFLOW_EXECUTION_STARTED",
         timestamp: Date.now(),
       };
 
@@ -120,28 +120,28 @@ describe("Trigger Matcher - Trigger Matcher", () => {
         {
           id: "trigger-1",
           name: "Trigger 1",
-          condition: { eventType: "THREAD_STARTED" },
-          action: { type: "pause_thread", parameters: {} },
+          condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+          action: { type: "pause_workflow_execution", parameters: {} },
           enabled: true,
         },
         {
           id: "trigger-2",
           name: "Trigger 2",
-          condition: { eventType: "THREAD_COMPLETED" },
-          action: { type: "pause_thread", parameters: {} },
+          condition: { eventType: "WORKFLOW_EXECUTION_COMPLETED" },
+          action: { type: "pause_workflow_execution", parameters: {} },
           enabled: true,
         },
         {
           id: "trigger-3",
           name: "Trigger 3",
-          condition: { eventType: "THREAD_STARTED" },
-          action: { type: "resume_thread", parameters: {} },
+          condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+          action: { type: "resume_workflow_execution", parameters: {} },
           enabled: true,
         },
       ];
 
       const event: BaseEventData = {
-        type: "THREAD_STARTED",
+        type: "WORKFLOW_EXECUTION_STARTED",
         timestamp: Date.now(),
       };
 
@@ -157,28 +157,28 @@ describe("Trigger Matcher - Trigger Matcher", () => {
         {
           id: "trigger-1",
           name: "Trigger 1",
-          condition: { eventType: "THREAD_STARTED" },
-          action: { type: "pause_thread", parameters: {} },
+          condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+          action: { type: "pause_workflow_execution", parameters: {} },
           enabled: true,
         },
         {
           id: "trigger-2",
           name: "Trigger 2",
-          condition: { eventType: "THREAD_STARTED" },
-          action: { type: "pause_thread", parameters: {} },
+          condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+          action: { type: "pause_workflow_execution", parameters: {} },
           enabled: false,
         },
         {
           id: "trigger-3",
           name: "Trigger 3",
-          condition: { eventType: "THREAD_STARTED" },
-          action: { type: "resume_thread", parameters: {} },
+          condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+          action: { type: "resume_workflow_execution", parameters: {} },
           enabled: true,
         },
       ];
 
       const event: BaseEventData = {
-        type: "THREAD_STARTED",
+        type: "WORKFLOW_EXECUTION_STARTED",
         timestamp: Date.now(),
       };
 
@@ -193,14 +193,14 @@ describe("Trigger Matcher - Trigger Matcher", () => {
         {
           id: "trigger-1",
           name: "Trigger 1",
-          condition: { eventType: "THREAD_STARTED" },
-          action: { type: "pause_thread", parameters: {} },
+          condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+          action: { type: "pause_workflow_execution", parameters: {} },
           // enabled not set
         },
       ];
 
       const event: BaseEventData = {
-        type: "THREAD_STARTED",
+        type: "WORKFLOW_EXECUTION_STARTED",
         timestamp: Date.now(),
       };
 
@@ -215,14 +215,14 @@ describe("Trigger Matcher - Trigger Matcher", () => {
           id: "trigger-1",
           name: "Trigger 1",
           condition: { eventType: "NODE_CUSTOM_EVENT", eventName: "event-1" },
-          action: { type: "pause_thread", parameters: {} },
+          action: { type: "pause_workflow_execution", parameters: {} },
           enabled: true,
         },
         {
           id: "trigger-2",
           name: "Trigger 2",
           condition: { eventType: "NODE_CUSTOM_EVENT", eventName: "event-2" },
-          action: { type: "pause_thread", parameters: {} },
+          action: { type: "pause_workflow_execution", parameters: {} },
           enabled: true,
         },
       ];
@@ -248,18 +248,18 @@ describe("Trigger Matcher - Trigger Matcher", () => {
   describe("Customizable Matchers", () => {
     it("Test creation of custom matchers: custom matchers should perform custom logic on top of the default matches", () => {
       const condition: BaseTriggerCondition = {
-        eventType: "THREAD_STARTED",
+        eventType: "WORKFLOW_EXECUTION_STARTED",
         eventName: "special-event",
       };
 
       const event1: BaseEventData = {
-        type: "THREAD_STARTED",
+        type: "WORKFLOW_EXECUTION_STARTED",
         eventName: "special-event",
         timestamp: Date.now(),
       };
 
       const event2: BaseEventData = {
-        type: "THREAD_STARTED",
+        type: "WORKFLOW_EXECUTION_STARTED",
         eventName: "normal-event",
         timestamp: Date.now(),
       };
@@ -305,12 +305,12 @@ describe("Trigger Matcher - Trigger Matcher", () => {
 
     it("Test custom matchers to execute default matches first: custom logic is not executed when default matches fail", () => {
       const condition: BaseTriggerCondition = {
-        eventType: "THREAD_STARTED",
+        eventType: "WORKFLOW_EXECUTION_STARTED",
         eventName: "test-event",
       };
 
       const event: BaseEventData = {
-        type: "THREAD_COMPLETED", // Event type does not match.
+        type: "WORKFLOW_EXECUTION_COMPLETED", // Event type does not match.
         eventName: "test-event",
         timestamp: Date.now(),
       };
@@ -325,11 +325,11 @@ describe("Trigger Matcher - Trigger Matcher", () => {
 
     it("Test custom matchers when eventName is not specified", () => {
       const condition: BaseTriggerCondition = {
-        eventType: "THREAD_STARTED",
+        eventType: "WORKFLOW_EXECUTION_STARTED",
       };
 
       const event: BaseEventData = {
-        type: "THREAD_STARTED",
+        type: "WORKFLOW_EXECUTION_STARTED",
         timestamp: Date.now(),
       };
 
@@ -339,13 +339,13 @@ describe("Trigger Matcher - Trigger Matcher", () => {
       });
 
       const event1: BaseEventData = {
-        type: "THREAD_STARTED",
+        type: "WORKFLOW_EXECUTION_STARTED",
         data: { valid: true },
         timestamp: Date.now(),
       };
 
       const event2: BaseEventData = {
-        type: "THREAD_STARTED",
+        type: "WORKFLOW_EXECUTION_STARTED",
         data: { valid: false },
         timestamp: Date.now(),
       };
@@ -360,7 +360,7 @@ describe("Trigger Matcher - Trigger Matcher", () => {
       const triggers: any[] = [];
 
       const event: BaseEventData = {
-        type: "THREAD_STARTED",
+        type: "WORKFLOW_EXECUTION_STARTED",
         timestamp: Date.now(),
       };
 
@@ -371,12 +371,12 @@ describe("Trigger Matcher - Trigger Matcher", () => {
 
     it("The test event does not specify an eventName but the condition does.", () => {
       const condition: BaseTriggerCondition = {
-        eventType: "THREAD_STARTED",
+        eventType: "WORKFLOW_EXECUTION_STARTED",
         eventName: "required-event",
       };
 
       const event: BaseEventData = {
-        type: "THREAD_STARTED",
+        type: "WORKFLOW_EXECUTION_STARTED",
         timestamp: Date.now(),
       };
 
@@ -385,11 +385,11 @@ describe("Trigger Matcher - Trigger Matcher", () => {
 
     it("The test condition does not specify eventName but the event does", () => {
       const condition: BaseTriggerCondition = {
-        eventType: "THREAD_STARTED",
+        eventType: "WORKFLOW_EXECUTION_STARTED",
       };
 
       const event: BaseEventData = {
-        type: "THREAD_STARTED",
+        type: "WORKFLOW_EXECUTION_STARTED",
         eventName: "any-event",
         timestamp: Date.now(),
       };
@@ -399,13 +399,13 @@ describe("Trigger Matcher - Trigger Matcher", () => {
 
     it("Testing metadata does not affect matches", () => {
       const condition: BaseTriggerCondition = {
-        eventType: "THREAD_STARTED",
+        eventType: "WORKFLOW_EXECUTION_STARTED",
         eventName: "test-event",
         metadata: { key: "value" },
       };
 
       const event: BaseEventData = {
-        type: "THREAD_STARTED",
+        type: "WORKFLOW_EXECUTION_STARTED",
         eventName: "test-event",
         timestamp: Date.now(),
         data: { different: "metadata" },

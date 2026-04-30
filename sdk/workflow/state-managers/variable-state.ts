@@ -29,7 +29,7 @@ const logger = createContextualLogger({ component: "variable-state-manager" });
  *
  * Responsibilities:
  * - Manage the runtime state of variables
- * - Provide thread-isolated state management
+ * - Provide workflow-execution-isolated state management
  * - Support state snapshots and restoration
  * - Offer atomic state operations
  *
@@ -333,7 +333,7 @@ export class VariableState implements LifecycleCapable<{
   getAllVariables(): Record<string, unknown> {
     const allVariables: Record<string, unknown> = {};
 
-    // Merge from lowest to highest scope priority (global -> thread -> subgraph -> loop).
+    // Merge from lowest to highest scope priority (global -> workflowExecution -> subgraph -> loop).
     // Variables with higher priority scopes will override variables with the same name but in lower priority scopes.
 
     // 1. Global scope (lowest priority)
@@ -453,7 +453,7 @@ export class VariableState implements LifecycleCapable<{
    * @returns Variable value or undefined if not found
    */
   getVariable(name: string): unknown {
-    // Check thread scope first
+    // Check workflowExecution scope first
     if (name in this.variableScopes.workflowExecution) {
       return this.variableScopes.workflowExecution[name];
     }
@@ -492,7 +492,7 @@ export class VariableState implements LifecycleCapable<{
     if (variableDef) {
       this.setVariableValue(name, value, variableDef.scope);
     } else {
-      // If variable doesn't exist, default to thread scope
+      // If variable doesn't exist, default to workflowExecution scope
       this.setVariableValue(name, value, "workflowExecution");
     }
   }

@@ -160,7 +160,7 @@ export class WorkflowRegistry {
    * @returns: Whether there are any references
    */
   hasReferences(workflowId: string): boolean {
-    // Check the references (such as trigger, thread, etc.) in referenceRelations.
+    // Check the references (such as trigger, workflow execution, etc.) in referenceRelations.
     const hasReferenceRelations =
       this.referenceRelations.has(workflowId) &&
       this.referenceRelations.get(workflowId)!.length > 0;

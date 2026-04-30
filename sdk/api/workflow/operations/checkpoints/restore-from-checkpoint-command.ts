@@ -1,5 +1,5 @@
 /**
- * RestoreFromCheckpointCommand - Restore a thread from a checkpoint
+ * RestoreFromCheckpointCommand - Restore a workflow execution from a checkpoint
  */
 
 import {
@@ -22,7 +22,7 @@ export interface RestoreFromCheckpointParams {
 }
 
 /**
- * RestoreFromCheckpointCommand - Restore a thread from a checkpoint
+ * RestoreFromCheckpointCommand - Restore a workflow execution from a checkpoint
  */
 export class RestoreFromCheckpointCommand extends BaseCommand<WorkflowExecution> {
   constructor(

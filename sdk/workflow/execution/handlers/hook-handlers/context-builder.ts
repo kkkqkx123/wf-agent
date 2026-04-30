@@ -35,14 +35,14 @@ export interface HookEvaluationContext {
  */
 export function buildHookEvaluationContext(context: HookExecutionContext): HookEvaluationContext {
   const { workflowExecutionEntity, node, result } = context;
-  const thread = workflowExecutionEntity.getExecution();
+  const workflowExecution = workflowExecutionEntity.getExecution();
 
   return {
-    output: thread.output,
+    output: workflowExecution.output,
     status: result?.status || "PENDING",
     executionTime: result?.executionTime || 0,
     error: result?.error,
-    variables: thread.variableScopes.workflowExecution,
+    variables: workflowExecution.variableScopes.workflowExecution,
     config: node.config,
     metadata: node.metadata,
   };

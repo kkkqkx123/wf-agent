@@ -18,8 +18,6 @@ import type { WorkflowExecutionEntity } from "../../../entities/workflow-executi
 export interface ContinueFromTriggerHandlerContext {
   /** Main workflow execution entity */
   mainWorkflowExecutionEntity?: WorkflowExecutionEntity;
-  /** Main thread entity */
-  mainThreadEntity?: WorkflowExecutionEntity;
   /** Conversation manager */
   conversationManager?: ConversationSession;
 }
@@ -71,17 +69,17 @@ export async function continueFromTriggerHandler(
   }
 
   // Handling variable callbacks
-  const thread = workflowExecutionEntity.getExecution();
+  const workflowExecution = workflowExecutionEntity.getExecution();
   if (config.variableCallback) {
     if (config.variableCallback.includeAll) {
       // Return all variables
-      const allVariables = thread.variables || [];
+      const allVariables = workflowExecution.variables || [];
       for (const v of allVariables) {
         mainWorkflowExecutionEntity.setVariable(v.name, v.value);
       }
     } else if (config.variableCallback.includeVariables) {
       // Selective variable return
-      const variablesToCallback = (thread.variables || []).filter(v =>
+      const variablesToCallback = (workflowExecution.variables || []).filter(v =>
         config.variableCallback?.includeVariables?.includes(v.name),
       );
       for (const v of variablesToCallback) {
@@ -107,7 +105,7 @@ export async function continueFromTriggerHandler(
       // Execute message operations
       const result = await executeOperation(operationContext, config.conversationHistoryCallback);
 
-      // Get the visible messages and send them back to the main thread.
+      // Get the visible messages and send them back to the main workflow execution.
       const visibleMessages = getVisibleMessages(result.messages, result.markMap);
 
       // Send the message back to the main workflow execution.

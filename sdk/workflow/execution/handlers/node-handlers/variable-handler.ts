@@ -20,8 +20,8 @@ function canExecute(executionEntity: WorkflowExecutionEntity, node: Node): boole
   const config = node.config as VariableNodeConfig;
 
   // Check if the variable is read-only.
-  const thread = executionEntity.getExecution();
-  const existingVariable = thread.variables?.find((v: { name: string; readonly?: boolean }) => v.name === config.variableName);
+  const workflowExecution = executionEntity.getExecution();
+  const existingVariable = workflowExecution.variables?.find((v: { name: string; readonly?: boolean }) => v.name === config.variableName);
   if (existingVariable && existingVariable.readonly) {
     return false;
   }
@@ -33,19 +33,19 @@ function canExecute(executionEntity: WorkflowExecutionEntity, node: Node): boole
  * Parse variable references in expressions
  * Use a unified path parsing logic
  */
-function resolveVariableReferences(expression: string, thread: WorkflowExecution): string {
+function resolveVariableReferences(expression: string, workflowExecution: WorkflowExecution): string {
   const variablePattern = /\{\{(\w+(?:\.\w+)*)\}\}/g;
 
   return expression.replace(variablePattern, (match, varPath) => {
     // Extract the root variable name.
     const rootVarName = varPath.split(".")[0];
 
-    // First, try to obtain the value from the thread variable.
-    let value: unknown = thread.variableScopes.workflowExecution?.[rootVarName];
+    // First, try to obtain the value from the workflowExecution variable.
+    let value: unknown = workflowExecution.variableScopes.workflowExecution?.[rootVarName];
 
-    // If the first part does not exist in the thread variable, try to obtain it from the global variable.
-    if (value === undefined && thread.variableScopes) {
-      value = thread.variableScopes.global[rootVarName];
+    // If the first part does not exist in the workflowExecution variable, try to obtain it from the global variable.
+    if (value === undefined && workflowExecution.variableScopes) {
+      value = workflowExecution.variableScopes.global[rootVarName];
     }
 
     // If the root variable does not exist, return undefined.
@@ -74,23 +74,23 @@ function resolveVariableReferences(expression: string, thread: WorkflowExecution
 /**
  * Evaluate the expression.
  */
-function evaluateExpression(expression: string, variableType: string, thread: WorkflowExecution): unknown {
+function evaluateExpression(expression: string, variableType: string, execution: WorkflowExecution): unknown {
   try {
     // Handling empty string expressions
     if (!expression.trim()) {
       return "";
     }
 
-    // Create a function scope that includes variables from the thread scope.
-    const threadScope = thread.variableScopes.workflowExecution || {};
-    const globalScope = thread.variableScopes.global || {};
+    // Create a function scope that includes variables from the workflowExecution scope.
+    const executionScope = execution.variableScopes.workflowExecution || {};
+    const globalScope = execution.variableScopes.global || {};
 
     const func = new Function(
-      ...Object.keys({ ...threadScope, ...globalScope }),
+      ...Object.keys({ ...executionScope, ...globalScope }),
       `return (${expression})`,
     );
 
-    const result = func(...Object.values({ ...threadScope, ...globalScope }));
+    const result = func(...Object.values({ ...executionScope, ...globalScope }));
     return result;
   } catch {
     throw new RuntimeValidationError(`Failed to evaluate expression: ${expression}`, {
@@ -186,25 +186,25 @@ export async function variableHandler(
   }
 
   const config = node.config as VariableNodeConfig;
-  const thread = executionEntity.getExecution();
+  const workflowExecution = executionEntity.getExecution();
 
   // Parse variable references in expressions
-  const evaluatedExpression = resolveVariableReferences(config.expression, thread);
+  const evaluatedExpression = resolveVariableReferences(config.expression, workflowExecution);
 
   // Evaluate the expression.
-  const result = evaluateExpression(evaluatedExpression, config.variableType, thread);
+  const result = evaluateExpression(evaluatedExpression, config.variableType, workflowExecution);
 
   // Verify the type of the evaluation result.
   const typedResult = convertType(result, config.variableType);
 
   // Update the variable
-  const variable = thread.variables.find((v: any) => v.name === config.variableName);
+  const variable = workflowExecution.variables.find((v: any) => v.name === config.variableName);
   const variableScope = config.scope || "workflowExecution";
 
   if (variable) {
     variable.value = typedResult;
   } else {
-    thread.variables.push({
+    workflowExecution.variables.push({
       name: config.variableName,
       value: typedResult,
       type: config.variableType,
@@ -216,20 +216,20 @@ export async function variableHandler(
   // Update variable values based on scope.
   switch (variableScope) {
     case "global":
-      thread.variableScopes.global[config.variableName] = typedResult;
+      workflowExecution.variableScopes.global[config.variableName] = typedResult;
       break;
     case "workflowExecution":
-      thread.variableScopes.workflowExecution[config.variableName] = typedResult;
+      workflowExecution.variableScopes.workflowExecution[config.variableName] = typedResult;
       break;
     case "local":
-      if (thread.variableScopes.local.length > 0) {
-        thread.variableScopes.local[thread.variableScopes.local.length - 1]![config.variableName] =
+      if (workflowExecution.variableScopes.local.length > 0) {
+        workflowExecution.variableScopes.local[workflowExecution.variableScopes.local.length - 1]![config.variableName] =
           typedResult;
       }
       break;
     case "loop":
-      if (thread.variableScopes.loop.length > 0) {
-        thread.variableScopes.loop[thread.variableScopes.loop.length - 1]![config.variableName] =
+      if (workflowExecution.variableScopes.loop.length > 0) {
+        workflowExecution.variableScopes.loop[workflowExecution.variableScopes.loop.length - 1]![config.variableName] =
           typedResult;
       }
       break;

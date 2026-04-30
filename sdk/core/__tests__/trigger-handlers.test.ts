@@ -34,7 +34,7 @@ const mockWorkflowExecutionRegistry = {
     id: "workflow-execution-123",
     getWorkflowExecutionId: vi.fn(() => "workflow-execution-123"),
     getWorkflowId: vi.fn(() => "workflow-123"),
-    getThread: vi.fn(() => ({
+    getWorkflowExecution: vi.fn(() => ({
       nodeResults: [],
     })),
     setVariable: vi.fn(),

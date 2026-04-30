@@ -459,7 +459,7 @@ async function waitForCompletion(
 }
 
 /**
- * Use polling to wait for threads to complete (alternate scenario)
+ * Use polling to wait for workflow executions to complete (alternate scenario)
  *
  * Description:
  * - timeout is the timeout value (in milliseconds) passed into Promise.race.
@@ -569,17 +569,17 @@ function validateJoinStrategy(
 
 /**
  * Determine whether to exit the waiting state
- * @param completedThreads: Array of completed threads
- * @param failedThreads: Array of failed threads
- * @param childThreadIds: Array of child execution IDs
+ * @param completedExecutions: Array of completed executions
+ * @param failedExecutions: Array of failed executions
+ * @param childExecutionIds: Array of child execution IDs
  * @param joinStrategy: Join strategy
- * @param pendingCount: Number of pending threads
+ * @param pendingCount: Number of pending executions
  * @returns: Whether it is time to exit
  */
 function shouldExitWait(
-  completedThreads: WorkflowExecution[],
-  failedThreads: WorkflowExecution[],
-  childThreadIds: string[],
+  completedExecutions: WorkflowExecution[],
+  failedExecutions: WorkflowExecution[],
+  childExecutionIds: string[],
   joinStrategy: JoinStrategy,
   pendingCount: number,
 ): boolean {
@@ -587,14 +587,14 @@ function shouldExitWait(
     case "ALL_COMPLETED":
       return pendingCount === 0;
     case "ANY_COMPLETED":
-      return completedThreads.length > 0;
+      return completedExecutions.length > 0;
     case "ALL_FAILED":
-      return pendingCount === 0 && failedThreads.length === childThreadIds.length;
+      return pendingCount === 0 && failedExecutions.length === childExecutionIds.length;
     case "ANY_FAILED":
-      return failedThreads.length > 0;
+      return failedExecutions.length > 0;
     case "SUCCESS_COUNT_THRESHOLD":
       // An additional threshold parameter is required; for now, we are handling it in a simplified manner.
-      return completedThreads.length > 0;
+      return completedExecutions.length > 0;
     default:
       return false;
   }
@@ -602,22 +602,22 @@ function shouldExitWait(
 
 /**
  * Merge the results
- * @param completedThreads: Array of completed threads
+ * @param completedExecutions: Array of completed executions
  * @param joinStrategy: Join strategy
  * @returns: Merged output
  */
-function mergeResults(completedThreads: WorkflowExecution[], _joinStrategy: JoinStrategy): unknown {
-  if (completedThreads.length === 0) {
+function mergeResults(completedExecutions: WorkflowExecution[], _joinStrategy: JoinStrategy): unknown {
+  if (completedExecutions.length === 0) {
     return {};
   }
 
-  if (completedThreads.length === 1) {
-    return completedThreads[0]!.output;
+  if (completedExecutions.length === 1) {
+    return completedExecutions[0]!.output;
   }
 
-  // Merge the outputs of multiple threads
+  // Merge the outputs of multiple executions
   const mergedOutput: Record<string, unknown> = {};
-  for (const WorkflowExecution of completedThreads) {
+  for (const WorkflowExecution of completedExecutions) {
     mergedOutput[WorkflowExecution.id] = WorkflowExecution.output;
   }
 

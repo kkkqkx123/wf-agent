@@ -28,7 +28,7 @@ export type { TriggerRuntimeState };
  *
  * Responsibilities:
  * - Manage the runtime state of triggers
- * - Provide thread-isolated state management
+ * - Provide workflow-execution-isolated state management
  * - Support state snapshots and restoration
  * - Ensure concurrent safety
  */

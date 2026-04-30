@@ -3,7 +3,7 @@
  * Provides a unified interrupt detection interface
  *
  * Responsibilities:
- * - Determine whether a thread should be interrupted
+ * - Determine whether a workflow execution should be interrupted
  * - Retrieve the type of the interrupt
  * - Obtain the AbortSignal
  *

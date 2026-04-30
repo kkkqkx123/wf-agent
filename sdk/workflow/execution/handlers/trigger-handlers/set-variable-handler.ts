@@ -70,7 +70,7 @@ export async function setVariableHandler(
     return createSuccessResult(
       triggerId,
       action,
-      { message: `Variables updated successfully in thread ${executionId}`, variables },
+      { message: `Variables updated successfully in workflow execution ${executionId}`, variables },
       executionTime,
     );
   } catch (error) {

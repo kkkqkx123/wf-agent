@@ -29,9 +29,9 @@ function canExecute(executionEntity: WorkflowExecutionEntity, node: Node): boole
     return false;
   }
 
-  const thread = executionEntity.getExecution();
+  const workflowExecution = executionEntity.getExecution();
   const config = node.config as LoopStartNodeConfig;
-  const loopState = getLoopState(thread);
+  const loopState = getLoopState(workflowExecution);
 
   // If the loop state does not exist, it can be executed (for the first time).
   if (!loopState) {
@@ -60,9 +60,9 @@ function isValidIterable(iterable: unknown): boolean {
  *
  * Supported formats:
  * - Direct values: [1,2,3], {a:1}, 5, "hello"
- * - Variable expressions: {{input.list}}, {{thread.items}}, {{global.data}}
+ * - Variable expressions: {{input.list}}, {{workflowExecution.items}}, {{global.data}}
  */
-function resolveIterable(iterableConfig: unknown, thread: WorkflowExecution): unknown {
+function resolveIterable(iterableConfig: unknown, workflowExecution: WorkflowExecution): unknown {
   // If no iterable configuration is provided, return null (counting loop mode).
   if (iterableConfig === undefined || iterableConfig === null) {
     return null;
@@ -74,7 +74,7 @@ function resolveIterable(iterableConfig: unknown, thread: WorkflowExecution): un
     const match = iterableConfig.match(varExprPattern);
 
     if (match && match[1]) {
-      // This is a variable expression that needs to be parsed from a thread.
+      // This is a variable expression that needs to be parsed from workflowExecution.
       const varPath = match[1];
       const parts = varPath.split(".");
       const scope = parts[0];
@@ -85,7 +85,7 @@ function resolveIterable(iterableConfig: unknown, thread: WorkflowExecution): un
         // Get variables based on their scope.
         switch (scope) {
           case "input":
-            value = thread.input;
+            value = workflowExecution.input;
             // Parse nested paths
             for (let i = 1; i < parts.length; i++) {
               value = (value as Record<string, unknown>)?.[parts[i]!];
@@ -93,21 +93,21 @@ function resolveIterable(iterableConfig: unknown, thread: WorkflowExecution): un
             break;
 
           case "output":
-            value = thread.output;
+            value = workflowExecution.output;
             for (let i = 1; i < parts.length; i++) {
               value = (value as Record<string, unknown>)?.[parts[i]!];
             }
             break;
 
           case "global":
-            value = thread.variableScopes.global;
+            value = workflowExecution.variableScopes.global;
             for (let i = 1; i < parts.length; i++) {
               value = (value as Record<string, unknown>)?.[parts[i]!];
             }
             break;
 
           case "workflowExecution":
-            value = thread.variableScopes.workflowExecution;
+            value = workflowExecution.variableScopes.workflowExecution;
             for (let i = 1; i < parts.length; i++) {
               value = (value as Record<string, unknown>)?.[parts[i]!];
             }
@@ -115,7 +115,7 @@ function resolveIterable(iterableConfig: unknown, thread: WorkflowExecution): un
 
           default:
             throw new RuntimeValidationError(
-              `Invalid variable scope '${scope}'. Supported scopes: input, output, global, thread`,
+              `Invalid variable scope '${scope}'. Supported scopes: input, output, global, workflowExecution`,
               {
                 operation: "handle",
                 field: "loop.scope",
@@ -126,9 +126,9 @@ function resolveIterable(iterableConfig: unknown, thread: WorkflowExecution): un
 
         if (value === undefined) {
           throw new ExecutionError(
-            `Variable '${varPath}' not found in thread context`,
-            thread.currentNodeId,
-            thread.workflowId,
+            `Variable '${varPath}' not found in workflow execution context`,
+            workflowExecution.currentNodeId,
+            workflowExecution.workflowId,
             { varPath, iterableConfig },
           );
         }
@@ -140,8 +140,8 @@ function resolveIterable(iterableConfig: unknown, thread: WorkflowExecution): un
         }
         throw new ExecutionError(
           `Failed to resolve iterable expression '${iterableConfig}': ${getErrorMessage(error)}`,
-          thread.currentNodeId,
-          thread.workflowId,
+          workflowExecution.currentNodeId,
+          workflowExecution.workflowId,
           { iterableConfig },
         );
       }
@@ -166,8 +166,8 @@ function resolveIterable(iterableConfig: unknown, thread: WorkflowExecution): un
 /**
  * Get the loop status
  */
-function getLoopState(thread: WorkflowExecution): LoopState | undefined {
-  const currentLoopScope = thread.variableScopes.loop[thread.variableScopes.loop.length - 1] as
+function getLoopState(workflowExecution: WorkflowExecution): LoopState | undefined {
+  const currentLoopScope = workflowExecution.variableScopes.loop[workflowExecution.variableScopes.loop.length - 1] as
     | Record<string, unknown>
     | undefined;
   if (currentLoopScope) {
@@ -179,8 +179,8 @@ function getLoopState(thread: WorkflowExecution): LoopState | undefined {
 /**
  * Set the loop state within the loop scope.
  */
-function setLoopState(thread: WorkflowExecution, loopState: LoopState): void {
-  const currentLoopScope = thread.variableScopes.loop[thread.variableScopes.loop.length - 1];
+function setLoopState(workflowExecution: WorkflowExecution, loopState: LoopState): void {
+  const currentLoopScope = workflowExecution.variableScopes.loop[workflowExecution.variableScopes.loop.length - 1];
   if (currentLoopScope) {
     currentLoopScope[`__loop_state`] = loopState;
   }
@@ -189,8 +189,8 @@ function setLoopState(thread: WorkflowExecution, loopState: LoopState): void {
 /**
  * Clear the loop state (only delete the state objects; the scope is cleared upon exit).
  */
-function clearLoopState(thread: WorkflowExecution): void {
-  const currentLoopScope = thread.variableScopes.loop[thread.variableScopes.loop.length - 1];
+function clearLoopState(workflowExecution: WorkflowExecution): void {
+  const currentLoopScope = workflowExecution.variableScopes.loop[workflowExecution.variableScopes.loop.length - 1];
   if (currentLoopScope) {
     delete currentLoopScope[`__loop_state`];
   }
@@ -269,9 +269,9 @@ function getCurrentValue(loopState: LoopState): unknown {
 /**
  * Set the loop variable within the scope of the loop.
  */
-function setLoopVariable(thread: WorkflowExecution, variableName: string, value: unknown): void {
-  // 循环作用域应该在 loopStartHandler 中通过 enterLoopScope() 创建
-  const currentLoopScope = thread.variableScopes.loop[thread.variableScopes.loop.length - 1];
+function setLoopVariable(workflowExecution: WorkflowExecution, variableName: string, value: unknown): void {
+  // The loop scope should be created via enterLoopScope() in loopStartHandler.
+  const currentLoopScope = workflowExecution.variableScopes.loop[workflowExecution.variableScopes.loop.length - 1];
   if (currentLoopScope) {
     currentLoopScope[variableName] = value;
   }
@@ -287,7 +287,7 @@ function updateLoopState(loopState: LoopState): void {
 
 /**
  * LoopStart node processing function
- * @param thread: WorkflowExecution instance
+ * @param workflowExecution: WorkflowExecution instance
  * @param node: Node definition
  * @param context: Processor context (optional)
  * @returns: Execution result
@@ -297,7 +297,7 @@ export async function loopStartHandler(
   node: Node,
   _context?: unknown,
 ): Promise<unknown> {
-  const thread = executionEntity.getExecution();
+  const workflowExecution = executionEntity.getExecution();
 
   // Check if it is possible to execute.
   if (!canExecute(executionEntity, node)) {
@@ -305,7 +305,7 @@ export async function loopStartHandler(
       nodeId: node.id,
       nodeType: node.type,
       status: "SKIPPED",
-      step: thread.nodeResults.length + 1,
+      step: workflowExecution.nodeResults.length + 1,
       executionTime: 0,
     };
   }
@@ -313,7 +313,7 @@ export async function loopStartHandler(
   const config = node.config as LoopStartNodeConfig;
 
   // Get or initialize the loop state.
-  let loopState = getLoopState(thread);
+  let loopState = getLoopState(workflowExecution);
 
   if (!loopState) {
     // On the first execution, the loop state is parsed and initialized.
@@ -323,7 +323,7 @@ export async function loopStartHandler(
     // If a dataSource is provided, then the iterable and variableName are parsed.
     if (config.dataSource) {
       // Parse an iterable (which can be a direct value or a variable expression).
-      resolvedIterable = resolveIterable(config.dataSource.iterable, thread);
+      resolvedIterable = resolveIterable(config.dataSource.iterable, workflowExecution);
       variableName = config.dataSource.variableName;
     }
 
@@ -337,11 +337,11 @@ export async function loopStartHandler(
       variableName: variableName,
     };
 
-    setLoopState(thread, loopState);
+    setLoopState(workflowExecution, loopState);
 
     // Enter the new loop scope.
-    if (!thread.variableScopes) {
-      thread.variableScopes = {
+    if (!workflowExecution.variableScopes) {
+      workflowExecution.variableScopes = {
         global: {},
         workflowExecution: {},
         local: [],
@@ -351,12 +351,12 @@ export async function loopStartHandler(
 
     // Create a new loop scope and initialize the variables within that scope.
     const newLoopScope: Record<string, unknown> = {};
-    for (const variable of thread.variables) {
+    for (const variable of workflowExecution.variables) {
       if (variable.scope === "loop") {
         newLoopScope[variable.name] = variable.value;
       }
     }
-    thread.variableScopes.loop.push(newLoopScope);
+    workflowExecution.variableScopes.loop.push(newLoopScope);
   }
 
   // Check the loop conditions.
@@ -364,11 +364,11 @@ export async function loopStartHandler(
 
   if (!shouldContinue) {
     // Loop ended, clearing loop state.
-    clearLoopState(thread);
+    clearLoopState(workflowExecution);
 
     // Leave the loop scope
-    if (thread.variableScopes && thread.variableScopes.loop.length > 0) {
-      thread.variableScopes.loop.pop();
+    if (workflowExecution.variableScopes && workflowExecution.variableScopes.loop.length > 0) {
+      workflowExecution.variableScopes.loop.pop();
     }
 
     return {
@@ -385,18 +385,18 @@ export async function loopStartHandler(
   // Set loop variables to loop scope (only when data-driven loops)
   // Note: If dataSource is provided, variableName is required
   if (loopState.variableName !== null) {
-    setLoopVariable(thread, loopState.variableName, currentValue);
+    setLoopVariable(workflowExecution, loopState.variableName, currentValue);
   }
 
   // Update the loop status
   updateLoopState(loopState);
 
   // Save the updated loop state to the scope.
-  setLoopState(thread, loopState);
+  setLoopState(workflowExecution, loopState);
 
   // Record execution history
-  thread.nodeResults.push({
-    step: thread.nodeResults.length + 1,
+  workflowExecution.nodeResults.push({
+    step: workflowExecution.nodeResults.length + 1,
     nodeId: node.id,
     nodeType: node.type,
     status: "COMPLETED",

@@ -21,7 +21,7 @@ import type { WorkflowExecutionStatus } from "@wf-agent/types";
  *
  * Design Principles:
  * - Simple memory storage.
- * - Thread-safe (Map operations).
+ * - Workflow-execution-safe (Map operations).
  * - Support for cleaning up expired instances.
  */
 export class WorkflowExecutionRegistry {

@@ -44,15 +44,15 @@ describe("Workflow Builtin Tools Handlers", () => {
 
     // Mock context
     mockContext = {
-      executionId: "test-thread-123",
-      parentThreadEntity: {
-        id: "parent-thread-123",
-        getThreadId: vi.fn(() => "parent-thread-123"),
+      executionId: "test-workflow-execution-123",
+      parentExecutionEntity: {
+        id: "parent-workflow-execution-123",
+        getExecutionId: vi.fn(() => "parent-workflow-execution-123"),
         getWorkflowId: vi.fn(() => "workflow-123"),
         getInput: vi.fn(() => ({ key: "value" })),
         getOutput: vi.fn(() => ({ result: "success" })),
-        registerChildThread: vi.fn(),
-        unregisterChildThread: vi.fn(),
+        registerChildExecution: vi.fn(),
+        unregisterChildExecution: vi.fn(),
       } as any,
     };
   });
@@ -65,8 +65,8 @@ describe("Workflow Builtin Tools Handlers", () => {
         subgraphEntity: {
           getOutput: vi.fn(() => ({ data: "test" })),
         },
-        threadResult: {
-          executionId: "subgraph-thread-456",
+        workflowExecutionResult: {
+          executionId: "subgraph-wfexec-456",
           output: { data: "test" },
           executionTime: 100,
         },
@@ -92,7 +92,7 @@ describe("Workflow Builtin Tools Handlers", () => {
         expect.objectContaining({
           subgraphId: "test-workflow",
           input: { customInput: "test" },
-          mainThreadEntity: mockContext.parentThreadEntity,
+          mainWorkflowExecutionEntity: mockContext.parentExecutionEntity,
           config: expect.objectContaining({
             waitForCompletion: true,
           }),
@@ -142,12 +142,12 @@ describe("Workflow Builtin Tools Handlers", () => {
       ).rejects.toThrow(RuntimeValidationError);
     });
 
-    it("should throw error when parentThreadEntity is missing", async () => {
+    it("should throw error when parentExecutionEntity is missing", async () => {
       const handler = createExecuteWorkflowHandler();
 
       const invalidContext = {
-        executionId: "test-thread-123",
-        // parentThreadEntity is missing
+        executionId: "test-workflow-execution-123",
+        // parentExecutionEntity is missing
       };
 
       await expect(
@@ -169,7 +169,7 @@ describe("Workflow Builtin Tools Handlers", () => {
         id: "task-123",
         status: "RUNNING",
         executionEntity: {
-          getThreadId: vi.fn(() => "thread-456"),
+          getId: vi.fn(() => "wfexec-456"),
           getWorkflowId: vi.fn(() => "workflow-789"),
         },
         createdAt: Date.now(),
@@ -182,7 +182,7 @@ describe("Workflow Builtin Tools Handlers", () => {
 
       expect(result.success).toBe(true);
       expect(result.status).toBe("RUNNING");
-      expect(result.executionId).toBe("thread-456");
+      expect(result.executionId).toBe("wfexec-456");
       expect(result.workflowId).toBe("workflow-789");
       expect(mockTriggeredSubworkflowManager.getTaskStatus).toHaveBeenCalledWith("task-123");
     });

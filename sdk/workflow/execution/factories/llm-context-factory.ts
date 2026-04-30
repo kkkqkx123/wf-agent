@@ -81,7 +81,7 @@ export interface LLMContextFactoryConfig {
   toolCallExecutor: ToolCallExecutor;
 
   // Contextual relevant (optional)
-  /** Thread Registry */
+  /** Workflow Execution Registry */
   executionRegistry?: WorkflowExecutionRegistry;
   /** Interrupt Detector */
   interruptionDetector?: InterruptionDetector;

@@ -1,16 +1,16 @@
-# Thread Input/Output 快速指南
+# WorkflowExecution Input/Output 快速指南
 
 ## 快速开始
 
-### 1. 创建 Thread 时传入 input
+### 1. 创建 WorkflowExecution 时传入 input
 
 ```typescript
-import { ThreadBuilder } from 'sdk/graph/execution/factories/thread-builder.js';
+import { WorkflowExecutionBuilder } from 'sdk/workflow/execution/factories/workflow-execution-builder.js';
 
-const threadBuilder = new ThreadBuilder();
+const executionBuilder = new WorkflowExecutionBuilder();
 
-// 创建 Thread 并传入 input 数据
-const threadEntity = await threadBuilder.build('my-workflow', {
+// 创建 WorkflowExecution 并传入 input 数据
+const workflowExecution = await executionBuilder.build('my-workflow', {
   input: {
     userName: 'Alice',
     userAge: 25,
@@ -26,10 +26,10 @@ const threadEntity = await threadBuilder.build('my-workflow', {
 ### 2. 在节点中访问 input
 
 ```typescript
-import { VariableAccessor } from 'sdk/graph/execution/utils/variable-accessor.js';
+import { VariableAccessor } from 'sdk/workflow/execution/utils/variable-accessor.js';
 
 // 创建访问器
-const accessor = new VariableAccessor(threadEntity);
+const accessor = new VariableAccessor(workflowExecution);
 
 // 访问 input 数据
 const userName = accessor.get('input.userName');        // 'Alice'
@@ -61,7 +61,7 @@ Items to process:
 
 ```typescript
 // 在处理逻辑完成后设置输出
-threadEntity.setOutput({
+workflowExecution.setOutput({
   success: true,
   message: 'Processing completed',
   data: {
@@ -78,27 +78,27 @@ threadEntity.setOutput({
 
 ```typescript
 // 通过访问器
-const accessor = new VariableAccessor(threadEntity);
+const accessor = new VariableAccessor(workflowExecution);
 const success = accessor.get('output.success');        // true
 const count = accessor.get('output.data.processedCount'); // 3
 
 // 直接获取
-const output = threadEntity.getOutput();
+const output = workflowExecution.getOutput();
 console.log(output.message); // 'Processing completed'
 ```
 
 ### 6. 获取执行结果
 
 ```typescript
-import { ThreadExecutor } from 'sdk/graph/execution/executors/thread-executor.js';
+import { WorkflowExecutor } from 'sdk/workflow/execution/executors/workflow-executor.js';
 
-const executor = new ThreadExecutor({
+const executor = new WorkflowExecutor({
   graphRegistry,
-  threadExecutionCoordinatorFactory
+  workflowExecutionCoordinatorFactory
 });
 
-// 执行 Thread
-const result = await executor.executeThread(threadEntity);
+// 执行 WorkflowExecution
+const result = await executor.execute(workflowExecution);
 
 // 获取 output
 console.log(result.output);  // 完整的输出对象
@@ -127,7 +127,7 @@ if (retry > 0) {
 const items = accessor.get('input.items') as string[];
 const processedItems = items.map(item => item.toUpperCase());
 
-threadEntity.setOutput({
+workflowExecution.setOutput({
   originalCount: items.length,
   processedItems: processedItems
 });
@@ -138,12 +138,12 @@ threadEntity.setOutput({
 ```typescript
 try {
   // 执行某些操作
-  threadEntity.setOutput({
+  workflowExecution.setOutput({
     success: true,
     data: result
   });
 } catch (error) {
-  threadEntity.setOutput({
+  workflowExecution.setOutput({
     success: false,
     error: error.message,
     code: 'PROCESSING_FAILED'
@@ -158,8 +158,8 @@ try {
 let accumulated = accessor.get('output.accumulated') || [];
 accumulated = [...accumulated, newItem];
 
-const currentOutput = threadEntity.getOutput();
-threadEntity.setOutput({
+const currentOutput = workflowExecution.getOutput();
+workflowExecution.setOutput({
   ...currentOutput,
   accumulated: accumulated
 });
@@ -190,7 +190,7 @@ threadEntity.setOutput({
 3. **在 END 节点设置 output**
    ```typescript
    // 在最后一个节点或 END 节点设置最终输出
-   threadEntity.setOutput(finalResult);
+   workflowExecution.setOutput(finalResult);
    ```
 
 ### ❌ 避免做法
@@ -198,7 +198,7 @@ threadEntity.setOutput({
 1. **不要修改 input**
    ```typescript
    // ❌ 错误：input 是只读的
-   const input = threadEntity.getInput();
+   const input = workflowExecution.getInput();
    input.userName = 'Bob'; // 不应该这样做
    ```
 
@@ -222,10 +222,10 @@ threadEntity.setOutput({
 
 ## API 参考
 
-### ThreadOptions
+### WorkflowExecutionOptions
 
 ```typescript
-interface ThreadOptions {
+interface WorkflowExecutionOptions {
   input?: Record<string, unknown>;  // 输入数据
   maxSteps?: number;
   timeout?: number;
@@ -233,7 +233,7 @@ interface ThreadOptions {
 }
 ```
 
-### ThreadEntity 方法
+### WorkflowExecutionEntity 方法
 
 ```typescript
 // 获取 input
@@ -256,15 +256,15 @@ get(path: string): unknown
 has(path: string): boolean
 ```
 
-### ThreadResult
+### WorkflowExecutionResult
 
 ```typescript
-interface ThreadResult {
-  threadId: string;
+interface WorkflowExecutionResult {
+  executionId: string;
   output: Record<string, unknown>;  // 输出数据
   executionTime: number;
   nodeResults: NodeExecutionResult[];
-  metadata: ThreadResultMetadata;
+  metadata: WorkflowExecutionResultMetadata;
 }
 ```
 
@@ -272,5 +272,5 @@ interface ThreadResult {
 
 **相关文档**: 
 - [详细分析](./analysis.md)
-- [VariableAccessor 实现](../../graph/execution/utils/variable-accessor.ts)
-- [Thread 类型定义](../../packages/types/src/thread/definition.ts)
+- [VariableAccessor 实现](../../workflow/execution/utils/variable-accessor.ts)
+- [WorkflowExecution 类型定义](../../../../packages/types/src/workflow-execution/definition.ts)

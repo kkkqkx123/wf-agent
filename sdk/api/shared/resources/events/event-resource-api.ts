@@ -119,8 +119,8 @@ export interface EventStats {
   total: number;
   /** Statistics by type */
   byType: Record<string, number>;
-  /** Statistics by thread */
-  byThread: Record<string, number>;
+  /** Statistics by execution */
+  byExecution: Record<string, number>;
   /** Statistics by workflow */
   byWorkflow: Record<string, number>;
 }
@@ -296,7 +296,7 @@ export class EventResourceAPI extends ReadonlyResourceAPI<BaseEvent, string, Eve
     const stats: EventStats = {
       total: events.length,
       byType: {},
-      byThread: {},
+      byExecution: {},
       byWorkflow: {},
     };
 
@@ -304,9 +304,9 @@ export class EventResourceAPI extends ReadonlyResourceAPI<BaseEvent, string, Eve
       // Statistics by type
       stats.byType[event.type] = (stats.byType[event.type] || 0) + 1;
 
-      // Statistics by thread
+      // Statistics by execution
       if (event.executionId) {
-        stats.byThread[event.executionId] = (stats.byThread[event.executionId] || 0) + 1;
+        stats.byExecution[event.executionId] = (stats.byExecution[event.executionId] || 0) + 1;
       }
 
       // Statistics by workflow

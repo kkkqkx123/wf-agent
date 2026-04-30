@@ -40,7 +40,7 @@ export const buildAgentCustomEvent = (params: {
   eventName: string;
   eventData: Record<string, unknown>;
   iteration?: number;
-  parentThreadId?: string;
+  parentExecutionId?: string;
   nodeId?: string;
   metadata?: Metadata;
 }): AgentCustomEvent => ({

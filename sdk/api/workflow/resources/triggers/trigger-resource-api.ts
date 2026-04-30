@@ -206,7 +206,7 @@ export class TriggerResourceAPI extends ReadonlyResourceAPI<Trigger, string, Tri
   }
 
   /**
-   * Get trigger statistics for all threads
+   * Get trigger statistics for all workflow executions
    * @returns Global statistics information
    */
   async getGlobalTriggerStatistics(): Promise<{

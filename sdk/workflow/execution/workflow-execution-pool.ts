@@ -12,8 +12,6 @@
  * - All triggered sub-workflows and dynamic workflow executions share the same execution pool instance.
  * - Dynamic scaling: Creates new executors based on load.
  * - Idle executors are reclaimed after a timeout to avoid resource waste.
- *
- * Note: JavaScript uses a single-threaded event loop model, where all state changes are completed within the atomic execution units of the event loop, so no additional locking mechanisms are required. The "workflow executions" mentioned in the project are merely logical concepts (execution instances) and not actual OS threads.
  */
 
 import { WorkflowExecutor } from "./executors/workflow-executor.js";

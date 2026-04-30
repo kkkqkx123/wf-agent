@@ -21,7 +21,7 @@
 **关键特征**：
 - 纯静态数据，不包含运行时状态
 - 可序列化，可持久化
-- 可被多个 Thread 实例共享
+- 可被多个 WorkflowExecution 实例共享
 
 ### 2. PreprocessedGraph（预处理图）
 
@@ -39,14 +39,14 @@
 **生命周期**：
 - 由 processWorkflow() 从 WorkflowDefinition 生成
 - 注册到 GraphRegistry
-- 被 Thread 引用
+- 被 WorkflowExecution 引用
 
 **关键特征**：
 - 不可变数据结构
 - 包含完整的图导航信息
-- 可被多个 Thread 实例共享
+- 可被多个 WorkflowExecution 实例共享
 
-### 3. Thread（线程/执行实例）
+### 3. WorkflowExecution（工作流执行实例）
 
 **定义**：Workflow 的一次执行实例，包含运行时数据。
 
@@ -57,11 +57,11 @@
 - 存储执行历史（nodeResults）
 - 存储错误信息（errors）
 
-**位置**：`packages/types/src/thread/definition.ts`
+**位置**：`packages/types/src/workflow/definition.ts`
 
 **生命周期**：
-- 由 ThreadBuilder 从 PreprocessedGraph 创建
-- 注册到 ThreadRegistry
+- 由 WorkflowExecutionBuilder 从 WorkflowGraph 创建
+- 注册到 WorkflowExecutionRegistry
 - 执行 → 完成/失败/取消
 
 **关键特征**：
@@ -69,23 +69,23 @@
 - 每次执行创建新实例
 - 可序列化（用于检查点）
 
-### 4. ThreadEntity（线程实体）
+### 4. WorkflowExecutionEntity（工作流执行实体）
 
-**定义**：Thread 的实体封装，提供数据访问接口和状态管理。
+**定义**：WorkflowExecution 的实体封装，提供数据访问接口和状态管理。
 
 **职责**：
-- 封装 Thread 数据对象
-- 持有 ThreadState（运行时状态）
+- 封装 WorkflowExecution 数据对象
+- 持有 WorkflowExecutionState（运行时状态）
 - 持有 ExecutionState（子图执行栈）
 - 持有 MessageHistory（消息历史）
 - 持有 VariableState（变量状态）
 - 持有 ConversationSession（对话会话）
 
-**位置**：`sdk/graph/entities/thread-entity.ts`
+**位置**：`sdk/workflow/entities/workflow-execution-entity.ts`
 
 **生命周期**：
-- 由 ThreadBuilder 创建
-- 由 ThreadLifecycleCoordinator 管理生命周期
+- 由 WorkflowExecutionBuilder 创建
+- 由 WorkflowLifecycleCoordinator 管理生命周期
 - 执行完成后可被清理
 
 **关键特征**：
@@ -131,22 +131,22 @@
 │                                                                 │
 └───────────────────────────┬─────────────────────────────────────┘
                             │
-                            │ ThreadBuilder.build()
+                            │ WorkflowExecutionBuilder.build()
                             │ (创建执行实例)
                             ↓
 ┌─────────────────────────────────────────────────────────────────┐
 │                     运行时层                                     │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│  ThreadEntity                                                   │
-│  ├─ thread: Thread                                              │
+│  WorkflowExecutionEntity                                        │
+│  ├─ workflowExecution: WorkflowExecution                        │
 │  │   ├─ id, workflowId, currentNodeId                           │
-│  │   ├─ graph: PreprocessedGraph (引用)                         │
+│  │   ├─ graph: WorkflowGraph (引用)                             │
 │  │   ├─ input, output                                           │
 │  │   ├─ variableScopes: VariableScopes                          │
 │  │   ├─ nodeResults: NodeExecutionResult[]                      │
 │  │   └─ errors: unknown[]                                       │
-│  ├─ state: ThreadState (运行时状态)                              │
+│  ├─ state: WorkflowExecutionState (运行时状态)                   │
 │  ├─ executionState: ExecutionState (子图栈)                      │
 │  ├─ messageHistoryManager: MessageHistory                       │
 │  ├─ variableStateManager: VariableState                         │
@@ -202,34 +202,34 @@ GraphRegistry.register(preprocessedGraph)
 ### 3. 实例化阶段
 
 ```
-ThreadLifecycleCoordinator.execute(workflowId, options)
+WorkflowLifecycleCoordinator.execute(workflowId, options)
          ↓
-ThreadBuilder.build(workflowId, options)
+WorkflowExecutionBuilder.build(workflowId, options)
          ↓
-GraphRegistry.get(workflowId) → PreprocessedGraph
+GraphRegistry.get(workflowId) → WorkflowGraph
          ↓
-创建 Thread 对象
-         ├─ 生成 threadId
-         ├─ 引用 PreprocessedGraph
+创建 WorkflowExecution 对象
+         ├─ 生成 executionId
+         ├─ 引用 WorkflowGraph
          ├─ 初始化 variableScopes
          └─ 设置初始 currentNodeId
          ↓
-创建 ThreadEntity
-         ├─ new ThreadState()
+创建 WorkflowExecutionEntity
+         ├─ new WorkflowExecutionState()
          ├─ new ExecutionState()
          ├─ new MessageHistory()
          ├─ new VariableState()
          └─ new ConversationSession()
          ↓
-ThreadRegistry.register(threadEntity)
+WorkflowExecutionRegistry.register(workflowExecutionEntity)
 ```
 
 ### 4. 执行阶段
 
 ```
-ThreadExecutor.executeThread(threadEntity)
+WorkflowExecutor.executeWorkflow(workflowExecutionEntity)
          ↓
-ThreadExecutionCoordinator.execute()
+WorkflowExecutionCoordinator.execute()
          ↓
     [执行循环]
          ├─ 检查中断状态
@@ -243,21 +243,21 @@ ThreadExecutionCoordinator.execute()
          ├─ 记录执行结果
          └─ 移动到下一节点
          ↓
-构建 ThreadResult
+构建 WorkflowExecutionResult
          ↓
-更新 ThreadEntity 状态
+更新 WorkflowExecutionEntity 状态
 ```
 
 ### 5. 生命周期管理
 
 ```
-ThreadLifecycleCoordinator
+WorkflowLifecycleCoordinator
          ├─ execute() → 创建并执行
-         ├─ pauseThread() → 暂停
-         ├─ resumeThread() → 恢复
-         └─ stopThread() → 停止
+         ├─ pauseWorkflowExecution() → 暂停
+         ├─ resumeWorkflowExecution() → 恢复
+         └─ stopWorkflowExecution() → 停止
          ↓
-ThreadStateTransitor
+WorkflowStateTransitor
          ├─ startThread()
          ├─ pauseThread()
          ├─ resumeThread()
@@ -286,10 +286,10 @@ ThreadStateTransitor
 └─────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────┐
-│  ThreadRegistry                                              │
-│  存储位置: sdk/graph/stores/thread-registry.ts               │
-│  数据: Map<string, ThreadEntity>                             │
-│  职责: Thread 实例的注册、查询、管理                            │
+│  WorkflowExecutionRegistry                                   │
+│  存储位置: sdk/workflow/stores/workflow-execution-registry.ts│
+│  数据: Map<string, WorkflowExecutionEntity>                  │
+│  职责: WorkflowExecution 实例的注册、查询、管理                │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -299,25 +299,25 @@ ThreadStateTransitor
 
 ### 1. 分层分离
 
-- **定义层**：静态的 WorkflowDefinition，可序列化、可共享
-- **预处理层**：不可变的 PreprocessedGraph，优化后的执行结构
-- **运行时层**：ThreadEntity，包含执行状态和运行时数据
+- **定义层**：静态的 WorkflowTemplate，可序列化、可共享
+- **预处理层**：不可变的 WorkflowGraph，优化后的执行结构
+- **运行时层**：WorkflowExecutionEntity，包含执行状态和运行时数据
 
 ### 2. 数据不可变性
 
-- WorkflowDefinition：创建后不可修改
-- PreprocessedGraph：预处理后不可修改
-- Thread：执行过程中可修改，但结构稳定
+- WorkflowTemplate：创建后不可修改
+- WorkflowGraph：预处理后不可修改
+- WorkflowExecution：执行过程中可修改，但结构稳定
 
 ### 3. 引用共享
 
-- 多个 Thread 可以引用同一个 PreprocessedGraph
-- PreprocessedGraph 引用 WorkflowDefinition 的 ID
+- 多个 WorkflowExecution 可以引用同一个 WorkflowGraph
+- WorkflowGraph 引用 WorkflowTemplate 的 ID
 - 减少内存占用，提高性能
 
 ### 4. 状态封装
 
-- ThreadEntity 封装所有运行时状态
+- WorkflowExecutionEntity 封装所有运行时状态
 - 通过 getter/setter 访问数据
 - 状态管理器分离关注点
 
@@ -327,4 +327,4 @@ ThreadStateTransitor
 
 - [Workflow 定义与管理](./workflow-definition.md)
 - [Graph 预处理](./graph-preprocessing.md)
-- [Thread 执行实例](./thread-execution.md)
+- [Workflow 执行实例](./workflow-execution.md)

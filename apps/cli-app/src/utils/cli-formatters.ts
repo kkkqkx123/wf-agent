@@ -89,7 +89,7 @@ export function formatCheckpoint(checkpoint: any, options?: { verbose?: boolean 
   if (options?.verbose) {
     return formatter.json(checkpoint);
   }
-  return `${checkpoint.id || "N/A"} - ${checkpoint.threadId || "N/A"} - ${checkpoint.createdAt || "N/A"}`;
+  return `${checkpoint.id || "N/A"} - ${checkpoint.executionId || "N/A"} - ${checkpoint.createdAt || "N/A"}`;
 }
 
 export function formatCheckpointList(checkpoints: any[], options?: { table?: boolean }): string {
@@ -233,7 +233,7 @@ export function formatTrigger(trigger: any, options?: { verbose?: boolean }): st
   const status = trigger.status || "unknown";
   const type = trigger.type || "N/A";
 
-  return `${trigger.id || "N/A"} - ${status} - ${type} - ${trigger.threadId || "N/A"}`;
+  return `${trigger.id || "N/A"} - ${status} - ${type} - ${trigger.executionId || "N/A"}`;
 }
 
 export function formatTriggerList(triggers: any[], options?: { table?: boolean }): string {
@@ -342,9 +342,9 @@ export function formatEvent(event: any, options?: { verbose?: boolean }): string
 
   const type = event.type || "N/A";
   const timestamp = event.timestamp || "N/A";
-  const threadId = event.threadId || "N/A";
+  const executionId = event.executionId || "N/A";
 
-  return `${type} - ${timestamp} - ${threadId.substring(0, 8)}`;
+  return `${type} - ${timestamp} - ${executionId.substring(0, 8)}`;
 }
 
 export function formatEventList(events: any[], options?: { table?: boolean }): string {

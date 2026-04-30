@@ -16,6 +16,7 @@ export interface SliceReadResult {
   returnedLines: number;
   totalLines: number;
   wasTruncated: boolean;
+  wasCharTruncated?: boolean; // Indicates if truncation was due to character limit
 }
 
 /**
@@ -28,6 +29,7 @@ export interface IndentationOptions {
   includeHeader?: boolean;   // Include parent context headers
   limit?: number;           // Maximum lines to return
   maxLines?: number;        // Alternative max lines parameter
+  maxChars?: number;        // Maximum total characters to return
 }
 
 /**
@@ -38,6 +40,7 @@ export interface IndentationReadResult {
   includedRanges: Array<[number, number]>; // Array of [start, end] line ranges (1-indexed)
   totalLines: number;
   wasTruncated: boolean;
+  wasCharTruncated?: boolean; // Indicates if truncation was due to character limit
 }
 
 /**
@@ -46,36 +49,93 @@ export interface IndentationReadResult {
 const DEFAULT_LINE_LIMIT = 100;
 
 /**
+ * Default character limit for file reading (protects against extremely long lines)
+ */
+const DEFAULT_CHAR_LIMIT = 50000;
+
+/**
+ * Options for slice mode reading with character limit support
+ */
+export interface SliceReadOptions {
+  offset?: number;        // Starting line (0-based)
+  limit?: number;         // Maximum lines to read
+  maxChars?: number;      // Maximum total characters to return
+}
+
+/**
  * Read file content using slice mode (contiguous line ranges).
  * 
  * @param content - Full file content as string
- * @param offset - Starting line number (0-based internally)
- * @param limit - Number of lines to read
+ * @param options - Slice read options or offset number (for backward compatibility)
+ * @param limit - Number of lines to read (only used when options is a number)
  * @returns SliceReadResult with formatted content and metadata
  */
 export function readWithSlice(
   content: string,
-  offset: number,
-  limit: number = DEFAULT_LINE_LIMIT
+  options: number | SliceReadOptions = {},
+  limit?: number
 ): SliceReadResult {
+  // Support both old API (offset, limit) and new API (options object)
+  let offset: number;
+  let lineLimit: number;
+  let maxChars: number | undefined;
+  
+  if (typeof options === 'number') {
+    // Old API: readWithSlice(content, offset, limit)
+    offset = options;
+    lineLimit = limit ?? DEFAULT_LINE_LIMIT;
+    maxChars = undefined;
+  } else {
+    // New API: readWithSlice(content, { offset, limit, maxChars })
+    offset = options.offset ?? 0;
+    lineLimit = options.limit ?? DEFAULT_LINE_LIMIT;
+    maxChars = options.maxChars;
+  }
+  
   const lines = content.split("\n");
   const totalLines = lines.length;
   
   // Ensure offset is within bounds
   const startLine = Math.max(0, Math.min(offset, totalLines));
-  const endLine = Math.min(totalLines, startLine + limit);
+  const endLine = Math.min(totalLines, startLine + lineLimit);
   
-  const selectedLines = lines.slice(startLine, endLine);
-  const returnedLines = selectedLines.length;
+  let selectedLines = lines.slice(startLine, endLine);
   
   // Format with line numbers (convert back to 1-indexed for display)
-  const formattedContent = formatLineNumbers(selectedLines, startLine + 1);
+  let formattedContent = formatLineNumbers(selectedLines, startLine + 1);
+  
+  // Apply character limit if specified
+  let wasCharTruncated = false;
+  const charLimit = maxChars ?? DEFAULT_CHAR_LIMIT;
+  
+  if (formattedContent.length > charLimit) {
+    // Truncate by characters, but try to end at a line boundary
+    const truncatedContent = formattedContent.substring(0, charLimit);
+    const lastNewLineIndex = truncatedContent.lastIndexOf("\n");
+    
+    if (lastNewLineIndex > 0) {
+      // End at complete line
+      formattedContent = truncatedContent.substring(0, lastNewLineIndex);
+      // Recalculate how many lines we actually included
+      const actualLines = formattedContent.split("\n").length;
+      selectedLines = selectedLines.slice(0, actualLines);
+    } else {
+      // No newline found in truncated content, just use it
+      formattedContent = truncatedContent;
+    }
+    
+    wasCharTruncated = true;
+  }
+  
+  const returnedLines = selectedLines.length;
+  const wasTruncated = endLine < totalLines || wasCharTruncated;
   
   return {
     content: formattedContent,
     returnedLines,
     totalLines,
-    wasTruncated: endLine < totalLines,
+    wasTruncated,
+    wasCharTruncated,
   };
 }
 
@@ -100,6 +160,7 @@ export function readWithIndentation(
     includeHeader = true,
     limit = DEFAULT_LINE_LIMIT,
     maxLines,
+    maxChars,
   } = options;
 
   const lines = content.split("\n");
@@ -157,17 +218,49 @@ export function readWithIndentation(
   }
   
   // Apply line limit
-  const limitedLines = extractedLines.slice(0, maxLines || limit);
-  const wasTruncated = extractedLines.length > (maxLines || limit);
+  const effectiveLimit = maxLines || limit;
+  let limitedLines = extractedLines.slice(0, effectiveLimit);
+  let wasTruncated = extractedLines.length > effectiveLimit;
   
   // Calculate actual included ranges after limiting
-  const finalRanges = calculateFinalRanges(limitedLines, mergedRanges);
+  let finalRanges = calculateFinalRanges(limitedLines, mergedRanges);
+  
+  // Format with line numbers
+  let formattedContent = formatLineNumbers(limitedLines, finalRanges[0]?.[0] || 1);
+  
+  // Apply character limit if specified
+  let wasCharTruncated = false;
+  const charLimit = maxChars ?? DEFAULT_CHAR_LIMIT;
+  
+  if (formattedContent.length > charLimit) {
+    // Truncate by characters, but try to end at a line boundary
+    const truncatedContent = formattedContent.substring(0, charLimit);
+    const lastNewLineIndex = truncatedContent.lastIndexOf("\n");
+    
+    if (lastNewLineIndex > 0) {
+      // End at complete line
+      formattedContent = truncatedContent.substring(0, lastNewLineIndex);
+      // Recalculate how many lines we actually included
+      const actualLines = formattedContent.split("\n").length;
+      limitedLines = limitedLines.slice(0, actualLines);
+    } else {
+      // No newline found in truncated content, just use it
+      formattedContent = truncatedContent;
+    }
+    
+    wasCharTruncated = true;
+    wasTruncated = true;
+    
+    // Recalculate ranges after character truncation
+    finalRanges = calculateFinalRanges(limitedLines, mergedRanges);
+  }
   
   return {
-    content: formatLineNumbers(limitedLines, finalRanges[0]?.[0] || 1),
+    content: formattedContent,
     includedRanges: finalRanges,
     totalLines,
     wasTruncated,
+    wasCharTruncated,
   };
 }
 

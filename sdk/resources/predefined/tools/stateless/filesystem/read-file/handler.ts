@@ -25,6 +25,7 @@ function resolvePath(filePath: string, workspaceDir?: string): string {
  */
 export function createReadFileHandler(config: ReadFileConfig = {}) {
   const maxFileSize = config.maxFileSize ?? 500000;
+  const DEFAULT_CHAR_LIMIT = 50000; // Default character limit
 
   return async (params: Record<string, unknown>): Promise<ToolOutput> => {
     try {
@@ -32,7 +33,8 @@ export function createReadFileHandler(config: ReadFileConfig = {}) {
         path: filePath,
         offset,
         limit,
-      } = params as { path: string; offset?: number; limit?: number };
+        max_chars,
+      } = params as { path: string; offset?: number; limit?: number; max_chars?: number };
 
       // Validate 1-indexed line number parameters
       if (offset !== undefined && offset < 1) {
@@ -111,20 +113,62 @@ export function createReadFileHandler(config: ReadFileConfig = {}) {
       // Apply offsets and restrictions
       const start = offset ? Math.max(0, offset - 1) : 0; // Convert 1-indexed to 0-indexed
       const end = limit ? Math.min(lines.length, start + limit) : lines.length;
-      const selectedLines = lines.slice(start, end);
+      let selectedLines = lines.slice(start, end);
 
       // Format with line numbers (convert back to 1-indexed for display)
       const formattedLines = selectedLines.map(
         (line, index) => `${(start + index + 1).toString().padStart(6, " ")}|${line}`
       );
-      const numberedContent = formattedLines.join("\n");
+      let numberedContent = formattedLines.join("\n");
+
+      // Apply character limit if specified or use default
+      const charLimit = max_chars ?? DEFAULT_CHAR_LIMIT;
+      let wasCharTruncated = false;
+      
+      if (numberedContent.length > charLimit) {
+        // Truncate by characters, but try to end at a line boundary
+        const truncatedContent = numberedContent.substring(0, charLimit);
+        const lastNewLineIndex = truncatedContent.lastIndexOf("\n");
+        
+        if (lastNewLineIndex > 0) {
+          // End at complete line
+          numberedContent = truncatedContent.substring(0, lastNewLineIndex);
+          // Recalculate how many lines we actually included
+          const actualLines = numberedContent.split("\n").length;
+          selectedLines = selectedLines.slice(0, actualLines);
+        } else {
+          // No newline found in truncated content, just use it
+          numberedContent = truncatedContent;
+        }
+        
+        wasCharTruncated = true;
+      }
 
       // Add truncation notice if needed
       let finalContent = numberedContent;
-      if (end < lines.length) {
-        const nextOffset = end + 1;
+      const totalLines = lines.length;
+      const shownLines = selectedLines.length;
+      const actualEnd = start + shownLines;
+      
+      if (wasCharTruncated || actualEnd < totalLines) {
+        const nextOffset = actualEnd + 1;
         const effectiveLimit = limit || 100;
-        finalContent = `IMPORTANT: File content truncated.\nStatus: Showing lines ${start + 1}-${end} of ${lines.length} total lines.\nTo read more: Use the read_file tool with offset=${nextOffset} and limit=${effectiveLimit}.\n\n${numberedContent}`;
+        
+        let truncationMessage = "IMPORTANT: File content truncated.\n";
+        
+        if (wasCharTruncated) {
+          truncationMessage += `Status: Content truncated due to character limit (${charLimit} chars). Showing ${shownLines} of ${totalLines} total lines.\n`;
+          if (actualEnd < totalLines) {
+            truncationMessage += `To read more: Use the read_file tool with offset=${nextOffset} and limit=${effectiveLimit}.\n`;
+          } else {
+            truncationMessage += `To read remaining content: Use the read_file tool with offset=${nextOffset}.\n`;
+          }
+        } else {
+          truncationMessage += `Status: Showing lines ${start + 1}-${actualEnd} of ${totalLines} total lines.\n`;
+          truncationMessage += `To read more: Use the read_file tool with offset=${nextOffset} and limit=${effectiveLimit}.\n`;
+        }
+        
+        finalContent = `${truncationMessage}\n${numberedContent}`;
       } else if (selectedLines.length === 0) {
         finalContent = "Note: File is empty";
       }

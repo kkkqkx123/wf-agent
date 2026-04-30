@@ -19,7 +19,7 @@ import type { LifecycleCapable } from "../../core/types/lifecycle-capable.js";
  * Design Principles:
  * - Stateful design: Maintains the visibility context
  * - State management: Provides operations for creating, reading, updating, and deleting visibility states
- * - Thread isolation: Each thread has its own independent visibility context
+ * - Execution isolation: Each workflow execution has its own independent visibility context
  * - Lifecycle management: Implements the LifecycleCapable interface
  */
 export class ToolVisibilityStore implements LifecycleCapable {

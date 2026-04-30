@@ -49,7 +49,7 @@ export class MessagePublisher {
     level: MessageLevel = "info",
   ): void {
     this.bus.publish({
-      category: MsgCategory.THREAD,
+      category: MsgCategory.WORKFLOW_EXECUTION,
       type,
       level,
       entity,
@@ -135,7 +135,7 @@ export class MessagePublisher {
   publishSystem(type: SystemMessageType, data: unknown, level: MessageLevel = "info"): void {
     // System messages use a synthetic entity
     const entity: EntityIdentity = {
-      type: "thread",
+      type: "workflowExecution",
       id: "system",
       rootId: "system",
       depth: 0,

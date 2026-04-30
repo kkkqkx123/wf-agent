@@ -467,22 +467,22 @@ async function waitForCompletion(
  * - The polling period is 100ms
  */
 async function waitForCompletionByPolling(
-  childThreadIds: string[],
+  childExecutionIds: string[],
   joinStrategy: JoinStrategy,
   workflowExecutionRegistry: WorkflowExecutionRegistry,
   timeout: number | undefined,
-  parentThreadId?: string,
+  parentExecutionId?: string,
   eventManager?: EventRegistry,
-): Promise<{ completedThreads: WorkflowExecution[]; failedThreads: WorkflowExecution[] }> {
-  const completedThreads: WorkflowExecution[] = [];
-  const failedThreads: WorkflowExecution[] = [];
-  const pendingThreads = new Set(childThreadIds);
+): Promise<{ completedExecutions: WorkflowExecution[]; failedExecutions: WorkflowExecution[] }> {
+  const completedExecutions: WorkflowExecution[] = [];
+  const failedExecutions: WorkflowExecution[] = [];
+  const pendingExecutions = new Set(childExecutionIds);
   let conditionMet = false;
 
   // Enter the waiting loop
-  while (pendingThreads.size > 0) {
+  while (pendingExecutions.size > 0) {
     // Check the status of the sub-WorkflowExecution.
-    for (const executionId of Array.from(pendingThreads)) {
+    for (const executionId of Array.from(pendingExecutions)) {
       const executionEntity = workflowExecutionRegistry.get(executionId);
       if (!executionEntity) {
         continue;
@@ -491,22 +491,22 @@ async function waitForCompletionByPolling(
       const WorkflowExecution = executionEntity.getExecution();
       const status = executionEntity.getStatus();
       if (status === "COMPLETED") {
-        completedThreads.push(WorkflowExecution);
-        pendingThreads.delete(executionId);
+        completedExecutions.push(WorkflowExecution);
+        pendingExecutions.delete(executionId);
       } else if (status === "FAILED" || status === "CANCELLED") {
-        failedThreads.push(WorkflowExecution);
-        pendingThreads.delete(executionId);
+        failedExecutions.push(WorkflowExecution);
+        pendingExecutions.delete(executionId);
       }
     }
 
     // Determine whether to exit based on the strategy.
     if (
       shouldExitWait(
-        completedThreads,
-        failedThreads,
-        childThreadIds,
+        completedExecutions,
+        failedExecutions,
+        childExecutionIds,
         joinStrategy,
-        pendingThreads.size,
+        pendingExecutions.size,
       )
     ) {
       conditionMet = true;
@@ -518,14 +518,14 @@ async function waitForCompletionByPolling(
   }
 
   // Trigger the WORKFLOW_EXECUTION_JOIN_CONDITION_MET event
-  if (eventManager && parentThreadId && conditionMet) {
-    const parentThreadEntity = workflowExecutionRegistry.get(parentThreadId);
-    if (parentThreadEntity) {
+  if (eventManager && parentExecutionId && conditionMet) {
+    const parentExecutionEntity = workflowExecutionRegistry.get(parentExecutionId);
+    if (parentExecutionEntity) {
       const joinConditionMetEvent = buildWorkflowExecutionJoinConditionMetEvent({
-        executionId: parentThreadEntity.id,
-        workflowId: parentThreadEntity.getWorkflowId(),
-        parentExecutionId: parentThreadEntity.id,
-        childExecutionIds: childThreadIds,
+        executionId: parentExecutionEntity.id,
+        workflowId: parentExecutionEntity.getWorkflowId(),
+        parentExecutionId: parentExecutionEntity.id,
+        childExecutionIds: childExecutionIds,
         condition: joinStrategy,
       });
       await safeEmit(eventManager, joinConditionMetEvent);
@@ -533,35 +533,35 @@ async function waitForCompletionByPolling(
   }
 
   // Step 7: Return the completed WorkflowExecution array
-  return { completedThreads, failedThreads };
+  return { completedExecutions, failedExecutions };
 }
 
 /**
  * Verify whether the Join strategy is satisfied
- * @param completedThreads: Array of completed threads
- * @param failedThreads: Array of failed threads
- * @param childThreadIds: Array of child execution IDs
+ * @param completedExecutions: Array of completed executions
+ * @param failedExecutions: Array of failed executions
+ * @param childExecutionIds: Array of child execution IDs
  * @param joinStrategy: The Join strategy
  * @returns: Whether the strategy is satisfied
  */
 function validateJoinStrategy(
-  completedThreads: WorkflowExecution[],
-  failedThreads: WorkflowExecution[],
-  childThreadIds: string[],
+  completedExecutions: WorkflowExecution[],
+  failedExecutions: WorkflowExecution[],
+  childExecutionIds: string[],
   joinStrategy: JoinStrategy,
 ): boolean {
   switch (joinStrategy) {
     case "ALL_COMPLETED":
-      return failedThreads.length === 0;
+      return failedExecutions.length === 0;
     case "ANY_COMPLETED":
-      return completedThreads.length > 0;
+      return completedExecutions.length > 0;
     case "ALL_FAILED":
-      return failedThreads.length === childThreadIds.length;
+      return failedExecutions.length === childExecutionIds.length;
     case "ANY_FAILED":
-      return failedThreads.length > 0;
+      return failedExecutions.length > 0;
     case "SUCCESS_COUNT_THRESHOLD":
       // An additional threshold parameter is required; for now, we are handling it in a simplified manner.
-      return completedThreads.length > 0;
+      return completedExecutions.length > 0;
     default:
       return false;
   }

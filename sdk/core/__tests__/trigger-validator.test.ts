@@ -30,14 +30,14 @@ describe("Trigger Validator - Trigger Validator", () => {
   describe("Trigger condition validation", () => {
     it("Test for valid trigger conditions: a valid eventType should pass validation", () => {
       const condition: TriggerCondition = {
-        eventType: "THREAD_STARTED" as EventType,
+        eventType: "WORKFLOW_EXECUTION_STARTED" as EventType,
       };
 
       const result = validateTriggerCondition(condition);
 
       expect(result.isOk()).toBe(true);
       if (result.isOk()) {
-        expect(result.value.eventType).toBe("THREAD_STARTED");
+        expect(result.value.eventType).toBe("WORKFLOW_EXECUTION_STARTED");
       }
     });
 
@@ -75,11 +75,11 @@ describe("Trigger Validator - Trigger Validator", () => {
 
     it("Test optional eventName: eventName is optional for other eventTypes.", () => {
       const condition1: TriggerCondition = {
-        eventType: "THREAD_STARTED" as EventType,
+        eventType: "WORKFLOW_EXECUTION_STARTED" as EventType,
       };
 
       const condition2: TriggerCondition = {
-        eventType: "THREAD_STARTED" as EventType,
+        eventType: "WORKFLOW_EXECUTION_STARTED" as EventType,
         eventName: "optional-event-name",
       };
 
@@ -92,7 +92,7 @@ describe("Trigger Validator - Trigger Validator", () => {
 
     it("Test trigger condition metadata: metadata should be an optional object", () => {
       const condition: TriggerCondition = {
-        eventType: "THREAD_STARTED" as EventType,
+        eventType: "WORKFLOW_EXECUTION_STARTED" as EventType,
         metadata: {
           key1: "value1",
           key2: 123,
@@ -108,9 +108,9 @@ describe("Trigger Validator - Trigger Validator", () => {
   describe("Trigger Action Verification", () => {
     it("Test for valid triggered actions: valid actions should pass validation", () => {
       const action: TriggerAction = {
-        type: "pause_thread",
+        type: "pause_workflow_execution",
         parameters: {
-          executionId: "thread-123",
+          executionId: "workflow-execution-123",
           force: false,
         },
       };
@@ -131,17 +131,17 @@ describe("Trigger Validator - Trigger Validator", () => {
       expect(result.isErr()).toBe(true);
     });
 
-    it("Test action parameter validation: the pause_thread action parameter should be correctly validated", () => {
+    it("Test action parameter validation: the pause_workflow_execution action parameter should be correctly validated", () => {
       const action1: TriggerAction = {
-        type: "pause_thread",
+        type: "pause_workflow_execution",
         parameters: {
-          executionId: "thread-123",
+          executionId: "workflow-execution-123",
           force: false,
         },
       };
 
       const action2: any = {
-        type: "pause_thread",
+        type: "pause_workflow_execution",
         parameters: {
           force: false,
           // `executionId` is missing.
@@ -155,19 +155,19 @@ describe("Trigger Validator - Trigger Validator", () => {
       expect(result2.isErr()).toBe(true);
     });
 
-    it("Test action parameter validation: the pause_thread action parameter should be correctly validated", () => {
+    it("Test action parameter validation: the pause_workflow_execution action parameter should be correctly validated", () => {
       const action1: TriggerAction = {
-        type: "pause_thread",
+        type: "pause_workflow_execution",
         parameters: {
-          executionId: "thread-123",
+          executionId: "workflow-execution-123",
           reason: "Test Suspension",
         },
       };
 
       const action2: TriggerAction = {
-        type: "pause_thread",
+        type: "pause_workflow_execution",
         parameters: {
-          executionId: "thread-123",
+          executionId: "workflow-execution-123",
           // "reason" is optional.
         },
       };
@@ -183,7 +183,7 @@ describe("Trigger Validator - Trigger Validator", () => {
       const action1: TriggerAction = {
         type: "set_variable",
         parameters: {
-          executionId: "thread-123",
+          executionId: "workflow-execution-123",
           variables: {
             var1: "value1",
             var2: 123,
@@ -194,7 +194,7 @@ describe("Trigger Validator - Trigger Validator", () => {
       const action2: any = {
         type: "set_variable",
         parameters: {
-          executionId: "thread-123",
+          executionId: "workflow-execution-123",
           variables: {},
           // Variables cannot be empty.
         },
@@ -258,9 +258,9 @@ describe("Trigger Validator - Trigger Validator", () => {
 
     it("Test action metadata: metadata should be an optional object", () => {
       const action: TriggerAction = {
-        type: "pause_thread",
+        type: "pause_workflow_execution",
         parameters: {
-          executionId: "thread-123",
+          executionId: "workflow-execution-123",
         },
         metadata: {
           description: "Test Motion",
@@ -280,12 +280,12 @@ describe("Trigger Validator - Trigger Validator", () => {
         name: "Test Trigger",
         description: "This is a test trigger",
         condition: {
-          eventType: "THREAD_STARTED" as EventType,
+          eventType: "WORKFLOW_EXECUTION_STARTED" as EventType,
         },
         action: {
-          type: "pause_thread",
+          type: "pause_workflow_execution",
           parameters: {
-            executionId: "thread-123",
+            executionId: "workflow-execution-123",
           },
         },
         enabled: true,
@@ -301,12 +301,12 @@ describe("Trigger Validator - Trigger Validator", () => {
       const trigger: any = {
         name: "Test Trigger",
         condition: {
-          eventType: "THREAD_STARTED" as EventType,
+          eventType: "WORKFLOW_EXECUTION_STARTED" as EventType,
         },
         action: {
-          type: "pause_thread",
+          type: "pause_workflow_execution",
           parameters: {
-            executionId: "thread-123",
+            executionId: "workflow-execution-123",
           },
         },
         // 'id is missing'
@@ -321,12 +321,12 @@ describe("Trigger Validator - Trigger Validator", () => {
       const trigger: any = {
         id: "trigger-123",
         condition: {
-          eventType: "THREAD_STARTED" as EventType,
+          eventType: "WORKFLOW_EXECUTION_STARTED" as EventType,
         },
         action: {
-          type: "pause_thread",
+          type: "pause_workflow_execution",
           parameters: {
-            executionId: "thread-123",
+            executionId: "workflow-execution-123",
           },
         },
         // `name` is missing.
@@ -342,9 +342,9 @@ describe("Trigger Validator - Trigger Validator", () => {
         id: "trigger-123",
         name: "Test Trigger",
         action: {
-          type: "pause_thread",
+          type: "pause_workflow_execution",
           parameters: {
-            executionId: "thread-123",
+            executionId: "workflow-execution-123",
           },
         },
         // "condition is missing"
@@ -360,7 +360,7 @@ describe("Trigger Validator - Trigger Validator", () => {
         id: "trigger-123",
         name: "Test Trigger",
         condition: {
-          eventType: "THREAD_STARTED" as EventType,
+          eventType: "WORKFLOW_EXECUTION_STARTED" as EventType,
         },
         // "action missing"
       };
@@ -375,12 +375,12 @@ describe("Trigger Validator - Trigger Validator", () => {
         id: "trigger-123",
         name: "Test Trigger",
         condition: {
-          eventType: "THREAD_STARTED" as EventType,
+          eventType: "WORKFLOW_EXECUTION_STARTED" as EventType,
         },
         action: {
-          type: "pause_thread",
+          type: "pause_workflow_execution",
           parameters: {
-            executionId: "thread-123",
+            executionId: "workflow-execution-123",
           },
         },
         // enabled、maxTriggers、description、metadata 未设置
@@ -396,12 +396,12 @@ describe("Trigger Validator - Trigger Validator", () => {
         id: "trigger-123",
         name: "Test Trigger",
         condition: {
-          eventType: "THREAD_STARTED" as EventType,
+          eventType: "WORKFLOW_EXECUTION_STARTED" as EventType,
         },
         action: {
-          type: "pause_thread",
+          type: "pause_workflow_execution",
           parameters: {
-            executionId: "thread-123",
+            executionId: "workflow-execution-123",
           },
         },
         maxTriggers: -1,
@@ -417,12 +417,12 @@ describe("Trigger Validator - Trigger Validator", () => {
         id: "trigger-123",
         name: "Test Trigger",
         condition: {
-          eventType: "THREAD_STARTED" as EventType,
+          eventType: "WORKFLOW_EXECUTION_STARTED" as EventType,
         },
         action: {
-          type: "pause_thread",
+          type: "pause_workflow_execution",
           parameters: {
-            executionId: "thread-123",
+            executionId: "workflow-execution-123",
           },
         },
         maxTriggers: 0,
@@ -441,9 +441,9 @@ describe("Trigger Validator - Trigger Validator", () => {
           eventType: "INVALID_EVENT_TYPE",
         },
         action: {
-          type: "pause_thread",
+          type: "pause_workflow_execution",
           parameters: {
-            executionId: "thread-123",
+            executionId: "workflow-execution-123",
           },
         },
       };
@@ -460,14 +460,14 @@ describe("Trigger Validator - Trigger Validator", () => {
         {
           id: "trigger-1",
           name: "Trigger 1",
-          condition: { eventType: "THREAD_STARTED" as EventType },
-          action: { type: "pause_thread", parameters: { executionId: "thread-123" } },
+          condition: { eventType: "WORKFLOW_EXECUTION_STARTED" as EventType },
+          action: { type: "pause_workflow_execution", parameters: { executionId: "workflow-execution-123" } },
         },
         {
           id: "trigger-2",
           name: "Trigger 2",
-          condition: { eventType: "THREAD_COMPLETED" as EventType },
-          action: { type: "pause_thread", parameters: { executionId: "thread-456" } },
+          condition: { eventType: "WORKFLOW_EXECUTION_COMPLETED" as EventType },
+          action: { type: "pause_workflow_execution", parameters: { executionId: "workflow-execution-456" } },
         },
       ];
 
@@ -481,14 +481,14 @@ describe("Trigger Validator - Trigger Validator", () => {
         {
           id: "trigger-1",
           name: "Trigger 1",
-          condition: { eventType: "THREAD_STARTED" as EventType },
-          action: { type: "pause_thread", parameters: { executionId: "thread-123" } },
+          condition: { eventType: "WORKFLOW_EXECUTION_STARTED" as EventType },
+          action: { type: "pause_workflow_execution", parameters: { executionId: "workflow-execution-123" } },
         },
         {
           id: "trigger-1",
           name: "Trigger 2",
-          condition: { eventType: "THREAD_COMPLETED" as EventType },
-          action: { type: "pause_thread", parameters: { executionId: "thread-456" } },
+          condition: { eventType: "WORKFLOW_EXECUTION_COMPLETED" as EventType },
+          action: { type: "pause_workflow_execution", parameters: { executionId: "workflow-execution-456" } },
         },
       ];
 
@@ -518,7 +518,7 @@ describe("Trigger Validator - Trigger Validator", () => {
         id: "trigger-1",
         name: "Trigger 1",
         condition: { eventType: "THREAD_STARTED" as EventType },
-        action: { type: "pause_thread", parameters: { executionId: "thread-123" } },
+        action: { type: "pause_workflow_execution", parameters: { executionId: "workflow-execution-123" } },
       };
 
       const triggerReference: TriggerReference = {
@@ -537,13 +537,13 @@ describe("Trigger Validator - Trigger Validator", () => {
           id: "trigger-1",
           name: "Trigger 1",
           condition: { eventType: "INVALID_EVENT_TYPE" },
-          action: { type: "pause_thread", parameters: { executionId: "thread-123" } },
+          action: { type: "pause_workflow_execution", parameters: { executionId: "workflow-execution-123" } },
         },
         {
           id: "trigger-1",
           name: "Trigger 2",
-          condition: { eventType: "THREAD_COMPLETED" as EventType },
-          action: { type: "pause_thread", parameters: { executionId: "thread-456" } },
+          condition: { eventType: "WORKFLOW_EXECUTION_COMPLETED" as EventType },
+          action: { type: "pause_workflow_execution", parameters: { executionId: "workflow-execution-456" } },
         },
       ];
 
@@ -597,10 +597,10 @@ describe("Trigger Validator - Trigger Validator", () => {
         triggerName: "Custom Trigger Names",
         configOverride: {
           condition: {
-            eventType: "THREAD_STARTED" as EventType,
+            eventType: "WORKFLOW_EXECUTION_STARTED" as EventType,
           },
           action: {
-            type: "pause_thread",
+            type: "pause_workflow_execution",
           },
           enabled: true,
           maxTriggers: 10,

@@ -172,7 +172,7 @@ export class WorkflowNavigator {
   async selectNextNodeWithContext(
     currentNodeId: ID,
     workflowExecution: {
-      variableScopes: { thread: Record<string, unknown> };
+      variableScopes: { workflowExecution: Record<string, unknown> };
       input: unknown;
       output: unknown;
     },
@@ -225,7 +225,7 @@ export class WorkflowNavigator {
   private async filterEdgesWithContext(
     edges: Edge[],
     workflowExecution: {
-      variableScopes: { thread: Record<string, unknown> };
+      variableScopes: { workflowExecution: Record<string, unknown> };
       input: unknown;
       output: unknown;
     },
@@ -248,7 +248,7 @@ export class WorkflowNavigator {
   private async evaluateEdgeConditionWithContext(
     edge: Edge,
     workflowExecution: {
-      variableScopes: { thread: Record<string, unknown> };
+      variableScopes: { workflowExecution: Record<string, unknown> };
       input: unknown;
       output: unknown;
     },
@@ -265,7 +265,7 @@ export class WorkflowNavigator {
 
     // Build an evaluation context
     const context = {
-      variables: workflowExecution.variableScopes.thread,
+      variables: workflowExecution.variableScopes.workflowExecution,
       input: workflowExecution.input as Record<string, unknown>,
       output: workflowExecution.output as Record<string, unknown>,
     };

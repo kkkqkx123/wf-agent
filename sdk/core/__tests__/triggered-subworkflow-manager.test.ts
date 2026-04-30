@@ -21,7 +21,7 @@ import type { TaskStatus } from "@wf-agent/types";
 import type { ExecutionInstanceType } from "../types/index.js";
 
 // Mock implementations
-const mockThreadRegistry = {
+const mockWorkflowExecutionRegistry = {
   register: vi.fn(),
   get: vi.fn(),
   delete: vi.fn(),
@@ -51,7 +51,7 @@ const mockWorkflowExecutionPoolService = {
 
 describe("Triggered Subworkflow Manager - Triggered Subworkflow Manager", () => {
   let manager: TriggeredSubworkflowHandler;
-  let mockMainThreadEntity: any;
+  let mockMainWorkflowExecutionEntity: any;
   let mockSubgraphEntity: any;
 
   beforeEach(() => {
@@ -59,7 +59,7 @@ describe("Triggered Subworkflow Manager - Triggered Subworkflow Manager", () => 
 
     // Create a manager
     manager = new TriggeredSubworkflowHandler(
-      mockThreadRegistry,
+      mockWorkflowExecutionRegistry,
       mockWorkflowExecutionBuilder,
       mockTaskQueueManager,
       mockEventManager,
@@ -67,9 +67,9 @@ describe("Triggered Subworkflow Manager - Triggered Subworkflow Manager", () => 
     );
 
     // Mock Main Workflow Execution Entity
-    mockMainThreadEntity = {
+    mockMainWorkflowExecutionEntity = {
       id: "main-execution-123",
-      getExecutionId: vi.fn(() => "main-thread-123"),
+      getExecutionId: vi.fn(() => "main-workflow-execution-123"),
       getWorkflowId: vi.fn(() => "workflow-123"),
       getInput: vi.fn(() => ({ key: "value" })),
       getOutput: vi.fn(() => ({ result: "success" })),
@@ -79,12 +79,12 @@ describe("Triggered Subworkflow Manager - Triggered Subworkflow Manager", () => 
 
     // Mock Sub-workflow Entity
     mockSubgraphEntity = {
-      id: "subgraph-thread-456",
-      getExecutionId: vi.fn(() => "subgraph-thread-456"),
+      id: "subgraph-workflow-execution-456",
+      getExecutionId: vi.fn(() => "subgraph-workflow-execution-456"),
       getWorkflowId: vi.fn(() => "subgraph-workflow-789"),
-      setThreadType: vi.fn(),
+      setWorkflowExecutionType: vi.fn(),
       setParentExecutionId: vi.fn(),
-      getParentThreadId: vi.fn(() => "main-thread-123"),
+      getParentWorkflowExecutionId: vi.fn(() => "main-workflow-execution-123"),
       setTriggeredSubworkflowId: vi.fn(),
       getTriggeredSubworkflowId: vi.fn(() => "subgraph-1"),
     };
@@ -98,7 +98,7 @@ describe("Triggered Subworkflow Manager - Triggered Subworkflow Manager", () => 
       const task: TriggeredSubgraphTask = {
         subgraphId: "subgraph-1",
         triggerId: "trigger-1",
-        mainThreadEntity: mockMainThreadEntity,
+        mainWorkflowExecutionEntity: mockMainWorkflowExecutionEntity,
         input: { customInput: "test" },
         config: {
           waitForCompletion: true,
@@ -106,8 +106,8 @@ describe("Triggered Subworkflow Manager - Triggered Subworkflow Manager", () => 
         },
       };
 
-      const mockThreadResult: WorkflowExecutionResult = {
-        executionId: "subgraph-thread-456",
+      const mockWorkflowExecutionResult: WorkflowExecutionResult = {
+        executionId: "subgraph-workflow-execution-456",
         output: { compressed: "context" },
         executionTime: 100,
         nodeResults: [],
@@ -123,7 +123,7 @@ describe("Triggered Subworkflow Manager - Triggered Subworkflow Manager", () => 
 
       const expectedResult: ExecutedSubgraphResult = {
         subgraphEntity: mockSubgraphEntity,
-        executionResult: mockThreadResult,
+        executionResult: mockWorkflowExecutionResult,
         executionTime: 100,
       };
 
@@ -134,15 +134,15 @@ describe("Triggered Subworkflow Manager - Triggered Subworkflow Manager", () => 
       expect(mockWorkflowExecutionBuilder.build).toHaveBeenCalledWith("subgraph-1", {
         input: expect.objectContaining({
           triggerId: "trigger-1",
-          output: mockMainThreadEntity.getOutput(),
-          input: mockMainThreadEntity.getInput(),
+          output: mockMainWorkflowExecutionEntity.getOutput(),
+          input: mockMainWorkflowExecutionEntity.getInput(),
           customInput: "test",
         }),
       });
 
-      expect(mockThreadRegistry.register).toHaveBeenCalledWith(mockSubgraphEntity);
-      expect(mockMainThreadEntity.registerChildExecution).toHaveBeenCalledWith("subgraph-thread-456");
-      expect(mockSubgraphEntity.setParentExecutionId).toHaveBeenCalledWith("main-thread-123");
+      expect(mockWorkflowExecutionRegistry.register).toHaveBeenCalledWith(mockSubgraphEntity);
+      expect(mockMainWorkflowExecutionEntity.registerChildExecution).toHaveBeenCalledWith("subgraph-workflow-execution-456");
+      expect(mockSubgraphEntity.setParentWorkflowExecutionId).toHaveBeenCalledWith("main-workflow-execution-123");
       expect(mockSubgraphEntity.setTriggeredSubworkflowId).toHaveBeenCalledWith("subgraph-1");
 
       expect(result).toEqual(expectedResult);
@@ -152,15 +152,15 @@ describe("Triggered Subworkflow Manager - Triggered Subworkflow Manager", () => 
       const task: TriggeredSubgraphTask = {
         subgraphId: "subgraph-1",
         triggerId: "trigger-1",
-        mainThreadEntity: mockMainThreadEntity,
+        mainWorkflowExecutionEntity: mockMainWorkflowExecutionEntity,
         input: {},
         config: {
           waitForCompletion: true,
         },
       };
 
-      const mockThreadResult: WorkflowExecutionResult = {
-        executionId: "subgraph-thread-456",
+      const mockWorkflowExecutionResult: WorkflowExecutionResult = {
+        executionId: "subgraph-workflow-execution-456",
         output: { data: "test" },
         executionTime: 200,
         nodeResults: [],
@@ -176,7 +176,7 @@ describe("Triggered Subworkflow Manager - Triggered Subworkflow Manager", () => 
 
       const expectedResult: ExecutedSubgraphResult = {
         subgraphEntity: mockSubgraphEntity,
-        executionResult: mockThreadResult,
+        executionResult: mockWorkflowExecutionResult,
         executionTime: 200,
       };
 
@@ -191,7 +191,7 @@ describe("Triggered Subworkflow Manager - Triggered Subworkflow Manager", () => 
       const task: TriggeredSubgraphTask = {
         subgraphId: "subgraph-1",
         triggerId: "trigger-1",
-        mainThreadEntity: mockMainThreadEntity,
+        mainWorkflowExecutionEntity: mockMainWorkflowExecutionEntity,
         input: {},
         config: {
           waitForCompletion: true,
@@ -210,7 +210,7 @@ describe("Triggered Subworkflow Manager - Triggered Subworkflow Manager", () => 
       const task: TriggeredSubgraphTask = {
         subgraphId: "subgraph-1",
         triggerId: "trigger-1",
-        mainThreadEntity: mockMainThreadEntity,
+        mainWorkflowExecutionEntity: mockMainWorkflowExecutionEntity,
         input: {},
         config: {
           waitForCompletion: false,
@@ -241,7 +241,7 @@ describe("Triggered Subworkflow Manager - Triggered Subworkflow Manager", () => 
       const task: TriggeredSubgraphTask = {
         subgraphId: "subgraph-1",
         triggerId: "trigger-1",
-        mainThreadEntity: mockMainThreadEntity,
+        mainWorkflowExecutionEntity: mockMainWorkflowExecutionEntity,
         input: {},
         config: {
           waitForCompletion: false,
@@ -271,13 +271,13 @@ describe("Triggered Subworkflow Manager - Triggered Subworkflow Manager", () => 
       const task: TriggeredSubgraphTask = {
         subgraphId: "subgraph-1",
         triggerId: "trigger-1",
-        mainThreadEntity: mockMainThreadEntity,
+        mainWorkflowExecutionEntity: mockMainWorkflowExecutionEntity,
         input: {},
         // The `config` setting is not configured.
       };
 
-      const mockThreadResult: WorkflowExecutionResult = {
-        executionId: "subgraph-thread-456",
+      const mockWorkflowExecutionResult: WorkflowExecutionResult = {
+        executionId: "subgraph-workflow-execution-456",
         output: {},
         executionTime: 50,
         nodeResults: [],
@@ -293,7 +293,7 @@ describe("Triggered Subworkflow Manager - Triggered Subworkflow Manager", () => 
 
       const expectedResult: ExecutedSubgraphResult = {
         subgraphEntity: mockSubgraphEntity,
-        executionResult: mockThreadResult,
+        executionResult: mockWorkflowExecutionResult,
         executionTime: 50,
       };
 
@@ -310,7 +310,7 @@ describe("Triggered Subworkflow Manager - Triggered Subworkflow Manager", () => 
       const mockTaskInfo = {
         id: "task-123",
         status: "RUNNING" as TaskStatus,
-        instanceType: "thread" as ExecutionInstanceType,
+        instanceType: "workflowExecution" as ExecutionInstanceType,
         instance: mockSubgraphEntity,
         executionEntity: mockSubgraphEntity,
         taskManager: manager,
@@ -346,20 +346,20 @@ describe("Triggered Subworkflow Manager - Triggered Subworkflow Manager", () => 
     });
   });
 
-  describe("Parent-child thread relationship", () => {
-    it("Testing Establishing Parent-Child Relationships: Correctly Establishing Parent-Child Thread Relationships", async () => {
+  describe("Parent-child workflow execution relationship", () => {
+    it("Testing Establishing Parent-Child Relationships: Correctly Establishing Parent-Child Workflow Execution Relationships", async () => {
       const task: TriggeredSubgraphTask = {
         subgraphId: "subgraph-1",
         triggerId: "trigger-1",
-        mainThreadEntity: mockMainThreadEntity,
+        mainWorkflowExecutionEntity: mockMainWorkflowExecutionEntity,
         input: {},
         config: {
           waitForCompletion: true,
         },
       };
 
-      const mockThreadResult: WorkflowExecutionResult = {
-        executionId: "subgraph-thread-456",
+      const mockWorkflowExecutionResult: WorkflowExecutionResult = {
+        executionId: "subgraph-workflow-execution-456",
         output: {},
         executionTime: 50,
         nodeResults: [],
@@ -375,15 +375,15 @@ describe("Triggered Subworkflow Manager - Triggered Subworkflow Manager", () => 
 
       mockTaskQueueManager.submitSync.mockResolvedValue({
         subgraphEntity: mockSubgraphEntity,
-        executionResult: mockThreadResult,
+        executionResult: mockWorkflowExecutionResult,
         executionTime: 50,
       });
 
       await manager.executeTriggeredSubgraph(task);
 
       // Verify that the parent-child relationship has been established.
-      expect(mockMainThreadEntity.registerChildExecution).toHaveBeenCalledWith("subgraph-thread-456");
-      expect(mockSubgraphEntity.setParentExecutionId).toHaveBeenCalledWith("main-thread-123");
+      expect(mockMainWorkflowExecutionEntity.registerChildExecution).toHaveBeenCalledWith("subgraph-workflow-execution-456");
+      expect(mockSubgraphEntity.setParentWorkflowExecutionId).toHaveBeenCalledWith("main-workflow-execution-123");
       expect(mockSubgraphEntity.setTriggeredSubworkflowId).toHaveBeenCalledWith("subgraph-1");
     });
 
@@ -391,15 +391,15 @@ describe("Triggered Subworkflow Manager - Triggered Subworkflow Manager", () => 
       const task: TriggeredSubgraphTask = {
         subgraphId: "subgraph-1",
         triggerId: "trigger-1",
-        mainThreadEntity: mockMainThreadEntity,
+        mainWorkflowExecutionEntity: mockMainWorkflowExecutionEntity,
         input: {},
         config: {
           waitForCompletion: true,
         },
       };
 
-      const mockThreadResult: WorkflowExecutionResult = {
-        executionId: "subgraph-thread-456",
+      const mockWorkflowExecutionResult: WorkflowExecutionResult = {
+        executionId: "subgraph-workflow-execution-456",
         output: {},
         executionTime: 50,
         nodeResults: [],
@@ -415,18 +415,18 @@ describe("Triggered Subworkflow Manager - Triggered Subworkflow Manager", () => 
 
       mockTaskQueueManager.submitSync.mockResolvedValue({
         subgraphEntity: mockSubgraphEntity,
-        executionResult: mockThreadResult,
+        executionResult: mockWorkflowExecutionResult,
         executionTime: 50,
       });
 
-      // 设置 mockThreadRegistry.get 返回 mockMainThreadEntity
-      mockThreadRegistry.get.mockReturnValue(mockMainThreadEntity);
+      // 设置 mockWorkflowExecutionRegistry.get 返回 mockMainWorkflowExecutionEntity
+      mockWorkflowExecutionRegistry.get.mockReturnValue(mockMainWorkflowExecutionEntity);
 
       await manager.executeTriggeredSubgraph(task);
 
       // Verify that the parent-child relationship has been canceled.
-      expect(mockMainThreadEntity.unregisterChildExecution).toHaveBeenCalledWith(
-        "subgraph-thread-456",
+      expect(mockMainWorkflowExecutionEntity.unregisterChildExecution).toHaveBeenCalledWith(
+        "subgraph-workflow-execution-456",
       );
     });
   });
@@ -448,7 +448,7 @@ describe("Triggered Subworkflow Manager - Triggered Subworkflow Manager", () => 
       expect(mockTaskQueueManager.getQueueStats).toHaveBeenCalled();
     });
 
-    it("Testing thread pool statistics: getPoolStats returns the correct thread pool statistics", () => {
+    it("Testing workflow execution pool statistics: getPoolStats returns the correct workflow execution pool statistics", () => {
       const poolStats = {
         activeThreads: 3,
         idleThreads: 2,
@@ -500,7 +500,7 @@ describe("Triggered Subworkflow Manager - Triggered Subworkflow Manager", () => 
     it("Test for missing subgraphId: should throw error", async () => {
       const task: any = {
         triggerId: "trigger-1",
-        mainThreadEntity: mockMainThreadEntity,
+        mainWorkflowExecutionEntity: mockMainWorkflowExecutionEntity,
         // `subgraphId` is missing.
       };
 
@@ -521,7 +521,7 @@ describe("Triggered Subworkflow Manager - Triggered Subworkflow Manager", () => 
       const task: TriggeredSubgraphTask = {
         subgraphId: "subgraph-1",
         triggerId: "trigger-1",
-        mainThreadEntity: mockMainThreadEntity,
+        mainWorkflowExecutionEntity: mockMainWorkflowExecutionEntity,
         input: {},
         config: {
           waitForCompletion: true,

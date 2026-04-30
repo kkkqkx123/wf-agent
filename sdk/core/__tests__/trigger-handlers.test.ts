@@ -2,9 +2,9 @@
  * Trigger Handler Integration Tests
  *
  * Test Scenarios:
- * - Stop the thread processor
- * - Pause the thread processor
- * - Resume the thread processor
+ * - Stop the workflow execution processor
+ * - Pause the workflow execution processor
+ * - Resume the workflow execution processor
  * - Skip the node processor
  * - Set the variable processor
  * - Send a notification processor
@@ -24,15 +24,15 @@ import type { TriggerAction, TriggerExecutionResult } from "@wf-agent/types";
 
 // Mock implementations
 const mockWorkflowLifecycleCoordinator = {
-  stopThread: vi.fn(),
-  pauseThread: vi.fn(),
-  resumeThread: vi.fn(),
+  stopWorkflowExecution: vi.fn(),
+  pauseWorkflowExecution: vi.fn(),
+  resumeWorkflowExecution: vi.fn(),
 } as any;
 
-const mockThreadRegistry = {
+const mockWorkflowExecutionRegistry = {
   get: vi.fn().mockReturnValue({
-    id: "thread-123",
-    getThreadId: vi.fn(() => "thread-123"),
+    id: "workflow-execution-123",
+    getWorkflowExecutionId: vi.fn(() => "workflow-execution-123"),
     getWorkflowId: vi.fn(() => "workflow-123"),
     getThread: vi.fn(() => ({
       nodeResults: [],
@@ -64,52 +64,52 @@ const mockScriptService = {
 } as any;
 
 describe("Trigger Handlers", () => {
-  describe("Pause Thread Processor", () => {
-    it("Test suspended thread: pauseThreadHandler correctly suspends the specified thread", async () => {
+  describe("Pause Workflow Execution Processor", () => {
+    it("Test suspended workflow execution: pauseWorkflowExecutionHandler correctly suspends the specified workflow execution", async () => {
       const action: TriggerAction = {
-        type: "pause_thread",
+        type: "pause_workflow_execution",
         parameters: {
-          executionId: "thread-123",
+          executionId: "workflow-execution-123",
           reason: "Test Suspension",
         },
       };
 
-      const handler = getTriggerHandler("pause_thread");
+      const handler = getTriggerHandler("pause_workflow_execution");
       const result = await handler(action, "trigger-1", mockWorkflowLifecycleCoordinator);
 
-      expect(mockWorkflowLifecycleCoordinator.pauseThread).toHaveBeenCalledWith("thread-123");
+      expect(mockWorkflowLifecycleCoordinator.pauseWorkflowExecution).toHaveBeenCalledWith("workflow-execution-123");
       expect(result.success).toBe(true);
     });
 
     it("Test pause reason: the reason for pause is correctly recorded by the reason parameter", async () => {
       const action: TriggerAction = {
-        type: "pause_thread",
+        type: "pause_workflow_execution",
         parameters: {
-          executionId: "thread-123",
+          executionId: "workflow-execution-123",
           // "reason" is not set.
         },
       };
 
-      const handler = getTriggerHandler("pause_thread");
+      const handler = getTriggerHandler("pause_workflow_execution");
       await handler(action, "trigger-1", mockWorkflowLifecycleCoordinator);
 
-      expect(mockWorkflowLifecycleCoordinator.pauseThread).toHaveBeenCalledWith("thread-123");
+      expect(mockWorkflowLifecycleCoordinator.pauseWorkflowExecution).toHaveBeenCalledWith("workflow-execution-123");
     });
   });
 
-  describe("Recovery Thread Processor", () => {
-    it("Test for resuming threads: resumeThreadHandler correctly resumes the specified threads", async () => {
+  describe("Recovery Workflow Execution Processor", () => {
+    it("Test for resuming workflow executions: resumeWorkflowExecutionHandler correctly resumes the specified workflow executions", async () => {
       const action: TriggerAction = {
-        type: "resume_thread",
+        type: "resume_workflow_execution",
         parameters: {
-          executionId: "thread-123",
+          executionId: "workflow-execution-123",
         },
       };
 
-      const handler = getTriggerHandler("resume_thread");
+      const handler = getTriggerHandler("resume_workflow_execution");
       const result = await handler(action, "trigger-1", mockWorkflowLifecycleCoordinator);
 
-      expect(mockWorkflowLifecycleCoordinator.resumeThread).toHaveBeenCalledWith("thread-123");
+      expect(mockWorkflowLifecycleCoordinator.resumeWorkflowExecution).toHaveBeenCalledWith("workflow-execution-123");
       expect(result.success).toBe(true);
     });
   });
@@ -119,13 +119,13 @@ describe("Trigger Handlers", () => {
       const action: TriggerAction = {
         type: "skip_node",
         parameters: {
-          executionId: "thread-123",
+          executionId: "workflow-execution-123",
           nodeId: "node-456",
         },
       };
 
       const handler = getTriggerHandler("skip_node");
-      const result = await handler(action, "trigger-1", mockThreadRegistry, mockEventManager);
+      const result = await handler(action, "trigger-1", mockWorkflowExecutionRegistry, mockEventManager);
 
       expect(result.success).toBe(true);
       expect(result.triggerId).toBe("trigger-1");
@@ -137,17 +137,17 @@ describe("Trigger Handlers", () => {
       const action: TriggerAction = {
         type: "set_variable",
         parameters: {
-          executionId: "thread-123",
+          executionId: "workflow-execution-123",
           variables: {
             var1: "value1",
             var2: 123,
           },
-          scope: "thread",
+          scope: "workflowExecution",
         },
       };
 
       const handler = getTriggerHandler("set_variable");
-      const result = await handler(action, "trigger-1", mockThreadRegistry);
+      const result = await handler(action, "trigger-1", mockWorkflowExecutionRegistry);
 
       expect(result.success).toBe(true);
       expect(result.triggerId).toBe("trigger-1");
@@ -157,7 +157,7 @@ describe("Trigger Handlers", () => {
       const action: TriggerAction = {
         type: "set_variable",
         parameters: {
-          executionId: "thread-123",
+          executionId: "workflow-execution-123",
           variables: {
             globalVar: "global-value",
           },
@@ -166,7 +166,7 @@ describe("Trigger Handlers", () => {
       };
 
       const handler = getTriggerHandler("set_variable");
-      const result = await handler(action, "trigger-1", mockThreadRegistry);
+      const result = await handler(action, "trigger-1", mockWorkflowExecutionRegistry);
 
       expect(result.success).toBe(true);
     });
@@ -311,11 +311,11 @@ describe("Trigger Handlers", () => {
       const result = await handler(
         action,
         "trigger-1",
-        mockThreadRegistry,
+        mockWorkflowExecutionRegistry,
         mockEventManager,
         mockWorkflowExecutionBuilder,
         mockTaskQueueManager,
-        "parent-thread-456",
+        "parent-workflow-execution-456",
       );
 
       expect(result.success).toBe(true);
@@ -335,11 +335,11 @@ describe("Trigger Handlers", () => {
       const result = await handler(
         action,
         "trigger-1",
-        mockThreadRegistry,
+        mockWorkflowExecutionRegistry,
         mockEventManager,
         mockWorkflowExecutionBuilder,
         mockTaskQueueManager,
-        "parent-thread-456",
+        "parent-workflow-execution-456",
       );
 
       expect(result.success).toBe(true);
@@ -351,7 +351,7 @@ describe("Trigger Handlers", () => {
       const action: TriggerAction = {
         type: "apply_message_operation",
         parameters: {
-          executionId: "thread-123",
+          executionId: "workflow-execution-123",
           operationType: "compress",
           config: {
             strategy: "keep-last-n",
@@ -361,7 +361,7 @@ describe("Trigger Handlers", () => {
       };
 
       const handler = getTriggerHandler("apply_message_operation");
-      const result = await handler(action, "trigger-1", mockThreadRegistry);
+      const result = await handler(action, "trigger-1", mockWorkflowExecutionRegistry);
 
       expect(result.success).toBe(true);
       expect(result.triggerId).toBe("trigger-1");
@@ -371,13 +371,13 @@ describe("Trigger Handlers", () => {
       const action: TriggerAction = {
         type: "apply_message_operation",
         parameters: {
-          executionId: "thread-123",
+          executionId: "workflow-execution-123",
           operationType: "truncate",
         },
       };
 
       const handler = getTriggerHandler("apply_message_operation");
-      const result = await handler(action, "trigger-1", mockThreadRegistry);
+      const result = await handler(action, "trigger-1", mockWorkflowExecutionRegistry);
 
       expect(result.success).toBe(true);
     });
@@ -386,9 +386,9 @@ describe("Trigger Handlers", () => {
   describe("processor mapping", () => {
     it("Test trigger handler mapping: triggerHandlers contains all handlers", () => {
       expect(triggerHandlers).toBeDefined();
-      expect(triggerHandlers["stop_thread"]).toBeDefined();
-      expect(triggerHandlers["pause_thread"]).toBeDefined();
-      expect(triggerHandlers["resume_thread"]).toBeDefined();
+      expect(triggerHandlers["stop_workflow_execution"]).toBeDefined();
+      expect(triggerHandlers["pause_workflow_execution"]).toBeDefined();
+      expect(triggerHandlers["resume_workflow_execution"]).toBeDefined();
       expect(triggerHandlers["skip_node"]).toBeDefined();
       expect(triggerHandlers["set_variable"]).toBeDefined();
       expect(triggerHandlers["send_notification"]).toBeDefined();
@@ -399,13 +399,13 @@ describe("Trigger Handlers", () => {
     });
 
     it("Test to get the handler: getTriggerHandler returns the correct handler", () => {
-      const stopThreadHandler = getTriggerHandler("stop_thread");
-      const pauseThreadHandler = getTriggerHandler("pause_thread");
-      const resumeThreadHandler = getTriggerHandler("resume_thread");
+      const stopWorkflowExecutionHandler = getTriggerHandler("stop_workflow_execution");
+      const pauseWorkflowExecutionHandler = getTriggerHandler("pause_workflow_execution");
+      const resumeWorkflowExecutionHandler = getTriggerHandler("resume_workflow_execution");
 
-      expect(stopThreadHandler).toBeDefined();
-      expect(pauseThreadHandler).toBeDefined();
-      expect(resumeThreadHandler).toBeDefined();
+      expect(stopWorkflowExecutionHandler).toBeDefined();
+      expect(pauseWorkflowExecutionHandler).toBeDefined();
+      expect(resumeWorkflowExecutionHandler).toBeDefined();
     });
 
     it("Test to get non-existent processor: should throw an error", () => {
@@ -418,16 +418,16 @@ describe("Trigger Handlers", () => {
   describe("Processor execution results", () => {
     it("Test that all processors return the correct result format", async () => {
       const actionConfigs = [
-        { type: "pause_thread", parameters: { executionId: "thread-123" } },
-        { type: "resume_thread", parameters: { executionId: "thread-123" } },
-        { type: "skip_node", parameters: { executionId: "thread-123", nodeId: "node-456" } },
-        { type: "set_variable", parameters: { executionId: "thread-123", variables: {} } },
+        { type: "pause_workflow_execution", parameters: { executionId: "workflow-execution-123" } },
+        { type: "resume_workflow_execution", parameters: { executionId: "workflow-execution-123" } },
+        { type: "skip_node", parameters: { executionId: "workflow-execution-123", nodeId: "node-456" } },
+        { type: "set_variable", parameters: { executionId: "workflow-execution-123", variables: {} } },
         { type: "send_notification", parameters: { message: "test" } },
         { type: "custom", parameters: { handlerName: "test" } },
         { type: "execute_script", parameters: { scriptName: "test" } },
         {
           type: "apply_message_operation",
-          parameters: { executionId: "thread-123", operationType: "compress" },
+          parameters: { executionId: "workflow-execution-123", operationType: "compress" },
         },
         { type: "execute_triggered_subgraph", parameters: { triggeredWorkflowId: "workflow-123" } },
       ];
@@ -440,11 +440,11 @@ describe("Trigger Handlers", () => {
           action,
           "trigger-1",
           mockWorkflowLifecycleCoordinator,
-          mockThreadRegistry,
+          mockWorkflowExecutionRegistry,
           mockEventManager,
           mockWorkflowExecutionBuilder,
           mockTaskQueueManager,
-          "thread-123",
+          "workflow-execution-123",
           mockScriptService,
         );
 

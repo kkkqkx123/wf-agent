@@ -13,7 +13,7 @@ import type { WorkflowReference, WorkflowReferenceInfo } from "@wf-agent/types";
 /**
  * Check if the workflow is being referenced.
  * @param workflowRegistry: Workflow registry
- * @param workflowExecutionRegistry: Thread registry
+ * @param workflowExecutionRegistry: Workflow execution registry
  * @param workflowId: Workflow ID
  * @returns: Reference information
  */
@@ -45,7 +45,7 @@ export function checkWorkflowReferences(
     stats: {
       subgraphReferences: subgraphRefs.length,
       triggerReferences: triggerRefs.length,
-      executionReferences: executionRefs.length,
+      workflowExecutionReferences: executionRefs.length,
       runtimeReferences: runtimeRefs,
     },
   };

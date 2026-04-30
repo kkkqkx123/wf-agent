@@ -247,7 +247,7 @@ export class AgentLoopEntity {
    * @param name Variable name
    */
   getVariable(name: string): unknown {
-    return this.variableStateManager.getVariableValue(name, "thread");
+    return this.variableStateManager.getVariableValue(name, "workflowExecution");
   }
 
   /**
@@ -256,14 +256,14 @@ export class AgentLoopEntity {
    * @param value Variable value
    */
   setVariable(name: string, value: unknown): void {
-    this.variableStateManager.setVariableValue(name, value, "thread");
+    this.variableStateManager.setVariableValue(name, value, "workflowExecution");
   }
 
   /**
    * Get all variables
    */
   getAllVariables(): Record<string, unknown> {
-    return this.variableStateManager.getVariablesByScope("thread");
+    return this.variableStateManager.getVariablesByScope("workflowExecution");
   }
 
   /**

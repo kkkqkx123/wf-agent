@@ -20,8 +20,8 @@ export interface AgentCustomEvent extends BaseEvent {
   eventData: Record<string, unknown>;
   /** Current number of iterations */
   iteration?: number;
-  /** Parent Execution ID (if executed as a Graph node) */
-  parentThreadId?: ID;
+  /** Parent Workflow Execution ID (if executed as a Graph node) */
+  parentWorkflowExecutionId?: ID;
   /** Node ID (if executed as a Graph node) */
   nodeId?: ID;
   /** event metadata */

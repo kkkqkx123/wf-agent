@@ -4,13 +4,13 @@
  * Responsibilities:
  * - Manages the entire lifecycle of triggered sub-workflows
  * - Coordinates the creation and execution of sub-workflows
- * - Uses a task queue and thread pool for execution management
+ * - Uses a task queue and workflow execution pool for execution management
  * - Supports both synchronous and asynchronous execution modes
  * - Provides functionality for querying task status and canceling tasks
  *
  * Design Principles:
  * - Acts as a global singleton service, managed by a Dependency Injection (DI) container
- * - Handles resources shared across threads (thread pool, task queue)
+ * - Handles resources shared across executions (execution pool, task queue)
  * - No thread isolation required; all triggered sub-workflows share the same instance
  * - Implements the TaskManager interface for use in conjunction with TaskRegistry
  */
@@ -474,8 +474,8 @@ export class TriggeredSubworkflowHandler implements TaskManager {
   }
 
   /**
-   * Get thread pool statistics
-   * @returns Thread pool statistics
+   * Get workflow execution pool statistics
+   * @returns Workflow execution pool statistics
    */
   getPoolStats() {
     return this.workflowExecutionPool.getStats();

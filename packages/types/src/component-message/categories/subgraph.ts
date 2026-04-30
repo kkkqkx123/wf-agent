@@ -28,14 +28,14 @@ export enum SubgraphMessageType {
  * Subgraph Start Data
  */
 export interface SubgraphStartData {
-  /** Subgraph execution ID */
-  subthreadId: string;
+  /** Subgraph workflow execution ID */
+  subWorkflowExecutionId: string;
 
-  /** Parent execution ID */
-  parentThreadId: string;
+  /** Parent workflow execution ID */
+  parentWorkflowExecutionId: string;
 
-  /** Root execution ID */
-  rootThreadId: string;
+  /** Root workflow execution ID */
+  rootWorkflowExecutionId: string;
 
   /** Subgraph graph ID */
   graphId: string;
@@ -54,11 +54,11 @@ export interface SubgraphStartData {
  * Subgraph End Data
  */
 export interface SubgraphEndData {
-  /** Subgraph execution ID */
-  subthreadId: string;
+  /** Subgraph workflow execution ID */
+  subWorkflowExecutionId: string;
 
-  /** Parent execution ID */
-  parentThreadId: string;
+  /** Parent workflow execution ID */
+  parentWorkflowExecutionId: string;
 
   /** Final status */
   status: "completed" | "failed" | "cancelled";
@@ -77,11 +77,11 @@ export interface SubgraphEndData {
  * Subgraph Context Inherit Data
  */
 export interface SubgraphContextInheritData {
-  /** Subgraph execution ID */
-  subthreadId: string;
+  /** Subgraph workflow execution ID */
+  subWorkflowExecutionId: string;
 
-  /** Parent execution ID */
-  parentThreadId: string;
+  /** Parent workflow execution ID */
+  parentWorkflowExecutionId: string;
 
   /** Inherited variables */
   variables: Record<string, unknown>;
@@ -97,11 +97,11 @@ export interface SubgraphContextInheritData {
  * Subgraph Context Return Data
  */
 export interface SubgraphContextReturnData {
-  /** Subgraph execution ID */
-  subthreadId: string;
+  /** Subgraph workflow execution ID */
+  subWorkflowExecutionId: string;
 
-  /** Parent execution ID */
-  parentThreadId: string;
+  /** Parent workflow execution ID */
+  parentWorkflowExecutionId: string;
 
   /** Output variables to return */
   output: Record<string, unknown>;
@@ -114,11 +114,11 @@ export interface SubgraphContextReturnData {
  * Subgraph State Sync Data
  */
 export interface SubgraphStateSyncData {
-  /** Subgraph execution ID */
-  subthreadId: string;
+  /** Subgraph workflow execution ID */
+  subWorkflowExecutionId: string;
 
-  /** Parent execution ID */
-  parentThreadId: string;
+  /** Parent workflow execution ID */
+  parentWorkflowExecutionId: string;
 
   /** Sync direction */
   direction: "to_parent" | "from_parent";

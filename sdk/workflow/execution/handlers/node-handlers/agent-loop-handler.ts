@@ -105,7 +105,7 @@ export async function agentLoopHandler(
     // 1. Prepare the initial message
     const initialMessages: LLMMessage[] = [];
     const inputPrompt =
-      thread.variableScopes?.thread?.["input"] || thread.variableScopes?.thread?.["prompt"];
+      thread.variableScopes?.workflowExecution?.["input"] || thread.variableScopes?.workflowExecution?.["prompt"];
 
     if (inputPrompt && typeof inputPrompt === "string") {
       initialMessages.push({ role: "user", content: inputPrompt });
@@ -171,10 +171,10 @@ export async function agentLoopHandler(
     );
 
     // 4. Update the variable
-    if (thread.variableScopes?.thread) {
-      thread.variableScopes.thread["output"] = result.content;
-      thread.variableScopes.thread["agentLoopIterations"] = result.iterations;
-      thread.variableScopes.thread["agentLoopToolCallCount"] = result.toolCallCount;
+    if (thread.variableScopes?.workflowExecution) {
+      thread.variableScopes.workflowExecution["output"] = result.content;
+      thread.variableScopes.workflowExecution["agentLoopIterations"] = result.iterations;
+      thread.variableScopes.workflowExecution["agentLoopToolCallCount"] = result.toolCallCount;
     }
 
     return {
@@ -216,7 +216,7 @@ export async function* agentLoopStreamHandler(
     // 1. Prepare the initial message
     const initialMessages: LLMMessage[] = [];
     const inputPrompt =
-      thread.variableScopes?.thread?.["input"] || thread.variableScopes?.thread?.["prompt"];
+      thread.variableScopes?.workflowExecution?.["input"] || thread.variableScopes?.workflowExecution?.["prompt"];
 
     if (inputPrompt && typeof inputPrompt === "string") {
       initialMessages.push({ role: "user", content: inputPrompt });
@@ -258,10 +258,10 @@ export async function* agentLoopStreamHandler(
       .pop()?.content;
 
     // 4. Update the variable
-    if (thread.variableScopes?.thread) {
-      thread.variableScopes.thread["output"] = content;
-      thread.variableScopes.thread["agentLoopIterations"] = iterations;
-      thread.variableScopes.thread["agentLoopToolCallCount"] = toolCallCount;
+    if (thread.variableScopes?.workflowExecution) {
+      thread.variableScopes.workflowExecution["output"] = content;
+      thread.variableScopes.workflowExecution["agentLoopIterations"] = iterations;
+      thread.variableScopes.workflowExecution["agentLoopToolCallCount"] = toolCallCount;
     }
 
     return {

@@ -70,10 +70,10 @@ export function createExecuteWorkflowHandler() {
     }
 
     // Validate parent workflow execution entity
-    if (!workflowContext.parentWorkflowExecutionEntity) {
+    if (!workflowContext.parentExecutionEntity) {
       throw new RuntimeValidationError("Parent workflow execution entity is required for workflow execution", {
         operation: "execute_workflow",
-        field: "parentWorkflowExecutionEntity",
+        field: "parentExecutionEntity",
         context: {
           workflowId,
           executionId: workflowContext.executionId,
@@ -86,7 +86,7 @@ export function createExecuteWorkflowHandler() {
     const task: TriggeredSubgraphTask = {
       subgraphId: workflowId,
       input,
-      mainWorkflowExecutionEntity: workflowContext.parentWorkflowExecutionEntity,
+      mainWorkflowExecutionEntity: workflowContext.parentExecutionEntity,
       triggerId: `builtin-${Date.now()}`,
       config: {
         waitForCompletion,

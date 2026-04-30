@@ -110,8 +110,8 @@ export interface AgentStartData {
     modelId?: string;
   };
 
-  /** Parent execution ID (if called from Graph) */
-  parentThreadId?: string;
+  /** Parent workflow execution ID (if called from Graph) */
+  parentWorkflowExecutionId?: string;
 
   /** Node ID (if called from Graph) */
   nodeId?: string;

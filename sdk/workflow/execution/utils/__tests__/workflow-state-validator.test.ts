@@ -1,6 +1,6 @@
 /**
- * ThreadStateValidator Unit Tests
- * Testing the thread state transition validation tool functions
+ * WorkflowStateValidator Unit Tests
+ * Testing the workflow execution state transition validation tool functions
  */
 
 import { describe, it, expect } from "vitest";
@@ -10,7 +10,7 @@ import {
   getAllowedTransitions,
   isTerminalStatus,
   isActiveStatus,
-} from "../thread-state-validator.js";
+} from "../workflow-state-validator.js";
 import { RuntimeValidationError } from "@wf-agent/types";
 import type { WorkflowExecutionStatus } from "@wf-agent/types";
 

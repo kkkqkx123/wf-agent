@@ -98,7 +98,7 @@ export class AgentLoopFactory {
     if (options.initialVariables) {
       const variableCount = Object.keys(options.initialVariables).length;
       for (const [key, value] of Object.entries(options.initialVariables)) {
-        entity.variableStateManager.setVariableValue(key, value, "thread");
+        entity.variableStateManager.setVariableValue(key, value, "workflowExecution");
       }
       logger.debug("Agent Loop initialized with variables", {
         agentLoopId: id,

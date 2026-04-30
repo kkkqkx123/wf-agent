@@ -10,7 +10,7 @@
  *   - input.userName：输入数据
  *   - output.result：输出数据
  *   - global.config：全局作用域变量
- *   - thread.state：线程作用域变量
+ *   - workflowExecution.state：工作流执行作用域变量
  *   - subgraph.temp：子图作用域变量
  *   - loop.item：循环作用域变量
  *
@@ -21,7 +21,7 @@
  * - accessor.get('input.userName') - 获取输入数据
  * - accessor.get('output.result') - 获取输出数据
  * - accessor.get('global.config') - 获取全局变量
- * - accessor.get('thread.state') - 获取线程变量
+ * - accessor.get('workflowExecution.state') - 获取工作流执行变量
  * - accessor.get('subgraph.temp') - 获取子图变量
  * - accessor.get('loop.item') - 获取循环变量
  */
@@ -37,7 +37,7 @@ export type VariableNamespace =
   | "input" /** Input data */
   | "output" /** Output data */
   | "global" /** Global scope */
-  | "thread" /** Thread scope */
+  | "workflowExecution" /** Thread scope */
   | "local" /** Local scope */
   | "loop"; /** Loop Scope */
 
@@ -70,7 +70,7 @@ export class VariableAccessor {
    * accessor.get('input.userName')
    * accessor.get('output.result')
    * accessor.get('global.config')
-   * accessor.get('thread.state')
+   * accessor.get('workflowExecution.state')
    * accessor.get('subgraph.temp')
    * accessor.get('loop.item')
    */
@@ -152,8 +152,8 @@ export class VariableAccessor {
    * @returns Value
    */
   private getFromScope(path: string, scope: VariableScope): unknown {
-    const thread = this.executionEntity.getExecution();
-    const scopes = thread.variableScopes;
+    const workflowExecution = this.executionEntity.getExecution();
+    const scopes = workflowExecution.variableScopes;
 
     let scopeData: Record<string, unknown> | undefined;
 

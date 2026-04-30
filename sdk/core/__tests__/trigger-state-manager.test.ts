@@ -17,7 +17,7 @@ describe("Trigger State Manager", () => {
   let stateManager: TriggerState;
 
   beforeEach(() => {
-    stateManager = new TriggerState("test-thread");
+    stateManager = new TriggerState("test-workflow-execution");
     stateManager.setWorkflowId("workflow-123");
   });
 
@@ -42,7 +42,7 @@ describe("Trigger State Manager", () => {
     it("Test execution ID validation: the executionId in the state must match the manager's executionId", () => {
       const state: TriggerRuntimeState = {
         triggerId: "trigger-1",
-        executionId: "different-thread", // Does not match.
+        executionId: "different-workflow-execution", // Does not match.
         workflowId: "workflow-123",
         status: "enabled",
         triggerCount: 0,
@@ -132,7 +132,7 @@ describe("Trigger State Manager", () => {
     });
 
     it("Test that the workflow ID is not set: an error should be thrown if the workflow ID is null", () => {
-      const managerWithoutWorkflowId = new TriggerState("test-thread");
+      const managerWithoutWorkflowId = new TriggerState("test-workflow-execution");
       // Do not set the workflowId.
 
       const state: TriggerRuntimeState = {
@@ -225,7 +225,7 @@ describe("Trigger State Manager", () => {
       const states: TriggerRuntimeState[] = [
         {
           triggerId: "trigger-1",
-          executionId: "test-thread",
+          executionId: "test-workflow-execution",
           workflowId: "workflow-123",
           status: "enabled",
           triggerCount: 5,
@@ -233,7 +233,7 @@ describe("Trigger State Manager", () => {
         },
         {
           triggerId: "trigger-2",
-          executionId: "test-thread",
+          executionId: "test-workflow-execution",
           workflowId: "workflow-123",
           status: "disabled",
           triggerCount: 10,
@@ -321,7 +321,7 @@ describe("Trigger State Manager", () => {
       const invalidSnapshot = new Map<string, TriggerRuntimeState>();
       invalidSnapshot.set("trigger-1", {
         triggerId: "trigger-1",
-        executionId: "different-thread", // Does not match
+        executionId: "different-workflow-execution", // Does not match
         workflowId: "workflow-123",
         status: "enabled",
         triggerCount: 0,
@@ -339,7 +339,7 @@ describe("Trigger State Manager", () => {
       const states: TriggerRuntimeState[] = [
         {
           triggerId: "trigger-1",
-          executionId: "test-thread",
+          executionId: "test-workflow-execution",
           workflowId: "workflow-123",
           status: "enabled",
           triggerCount: 0,
@@ -347,7 +347,7 @@ describe("Trigger State Manager", () => {
         },
         {
           triggerId: "trigger-2",
-          executionId: "test-thread",
+          executionId: "test-workflow-execution",
           workflowId: "workflow-123",
           status: "disabled",
           triggerCount: 5,
@@ -441,7 +441,7 @@ describe("Trigger State Manager", () => {
       const states: TriggerRuntimeState[] = [
         {
           triggerId: "trigger-1",
-          executionId: "test-thread",
+          executionId: "test-workflow-execution",
           workflowId: "workflow-123",
           status: "enabled",
           triggerCount: 0,
@@ -449,7 +449,7 @@ describe("Trigger State Manager", () => {
         },
         {
           triggerId: "trigger-2",
-          executionId: "test-thread",
+          executionId: "test-workflow-execution",
           workflowId: "workflow-123",
           status: "disabled",
           triggerCount: 5,
@@ -488,7 +488,7 @@ describe("Trigger State Manager", () => {
     });
 
     it("Test to get unset workflow ID: return null", () => {
-      const managerWithoutWorkflowId = new TriggerState("test-thread");
+      const managerWithoutWorkflowId = new TriggerState("test-workflow-execution");
       // Do not set workflowId.
 
       expect(managerWithoutWorkflowId.getWorkflowId()).toBeNull();
@@ -508,7 +508,7 @@ describe("Trigger State Manager", () => {
       for (let i = 0; i < stateCount; i++) {
         const state: TriggerRuntimeState = {
           triggerId: `trigger-${i}`,
-          executionId: "test-thread",
+          executionId: "test-workflow-execution",
           workflowId: "workflow-123",
           status: "enabled",
           triggerCount: i,

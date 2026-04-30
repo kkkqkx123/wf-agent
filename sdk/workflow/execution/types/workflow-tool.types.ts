@@ -25,9 +25,9 @@ import type { WorkflowGraphRegistry } from "../../stores/workflow-graph-registry
 export interface WorkflowToolExecutionContext {
   /** Current execution ID */
   executionId?: string;
-  /** Parent thread entity */
+  /** Parent workflow execution entity */
   parentExecutionEntity?: WorkflowExecutionEntity;
-  /** Thread registry */
+  /** Workflow execution registry */
   executionRegistry?: WorkflowExecutionRegistry;
   /** Event manager */
   eventManager?: EventRegistry;

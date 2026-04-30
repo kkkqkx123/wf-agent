@@ -11,7 +11,7 @@ import { getContainer } from "../../../../../../core/di/index.js";
 import * as Identifiers from "../../../../../../core/di/service-identifiers.js";
 import { RuntimeValidationError } from "@wf-agent/types";
 import type { TriggeredSubworkflowHandler } from "../../../../../../workflow/execution/handlers/triggered-subworkflow-handler.js";
-import { isThreadInstance } from "../../../../../../core/types/index.js";
+import { isWorkflowExecutionInstance } from "../../../../../../core/types/index.js";
 
 /**
  * Create query workflow status handler
@@ -70,11 +70,11 @@ export function createQueryWorkflowStatusHandler() {
     const instance = taskInfo.instance;
 
     // Check if instance is a WorkflowExecutionEntity
-    if (!isThreadInstance(instance)) {
+    if (!isWorkflowExecutionInstance(instance)) {
       return {
         success: false,
         status: "error",
-        message: "Task instance is not a thread",
+        message: "Task instance is not a workflow execution",
       };
     }
 

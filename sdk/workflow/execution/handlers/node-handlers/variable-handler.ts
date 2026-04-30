@@ -199,7 +199,7 @@ export async function variableHandler(
 
   // Update the variable
   const variable = thread.variables.find((v: any) => v.name === config.variableName);
-  const variableScope = config.scope || "thread";
+  const variableScope = config.scope || "workflowExecution";
 
   if (variable) {
     variable.value = typedResult;

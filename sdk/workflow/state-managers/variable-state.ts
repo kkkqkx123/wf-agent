@@ -493,7 +493,7 @@ export class VariableState implements LifecycleCapable<{
       this.setVariableValue(name, value, variableDef.scope);
     } else {
       // If variable doesn't exist, default to thread scope
-      this.setVariableValue(name, value, "thread");
+      this.setVariableValue(name, value, "workflowExecution");
     }
   }
 

@@ -88,17 +88,17 @@ function createInteractionContext(
     nodeId: node.id,
     getVariable: (variableName: string, _scope?: VariableScope) => {
       // Simplify the implementation; in reality, the variable should be retrieved from the thread.
-      return thread.variableScopes.thread?.[variableName];
+      return thread.variableScopes.workflowExecution?.[variableName];
     },
     setVariable: async (variableName: string, value: unknown, _scope?: VariableScope) => {
       // Simplify the implementation; in reality, the variable in the thread should be updated.
-      if (!thread.variableScopes.thread) {
-        thread.variableScopes.thread = {};
+      if (!thread.variableScopes.workflowExecution) {
+        thread.variableScopes.workflowExecution = {};
       }
-      thread.variableScopes.thread[variableName] = value;
+      thread.variableScopes.workflowExecution[variableName] = value;
     },
     getVariables: (_scope?: VariableScope) => {
-      return thread.variableScopes.thread || {};
+      return thread.variableScopes.workflowExecution || {};
     },
     timeout,
     cancelToken,
@@ -191,10 +191,10 @@ async function processVariableUpdate(
     const value = evaluateExpression(expression, inputData);
 
     // Update the variable
-    if (!thread.variableScopes.thread) {
-      thread.variableScopes.thread = {};
+    if (!thread.variableScopes.workflowExecution) {
+      thread.variableScopes.workflowExecution = {};
     }
-    thread.variableScopes.thread[variableConfig.variableName] = value;
+    thread.variableScopes.workflowExecution[variableConfig.variableName] = value;
 
     results[variableConfig.variableName] = value;
   }

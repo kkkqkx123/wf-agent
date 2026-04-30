@@ -34,10 +34,10 @@ function createMockExecutionContext(
     startTime: Date.now(),
     graph: {} as any,
     variables: [],
-    threadType: "MAIN",
+    workflowExecutionType: "MAIN",
     variableScopes: {
       global: {},
-      thread: {},
+      workflowExecution: {},
       local: [],
       loop: [],
     },
@@ -71,7 +71,7 @@ describe("createWorkflowExecutionStateCheckHook", () => {
   it("No error is thrown when the workflow execution state is in the allowed list", async () => {
     const hook = createWorkflowExecutionStateCheckHook(["RUNNING", "PAUSED"]);
     const context = createMockExecutionContext({
-      thread: { ...createMockExecutionContext().thread, status: "RUNNING" },
+      thread: { ...createMockExecutionContext().workflowExecution, status: "RUNNING" },
     });
 
     // No errors should be thrown.
@@ -81,7 +81,7 @@ describe("createWorkflowExecutionStateCheckHook", () => {
   it("Throws ExecutionError when the workflow execution state is not in the allowed list.", async () => {
     const hook = createWorkflowExecutionStateCheckHook(["RUNNING"]);
     const context = createMockExecutionContext({
-      thread: { ...createMockExecutionContext().thread, status: "COMPLETED" },
+      thread: { ...createMockExecutionContext().workflowExecution, status: "COMPLETED" },
     });
 
     await expect(hook.eventPayload!["handler"](context)).rejects.toThrow(ExecutionError);
@@ -96,25 +96,25 @@ describe("createWorkflowExecutionStateCheckHook", () => {
 
     // Testing the RUNNING state
     const context1 = createMockExecutionContext({
-      thread: { ...createMockExecutionContext().thread, status: "RUNNING" },
+      thread: { ...createMockExecutionContext().workflowExecution, status: "RUNNING" },
     });
     await expect(hook.eventPayload!["handler"](context1)).resolves.toBeUndefined();
 
     // Testing the PAUSED state
     const context2 = createMockExecutionContext({
-      thread: { ...createMockExecutionContext().thread, status: "PAUSED" },
+      thread: { ...createMockExecutionContext().workflowExecution, status: "PAUSED" },
     });
     await expect(hook.eventPayload!["handler"](context2)).resolves.toBeUndefined();
 
     // Test the CREATED status.
     const context3 = createMockExecutionContext({
-      thread: { ...createMockExecutionContext().thread, status: "CREATED" },
+      thread: { ...createMockExecutionContext().workflowExecution, status: "CREATED" },
     });
     await expect(hook.eventPayload!["handler"](context3)).resolves.toBeUndefined();
 
     // Testing states that are not allowed.
     const context4 = createMockExecutionContext({
-      thread: { ...createMockExecutionContext().thread, status: "FAILED" },
+      thread: { ...createMockExecutionContext().workflowExecution, status: "FAILED" },
     });
     await expect(hook.eventPayload!["handler"](context4)).rejects.toThrow();
   });
@@ -122,7 +122,7 @@ describe("createWorkflowExecutionStateCheckHook", () => {
   it("Using the default list of allowed states", async () => {
     const hook = createWorkflowExecutionStateCheckHook(); // Default ['RUNNING']
     const context = createMockExecutionContext({
-      thread: { ...createMockExecutionContext().thread, status: "RUNNING" },
+      thread: { ...createMockExecutionContext().workflowExecution, status: "RUNNING" },
     });
 
     await expect(hook.eventPayload!["handler"](context)).resolves.toBeUndefined();
@@ -188,7 +188,7 @@ describe("createCustomValidationHook", () => {
   it("Verify that the function has access to context information", async () => {
     const validator = vi.fn().mockImplementation((ctx: HookExecutionContext) => {
       // The validation function should have access to the context.
-      expect(ctx.thread.id).toBe("test-thread");
+      expect(ctx.workflowExecution.id).toBe("test-thread");
       expect(ctx.node.id).toBe("test-node");
     });
 
@@ -217,9 +217,9 @@ describe("createPermissionCheckHook", () => {
     const baseContext = createMockExecutionContext();
     const context = createMockExecutionContext({
       thread: {
-        ...baseContext.thread,
+        ...baseContext.workflowExecution,
         variableScopes: {
-          ...baseContext.thread.variableScopes,
+          ...baseContext.workflowExecution.variableScopes,
           thread: { permissions: ["read", "write", "delete"] },
         },
       },
@@ -233,9 +233,9 @@ describe("createPermissionCheckHook", () => {
     const baseContext = createMockExecutionContext();
     const context = createMockExecutionContext({
       thread: {
-        ...baseContext.thread,
+        ...baseContext.workflowExecution,
         variableScopes: {
-          ...baseContext.thread.variableScopes,
+          ...baseContext.workflowExecution.variableScopes,
           thread: { permissions: ["read"] },
         },
       },
@@ -253,9 +253,9 @@ describe("createPermissionCheckHook", () => {
     const baseContext = createMockExecutionContext();
     const context = createMockExecutionContext({
       thread: {
-        ...baseContext.thread,
+        ...baseContext.workflowExecution,
         variableScopes: {
-          ...baseContext.thread.variableScopes,
+          ...baseContext.workflowExecution.variableScopes,
           thread: { permissions: [] },
         },
       },
@@ -271,9 +271,9 @@ describe("createPermissionCheckHook", () => {
     const baseContext = createMockExecutionContext();
     const context = createMockExecutionContext({
       thread: {
-        ...baseContext.thread,
+        ...baseContext.workflowExecution,
         variableScopes: {
-          ...baseContext.thread.variableScopes,
+          ...baseContext.workflowExecution.variableScopes,
           thread: {},
         },
       },
@@ -305,9 +305,9 @@ describe("createAuditLoggingHook", () => {
     const baseContext = createMockExecutionContext();
     const context = createMockExecutionContext({
       thread: {
-        ...baseContext.thread,
+        ...baseContext.workflowExecution,
         variableScopes: {
-          ...baseContext.thread.variableScopes,
+          ...baseContext.workflowExecution.variableScopes,
           thread: { userId: "user-123" },
         },
       },

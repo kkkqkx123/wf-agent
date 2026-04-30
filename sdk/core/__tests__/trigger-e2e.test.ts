@@ -47,9 +47,9 @@ const mockEventManager = {
 } as any;
 
 const mockWorkflowLifecycleCoordinator = {
-  stopThread: vi.fn(),
-  pauseThread: vi.fn(),
-  resumeThread: vi.fn(),
+  stopWorkflowExecution: vi.fn(),
+  pauseWorkflowExecution: vi.fn(),
+  resumeWorkflowExecution: vi.fn(),
 } as any;
 
 const mockWorkflowExecutionBuilder = {
@@ -77,7 +77,7 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
     vi.clearAllMocks();
 
     // Create a state manager
-    stateManager = new TriggerState("test-thread");
+    stateManager = new TriggerState("test-execution");
     stateManager.setWorkflowId("workflow-123");
 
     // Create a trigger template registry
@@ -121,11 +121,11 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
         id: "trigger-1",
         name: "Test Trigger",
         condition: {
-          eventType: "THREAD_STARTED" as EventType,
+          eventType: "WORKFLOW_EXECUTION_STARTED" as EventType,
         },
         action: {
-          type: "pause_thread",
-          parameters: { executionId: "test-thread" },
+          type: "pause_workflow_execution",
+          parameters: { executionId: "test-execution" },
         },
         enabled: true,
         maxTriggers: 5,
@@ -135,8 +135,8 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
 
       // 2. Triggering Events
       const event: BaseEvent = {
-        type: "THREAD_STARTED",
-        executionId: "test-thread",
+        type: "WORKFLOW_EXECUTION_STARTED",
+        executionId: "test-execution",
         workflowId: "workflow-123",
         timestamp: Date.now(),
       };
@@ -144,7 +144,7 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
       await coordinator.handleEvent(event);
 
       // 3. Verify that the trigger has been executed.
-      expect(mockWorkflowLifecycleCoordinator.stopThread).toHaveBeenCalledWith("test-thread", false);
+      expect(mockWorkflowLifecycleCoordinator.stopWorkflowExecution).toHaveBeenCalledWith("test-execution", false);
 
       // 4. Verify status updates
       const trigger = coordinator.get("trigger-1");
@@ -158,22 +158,22 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
         {
           id: "trigger-1",
           name: "Trigger 1",
-          condition: { eventType: "THREAD_STARTED" as EventType },
-          action: { type: "pause_thread", parameters: { executionId: "test-thread" } },
+          condition: { eventType: "WORKFLOW_EXECUTION_STARTED" as EventType },
+          action: { type: "pause_workflow_execution", parameters: { executionId: "test-execution" } },
           enabled: true,
         },
         {
           id: "trigger-2",
           name: "Trigger 2",
-          condition: { eventType: "THREAD_STARTED" as EventType },
-          action: { type: "pause_thread", parameters: { executionId: "test-thread" } },
+          condition: { eventType: "WORKFLOW_EXECUTION_STARTED" as EventType },
+          action: { type: "pause_workflow_execution", parameters: { executionId: "test-execution" } },
           enabled: true,
         },
         {
           id: "trigger-3",
           name: "Trigger 3",
-          condition: { eventType: "THREAD_STARTED" as EventType },
-          action: { type: "resume_thread", parameters: { executionId: "test-thread" } },
+          condition: { eventType: "WORKFLOW_EXECUTION_STARTED" as EventType },
+          action: { type: "resume_workflow_execution", parameters: { executionId: "test-execution" } },
           enabled: true,
         },
       ];
@@ -182,8 +182,8 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
 
       // Trigger event
       const event: BaseEvent = {
-        type: "THREAD_STARTED",
-        executionId: "test-thread",
+        type: "WORKFLOW_EXECUTION_STARTED",
+        executionId: "test-execution",
         workflowId: "workflow-123",
         timestamp: Date.now(),
       };
@@ -191,9 +191,9 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
       await coordinator.handleEvent(event);
 
       // Verify that all triggers have been executed.
-      expect(mockWorkflowLifecycleCoordinator.stopThread).toHaveBeenCalled();
-      expect(mockWorkflowLifecycleCoordinator.pauseThread).toHaveBeenCalled();
-      expect(mockWorkflowLifecycleCoordinator.resumeThread).toHaveBeenCalled();
+      expect(mockWorkflowLifecycleCoordinator.stopWorkflowExecution).toHaveBeenCalled();
+      expect(mockWorkflowLifecycleCoordinator.pauseWorkflowExecution).toHaveBeenCalled();
+      expect(mockWorkflowLifecycleCoordinator.resumeWorkflowExecution).toHaveBeenCalled();
 
       // Verify that the count of all triggers has increased.
       expect(coordinator.get("trigger-1")?.triggerCount).toBe(1);
@@ -202,23 +202,23 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
     });
 
     it("Testing trigger chain triggering", async () => {
-      // Register Trigger A: Stop the thread
+      // Register Trigger A: Stop the workflow execution
       const triggerA: WorkflowTrigger = {
         id: "trigger-a",
         name: "Trigger A",
-        condition: { eventType: "THREAD_STARTED" as EventType },
-        action: { type: "pause_thread", parameters: { executionId: "test-thread" } },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" as EventType },
+        action: { type: "pause_workflow_execution", parameters: { executionId: "test-execution" } },
         enabled: true,
       };
 
       coordinator.register(triggerA, "workflow-123");
 
-      // Register Trigger B: Pause the thread (assuming it is triggered after stopping).
+      // Register Trigger B: Pause the workflow execution (assuming it is triggered after stopping).
       const triggerB: WorkflowTrigger = {
         id: "trigger-b",
         name: "Trigger B",
-        condition: { eventType: "THREAD_PAUSED" as EventType },
-        action: { type: "pause_thread", parameters: { executionId: "test-thread" } },
+        condition: { eventType: "WORKFLOW_EXECUTION_PAUSED" as EventType },
+        action: { type: "pause_workflow_execution", parameters: { executionId: "test-execution" } },
         enabled: true,
       };
 
@@ -226,8 +226,8 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
 
       // Simulate triggering the first event.
       const event1: BaseEvent = {
-        type: "THREAD_STARTED",
-        executionId: "test-thread",
+        type: "WORKFLOW_EXECUTION_STARTED",
+        executionId: "test-execution",
         workflowId: "workflow-123",
         timestamp: Date.now(),
       };
@@ -235,12 +235,12 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
       await coordinator.handleEvent(event1);
 
       // Verify that trigger A has been executed.
-      expect(mockWorkflowLifecycleCoordinator.stopThread).toHaveBeenCalled();
+      expect(mockWorkflowLifecycleCoordinator.stopWorkflowExecution).toHaveBeenCalled();
 
       // Simulate triggering the second event.
       const event2: BaseEvent = {
-        type: "THREAD_PAUSED",
-        executionId: "test-thread",
+        type: "WORKFLOW_EXECUTION_PAUSED",
+        executionId: "test-execution",
         workflowId: "workflow-123",
         timestamp: Date.now(),
       };
@@ -248,7 +248,7 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
       await coordinator.handleEvent(event2);
 
       // Verify that trigger B has been executed.
-      expect(mockWorkflowLifecycleCoordinator.pauseThread).toHaveBeenCalled();
+      expect(mockWorkflowLifecycleCoordinator.pauseWorkflowExecution).toHaveBeenCalled();
     });
   });
 
@@ -257,8 +257,8 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
       const workflowTrigger: WorkflowTrigger = {
         id: "trigger-1",
         name: "Test Trigger",
-        condition: { eventType: "THREAD_STARTED" as EventType },
-        action: { type: "pause_thread", parameters: { executionId: "test-thread" } },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" as EventType },
+        action: { type: "pause_workflow_execution", parameters: { executionId: "test-execution" } },
         enabled: true,
         maxTriggers: 3,
       };
@@ -267,8 +267,8 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
 
       // First trigger
       const event: BaseEvent = {
-        type: "THREAD_STARTED",
-        executionId: "test-thread",
+        type: "WORKFLOW_EXECUTION_STARTED",
+        executionId: "test-execution",
         workflowId: "workflow-123",
         timestamp: Date.now(),
       };
@@ -297,8 +297,8 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
       const workflowTrigger: WorkflowTrigger = {
         id: "trigger-1",
         name: "Test Trigger",
-        condition: { eventType: "THREAD_STARTED" as EventType },
-        action: { type: "pause_thread", parameters: { executionId: "test-thread" } },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" as EventType },
+        action: { type: "pause_workflow_execution", parameters: { executionId: "test-execution" } },
         enabled: true,
         maxTriggers: 10,
       };
@@ -306,8 +306,8 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
       coordinator.register(workflowTrigger, "workflow-123");
 
       const event: BaseEvent = {
-        type: "THREAD_STARTED",
-        executionId: "test-thread",
+        type: "WORKFLOW_EXECUTION_STARTED",
+        executionId: "test-execution",
         workflowId: "workflow-123",
         timestamp: Date.now(),
       };
@@ -327,8 +327,8 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
       const workflowTrigger: WorkflowTrigger = {
         id: "trigger-1",
         name: "Test Trigger",
-        condition: { eventType: "THREAD_STARTED" as EventType },
-        action: { type: "pause_thread", parameters: { executionId: "test-thread" } },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" as EventType },
+        action: { type: "pause_workflow_execution", parameters: { executionId: "test-execution" } },
         enabled: true,
         maxTriggers: 5,
       };
@@ -357,19 +357,19 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
       const workflowTrigger: WorkflowTrigger = {
         id: "trigger-1",
         name: "Test Trigger",
-        condition: { eventType: "THREAD_STARTED" as EventType },
-        action: { type: "pause_thread", parameters: { executionId: "test-thread" } },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" as EventType },
+        action: { type: "pause_workflow_execution", parameters: { executionId: "test-execution" } },
         enabled: true,
       };
 
       coordinator.register(workflowTrigger, "workflow-123");
 
       // Simulator processor failed.
-      mockWorkflowLifecycleCoordinator.stopThread.mockRejectedValue(new Error("Stop failed"));
+      mockWorkflowLifecycleCoordinator.stopWorkflowExecution.mockRejectedValue(new Error("Stop failed"));
 
       const event: BaseEvent = {
-        type: "THREAD_STARTED",
-        executionId: "test-thread",
+        type: "WORKFLOW_EXECUTION_STARTED",
+        executionId: "test-execution",
         workflowId: "workflow-123",
         timestamp: Date.now(),
       };
@@ -383,15 +383,15 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
         {
           id: "trigger-1",
           name: "Failed trigger",
-          condition: { eventType: "THREAD_STARTED" as EventType },
-          action: { type: "pause_thread", parameters: { executionId: "test-thread" } },
+          condition: { eventType: "WORKFLOW_EXECUTION_STARTED" as EventType },
+          action: { type: "pause_workflow_execution", parameters: { executionId: "test-execution" } },
           enabled: true,
         },
         {
           id: "trigger-2",
           name: "Successful trigger",
-          condition: { eventType: "THREAD_STARTED" as EventType },
-          action: { type: "pause_thread", parameters: { executionId: "test-thread" } },
+          condition: { eventType: "WORKFLOW_EXECUTION_STARTED" as EventType },
+          action: { type: "pause_workflow_execution", parameters: { executionId: "test-execution" } },
           enabled: true,
         },
       ];
@@ -399,11 +399,11 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
       triggers.forEach(trigger => coordinator.register(trigger, "workflow-123"));
 
       // Simulation of the first trigger failed.
-      mockWorkflowLifecycleCoordinator.stopThread.mockRejectedValue(new Error("Failed"));
+      mockWorkflowLifecycleCoordinator.stopWorkflowExecution.mockRejectedValue(new Error("Failed"));
 
       const event: BaseEvent = {
-        type: "THREAD_STARTED",
-        executionId: "test-thread",
+        type: "WORKFLOW_EXECUTION_STARTED",
+        executionId: "test-execution",
         workflowId: "workflow-123",
         timestamp: Date.now(),
       };
@@ -411,7 +411,7 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
       await coordinator.handleEvent(event);
 
       // Verify that the second trigger is still being executed.
-      expect(mockWorkflowLifecycleCoordinator.pauseThread).toHaveBeenCalled();
+      expect(mockWorkflowLifecycleCoordinator.pauseWorkflowExecution).toHaveBeenCalled();
     });
 
     it("Error message when test dependencies are missing", async () => {
@@ -426,16 +426,16 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
       const workflowTrigger: WorkflowTrigger = {
         id: "trigger-1",
         name: "Test Trigger",
-        condition: { eventType: "THREAD_STARTED" as EventType },
-        action: { type: "pause_thread", parameters: { executionId: "test-thread" } },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" as EventType },
+        action: { type: "pause_workflow_execution", parameters: { executionId: "test-workflow-execution" } },
         enabled: true,
       };
 
       incompleteCoordinator.register(workflowTrigger, "workflow-123");
 
       const event: BaseEvent = {
-        type: "THREAD_STARTED",
-        executionId: "test-thread",
+        type: "WORKFLOW_EXECUTION_STARTED",
+        executionId: "test-workflow-execution",
         workflowId: "workflow-123",
         timestamp: Date.now(),
       };
@@ -455,8 +455,8 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
         triggers.push({
           id: `trigger-${i}`,
           name: `trigger ${i}`,
-          condition: { eventType: "THREAD_STARTED" as EventType },
-          action: { type: "pause_thread", parameters: { executionId: "test-thread" } },
+          condition: { eventType: "WORKFLOW_EXECUTION_STARTED" as EventType },
+          action: { type: "pause_workflow_execution", parameters: { executionId: "test-execution" } },
           enabled: true,
         });
       }
@@ -464,8 +464,8 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
       triggers.forEach(trigger => coordinator.register(trigger, "workflow-123"));
 
       const event: BaseEvent = {
-        type: "THREAD_STARTED",
-        executionId: "test-thread",
+        type: "WORKFLOW_EXECUTION_STARTED",
+        executionId: "test-execution",
         workflowId: "workflow-123",
         timestamp: Date.now(),
       };
@@ -483,8 +483,8 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
       const workflowTrigger: WorkflowTrigger = {
         id: "trigger-1",
         name: "Test Trigger",
-        condition: { eventType: "THREAD_STARTED" as EventType },
-        action: { type: "pause_thread", parameters: { executionId: "test-thread" } },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" as EventType },
+        action: { type: "pause_workflow_execution", parameters: { executionId: "test-execution" } },
         enabled: true,
       };
 
@@ -495,8 +495,8 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
 
       for (let i = 0; i < eventCount; i++) {
         events.push({
-          type: "THREAD_STARTED",
-          executionId: "test-thread",
+          type: "WORKFLOW_EXECUTION_STARTED",
+          executionId: "test-execution",
           workflowId: "workflow-123",
           timestamp: Date.now(),
         });
@@ -519,8 +519,8 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
       const workflowTrigger: WorkflowTrigger = {
         id: "trigger-1",
         name: "Test Trigger",
-        condition: { eventType: "THREAD_STARTED" as EventType },
-        action: { type: "pause_thread", parameters: { executionId: "test-thread" } },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" as EventType },
+        action: { type: "pause_workflow_execution", parameters: { executionId: "test-execution" } },
         enabled: true,
         maxTriggers: 100,
       };
@@ -528,8 +528,8 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
       coordinator.register(workflowTrigger, "workflow-123");
 
       const event: BaseEvent = {
-        type: "THREAD_STARTED",
-        executionId: "test-thread",
+        type: "WORKFLOW_EXECUTION_STARTED",
+        executionId: "test-execution",
         workflowId: "workflow-123",
         timestamp: Date.now(),
       };
@@ -578,8 +578,8 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
           eventName: "my-custom-event",
         },
         action: {
-          type: "pause_thread",
-          parameters: { executionId: "test-thread" },
+          type: "pause_workflow_execution",
+          parameters: { executionId: "test-execution" },
         },
         enabled: true,
       };
@@ -588,7 +588,7 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
 
       const event: NodeCustomEvent = {
         type: "NODE_CUSTOM_EVENT",
-        executionId: "test-thread",
+        executionId: "test-execution",
         workflowId: "workflow-123",
         nodeId: "node-1",
         nodeType: "LLM",
@@ -600,7 +600,7 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
       await coordinator.handleEvent(event);
 
       // Verify that the trigger has been executed.
-      expect(mockWorkflowLifecycleCoordinator.stopThread).toHaveBeenCalled();
+      expect(mockWorkflowLifecycleCoordinator.stopWorkflowExecution).toHaveBeenCalled();
       expect(coordinator.get("custom-trigger-1")?.triggerCount).toBe(1);
     });
   });
@@ -611,15 +611,15 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
         {
           id: "trigger-1",
           name: "Trigger 1",
-          condition: { eventType: "THREAD_STARTED" as EventType },
-          action: { type: "pause_thread", parameters: { executionId: "test-thread" } },
+          condition: { eventType: "WORKFLOW_EXECUTION_STARTED" as EventType },
+          action: { type: "pause_workflow_execution", parameters: { executionId: "test-execution" } },
           enabled: true,
         },
         {
           id: "trigger-2",
           name: "Trigger 2",
-          condition: { eventType: "THREAD_COMPLETED" as EventType },
-          action: { type: "pause_thread", parameters: { executionId: "test-thread" } },
+          condition: { eventType: "WORKFLOW_EXECUTION_COMPLETED" as EventType },
+          action: { type: "pause_workflow_execution", parameters: { executionId: "test-execution" } },
           enabled: true,
         },
       ];

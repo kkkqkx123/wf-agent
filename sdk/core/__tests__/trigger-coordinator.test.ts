@@ -20,7 +20,7 @@ import { EventType } from "@wf-agent/types";
 import { ExecutionError, RuntimeValidationError } from "@wf-agent/types";
 
 // Mock implementations
-const mockThreadRegistry = {
+const mockWorkflowExecutionRegistry = {
   get: vi.fn(),
   register: vi.fn(),
   update: vi.fn(),
@@ -40,9 +40,9 @@ const mockEventManager = {
 } as any;
 
 const mockWorkflowLifecycleCoordinator = {
-  stopThread: vi.fn(),
-  pauseThread: vi.fn(),
-  resumeThread: vi.fn(),
+  stopWorkflowExecution: vi.fn(),
+  pauseWorkflowExecution: vi.fn(),
+  resumeWorkflowExecution: vi.fn(),
 } as any;
 
 const mockWorkflowExecutionBuilder = {
@@ -67,12 +67,12 @@ describe("Trigger Coordinator", () => {
     vi.clearAllMocks();
 
     // Create a state manager
-    stateManager = new TriggerState("test-thread");
+    stateManager = new TriggerState("test-execution");
     stateManager.setWorkflowId("workflow-123");
 
     // Create a coordinator
     coordinator = new TriggerCoordinator({
-      workflowExecutionRegistry: mockThreadRegistry,
+      workflowExecutionRegistry: mockWorkflowExecutionRegistry,
       workflowRegistry: mockWorkflowRegistry,
       stateManager: stateManager,
       workflowGraphRegistry: mockGraphRegistry,
@@ -107,11 +107,11 @@ describe("Trigger Coordinator", () => {
         id: "trigger-1",
         name: "Test Trigger",
         condition: {
-          eventType: "THREAD_STARTED" as EventType,
+          eventType: "WORKFLOW_EXECUTION_STARTED" as EventType,
         },
         action: {
-          type: "pause_thread",
-          parameters: { executionId: "test-thread" },
+          type: "pause_workflow_execution",
+          parameters: { executionId: "test-execution" },
         },
         enabled: true,
         maxTriggers: 5,
@@ -122,7 +122,7 @@ describe("Trigger Coordinator", () => {
       expect(stateManager.hasState("trigger-1")).toBe(true);
       const state = stateManager.getState("trigger-1");
       expect(state?.triggerId).toBe("trigger-1");
-      expect(state?.executionId).toBe("test-thread");
+      expect(state?.executionId).toBe("test-execution");
       expect(state?.workflowId).toBe("workflow-123");
       expect(state?.status).toBe("enabled");
       expect(state?.triggerCount).toBe(0);
@@ -133,11 +133,11 @@ describe("Trigger Coordinator", () => {
         id: "trigger-1",
         name: "Test Trigger",
         condition: {
-          eventType: "THREAD_STARTED" as EventType,
+          eventType: "WORKFLOW_EXECUTION_STARTED" as EventType,
         },
         action: {
-          type: "pause_thread",
-          parameters: { executionId: "test-thread" },
+          type: "pause_workflow_execution",
+          parameters: { executionId: "test-execution" },
         },
         enabled: true,
       };
@@ -154,11 +154,11 @@ describe("Trigger Coordinator", () => {
         id: "trigger-1",
         name: "Test Trigger",
         condition: {
-          eventType: "THREAD_STARTED" as EventType,
+          eventType: "WORKFLOW_EXECUTION_STARTED" as EventType,
         },
         action: {
-          type: "pause_thread",
-          parameters: { executionId: "test-thread" },
+          type: "pause_workflow_execution",
+          parameters: { executionId: "test-execution" },
         },
         enabled: true,
       };
@@ -184,11 +184,11 @@ describe("Trigger Coordinator", () => {
         id: "trigger-1",
         name: "Test Trigger",
         condition: {
-          eventType: "THREAD_STARTED" as EventType,
+          eventType: "WORKFLOW_EXECUTION_STARTED" as EventType,
         },
         action: {
-          type: "pause_thread",
-          parameters: { executionId: "test-thread" },
+          type: "pause_workflow_execution",
+          parameters: { executionId: "test-execution" },
         },
         enabled: true,
       };
@@ -254,12 +254,12 @@ describe("Trigger Coordinator", () => {
         name: "Test Trigger",
         description: "This is a test trigger.",
         condition: {
-          eventType: "THREAD_STARTED" as EventType,
+          eventType: "WORKFLOW_EXECUTION_STARTED" as EventType,
           eventName: "custom-event",
         },
         action: {
-          type: "pause_thread",
-          parameters: { executionId: "test-thread" },
+          type: "pause_workflow_execution",
+          parameters: { executionId: "test-execution" },
         },
         enabled: true,
         maxTriggers: 5,
@@ -279,15 +279,15 @@ describe("Trigger Coordinator", () => {
       expect(trigger?.id).toBe("trigger-1");
       expect(trigger?.name).toBe("Test Trigger");
       expect(trigger?.description).toBe("This is a test trigger.");
-      expect(trigger?.condition.eventType).toBe("THREAD_STARTED");
+      expect(trigger?.condition.eventType).toBe("WORKFLOW_EXECUTION_STARTED");
       expect(trigger?.condition.eventName).toBe("custom-event");
-      expect(trigger?.action.type).toBe("pause_thread");
+      expect(trigger?.action.type).toBe("pause_workflow_execution");
       expect(trigger?.enabled).toBe(true);
       expect(trigger?.maxTriggers).toBe(5);
       expect(trigger?.metadata).toEqual({ key: "value" });
       expect(trigger?.status).toBe("enabled");
       expect(trigger?.triggerCount).toBe(1);
-      expect(trigger?.executionId).toBe("test-thread");
+      expect(trigger?.executionId).toBe("test-execution");
     });
 
     it("Test to retrieve all triggers: The getAll method returns all triggers.", () => {
@@ -308,11 +308,11 @@ describe("Trigger Coordinator", () => {
         id: "trigger-2",
         name: "Test Trigger 2",
         condition: {
-          eventType: "THREAD_COMPLETED" as EventType,
+          eventType: "WORKFLOW_EXECUTION_COMPLETED" as EventType,
         },
         action: {
-          type: "pause_thread",
-          parameters: { executionId: "test-thread" },
+          type: "pause_workflow_execution",
+          parameters: { executionId: "test-execution" },
         },
         enabled: true,
       };
@@ -333,11 +333,11 @@ describe("Trigger Coordinator", () => {
         id: "trigger-1",
         name: "Matching Triggers",
         condition: {
-          eventType: "THREAD_STARTED" as EventType,
+          eventType: "WORKFLOW_EXECUTION_STARTED" as EventType,
         },
         action: {
-          type: "pause_thread",
-          parameters: { executionId: "test-thread" },
+          type: "pause_workflow_execution",
+          parameters: { executionId: "test-execution" },
         },
         enabled: true,
         maxTriggers: 5,
@@ -347,11 +347,11 @@ describe("Trigger Coordinator", () => {
         id: "trigger-2",
         name: "Mismatching triggers",
         condition: {
-          eventType: "THREAD_COMPLETED" as EventType,
+          eventType: "WORKFLOW_EXECUTION_COMPLETED" as EventType,
         },
         action: {
-          type: "pause_thread",
-          parameters: { executionId: "test-thread" },
+          type: "pause_workflow_execution",
+          parameters: { executionId: "test-execution" },
         },
         enabled: true,
       };
@@ -360,11 +360,11 @@ describe("Trigger Coordinator", () => {
         id: "trigger-3",
         name: "Disabled triggers",
         condition: {
-          eventType: "THREAD_STARTED" as EventType,
+          eventType: "WORKFLOW_EXECUTION_STARTED" as EventType,
         },
         action: {
-          type: "resume_thread",
-          parameters: { executionId: "test-thread" },
+          type: "resume_workflow_execution",
+          parameters: { executionId: "test-execution" },
         },
         enabled: false,
       };
@@ -376,8 +376,8 @@ describe("Trigger Coordinator", () => {
 
     it("Test matching event: The handleEvent method correctly matches and executes the trigger.", async () => {
       const event: BaseEvent = {
-        type: "THREAD_STARTED",
-        executionId: "test-thread",
+        type: "WORKFLOW_EXECUTION_STARTED",
+        executionId: "test-execution",
         workflowId: "workflow-123",
         timestamp: Date.now(),
       };
@@ -385,13 +385,13 @@ describe("Trigger Coordinator", () => {
       await coordinator.handleEvent(event);
 
       // Verify that the matched trigger was executed.
-      expect(mockWorkflowLifecycleCoordinator.stopThread).toHaveBeenCalled();
+      expect(mockWorkflowLifecycleCoordinator.stopWorkflowExecution).toHaveBeenCalled();
     });
 
     it("Test mismatch events: Mismatching events should not be triggered.", async () => {
       const event: BaseEvent = {
         type: "NODE_STARTED",
-        executionId: "test-thread",
+        executionId: "test-execution",
         workflowId: "workflow-123",
         timestamp: Date.now(),
       };
@@ -399,13 +399,13 @@ describe("Trigger Coordinator", () => {
       await coordinator.handleEvent(event);
 
       // Verify that no triggers were executed.
-      expect(mockWorkflowLifecycleCoordinator.stopThread).not.toHaveBeenCalled();
+      expect(mockWorkflowLifecycleCoordinator.stopWorkflowExecution).not.toHaveBeenCalled();
     });
 
     it("Testing that disabling triggers does not cause them to execute: Triggers that are in a disabled state should not be executed.", async () => {
       const event: BaseEvent = {
-        type: "THREAD_STARTED",
-        executionId: "test-thread",
+        type: "WORKFLOW_EXECUTION_STARTED",
+        executionId: "test-execution",
         workflowId: "workflow-123",
         timestamp: Date.now(),
       };
@@ -413,7 +413,7 @@ describe("Trigger Coordinator", () => {
       await coordinator.handleEvent(event);
 
       // Verify that the disabled triggers have not been executed.
-      expect(mockWorkflowLifecycleCoordinator.resumeThread).not.toHaveBeenCalled();
+      expect(mockWorkflowLifecycleCoordinator.resumeWorkflowExecution).not.toHaveBeenCalled();
     });
 
     it("Test should not execute when the maximum number of attempts is reached: Triggers that have reached the maxTriggers value should not be executed.", async () => {
@@ -423,8 +423,8 @@ describe("Trigger Coordinator", () => {
       }
 
       const event: BaseEvent = {
-        type: "THREAD_STARTED",
-        executionId: "test-thread",
+        type: "WORKFLOW_EXECUTION_STARTED",
+        executionId: "test-execution",
         workflowId: "workflow-123",
         timestamp: Date.now(),
       };
@@ -432,7 +432,7 @@ describe("Trigger Coordinator", () => {
       await coordinator.handleEvent(event);
 
       // Verify that triggers that have reached the maximum number of executions have not been executed.
-      expect(mockWorkflowLifecycleCoordinator.stopThread).not.toHaveBeenCalled();
+      expect(mockWorkflowLifecycleCoordinator.stopWorkflowExecution).not.toHaveBeenCalled();
     });
 
     it("Testing the NODE_CUSTOM_EVENT event: Correct matching of eventName", async () => {
@@ -444,8 +444,8 @@ describe("Trigger Coordinator", () => {
           eventName: "my-custom-event",
         },
         action: {
-          type: "pause_thread",
-          parameters: { executionId: "test-thread" },
+          type: "pause_workflow_execution",
+          parameters: { executionId: "test-execution" },
         },
         enabled: true,
       };
@@ -454,7 +454,7 @@ describe("Trigger Coordinator", () => {
 
       const event: NodeCustomEvent = {
         type: "NODE_CUSTOM_EVENT",
-        executionId: "test-thread",
+        executionId: "test-execution",
         workflowId: "workflow-123",
         nodeId: "node-1",
         nodeType: "LLM",
@@ -466,7 +466,7 @@ describe("Trigger Coordinator", () => {
       await coordinator.handleEvent(event);
 
       // Verify that the matched trigger has been executed.
-      expect(mockWorkflowLifecycleCoordinator.stopThread).toHaveBeenCalled();
+      expect(mockWorkflowLifecycleCoordinator.stopWorkflowExecution).toHaveBeenCalled();
     });
 
     it("Test for NODE_CUSTOM_EVENT not matching eventName: Do not execute if eventName does not match.", async () => {
@@ -478,8 +478,8 @@ describe("Trigger Coordinator", () => {
           eventName: "my-custom-event",
         },
         action: {
-          type: "pause_thread",
-          parameters: { executionId: "test-thread" },
+          type: "pause_workflow_execution",
+          parameters: { executionId: "test-execution" },
         },
         enabled: true,
       };
@@ -488,7 +488,7 @@ describe("Trigger Coordinator", () => {
 
       const event: NodeCustomEvent = {
         type: "NODE_CUSTOM_EVENT",
-        executionId: "test-thread",
+        executionId: "test-execution",
         workflowId: "workflow-123",
         nodeId: "node-1",
         nodeType: "LLM",
@@ -500,7 +500,7 @@ describe("Trigger Coordinator", () => {
       await coordinator.handleEvent(event);
 
       // Verify that unmatched triggers were not executed.
-      expect(mockWorkflowLifecycleCoordinator.stopThread).not.toHaveBeenCalled();
+      expect(mockWorkflowLifecycleCoordinator.stopWorkflowExecution).not.toHaveBeenCalled();
     });
   });
 
@@ -510,11 +510,11 @@ describe("Trigger Coordinator", () => {
         id: "trigger-1",
         name: "Test Trigger",
         condition: {
-          eventType: "THREAD_STARTED" as EventType,
+          eventType: "WORKFLOW_EXECUTION_STARTED" as EventType,
         },
         action: {
-          type: "pause_thread",
-          parameters: { executionId: "test-thread" },
+          type: "pause_workflow_execution",
+          parameters: { executionId: "test-execution" },
         },
         enabled: true,
         createCheckpoint: true,
@@ -526,8 +526,8 @@ describe("Trigger Coordinator", () => {
 
     it("Create a checkpoint before the test is triggered: The checkpoint is created correctly using the createCheckpoint configuration.", async () => {
       const event: BaseEvent = {
-        type: "THREAD_STARTED",
-        executionId: "test-thread",
+        type: "WORKFLOW_EXECUTION_STARTED",
+        executionId: "test-execution",
         workflowId: "workflow-123",
         timestamp: Date.now(),
       };
@@ -543,8 +543,8 @@ describe("Trigger Coordinator", () => {
       mockCheckpointStateManager.createCheckpoint.mockRejectedValue(new Error("Checkpoint failed"));
 
       const event: BaseEvent = {
-        type: "THREAD_STARTED",
-        executionId: "test-thread",
+        type: "WORKFLOW_EXECUTION_STARTED",
+        executionId: "test-execution",
         workflowId: "workflow-123",
         timestamp: Date.now(),
       };
@@ -553,7 +553,7 @@ describe("Trigger Coordinator", () => {
       await expect(coordinator.handleEvent(event)).resolves.not.toThrow();
 
       // Verify that the trigger is still being executed.
-      expect(mockWorkflowLifecycleCoordinator.stopThread).toHaveBeenCalled();
+      expect(mockWorkflowLifecycleCoordinator.stopWorkflowExecution).toHaveBeenCalled();
     });
   });
 
@@ -562,16 +562,16 @@ describe("Trigger Coordinator", () => {
       const workflowTrigger1: WorkflowTrigger = {
         id: "trigger-1",
         name: "Trigger 1",
-        condition: { eventType: "THREAD_STARTED" as EventType },
-        action: { type: "pause_thread", parameters: { executionId: "test-thread" } },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" as EventType },
+        action: { type: "pause_workflow_execution", parameters: { executionId: "test-execution" } },
         enabled: true,
       };
 
       const workflowTrigger2: WorkflowTrigger = {
         id: "trigger-2",
         name: "Trigger 2",
-        condition: { eventType: "THREAD_COMPLETED" as EventType },
-        action: { type: "pause_thread", parameters: { executionId: "test-thread" } },
+        condition: { eventType: "WORKFLOW_EXECUTION_COMPLETED" as EventType },
+        action: { type: "pause_workflow_execution", parameters: { executionId: "test-execution" } },
         enabled: true,
       };
 
@@ -590,8 +590,8 @@ describe("Trigger Coordinator", () => {
   describe("Boundary cases", () => {
     it("Test handling of events without triggers: should be handled normally", async () => {
       const event: BaseEvent = {
-        type: "THREAD_STARTED",
-        executionId: "test-thread",
+        type: "WORKFLOW_EXECUTION_STARTED",
+        executionId: "test-execution",
         workflowId: "workflow-123",
         timestamp: Date.now(),
       };
@@ -604,16 +604,16 @@ describe("Trigger Coordinator", () => {
       const workflowTrigger1: WorkflowTrigger = {
         id: "trigger-1",
         name: "Trigger 1",
-        condition: { eventType: "THREAD_STARTED" as EventType },
-        action: { type: "pause_thread", parameters: { executionId: "test-thread" } },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" as EventType },
+        action: { type: "pause_workflow_execution", parameters: { executionId: "test-execution" } },
         enabled: true,
       };
 
       const workflowTrigger2: WorkflowTrigger = {
         id: "trigger-2",
         name: "Trigger 2",
-        condition: { eventType: "THREAD_STARTED" as EventType },
-        action: { type: "pause_thread", parameters: { executionId: "test-thread" } },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" as EventType },
+        action: { type: "pause_workflow_execution", parameters: { executionId: "test-execution" } },
         enabled: true,
       };
 
@@ -621,8 +621,8 @@ describe("Trigger Coordinator", () => {
       coordinator.register(workflowTrigger2, "workflow-123");
 
       const event: BaseEvent = {
-        type: "THREAD_STARTED",
-        executionId: "test-thread",
+        type: "WORKFLOW_EXECUTION_STARTED",
+        executionId: "test-execution",
         workflowId: "workflow-123",
         timestamp: Date.now(),
       };
@@ -630,8 +630,8 @@ describe("Trigger Coordinator", () => {
       await coordinator.handleEvent(event);
 
       // Verify that both triggers have been executed.
-      expect(mockWorkflowLifecycleCoordinator.stopThread).toHaveBeenCalled();
-      expect(mockWorkflowLifecycleCoordinator.pauseThread).toHaveBeenCalled();
+      expect(mockWorkflowLifecycleCoordinator.stopWorkflowExecution).toHaveBeenCalled();
+      expect(mockWorkflowLifecycleCoordinator.pauseWorkflowExecution).toHaveBeenCalled();
     });
   });
 });

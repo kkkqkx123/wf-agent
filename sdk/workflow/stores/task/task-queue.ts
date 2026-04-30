@@ -10,7 +10,7 @@
  * Design Principles:
  * - Stateful multi-instance architecture, held by TriggeredSubworkflowHandler
  * - Supports both synchronous and asynchronous execution modes
- * - Automatically handles coordination between the queue and the thread pool
+ * - Automatically handles coordination between the queue and the workflow execution pool
  */
 
 import { WorkflowExecutor } from "../../execution/executors/workflow-executor.js";

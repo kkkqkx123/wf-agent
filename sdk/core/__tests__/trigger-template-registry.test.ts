@@ -28,10 +28,10 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
         name: "test-template",
         description: "Test Trigger Templates",
         condition: {
-          eventType: "THREAD_STARTED",
+          eventType: "WORKFLOW_EXECUTION_STARTED",
         },
         action: {
-          type: "pause_thread",
+          type: "pause_workflow_execution",
           parameters: {
             executionId: "${executionId}",
           },
@@ -53,10 +53,10 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
         name: "test-template",
         description: "Test Trigger Templates",
         condition: {
-          eventType: "THREAD_STARTED",
+          eventType: "WORKFLOW_EXECUTION_STARTED",
         },
         action: {
-          type: "pause_thread",
+          type: "pause_workflow_execution",
           parameters: {
             executionId: "${executionId}",
           },
@@ -75,16 +75,16 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
         {
           name: "template-1",
           description: "Template 1",
-          condition: { eventType: "THREAD_STARTED" },
-          action: { type: "pause_thread", parameters: { executionId: "${executionId}" } },
+          condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+          action: { type: "pause_workflow_execution", parameters: { executionId: "${executionId}" } },
           createdAt: Date.now(),
           updatedAt: Date.now(),
         },
         {
           name: "template-2",
           description: "Template 2",
-          condition: { eventType: "THREAD_COMPLETED" },
-          action: { type: "pause_thread", parameters: { executionId: "${executionId}" } },
+          condition: { eventType: "WORKFLOW_EXECUTION_COMPLETED" },
+          action: { type: "pause_workflow_execution", parameters: { executionId: "${executionId}" } },
           createdAt: Date.now(),
           updatedAt: Date.now(),
         },
@@ -92,7 +92,7 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
           name: "template-3",
           description: "Template 3",
           condition: { eventType: "NODE_FAILED" },
-          action: { type: "resume_thread", parameters: { executionId: "${executionId}" } },
+          action: { type: "resume_workflow_execution", parameters: { executionId: "${executionId}" } },
           createdAt: Date.now(),
           updatedAt: Date.now(),
         },
@@ -110,7 +110,7 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
       const template: any = {
         name: "test-template",
         // "Condition is missing"
-        action: { type: "pause_thread", parameters: { executionId: "${executionId}" } },
+        action: { type: "pause_workflow_execution", parameters: { executionId: "${executionId}" } },
       };
 
       expect(() => registry.register(template)).toThrow(ConfigurationValidationError);
@@ -122,7 +122,7 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
         condition: {
           eventType: "INVALID_EVENT_TYPE",
         },
-        action: { type: "pause_thread", parameters: { executionId: "${executionId}" } },
+        action: { type: "pause_workflow_execution", parameters: { executionId: "${executionId}" } },
       };
 
       expect(() => registry.register(template)).toThrow(ConfigurationValidationError);
@@ -132,7 +132,7 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
       const template: any = {
         name: "test-template",
         condition: {
-          eventType: "THREAD_STARTED",
+          eventType: "WORKFLOW_EXECUTION_STARTED",
         },
         action: {
           type: "invalid_action_type",
@@ -150,9 +150,9 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
         {
           name: "template-1",
           description: "First template",
-          condition: { eventType: "THREAD_STARTED" },
-          action: { type: "pause_thread", parameters: { executionId: "${executionId}" } },
-          metadata: { category: "lifecycle", tags: ["thread"] },
+          condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+          action: { type: "pause_workflow_execution", parameters: { executionId: "${executionId}" } },
+          metadata: { category: "lifecycle", tags: ["workflowExecution"] },
           createdAt: Date.now(),
           updatedAt: Date.now(),
         },
@@ -160,7 +160,7 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
           name: "template-2",
           description: "Second template",
           condition: { eventType: "NODE_FAILED" },
-          action: { type: "pause_thread", parameters: { executionId: "${executionId}" } },
+          action: { type: "pause_workflow_execution", parameters: { executionId: "${executionId}" } },
           metadata: { category: "error", tags: ["node", "error"] },
           createdAt: Date.now(),
           updatedAt: Date.now(),
@@ -206,7 +206,7 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
         name: "template-1",
         description: "First template",
         category: "lifecycle",
-        tags: ["thread"],
+        tags: ["workflowExecution"],
       });
       expect(summaries[0]!.createdAt).toBeDefined();
       expect(summaries[0]!.updatedAt).toBeDefined();
@@ -222,8 +222,8 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
       const template: TriggerTemplate = {
         name: "test-template",
         description: "original description",
-        condition: { eventType: "THREAD_STARTED" },
-        action: { type: "pause_thread", parameters: { executionId: "${executionId}" } },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+        action: { type: "pause_workflow_execution", parameters: { executionId: "${executionId}" } },
         enabled: true,
         createdAt: Date.now(),
         updatedAt: Date.now(),
@@ -289,16 +289,16 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
         {
           name: "template-1",
           description: "Template 1",
-          condition: { eventType: "THREAD_STARTED" },
-          action: { type: "pause_thread", parameters: { executionId: "${executionId}" } },
+          condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+          action: { type: "pause_workflow_execution", parameters: { executionId: "${executionId}" } },
           createdAt: Date.now(),
           updatedAt: Date.now(),
         },
         {
           name: "template-2",
           description: "Template 2",
-          condition: { eventType: "THREAD_COMPLETED" },
-          action: { type: "pause_thread", parameters: { executionId: "${executionId}" } },
+          condition: { eventType: "WORKFLOW_EXECUTION_COMPLETED" },
+          action: { type: "pause_workflow_execution", parameters: { executionId: "${executionId}" } },
           createdAt: Date.now(),
           updatedAt: Date.now(),
         },
@@ -306,7 +306,7 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
           name: "template-3",
           description: "Template 3",
           condition: { eventType: "NODE_FAILED" },
-          action: { type: "resume_thread", parameters: { executionId: "${executionId}" } },
+          action: { type: "resume_workflow_execution", parameters: { executionId: "${executionId}" } },
           createdAt: Date.now(),
           updatedAt: Date.now(),
         },
@@ -330,16 +330,16 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
         {
           name: "template-1",
           description: "Template 1",
-          condition: { eventType: "THREAD_STARTED" },
-          action: { type: "pause_thread", parameters: { executionId: "${executionId}" } },
+          condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+          action: { type: "pause_workflow_execution", parameters: { executionId: "${executionId}" } },
           createdAt: Date.now(),
           updatedAt: Date.now(),
         },
         {
           name: "template-2",
           description: "Template 2",
-          condition: { eventType: "THREAD_COMPLETED" },
-          action: { type: "pause_thread", parameters: { executionId: "${executionId}" } },
+          condition: { eventType: "WORKFLOW_EXECUTION_COMPLETED" },
+          action: { type: "pause_workflow_execution", parameters: { executionId: "${executionId}" } },
           createdAt: Date.now(),
           updatedAt: Date.now(),
         },
@@ -360,11 +360,11 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
     beforeEach(() => {
       const templates: TriggerTemplate[] = [
         {
-          name: "thread-started-template",
-          description: "Triggered when thread is started",
-          condition: { eventType: "THREAD_STARTED" },
-          action: { type: "pause_thread", parameters: { executionId: "${executionId}" } },
-          metadata: { category: "lifecycle", tags: ["thread", "lifecycle"] },
+          name: "workflow-execution-started-template",
+          description: "Triggered when workflow execution is started",
+          condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+          action: { type: "pause_workflow_execution", parameters: { executionId: "${executionId}" } },
+          metadata: { category: "lifecycle", tags: ["workflowExecution", "lifecycle"] },
           createdAt: Date.now(),
           updatedAt: Date.now(),
         },
@@ -372,7 +372,7 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
           name: "node-failed-template",
           description: "Triggered on node failure",
           condition: { eventType: "NODE_FAILED" },
-          action: { type: "pause_thread", parameters: { executionId: "${executionId}" } },
+          action: { type: "pause_workflow_execution", parameters: { executionId: "${executionId}" } },
           metadata: { category: "error", tags: ["node", "error"] },
           createdAt: Date.now(),
           updatedAt: Date.now(),
@@ -392,10 +392,10 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
     });
 
     it("Test search function: search method to search templates based on keywords", () => {
-      const results = registry.search("thread");
+      const results = registry.search("workflowExecution");
 
       expect(results).toHaveLength(1);
-      expect(results[0]!.name).toBe("thread-started-template");
+      expect(results[0]!.name).toBe("workflow-execution-started-template");
     });
 
     it("Test search description: you can search based on the description keywords", () => {
@@ -427,7 +427,7 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
 
     it("Testing for case-insensitive searches: searches should be case-insensitive", () => {
       const results1 = registry.search("THREAD");
-      const results2 = registry.search("thread");
+      const results2 = registry.search("workflowExecution");
 
       expect(results1).toHaveLength(1);
       expect(results2).toHaveLength(1);
@@ -440,9 +440,9 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
       const template: TriggerTemplate = {
         name: "export-test-template",
         description: "Templates for testing import and export",
-        condition: { eventType: "THREAD_STARTED" },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
         action: {
-          type: "pause_thread",
+          type: "pause_workflow_execution",
           parameters: {
             executionId: "${executionId}",
           },
@@ -477,8 +477,8 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
       const json = JSON.stringify({
         name: "import-test-template",
         description: "Templates imported from JSON",
-        condition: { eventType: "THREAD_COMPLETED" },
-        action: { type: "pause_thread", parameters: { executionId: "${executionId}" } },
+        condition: { eventType: "WORKFLOW_EXECUTION_COMPLETED" },
+        action: { type: "pause_workflow_execution", parameters: { executionId: "${executionId}" } },
         createdAt: Date.now(),
         updatedAt: Date.now(),
       });
@@ -501,7 +501,7 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
       const invalidConfig = JSON.stringify({
         name: "invalid-template",
         // "condition is missing"
-        action: { type: "pause_thread", parameters: { executionId: "${executionId}" } },
+        action: { type: "pause_workflow_execution", parameters: { executionId: "${executionId}" } },
       });
 
       expect(() => {
@@ -524,10 +524,10 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
         name: "test-template",
         description: "Test Templates",
         condition: {
-          eventType: "THREAD_STARTED",
+          eventType: "WORKFLOW_EXECUTION_STARTED",
         },
         action: {
-          type: "pause_thread",
+          type: "pause_workflow_execution",
           parameters: {
             executionId: "${executionId}",
           },
@@ -552,8 +552,8 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
       expect(workflowTrigger.id).toBe("trigger-123");
       expect(workflowTrigger.name).toBe("Custom Trigger Names");
       expect(workflowTrigger.description).toBe("Test Templates");
-      expect(workflowTrigger.condition.eventType).toBe("THREAD_STARTED");
-      expect(workflowTrigger.action.type).toBe("pause_thread");
+      expect(workflowTrigger.condition.eventType).toBe("WORKFLOW_EXECUTION_STARTED");
+      expect(workflowTrigger.action.type).toBe("pause_workflow_execution");
       expect(workflowTrigger.enabled).toBe(true);
       expect(workflowTrigger.maxTriggers).toBe(10);
       expect(workflowTrigger.metadata).toEqual({ category: "test" });
@@ -576,18 +576,18 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
         "Custom Trigger Names",
         {
           condition: {
-            eventType: "THREAD_COMPLETED",
+            eventType: "WORKFLOW_EXECUTION_COMPLETED",
           },
           action: {
-            type: "pause_thread",
+            type: "pause_workflow_execution",
           },
           enabled: false,
           maxTriggers: 20,
         },
       );
 
-      expect(workflowTrigger.condition.eventType).toBe("THREAD_COMPLETED");
-      expect(workflowTrigger.action.type).toBe("pause_thread");
+      expect(workflowTrigger.condition.eventType).toBe("WORKFLOW_EXECUTION_COMPLETED");
+      expect(workflowTrigger.action.type).toBe("pause_workflow_execution");
       expect(workflowTrigger.enabled).toBe(false);
       expect(workflowTrigger.maxTriggers).toBe(20);
     });
@@ -604,8 +604,8 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
 
       expect(workflowTrigger.enabled).toBe(false);
       expect(workflowTrigger.maxTriggers).toBe(10); // The value should be preserved as is.
-      expect(workflowTrigger.condition.eventType).toBe("THREAD_STARTED"); // The value should be preserved as is.
-      expect(workflowTrigger.action.type).toBe("pause_thread"); // The value should be preserved as is.
+      expect(workflowTrigger.condition.eventType).toBe("WORKFLOW_EXECUTION_STARTED"); // The value should be preserved as is.
+      expect(workflowTrigger.action.type).toBe("pause_workflow_execution"); // The value should be preserved as is.
     });
 
     it("Test conversion of non-existent templates: an error should be thrown", () => {
@@ -630,8 +630,8 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
       const template: TriggerTemplate = {
         name: "template-with-special-chars_123!@#",
         description: "Templates containing special characters",
-        condition: { eventType: "THREAD_STARTED" },
-        action: { type: "pause_thread", parameters: { executionId: "${executionId}" } },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+        action: { type: "pause_workflow_execution", parameters: { executionId: "${executionId}" } },
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -653,8 +653,8 @@ describe("Trigger Template Registry - Trigger Template Registry", () => {
       const template: TriggerTemplate = {
         name: "large-metadata-template",
         description: "Templates with lots of metadata",
-        condition: { eventType: "THREAD_STARTED" },
-        action: { type: "pause_thread", parameters: { executionId: "${executionId}" } },
+        condition: { eventType: "WORKFLOW_EXECUTION_STARTED" },
+        action: { type: "pause_workflow_execution", parameters: { executionId: "${executionId}" } },
         metadata: largeMetadata,
         createdAt: Date.now(),
         updatedAt: Date.now(),

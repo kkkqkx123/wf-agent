@@ -135,7 +135,7 @@ export class VariableState implements LifecycleCapable<{
     }
 
     // Use WorkflowExecutionVariable directly
-    this.variables = threadVariables.map((v: WorkflowExecutionVariable): WorkflowExecutionVariable => ({ ...v }));
+    this.variables = workflowExecutionVariables.map((v: WorkflowExecutionVariable): WorkflowExecutionVariable => ({ ...v }));
 
     // Initialize a level-4 scope
     this.variableScopes = {
@@ -339,8 +339,8 @@ export class VariableState implements LifecycleCapable<{
     // 1. Global scope (lowest priority)
     Object.assign(allVariables, this.variableScopes.global);
 
-    // 2. Thread Scope
-    Object.assign(allVariables, this.variableScopes.thread);
+    // 2. WorkflowExecution Scope
+    Object.assign(allVariables, this.variableScopes.workflowExecution);
 
     // 3. Local scope (from outer to inner, with inner scopes overriding outer scopes)
     for (const localScope of this.variableScopes.local) {
@@ -454,8 +454,8 @@ export class VariableState implements LifecycleCapable<{
    */
   getVariable(name: string): unknown {
     // Check thread scope first
-    if (name in this.variableScopes.thread) {
-      return this.variableScopes.thread[name];
+    if (name in this.variableScopes.workflowExecution) {
+      return this.variableScopes.workflowExecution[name];
     }
 
     // Check local scope (current level)
@@ -517,8 +517,8 @@ export class VariableState implements LifecycleCapable<{
       delete this.variableScopes.global[name];
       deleted = true;
     }
-    if (name in this.variableScopes.thread) {
-      delete this.variableScopes.thread[name];
+    if (name in this.variableScopes.workflowExecution) {
+      delete this.variableScopes.workflowExecution[name];
       deleted = true;
     }
     for (const localScope of this.variableScopes.local) {

@@ -58,7 +58,7 @@ export class NodeHandlerContextFactory {
    * Create a node processor context
    *
    * @param node Node definition
-   * @param executionEntity Thread entity
+   * @param executionEntity WorkflowExecution entity
    * @returns Processor context
    * @throws ExecutionError When required dependencies are missing
    */

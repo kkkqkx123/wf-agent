@@ -26,7 +26,7 @@ export interface WorkflowToolExecutionContext {
   /** Current execution ID */
   executionId?: string;
   /** Parent thread entity */
-  parentThreadEntity?: WorkflowExecutionEntity;
+  parentExecutionEntity?: WorkflowExecutionEntity;
   /** Thread registry */
   executionRegistry?: WorkflowExecutionRegistry;
   /** Event manager */

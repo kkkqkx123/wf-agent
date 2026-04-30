@@ -16,7 +16,7 @@ export {
   type TaskInfo,
   type StoredTaskInfo,
   isAgentInstance,
-  isThreadInstance,
+  isWorkflowExecutionInstance,
   getExecutionInstanceType,
   getExecutionInstanceId,
   hasLoadedInstance,

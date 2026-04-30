@@ -169,16 +169,16 @@ export async function waitForAnyLifecycleEvent(
  * Wait for multiple threads to complete
  *
  * @param eventManager  Event manager
- * @param threadIds  Array of execution IDs
+ * @param executionIds  Array of execution IDs
  * @param timeout  Timeout period in milliseconds; the default is 30000ms. Use WAIT_foreVER or -1 to indicate waiting indefinitely
- * @returns Promise: Resolved when all threads have completed or the timeout has expired
+ * @returns Promise: Resolved when all executions have completed or the timeout has expired
  */
 export async function waitForMultipleWorkflowExecutionsCompleted(
   eventManager: EventRegistry,
-  threadIds: string[],
+  executionIds: string[],
   timeout: number = 30000,
 ): Promise<void> {
-  const promises = threadIds.map(executionId =>
+  const promises = executionIds.map(executionId =>
     waitForWorkflowExecutionCompleted(eventManager, executionId, timeout),
   );
 
@@ -189,16 +189,16 @@ export async function waitForMultipleWorkflowExecutionsCompleted(
  * Wait for any thread to complete
  *
  * @param eventManager  Event manager
- * @param threadIds  Array of execution IDs
- * @param timeout  Timeout period in milliseconds; the default is 30000ms. Use WAIT_foreVER or -1 to indicate waiting indefinitely
- * @returns Promise: Resolves when any thread completes or the timeout occurs, returning the ID of the completed thread
+ * @param executionIds  Array of execution IDs
+ * @param timeout  Timeout period in milliseconds; the default is 30000ms. Use WAIT_forever or -1 to indicate waiting indefinitely
+ * @returns Promise: Resolves when any execution completes or the timeout occurs, returning the ID of the completed execution
  */
 export async function waitForAnyWorkflowExecutionCompleted(
   eventManager: EventRegistry,
-  threadIds: string[],
+  executionIds: string[],
   timeout: number = 30000,
 ): Promise<string> {
-  const promises = threadIds.map(executionId =>
+  const promises = executionIds.map(executionId =>
     waitForWorkflowExecutionCompleted(eventManager, executionId, timeout).then(() => executionId),
   );
 
@@ -209,23 +209,23 @@ export async function waitForAnyWorkflowExecutionCompleted(
  * Wait for either a thread to complete or fail
  *
  * @param eventManager  Event manager
- * @param threadIds  Array of execution IDs
- * @param timeout  Timeout period in milliseconds; the default is 30000ms. Use WAIT_foreVER or -1 to indicate waiting indefinitely
- * @returns Promise: Resolves when either a thread completes or fails, returning the execution ID and its status
+ * @param executionIds  Array of execution IDs
+ * @param timeout  Timeout period in milliseconds; the default is 30000ms. Use WAIT_forever or -1 to indicate waiting indefinitely
+ * @returns Promise: Resolves when either an execution completes or fails, returning the execution ID and its status
  */
 export async function waitForAnyWorkflowExecutionCompletion(
   eventManager: EventRegistry,
-  threadIds: string[],
+  executionIds: string[],
   timeout: number = 30000,
 ): Promise<{ executionId: string; status: "COMPLETED" | "FAILED" }> {
-  const completedPromises = threadIds.map(executionId =>
+  const completedPromises = executionIds.map(executionId =>
     waitForWorkflowExecutionCompleted(eventManager, executionId, timeout).then(() => ({
       executionId,
       status: "COMPLETED" as const,
     })),
   );
 
-  const failedPromises = threadIds.map(executionId =>
+  const failedPromises = executionIds.map(executionId =>
     waitForWorkflowExecutionFailed(eventManager, executionId, timeout).then(() => ({
       executionId,
       status: "FAILED" as const,

@@ -1,5 +1,5 @@
 /**
- * ThreadOperations - WorkflowExecution Operation Utility Functions
+ * WorkflowOperations - WorkflowExecution Operation Utility Functions
  * Provides stateless WorkflowExecution operations such as Fork/Join/Copy
  * All functions are pure functions and do not hold any state
  */
@@ -22,9 +22,9 @@ import {
 } from "./event/index.js";
 import { safeEmit } from "../../../core/utils/event/event-emitter.js";
 import {
-  waitForMultipleThreadsCompleted,
-  waitForAnyThreadCompleted,
-  waitForAnyThreadCompletion,
+  waitForMultipleWorkflowExecutionsCompleted,
+  waitForAnyWorkflowExecutionCompleted,
+  waitForAnyWorkflowExecutionCompletion,
 } from "./event/event-waiter.js";
 
 /**
@@ -57,19 +57,19 @@ export type JoinStrategy =
 export interface JoinResult {
   success: boolean;
   output: unknown;
-  completedThreads: WorkflowExecution[];
-  failedThreads: WorkflowExecution[];
+  completedExecutions: WorkflowExecution[];
+  failedExecutions: WorkflowExecution[];
 }
 
 /**
  * Fork Operation - Creates a child WorkflowExecution
- * @param parentThreadEntity: Parent WorkflowExecution entity
+ * @param parentExecutionEntity: Parent WorkflowExecution entity
  * @param forkConfig: Fork configuration
  * @param executionBuilder: WorkflowExecution builder
  * @returns: Child WorkflowExecution entity
  */
 export async function fork(
-  parentThreadEntity: WorkflowExecutionEntity,
+  parentExecutionEntity: WorkflowExecutionEntity,
   forkConfig: ForkConfig,
   executionBuilder: WorkflowExecutionBuilder,
   eventManager?: EventRegistry,
@@ -93,15 +93,15 @@ export async function fork(
 
   // Trigger the WORKFLOW_EXECUTION_FORK_STARTED event
   const forkStartedEvent = buildWorkflowExecutionForkStartedEvent({
-    executionId: parentThreadEntity.id,
-    workflowId: parentThreadEntity.getWorkflowId(),
-    parentExecutionId: parentThreadEntity.id,
+    executionId: parentExecutionEntity.id,
+    workflowId: parentExecutionEntity.getWorkflowId(),
+    parentExecutionId: parentExecutionEntity.id,
     forkConfig: forkConfig as unknown as Record<string, unknown>,
   });
   await safeEmit(eventManager, forkStartedEvent);
 
   // Step 2: Create a child WorkflowExecution
-  const { workflowExecutionEntity: childThreadEntity } = await executionBuilder.createFork(parentThreadEntity, {
+  const { workflowExecutionEntity: childExecutionEntity } = await executionBuilder.createFork(parentExecutionEntity, {
     forkId: forkConfig.forkId,
     forkPathId: forkConfig.forkPathId,
     startNodeId: forkConfig.startNodeId,
@@ -109,14 +109,14 @@ export async function fork(
 
   // Trigger the WORKFLOW_EXECUTION_FORK_COMPLETED event
   const forkCompletedEvent = buildWorkflowExecutionForkCompletedEvent({
-    executionId: parentThreadEntity.id,
-    workflowId: parentThreadEntity.getWorkflowId(),
-    parentExecutionId: parentThreadEntity.id,
-    childExecutionIds: [childThreadEntity.id],
+    executionId: parentExecutionEntity.id,
+    workflowId: parentExecutionEntity.getWorkflowId(),
+    parentExecutionId: parentExecutionEntity.id,
+    childExecutionIds: [childExecutionEntity.id],
   });
   await safeEmit(eventManager, forkCompletedEvent);
 
-  return childThreadEntity;
+  return childExecutionEntity;
 }
 
 /**
@@ -128,22 +128,22 @@ export async function fork(
  * - 使用 Promise.race() 实现超时控制
  * - mainPathId 指定主线程路径，会将主线程的对话历史合并到父线程
  *
- * @param childThreadIds 子线程 ID 数组
- * @param joinStrategy Join 策略
- * @param executionRegistry WorkflowExecution 注册表
- * @param timeout 超时时间（秒），0 表示不超时，>0 表示超时的秒数
- * @param parentThreadId 父线程 ID（可选）
- * @param eventManager 事件管理器（可选）
- * @param mainPathId 主线程路径 ID（可选，默认使用第一个子线程）
- * @returns Join 结果
+ * @param childExecutionIds Child execution ID array
+ * @param joinStrategy Join strategy
+ * @param executionRegistry WorkflowExecution registry
+ * @param timeout Timeout (seconds), 0 means no timeout, >0 means timeout in seconds
+ * @param parentExecutionId Parent execution ID (optional)
+ * @param eventManager Event manager (optional)
+ * @param mainPathId Main path ID (optional, defaults to first child execution)
+ * @returns Join result
  */
 export async function join(
-  childThreadIds: string[],
+  childExecutionIds: string[],
   joinStrategy: JoinStrategy,
   workflowExecutionRegistry: WorkflowExecutionRegistry,
   mainPathId: string,
   timeout: number = 0,
-  parentThreadId?: string,
+  parentExecutionId?: string,
   eventManager?: EventRegistry,
 ): Promise<JoinResult> {
   // Step 1: Verify the Join configuration
@@ -160,14 +160,14 @@ export async function join(
   }
 
   // Trigger the WORKFLOW_EXECUTION_JOIN_STARTED event
-  if (eventManager && parentThreadId) {
-    const parentThreadEntity = workflowExecutionRegistry.get(parentThreadId);
-    if (parentThreadEntity) {
+  if (eventManager && parentExecutionId) {
+    const parentExecutionEntity = workflowExecutionRegistry.get(parentExecutionId);
+    if (parentExecutionEntity) {
       const joinStartedEvent = buildWorkflowExecutionJoinStartedEvent({
-        executionId: parentThreadEntity.id,
-        workflowId: parentThreadEntity.getWorkflowId(),
-        parentExecutionId: parentThreadEntity.id,
-        childExecutionIds: childThreadIds,
+        executionId: parentExecutionEntity.id,
+        workflowId: parentExecutionEntity.getWorkflowId(),
+        parentExecutionId: parentExecutionEntity.id,
+        childExecutionIds: childExecutionIds,
         joinStrategy,
       });
       await safeEmit(eventManager, joinStartedEvent);
@@ -180,73 +180,73 @@ export async function join(
 
   // 统一使用 eventManager.waitFor() 的超时机制
   const result = await waitForCompletion(
-    childThreadIds,
+    childExecutionIds,
     joinStrategy,
     workflowExecutionRegistry,
     timeoutMs,
-    parentThreadId,
+    parentExecutionId,
     eventManager,
   );
 
-  const completedThreads = result.completedThreads;
-  const failedThreads = result.failedThreads;
+  const completedExecutions = result.completedExecutions;
+  const failedExecutions = result.failedExecutions;
 
   // Step 3: Determine whether to proceed based on the strategy.
-  if (!validateJoinStrategy(completedThreads, failedThreads, childThreadIds, joinStrategy)) {
+  if (!validateJoinStrategy(completedExecutions, failedExecutions, childExecutionIds, joinStrategy)) {
     throw new ExecutionError(
       `Join condition not met: ${joinStrategy}`,
       undefined,
-      childThreadIds[0],
+      childExecutionIds[0],
     );
   }
 
-  // Step 4: Merge the results of the sub-threads
-  const output = mergeResults(completedThreads, joinStrategy);
+  // Step 4: Merge the results of the sub-executions
+  const output = mergeResults(completedExecutions, joinStrategy);
 
   // Step 5: Merge the main WorkflowExecution's conversation history into the parent WorkflowExecution
-  if (parentThreadId && mainPathId) {
-    const parentThreadEntity = workflowExecutionRegistry.get(parentThreadId);
-    if (parentThreadEntity) {
+  if (parentExecutionId && mainPathId) {
+    const parentExecutionEntity = workflowExecutionRegistry.get(parentExecutionId);
+    if (parentExecutionEntity) {
       // Find the sub-WorkflowExecution corresponding to the mainPathId.
-      const mainThread = completedThreads.find(
+      const mainExecution = completedExecutions.find(
         WorkflowExecution => WorkflowExecution.forkJoinContext?.forkPathId === mainPathId,
       );
 
-      if (!mainThread) {
+      if (!mainExecution) {
         throw new ExecutionError(
           `Main workflow execution not found for mainPathId: ${mainPathId}`,
           undefined,
-          parentThreadId,
-          { mainPathId, completedThreadIds: completedThreads.map(t => t.id) },
+          parentExecutionId,
+          { mainPathId, completedExecutionIds: completedExecutions.map(t => t.id) },
         );
       }
 
-      const mainThreadEntity = workflowExecutionRegistry.get(mainThread.id);
-      if (!mainThreadEntity) {
+      const mainExecutionEntity = workflowExecutionRegistry.get(mainExecution.id);
+      if (!mainExecutionEntity) {
         throw new ExecutionError(
-          `Main WorkflowExecution entity not found for executionId: ${mainThread.id}`,
+          `Main WorkflowExecution entity not found for executionId: ${mainExecution.id}`,
           undefined,
-          parentThreadId,
-          { mainPathId, mainThreadId: mainThread.id },
+          parentExecutionId,
+          { mainPathId, mainExecutionId: mainExecution.id },
         );
       }
 
       try {
         // Use MessageArrayUtils to clone the messages from the main WorkflowExecution and merge them into the parent WorkflowExecution.
         // Use messageHistoryManager directly since WorkflowExecutionEntity no longer holds ConversationManager
-        const mainMessages = mainThreadEntity.messageHistoryManager.getMessages();
+        const mainMessages = mainExecutionEntity.messageHistoryManager.getMessages();
         const clonedMessages = MessageArrayUtils.cloneMessages(mainMessages);
 
         // Add the cloned message to the parent WorkflowExecution.
         for (const msg of clonedMessages) {
-          parentThreadEntity.messageHistoryManager.addMessage(msg);
+          parentExecutionEntity.messageHistoryManager.addMessage(msg);
         }
       } catch (error) {
         throw new ExecutionError(
           `Failed to merge conversation history from main WorkflowExecution`,
           undefined,
-          parentThreadId,
-          { mainPathId, mainThreadId: mainThread.id, error: getErrorMessage(error) },
+          parentExecutionId,
+          { mainPathId, mainExecutionId: mainExecution.id, error: getErrorMessage(error) },
           getErrorOrUndefined(error),
         );
       }
@@ -257,77 +257,77 @@ export async function join(
   return {
     success: true,
     output,
-    completedThreads,
-    failedThreads,
+    completedExecutions,
+    failedExecutions,
   };
 }
 
 /**
  * Copy Operation - Creates a copy of a WorkflowExecution
- * @param sourceThreadEntity: The source WorkflowExecution entity
+ * @param sourceExecutionEntity: The source WorkflowExecution entity
  * @param executionBuilder: The WorkflowExecution builder
  * @returns: The copied WorkflowExecution entity
  */
 export async function copy(
-  sourceThreadEntity: WorkflowExecutionEntity,
+  sourceExecutionEntity: WorkflowExecutionEntity,
   executionBuilder: WorkflowExecutionBuilder,
   eventManager?: EventRegistry,
 ): Promise<WorkflowExecutionEntity> {
   // Step 1: Verify that the source WorkflowExecution exists.
-  if (!sourceThreadEntity) {
+  if (!sourceExecutionEntity) {
     throw new ExecutionError(`Source WorkflowExecution entity is null or undefined`, undefined, "");
   }
 
   // Trigger the WORKFLOW_EXECUTION_COPY_STARTED event
   const copyStartedEvent = buildWorkflowExecutionCopyStartedEvent({
-    executionId: sourceThreadEntity.id,
-    workflowId: sourceThreadEntity.getWorkflowId(),
-    sourceExecutionId: sourceThreadEntity.id,
+    executionId: sourceExecutionEntity.id,
+    workflowId: sourceExecutionEntity.getWorkflowId(),
+    sourceExecutionId: sourceExecutionEntity.id,
   });
   await safeEmit(eventManager, copyStartedEvent);
 
   // Step 2: Call WorkflowExecutionBuilder to create a new WorkflowExecution
-  const { workflowExecutionEntity: copiedThreadEntity } = await executionBuilder.createCopy(sourceThreadEntity);
+  const { workflowExecutionEntity: copiedExecutionEntity } = await executionBuilder.createCopy(sourceExecutionEntity);
 
   // Trigger the WORKFLOW_EXECUTION_COPY_COMPLETED event.
   const copyCompletedEvent = buildWorkflowExecutionCopyCompletedEvent({
-    executionId: sourceThreadEntity.id,
-    workflowId: sourceThreadEntity.getWorkflowId(),
-    sourceExecutionId: sourceThreadEntity.id,
-    copiedExecutionId: copiedThreadEntity.id,
+    executionId: sourceExecutionEntity.id,
+    workflowId: sourceExecutionEntity.getWorkflowId(),
+    sourceExecutionId: sourceExecutionEntity.id,
+    copiedExecutionId: copiedExecutionEntity.id,
   });
   await safeEmit(eventManager, copyCompletedEvent);
 
-  return copiedThreadEntity;
+  return copiedExecutionEntity;
 }
 
 /**
- * Wait for child threads to complete
- * @param childThreadIds Array of child execution IDs
+ * Wait for child executions to complete
+ * @param childExecutionIds Array of child execution IDs
  * @param joinStrategy Join strategy
  * @param executionRegistry WorkflowExecution registry
  * @param timeout Timeout period in milliseconds
- * @returns Array of completed and failed threads
+ * @returns Array of completed and failed executions
  */
 async function waitForCompletion(
-  childThreadIds: string[],
+  childExecutionIds: string[],
   joinStrategy: JoinStrategy,
   workflowExecutionRegistry: WorkflowExecutionRegistry,
   timeout: number | undefined,
-  parentThreadId?: string,
+  parentExecutionId?: string,
   eventManager?: EventRegistry,
-): Promise<{ completedThreads: WorkflowExecution[]; failedThreads: WorkflowExecution[] }> {
-  const completedThreads: WorkflowExecution[] = [];
-  const failedThreads: WorkflowExecution[] = [];
+): Promise<{ completedExecutions: WorkflowExecution[]; failedExecutions: WorkflowExecution[] }> {
+  const completedExecutions: WorkflowExecution[] = [];
+  const failedExecutions: WorkflowExecution[] = [];
 
   // If there is no event manager, use a polling approach.
   if (!eventManager) {
     return await waitForCompletionByPolling(
-      childThreadIds,
+      childExecutionIds,
       joinStrategy,
       workflowExecutionRegistry,
       timeout,
-      parentThreadId,
+      parentExecutionId,
       eventManager,
     );
   }
@@ -337,100 +337,100 @@ async function waitForCompletion(
   let conditionMet: boolean;
   switch (joinStrategy) {
     case "ALL_COMPLETED":
-      // Wait for all threads to complete.
-      await waitForMultipleThreadsCompleted(eventManager, childThreadIds, timeout);
-      // Collect all completed threads.
-      for (const executionId of childThreadIds) {
+      // Wait for all executions to complete.
+      await waitForMultipleWorkflowExecutionsCompleted(eventManager, childExecutionIds, timeout);
+      // Collect all completed executions.
+      for (const executionId of childExecutionIds) {
         const executionEntity = workflowExecutionRegistry.get(executionId);
         if (executionEntity) {
           const WorkflowExecution = executionEntity.getExecution();
           const status = executionEntity.getStatus();
           if (status === "COMPLETED") {
-            completedThreads.push(WorkflowExecution);
+            completedExecutions.push(WorkflowExecution);
           } else if (status === "FAILED" || status === "CANCELLED") {
-            failedThreads.push(WorkflowExecution);
+            failedExecutions.push(WorkflowExecution);
           }
         }
       }
-      conditionMet = failedThreads.length === 0;
+      conditionMet = failedExecutions.length === 0;
       break;
 
     case "ANY_COMPLETED": {
       // Wait for any WorkflowExecution to complete.
-      await waitForAnyThreadCompleted(eventManager, childThreadIds, timeout);
-      // Collected threads
-      for (const executionId of childThreadIds) {
+      await waitForAnyWorkflowExecutionCompleted(eventManager, childExecutionIds, timeout);
+      // Collected executions
+      for (const executionId of childExecutionIds) {
         const executionEntity = workflowExecutionRegistry.get(executionId);
         if (executionEntity) {
           const WorkflowExecution = executionEntity.getExecution();
           const status = executionEntity.getStatus();
           if (status === "COMPLETED") {
-            completedThreads.push(WorkflowExecution);
+            completedExecutions.push(WorkflowExecution);
           } else if (status === "FAILED" || status === "CANCELLED") {
-            failedThreads.push(WorkflowExecution);
+            failedExecutions.push(WorkflowExecution);
           }
         }
       }
-      conditionMet = completedThreads.length > 0;
+      conditionMet = completedExecutions.length > 0;
       break;
     }
 
     case "ALL_FAILED":
-      // Waiting for all threads to fail.
-      await waitForMultipleThreadsCompleted(eventManager, childThreadIds, timeout);
-      // Collect all failed threads.
-      for (const executionId of childThreadIds) {
+      // Waiting for all executions to fail.
+      await waitForMultipleWorkflowExecutionsCompleted(eventManager, childExecutionIds, timeout);
+      // Collect all failed executions.
+      for (const executionId of childExecutionIds) {
         const executionEntity = workflowExecutionRegistry.get(executionId);
         if (executionEntity) {
           const WorkflowExecution = executionEntity.getExecution();
           const status = executionEntity.getStatus();
           if (status === "FAILED" || status === "CANCELLED") {
-            failedThreads.push(WorkflowExecution);
+            failedExecutions.push(WorkflowExecution);
           } else if (status === "COMPLETED") {
-            completedThreads.push(WorkflowExecution);
+            completedExecutions.push(WorkflowExecution);
           }
         }
       }
-      conditionMet = failedThreads.length === childThreadIds.length;
+      conditionMet = failedExecutions.length === childExecutionIds.length;
       break;
 
     case "ANY_FAILED": {
       // Waiting for any WorkflowExecution to fail
-      await waitForAnyThreadCompletion(eventManager, childThreadIds, timeout);
+      await waitForAnyWorkflowExecutionCompletion(eventManager, childExecutionIds, timeout);
       // Collect all WorkflowExecution states
-      for (const executionId of childThreadIds) {
+      for (const executionId of childExecutionIds) {
         const executionEntity = workflowExecutionRegistry.get(executionId);
         if (executionEntity) {
           const WorkflowExecution = executionEntity.getExecution();
           const status = executionEntity.getStatus();
           if (status === "COMPLETED") {
-            completedThreads.push(WorkflowExecution);
+            completedExecutions.push(WorkflowExecution);
           } else if (status === "FAILED" || status === "CANCELLED") {
-            failedThreads.push(WorkflowExecution);
+            failedExecutions.push(WorkflowExecution);
           }
         }
       }
-      conditionMet = failedThreads.length > 0;
+      conditionMet = failedExecutions.length > 0;
       break;
     }
 
     case "SUCCESS_COUNT_THRESHOLD":
       // Wait for any WorkflowExecution to complete (simplified approach)
-      await waitForAnyThreadCompleted(eventManager, childThreadIds, timeout);
+      await waitForAnyWorkflowExecutionCompleted(eventManager, childExecutionIds, timeout);
       // Collect all WorkflowExecution states
-      for (const executionId of childThreadIds) {
+      for (const executionId of childExecutionIds) {
         const executionEntity = workflowExecutionRegistry.get(executionId);
         if (executionEntity) {
           const WorkflowExecution = executionEntity.getExecution();
           const status = executionEntity.getStatus();
           if (status === "COMPLETED") {
-            completedThreads.push(WorkflowExecution);
+            completedExecutions.push(WorkflowExecution);
           } else if (status === "FAILED" || status === "CANCELLED") {
-            failedThreads.push(WorkflowExecution);
+            failedExecutions.push(WorkflowExecution);
           }
         }
       }
-      conditionMet = completedThreads.length > 0;
+      conditionMet = completedExecutions.length > 0;
       break;
 
     default:
@@ -441,21 +441,21 @@ async function waitForCompletion(
   }
 
   // Trigger the WORKFLOW_EXECUTION_JOIN_CONDITION_MET event
-  if (parentThreadId && conditionMet) {
-    const parentThreadEntity = workflowExecutionRegistry.get(parentThreadId);
-    if (parentThreadEntity) {
+  if (parentExecutionId && conditionMet) {
+    const parentExecutionEntity = workflowExecutionRegistry.get(parentExecutionId);
+    if (parentExecutionEntity) {
       const joinConditionMetEvent = buildWorkflowExecutionJoinConditionMetEvent({
-        executionId: parentThreadEntity.id,
-        workflowId: parentThreadEntity.getWorkflowId(),
-        parentExecutionId: parentThreadEntity.id,
-        childExecutionIds: childThreadIds,
+        executionId: parentExecutionEntity.id,
+        workflowId: parentExecutionEntity.getWorkflowId(),
+        parentExecutionId: parentExecutionEntity.id,
+        childExecutionIds: childExecutionIds,
         condition: joinStrategy,
       });
       await safeEmit(eventManager, joinConditionMetEvent);
     }
   }
 
-  return { completedThreads, failedThreads };
+  return { completedExecutions, failedExecutions };
 }
 
 /**

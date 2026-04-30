@@ -51,7 +51,7 @@ export interface CheckpointSummary {
   /** Workflow ID */
   workflowId: string;
   /** Workflow Execution Status */
-  threadStatus: WorkflowExecutionStatus;
+  executionStatus: WorkflowExecutionStatus;
   /** Current node ID */
   currentNodeId: string;
   /** Create a timestamp */
@@ -189,7 +189,7 @@ export class CheckpointResourceAPI extends CrudResourceAPI<Checkpoint, string, C
    * @param metadata Checkpoint metadata
    * @returns Checkpoint ID
    */
-  async createThreadCheckpoint(executionId: string, metadata?: CheckpointMetadata): Promise<string> {
+  async createWorkflowExecutionCheckpoint(executionId: string, metadata?: CheckpointMetadata): Promise<string> {
     // Obtain global services from the DI container.
     const container = getContainer();
     const executionRegistry = container.get(
@@ -268,14 +268,14 @@ export class CheckpointResourceAPI extends CrudResourceAPI<Checkpoint, string, C
   }
 
   /**
-   * Get the list of checkpoints for the thread
+   * Get the list of checkpoints for the workflow execution
    * @param executionId: Execution ID
    * @returns: Array of checkpoints
    */
-  async getThreadCheckpoints(executionId: string): Promise<Checkpoint[]> {
+  async getWorkflowExecutionCheckpoints(executionId: string): Promise<Checkpoint[]> {
     const result = await this.getAll({ executionId });
     if (!isSuccess(result)) {
-      throw new Error(getErrorMessage(result) || "Failed to get thread checkpoints");
+      throw new Error(getErrorMessage(result) || "Failed to get workflow execution checkpoints");
     }
     const checkpoints = getData(result);
     return checkpoints || [];
@@ -287,7 +287,7 @@ export class CheckpointResourceAPI extends CrudResourceAPI<Checkpoint, string, C
    * @returns The latest checkpoint; returns null if it does not exist
    */
   async getLatestCheckpoint(executionId: string): Promise<Checkpoint | null> {
-    const checkpoints = await this.getThreadCheckpoints(executionId);
+    const checkpoints = await this.getWorkflowExecutionCheckpoints(executionId);
     if (checkpoints.length === 0) {
       return null;
     }

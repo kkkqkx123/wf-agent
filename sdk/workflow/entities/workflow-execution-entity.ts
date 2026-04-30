@@ -86,6 +86,14 @@ export class WorkflowExecutionEntity {
 
   // Basic Property Access ============
 
+  /**
+   * Get execution ID
+   * @returns Execution ID
+   */
+  getExecutionId(): string {
+    return this.id;
+  }
+
   getWorkflowId(): string {
     return this.workflowExecution.workflowId;
   }
@@ -494,59 +502,7 @@ export class WorkflowExecutionEntity {
     this.state.interrupted = false;
   }
 
-  // Parent-Child Thread Management ============
-
-  /**
-   * Set parent execution ID
-   * @param parentId Parent execution ID
-   * @deprecated Use setParentExecutionId instead
-   */
-  setParentThreadId(parentId: string): void {
-    this.setParentExecutionId(parentId);
-  }
-
-  /**
-   * Get parent execution ID
-   * @returns Parent execution ID or undefined
-   * @deprecated Use getParentExecutionId instead
-   */
-  getParentThreadId(): string | undefined {
-    return this.getParentExecutionId();
-  }
-
-  /**
-   * Register child execution ID
-   * @param childId Child execution ID
-   * @deprecated Use registerChildExecution instead
-   */
-  registerChildThread(childId: string): void {
-    this.registerChildExecution(childId);
-  }
-
-  /**
-   * Unregister child execution ID
-   * @param childId Child execution ID
-   * @deprecated Use unregisterChildExecution instead
-   */
-  unregisterChildThread(childId: string): void {
-    this.unregisterChildExecution(childId);
-  }
-
-  /**
-   * Get thread type (alias for getExecutionType for compatibility)
-   * @returns Workflow execution type
-   */
-  getThreadType(): WorkflowExecutionType {
-    return this.getExecutionType();
-  }
-
-  /**
-   * Set thread type (alias for setExecutionType for compatibility)
-   * @param type Workflow execution type
-   */
-  setThreadType(type: WorkflowExecutionType): void {
-    this.setExecutionType(type);
-  }
+  // Parent-Child Execution Management ============
 
   // Event Building ============
 

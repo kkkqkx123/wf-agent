@@ -85,7 +85,7 @@ export class ToolVisibilityCoordinator {
   /**
    * Update visibility when scope is switched
    * Generate and add new visibility declaration messages
-   * @param executionEntity Thread entity
+   * @param executionEntity WorkflowExecution entity
    * @param newScope New scope
    * @param newScopeId New scope ID
    * @param availableTools List of available tool IDs
@@ -203,7 +203,7 @@ export class ToolVisibilityCoordinator {
   /**
    * Dynamically add tools
    * Generate incremental visibility declarations
-   * @param executionEntity Thread entity
+   * @param executionEntity WorkflowExecution entity
    * @param toolIds List of tool IDs
    * @param scope Scope
    */
@@ -301,7 +301,7 @@ export class ToolVisibilityCoordinator {
   /**
    * Verify the integrity of the declaration history
    * @param executionId: Execution ID
-   * @param executionEntity: Thread entity
+   * @param executionEntity: WorkflowExecution entity
    * @returns: Verification result
    */
   validateDeclarationHistory(
@@ -370,7 +370,7 @@ export class ToolVisibilityCoordinator {
    * Update the declaration history after message operations
    * This method is called when a message is truncated, filtered, or cleared.
    * @param executionId: Execution ID
-   * @param executionEntity: Thread entity
+   * @param executionEntity: WorkflowExecution entity
    * @param operation: Type of operation
    */
   async updateDeclarationHistoryAfterMessageOperation(
@@ -427,7 +427,7 @@ export class ToolVisibilityCoordinator {
    * Automatic repair declaration history
    * This method is called when verification fails.
    * @param executionId: Execution ID
-   * @param executionEntity: Thread entity
+   * @param executionEntity: WorkflowExecution entity
    */
   async repairDeclarationHistory(executionId: string, executionEntity: WorkflowExecutionEntity): Promise<void> {
     const context = this.getContext(executionId);

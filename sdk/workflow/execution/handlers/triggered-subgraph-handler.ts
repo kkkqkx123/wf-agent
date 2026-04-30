@@ -170,7 +170,7 @@ export async function executeSingleTriggeredSubgraph(
     await emitSubgraphStartedEvent(task.mainWorkflowExecutionEntity, task, eventManager);
 
     // Execute the sub-workflow
-    const threadResult = await subgraphExecutor.executeThread(subgraphEntity);
+    const executionResult = await subgraphExecutor.executeThread(subgraphEntity);
 
     const executionTime = diffTimestamp(startTime, now());
 
@@ -185,7 +185,7 @@ export async function executeSingleTriggeredSubgraph(
 
     return {
       subgraphEntity,
-      threadResult: threadResult as WorkflowExecutionResult,
+      executionResult: executionResult as WorkflowExecutionResult,
       executionTime,
     };
   } catch (error) {

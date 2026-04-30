@@ -67,9 +67,9 @@ const eventTypeSchema = z.custom<EventType>((val): val is EventType =>
  */
 const triggerActionTypeSchema = z.custom<TriggerActionType>((val): val is TriggerActionType =>
   [
-    "stop_thread",
-    "pause_thread",
-    "resume_thread",
+    "stop_workflow_execution",
+    "pause_workflow_execution",
+    "resume_workflow_execution",
     "skip_node",
     "set_variable",
     "send_notification",
@@ -168,25 +168,25 @@ export const ConversationHistoryOptionsSchema = z
 // ============================================================================
 
 /**
- * Stop Thread Action Parameters Schema
+ * Stop Workflow Execution Action Parameters Schema
  */
-export const StopThreadActionParametersSchema = z.object({
+export const StopWorkflowExecutionActionParametersSchema = z.object({
   executionId: z.string().min(1, "Execution ID is required"),
   force: z.boolean().optional(),
 });
 
 /**
- * Pause Thread Action Parameters Schema
+ * Pause Workflow Execution Action Parameters Schema
  */
-export const PauseThreadActionParametersSchema = z.object({
+export const PauseWorkflowExecutionActionParametersSchema = z.object({
   executionId: z.string().min(1, "Execution ID is required"),
   reason: z.string().optional(),
 });
 
 /**
- * Resume Thread Action Parameters Schema
+ * Resume Workflow Execution Action Parameters Schema
  */
-export const ResumeThreadActionParametersSchema = z.object({
+export const ResumeWorkflowExecutionActionParametersSchema = z.object({
   executionId: z.string().min(1, "Execution ID is required"),
 });
 
@@ -206,7 +206,7 @@ export const SetVariableActionParametersSchema = z.object({
   variables: z
     .record(z.string(), z.any())
     .refine(vars => Object.keys(vars).length > 0, "At least one variable must be specified"),
-  scope: z.enum(["global", "thread", "local", "loop"]).optional(),
+  scope: z.enum(["global", "workflowExecution", "local", "loop"]).optional(),
 });
 
 /**
@@ -272,19 +272,19 @@ export const TriggerActionSchema = z.discriminatedUnion("type", [
   // stop_workflow_execution
   z.object({
     type: z.literal("stop_workflow_execution"),
-    parameters: StopThreadActionParametersSchema,
+    parameters: StopWorkflowExecutionActionParametersSchema,
     metadata: z.record(z.string(), z.any()).optional(),
   }),
   // pause_workflow_execution
   z.object({
     type: z.literal("pause_workflow_execution"),
-    parameters: PauseThreadActionParametersSchema,
+    parameters: PauseWorkflowExecutionActionParametersSchema,
     metadata: z.record(z.string(), z.any()).optional(),
   }),
   // resume_workflow_execution
   z.object({
     type: z.literal("resume_workflow_execution"),
-    parameters: ResumeThreadActionParametersSchema,
+    parameters: ResumeWorkflowExecutionActionParametersSchema,
     metadata: z.record(z.string(), z.any()).optional(),
   }),
   // skip_node

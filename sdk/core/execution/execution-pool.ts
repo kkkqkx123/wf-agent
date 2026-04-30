@@ -5,7 +5,7 @@
  * - Manages the creation, allocation, and reclamation of Executor instances.
  * - Implements dynamic scaling.
  * - Maintains a queue of idle executors and a set of busy executors.
- * - Provides unified execution pool resource management for both Agent and Thread.
+ * - Provides unified execution pool resource management for both Agent and WorkflowExecution.
  *
  * Design Principles:
  * - Generic design supporting any executor type.

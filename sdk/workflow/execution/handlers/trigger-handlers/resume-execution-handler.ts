@@ -49,7 +49,7 @@ export async function resumeExecutionHandler(
 
   try {
     if (action.type !== "resume_workflow_execution") {
-      throw new RuntimeValidationError("Action type must be resume_thread", {
+      throw new RuntimeValidationError("Action type must be resume_workflow_execution", {
         operation: "handle",
         field: "type",
       });
@@ -67,7 +67,7 @@ export async function resumeExecutionHandler(
     return createSuccessResult(
       triggerId,
       action,
-      { message: `Thread ${executionId} resumed successfully` },
+      { message: `Workflow execution ${executionId} resumed successfully` },
       executionTime,
     );
   } catch (error) {

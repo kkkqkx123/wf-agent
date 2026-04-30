@@ -1,6 +1,6 @@
 /**
  * ExecutionState - Execution Status Manager
- * Manages the temporary state during the execution of threads
+ * Manages the temporary state during the execution of workflow executions
  * Separated from persistent data, focusing solely on the management of the status during execution
  */
 
@@ -37,7 +37,7 @@ export interface SubgraphContext {
  * - It is a pure state manager, without any business logic
  *
  * Note:
- * - It does not manage the execution status of triggered sub-workflows (which are handled by TaskRegistry and Thread)
+ * - It does not manage the execution status of triggered sub-workflows (which are handled by TaskRegistry and WorkflowExecution)
  */
 export class ExecutionState {
   /**

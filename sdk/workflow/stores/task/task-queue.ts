@@ -2,8 +2,8 @@
  * TaskQueue - Task Queue Manager
  *
  * Responsibilities:
- * - Manages the queue of ThreadContexts waiting to be executed
- * - Coordinates the assignment of tasks to the thread pool
+ * - Manages the queue of WorkflowExecutionContexts waiting to be executed
+ * - Coordinates the assignment of tasks to the workflow execution pool
  * - Supports both synchronous and asynchronous task submission
  * - Handles task completion and failure
  *
@@ -56,7 +56,7 @@ export class TaskQueue {
   /**
    * Workflow Execution Pool Service
    */
-  private threadPoolService: WorkflowExecutionPool;
+  private workflowExecutionPool: WorkflowExecutionPool;
 
   /**
    * Event Manager
@@ -71,23 +71,23 @@ export class TaskQueue {
   /**
    * Constructor
    * @param taskRegistry Task Registry
-   * @param threadPoolService Workflow Execution Pool Service
+   * @param workflowExecutionPool Workflow Execution Pool Service
    * @param eventManager Event Manager
    */
   constructor(
     taskRegistry: TaskRegistry,
-    threadPoolService: WorkflowExecutionPool,
+    workflowExecutionPool: WorkflowExecutionPool,
     eventManager: EventRegistry,
   ) {
     this.taskRegistry = taskRegistry;
-    this.threadPoolService = threadPoolService;
+    this.workflowExecutionPool = workflowExecutionPool;
     this.eventManager = eventManager;
   }
 
   /**
    * Submit a synchronization task
    * @param taskId Task ID (registered by the manager)
-   * @param executionEntity Thread entity
+   * @param executionEntity WorkflowExecution entity
    * @param timeout Timeout period (in milliseconds)
    * @returns Execution result
    */
@@ -118,7 +118,7 @@ export class TaskQueue {
   /**
    * Submit an asynchronous task
    * @param taskId Task ID (already registered by the manager)
-   * @param executionEntity Thread entity
+   * @param executionEntity WorkflowExecution entity
    * @param timeout Timeout period (in milliseconds)
    * @returns Task submission result
    */
@@ -161,7 +161,7 @@ export class TaskQueue {
         const queueTask = this.pendingQueue.shift()!;
 
         // Assign an executor
-        const executor = await this.threadPoolService.allocateExecutor();
+        const executor = await this.workflowExecutionPool.allocateExecutor();
 
         // Update task status
         this.taskRegistry.updateStatusToRunning(queueTask.taskId);
@@ -193,13 +193,13 @@ export class TaskQueue {
     const startTime = now();
 
     try {
-      // Execute Thread
-      const threadResult = await executor.executeWorkflow(queueTask.workflowExecutionEntity);
+      // Execute Workflow
+      const executionResult = await executor.executeWorkflow(queueTask.workflowExecutionEntity);
 
       const executionTime = diffTimestamp(startTime, now());
 
       // Task completion.
-      await this.handleTaskCompleted(queueTask, threadResult, executionTime);
+      await this.handleTaskCompleted(queueTask, executionResult, executionTime);
     } catch (error) {
       const executionTime = diffTimestamp(startTime, now());
 
@@ -207,7 +207,7 @@ export class TaskQueue {
       await this.handleTaskFailed(queueTask, error as Error, executionTime);
     } finally {
       // Release the executor
-      await this.threadPoolService.releaseExecutor(executor);
+      await this.workflowExecutionPool.releaseExecutor(executor);
 
       // Continue processing the queue.
       this.processQueue();
@@ -217,16 +217,16 @@ export class TaskQueue {
   /**
    * Task processing completed.
    * @param queueTask: Queue task
-   * @param threadResult: Execution result
+   * @param executionResult: Execution result
    * @param executionTime: Execution time
    */
   private async handleTaskCompleted(
     queueTask: QueueTask,
-    threadResult: WorkflowExecutionResult,
+    executionResult: WorkflowExecutionResult,
     executionTime: number,
   ): Promise<void> {
     // Update task registry
-    this.taskRegistry.updateStatusToCompleted(queueTask.taskId, threadResult);
+    this.taskRegistry.updateStatusToCompleted(queueTask.taskId, executionResult);
 
     // Remove from the running tasks.
     this.runningTasks.delete(queueTask.taskId);
@@ -246,7 +246,7 @@ export class TaskQueue {
     if (queueTask.resolve) {
       const result: ExecutedSubgraphResult = {
         subgraphEntity: queueTask.workflowExecutionEntity,
-        threadResult,
+        executionResult,
         executionTime,
       };
       queueTask.resolve(result);

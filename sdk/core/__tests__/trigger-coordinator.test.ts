@@ -14,7 +14,7 @@ import { TriggerCoordinator } from "../../workflow/execution/coordinators/trigge
 import { TriggerState } from "../../workflow/state-managers/trigger-state.js";
 import { WorkflowRegistry } from "../../workflow/workflow/workflow-registry.js";
 import { WorkflowGraphRegistry } from "../../workflow/graph-structure/graph-registry.js";
-import { WorkflowExecutionRegistry } from "../../workflow/stores/thread-registry.js";
+import { WorkflowExecutionRegistry } from "../../workflow/stores/workflow-execution-registry.js";
 import type { WorkflowTrigger, Trigger, BaseEvent, NodeCustomEvent } from "@wf-agent/types";
 import { EventType } from "@wf-agent/types";
 import { ExecutionError, RuntimeValidationError } from "@wf-agent/types";
@@ -77,7 +77,7 @@ describe("Trigger Coordinator", () => {
       stateManager: stateManager,
       workflowGraphRegistry: mockGraphRegistry,
       eventManager: mockEventManager,
-      threadLifecycleCoordinator: mockWorkflowLifecycleCoordinator,
+      workflowLifecycleCoordinator: mockWorkflowLifecycleCoordinator,
       executionBuilder: mockWorkflowExecutionBuilder,
       taskQueueManager: mockTaskQueueManager,
       checkpointStateManager: mockCheckpointStateManager,

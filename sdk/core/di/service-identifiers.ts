@@ -30,8 +30,8 @@ export const WorkflowGraphRegistry: ServiceIdentifier<unknown> = Symbol("Workflo
 export const GraphNavigator: ServiceIdentifier<unknown> = Symbol("GraphNavigator");
 
 /**
- * WorkflowExecutionRegistry - Thread Registry
- * Manages the memory storage of ThreadContext
+ * WorkflowExecutionRegistry - Execution Registry
+ * Manages the memory storage of WorkflowExecutionContext
  */
 export const WorkflowExecutionRegistry: ServiceIdentifier<unknown> = Symbol("WorkflowExecutionRegistry");
 

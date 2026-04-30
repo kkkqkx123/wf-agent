@@ -145,7 +145,7 @@ export class ConversationSession extends MessageHistory implements LifecycleCapa
    * Get execution ID
    * @returns Execution ID
    */
-  getThreadId(): string | undefined {
+  getExecutionId(): string | undefined {
     return this.executionId;
   }
 

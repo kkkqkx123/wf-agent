@@ -32,9 +32,9 @@ export function checkWorkflowReferences(
   const triggerRefs = checkTriggerReferences(workflowRegistry, workflowId);
   references.push(...triggerRefs);
 
-  // Check runtime thread references.
-  const threadRefs = checkThreadReferences(workflowExecutionRegistry, workflowId);
-  references.push(...threadRefs);
+  // Check runtime execution references.
+  const executionRefs = checkExecutionReferences(workflowExecutionRegistry, workflowId);
+  references.push(...executionRefs);
 
   const runtimeRefs = references.filter(ref => ref.isRuntimeReference).length;
 
@@ -45,7 +45,7 @@ export function checkWorkflowReferences(
     stats: {
       subgraphReferences: subgraphRefs.length,
       triggerReferences: triggerRefs.length,
-      threadReferences: threadRefs.length,
+      executionReferences: executionRefs.length,
       runtimeReferences: runtimeRefs,
     },
   };
@@ -128,9 +128,9 @@ function checkTriggerReferences(
 }
 
 /**
- * Check runtime thread references.
+ * Check runtime execution references.
  */
-function checkThreadReferences(
+function checkExecutionReferences(
   workflowExecutionRegistry: WorkflowExecutionRegistry,
   workflowId: string,
 ): WorkflowReference[] {
@@ -142,10 +142,10 @@ function checkThreadReferences(
   }
 
   // Detailed inspection: Only perform a thorough traversal on active workflows.
-  const allThreads = workflowExecutionRegistry.getAll();
+  const allExecutions = workflowExecutionRegistry.getAll();
 
-  for (const executionEntity of allThreads) {
-    // Check whether the main thread is using this workflow.
+  for (const executionEntity of allExecutions) {
+    // Check whether the main execution is using this workflow.
     if (executionEntity.getWorkflowId() === workflowId) {
       references.push(createMainWorkflowReference(executionEntity));
     }
@@ -173,13 +173,13 @@ function checkThreadReferences(
  */
 function createMainWorkflowReference(executionEntity: WorkflowExecutionEntity): WorkflowReference {
   return {
-    type: "thread",
+    type: "workflowExecution",
     sourceId: executionEntity.id,
-    sourceName: `Thread ${executionEntity.id}`,
+    sourceName: `Execution ${executionEntity.id}`,
     isRuntimeReference: true,
     details: {
-      threadStatus: executionEntity.getStatus(),
-      threadType: executionEntity.getThreadType?.() ?? "main",
+      executionStatus: executionEntity.getStatus(),
+      executionType: executionEntity.getExecutionType?.() ?? "main",
       referenceType: "main-workflow",
     },
   };
@@ -190,13 +190,13 @@ function createMainWorkflowReference(executionEntity: WorkflowExecutionEntity): 
  */
 function createTriggeredSubworkflowReference(executionEntity: WorkflowExecutionEntity): WorkflowReference {
   return {
-    type: "thread",
+    type: "workflowExecution",
     sourceId: executionEntity.id,
-    sourceName: `Thread ${executionEntity.id} (Triggered Subworkflow)`,
+    sourceName: `Execution ${executionEntity.id} (Triggered Subworkflow)`,
     isRuntimeReference: true,
     details: {
-      threadStatus: executionEntity.getStatus(),
-      threadType: executionEntity.getThreadType?.() ?? "triggered",
+      executionStatus: executionEntity.getStatus(),
+      executionType: executionEntity.getExecutionType?.() ?? "triggered",
       contextType: "triggered-subworkflow",
     },
   };
@@ -210,13 +210,13 @@ function createSubgraphStackReference(
   context: { depth?: number; parentWorkflowId?: string },
 ): WorkflowReference {
   return {
-    type: "thread",
+    type: "workflowExecution",
     sourceId: executionEntity.id,
-    sourceName: `Thread ${executionEntity.id} (Subgraph Stack)`,
+    sourceName: `Execution ${executionEntity.id} (Subgraph Stack)`,
     isRuntimeReference: true,
     details: {
-      threadStatus: executionEntity.getStatus(),
-      threadType: executionEntity.getThreadType?.() ?? "subgraph",
+      executionStatus: executionEntity.getStatus(),
+      executionType: executionEntity.getExecutionType?.() ?? "subgraph",
       contextType: "subgraph-stack",
       depth: context.depth,
       parentWorkflowId: context.parentWorkflowId,

@@ -274,7 +274,7 @@ export function convertToLLMMessage(
  * @param messages Array of messages (containing the conversation history)
  * @param prompt Prompt message
  * @param timeout Timeout period in milliseconds
- * @param threadContext Thread context
+ * @param workflowExecutionContext Workflow execution context
  * @param eventManager Event manager
  * @param humanRelayHandler HumanRelay handler
  * @param nodeId Node ID

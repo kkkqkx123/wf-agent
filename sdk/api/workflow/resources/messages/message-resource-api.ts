@@ -61,8 +61,8 @@ export class MessageResourceAPI extends ReadonlyResourceAPI<LLMMessage, string, 
    */
   protected async getResource(id: string): Promise<LLMMessage | null> {
     // Messages are usually obtained through workflow execution entities, and here it is necessary to iterate through all workflow executions.
-    const threadEntities = this.registry.getAll();
-    for (const executionEntity of threadEntities) {
+    const executionEntities = this.registry.getAll();
+    for (const executionEntity of executionEntities) {
       const messages = executionEntity.getMessages() || [];
       const message = messages.find(
         (m: LLMMessage, index: number) => `${executionEntity.id}-${index}` === id,
@@ -79,10 +79,10 @@ export class MessageResourceAPI extends ReadonlyResourceAPI<LLMMessage, string, 
    * @returns Array of messages
    */
   protected async getAllResources(): Promise<LLMMessage[]> {
-    const threadEntities = this.registry.getAll();
+    const executionEntities = this.registry.getAll();
     const allMessages: LLMMessage[] = [];
 
-    for (const executionEntity of threadEntities) {
+    for (const executionEntity of executionEntities) {
       const messages = executionEntity.getMessages() || [];
       allMessages.push(...messages);
     }
@@ -122,7 +122,7 @@ export class MessageResourceAPI extends ReadonlyResourceAPI<LLMMessage, string, 
    * @param orderBy Sorting method
    * @returns Array of messages
    */
-  async getThreadMessages(
+  async getWorkflowExecutionMessages(
     executionId: string,
     limit?: number,
     offset?: number,
@@ -218,26 +218,26 @@ export class MessageResourceAPI extends ReadonlyResourceAPI<LLMMessage, string, 
   }
 
   /**
-   * Get message statistics for all threads
+   * Get message statistics for all executions
    * @returns Global statistics information
    */
   async getGlobalMessageStats(): Promise<{
     total: number;
-    byThread: Record<string, number>;
+    byExecution: Record<string, number>;
     byRole: Record<string, number>;
   }> {
-    const threadEntities = this.registry.getAll();
+    const executionEntities = this.registry.getAll();
     const stats = {
       total: 0,
-      byThread: {} as Record<string, number>,
+      byExecution: {} as Record<string, number>,
       byRole: {} as Record<string, number>,
     };
 
-    for (const executionEntity of threadEntities) {
+    for (const executionEntity of executionEntities) {
       const messages = executionEntity.getMessages() || [];
       const executionId = executionEntity.id;
 
-      stats.byThread[executionId] = messages.length;
+      stats.byExecution[executionId] = messages.length;
       stats.total += messages.length;
 
       for (const message of messages) {
@@ -255,7 +255,7 @@ export class MessageResourceAPI extends ReadonlyResourceAPI<LLMMessage, string, 
    * @returns Array of conversation history
    */
   async getConversationHistory(executionId: string, maxMessages?: number): Promise<LLMMessage[]> {
-    const messages = await this.getThreadMessages(executionId);
+    const messages = await this.getWorkflowExecutionMessages(executionId);
 
     if (maxMessages && messages.length > maxMessages) {
       return messages.slice(-maxMessages);

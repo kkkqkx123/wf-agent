@@ -224,14 +224,14 @@ export class HumanRelayResourceAPI extends CrudResourceAPI<
       workflowId: (request.metadata?.["workflowId"] as string) || "",
       nodeId: (request.metadata?.["nodeId"] as string) || "",
       getVariable: () => {
-        // Simplifying the implementation, you should actually get the ThreadContext from the
+        // Simplifying the implementation, you should actually get the WorkflowExecutionContext from the
         return undefined;
       },
       setVariable: async () => {
-        // Simplifying the implementation, you should actually update the variables in the ThreadContext
+        // Simplifying the implementation, you should actually update the variables in the WorkflowExecutionContext
       },
       getVariables: () => {
-        // Simplifying the implementation, you should actually get the ThreadContext from the
+        // Simplifying the implementation, you should actually get the WorkflowExecutionContext from the
         return {};
       },
       timeout: request.timeout,

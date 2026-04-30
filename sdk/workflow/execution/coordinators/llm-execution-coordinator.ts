@@ -140,7 +140,7 @@ export class LLMExecutionCoordinator {
     }
 
     // Backward compatibility: If the interruptionDetector is not provided, use the old method.
-    const executionRegistry = this.contextFactory.getThreadRegistry();
+    const executionRegistry = this.contextFactory.getWorkflowExecutionRegistry();
     if (!executionRegistry) {
       return false;
     }
@@ -212,7 +212,7 @@ export class LLMExecutionCoordinator {
       params;
 
     // Get the AbortSignal
-    const executionRegistry = this.contextFactory.getThreadRegistry();
+    const executionRegistry = this.contextFactory.getWorkflowExecutionRegistry();
     const executionEntity = executionRegistry?.get(executionId);
     const abortSignal = executionEntity?.getAbortSignal();
 

@@ -96,7 +96,7 @@ export class CheckpointDeltaCalculator extends DeltaCalculator<CheckpointSnapsho
     const delta: CheckpointDelta = {};
 
     if (current.executionState && previous.executionState) {
-      const stateDelta = this.computeThreadStateDelta(previous.executionState, current.executionState);
+      const stateDelta = this.computeExecutionStateDelta(previous.executionState, current.executionState);
 
       if (stateDelta && Object.keys(stateDelta).length > 0) {
         delta.addedMessages = stateDelta.addedMessages;
@@ -118,9 +118,9 @@ export class CheckpointDeltaCalculator extends DeltaCalculator<CheckpointSnapsho
   }
 
   /**
-   * Compute delta between two thread states
+   * Compute delta between two execution states
    */
-  private computeThreadStateDelta(
+  private computeExecutionStateDelta(
     previous: WorkflowExecutionStateSnapshot,
     current: WorkflowExecutionStateSnapshot,
   ): Partial<CheckpointDelta> | null {

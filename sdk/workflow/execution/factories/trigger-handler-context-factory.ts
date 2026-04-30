@@ -27,7 +27,7 @@ import { DependencyInjectionError } from "@wf-agent/types";
  * Used for stop_thread, pause_thread, resume_thread actions
  */
 export interface LifecycleTriggerContext {
-  threadLifecycleCoordinator: WorkflowStateTransitor;
+  workflowLifecycleCoordinator: WorkflowStateTransitor;
 }
 
 /**
@@ -83,7 +83,7 @@ export interface TriggerHandlerContextFactoryConfig {
   /** Task Queue Manager */
   taskQueueManager?: TaskQueue;
   /** Workflow State Transitor */
-  threadLifecycleCoordinator?: WorkflowStateTransitor;
+  workflowLifecycleCoordinator?: WorkflowStateTransitor;
 }
 
 /**
@@ -137,7 +137,7 @@ export class TriggerHandlerContextFactory {
    * @throws DependencyInjectionError When the WorkflowLifecycleCoordinator is missing
    */
   private createLifecycleContext(triggerId: string, actionType: string): LifecycleTriggerContext {
-    if (!this.config.threadLifecycleCoordinator) {
+    if (!this.config.workflowLifecycleCoordinator) {
       throw new DependencyInjectionError(
         "WorkflowLifecycleCoordinator is required for lifecycle trigger actions",
         "WorkflowLifecycleCoordinator",
@@ -149,7 +149,7 @@ export class TriggerHandlerContextFactory {
     }
 
     return {
-      threadLifecycleCoordinator: this.config.threadLifecycleCoordinator,
+      workflowLifecycleCoordinator: this.config.workflowLifecycleCoordinator,
     };
   }
 

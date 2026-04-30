@@ -267,7 +267,7 @@ export class TriggerCoordinator {
       graphRegistry,
       workflowExecutionRegistry,
       workflowRegistry,
-      threadLifecycleCoordinator,
+      workflowLifecycleCoordinator,
       eventManager,
       executionBuilder,
       taskQueueManager,
@@ -319,13 +319,13 @@ export class TriggerCoordinator {
       case "stop_workflow_execution":
       case "pause_workflow_execution":
       case "resume_workflow_execution":
-        if (!threadLifecycleCoordinator) {
+        if (!workflowLifecycleCoordinator) {
           throw new DependencyInjectionError(
             "WorkflowLifecycleCoordinator not provided",
             "WorkflowLifecycleCoordinator",
           );
         }
-        await handler(trigger.action, trigger.id, threadLifecycleCoordinator);
+        await handler(trigger.action, trigger.id, workflowLifecycleCoordinator);
         break;
 
       case "skip_node":

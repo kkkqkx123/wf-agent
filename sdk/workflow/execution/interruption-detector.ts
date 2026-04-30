@@ -9,7 +9,7 @@
  *
  * Design Principles:
  * - Unified interface: All components use the same detection interface
- * - Dependency injection: Obtain ThreadContext through WorkflowExecutionRegistry
+ * - Dependency injection: Obtain WorkflowExecutionContext through WorkflowExecutionRegistry
  * - Efficiency: Avoid unnecessary object creation
  * - Unified use of AbortSignal as the primary interrupt mechanism
  */
@@ -56,13 +56,13 @@ export class InterruptionDetectorImpl implements InterruptionDetector {
    * @returns: AbortSignal
    */
   getAbortSignal(executionId: string): AbortSignal {
-    const threadContext = this.workflowExecutionRegistry.get(executionId);
-    if (!threadContext) {
+    const executionContext = this.workflowExecutionRegistry.get(executionId);
+    if (!executionContext) {
       return new AbortController().signal;
     }
 
     const interruptionManager = (
-      threadContext as { interruptionManager?: { getAbortSignal: () => AbortSignal } }
+      executionContext as { interruptionManager?: { getAbortSignal: () => AbortSignal } }
     ).interruptionManager;
     if (!interruptionManager) {
       return new AbortController().signal;

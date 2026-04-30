@@ -61,7 +61,7 @@ export interface ContextProcessorHandlerContext {
   };
   /** Thread entity (optional, used to identify the parent thread) */
   executionEntity?: {
-    getParentThreadId: () => string | undefined;
+    getParentExecutionId: () => string | undefined;
     getConversationManager: () => unknown;
   };
   /** Thread Registry (optional, used to obtain the parent thread entity) */
@@ -86,10 +86,10 @@ export interface ContextProcessorHandlerContext {
   };
   /** Tool Visibility Coordinator (optional) */
   toolVisibilityCoordinator?: {
-    refreshDeclaration: (threadContext: unknown) => Promise<void>;
+    refreshDeclaration: (workflowExecutionContext: unknown) => Promise<void>;
   };
-  /** Thread context (optional, used for refreshing tool visibility declarations) */
-  threadContext?: unknown;
+  /** Workflow execution context (optional, used for refreshing tool visibility declarations) */
+  workflowExecutionContext?: unknown;
 }
 
 /**
@@ -123,17 +123,17 @@ export async function contextProcessorHandler(
     const executionEntity = context.executionEntity;
     const executionRegistry = context.executionRegistry;
 
-    if (executionEntity && executionRegistry && executionEntity.getParentThreadId()) {
-      const parentThreadId = executionEntity.getParentThreadId();
-      if (parentThreadId) {
-        const parentThreadEntity = executionRegistry.get(parentThreadId);
-        if (parentThreadEntity) {
+    if (executionEntity && executionRegistry && executionEntity.getParentExecutionId()) {
+      const parentExecutionId = executionEntity.getParentExecutionId();
+      if (parentExecutionId) {
+        const parentExecutionEntity = executionRegistry.get(parentExecutionId);
+        if (parentExecutionEntity) {
           targetConversationManager =
-            parentThreadEntity.getConversationManager() as ContextProcessorHandlerContext["conversationManager"];
-          logger.info(`Targeting parent thread: ${parentThreadId} for context processing`, {
+            parentExecutionEntity.getConversationManager() as ContextProcessorHandlerContext["conversationManager"];
+          logger.info(`Targeting parent workflow execution: ${parentExecutionId} for context processing`, {
             nodeId: node.id,
             executionId: thread.id,
-            parentThreadId,
+            parentExecutionId,
           });
         }
       }
@@ -145,9 +145,9 @@ export async function contextProcessorHandler(
     config.operationConfig,
     async () => {
       // Operation callback: Refresh the tool visibility declaration
-      if (context.toolVisibilityCoordinator && context.threadContext) {
+      if (context.toolVisibilityCoordinator && context.workflowExecutionContext) {
         try {
-          await context.toolVisibilityCoordinator.refreshDeclaration(context.threadContext);
+          await context.toolVisibilityCoordinator.refreshDeclaration(context.workflowExecutionContext);
         } catch (error) {
           // Record warning logs without interrupting the execution.
           logger.warn(

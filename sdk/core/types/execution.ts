@@ -2,7 +2,7 @@
  * Execution Types - Task and Execution Instance Definitions
  *
  * Unified type definitions for task management and execution instances.
- * Supports both Agent and Thread execution instances.
+ * Supports both Agent and WorkflowExecution execution instances.
  *
  * Design Principles:
  * - Cross-module shared types within SDK core
@@ -49,7 +49,7 @@ export function isAgentInstance(instance: ExecutionInstance): instance is AgentL
  * @returns True if the instance is a WorkflowExecutionEntity
  */
 export function isWorkflowExecutionInstance(instance: ExecutionInstance): instance is WorkflowExecutionEntity {
-  return "getThreadId" in instance && "getWorkflowId" in instance;
+  return "getExecutionId" in instance && "getWorkflowId" in instance;
 }
 
 /**
@@ -91,7 +91,7 @@ export type InstanceRef =
 export interface TaskInfo {
   /** Task ID */
   id: string;
-  /** Execution instance type (agent or thread) */
+  /** Execution instance type (agent or workflow execution) */
   instanceType: ExecutionInstanceType;
   /** Execution instance (AgentLoopEntity or WorkflowExecutionEntity) */
   instance: ExecutionInstance;
@@ -118,7 +118,7 @@ export interface TaskInfo {
 export interface StoredTaskInfo {
   /** Task ID */
   id: string;
-  /** Execution instance type (agent or thread) */
+  /** Execution instance type (agent or workflow execution) */
   instanceType: ExecutionInstanceType;
   /** Instance reference - may be a reference only if not yet loaded */
   instanceRef: InstanceRef;

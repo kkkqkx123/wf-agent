@@ -48,7 +48,7 @@ export interface ExecutedSubgraphResult {
   /** Sub-workflow entity */
   subgraphEntity: WorkflowExecutionEntity;
   /** Execution result */
-  threadResult: WorkflowExecutionResult;
+  executionResult: WorkflowExecutionResult;
   /** Execution time (in milliseconds) */
   executionTime: number;
 }

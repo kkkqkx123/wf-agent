@@ -47,7 +47,7 @@ export type VariableNamespace =
 export class VariableAccessor {
   /**
    * Constructor
-   * @param executionEntity Thread entity
+   * @param executionEntity WorkflowExecution entity
    */
   constructor(private readonly executionEntity: WorkflowExecutionEntity) {}
 
@@ -95,8 +95,8 @@ export class VariableAccessor {
       case "global":
         return this.getFromScope(remainingPath || path, "global");
 
-      case "thread":
-        return this.getFromScope(remainingPath || path, "thread");
+      case "workflowExecution":
+        return this.getFromScope(remainingPath || path, "workflowExecution");
 
       case "local":
         return this.getFromScope(remainingPath || path, "local");
@@ -161,8 +161,8 @@ export class VariableAccessor {
       case "global":
         scopeData = scopes.global;
         break;
-      case "thread":
-        scopeData = scopes.thread;
+      case "workflowExecution":
+        scopeData = scopes.workflowExecution;
         break;
       case "local":
         if (scopes.local.length > 0) {

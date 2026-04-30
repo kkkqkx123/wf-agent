@@ -479,8 +479,8 @@ describe("Trigger State Manager", () => {
   });
 
   describe("Getter Methods", () => {
-    it("Test to get execution ID: getThreadId returns the correct execution ID", () => {
-      expect(stateManager.getThreadId()).toBe("test-thread");
+    it("Test to get execution ID: getExecutionId returns the correct execution ID", () => {
+      expect(stateManager.getExecutionId()).toBe("test-thread");
     });
 
     it("Test to get workflow ID: getWorkflowId returns the correct workflow ID", () => {

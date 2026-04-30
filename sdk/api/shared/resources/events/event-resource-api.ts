@@ -405,10 +405,10 @@ export class EventResourceAPI extends ReadonlyResourceAPI<BaseEvent, string, Eve
   }
 
   /**
-   * Get thread event statistics
-   * @returns Thread event statistics
+   * Get workflow execution event statistics
+   * @returns Workflow execution event statistics
    */
-  async getThreadEventStatistics(): Promise<Record<string, number>> {
+  async getWorkflowExecutionEventStatistics(): Promise<Record<string, number>> {
     const stats: Record<string, number> = {};
 
     for (const event of this.eventHistory) {

@@ -17,7 +17,7 @@ export type VariableScope = "global" | "workflowExecution" | "local" | "loop";
  *
  * Usage:
  * 1. WorkflowExecution.variableScopes - runtime variable storage for execution
- * 2. ThreadStateSnapshot.variableScopes - state for checkpoint snapshots
+ * 2. WorkflowExecutionStateSnapshot.variableScopes - state for checkpoint snapshots
  * 3. Runtime variable management in VariableState
  *
  * Scope Characteristics:

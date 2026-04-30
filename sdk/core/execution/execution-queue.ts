@@ -60,7 +60,7 @@ export interface ExecutionResult {
   /** Execution instance */
   instance: ExecutionInstance;
   /** Workflow execution result (for workflow execution) */
-  threadResult?: WorkflowExecutionResult;
+  executionResult?: WorkflowExecutionResult;
   /** Agent result (for agent execution) */
   agentResult?: unknown;
   /** Execution time in ms */
@@ -313,7 +313,7 @@ export class ExecutionQueue<T extends ExecutionInstance> {
     if (queueTask.resolve) {
       const execResult: ExecutionResult = {
         instance: queueTask.instance,
-        threadResult: isWorkflowExecutionInstance(queueTask.instance) ? (result as WorkflowExecutionResult) : undefined,
+        executionResult: isWorkflowExecutionInstance(queueTask.instance) ? (result as WorkflowExecutionResult) : undefined,
         agentResult: isAgentInstance(queueTask.instance) ? result : undefined,
         executionTime,
       };

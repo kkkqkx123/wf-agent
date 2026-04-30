@@ -214,9 +214,9 @@ export class LLMContextFactory {
   }
 
   /**
-   * Get the thread registry
+   * Get the workflow execution registry
    */
-  getThreadRegistry(): WorkflowExecutionRegistry | undefined {
+  getWorkflowExecutionRegistry(): WorkflowExecutionRegistry | undefined {
     return this.config.executionRegistry;
   }
 

@@ -14,7 +14,7 @@ import { TriggerState } from "../../workflow/state-managers/trigger-state.js";
 import { TriggerTemplateRegistry } from "../services/trigger-template-registry.js";
 import { WorkflowRegistry } from "../../workflow/workflow/workflow-registry.js";
 import { WorkflowGraphRegistry } from "../../workflow/graph-structure/graph-registry.js";
-import { WorkflowExecutionRegistry } from "../../workflow/stores/thread-registry.js";
+import { WorkflowExecutionRegistry } from "../../workflow/stores/workflow-execution-registry.js";
 import {
   registerContextCompression,
   CONTEXT_COMPRESSION_TRIGGER_NAME,
@@ -90,7 +90,7 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
       stateManager: stateManager,
       workflowGraphRegistry: mockGraphRegistry,
       eventManager: mockEventManager,
-      threadLifecycleCoordinator: mockWorkflowLifecycleCoordinator,
+      workflowLifecycleCoordinator: mockWorkflowLifecycleCoordinator,
       executionBuilder: mockWorkflowExecutionBuilder,
       taskQueueManager: mockTaskQueueManager,
       checkpointStateManager: mockCheckpointStateManager,
@@ -420,7 +420,7 @@ describe("Trigger End-to-End - End-to-End Integration Testing", () => {
         workflowExecutionRegistry: mockThreadRegistry,
         workflowRegistry: mockWorkflowRegistry,
         stateManager: stateManager,
-        // Missing threadLifecycleCoordinator
+        // Missing workflowLifecycleCoordinator
       });
 
       const workflowTrigger: WorkflowTrigger = {

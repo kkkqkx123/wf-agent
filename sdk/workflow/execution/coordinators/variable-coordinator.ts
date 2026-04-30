@@ -59,8 +59,8 @@ export class VariableCoordinator {
 
   /**
    * Retrieve the value of a variable (searching based on scope priority)
-   * Priority: loop > local > thread > global
-   * Supports on-demand initialization: Variables in the thread, local, and loop scopes are initialized the first time they are accessed.
+   * Priority: loop > local > workflowExecution > global
+   * Supports on-demand initialization: Variables in the workflowExecution, local, and loop scopes are initialized the first time they are accessed.
    * @param executionEntity WorkflowExecutionEntity instance
    * @param name Variable name
    * @returns Variable value
@@ -98,13 +98,13 @@ export class VariableCoordinator {
       }
     }
 
-    // 3. Thread Scope
-    if (name in scopes.thread) {
-      return scopes.thread[name];
+    // 3. WorkflowExecution Scope
+    if (name in scopes.workflowExecution) {
+      return scopes.workflowExecution[name];
     }
     // If the variable is not initialized, attempt to initialize it as needed.
-    if (!(name in scopes.thread)) {
-      const initialized = this.initializeVariableOnDemand(name, "thread");
+    if (!(name in scopes.workflowExecution)) {
+      const initialized = this.initializeVariableOnDemand(name, "workflowExecution");
       if (initialized !== undefined) {
         return initialized;
       }
@@ -303,7 +303,7 @@ export class VariableCoordinator {
   /**
    * Create a variable accessor
    * Provide a unified interface for accessing variables, supporting nested path resolution
-   * @param threadContext: Thread context
+   * @param executionEntity: WorkflowExecution entity
    * @returns: VariableAccessor instance
    */
   createAccessor(executionEntity: WorkflowExecutionEntity): VariableAccessor {
@@ -313,7 +313,7 @@ export class VariableCoordinator {
   /**
    * 通过路径获取变量值
    * 支持嵌套路径和命名空间
-   * @param executionEntity Thread 实体
+   * @param executionEntity WorkflowExecution entity
    * @param path 变量路径
    * @returns 变量值
    *
@@ -328,7 +328,7 @@ export class VariableCoordinator {
    * getVariableByPath(entity, 'input.userName')
    * getVariableByPath(entity, 'output.result')
    * getVariableByPath(entity, 'global.config')
-   * getVariableByPath(entity, 'thread.state')
+   * getVariableByPath(entity, 'workflowExecution.state')
    * getVariableByPath(entity, 'subgraph.temp')
    * getVariableByPath(entity, 'loop.item')
    */

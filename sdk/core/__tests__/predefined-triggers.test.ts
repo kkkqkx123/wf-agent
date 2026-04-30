@@ -30,7 +30,7 @@ import type { TriggerTemplate, WorkflowDefinition } from "@wf-agent/types";
 import { EventType, TriggerActionType } from "@wf-agent/types";
 import { initializeContainer, resetContainer, setStorageCallback } from "../di/container-config.js";
 import type { WorkflowGraphRegistry } from "../../workflow/graph-structure/graph-registry.js";
-import type { WorkflowExecutionRegistry } from "../../workflow/stores/thread-registry.js";
+import type { WorkflowExecutionRegistry } from "../../workflow/stores/workflow-execution-registry.js";
 import * as Identifiers from "../di/service-identifiers.js";
 
 // Mock storage callback

@@ -29,7 +29,7 @@ export interface TaskSnapshot extends SnapshotBase {
   instanceId: string;
   /** Workflow ID */
   workflowId: string;
-  /** Execution ID (for thread instances) */
+  /** Execution ID (for workflow execution instances) */
   executionId?: string;
   /** Task Status */
   status: TaskStatus;
@@ -152,7 +152,7 @@ export const TaskSerializationUtils = {
   createTaskSnapshotFromTaskInfo(taskInfo: {
     id: string;
     instanceType: "agent" | "workflowExecution";
-    instance: { id: string; getThreadId?: () => string; getWorkflowId?: () => string };
+    instance: { id: string; getExecutionId?: () => string; getWorkflowId?: () => string };
     status: TaskStatus;
     submitTime: number;
     startTime?: number;

@@ -23,12 +23,12 @@ export interface TriggerCondition {
  * Trigger Action Type
  */
 export type TriggerActionType =
-  /** Stop Thread */
-  | "stop_thread"
-  /** Pause thread */
-  | "pause_thread"
-  /** Resume thread */
-  | "resume_thread"
+  /** Stop Workflow Execution */
+  | "stop_workflow_execution"
+  /** Pause workflow execution */
+  | "pause_workflow_execution"
+  /** Resume workflow execution */
+  | "resume_workflow_execution"
   /** Skip node */
   | "skip_node"
   /** Setting Variables */
@@ -51,7 +51,7 @@ export type TriggerActionType =
 /**
  * Stop Workflow Execution Action Parameters
  */
-export interface StopThreadActionParameters {
+export interface StopWorkflowExecutionActionParameters {
   /** Execution ID */
   executionId: ID;
   /** Whether to force stop */
@@ -61,7 +61,7 @@ export interface StopThreadActionParameters {
 /**
  * Pause Workflow Execution Action Parameters
  */
-export interface PauseThreadActionParameters {
+export interface PauseWorkflowExecutionActionParameters {
   /** Execution ID */
   executionId: ID;
   /** Reason for suspension */
@@ -73,7 +73,7 @@ export interface PauseThreadActionParameters {
 /**
  * Resume Workflow Execution Action Parameters
  */
-export interface ResumeThreadActionParameters {
+export interface ResumeWorkflowExecutionActionParameters {
   /** Execution ID */
   executionId: ID;
 }
@@ -97,7 +97,7 @@ export interface SetVariableActionParameters {
   /** variable key-value pair */
   variables: Record<string, unknown>;
   /** variable scope */
-  scope?: "global" | "thread" | "local" | "loop";
+  scope?: "global" | "workflowExecution" | "local" | "loop";
 }
 
 /**
@@ -169,7 +169,7 @@ interface BaseTriggerAction {
  */
 export interface StopWorkflowExecutionAction extends BaseTriggerAction {
   type: "stop_workflow_execution";
-  parameters: StopThreadActionParameters;
+  parameters: StopWorkflowExecutionActionParameters;
 }
 
 /**
@@ -177,7 +177,7 @@ export interface StopWorkflowExecutionAction extends BaseTriggerAction {
  */
 export interface PauseWorkflowExecutionAction extends BaseTriggerAction {
   type: "pause_workflow_execution";
-  parameters: PauseThreadActionParameters;
+  parameters: PauseWorkflowExecutionActionParameters;
 }
 
 /**
@@ -185,7 +185,7 @@ export interface PauseWorkflowExecutionAction extends BaseTriggerAction {
  */
 export interface ResumeWorkflowExecutionAction extends BaseTriggerAction {
   type: "resume_workflow_execution";
-  parameters: ResumeThreadActionParameters;
+  parameters: ResumeWorkflowExecutionActionParameters;
 }
 
 /**

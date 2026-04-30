@@ -125,8 +125,8 @@ export class TriggerTemplateBuilder extends TemplateBuilder<TriggerTemplate> {
    * @param parameters: Additional parameters
    * @returns: This
    */
-  stopThread(reason?: string, parameters: Record<string, unknown> = {}): this {
-    return this.withAction("stop_thread", {
+  stopWorkflowExecution(reason?: string, parameters: Record<string, unknown> = {}): this {
+    return this.withAction("stop_workflow_execution", {
       ...(reason ? { reason } : {}),
       ...parameters,
     } as Record<string, unknown>);

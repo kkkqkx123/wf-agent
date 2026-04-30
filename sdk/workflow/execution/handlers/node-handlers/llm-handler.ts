@@ -184,7 +184,7 @@ async function executeHumanRelayLLMNode(
       messages as LLMMessage[],
       requestData.prompt || "Please provide your input:",
       requestData.parameters?.timeout || 300000,
-      { thread, conversationManager: context.conversationManager } as unknown as WorkflowExecutionEntity, // Simplify the processing; in reality, the complete ThreadContext should be passed in.
+      { workflowExecutionEntity: thread, conversationManager: context.conversationManager } as unknown as WorkflowExecutionEntity, // Simplify the processing; in reality, the complete WorkflowExecutionContext should be passed in.
       context.eventManager,
       context.humanRelayHandler as HumanRelayHandler,
       node.id,

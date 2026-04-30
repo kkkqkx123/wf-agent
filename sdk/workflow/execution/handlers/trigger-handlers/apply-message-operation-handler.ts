@@ -50,7 +50,7 @@ function createFailureResult(
  *
  * @param action Trigger action
  * @param triggerId Trigger ID
- * @param executionRegistry Thread registry
+ * @param executionRegistry WorkflowExecution registry
  * @param stateCoordinatorMap Optional map of WorkflowExecutionStateCoordinator by executionId
  */
 export async function applyMessageOperationHandler(

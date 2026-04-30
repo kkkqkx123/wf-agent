@@ -69,11 +69,11 @@ export function createExecuteWorkflowHandler() {
       );
     }
 
-    // Validate parent thread entity
-    if (!workflowContext.parentThreadEntity) {
-      throw new RuntimeValidationError("Parent thread entity is required for workflow execution", {
+    // Validate parent workflow execution entity
+    if (!workflowContext.parentWorkflowExecutionEntity) {
+      throw new RuntimeValidationError("Parent workflow execution entity is required for workflow execution", {
         operation: "execute_workflow",
-        field: "parentThreadEntity",
+        field: "parentWorkflowExecutionEntity",
         context: {
           workflowId,
           executionId: workflowContext.executionId,
@@ -86,7 +86,7 @@ export function createExecuteWorkflowHandler() {
     const task: TriggeredSubgraphTask = {
       subgraphId: workflowId,
       input,
-      mainWorkflowExecutionEntity: workflowContext.parentThreadEntity,
+      mainWorkflowExecutionEntity: workflowContext.parentWorkflowExecutionEntity,
       triggerId: `builtin-${Date.now()}`,
       config: {
         waitForCompletion,
@@ -98,7 +98,7 @@ export function createExecuteWorkflowHandler() {
     const result = await triggeredSubworkflowManager.executeTriggeredSubgraph(task);
 
     // Process result
-    if ("threadResult" in result) {
+    if ("workflowExecutionResult" in result) {
       // Synchronous execution completed
       const executedResult = result as ExecutedSubgraphResult;
       return {

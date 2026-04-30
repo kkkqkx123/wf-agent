@@ -183,7 +183,6 @@ export class WorkflowExecutionBuilder {
       variables: [],
       variableScopes: {
         global: {},
-        thread: {},
         workflowExecution: {},
         local: [],
         loop: [],
@@ -279,10 +278,9 @@ export class WorkflowExecutionBuilder {
       currentNodeId: sourceWorkflowExecution.currentNodeId,
       graph: sourceWorkflowExecution.graph,
       variables: sourceWorkflowExecution.variables.map(v => ({ ...v })),
-      // 4-level scopes: global is shared through references, thread creates deep copies, local and loop values are cleared
+      // 4-level scopes: global is shared through references, workflowExecution creates deep copies, local and loop values are cleared
       variableScopes: {
         global: sourceWorkflowExecution.variableScopes.global,
-        thread: { ...sourceWorkflowExecution.variableScopes.thread },
         workflowExecution: { ...sourceWorkflowExecution.variableScopes.workflowExecution },
         local: [],
         loop: [],
@@ -382,7 +380,6 @@ export class WorkflowExecutionBuilder {
       // 4-level scopes: global is shared via references, workflowExecution creates deep copies, while local and loop scopes clear their contents upon exit
       variableScopes: {
         global: parentWorkflowExecution.variableScopes.global,
-        thread: { ...parentWorkflowExecution.variableScopes.thread },
         workflowExecution: { ...parentWorkflowExecution.variableScopes.workflowExecution },
         local: [],
         loop: [],

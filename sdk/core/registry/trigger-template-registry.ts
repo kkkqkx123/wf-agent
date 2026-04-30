@@ -359,9 +359,9 @@ class TriggerTemplateRegistry {
 
     // Verify whether the action type is valid.
     const validActionTypes = [
-      "stop_thread",
-      "pause_thread",
-      "resume_thread",
+      "stop_workflow_execution",
+      "pause_workflow_execution",
+      "resume_workflow_execution",
       "skip_node",
       "set_variable",
       "send_notification",

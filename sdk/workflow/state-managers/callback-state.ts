@@ -199,7 +199,7 @@ export class CallbackState<T = unknown> {
    * Get all execution IDs
    * @returns Array of execution IDs
    */
-  getThreadIds(): string[] {
+  getExecutionIds(): string[] {
     return Array.from(this.callbacks.keys());
   }
 }

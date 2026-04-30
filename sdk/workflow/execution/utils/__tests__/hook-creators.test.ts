@@ -5,7 +5,7 @@
 
 import { describe, it, expect, vi } from "vitest";
 import {
-  createThreadStateCheckHook,
+  createWorkflowExecutionStateCheckHook,
   createCustomValidationHook,
   createPermissionCheckHook,
   createAuditLoggingHook,
@@ -56,9 +56,9 @@ function createMockExecutionContext(
   } as HookExecutionContext;
 }
 
-describe("createThreadStateCheckHook", () => {
+describe("createWorkflowExecutionStateCheckHook", () => {
   it("The correct Hook configuration should be created", () => {
-    const hook = createThreadStateCheckHook(["RUNNING"]);
+    const hook = createWorkflowExecutionStateCheckHook(["RUNNING"]);
 
     expect(hook.hookType).toBe("BEFORE_EXECUTE");
     expect(hook.eventName).toBe("validation.thread_status_check");
@@ -68,8 +68,8 @@ describe("createThreadStateCheckHook", () => {
     expect(hook.eventPayload!["handler"]).toBeInstanceOf(Function);
   });
 
-  it("No error is thrown when the thread state is in the allowed list", async () => {
-    const hook = createThreadStateCheckHook(["RUNNING", "PAUSED"]);
+  it("No error is thrown when the workflow execution state is in the allowed list", async () => {
+    const hook = createWorkflowExecutionStateCheckHook(["RUNNING", "PAUSED"]);
     const context = createMockExecutionContext({
       thread: { ...createMockExecutionContext().thread, status: "RUNNING" },
     });
@@ -78,8 +78,8 @@ describe("createThreadStateCheckHook", () => {
     await expect(hook.eventPayload!["handler"](context)).resolves.toBeUndefined();
   });
 
-  it("Throws ExecutionError when the thread state is not in the allowed list.", async () => {
-    const hook = createThreadStateCheckHook(["RUNNING"]);
+  it("Throws ExecutionError when the workflow execution state is not in the allowed list.", async () => {
+    const hook = createWorkflowExecutionStateCheckHook(["RUNNING"]);
     const context = createMockExecutionContext({
       thread: { ...createMockExecutionContext().thread, status: "COMPLETED" },
     });
@@ -87,12 +87,12 @@ describe("createThreadStateCheckHook", () => {
     await expect(hook.eventPayload!["handler"](context)).rejects.toThrow(ExecutionError);
 
     await expect(hook.eventPayload!["handler"](context)).rejects.toThrow(
-      "Thread is in COMPLETED state, expected: RUNNING",
+      "Workflow execution is in COMPLETED state, expected: RUNNING",
     );
   });
 
   it("Correctly check the state when there is more than one allowed state", async () => {
-    const hook = createThreadStateCheckHook(["RUNNING", "PAUSED", "CREATED"]);
+    const hook = createWorkflowExecutionStateCheckHook(["RUNNING", "PAUSED", "CREATED"]);
 
     // Testing the RUNNING state
     const context1 = createMockExecutionContext({
@@ -120,7 +120,7 @@ describe("createThreadStateCheckHook", () => {
   });
 
   it("Using the default list of allowed states", async () => {
-    const hook = createThreadStateCheckHook(); // Default ['RUNNING']
+    const hook = createWorkflowExecutionStateCheckHook(); // Default ['RUNNING']
     const context = createMockExecutionContext({
       thread: { ...createMockExecutionContext().thread, status: "RUNNING" },
     });

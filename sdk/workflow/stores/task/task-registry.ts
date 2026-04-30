@@ -26,7 +26,7 @@ import {
   type StoredTaskInfo,
   type ExecutionInstance,
   type ExecutionInstanceType,
-  isThreadInstance,
+  isWorkflowExecutionInstance,
   hasLoadedInstance,
   isStoredTaskInfo,
 } from "../../../core/types/index.js";
@@ -184,7 +184,7 @@ export class TaskRegistry {
           };
 
           if (snapshot.result) {
-            storedTask.result = TaskSerializationUtils.deserializeThreadResult(snapshot.result);
+            storedTask.result = TaskSerializationUtils.deserializeWorkflowExecutionResult(snapshot.result);
           }
 
           if (snapshot.error) {
@@ -239,14 +239,14 @@ export class TaskRegistry {
 
         if (
           storedTask.instanceRef.type === "loaded" &&
-          isThreadInstance(storedTask.instanceRef.instance)
+          isWorkflowExecutionInstance(storedTask.instanceRef.instance)
         ) {
           snapshot.executionId = storedTask.instanceRef.instance.id;
           snapshot.workflowId = storedTask.instanceRef.instance.getWorkflowId();
         }
 
         if (storedTask.result) {
-          snapshot.result = TaskSerializationUtils.serializeThreadResult(storedTask.result);
+          snapshot.result = TaskSerializationUtils.serializeWorkflowExecutionResult(storedTask.result);
         }
 
         if (storedTask.error) {
@@ -324,14 +324,14 @@ export class TaskRegistry {
   }
 
   /**
-   * Register a Thread task (convenience method for backward compatibility)
-   * @param executionEntity Thread entity
+   * Register a WorkflowExecution task (convenience method for backward compatibility)
+   * @param executionEntity WorkflowExecution entity
    * @param manager Task manager
    * @param timeout Timeout period (in milliseconds)
    * @returns Task ID
    */
-  registerThread(executionEntity: WorkflowExecutionEntity, manager: TaskManager, timeout?: number): string {
-    return this.register(executionEntity, "thread", manager, timeout);
+  registerWorkflowExecution(executionEntity: WorkflowExecutionEntity, manager: TaskManager, timeout?: number): string {
+    return this.register(executionEntity, "workflowExecution", manager, timeout);
   }
 
   /**
@@ -563,10 +563,10 @@ export class TaskRegistry {
    * @param executionId Execution ID
    * @returns Task information
    */
-  getByThreadId(executionId: string): TaskInfo | null {
+  getByExecutionId(executionId: string): TaskInfo | null {
     return (
       this.getAll().find(task => {
-        if (task.instanceType === "thread" && isThreadInstance(task.instance)) {
+        if (task.instanceType === "workflowExecution" && isWorkflowExecutionInstance(task.instance)) {
           return task.instance.id === executionId;
         }
         return false;

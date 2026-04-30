@@ -57,9 +57,9 @@ export class TriggeredSubworkflowHandler implements TaskManager {
   private taskRegistry: TaskRegistry;
 
   /**
-   * Thread Pool Service
+   * Workflow Execution Pool Service
    */
-  private threadPoolService: WorkflowExecutionPool;
+  private workflowExecutionPool: WorkflowExecutionPool;
 
   /**
    * Task Queue Manager
@@ -80,13 +80,13 @@ export class TriggeredSubworkflowHandler implements TaskManager {
   };
 
   /**
-   * Thread Builder
+   * Workflow Execution Builder
    */
   private executionBuilder: {
     build: (
       subgraphId: string,
       options: { input: Record<string, unknown> },
-    ) => Promise<ThreadBuildResultSimple>;
+    ) => Promise<WorkflowExecutionBuildResultSimple>;
   };
 
   /**
@@ -105,11 +105,11 @@ export class TriggeredSubworkflowHandler implements TaskManager {
 
   /**
    * Constructor
-   * @param workflowExecutionRegistry: Thread registry
-   * @param executionBuilder: Thread builder
+   * @param workflowExecutionRegistry: WorkflowExecution registry
+   * @param executionBuilder: WorkflowExecution builder
    * @param taskQueueManager: Task queue manager
    * @param eventManager: Event manager
-   * @param threadPoolService: Thread pool service
+   * @param workflowExecutionPool: Workflow execution pool service
    */
   constructor(
     workflowExecutionRegistry: {
@@ -124,13 +124,13 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     },
     taskQueueManager: TaskQueue,
     eventManager: EventRegistry,
-    threadPoolService: WorkflowExecutionPool,
+    workflowExecutionPool: WorkflowExecutionPool,
   ) {
     this.workflowExecutionRegistry = workflowExecutionRegistry;
     this.executionBuilder = executionBuilder;
     this.taskQueueManager = taskQueueManager;
     this.eventManager = eventManager;
-    this.threadPoolService = threadPoolService;
+    this.workflowExecutionPool = workflowExecutionPool;
 
     // Get the global task registry
     this.taskRegistry = TaskRegistry.getInstance();
@@ -171,11 +171,11 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     // Register with WorkflowExecutionRegistry
     this.workflowExecutionRegistry.register(subgraphEntity);
 
-    // Establish a parent-child thread relationship
-    const parentThreadId = task.mainWorkflowExecutionEntity.id;
-    const childThreadId = subgraphEntity.id;
-    task.mainWorkflowExecutionEntity.registerChildThread(childThreadId);
-    subgraphEntity.setParentThreadId(parentThreadId);
+    // Establish a parent-child execution relationship
+    const parentExecutionId = task.mainWorkflowExecutionEntity.id;
+    const childExecutionId = subgraphEntity.id;
+    task.mainWorkflowExecutionEntity.registerChildExecution(childExecutionId);
+    subgraphEntity.setParentExecutionId(parentExecutionId);
     subgraphEntity.setTriggeredSubworkflowId(task.subgraphId);
 
     // Trigger the start event
@@ -183,7 +183,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
 
     // Select the execution method based on the configuration.
     const waitForCompletion = task.config?.waitForCompletion !== false; // The default value is `true`.
-    const timeout = task.config?.timeout || this.threadPoolService.getConfig().defaultTimeout;
+    const timeout = task.config?.timeout || this.workflowExecutionPool.getConfig().defaultTimeout;
 
     if (waitForCompletion) {
       // Synchronize execution
@@ -222,8 +222,8 @@ export class TriggeredSubworkflowHandler implements TaskManager {
       input,
     });
 
-    // Set the thread type to TRIGGERED_SUBWORKFLOW
-    subgraphEntity.setThreadType("TRIGGERED_SUBWORKFLOW");
+    // Set the execution type to TRIGGERED_SUBWORKFLOW
+    subgraphEntity.setExecutionType("TRIGGERED_SUBWORKFLOW");
 
     return subgraphEntity;
   }
@@ -361,13 +361,13 @@ export class TriggeredSubworkflowHandler implements TaskManager {
    * @param subgraphEntity Sub-workflow entity
    */
   private unregisterParentChildRelationship(subgraphEntity: WorkflowExecutionEntity): void {
-    const parentThreadId = subgraphEntity.getParentThreadId();
-    const childThreadId = subgraphEntity.id;
+    const parentExecutionId = subgraphEntity.getParentExecutionId();
+    const childExecutionId = subgraphEntity.id;
 
-    if (parentThreadId) {
-      const parentEntity = this.workflowExecutionRegistry.get(parentThreadId);
+    if (parentExecutionId) {
+      const parentEntity = this.workflowExecutionRegistry.get(parentExecutionId);
       if (parentEntity) {
-        parentEntity.unregisterChildThread(childThreadId);
+        parentEntity.unregisterChildExecution(childExecutionId);
       }
     }
   }
@@ -478,7 +478,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
    * @returns Thread pool statistics
    */
   getPoolStats() {
-    return this.threadPoolService.getStats();
+    return this.workflowExecutionPool.getStats();
   }
 
   /**
@@ -523,8 +523,8 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     // Wait for all tasks to complete.
     await this.taskQueueManager.drain();
 
-    // Close the thread pool.
-    await this.threadPoolService.shutdown();
+    // Close the workflow execution pool.
+    await this.workflowExecutionPool.shutdown();
 
     // Clean up task registry entries.
     this.taskRegistry.cleanup();

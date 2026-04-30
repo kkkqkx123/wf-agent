@@ -67,7 +67,7 @@ export async function stopExecutionHandler(
     return createSuccessResult(
       triggerId,
       action,
-      { message: `Thread ${executionId} stopped successfully` },
+      { message: `Workflow execution ${executionId} stopped successfully` },
       executionTime,
     );
   } catch (error) {

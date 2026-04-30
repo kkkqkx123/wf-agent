@@ -49,7 +49,7 @@ export async function pauseExecutionHandler(
 
   try {
     if (action.type !== "pause_workflow_execution") {
-      throw new RuntimeValidationError("Action type must be pause_thread", {
+      throw new RuntimeValidationError("Action type must be pause_workflow_execution", {
         operation: "handle",
         field: "type",
       });
@@ -67,7 +67,7 @@ export async function pauseExecutionHandler(
     return createSuccessResult(
       triggerId,
       action,
-      { message: `Thread ${executionId} paused successfully` },
+      { message: `Workflow execution ${executionId} paused successfully` },
       executionTime,
     );
   } catch (error) {

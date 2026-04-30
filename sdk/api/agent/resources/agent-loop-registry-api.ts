@@ -5,7 +5,7 @@
  * Responsibilities:
  * - Encapsulate AgentLoopRegistry, provide query and management of Agent Loop instances
  * - Provide statistical information, status query and other functions.
- * - Refer to the design pattern of ThreadRegistryAPI.
+ * - Refer to the design pattern of WorkflowExecutionRegistryAPI.
  */
 
 import { CrudResourceAPI } from "../../shared/resources/generic-resource-api.js";

@@ -54,7 +54,7 @@ export function createPermissionCheckHook(requiredPermissions: string[]): NodeHo
       requiredPermissions,
       handler: async (context: HookExecutionContext) => {
         const execution = context.workflowExecutionEntity.getExecution();
-        const userPermissions = (execution.variableScopes.thread?.["permissions"] || []) as string[];
+        const userPermissions = (execution.variableScopes.workflowExecution?.["permissions"] || []) as string[];
         const missing = requiredPermissions.filter(p => !userPermissions.includes(p));
 
         if (missing.length > 0) {
@@ -89,7 +89,7 @@ export function createAuditLoggingHook(auditService: {
           nodeId: context.node.id,
           nodeName: context.node.name,
           nodeType: context.node.type,
-          userId: execution.variableScopes.thread?.["userId"],
+          userId: execution.variableScopes.workflowExecution?.["userId"],
           scriptName: config.scriptName,
           riskLevel: config.risk,
         });

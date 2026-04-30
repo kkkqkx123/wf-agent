@@ -611,7 +611,7 @@ export function initializeContainer(storageCallback?: CheckpointStorageCallback)
             eventManager,
             executionBuilder: workflowExecutionBuilder,
             taskQueueManager,
-            threadLifecycleCoordinator: workflowStateTransitor,
+            workflowLifecycleCoordinator: workflowStateTransitor,
           });
         },
       };

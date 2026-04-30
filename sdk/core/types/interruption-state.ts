@@ -69,16 +69,16 @@ export class InterruptionState {
    */
   constructor(config: InterruptionStateConfig);
 
-  constructor(configOrThreadId: InterruptionStateConfig | string, nodeId?: string) {
-    if (typeof configOrThreadId === "string") {
+  constructor(configOrContextId: InterruptionStateConfig | string, nodeId?: string) {
+    if (typeof configOrContextId === "string") {
       // Backward compatibility: The old form of the constructor
-      this.contextId = configOrThreadId;
+      this.contextId = configOrContextId;
       this.nodeId = nodeId ?? "";
     } else {
       // New configuration object format
-      this.contextId = configOrThreadId.contextId;
-      this.nodeId = configOrThreadId.nodeId ?? "";
-      this.createInterruptionError = configOrThreadId.createInterruptionError;
+      this.contextId = configOrContextId.contextId;
+      this.nodeId = configOrContextId.nodeId ?? "";
+      this.createInterruptionError = configOrContextId.createInterruptionError;
     }
   }
 

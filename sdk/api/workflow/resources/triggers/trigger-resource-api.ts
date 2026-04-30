@@ -48,8 +48,8 @@ export class TriggerResourceAPI extends ReadonlyResourceAPI<Trigger, string, Tri
    */
   protected async getResource(id: string): Promise<Trigger | null> {
     // Triggers are usually obtained through workflow execution entities, and in this case, it is necessary to iterate through all workflow executions.
-    const threadEntities = this.registry.getAll();
-    for (const executionEntity of threadEntities) {
+    const executionEntities = this.registry.getAll();
+    for (const executionEntity of executionEntities) {
       const triggerManager = executionEntity.triggerManager as { getAll: () => Trigger[] } | undefined;
       const triggers = triggerManager?.getAll() || [];
       const trigger = triggers.find((t: Trigger) => t.id === id);
@@ -65,10 +65,10 @@ export class TriggerResourceAPI extends ReadonlyResourceAPI<Trigger, string, Tri
    * @returns Array of triggers
    */
   protected async getAllResources(): Promise<Trigger[]> {
-    const threadEntities = this.registry.getAll();
+    const executionEntities = this.registry.getAll();
     const allTriggers: Trigger[] = [];
 
-    for (const executionEntity of threadEntities) {
+    for (const executionEntity of executionEntities) {
       const triggerManager = executionEntity.triggerManager as { getAll: () => Trigger[] } | undefined;
       const triggers = triggerManager?.getAll() || [];
       allTriggers.push(...triggers);
@@ -105,7 +105,7 @@ export class TriggerResourceAPI extends ReadonlyResourceAPI<Trigger, string, Tri
    * @param filter: Filter criteria
    * @returns: Array of triggers
    */
-  async getThreadTriggers(executionId: string, filter?: TriggerFilter): Promise<Trigger[]> {
+  async getWorkflowExecutionTriggers(executionId: string, filter?: TriggerFilter): Promise<Trigger[]> {
     const triggerManager = (await this.getTriggerManager(executionId)) as { getAll: () => Trigger[] };
     let triggers = triggerManager.getAll();
 
@@ -123,7 +123,7 @@ export class TriggerResourceAPI extends ReadonlyResourceAPI<Trigger, string, Tri
    * @param triggerId: Trigger ID
    * @returns: Trigger object
    */
-  async getThreadTrigger(executionId: string, triggerId: string): Promise<Trigger> {
+  async getWorkflowExecutionTrigger(executionId: string, triggerId: string): Promise<Trigger> {
     const triggerManager = (await this.getTriggerManager(executionId)) as {
       get: (id: string) => Trigger | undefined;
     };
@@ -167,7 +167,7 @@ export class TriggerResourceAPI extends ReadonlyResourceAPI<Trigger, string, Tri
    * @returns Whether it is enabled
    */
   async isTriggerEnabled(executionId: string, triggerId: string): Promise<boolean> {
-    const trigger = await this.getThreadTrigger(executionId, triggerId);
+    const trigger = await this.getWorkflowExecutionTrigger(executionId, triggerId);
     return trigger.status === "enabled";
   }
 
@@ -182,7 +182,7 @@ export class TriggerResourceAPI extends ReadonlyResourceAPI<Trigger, string, Tri
     disabled: number;
     byType: Record<string, number>;
   }> {
-    const triggers = await this.getThreadTriggers(executionId);
+    const triggers = await this.getWorkflowExecutionTriggers(executionId);
 
     const stats = {
       total: triggers.length,
@@ -213,23 +213,23 @@ export class TriggerResourceAPI extends ReadonlyResourceAPI<Trigger, string, Tri
     total: number;
     enabled: number;
     disabled: number;
-    byThread: Record<string, number>;
+    byExecution: Record<string, number>;
     byType: Record<string, number>;
   }> {
-    const threadContexts = this.registry.getAll();
+    const executionContexts = this.registry.getAll();
     const stats = {
       total: 0,
       enabled: 0,
       disabled: 0,
-      byThread: {} as Record<string, number>,
+      byExecution: {} as Record<string, number>,
       byType: {} as Record<string, number>,
     };
 
-    for (const context of threadContexts) {
+    for (const context of executionContexts) {
       const executionId = context.id;
       const triggers = (context.triggerManager as { getAll: () => Trigger[] }).getAll();
 
-      stats.byThread[executionId] = triggers.length;
+      stats.byExecution[executionId] = triggers.length;
       stats.total += triggers.length;
 
       for (const trigger of triggers) {
@@ -278,7 +278,7 @@ export class TriggerResourceAPI extends ReadonlyResourceAPI<Trigger, string, Tri
     }>
   > {
     // Simplify the implementation; in real projects, you can obtain the necessary data from the event system.
-    const trigger = await this.getThreadTrigger(executionId, triggerId);
+    const trigger = await this.getWorkflowExecutionTrigger(executionId, triggerId);
     return [
       {
         timestamp: now(),
@@ -294,7 +294,7 @@ export class TriggerResourceAPI extends ReadonlyResourceAPI<Trigger, string, Tri
    * @returns: JSON string
    */
   async exportWorkflowExecutionTriggers(executionId: string): Promise<string> {
-    const triggers = await this.getThreadTriggers(executionId);
+    const triggers = await this.getWorkflowExecutionTriggers(executionId);
     return JSON.stringify(triggers, null, 2);
   }
 
@@ -306,11 +306,11 @@ export class TriggerResourceAPI extends ReadonlyResourceAPI<Trigger, string, Tri
    * Obtain the Trigger Manager
    */
   private async getTriggerManager(executionId: string) {
-    const threadContext = this.registry.get(executionId);
-    if (!threadContext) {
+    const executionContext = this.registry.get(executionId);
+    if (!executionContext) {
       throw new WorkflowExecutionNotFoundError(`Workflow execution not found: ${executionId}`, executionId);
     }
-    return threadContext.triggerManager;
+    return executionContext.triggerManager;
   }
 
   /**

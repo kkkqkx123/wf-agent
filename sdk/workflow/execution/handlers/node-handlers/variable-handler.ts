@@ -41,7 +41,7 @@ function resolveVariableReferences(expression: string, thread: WorkflowExecution
     const rootVarName = varPath.split(".")[0];
 
     // First, try to obtain the value from the thread variable.
-    let value: unknown = thread.variableScopes.thread?.[rootVarName];
+    let value: unknown = thread.variableScopes.workflowExecution?.[rootVarName];
 
     // If the first part does not exist in the thread variable, try to obtain it from the global variable.
     if (value === undefined && thread.variableScopes) {
@@ -82,7 +82,7 @@ function evaluateExpression(expression: string, variableType: string, thread: Wo
     }
 
     // Create a function scope that includes variables from the thread scope.
-    const threadScope = thread.variableScopes.thread || {};
+    const threadScope = thread.variableScopes.workflowExecution || {};
     const globalScope = thread.variableScopes.global || {};
 
     const func = new Function(
@@ -218,8 +218,8 @@ export async function variableHandler(
     case "global":
       thread.variableScopes.global[config.variableName] = typedResult;
       break;
-    case "thread":
-      thread.variableScopes.thread[config.variableName] = typedResult;
+    case "workflowExecution":
+      thread.variableScopes.workflowExecution[config.variableName] = typedResult;
       break;
     case "local":
       if (thread.variableScopes.local.length > 0) {

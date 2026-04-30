@@ -19,7 +19,7 @@ import { now } from "@wf-agent/common-utils";
 
 /**
  * Enter the subgraph
- * @param executionEntity Thread entity
+ * @param executionEntity WorkflowExecution entity
  * @param workflowId Subgraph workflow ID
  * @param parentWorkflowId Parent workflow ID
  * @param input Subgraph input
@@ -35,7 +35,7 @@ export async function enterSubgraph(
 
 /**
  * Exit the subgraph
- * @param executionEntity Thread entity
+ * @param executionEntity WorkflowExecution entity
  */
 export async function exitSubgraph(executionEntity: WorkflowExecutionEntity): Promise<void> {
   await executionEntity.exitSubgraph();
@@ -43,7 +43,7 @@ export async function exitSubgraph(executionEntity: WorkflowExecutionEntity): Pr
 
 /**
  * Get subgraph input
- * @param executionEntity Thread entity
+ * @param executionEntity WorkflowExecution entity
  * @returns Subgraph input data (using the variable system)
  */
 export function getSubgraphInput(executionEntity: WorkflowExecutionEntity): Record<string, unknown> {
@@ -53,7 +53,7 @@ export function getSubgraphInput(executionEntity: WorkflowExecutionEntity): Reco
 
 /**
  * Get the subgraph output
- * @param executionEntity Thread entity
+ * @param executionEntity WorkflowExecution entity
  * @returns Subgraph output data
  */
 export function getSubgraphOutput(executionEntity: WorkflowExecutionEntity): Record<string, unknown> {

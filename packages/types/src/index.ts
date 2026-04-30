@@ -62,3 +62,6 @@ export * from "./serialization/index.js";
 
 // Component Message System
 export * from "./component-message/index.js";
+
+// Configuration Types
+export * from "./config/index.js";

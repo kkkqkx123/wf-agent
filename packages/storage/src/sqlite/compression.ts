@@ -2,14 +2,26 @@
  * BLOB Compression Utilities
  * Provides compression and decompression for SQLite BLOB storage
  *
- * Uses Node.js zlib for compression with configurable algorithms
+ * Uses Node.js zlib for compression with configurable algorithms (gzip, brotli)
  */
 
 import { promisify } from "util";
-import { gzip, gunzip, gzipSync, gunzipSync } from "zlib";
+import {
+  gzip,
+  gunzip,
+  gzipSync,
+  gunzipSync,
+  brotliCompress,
+  brotliDecompress,
+  brotliCompressSync,
+  brotliDecompressSync,
+  constants as zlibConstants,
+} from "zlib";
 
 const gzipAsync = promisify(gzip);
 const gunzipAsync = promisify(gunzip);
+const brotliCompressAsync = promisify(brotliCompress);
+const brotliDecompressAsync = promisify(brotliDecompress);
 
 /**
  * Compression configuration
@@ -18,7 +30,7 @@ export interface CompressionConfig {
   /** Whether to enable compression */
   enabled: boolean;
   /** Compression algorithm */
-  algorithm?: "gzip" | "brotli" | "zlib";
+  algorithm?: "gzip" | "brotli";
   /** Compression threshold (bytes) - data smaller than this won't be compressed */
   threshold?: number;
   /** Compression level (1-9, where 9 is maximum compression) - deprecated, use algorithm */
@@ -64,6 +76,7 @@ export async function compressBlob(
   const originalSize = data.length;
   const threshold = config.threshold ?? config.minSize ?? 1024;
   const level = config.level ?? 6;
+  const algorithm = config.algorithm ?? "gzip";
 
   // Skip compression if disabled or data is too small
   if (!config.enabled || originalSize < threshold) {
@@ -76,9 +89,24 @@ export async function compressBlob(
   }
 
   try {
-    const compressed = await gzipAsync(Buffer.from(data), {
-      level,
-    });
+    let compressed: Buffer;
+
+    switch (algorithm) {
+      case "gzip":
+        compressed = await gzipAsync(Buffer.from(data), { level });
+        break;
+      case "brotli":
+        // Brotli quality ranges from 0-11, map level 1-9 to quality 4-8
+        const quality = Math.max(0, Math.min(11, Math.round((level / 9) * 8)));
+        compressed = await brotliCompressAsync(Buffer.from(data), {
+          params: {
+            [zlibConstants.BROTLI_PARAM_QUALITY]: quality,
+          },
+        });
+        break;
+      default:
+        throw new Error(`Unsupported compression algorithm: ${algorithm}`);
+    }
 
     const compressedArray = new Uint8Array(compressed);
     const ratio = compressedArray.length / originalSize;
@@ -87,7 +115,7 @@ export async function compressBlob(
     if (compressedArray.length < originalSize) {
       return {
         compressed: compressedArray,
-        algorithm: config.algorithm ?? "gzip",
+        algorithm,
         originalSize,
         ratio,
       };
@@ -136,9 +164,12 @@ export async function decompressBlob(
 
   try {
     switch (algorithm) {
-      case "zlib":
       case "gzip": {
         const decompressed = await gunzipAsync(Buffer.from(data));
+        return new Uint8Array(decompressed);
+      }
+      case "brotli": {
+        const decompressed = await brotliDecompressAsync(Buffer.from(data));
         return new Uint8Array(decompressed);
       }
       default:
@@ -160,6 +191,7 @@ export function compressBlobSync(
   const originalSize = data.length;
   const threshold = config.threshold ?? config.minSize ?? 1024;
   const level = config.level ?? 6;
+  const algorithm = config.algorithm ?? "gzip";
 
   // Skip compression if disabled or data is too small
   if (!config.enabled || originalSize < threshold) {
@@ -172,9 +204,24 @@ export function compressBlobSync(
   }
 
   try {
-    const compressed = gzipSync(Buffer.from(data), {
-      level,
-    });
+    let compressed: Buffer;
+
+    switch (algorithm) {
+      case "gzip":
+        compressed = gzipSync(Buffer.from(data), { level });
+        break;
+      case "brotli":
+        // Brotli quality ranges from 0-11, map level 1-9 to quality 4-8
+        const quality = Math.max(0, Math.min(11, Math.round((level / 9) * 8)));
+        compressed = brotliCompressSync(Buffer.from(data), {
+          params: {
+            [zlibConstants.BROTLI_PARAM_QUALITY]: quality,
+          },
+        });
+        break;
+      default:
+        throw new Error(`Unsupported compression algorithm: ${algorithm}`);
+    }
 
     const compressedArray = new Uint8Array(compressed);
     const ratio = compressedArray.length / originalSize;
@@ -183,7 +230,7 @@ export function compressBlobSync(
     if (compressedArray.length < originalSize) {
       return {
         compressed: compressedArray,
-        algorithm: config.algorithm ?? "gzip",
+        algorithm,
         originalSize,
         ratio,
       };
@@ -217,9 +264,12 @@ export function decompressBlobSync(data: Uint8Array, algorithm: string | null): 
 
   try {
     switch (algorithm) {
-      case "zlib":
       case "gzip": {
         const decompressed = gunzipSync(Buffer.from(data));
+        return new Uint8Array(decompressed);
+      }
+      case "brotli": {
+        const decompressed = brotliDecompressSync(Buffer.from(data));
         return new Uint8Array(decompressed);
       }
       default:

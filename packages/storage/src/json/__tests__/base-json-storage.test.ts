@@ -248,7 +248,32 @@ describe("BaseJsonStorage", () => {
       expect(dataInfo).not.toBeNull();
       // Should be compressed due to default minSize of 1024
       expect(dataInfo!.compressed).toBe(true);
-      expect(dataInfo!.compressionAlgorithm).toBe("zlib");
+      expect(dataInfo!.compressionAlgorithm).toBe("gzip");
+    });
+
+    it("should compress with brotli algorithm when configured", async () => {
+      const brotliStorage = new TestJsonStorage({
+        baseDir: tempDir,
+        compression: {
+          enabled: true,
+          algorithm: "brotli",
+          threshold: 100,
+        },
+      });
+      await brotliStorage.initialize();
+
+      const largeData = new Uint8Array(2000).fill(65);
+      await brotliStorage.save("test-brotli", largeData, { name: "test", value: 1 });
+
+      const dataInfo = await brotliStorage.getDataInfo("test-brotli");
+      expect(dataInfo).not.toBeNull();
+      expect(dataInfo!.compressed).toBe(true);
+      expect(dataInfo!.compressionAlgorithm).toBe("brotli");
+
+      const loaded = await brotliStorage.load("test-brotli");
+      expect(loaded).toEqual(largeData);
+
+      await brotliStorage.close();
     });
 
     it("should not compress small data", async () => {

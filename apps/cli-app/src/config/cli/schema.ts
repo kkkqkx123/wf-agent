@@ -5,7 +5,6 @@
 
 import { z } from "zod";
 import type {
-  CLIConfig,
   CompressionConfig,
   JsonStorageConfig,
   SqliteStorageConfig,
@@ -15,14 +14,15 @@ import type {
   PredefinedToolsPresetConfig,
   PredefinedPromptsPresetConfig,
   PresetsConfig,
-} from "./types.js";
+} from "@wf-agent/types";
+import type { CLIConfig } from "./types.js";
 
 /**
  * Compression Configuration Schema
  */
 export const CompressionConfigSchema = z.object({
   enabled: z.boolean().default(false),
-  algorithm: z.enum(["gzip", "brotli", "zlib"]).default("gzip"),
+  algorithm: z.enum(["gzip", "brotli"]).default("gzip"),
   threshold: z.number().default(1024),
 }) satisfies z.ZodType<CompressionConfig>;
 

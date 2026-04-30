@@ -3,7 +3,7 @@
  * Defines types related to core execution
  */
 
-import type { WorkflowExecutionOptions } from "@wf-agent/types";
+import type { WorkflowExecutionOptions, PresetsConfig } from "@wf-agent/types";
 import type {
   CheckpointStorageCallback,
   WorkflowStorageCallback,
@@ -32,38 +32,7 @@ export interface SDKOptions {
   /** Whether to enable verification */
   enableValidation?: boolean;
   /** Predefined feature options */
-  presets?: {
-    /** Context Compression Function Configuration */
-    contextCompression?: {
-      enabled?: boolean;
-      prompt?: string;
-      timeout?: number;
-      maxTriggers?: number;
-    };
-    /** Predefined tool configuration */
-    predefinedTools?: {
-      /** Whether to enable predefined tools (default is true) */
-      enabled?: boolean;
-      /** Only enable the specified tools (allowlist). */
-      allowList?: string[];
-      /** Disable the specified tool (blocklist it). */
-      blockList?: string[];
-      /** Tool-specific configuration */
-      config?: {
-        readFile?: { workspaceDir?: string; maxFileSize?: number };
-        writeFile?: { workspaceDir?: string };
-        editFile?: { workspaceDir?: string };
-        bash?: { defaultTimeout?: number; maxTimeout?: number };
-        sessionNote?: { workspaceDir?: string; memoryFile?: string };
-        backgroundShell?: { workspaceDir?: string };
-      };
-    };
-    /** Predefined prompt word template configuration */
-    predefinedPrompts?: {
-      /** Whether to enable the predefined prompt word template (default is true) */
-      enabled?: boolean;
-    };
-  };
+  presets?: PresetsConfig;
 }
 
 /**

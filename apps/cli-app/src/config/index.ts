@@ -22,6 +22,10 @@ export { CLIConfigSchema } from "./cli/schema.js";
 
 export type {
   CLIConfig,
+} from "./cli/types.js";
+
+// Re-export configuration types from @wf-agent/types
+export type {
   LogLevel,
   OutputFormat,
   SDKLogLevel,
@@ -36,7 +40,7 @@ export type {
   PredefinedToolsPresetConfig,
   PredefinedPromptsPresetConfig,
   PresetsConfig,
-} from "./cli/types.js";
+} from "@wf-agent/types";
 
 // Validator
 export { ConfigValidator } from "./config-validator.js";

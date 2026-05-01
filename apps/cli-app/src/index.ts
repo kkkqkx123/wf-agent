@@ -118,6 +118,7 @@ program
       workflowStorageAdapter: storageManager?.getWorkflowStorage() ?? undefined,
       taskStorageAdapter: storageManager?.getTaskStorage() ?? undefined,
       workflowExecutionStorageAdapter: storageManager?.getWorkflowExecutionStorage() ?? undefined,
+      agentLoopCheckpointStorageAdapter: storageManager?.getAgentLoopCheckpointStorage() ?? undefined,
     });
 
     // Wait for SDK bootstrap to complete

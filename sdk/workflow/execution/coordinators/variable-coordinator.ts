@@ -22,9 +22,12 @@ import { getErrorOrNew } from "@wf-agent/common-utils";
 import { RuntimeValidationError, EventSystemError } from "@wf-agent/types";
 import { VariableState } from "../../state-managers/variable-state.js";
 import { VariableAccessor } from "../utils/variable-accessor.js";
-import { safeEmit } from "../../../core/utils/event/event-emitter.js";
+import { emit } from "../../../core/utils/event/event-emitter.js";
 import { buildVariableChangedEvent } from "../utils/event/index.js";
 import { logError, emitErrorEvent } from "../../../core/utils/error-utils.js";
+import { createContextualLogger } from "../../../utils/contextual-logger.js";
+
+const logger = createContextualLogger({ component: "VariableCoordinator" });
 
 /**
  * VariableCoordinator - Variable Coordinator
@@ -339,6 +342,9 @@ export class VariableCoordinator {
 
   /**
    * Trigger a variable change event
+   * Note: This is for observability only. If no listeners need to act on variable changes,
+   * consider removing this and just using logger.debug().
+   * 
    * @param executionEntity WorkflowExecutionEntity instance
    * @param name Variable name
    * @param value New value
@@ -351,6 +357,13 @@ export class VariableCoordinator {
     scope: VariableScope,
   ): Promise<void> {
     if (!this.eventManager) {
+      // No event manager available - just log for observability
+      logger.debug("Variable changed (no event manager)", {
+        executionId: executionEntity.id,
+        workflowId: executionEntity.getWorkflowId(),
+        variableName: name,
+        variableScope: scope,
+      });
       return;
     }
 
@@ -362,33 +375,16 @@ export class VariableCoordinator {
         variableValue: value,
         variableScope: scope,
       });
-      await safeEmit(this.eventManager, event);
+      await emit(this.eventManager, event);
     } catch (error) {
-      // Error creating the event system.
-      const eventSystemError = new EventSystemError(
-        "Failed to emit variable changed event",
-        "emit",
-        "VARIABLE_CHANGED",
-        undefined,
-        undefined,
-        { variableName: name, originalError: getErrorOrNew(error) },
-      );
-
-      // Record error logs
-      logError(eventSystemError, {
-        executionId: this.executionId,
-        workflowId: this.workflowId,
+      // Event emission failed - log but don't break the main flow
+      // This is observability data, not critical state
+      logger.warn("Failed to emit VARIABLE_CHANGED event", {
+        executionId: executionEntity.id,
+        workflowId: executionEntity.getWorkflowId(),
         variableName: name,
+        error: getErrorOrNew(error).message,
       });
-
-      // Trigger an error event
-      await emitErrorEvent(this.eventManager, {
-        executionId: this.executionId || "",
-        workflowId: this.workflowId || "",
-        error: eventSystemError,
-      });
-
-      throw eventSystemError;
     }
   }
 

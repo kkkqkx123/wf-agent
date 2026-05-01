@@ -299,8 +299,8 @@ async create(checkpointData: Checkpoint): Promise<string> {
 const registry = SerializationRegistry.getInstance();
 registry.register({
   entityType: 'checkpoint',
-  serializer: new CheckpointSnapshotSerializer(),
-  deltaCalculator: new CheckpointDeltaCalculator(),
+  serializer: new WorkflowCheckpointSerializer(),
+  deltaCalculator: new WorkflowCheckpointDeltaCalculator(),
 });
 registry.register({
   entityType: 'task',
@@ -314,7 +314,7 @@ const data = await registry.serialize(checkpoint);
 const restored = await registry.deserialize('checkpoint', data);
 
 // 3. Remove direct serializer instantiation
-// DELETE: const _checkpointSerializer = new _CheckpointSnapshotSerializer();
+// DELETE: const _checkpointSerializer = new _WorkflowCheckpointSerializer();
 ```
 
 **Benefits**:

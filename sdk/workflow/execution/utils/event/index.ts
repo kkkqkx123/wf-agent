@@ -45,7 +45,6 @@ export {
 
 // Event Trigger Tool Function
 export {
-  safeEmit,
   emit,
   emitBatch,
   emitBatchParallel,

@@ -53,7 +53,7 @@ import { LLMExecutor, ToolCallExecutor } from "../executors/index.js";
 import { ToolApprovalCoordinator } from "../coordinators/tool-approval-coordinator.js";
 import { SkillRegistry } from "../registry/skill-registry.js";
 import { SkillLoader } from "../utils/skill-loader.js";
-import { safeEmit } from "../../workflow/execution/utils/index.js";
+import { emit } from "../../workflow/execution/utils/index.js";
 import { createCheckpoint } from "../../workflow/checkpoint/utils/checkpoint-utils.js";
 import {
   buildMessageAddedEvent,
@@ -298,7 +298,7 @@ export function initializeContainerWithAdapter(storageAdapter?: CheckpointStorag
         c.get(Identifiers.ToolVisibilityStore) as ToolVisibilityStore,
         eventBuilder,
         createCheckpoint,
-        safeEmit,
+        emit,
       );
     })
     .inSingletonScope();

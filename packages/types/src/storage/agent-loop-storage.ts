@@ -8,10 +8,10 @@ import type { TCheckpointType } from "../checkpoint/index.js";
 import type { AgentLoopStatus } from "../agent/status.js";
 
 /**
- * Agent Loop Checkpoint Storage Metadata
- * Metadata information for indexing and querying agent loop checkpoints
+ * Agent Checkpoint Storage Metadata
+ * Metadata information for indexing and querying agent checkpoints
  */
-export interface AgentLoopCheckpointStorageMetadata {
+export interface AgentCheckpointMetadata {
   /** Agent Loop ID */
   agentLoopId: ID;
   /** Creation timestamp */
@@ -27,10 +27,10 @@ export interface AgentLoopCheckpointStorageMetadata {
 }
 
 /**
- * Agent Loop Checkpoint Storage List Query Options
+ * Agent Checkpoint Storage List Query Options
  * Support for filtering and pagination
  */
-export interface AgentLoopCheckpointStorageListOptions {
+export interface AgentCheckpointListOptions {
   /** Filter by agent loop ID */
   agentLoopId?: ID;
   /** Filter by checkpoint type */
@@ -44,10 +44,10 @@ export interface AgentLoopCheckpointStorageListOptions {
 }
 
 /**
- * Agent Loop Entity Storage Metadata
- * Metadata for agent loop lifecycle management
+ * Agent Entity Storage Metadata
+ * Metadata for agent entity lifecycle management
  */
-export interface AgentLoopStorageMetadata {
+export interface AgentEntityMetadata {
   /** Agent Loop ID */
   agentLoopId: ID;
   /** Current status */
@@ -67,9 +67,9 @@ export interface AgentLoopStorageMetadata {
 }
 
 /**
- * Agent Loop Entity Storage List Query Options
+ * Agent Entity Storage List Query Options
  */
-export interface AgentLoopStorageListOptions {
+export interface AgentEntityListOptions {
   /** Filter by status */
   status?: AgentLoopStatus;
   /** Filter by profile ID */

@@ -6,8 +6,9 @@
  */
 
 import type { CleanupPolicy, CleanupResult } from "@wf-agent/types";
-import type { AgentLoopCheckpoint } from "@wf-agent/types";
+import type { AgentLoopCheckpoint, AgentCheckpointMetadata, AgentCheckpointListOptions } from "@wf-agent/types";
 import type { EventRegistry } from "../../core/registry/event-registry.js";
+import type { AgentLoopCheckpointStorageAdapter } from "@wf-agent/storage";
 import { SerializationRegistry } from "../../core/serialization/serialization-registry.js";
 import {
   AgentLoopCheckpointSerializer,
@@ -17,63 +18,6 @@ import { createCleanupStrategy } from "../../core/utils/checkpoint/cleanup-polic
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ operation: "AgentLoopCheckpointStateManager" });
-
-/**
- * Agent Loop Checkpoint Storage Metadata
- */
-export interface AgentLoopCheckpointStorageMetadata {
-  agentLoopId: string;
-  timestamp: number;
-  type: "FULL" | "DELTA";
-  version: number;
-  tags?: string[];
-}
-
-/**
- * Agent Loop Checkpoint List Options
- */
-export interface AgentLoopCheckpointListOptions {
-  agentLoopId?: string;
-  type?: "FULL" | "DELTA";
-  tags?: string[];
-  offset?: number;
-  limit?: number;
-}
-
-/**
- * Agent Loop Checkpoint Storage Adapter Interface
- */
-export interface AgentLoopCheckpointStorageAdapter {
-  /** Initialize the storage adapter */
-  initialize(): Promise<void>;
-
-  /** Save checkpoint data */
-  save(id: string, data: Uint8Array, metadata: AgentLoopCheckpointStorageMetadata): Promise<void>;
-
-  /** Load checkpoint data */
-  load(id: string): Promise<Uint8Array | null>;
-
-  /** Delete checkpoint */
-  delete(id: string): Promise<void>;
-
-  /** List checkpoint IDs */
-  list(options?: AgentLoopCheckpointListOptions): Promise<string[]>;
-
-  /** Get metadata for a checkpoint */
-  getMetadata(id: string): Promise<AgentLoopCheckpointStorageMetadata | null>;
-
-  /** Close the storage adapter */
-  close?(): Promise<void>;
-
-  /** List checkpoints for a specific agent loop */
-  listByAgentLoop(agentLoopId: string, options?: Omit<AgentLoopCheckpointListOptions, "agentLoopId">): Promise<string[]>;
-
-  /** Get the latest checkpoint for an agent loop */
-  getLatestCheckpoint(agentLoopId: string): Promise<string | null>;
-
-  /** Delete all checkpoints for an agent loop */
-  deleteByAgentLoop(agentLoopId: string): Promise<number>;
-}
 
 /**
  * Agent Loop Checkpoint State Manager
@@ -146,7 +90,7 @@ export class AgentLoopCheckpointStateManager {
 
       const serializedData = await this.checkpointSerializer.serializeCheckpoint(checkpoint);
 
-      const metadata: AgentLoopCheckpointStorageMetadata = {
+      const metadata: AgentCheckpointMetadata = {
         agentLoopId: checkpoint.agentLoopId,
         timestamp: checkpoint.timestamp,
         type: checkpoint.type,
@@ -216,7 +160,7 @@ export class AgentLoopCheckpointStateManager {
    * @param options Filter options
    * @returns Array of checkpoint IDs
    */
-  async list(options?: AgentLoopCheckpointListOptions): Promise<string[]> {
+  async list(options?: AgentCheckpointListOptions): Promise<string[]> {
     try {
       logger.debug("Listing agent loop checkpoints", { options });
       const ids = await this.storageAdapter.list(options);
@@ -286,7 +230,7 @@ export class AgentLoopCheckpointStateManager {
     // Get the metadata and size of all checkpoints
     const checkpointInfoArray: Array<{
       checkpointId: string;
-      metadata: AgentLoopCheckpointStorageMetadata;
+      metadata: AgentCheckpointMetadata;
     }> = [];
 
     for (const checkpointId of checkpointIds) {
@@ -294,7 +238,7 @@ export class AgentLoopCheckpointStateManager {
         const data = await this.storageAdapter.load(checkpointId);
         if (data) {
           const checkpoint = await this.checkpointSerializer.deserializeCheckpoint(data);
-          const metadata: AgentLoopCheckpointStorageMetadata = {
+          const metadata: AgentCheckpointMetadata = {
             agentLoopId: checkpoint.agentLoopId,
             timestamp: checkpoint.timestamp,
             type: checkpoint.type,

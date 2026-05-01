@@ -5,8 +5,8 @@
 
 import * as path from "path";
 import type { 
-  AgentLoopCheckpointStorageMetadata, 
-  AgentLoopCheckpointStorageListOptions 
+  AgentCheckpointMetadata,
+  AgentCheckpointListOptions
 } from "@wf-agent/types";
 import type { AgentLoopCheckpointStorageAdapter } from "../types/adapter/agent-loop-checkpoint-adapter.js";
 import { BaseJsonStorage, BaseJsonStorageConfig } from "./base-json-storage.js";
@@ -16,7 +16,7 @@ import { BaseJsonStorage, BaseJsonStorageConfig } from "./base-json-storage.js";
  * Implements the AgentLoopCheckpointStorageAdapter interface
  */
 export class JsonAgentLoopCheckpointStorage
-  extends BaseJsonStorage<AgentLoopCheckpointStorageMetadata>
+  extends BaseJsonStorage<AgentCheckpointMetadata>
   implements AgentLoopCheckpointStorageAdapter
 {
   constructor(config: BaseJsonStorageConfig) {
@@ -42,7 +42,7 @@ export class JsonAgentLoopCheckpointStorage
    */
   async listByAgentLoop(
     agentLoopId: string,
-    options?: Omit<AgentLoopCheckpointStorageListOptions, 'agentLoopId'>
+    options?: Omit<AgentCheckpointListOptions, 'agentLoopId'>
   ): Promise<string[]> {
     this.ensureInitialized();
 
@@ -123,7 +123,7 @@ export class JsonAgentLoopCheckpointStorage
   /**
    * List checkpoint IDs with filtering support
    */
-  async list(options?: AgentLoopCheckpointStorageListOptions): Promise<string[]> {
+  async list(options?: AgentCheckpointListOptions): Promise<string[]> {
     this.ensureInitialized();
 
     let ids = this.getAllIds();

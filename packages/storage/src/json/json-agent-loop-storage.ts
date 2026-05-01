@@ -4,9 +4,9 @@
  */
 
 import * as path from "path";
-import type { 
-  AgentLoopStorageMetadata, 
-  AgentLoopStorageListOptions 
+import type {
+  AgentEntityMetadata,
+  AgentEntityListOptions
 } from "@wf-agent/types";
 import type { AgentLoopStorageAdapter } from "../types/adapter/agent-loop-adapter.js";
 import { AgentLoopStatus } from "@wf-agent/types";
@@ -17,7 +17,7 @@ import { BaseJsonStorage, BaseJsonStorageConfig } from "./base-json-storage.js";
  * Implements the AgentLoopStorageAdapter interface
  */
 export class JsonAgentLoopStorage
-  extends BaseJsonStorage<AgentLoopStorageMetadata>
+  extends BaseJsonStorage<AgentEntityMetadata>
   implements AgentLoopStorageAdapter
 {
   constructor(config: BaseJsonStorageConfig) {
@@ -56,7 +56,7 @@ export class JsonAgentLoopStorage
     }
 
     // Update metadata with new status
-    const updatedMetadata: AgentLoopStorageMetadata = {
+    const updatedMetadata: AgentEntityMetadata = {
       ...entry.metadata,
       status,
       updatedAt: Date.now(),
@@ -120,7 +120,7 @@ export class JsonAgentLoopStorage
   /**
    * List agent loop IDs with filtering support
    */
-  async list(options?: AgentLoopStorageListOptions): Promise<string[]> {
+  async list(options?: AgentEntityListOptions): Promise<string[]> {
     this.ensureInitialized();
 
     let ids = this.getAllIds();

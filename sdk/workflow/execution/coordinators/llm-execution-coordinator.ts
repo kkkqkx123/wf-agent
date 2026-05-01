@@ -18,7 +18,7 @@ import { MessageRole } from "@wf-agent/types";
 import type { WorkflowConfig } from "@wf-agent/types";
 import { ConversationSession } from "../../../core/messaging/conversation-session.js";
 import type { ToolContextStore } from "../../stores/tool-context-store.js";
-import { safeEmit } from "../utils/index.js";
+import { emit } from "../utils/index.js";
 import type { ToolApprovalData } from "@wf-agent/types";
 import { generateId } from "../../../utils/index.js";
 import { getErrorOrNew } from "@wf-agent/common-utils";
@@ -238,7 +238,12 @@ export class LLMExecutionCoordinator {
       content: userMessage.content,
       nodeId,
     });
-    await safeEmit(this.contextFactory.getEventManager(), userMessageEvent);
+    
+    try {
+      await emit(this.contextFactory.getEventManager(), userMessageEvent);
+    } catch (error) {
+      logger.debug("Failed to emit MESSAGE_ADDED event", { eventType: userMessageEvent.type, error });
+    }
 
     // Check the usage of Tokens.
     await conversationState.checkTokenUsage();
@@ -257,7 +262,12 @@ export class LLMExecutionCoordinator {
           tokenLimit,
           usagePercentage,
         });
-        await safeEmit(this.contextFactory.getEventManager(), warningEvent);
+        
+        try {
+          await emit(this.contextFactory.getEventManager(), warningEvent);
+        } catch (error) {
+          logger.debug("Failed to emit TOKEN_USAGE_WARNING event", { eventType: warningEvent.type, error });
+        }
       }
     }
 
@@ -343,7 +353,12 @@ export class LLMExecutionCoordinator {
       content: assistantMessage.content,
       nodeId,
     });
-    await safeEmit(this.contextFactory.getEventManager(), assistantMessageEvent);
+    
+    try {
+      await emit(this.contextFactory.getEventManager(), assistantMessageEvent);
+    } catch (error) {
+      logger.debug("Failed to emit MESSAGE_ADDED event", { eventType: assistantMessageEvent.type, error });
+    }
 
     // Check if there are any tool calls.
     if (result.toolCalls && result.toolCalls.length > 0) {
@@ -386,7 +401,12 @@ export class LLMExecutionCoordinator {
       tokenUsage: finalTokenUsage?.totalTokens || 0,
       nodeId,
     });
-    await safeEmit(this.contextFactory.getEventManager(), stateChangedEvent);
+    
+    try {
+      await emit(this.contextFactory.getEventManager(), stateChangedEvent);
+    } catch (error) {
+      logger.debug("Failed to emit CONVERSATION_STATE_CHANGED event", { eventType: stateChangedEvent.type, error });
+    }
 
     // Return the final content
     return result.content;
@@ -546,7 +566,12 @@ export class LLMExecutionCoordinator {
         prompt: `Do you approve calling the tool "${toolCall.id}"?`,
         timeout: approvalConfig?.approvalTimeout || 0,
       });
-      await safeEmit(this.contextFactory.getEventManager(), requestedEvent);
+      
+      try {
+        await emit(this.contextFactory.getEventManager(), requestedEvent);
+      } catch (error) {
+        logger.debug("Failed to emit USER_INTERACTION_REQUESTED event", { eventType: requestedEvent.type, error });
+      }
 
       // Wait for the USER_INTERACTION_RESPONDED event to be triggered.
       const response = await this.waitForUserInteractionResponse(
@@ -564,7 +589,12 @@ export class LLMExecutionCoordinator {
         operationType: "TOOL_APPROVAL",
         results: approvalResult,
       });
-      await safeEmit(this.contextFactory.getEventManager(), processedEvent);
+      
+      try {
+        await emit(this.contextFactory.getEventManager(), processedEvent);
+      } catch (error) {
+        logger.debug("Failed to emit USER_INTERACTION_PROCESSED event", { eventType: processedEvent.type, error });
+      }
 
       return approvalResult;
     } finally {
@@ -634,3 +664,4 @@ export class LLMExecutionCoordinator {
     });
   }
 }
+

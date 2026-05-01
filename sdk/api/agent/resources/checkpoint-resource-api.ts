@@ -17,6 +17,10 @@ import {
   type CheckpointDependencies,
   type CheckpointOptions,
 } from "../../../agent/checkpoint/checkpoint-coordinator.js";
+import { AgentLoopCheckpointStateManager } from "../../../agent/checkpoint/agent-loop-checkpoint-state-manager.js";
+import { createContextualLogger } from "../../../utils/contextual-logger.js";
+
+const logger = createContextualLogger({ operation: "AgentLoopCheckpointResourceAPI" });
 
 /**
  * Checkpoint Filter
@@ -58,12 +62,14 @@ export class AgentLoopCheckpointResourceAPI extends CrudResourceAPI<
   AgentLoopCheckpointFilter
 > {
   private storage: CheckpointStorage;
+  private stateManager?: AgentLoopCheckpointStateManager;
   private checkpoints: Map<string, AgentLoopCheckpoint> = new Map();
   private checkpointsByAgentLoop: Map<string, string[]> = new Map();
 
-  constructor(storage?: CheckpointStorage) {
+  constructor(storage?: CheckpointStorage, stateManager?: AgentLoopCheckpointStateManager) {
     super();
     this.storage = storage ?? this.createDefaultStorage();
+    this.stateManager = stateManager;
   }
 
   /**
@@ -108,6 +114,10 @@ export class AgentLoopCheckpointResourceAPI extends CrudResourceAPI<
    * @returns: Checkpoint object; returns null if it does not exist
    */
   protected async getResource(id: string): Promise<AgentLoopCheckpoint | null> {
+    // Use state manager if available for better performance and features
+    if (this.stateManager) {
+      return await this.stateManager.getCheckpoint(id);
+    }
     return this.storage.getCheckpoint(id);
   }
 
@@ -116,6 +126,21 @@ export class AgentLoopCheckpointResourceAPI extends CrudResourceAPI<
    * @returns Array of checkpoints
    */
   protected async getAllResources(): Promise<AgentLoopCheckpoint[]> {
+    // If state manager is available, use it for listing
+    if (this.stateManager) {
+      const checkpointIds = await this.stateManager.list();
+      const checkpoints: AgentLoopCheckpoint[] = [];
+      
+      for (const id of checkpointIds) {
+        const checkpoint = await this.stateManager.getCheckpoint(id);
+        if (checkpoint) {
+          checkpoints.push(checkpoint);
+        }
+      }
+      return checkpoints;
+    }
+    
+    // Fallback to in-memory storage
     const checkpoints: AgentLoopCheckpoint[] = [];
     for (const checkpoint of this.checkpoints.values()) {
       checkpoints.push(checkpoint);
@@ -128,7 +153,12 @@ export class AgentLoopCheckpointResourceAPI extends CrudResourceAPI<
    * @param resource Checkpoint object
    */
   protected async createResource(resource: AgentLoopCheckpoint): Promise<void> {
-    await this.storage.saveCheckpoint(resource);
+    // Use state manager if available for better performance and features
+    if (this.stateManager) {
+      await this.stateManager.saveCheckpoint(resource);
+    } else {
+      await this.storage.saveCheckpoint(resource);
+    }
   }
 
   /**
@@ -148,7 +178,12 @@ export class AgentLoopCheckpointResourceAPI extends CrudResourceAPI<
    * @param id Checkpoint ID
    */
   protected async deleteResource(id: string): Promise<void> {
-    await this.storage.deleteCheckpoint(id);
+    // Use state manager if available for better performance and features
+    if (this.stateManager) {
+      await this.stateManager.deleteCheckpoint(id);
+    } else {
+      await this.storage.deleteCheckpoint(id);
+    }
   }
 
   /**
@@ -182,8 +217,17 @@ export class AgentLoopCheckpointResourceAPI extends CrudResourceAPI<
    * Clear all checkpoints.
    */
   protected override async clearResources(): Promise<void> {
-    this.checkpoints.clear();
-    this.checkpointsByAgentLoop.clear();
+    // If state manager is available, we can't clear all at once without proper API
+    // This is a limitation - in production, use cleanup policies instead
+    if (this.stateManager) {
+      logger.warn("clearResources() called with state manager - not fully supported. Use cleanup policies instead.");
+      // For now, just clear the in-memory cache
+      this.checkpoints.clear();
+      this.checkpointsByAgentLoop.clear();
+    } else {
+      this.checkpoints.clear();
+      this.checkpointsByAgentLoop.clear();
+    }
   }
 
   // ============================================================================

@@ -3,9 +3,9 @@
  * Fast, isolated checkpoint storage for testing agent loops
  */
 
-import type { 
-  AgentLoopCheckpointStorageMetadata, 
-  AgentLoopCheckpointStorageListOptions 
+import type {
+  AgentCheckpointMetadata,
+  AgentCheckpointListOptions
 } from "@wf-agent/types";
 import type { AgentLoopCheckpointStorageAdapter } from "../types/adapter/agent-loop-checkpoint-adapter.js";
 import { BaseMemoryStorage, type MemoryStorageConfig } from "./base-memory-storage.js";
@@ -15,7 +15,7 @@ import { BaseMemoryStorage, type MemoryStorageConfig } from "./base-memory-stora
  * Implements AgentLoopCheckpointStorageAdapter interface with in-memory storage
  */
 export class MemoryAgentLoopCheckpointStorage
-  extends BaseMemoryStorage<AgentLoopCheckpointStorageMetadata, AgentLoopCheckpointStorageListOptions>
+  extends BaseMemoryStorage<AgentCheckpointMetadata, AgentCheckpointListOptions>
   implements AgentLoopCheckpointStorageAdapter
 {
   constructor(config: MemoryStorageConfig = {}) {
@@ -27,7 +27,7 @@ export class MemoryAgentLoopCheckpointStorage
    */
   async listByAgentLoop(
     agentLoopId: string,
-    options?: Omit<AgentLoopCheckpointStorageListOptions, 'agentLoopId'>
+    options?: Omit<AgentCheckpointListOptions, 'agentLoopId'>
   ): Promise<string[]> {
     this.ensureInitialized();
     await this.simulateLatency();
@@ -114,7 +114,7 @@ export class MemoryAgentLoopCheckpointStorage
   /**
    * List checkpoint IDs with filtering support
    */
-  override async list(options?: AgentLoopCheckpointStorageListOptions): Promise<string[]> {
+  override async list(options?: AgentCheckpointListOptions): Promise<string[]> {
     this.ensureInitialized();
     await this.simulateLatency();
 

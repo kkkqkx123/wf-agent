@@ -27,7 +27,7 @@ import { ToolRegistry } from "../../../core/registry/tool-registry.js";
 import { LLMExecutor } from "../../../core/executors/llm-executor.js";
 import { ToolCallExecutor } from "../../../core/executors/tool-call-executor.js";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
-import { safeEmit } from "../../../core/utils/event/event-emitter.js";
+import { emit } from "../../../core/utils/event/event-emitter.js";
 import { handleAgentError } from "../handlers/agent-error-handler.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import { AgentIterationExecutor } from "./agent-iteration-executor.js";
@@ -126,11 +126,20 @@ export class AgentLoopExecutor {
   /**
    * Unified event emission method
    * Prioritizes EventRegistry, otherwise uses emitEvent callback
+   * Note: These are observability events for external consumers.
    * @param event Agent custom event
    */
   private async emitAgentEvent(event: AgentCustomEvent): Promise<void> {
     if (this.eventManager) {
-      await safeEmit(this.eventManager, event);
+      try {
+        await emit(this.eventManager, event);
+      } catch (error) {
+        // Log but don't break the main flow - these are observability events
+        logger.debug("Failed to emit agent event", { 
+          eventType: event.type, 
+          error 
+        });
+      }
     } else if (this.emitEvent) {
       await this.emitEvent(event);
     }

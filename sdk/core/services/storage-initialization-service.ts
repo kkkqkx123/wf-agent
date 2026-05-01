@@ -13,6 +13,7 @@ import type {
   TaskStorageAdapter,
   WorkflowStorageAdapter,
   WorkflowExecutionStorageAdapter,
+  AgentLoopCheckpointStorageAdapter,
 } from "@wf-agent/storage";
 
 export interface StorageAdapters {
@@ -20,6 +21,8 @@ export interface StorageAdapters {
   task?: TaskStorageAdapter;
   workflow?: WorkflowStorageAdapter;
   workflowExecution?: WorkflowExecutionStorageAdapter;
+  // Agent loop storage adapters (NEW)
+  agentLoopCheckpoint?: AgentLoopCheckpointStorageAdapter;
 }
 
 export interface HealthCheckResult {
@@ -64,7 +67,8 @@ export class StorageInitializationService {
         !!adapters.checkpoint || 
         !!adapters.task || 
         !!adapters.workflow || 
-        !!adapters.workflowExecution;
+        !!adapters.workflowExecution ||
+        !!adapters.agentLoopCheckpoint;
 
       if (!hasAnyAdapter) {
         logger.warn("No storage adapters provided during initialization");
@@ -79,6 +83,7 @@ export class StorageInitializationService {
         task: !!adapters.task,
         workflow: !!adapters.workflow,
         workflowExecution: !!adapters.workflowExecution,
+        agentLoopCheckpoint: !!adapters.agentLoopCheckpoint,
       });
     } catch (error) {
       logger.error("Failed to initialize storage adapters", { error });
@@ -140,6 +145,7 @@ export class StorageInitializationService {
       { name: 'task', adapter: this.adapters.task },
       { name: 'workflow', adapter: this.adapters.workflow },
       { name: 'workflowExecution', adapter: this.adapters.workflowExecution },
+      { name: 'agentLoopCheckpoint', adapter: this.adapters.agentLoopCheckpoint },
     ] as const;
 
     for (const { name, adapter } of adapterTypes) {
@@ -199,6 +205,7 @@ export class StorageInitializationService {
       { name: 'task', adapter: this.adapters.task },
       { name: 'workflow', adapter: this.adapters.workflow },
       { name: 'workflowExecution', adapter: this.adapters.workflowExecution },
+      { name: 'agentLoopCheckpoint', adapter: this.adapters.agentLoopCheckpoint },
     ] as const;
 
     for (const { name, adapter } of adapterTypes) {

@@ -4,8 +4,8 @@
  */
 
 import type { 
-  AgentLoopCheckpointStorageMetadata, 
-  AgentLoopCheckpointStorageListOptions 
+  AgentCheckpointMetadata, 
+  AgentCheckpointListOptions
 } from "@wf-agent/types";
 import type { BaseStorageAdapter } from "./base-storage-adapter.js";
 
@@ -18,7 +18,7 @@ import type { BaseStorageAdapter } from "./base-storage-adapter.js";
  * - packages/storage provides implementations based on this interface.
  */
 export interface AgentLoopCheckpointStorageAdapter 
-  extends BaseStorageAdapter<AgentLoopCheckpointStorageMetadata, AgentLoopCheckpointStorageListOptions> {
+  extends BaseStorageAdapter<AgentCheckpointMetadata, AgentCheckpointListOptions> {
   
   /**
    * List checkpoints for a specific agent loop
@@ -28,7 +28,7 @@ export interface AgentLoopCheckpointStorageAdapter
    */
   listByAgentLoop(
     agentLoopId: string, 
-    options?: Omit<AgentLoopCheckpointStorageListOptions, 'agentLoopId'>
+    options?: Omit<AgentCheckpointListOptions, 'agentLoopId'>
   ): Promise<string[]>;
   
   /**

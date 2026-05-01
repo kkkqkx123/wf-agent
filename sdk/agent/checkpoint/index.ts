@@ -22,12 +22,7 @@ export {
 } from "./checkpoint-coordinator.js";
 
 // State Manager (NEW - Phase 4)
-export {
-  AgentLoopCheckpointStateManager,
-  type AgentLoopCheckpointStorageAdapter,
-  type AgentLoopCheckpointStorageMetadata,
-  type AgentLoopCheckpointListOptions,
-} from "./agent-loop-checkpoint-state-manager.js";
+export { AgentLoopCheckpointStateManager } from "./agent-loop-checkpoint-state-manager.js";
 
 // Utility functions
 export {

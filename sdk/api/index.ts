@@ -288,6 +288,13 @@ export {
 } from "./agent/resources/agent-loop-registry-api.js";
 
 export {
+  AgentLoopResourceAPI,
+  type AgentLoopFilter as AgentLoopEntityFilter,
+  type AgentLoopSummary as AgentLoopEntitySummary,
+  type AgentLoopStorage,
+} from "./agent/resources/agent-loop-resource-api.js";
+
+export {
   AgentLoopCheckpointResourceAPI,
   type AgentLoopCheckpointFilter,
   type CheckpointStorage,

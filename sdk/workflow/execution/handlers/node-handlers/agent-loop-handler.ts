@@ -14,7 +14,7 @@ import type { ConversationSession } from "../../../../core/messaging/conversatio
 import type { EventRegistry } from "../../../../core/registry/event-registry.js";
 import { AgentLoopCoordinator, AgentLoopExecutor } from "../../../../agent/index.js";
 import type { AgentLoopRegistry } from "../../../../agent/index.js";
-import { safeEmit } from "../../utils/index.js";
+import { emit } from "../../utils/index.js";
 import {
   buildMessageAddedEvent,
   buildConversationStateChangedEvent,
@@ -23,6 +23,9 @@ import { LLMExecutor } from "../../../../core/executors/llm-executor.js";
 import { ToolRegistry } from "../../../../core/registry/tool-registry.js";
 import { getContainer } from "../../../../core/di/index.js";
 import * as Identifiers from "../../../../core/di/service-identifiers.js";
+import { createContextualLogger } from "../../../../utils/contextual-logger.js";
+
+const logger = createContextualLogger({ component: "AgentLoopHandler" });
 
 /**
  * Agent Loop node execution results
@@ -111,15 +114,19 @@ export async function agentLoopHandler(
       initialMessages.push({ role: "user", content: inputPrompt });
 
       // Trigger message addition event
-      await safeEmit(
-        context.eventManager,
-        buildMessageAddedEvent({
-          executionId: execution.id,
-          role: "user",
-          content: inputPrompt,
-          nodeId: node.id,
-        }),
-      );
+      try {
+        await emit(
+          context.eventManager,
+          buildMessageAddedEvent({
+            executionId: execution.id,
+            role: "user",
+            content: inputPrompt,
+            nodeId: node.id,
+          }),
+        );
+      } catch (error) {
+        logger.debug("Failed to emit MESSAGE_ADDED event", { error });
+      }
     }
 
     // 2. Create a Coordinator and execute it.
@@ -148,27 +155,35 @@ export async function agentLoopHandler(
     // In the new architecture, messages have been automatically synchronized to the ConversationSession through the AgentLoopEntity
     // Here only the event needs to be triggered
     if (result.content) {
-      await safeEmit(
-        context.eventManager,
-        buildMessageAddedEvent({
-          executionId: execution.id,
-          role: "assistant",
-          content: result.content,
-          nodeId: node.id,
-        }),
-      );
+      try {
+        await emit(
+          context.eventManager,
+          buildMessageAddedEvent({
+            executionId: execution.id,
+            role: "assistant",
+            content: result.content,
+            nodeId: node.id,
+          }),
+        );
+      } catch (error) {
+        logger.debug("Failed to emit MESSAGE_ADDED event", { error });
+      }
     }
 
     // Trigger a dialog state change event
-    await safeEmit(
-      context.eventManager,
-      buildConversationStateChangedEvent({
-        executionId: execution.id,
-        messageCount: context.conversationManager.getMessages().length,
-        tokenUsage: 0, // Not counting the total consumption for now.
-        nodeId: node.id,
-      }),
-    );
+    try {
+      await emit(
+        context.eventManager,
+        buildConversationStateChangedEvent({
+          executionId: execution.id,
+          messageCount: context.conversationManager.getMessages().length,
+          tokenUsage: 0, // Not counting the total consumption for now.
+          nodeId: node.id,
+        }),
+      );
+    } catch (error) {
+      logger.debug("Failed to emit CONVERSATION_STATE_CHANGED event", { error });
+    }
 
     // 4. Update the variable
     if (execution.variableScopes?.workflowExecution) {

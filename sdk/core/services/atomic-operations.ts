@@ -8,7 +8,7 @@
 import { sdkLogger as logger } from "../../utils/logger.js";
 import type { Checkpoint } from "@wf-agent/types";
 import type { CheckpointStorageAdapter } from "@wf-agent/storage";
-import { CheckpointSnapshotSerializer } from "../serialization/entities/checkpoint-serializer.js";
+import { WorkflowCheckpointSerializer } from "../serialization/entities/checkpoint-serializer.js";
 import { SerializationRegistry } from "../serialization/index.js";
 
 export interface AtomicOperationResult<T = void> {
@@ -32,9 +32,9 @@ export async function atomicSaveCheckpoint(
     logger.debug("Starting atomic checkpoint save", { operationId });
 
     // Step 1: Serialize
-    const serializer = registry?.getSerializer("checkpoint") || new CheckpointSnapshotSerializer();
+    const serializer = registry?.getSerializer("checkpoint") || new WorkflowCheckpointSerializer();
     
-    if (!(serializer instanceof CheckpointSnapshotSerializer)) {
+    if (!(serializer instanceof WorkflowCheckpointSerializer)) {
       throw new Error("Invalid checkpoint serializer");
     }
 
@@ -92,9 +92,9 @@ export async function atomicLoadCheckpoint(
     logger.debug("Checkpoint loaded from storage", { operationId });
 
     // Step 2: Deserialize
-    const serializer = registry?.getSerializer("checkpoint") || new CheckpointSnapshotSerializer();
+    const serializer = registry?.getSerializer("checkpoint") || new WorkflowCheckpointSerializer();
     
-    if (!(serializer instanceof CheckpointSnapshotSerializer)) {
+    if (!(serializer instanceof WorkflowCheckpointSerializer)) {
       throw new Error("Invalid checkpoint serializer");
     }
 
@@ -134,9 +134,9 @@ export async function atomicBatchSaveCheckpoints(
       count: checkpoints.length,
     });
 
-    const serializer = registry?.getSerializer("checkpoint") || new CheckpointSnapshotSerializer();
+    const serializer = registry?.getSerializer("checkpoint") || new WorkflowCheckpointSerializer();
     
-    if (!(serializer instanceof CheckpointSnapshotSerializer)) {
+    if (!(serializer instanceof WorkflowCheckpointSerializer)) {
       throw new Error("Invalid checkpoint serializer");
     }
 

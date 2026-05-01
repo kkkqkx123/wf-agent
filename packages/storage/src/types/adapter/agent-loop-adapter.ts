@@ -3,9 +3,9 @@
  * Defines a uniform interface for agent loop lifecycle persistence operations
  */
 
-import type { 
-  AgentLoopStorageMetadata, 
-  AgentLoopStorageListOptions 
+import type {
+  AgentEntityMetadata,
+  AgentEntityListOptions
 } from "@wf-agent/types";
 import type { BaseStorageAdapter } from "./base-storage-adapter.js";
 import type { AgentLoopStatus } from "@wf-agent/types";
@@ -19,7 +19,7 @@ import type { AgentLoopStatus } from "@wf-agent/types";
  * - packages/storage provides implementations based on this interface.
  */
 export interface AgentLoopStorageAdapter 
-  extends BaseStorageAdapter<AgentLoopStorageMetadata, AgentLoopStorageListOptions> {
+  extends BaseStorageAdapter<AgentEntityMetadata, AgentEntityListOptions> {
   
   /**
    * Update agent loop status

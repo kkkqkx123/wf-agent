@@ -13,10 +13,9 @@ import type { CheckpointStorageAdapter } from "@wf-agent/storage";
 import type { EventRegistry } from "../../core/registry/event-registry.js";
 import { LifecycleCapable } from "../../core/types/lifecycle-capable.js";
 import { SerializationRegistry } from "../../core/serialization/serialization-registry.js";
-import { CheckpointSnapshotSerializer } from "../../core/serialization/entities/checkpoint-serializer.js";
-import { createCleanupStrategy } from "../execution/utils/index.js";
+import { WorkflowCheckpointSerializer } from "../../core/serialization/entities/checkpoint-serializer.js";
+import { createCleanupStrategy, emit } from "../execution/utils/index.js";
 import { getErrorOrNew } from "@wf-agent/common-utils";
-import { safeEmit } from "../execution/utils/index.js";
 import { StateManagementError } from "@wf-agent/types";
 import { mergeMetadata } from "../../utils/metadata-utils.js";
 import type { Metadata } from "@wf-agent/types";
@@ -52,7 +51,7 @@ export class CheckpointState implements LifecycleCapable<void> {
   private checkpointSizes: Map<string, number> = new Map(); // checkpointId -> size in bytes
   private eventManager?: EventRegistry;
   private serializationRegistry: SerializationRegistry;
-  private checkpointSerializer: CheckpointSnapshotSerializer;
+  private checkpointSerializer: WorkflowCheckpointSerializer;
 
   /**
    * Constructor
@@ -66,11 +65,11 @@ export class CheckpointState implements LifecycleCapable<void> {
     
     // Get serializer from registry or create if not registered
     const serializer = this.serializationRegistry.getSerializer("checkpoint");
-    if (serializer instanceof CheckpointSnapshotSerializer) {
+    if (serializer instanceof WorkflowCheckpointSerializer) {
       this.checkpointSerializer = serializer;
     } else {
       // Fallback: create a new instance if not properly registered
-      this.checkpointSerializer = new CheckpointSnapshotSerializer();
+      this.checkpointSerializer = new WorkflowCheckpointSerializer();
     }
   }
 
@@ -210,7 +209,12 @@ export class CheckpointState implements LifecycleCapable<void> {
         workflowId: checkpointData.workflowId,
         description: checkpointData.metadata?.description,
       });
-      await safeEmit(this.eventManager, createdEvent);
+      
+      try {
+        await emit(this.eventManager, createdEvent);
+      } catch (error) {
+        logger.debug("Failed to emit CHECKPOINT_CREATED event", { error });
+      }
 
       // Execute the cleanup strategy (if configured).
       if (this.cleanupPolicy) {
@@ -255,7 +259,12 @@ export class CheckpointState implements LifecycleCapable<void> {
         checkpointId: checkpointData.id,
         workflowId: checkpointData.workflowId,
       });
-      await safeEmit(this.eventManager, failedEvent);
+      
+      try {
+        await emit(this.eventManager, failedEvent);
+      } catch (error) {
+        logger.debug("Failed to emit CHECKPOINT_FAILED event", { error });
+      }
       throw error;
     }
   }
@@ -320,7 +329,12 @@ export class CheckpointState implements LifecycleCapable<void> {
           workflowId: checkpoint.workflowId,
           reason,
         });
-        await safeEmit(this.eventManager, deletedEvent);
+        
+        try {
+          await emit(this.eventManager, deletedEvent);
+        } catch (error) {
+          logger.debug("Failed to emit CHECKPOINT_DELETED event", { error });
+        }
       }
     } catch (error) {
       // Triggering a checkpoint failure event.
@@ -330,7 +344,12 @@ export class CheckpointState implements LifecycleCapable<void> {
         error: getErrorOrNew(error),
         checkpointId,
       });
-      await safeEmit(this.eventManager, failedEvent);
+      
+      try {
+        await emit(this.eventManager, failedEvent);
+      } catch (error) {
+        logger.debug("Failed to emit CHECKPOINT_FAILED event", { error });
+      }
       throw error;
     }
   }

@@ -11,7 +11,7 @@
 import type { EventRegistry } from "../registry/event-registry.js";
 import type { SDKError } from "@wf-agent/types";
 import { buildErrorEvent } from "./event/builders/index.js";
-import { safeEmit } from "./event/event-emitter.js";
+import { emit } from "./event/event-emitter.js";
 import { sdkLogger as logger } from "../../utils/logger.js";
 
 /**
@@ -119,6 +119,8 @@ export function logError(error: SDKError, context?: Record<string, unknown>): vo
 
 /**
  * Trigger an error event
+ * Note: Error events are for coordination (e.g., triggering error handlers), not just logging.
+ * If you only need to log errors, use logError() instead.
  *
  * @param eventManager  Event manager
  * @param params  Event parameters
@@ -132,7 +134,18 @@ export async function emitErrorEvent(
     error: Error;
   },
 ): Promise<void> {
-  await safeEmit(eventManager, buildErrorEvent(params));
+  if (!eventManager) {
+    // If no event manager, just log the error - don't fail silently
+    logger.warn("Cannot emit error event: EventRegistry not available", {
+      executionId: params.executionId,
+      workflowId: params.workflowId,
+      nodeId: params.nodeId,
+      error: params.error.message,
+    });
+    return;
+  }
+  
+  await emit(eventManager, buildErrorEvent(params));
 }
 
 /**

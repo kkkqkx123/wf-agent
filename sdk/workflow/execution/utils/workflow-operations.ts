@@ -20,12 +20,15 @@ import {
   buildWorkflowExecutionCopyStartedEvent,
   buildWorkflowExecutionCopyCompletedEvent,
 } from "./event/index.js";
-import { safeEmit } from "../../../core/utils/event/event-emitter.js";
+import { emit } from "../../../core/utils/event/event-emitter.js";
 import {
   waitForMultipleWorkflowExecutionsCompleted,
   waitForAnyWorkflowExecutionCompleted,
   waitForAnyWorkflowExecutionCompletion,
 } from "./event/event-waiter.js";
+import { createContextualLogger } from "../../../utils/contextual-logger.js";
+
+const logger = createContextualLogger({ component: "WorkflowOperations" });
 
 /**
  * Fork Configuration
@@ -98,7 +101,14 @@ export async function fork(
     parentExecutionId: parentExecutionEntity.id,
     forkConfig: forkConfig as unknown as Record<string, unknown>,
   });
-  await safeEmit(eventManager, forkStartedEvent);
+  
+  if (eventManager) {
+    try {
+      await emit(eventManager, forkStartedEvent);
+    } catch (error) {
+      logger.warn("Failed to emit WORKFLOW_EXECUTION_FORK_STARTED event", { error });
+    }
+  }
 
   // Step 2: Create a child WorkflowExecution
   const { workflowExecutionEntity: childExecutionEntity } = await executionBuilder.createFork(parentExecutionEntity, {
@@ -114,7 +124,14 @@ export async function fork(
     parentExecutionId: parentExecutionEntity.id,
     childExecutionIds: [childExecutionEntity.id],
   });
-  await safeEmit(eventManager, forkCompletedEvent);
+  
+  if (eventManager) {
+    try {
+      await emit(eventManager, forkCompletedEvent);
+    } catch (error) {
+      logger.warn("Failed to emit WORKFLOW_EXECUTION_FORK_COMPLETED event", { error });
+    }
+  }
 
   return childExecutionEntity;
 }
@@ -170,7 +187,14 @@ export async function join(
         childExecutionIds: childExecutionIds,
         joinStrategy,
       });
-      await safeEmit(eventManager, joinStartedEvent);
+      
+      if (eventManager) {
+        try {
+          await emit(eventManager, joinStartedEvent);
+        } catch (error) {
+          logger.warn("Failed to emit WORKFLOW_EXECUTION_JOIN_STARTED event", { error });
+        }
+      }
     }
   }
 
@@ -284,7 +308,14 @@ export async function copy(
     workflowId: sourceExecutionEntity.getWorkflowId(),
     sourceExecutionId: sourceExecutionEntity.id,
   });
-  await safeEmit(eventManager, copyStartedEvent);
+  
+  if (eventManager) {
+    try {
+      await emit(eventManager, copyStartedEvent);
+    } catch (error) {
+      logger.warn("Failed to emit WORKFLOW_EXECUTION_COPY_STARTED event", { error });
+    }
+  }
 
   // Step 2: Call WorkflowExecutionBuilder to create a new WorkflowExecution
   const { workflowExecutionEntity: copiedExecutionEntity } = await executionBuilder.createCopy(sourceExecutionEntity);
@@ -296,7 +327,14 @@ export async function copy(
     sourceExecutionId: sourceExecutionEntity.id,
     copiedExecutionId: copiedExecutionEntity.id,
   });
-  await safeEmit(eventManager, copyCompletedEvent);
+  
+  if (eventManager) {
+    try {
+      await emit(eventManager, copyCompletedEvent);
+    } catch (error) {
+      logger.warn("Failed to emit WORKFLOW_EXECUTION_COPY_COMPLETED event", { error });
+    }
+  }
 
   return copiedExecutionEntity;
 }
@@ -451,7 +489,14 @@ async function waitForCompletion(
         childExecutionIds: childExecutionIds,
         condition: joinStrategy,
       });
-      await safeEmit(eventManager, joinConditionMetEvent);
+      
+      if (eventManager) {
+        try {
+          await emit(eventManager, joinConditionMetEvent);
+        } catch (error) {
+          logger.warn("Failed to emit WORKFLOW_EXECUTION_JOIN_CONDITION_MET event", { error });
+        }
+      }
     }
   }
 
@@ -528,7 +573,12 @@ async function waitForCompletionByPolling(
         childExecutionIds: childExecutionIds,
         condition: joinStrategy,
       });
-      await safeEmit(eventManager, joinConditionMetEvent);
+      
+      try {
+        await emit(eventManager, joinConditionMetEvent);
+      } catch (error) {
+        logger.warn("Failed to emit WORKFLOW_EXECUTION_JOIN_CONDITION_MET event", { error });
+      }
     }
   }
 

@@ -69,12 +69,13 @@ class SDK {
       const storageService = StorageInitializationService.getInstance();
       
       // Only initialize if adapters are provided
-      if (options?.checkpointStorageAdapter || options?.taskStorageAdapter || options?.workflowStorageAdapter || options?.workflowExecutionStorageAdapter) {
+      if (options?.checkpointStorageAdapter || options?.taskStorageAdapter || options?.workflowStorageAdapter || options?.workflowExecutionStorageAdapter || options?.agentLoopCheckpointStorageAdapter) {
         await storageService.initialize({
           checkpoint: options.checkpointStorageAdapter,
           task: options.taskStorageAdapter,
           workflow: options.workflowStorageAdapter,
           workflowExecution: options.workflowExecutionStorageAdapter,
+          agentLoopCheckpoint: options.agentLoopCheckpointStorageAdapter,
         });
         
         logger.info("Storage adapters initialized via StorageInitializationService", {
@@ -82,6 +83,7 @@ class SDK {
           task: !!options.taskStorageAdapter,
           workflow: !!options.workflowStorageAdapter,
           workflowExecution: !!options.workflowExecutionStorageAdapter,
+          agentLoopCheckpoint: !!options.agentLoopCheckpointStorageAdapter,
         });
       }
     } catch (error) {

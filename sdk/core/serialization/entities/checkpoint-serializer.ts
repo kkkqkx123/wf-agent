@@ -156,22 +156,3 @@ export function registerWorkflowCheckpointSerializer(): void {
   });
 }
 
-/**
- * @deprecated Use WorkflowCheckpointSnapshot instead
- */
-export type CheckpointSnapshot = WorkflowCheckpointSnapshot;
-
-/**
- * @deprecated Use WorkflowCheckpointSerializer instead
- */
-export const CheckpointSnapshotSerializer = WorkflowCheckpointSerializer;
-
-/**
- * @deprecated Use WorkflowCheckpointDeltaCalculator instead
- */
-export const CheckpointDeltaCalculator = WorkflowCheckpointDeltaCalculator;
-
-/**
- * @deprecated Use registerWorkflowCheckpointSerializer instead
- */
-export const registerCheckpointSerializer = registerWorkflowCheckpointSerializer;

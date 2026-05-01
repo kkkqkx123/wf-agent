@@ -11,7 +11,7 @@ export * from "./constants.js";
 
 // Re-export checkpoint serialization from new location
 export {
-  CheckpointSnapshotSerializer,
-  CheckpointDeltaCalculator,
-  registerCheckpointSerializer,
+  WorkflowCheckpointSerializer,
+  WorkflowCheckpointDeltaCalculator,
+  registerWorkflowCheckpointSerializer,
 } from "../../serialization/entities/checkpoint-serializer.js";

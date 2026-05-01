@@ -9,6 +9,7 @@ import type {
   WorkflowStorageAdapter,
   WorkflowExecutionStorageAdapter,
   TaskStorageAdapter,
+  AgentLoopCheckpointStorageAdapter,
 } from "@wf-agent/storage";
 
 /**
@@ -31,6 +32,8 @@ export interface SDKOptions {
   taskStorageAdapter?: TaskStorageAdapter;
   /** Workflow execution storage adapter interface (implemented by the application layer) */
   workflowExecutionStorageAdapter?: WorkflowExecutionStorageAdapter;
+  /** Agent Loop checkpoint storage adapter interface (implemented by the application layer) */
+  agentLoopCheckpointStorageAdapter?: AgentLoopCheckpointStorageAdapter;
   /** Whether to enable verification */
   enableValidation?: boolean;
   /** Predefined feature options */

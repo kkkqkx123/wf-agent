@@ -6,6 +6,10 @@
  * - Pure functions: All methods are pure functions with no side effects.
  * - Error handling: Offers a safe mechanism for error handling.
  * - Simplified invocation: Simplifies the way to trigger events.
+ * 
+ * IMPORTANT: Events are for state changes and coordination, NOT for logging.
+ * Use logger for informational output. If event emission is optional,
+ * check eventManager availability before calling emit().
  */
 
 import type { EventRegistry } from "../../registry/event-registry.js";
@@ -13,38 +17,7 @@ import type { Event, EventType } from "@wf-agent/types";
 import { ExecutionError } from "@wf-agent/types";
 import { getErrorOrNew } from "@wf-agent/common-utils";
 
-/**
- * Security Trigger Event
- * If the event manager does not exist or the trigger fails, no exception will be thrown.
- *
- * @param eventManager  Event manager
- * @param event  Event object
- */
-export async function safeEmit(
-  eventManager: EventRegistry | undefined,
-  event: Event,
-): Promise<void> {
-  if (!eventManager) {
-    return;
-  }
 
-  try {
-    await eventManager.emit(event);
-  } catch (error) {
-    // Throw an execution error, marked as an information level.
-    throw new ExecutionError(
-      `Failed to emit event ${event.type}`,
-      undefined,
-      undefined,
-      {
-        eventType: event.type,
-        operation: "event_emit",
-        severity: "info",
-      },
-      getErrorOrNew(error),
-    );
-  }
-}
 
 /**
  * Trigger an event (which may throw an exception if it fails)
@@ -67,6 +40,7 @@ export async function emit(eventManager: EventRegistry | undefined, event: Event
 /**
  * Batch Triggering of Events
  * If the triggering of an event fails, other events will continue to be triggered.
+ * Note: Each event emission failure will throw an error but won't stop other events.
  *
  * @param eventManager: The event manager
  * @param events: The array of events
@@ -76,17 +50,36 @@ export async function emitBatch(
   events: Event[],
 ): Promise<void> {
   if (!eventManager) {
-    return;
+    throw new ExecutionError("EventRegistry is not available", undefined, undefined, {
+      service: "EventRegistry",
+      operation: "event_batch_emit",
+    });
   }
 
+  const errors: Error[] = [];
   for (const event of events) {
-    await safeEmit(eventManager, event);
+    try {
+      await eventManager.emit(event);
+    } catch (error) {
+      errors.push(getErrorOrNew(error));
+    }
+  }
+
+  if (errors.length > 0) {
+    throw new ExecutionError(
+      `${errors.length} out of ${events.length} events failed to emit`,
+      undefined,
+      undefined,
+      { operation: "event_batch_emit", failures: errors.length },
+      errors[0],
+    );
   }
 }
 
 /**
  * Batch security trigger events (parallel)
  * All events are triggered in parallel, and a failure does not affect the others.
+ * Note: Failures are collected and reported after all events are attempted.
  *
  * @param eventManager: Event manager
  * @param events: Array of events
@@ -96,10 +89,27 @@ export async function emitBatchParallel(
   events: Event[],
 ): Promise<void> {
   if (!eventManager) {
-    return;
+    throw new ExecutionError("EventRegistry is not available", undefined, undefined, {
+      service: "EventRegistry",
+      operation: "event_batch_parallel_emit",
+    });
   }
 
-  await Promise.all(events.map(event => safeEmit(eventManager, event)));
+  const results = await Promise.allSettled(events.map(event => eventManager.emit(event)));
+  
+  const errors = results
+    .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+    .map(result => getErrorOrNew(result.reason));
+
+  if (errors.length > 0) {
+    throw new ExecutionError(
+      `${errors.length} out of ${events.length} events failed to emit`,
+      undefined,
+      undefined,
+      { operation: "event_batch_parallel_emit", failures: errors.length },
+      errors[0],
+    );
+  }
 }
 
 /**
@@ -115,11 +125,18 @@ export async function emitIf(
   event: Event,
   condition: () => boolean,
 ): Promise<void> {
-  if (!eventManager || !condition()) {
+  if (!eventManager) {
+    throw new ExecutionError("EventRegistry is not available", undefined, undefined, {
+      service: "EventRegistry",
+      operation: "event_conditional_emit",
+    });
+  }
+  
+  if (!condition()) {
     return;
   }
 
-  await safeEmit(eventManager, event);
+  await eventManager.emit(event);
 }
 
 /**
@@ -136,11 +153,14 @@ export async function emitDelayed(
   delay: number,
 ): Promise<void> {
   if (!eventManager) {
-    return;
+    throw new ExecutionError("EventRegistry is not available", undefined, undefined, {
+      service: "EventRegistry",
+      operation: "event_delayed_emit",
+    });
   }
 
   await new Promise(resolve => setTimeout(resolve, delay));
-  await safeEmit(eventManager, event);
+  await eventManager.emit(event);
 }
 
 /**

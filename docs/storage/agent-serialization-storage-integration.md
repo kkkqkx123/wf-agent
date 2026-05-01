@@ -180,7 +180,7 @@ export type CheckpointStorageAdapter = BaseStorageAdapter<
 ```typescript
 // packages/storage/src/types/adapter/agent-loop-checkpoint-adapter.ts
 
-export interface AgentLoopCheckpointStorageMetadata {
+export interface AgentCheckpointMetadata {
   agentLoopId: string;
   timestamp: number;
   type: 'FULL' | 'DELTA';
@@ -188,7 +188,7 @@ export interface AgentLoopCheckpointStorageMetadata {
   tags?: string[];
 }
 
-export interface AgentLoopCheckpointListOptions {
+export interface AgentCheckpointListOptions {
   agentLoopId?: string;
   type?: 'FULL' | 'DELTA';
   tags?: string[];
@@ -197,11 +197,11 @@ export interface AgentLoopCheckpointListOptions {
 }
 
 export interface AgentLoopCheckpointStorageAdapter 
-  extends BaseStorageAdapter<AgentLoopCheckpointStorageMetadata, AgentLoopCheckpointListOptions> {
+  extends BaseStorageAdapter<AgentCheckpointMetadata, AgentCheckpointListOptions> {
   /**
    * List checkpoints for a specific agent loop
    */
-  listByAgentLoop(agentLoopId: string, options?: Omit<AgentLoopCheckpointListOptions, 'agentLoopId'>): Promise<string[]>;
+  listByAgentLoop(agentLoopId: string, options?: Omit<AgentCheckpointListOptions, 'agentLoopId'>): Promise<string[]>;
   
   /**
    * Get the latest checkpoint for an agent loop
@@ -222,7 +222,7 @@ For persisting agent loop lifecycle (not just checkpoints):
 ```typescript
 // packages/storage/src/types/adapter/agent-loop-adapter.ts
 
-export interface AgentLoopStorageMetadata {
+export interface AgentEntityMetadata {
   agentLoopId: string;
   status: AgentLoopStatus;
   createdAt: number;
@@ -232,7 +232,7 @@ export interface AgentLoopStorageMetadata {
   tags?: string[];
 }
 
-export interface AgentLoopListOptions {
+export interface AgentEntityListOptions {
   status?: AgentLoopStatus;
   profileId?: string;
   tags?: string[];
@@ -243,7 +243,7 @@ export interface AgentLoopListOptions {
 }
 
 export interface AgentLoopStorageAdapter 
-  extends BaseStorageAdapter<AgentLoopStorageMetadata, AgentLoopListOptions> {
+  extends BaseStorageAdapter<AgentEntityMetadata, AgentEntityListOptions> {
   /**
    * Update agent loop status
    */
@@ -449,7 +449,7 @@ export class AgentLoopCheckpointStateManager implements LifecycleCapable<void> {
   async saveCheckpoint(checkpoint: AgentLoopCheckpoint): Promise<string> {
     const serializedData = await this.checkpointSerializer.serializeCheckpoint(checkpoint);
     
-    const metadata: AgentLoopCheckpointStorageMetadata = {
+    const metadata: AgentCheckpointMetadata = {
       agentLoopId: checkpoint.agentLoopId,
       timestamp: checkpoint.timestamp,
       type: checkpoint.type,
@@ -482,7 +482,7 @@ export class AgentLoopCheckpointStateManager implements LifecycleCapable<void> {
   /**
    * List checkpoints with filtering
    */
-  async list(options?: AgentLoopCheckpointListOptions): Promise<string[]> {
+  async list(options?: AgentCheckpointListOptions): Promise<string[]> {
     return await this.storageAdapter.list(options);
   }
 
@@ -514,14 +514,14 @@ export class AgentLoopCheckpointStateManager implements LifecycleCapable<void> {
     const checkpointIds = await this.storageAdapter.list();
     const checkpointInfoArray: Array<{
       checkpointId: string;
-      metadata: AgentLoopCheckpointStorageMetadata;
+      metadata: AgentCheckpointMetadata;
     }> = [];
 
     for (const checkpointId of checkpointIds) {
       const data = await this.storageAdapter.load(checkpointId);
       if (data) {
         const checkpoint = await this.checkpointSerializer.deserializeCheckpoint(data);
-        const metadata: AgentLoopCheckpointStorageMetadata = {
+        const metadata: AgentCheckpointMetadata = {
           agentLoopId: checkpoint.agentLoopId,
           timestamp: checkpoint.timestamp,
           type: checkpoint.type,
@@ -599,7 +599,7 @@ export class AgentLoopStateManager implements LifecycleCapable<void> {
   async saveAgentLoop(entity: AgentLoopEntity): Promise<void> {
     const serializedData = await this.entitySerializer.serializeEntity(entity);
     
-    const metadata: AgentLoopStorageMetadata = {
+    const metadata: AgentEntityMetadata = {
       agentLoopId: entity.id,
       status: entity.state.status,
       createdAt: entity.state.startTime || Date.now(),

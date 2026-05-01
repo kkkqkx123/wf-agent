@@ -4,8 +4,8 @@
  */
 
 import type { 
-  AgentLoopCheckpointStorageMetadata, 
-  AgentLoopCheckpointStorageListOptions 
+  AgentCheckpointMetadata,
+  AgentCheckpointListOptions
 } from "@wf-agent/types";
 import type { AgentLoopCheckpointStorageAdapter } from "../types/adapter/agent-loop-checkpoint-adapter.js";
 import { BaseSqliteStorage, BaseSqliteStorageConfig } from "./base-sqlite-storage.js";
@@ -15,7 +15,7 @@ import { BaseSqliteStorage, BaseSqliteStorageConfig } from "./base-sqlite-storag
  * TODO: Implement full metadata-BLOB separation like SqliteCheckpointStorage
  */
 export class SqliteAgentLoopCheckpointStorage
-  extends BaseSqliteStorage<AgentLoopCheckpointStorageMetadata>
+  extends BaseSqliteStorage<AgentCheckpointMetadata>
   implements AgentLoopCheckpointStorageAdapter
 {
   constructor(config: BaseSqliteStorageConfig) {
@@ -70,7 +70,7 @@ export class SqliteAgentLoopCheckpointStorage
    */
   async listByAgentLoop(
     agentLoopId: string,
-    options?: Omit<AgentLoopCheckpointStorageListOptions, 'agentLoopId'>
+    options?: Omit<AgentCheckpointListOptions, 'agentLoopId'>
   ): Promise<string[]> {
     // TODO: Implement with proper filtering and pagination
     this.ensureInitialized();
@@ -113,7 +113,7 @@ export class SqliteAgentLoopCheckpointStorage
   /**
    * List checkpoint IDs with filtering support (stub)
    */
-  async list(options?: AgentLoopCheckpointStorageListOptions): Promise<string[]> {
+  async list(options?: AgentCheckpointListOptions): Promise<string[]> {
     // TODO: Implement with proper filtering
     this.ensureInitialized();
     const db = this.getDb();
@@ -128,7 +128,7 @@ export class SqliteAgentLoopCheckpointStorage
   /**
    * Save data (stub - needs full implementation)
    */
-  async save(id: string, data: Uint8Array, metadata: AgentLoopCheckpointStorageMetadata): Promise<void> {
+  async save(id: string, data: Uint8Array, metadata: AgentCheckpointMetadata): Promise<void> {
     // TODO: Implement with BLOB compression like SqliteCheckpointStorage
     this.ensureInitialized();
     const db = this.getDb();
@@ -165,7 +165,7 @@ export class SqliteAgentLoopCheckpointStorage
   /**
    * Get metadata (stub)
    */
-  async getMetadata(id: string): Promise<AgentLoopCheckpointStorageMetadata | null> {
+  async getMetadata(id: string): Promise<AgentCheckpointMetadata | null> {
     // TODO: Implement
     this.ensureInitialized();
     const db = this.getDb();

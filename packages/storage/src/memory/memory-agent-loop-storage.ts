@@ -3,9 +3,9 @@
  * Fast, isolated storage for agent loop lifecycle management
  */
 
-import type { 
-  AgentLoopStorageMetadata, 
-  AgentLoopStorageListOptions 
+import type {
+  AgentEntityMetadata,
+  AgentEntityListOptions
 } from "@wf-agent/types";
 import type { AgentLoopStorageAdapter } from "../types/adapter/agent-loop-adapter.js";
 import { AgentLoopStatus } from "@wf-agent/types";
@@ -16,7 +16,7 @@ import { BaseMemoryStorage, type MemoryStorageConfig } from "./base-memory-stora
  * Implements AgentLoopStorageAdapter interface with in-memory storage
  */
 export class MemoryAgentLoopStorage
-  extends BaseMemoryStorage<AgentLoopStorageMetadata, AgentLoopStorageListOptions>
+  extends BaseMemoryStorage<AgentEntityMetadata, AgentEntityListOptions>
   implements AgentLoopStorageAdapter
 {
   constructor(config: MemoryStorageConfig = {}) {
@@ -36,7 +36,7 @@ export class MemoryAgentLoopStorage
     }
 
     // Update metadata with new status
-    const updatedMetadata: AgentLoopStorageMetadata = {
+    const updatedMetadata: AgentEntityMetadata = {
       ...entry.metadata,
       status,
       updatedAt: Date.now(),
@@ -100,7 +100,7 @@ export class MemoryAgentLoopStorage
   /**
    * List agent loop IDs with filtering support
    */
-  override async list(options?: AgentLoopStorageListOptions): Promise<string[]> {
+  override async list(options?: AgentEntityListOptions): Promise<string[]> {
     this.ensureInitialized();
     await this.simulateLatency();
 

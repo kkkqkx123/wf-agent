@@ -22,7 +22,7 @@ import { getErrorOrNew, now } from "@wf-agent/common-utils";
 import { TaskRegistry, type TaskManager } from "../../stores/task/task-registry.js";
 import type { WorkflowExecutionPool } from "../workflow-execution-pool.js";
 import { TaskQueue } from "../../stores/task/task-queue.js";
-import { CallbackState } from "../../state-managers/callback-state.js";
+import { PromiseResolutionManager } from "../../state-managers/promise-resolution-manager.js";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import {
   type TriggeredSubgraphTask,
@@ -92,7 +92,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
   /**
    * Callback State
    */
-  private callbackState: CallbackState<ExecutedSubgraphResult>;
+  private callbackState: PromiseResolutionManager<ExecutedSubgraphResult>;
 
   /**
    * Active Task Mapping
@@ -135,8 +135,8 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     // Get the global task registry
     this.taskRegistry = TaskRegistry.getInstance();
 
-    // Create a callback state
-    this.callbackState = new CallbackState<ExecutedSubgraphResult>();
+    // Create a promise resolution manager with event integration
+    this.callbackState = new PromiseResolutionManager<ExecutedSubgraphResult>(eventManager);
   }
 
   /**
@@ -190,7 +190,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
       return await this.executeSync(subgraphEntity, timeout);
     } else {
       // Asynchronous execution
-      return this.executeAsync(subgraphEntity, timeout);
+      return await this.executeAsync(subgraphEntity, timeout);
     }
   }
 
@@ -261,7 +261,10 @@ export class TriggeredSubworkflowHandler implements TaskManager {
    * @param timeout: Timeout period
    * @returns: Task submission result
    */
-  private executeAsync(subgraphEntity: WorkflowExecutionEntity, timeout: number): TaskSubmissionResult {
+  private async executeAsync(
+    subgraphEntity: WorkflowExecutionEntity,
+    timeout: number,
+  ): Promise<TaskSubmissionResult> {
     const executionId = subgraphEntity.id;
 
     // First, register the task with the global TaskRegistry.
@@ -272,7 +275,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
 
     // Register the callback directly without creating a Promise.
     // This can prevent memory leaks caused by uncleaned Promise references.
-    this.callbackState.registerCallback(
+    await this.callbackState.registerCallback(
       executionId,
       (result: ExecutedSubgraphResult) => this.handleSubgraphCompleted(executionId, result),
       (error: Error) => this.handleSubgraphFailed(executionId, error),
@@ -299,7 +302,10 @@ export class TriggeredSubworkflowHandler implements TaskManager {
    * @param executionId: Execution ID
    * @param result: Execution result
    */
-  private handleSubgraphCompleted(executionId: string, result: ExecutedSubgraphResult): void {
+  private async handleSubgraphCompleted(
+    executionId: string,
+    result: ExecutedSubgraphResult,
+  ): Promise<void> {
     // Trigger the completion event
     this.emitCompletedEvent(executionId, result);
 
@@ -322,7 +328,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
 
     // Finally trigger the callback (the callback will be cleaned up internally).
     // The `triggerCallback` function already cleans up the callbacks internally, so there is no need to call the `cleanupCallback` function as well.
-    this.callbackState.triggerCallback(executionId, result);
+    await this.callbackState.triggerCallback(executionId, result);
   }
 
   /**
@@ -330,7 +336,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
    * @param executionId: Execution ID
    * @param error: Error message
    */
-  private handleSubgraphFailed(executionId: string, error: Error): void {
+  private async handleSubgraphFailed(executionId: string, error: Error): Promise<void> {
     // Trigger a failure event.
     this.emitFailedEvent(executionId, error);
 
@@ -353,7 +359,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
 
     // The final error callback is triggered (the callback will be cleaned up internally).
     // The `triggerErrorCallback` function already cleans up the callback internally, so there is no need to call the `cleanupCallback` function again.
-    this.callbackState.triggerErrorCallback(executionId, error);
+    await this.callbackState.triggerErrorCallback(executionId, error);
   }
 
   /**
@@ -518,7 +524,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     this.activeTasks.clear();
 
     // Clean up the callback state
-    this.callbackState.cleanup();
+    await this.callbackState.cleanup();
 
     // Wait for all tasks to complete.
     await this.taskQueueManager.drain();

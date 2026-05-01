@@ -11,7 +11,7 @@ import type {
   WorkflowVersionInfo,
   WorkflowVersionListOptions,
 } from "@wf-agent/types";
-import type { WorkflowStorageCallback } from "../types/callback/index.js";
+import type { WorkflowStorageAdapter } from "../types/adapter/workflow-adapter.js";
 import { BaseJsonStorage, BaseJsonStorageConfig } from "./base-json-storage.js";
 import { StorageError, SerializationError } from "../types/storage-errors.js";
 import { compressBlob, decompressBlob, DEFAULT_COMPRESSION_CONFIG } from "../compression/index.js";
@@ -36,11 +36,11 @@ interface VersionMetadataContent {
 
 /**
  * JSON File Workflow Storage
- * Implements the WorkflowStorageCallback interface
+ * Implements the WorkflowStorageAdapter interface
  */
 export class JsonWorkflowStorage
   extends BaseJsonStorage<WorkflowStorageMetadata>
-  implements WorkflowStorageCallback
+  implements WorkflowStorageAdapter
 {
   constructor(config: BaseJsonStorageConfig) {
     super(config);

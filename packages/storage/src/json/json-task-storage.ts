@@ -11,16 +11,16 @@ import type {
   TaskStatsOptions,
   TaskStatus,
 } from "@wf-agent/types";
-import type { TaskStorageCallback } from "../types/callback/index.js";
+import type { TaskStorageAdapter } from "../types/adapter/task-adapter.js";
 import { BaseJsonStorage, BaseJsonStorageConfig } from "./base-json-storage.js";
 
 /**
  * JSON File Task Storage
- * Implements the TaskStorageCallback interface
+ * Implements the TaskStorageAdapter interface
  */
 export class JsonTaskStorage
   extends BaseJsonStorage<TaskStorageMetadata>
-  implements TaskStorageCallback
+  implements TaskStorageAdapter
 {
   constructor(config: BaseJsonStorageConfig) {
     super(config);

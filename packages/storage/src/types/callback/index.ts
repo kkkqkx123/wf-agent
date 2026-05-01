@@ -1,9 +1,8 @@
 /**
- * Unified export of the callback type
- * Used for interacting with the SDK
+ * Callback types module - DEPRECATED
+ * 
+ * @deprecated This module has been removed. Use adapter module instead.
  */
 
-export * from "./checkpoint-callback.js";
-export * from "./task-callback.js";
-export * from "./workflow-execution-callback.js";
-export * from "./workflow-callback.js";
+// All callback type aliases have been removed.
+// Please use the corresponding Adapter types from '../adapter/index.js'

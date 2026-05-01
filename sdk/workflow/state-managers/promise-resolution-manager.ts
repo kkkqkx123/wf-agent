@@ -1,23 +1,26 @@
 /**
- * CallbackState - Callback State Manager
+ * PromiseResolutionManager - Promise Resolution State Manager
  *
  * Responsibilities:
- * - Manages callback functions for asynchronous workflow execution
- * - Supports Promise-based callbacks
+ * - Manages Promise resolve/reject callbacks for asynchronous workflow execution
+ * - Supports generic type parameters for different result types
  * - Provides functions for registering, triggering, and cleaning up callbacks
+ * - Emits events for callback lifecycle stages (when EventRegistry is provided)
  *
  * Design Principles:
  * - Stateful with multiple instances, held by the State Holder
  * - Execution-safe callback management
- * - Supports generics to adapt to different result types
+ * - Integrated with event system for observability
  */
 
 import { now, getErrorOrNew } from "@wf-agent/common-utils";
 import { SDKError } from "@wf-agent/types";
+import type { EventRegistry } from "../../core/registry/event-registry.js";
+import { safeEmit } from "../../core/utils/event/event-emitter.js";
 import { logError } from "../../core/utils/error-utils.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
-const logger = createContextualLogger({ component: "CallbackState" });
+const logger = createContextualLogger({ component: "PromiseResolutionManager" });
 
 /**
  * Callback Information Interface (Generic Version)
@@ -34,14 +37,23 @@ export interface GenericCallbackInfo<T> {
 }
 
 /**
- * CallbackState - Callback State Manager (Generic Version)
+ * PromiseResolutionManager - Promise Resolution State Manager (Generic Version)
  * @typeparam T Result Type of the Execution
  */
-export class CallbackState<T = unknown> {
+export class PromiseResolutionManager<T = unknown> {
   /**
    * Callback Mapping
    */
   private callbacks: Map<string, GenericCallbackInfo<T>> = new Map();
+
+  /**
+   * Optional EventRegistry for emitting lifecycle events
+   */
+  private eventManager?: EventRegistry;
+
+  constructor(eventManager?: EventRegistry) {
+    this.eventManager = eventManager;
+  }
 
   /**
    * Register callback
@@ -50,11 +62,11 @@ export class CallbackState<T = unknown> {
    * @param reject Promise reject function
    * @returns Whether the registration was successful
    */
-  registerCallback(
+  async registerCallback(
     executionId: string,
     resolve: (value: T) => void,
     reject: (error: Error) => void,
-  ): boolean {
+  ): Promise<boolean> {
     if (this.callbacks.has(executionId)) {
       return false;
     }
@@ -67,6 +79,18 @@ export class CallbackState<T = unknown> {
     };
 
     this.callbacks.set(executionId, callbackInfo);
+
+    // Emit event for observability
+    if (this.eventManager) {
+      await safeEmit(this.eventManager, {
+        type: "PROMISE_CALLBACK_REGISTERED",
+        executionId,
+        timestamp: now(),
+      }).catch((error) => {
+        logger.warn("Failed to emit PROMISE_CALLBACK_REGISTERED event", { error, executionId });
+      });
+    }
+
     return true;
   }
 
@@ -76,7 +100,7 @@ export class CallbackState<T = unknown> {
    * @param result: Execution result
    * @returns: Whether the trigger was successful
    */
-  triggerCallback(executionId: string, result: T): boolean {
+  async triggerCallback(executionId: string, result: T): Promise<boolean> {
     const callbackInfo = this.callbacks.get(executionId);
     if (!callbackInfo) {
       return false;
@@ -88,6 +112,18 @@ export class CallbackState<T = unknown> {
 
       // Remove from the callback mapping.
       this.callbacks.delete(executionId);
+
+      // Emit event for observability
+      if (this.eventManager) {
+        await safeEmit(this.eventManager, {
+          type: "PROMISE_CALLBACK_RESOLVED",
+          executionId,
+          timestamp: now(),
+        }).catch((error) => {
+          logger.warn("Failed to emit PROMISE_CALLBACK_RESOLVED event", { error, executionId });
+        });
+      }
+
       return true;
     } catch (error) {
       const errorObj = getErrorOrNew(error);
@@ -99,6 +135,19 @@ export class CallbackState<T = unknown> {
       );
       logError(sdkError, { executionId });
       this.callbacks.delete(executionId);
+
+      // Emit failure event
+      if (this.eventManager) {
+        await safeEmit(this.eventManager, {
+          type: "PROMISE_CALLBACK_FAILED",
+          executionId,
+          error: sdkError.message,
+          timestamp: now(),
+        }).catch((err) => {
+          logger.warn("Failed to emit PROMISE_CALLBACK_FAILED event", { err, executionId });
+        });
+      }
+
       return false;
     }
   }
@@ -109,7 +158,7 @@ export class CallbackState<T = unknown> {
    * @param error: Error message
    * @returns: Whether the trigger was successful
    */
-  triggerErrorCallback(executionId: string, error: Error): boolean {
+  async triggerErrorCallback(executionId: string, error: Error): Promise<boolean> {
     const callbackInfo = this.callbacks.get(executionId);
     if (!callbackInfo) {
       return false;
@@ -121,10 +170,39 @@ export class CallbackState<T = unknown> {
 
       // Remove from the callback map.
       this.callbacks.delete(executionId);
+
+      // Emit event for observability
+      if (this.eventManager) {
+        await safeEmit(this.eventManager, {
+          type: "PROMISE_CALLBACK_REJECTED",
+          executionId,
+          errorMessage: error.message,
+          timestamp: now(),
+        }).catch((err) => {
+          logger.warn("Failed to emit PROMISE_CALLBACK_REJECTED event", { err, executionId });
+        });
+      }
+
       return true;
     } catch (err) {
-      logger.error(`Error triggering error callback for workflow execution ${executionId}`, { err, executionId });
+      logger.error(`Error triggering error callback for workflow execution ${executionId}`, {
+        err,
+        executionId,
+      });
       this.callbacks.delete(executionId);
+
+      // Emit failure event
+      if (this.eventManager) {
+        await safeEmit(this.eventManager, {
+          type: "PROMISE_CALLBACK_FAILED",
+          executionId,
+          error: err instanceof Error ? err.message : String(err),
+          timestamp: now(),
+        }).catch((error) => {
+          logger.warn("Failed to emit PROMISE_CALLBACK_FAILED event", { error, executionId });
+        });
+      }
+
       return false;
     }
   }
@@ -150,16 +228,36 @@ export class CallbackState<T = unknown> {
   /**
    * Clean up all callbacks
    */
-  cleanup(): void {
+  async cleanup(): Promise<void> {
+    const executionIds = Array.from(this.callbacks.keys());
+
     // Loop through all callbacks and call the reject function.
-    this.callbacks.forEach((callbackInfo, executionId) => {
+    for (const executionId of executionIds) {
+      const callbackInfo = this.callbacks.get(executionId);
+      if (!callbackInfo) continue;
+
       try {
         const error = new Error(`Callback cleanup for workflow execution ${executionId}`);
         callbackInfo.reject(error);
+
+        // Emit cleanup event
+        if (this.eventManager) {
+          await safeEmit(this.eventManager, {
+            type: "PROMISE_CALLBACK_CLEANED_UP",
+            executionId,
+            reason: "global_cleanup",
+            timestamp: now(),
+          }).catch((err) => {
+            logger.warn("Failed to emit PROMISE_CALLBACK_CLEANED_UP event", { err, executionId });
+          });
+        }
       } catch (error) {
-        logger.error(`Error cleaning up callback for workflow execution ${executionId}`, { error, executionId });
+        logger.error(`Error cleaning up callback for workflow execution ${executionId}`, {
+          error,
+          executionId,
+        });
       }
-    });
+    }
 
     // Clear the callback mapping
     this.callbacks.clear();
@@ -170,7 +268,7 @@ export class CallbackState<T = unknown> {
    * @param executionId Execution ID
    * @returns Whether the cleanup was successful
    */
-  cleanupCallback(executionId: string): boolean {
+  async cleanupCallback(executionId: string): Promise<boolean> {
     const callbackInfo = this.callbacks.get(executionId);
     if (!callbackInfo) {
       return false;
@@ -179,8 +277,23 @@ export class CallbackState<T = unknown> {
     try {
       const error = new Error(`Callback cleanup for workflow execution ${executionId}`);
       callbackInfo.reject(error);
+
+      // Emit cleanup event
+      if (this.eventManager) {
+        await safeEmit(this.eventManager, {
+          type: "PROMISE_CALLBACK_CLEANED_UP",
+          executionId,
+          reason: "individual_cleanup",
+          timestamp: now(),
+        }).catch((err) => {
+          logger.warn("Failed to emit PROMISE_CALLBACK_CLEANED_UP event", { err, executionId });
+        });
+      }
     } catch (error) {
-      logger.error(`Error cleaning up callback for workflow execution ${executionId}`, { error, executionId });
+      logger.error(`Error cleaning up callback for workflow execution ${executionId}`, {
+        error,
+        executionId,
+      });
     }
 
     this.callbacks.delete(executionId);
@@ -203,3 +316,4 @@ export class CallbackState<T = unknown> {
     return Array.from(this.callbacks.keys());
   }
 }
+

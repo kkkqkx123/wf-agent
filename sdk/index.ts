@@ -3,9 +3,13 @@
  */
 
 import { initializeContainer } from "./core/di/container-config.js";
+import { registerAllSerializers } from "./core/serialization/entities/index.js";
 
 // Initialize the DI container
 initializeContainer();
+
+// Register all entity serializers with the global registry
+registerAllSerializers();
 
 // Re-export API layer
 export * from "./api/index.js";

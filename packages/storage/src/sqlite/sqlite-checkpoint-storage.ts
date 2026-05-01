@@ -9,17 +9,17 @@
  */
 
 import type { CheckpointStorageMetadata, CheckpointStorageListOptions } from "@wf-agent/types";
-import type { CheckpointStorageCallback } from "../types/callback/index.js";
+import type { CheckpointStorageAdapter } from "../types/adapter/index.js";
 import { BaseSqliteStorage, BaseSqliteStorageConfig } from "./base-sqlite-storage.js";
 import { compressBlob, decompressBlob } from "./compression.js";
 
 /**
  * SQLite Checkpoint Storage
- * Implementing the CheckpointStorageCallback interface with metadata-BLOB separation
+ * Implementing the CheckpointStorageAdapter interface with metadata-BLOB separation
  */
 export class SqliteCheckpointStorage
   extends BaseSqliteStorage<CheckpointStorageMetadata>
-  implements CheckpointStorageCallback
+  implements CheckpointStorageAdapter
 {
   constructor(config: BaseSqliteStorageConfig) {
     super(config);

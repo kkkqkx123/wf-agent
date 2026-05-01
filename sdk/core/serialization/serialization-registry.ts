@@ -9,6 +9,7 @@ import type { SnapshotBase, SerializationOptions, DeserializationOptions } from 
 import { Serializer } from "./serializer.js";
 import { DeltaCalculator } from "./delta-calculator.js";
 import { DeltaRestorer, SnapshotLoader, SnapshotLister } from "./delta-restorer.js";
+import { StrategyRegistry, type SerializationStrategy } from "./serialization-strategy.js";
 
 /**
  * Serializer entry containing all serialization components for an entity type
@@ -31,8 +32,11 @@ export interface SerializerEntry {
 export class SerializationRegistry {
   private static instance: SerializationRegistry;
   private entries: Map<string, SerializerEntry> = new Map();
+  private strategyRegistry: StrategyRegistry;
 
-  private constructor() {}
+  private constructor() {
+    this.strategyRegistry = StrategyRegistry.getInstance();
+  }
 
   /**
    * Get the singleton instance
@@ -82,7 +86,7 @@ export class SerializationRegistry {
   }
 
   /**
-   * Serialize a snapshot
+   * Serialize a snapshot using registered serializer or strategy
    *
    * @param snapshot The snapshot to serialize
    * @param options Serialization options
@@ -92,18 +96,32 @@ export class SerializationRegistry {
     snapshot: TSnapshot,
     options?: SerializationOptions,
   ): Promise<Uint8Array> {
-    const serializer = this.getSerializer(snapshot._entityType);
+    const entityType = snapshot._entityType;
+    
+    // Try to use strategy if configured for this entity type
+    const strategy = this.strategyRegistry.getStrategy(entityType);
+    if (strategy && strategy.name !== "json-gzip") {
+      // Use custom strategy if not default
+      try {
+        return await strategy.serialize(snapshot);
+      } catch (error) {
+        console.warn(`Strategy ${strategy.name} failed, falling back to serializer`, error);
+      }
+    }
 
+    // Fall back to registered serializer
+    const serializer = this.getSerializer(entityType);
     if (serializer) {
       return serializer.serialize(snapshot);
     }
 
+    // Use default serializer as last resort
     const defaultSerializer = new Serializer<TSnapshot>(options);
     return defaultSerializer.serialize(snapshot);
   }
 
   /**
-   * Deserialize data to a snapshot
+   * Deserialize data to a snapshot using registered serializer or strategy
    *
    * @param entityType The entity type
    * @param data The serialized data
@@ -115,12 +133,24 @@ export class SerializationRegistry {
     data: Uint8Array,
     options?: DeserializationOptions,
   ): Promise<TSnapshot> {
-    const serializer = this.getSerializer(entityType);
+    // Try to use strategy if configured for this entity type
+    const strategy = this.strategyRegistry.getStrategy(entityType);
+    if (strategy && strategy.name !== "json-gzip") {
+      // Use custom strategy if not default
+      try {
+        return await strategy.deserialize<TSnapshot>(data);
+      } catch (error) {
+        console.warn(`Strategy ${strategy.name} failed, falling back to serializer`, error);
+      }
+    }
 
+    // Fall back to registered serializer
+    const serializer = this.getSerializer(entityType);
     if (serializer) {
       return (await serializer.deserialize(data, options)) as TSnapshot;
     }
 
+    // Use default serializer as last resort
     const defaultSerializer = new Serializer<TSnapshot>();
     return await defaultSerializer.deserialize(data, options);
   }
@@ -152,5 +182,12 @@ export class SerializationRegistry {
    */
   clear(): void {
     this.entries.clear();
+  }
+
+  /**
+   * Get the strategy registry for managing serialization strategies
+   */
+  getStrategyRegistry(): StrategyRegistry {
+    return this.strategyRegistry;
   }
 }

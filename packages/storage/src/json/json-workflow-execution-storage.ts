@@ -5,17 +5,17 @@
 
 import * as path from "path";
 import type { WorkflowExecutionStorageMetadata, WorkflowExecutionListOptions, WorkflowExecutionStatus } from "@wf-agent/types";
-import type { WorkflowExecutionStorageCallback } from "../types/callback/workflow-execution-callback.js";
+import type { WorkflowExecutionStorageAdapter } from "../types/adapter/workflow-execution-adapter.js";
 import { BaseJsonStorage, BaseJsonStorageConfig } from "./base-json-storage.js";
 import { StorageError } from "../types/storage-errors.js";
 
 /**
  * JSON File Workflow Execution Storage
- * Implements the WorkflowExecutionStorageCallback interface
+ * Implements the WorkflowExecutionStorageAdapter interface
  */
 export class JsonWorkflowExecutionStorage
   extends BaseJsonStorage<WorkflowExecutionStorageMetadata>
-  implements WorkflowExecutionStorageCallback
+  implements WorkflowExecutionStorageAdapter
 {
   constructor(config: BaseJsonStorageConfig) {
     super(config);

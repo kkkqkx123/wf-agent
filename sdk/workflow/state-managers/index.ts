@@ -5,5 +5,8 @@
 
 export { VariableState } from "./variable-state.js";
 export { ExecutionState, type SubgraphContext } from "./execution-state.js";
-export { CallbackState, type GenericCallbackInfo } from "./callback-state.js";
+export {
+  PromiseResolutionManager,
+  type GenericCallbackInfo,
+} from "./promise-resolution-manager.js";
 export { TriggerState, type TriggerRuntimeState } from "./trigger-state.js";

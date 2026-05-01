@@ -1,5 +1,5 @@
 /**
- * Task Storage Callback Interface Definition
+ * Task Storage Adapter Interface Definition
  * Define a uniform interface for task persistence operations
  */
 
@@ -9,17 +9,17 @@ import type {
   TaskStats,
   TaskStatsOptions,
 } from "@wf-agent/types";
-import type { BaseStorageCallback } from "./base-storage-callback.js";
+import type { BaseStorageAdapter } from "./base-storage-adapter.js";
 
 /**
- * Task Store Callback Interface
+ * Task Store Adapter Interface
  *
  * Unified interface for defining task persistence operations
- * - Inherits from BaseStorageCallback and provides standard CRUD operations.
+ * - Inherits from BaseStorageAdapter and provides standard CRUD operations.
  * - packages/storage provides an implementation of TaskStorageAdapter based on this interface.
  * - The application layer can use TaskStorageAdapter directly or implement this interface by itself.
  */
-export interface TaskStorageCallback extends BaseStorageCallback<
+export interface TaskStorageAdapter extends BaseStorageAdapter<
   TaskStorageMetadata,
   TaskListOptions
 > {

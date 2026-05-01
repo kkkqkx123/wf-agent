@@ -1,20 +1,20 @@
 /**
- * Workflow Execution storage callback interface definition
+ * Workflow Execution storage adapter interface definition
  * Defines a unified interface for workflow execution persistence operations
  */
 
 import type { WorkflowExecutionStorageMetadata, WorkflowExecutionListOptions, WorkflowExecutionStatus } from "@wf-agent/types";
-import type { BaseStorageCallback } from "./base-storage-callback.js";
+import type { BaseStorageAdapter } from "./base-storage-adapter.js";
 
 /**
- * Workflow Execution Storage Callback Interface
+ * Workflow Execution Storage Adapter Interface
  *
  * Defines a unified interface for workflow execution persistence operations
- * - Inherits from BaseStorageCallback, providing standard CRUD (Create, Read, Update, Delete) operations
+ * - Inherits from BaseStorageAdapter, providing standard CRUD (Create, Read, Update, Delete) operations
  * - The packages/storage provide implementations of WorkflowExecutionStorageAdapter based on this interface
  * - The application layer can directly use WorkflowExecutionStorageAdapter or implement this interface itself
  */
-export interface WorkflowExecutionStorageCallback extends BaseStorageCallback<
+export interface WorkflowExecutionStorageAdapter extends BaseStorageAdapter<
   WorkflowExecutionStorageMetadata,
   WorkflowExecutionListOptions
 > {

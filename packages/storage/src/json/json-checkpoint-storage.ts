@@ -5,16 +5,16 @@
 
 import * as path from "path";
 import type { CheckpointStorageMetadata, CheckpointStorageListOptions } from "@wf-agent/types";
-import type { CheckpointStorageCallback } from "../types/callback/index.js";
+import type { CheckpointStorageAdapter } from "../types/adapter/checkpoint-adapter.js";
 import { BaseJsonStorage, BaseJsonStorageConfig } from "./base-json-storage.js";
 
 /**
  * JSON File Checkpoint Storage
- * Implements the CheckpointStorageCallback interface
+ * Implements the CheckpointStorageAdapter interface
  */
 export class JsonCheckpointStorage
   extends BaseJsonStorage<CheckpointStorageMetadata>
-  implements CheckpointStorageCallback
+  implements CheckpointStorageAdapter
 {
   constructor(config: BaseJsonStorageConfig) {
     super(config);

@@ -14,17 +14,17 @@ import type {
   WorkflowVersionInfo,
   WorkflowVersionListOptions,
 } from "@wf-agent/types";
-import type { WorkflowStorageCallback } from "../types/callback/index.js";
+import type { WorkflowStorageAdapter } from "../types/adapter/index.js";
 import { BaseSqliteStorage, BaseSqliteStorageConfig } from "./base-sqlite-storage.js";
 import { compressBlob, decompressBlob } from "./compression.js";
 
 /**
  * SQLite Workflow Storage
- * Implementing the WorkflowStorageCallback interface with metadata-BLOB separation
+ * Implementing the WorkflowStorageAdapter interface with metadata-BLOB separation
  */
 export class SqliteWorkflowStorage
   extends BaseSqliteStorage<WorkflowStorageMetadata>
-  implements WorkflowStorageCallback
+  implements WorkflowStorageAdapter
 {
   constructor(config: BaseSqliteStorageConfig) {
     super(config);

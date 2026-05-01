@@ -7,6 +7,7 @@
 import { Serializer } from "../serializer.js";
 import { DeltaCalculator } from "../delta-calculator.js";
 import { SerializationRegistry } from "../serialization-registry.js";
+import { MigrationManager } from "../migration-manager.js";
 import type {
   SnapshotBase,
   Checkpoint,
@@ -144,10 +145,42 @@ export class CheckpointDeltaCalculator extends DeltaCalculator<CheckpointSnapsho
  */
 export function registerCheckpointSerializer(): void {
   const registry = SerializationRegistry.getInstance();
+  const migrationManager = MigrationManager.getInstance();
 
   registry.register({
     entityType: "checkpoint",
     serializer: new CheckpointSnapshotSerializer(),
     deltaCalculator: new CheckpointDeltaCalculator(),
   });
+
+  // Register example migrations for checkpoints
+  // These demonstrate how to handle schema evolution
+  migrationManager.registerMigrations("checkpoint", [
+    // Migration from v1 to v2: Add new optional field
+    MigrationManager.createMigrationStep(
+      1,
+      2,
+      (v1Checkpoint: any) => ({
+        ...v1Checkpoint,
+        _version: 2,
+        // Example: Add a new optional field with default value
+        newField: v1Checkpoint.newField ?? "default_value",
+      }),
+      "Add newField with default value",
+    ),
+
+    // Migration from v2 to v3: Remove deprecated field
+    MigrationManager.createMigrationStep(
+      2,
+      3,
+      (v2Checkpoint: any) => {
+        const { deprecatedField, ...rest } = v2Checkpoint;
+        return {
+          ...rest,
+          _version: 3,
+        };
+      },
+      "Remove deprecatedField",
+    ),
+  ]);
 }

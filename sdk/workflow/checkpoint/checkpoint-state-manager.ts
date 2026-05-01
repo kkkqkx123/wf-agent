@@ -9,14 +9,12 @@ import type {
   CleanupPolicy,
   CleanupResult,
 } from "@wf-agent/types";
-import type { CheckpointStorageCallback } from "@wf-agent/storage";
+import type { CheckpointStorageAdapter } from "@wf-agent/storage";
 import type { EventRegistry } from "../../core/registry/event-registry.js";
 import { LifecycleCapable } from "../../core/types/lifecycle-capable.js";
-import {
-  serializeCheckpoint,
-  deserializeCheckpoint,
-  createCleanupStrategy,
-} from "../execution/utils/index.js";
+import { SerializationRegistry } from "../../core/serialization/serialization-registry.js";
+import { CheckpointSnapshotSerializer } from "../../core/serialization/entities/checkpoint-serializer.js";
+import { createCleanupStrategy } from "../execution/utils/index.js";
 import { getErrorOrNew } from "@wf-agent/common-utils";
 import { safeEmit } from "../execution/utils/index.js";
 import { StateManagementError } from "@wf-agent/types";
@@ -49,19 +47,31 @@ function extractStorageMetadata(checkpoint: Checkpoint): CheckpointStorageMetada
  * Checkpoint State Manager
  */
 export class CheckpointState implements LifecycleCapable<void> {
-  private storageCallback: CheckpointStorageCallback;
+  private storageAdapter: CheckpointStorageAdapter;
   private cleanupPolicy?: CleanupPolicy;
   private checkpointSizes: Map<string, number> = new Map(); // checkpointId -> size in bytes
   private eventManager?: EventRegistry;
+  private serializationRegistry: SerializationRegistry;
+  private checkpointSerializer: CheckpointSnapshotSerializer;
 
   /**
    * Constructor
-   * @param storageCallback: Storage callback interface (implemented by the application layer)
+   * @param storageAdapter: Storage adapter interface (implemented by the application layer)
    * @param eventManager: Event manager (optional)
    */
-  constructor(storageCallback: CheckpointStorageCallback, eventManager?: EventRegistry) {
-    this.storageCallback = storageCallback;
+  constructor(storageAdapter: CheckpointStorageAdapter, eventManager?: EventRegistry) {
+    this.storageAdapter = storageAdapter;
     this.eventManager = eventManager;
+    this.serializationRegistry = SerializationRegistry.getInstance();
+    
+    // Get serializer from registry or create if not registered
+    const serializer = this.serializationRegistry.getSerializer("checkpoint");
+    if (serializer instanceof CheckpointSnapshotSerializer) {
+      this.checkpointSerializer = serializer;
+    } else {
+      // Fallback: create a new instance if not properly registered
+      this.checkpointSerializer = new CheckpointSnapshotSerializer();
+    }
   }
 
   /**
@@ -102,7 +112,7 @@ export class CheckpointState implements LifecycleCapable<void> {
     logger.debug("Executing cleanup policy", { policy: this.cleanupPolicy });
 
     // Get all checkpoint IDs
-    const checkpointIds = await this.storageCallback.list();
+    const checkpointIds = await this.storageAdapter.list();
 
     // Get the metadata and size of all checkpoints.
     const checkpointInfoArray: Array<{
@@ -110,9 +120,9 @@ export class CheckpointState implements LifecycleCapable<void> {
       metadata: CheckpointStorageMetadata;
     }> = [];
     for (const checkpointId of checkpointIds) {
-      const data = await this.storageCallback.load(checkpointId);
+      const data = await this.storageAdapter.load(checkpointId);
       if (data) {
-        const checkpoint = await deserializeCheckpoint(data);
+        const checkpoint = await this.checkpointSerializer.deserializeCheckpoint(data);
         const metadata = extractStorageMetadata(checkpoint);
         checkpointInfoArray.push({ checkpointId, metadata });
         this.checkpointSizes.set(checkpointId, data.length);
@@ -129,7 +139,7 @@ export class CheckpointState implements LifecycleCapable<void> {
     let freedSpaceBytes = 0;
     for (const checkpointId of toDeleteIds) {
       const size = this.checkpointSizes.get(checkpointId) || 0;
-      await this.storageCallback.delete(checkpointId);
+      await this.storageAdapter.delete(checkpointId);
       freedSpaceBytes += size;
       this.checkpointSizes.delete(checkpointId);
     }
@@ -157,7 +167,7 @@ export class CheckpointState implements LifecycleCapable<void> {
   async cleanupWorkflowExecutionCheckpoints(workflowExecutionId: string): Promise<number> {
     logger.info("Cleaning up workflow execution checkpoints", { workflowExecutionId });
 
-    const checkpointIds = await this.storageCallback.list({ executionId: workflowExecutionId });
+    const checkpointIds = await this.storageAdapter.list({ executionId: workflowExecutionId });
 
     for (const checkpointId of checkpointIds) {
       await this.delete(checkpointId, "cleanup");
@@ -185,10 +195,10 @@ export class CheckpointState implements LifecycleCapable<void> {
 
     try {
       // Use the passed checkpointData.id instead of generating a new ID
-      const data = await serializeCheckpoint(checkpointData);
+      const data = await this.checkpointSerializer.serializeCheckpoint(checkpointData);
       const storageMetadata = extractStorageMetadata(checkpointData);
 
-      await this.storageCallback.save(checkpointId, data, storageMetadata);
+      await this.storageAdapter.save(checkpointId, data, storageMetadata);
       this.checkpointSizes.set(checkpointId, data.length);
 
       logger.info("Checkpoint created", { workflowExecutionId, checkpointId, sizeBytes: data.length });
@@ -256,11 +266,11 @@ export class CheckpointState implements LifecycleCapable<void> {
    * @returns: Checkpoint object
    */
   async get(checkpointId: string): Promise<Checkpoint | null> {
-    const data = await this.storageCallback.load(checkpointId);
+    const data = await this.storageAdapter.load(checkpointId);
     if (!data) {
       return null;
     }
-    return await deserializeCheckpoint(data);
+    return await this.checkpointSerializer.deserializeCheckpoint(data);
   }
 
   /**
@@ -279,7 +289,7 @@ export class CheckpointState implements LifecycleCapable<void> {
             offset: options.offset,
           }
         : undefined;
-    return this.storageCallback.list(storageOptions);
+    return this.storageAdapter.list(storageOptions);
   }
 
   /**
@@ -297,7 +307,7 @@ export class CheckpointState implements LifecycleCapable<void> {
       // First, obtain the checkpoint information (used to trigger the event).
       const checkpoint = await this.get(checkpointId);
 
-      await this.storageCallback.delete(checkpointId);
+      await this.storageAdapter.delete(checkpointId);
       this.checkpointSizes.delete(checkpointId);
 
       logger.info("Checkpoint deleted", { checkpointId, reason, executionId: checkpoint?.executionId });
@@ -348,9 +358,9 @@ export class CheckpointState implements LifecycleCapable<void> {
    * Clear all checkpoints
    */
   async cleanup(): Promise<void> {
-    const checkpointIds = await this.storageCallback.list();
+    const checkpointIds = await this.storageAdapter.list();
     for (const checkpointId of checkpointIds) {
-      await this.storageCallback.delete(checkpointId);
+      await this.storageAdapter.delete(checkpointId);
     }
     this.checkpointSizes.clear();
   }

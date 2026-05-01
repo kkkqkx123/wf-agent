@@ -12,6 +12,7 @@ import type {
   SerializedError,
 } from "@wf-agent/types";
 import { compressBlob, decompressBlob } from "@wf-agent/storage";
+import { MigrationManager } from "./migration-manager.js";
 
 /**
  * Default serialization options
@@ -92,7 +93,7 @@ export class Serializer<TSnapshot extends SnapshotBase> {
     const json = new TextDecoder().decode(bytes);
     const snapshot = JSON.parse(json) as TSnapshot;
 
-    return this.migrateIfNeeded(snapshot, options?.targetVersion);
+    return await this.migrateIfNeeded(snapshot, options?.targetVersion);
   }
 
   /**
@@ -102,10 +103,25 @@ export class Serializer<TSnapshot extends SnapshotBase> {
    * @param targetVersion The target version (defaults to current version)
    * @returns The migrated snapshot
    */
-  protected migrateIfNeeded(snapshot: TSnapshot, targetVersion?: number): TSnapshot {
+  protected async migrateIfNeeded(snapshot: TSnapshot, targetVersion?: number): Promise<TSnapshot> {
     const target = targetVersion ?? this.currentVersion;
 
     if (snapshot._version < target) {
+      // Try to use MigrationManager if available
+      const migrationManager = MigrationManager.getInstance();
+      
+      if (migrationManager.hasMigrations(snapshot._entityType)) {
+        try {
+          const result = await migrationManager.migrate(snapshot, snapshot._entityType, target);
+          return result.snapshot;
+        } catch (error) {
+          console.warn(`MigrationManager failed, falling back to performMigration:`, error);
+          // Fallback to simple migration
+          return this.performMigration(snapshot, target);
+        }
+      }
+      
+      // No migrations registered, use simple version bump
       return this.performMigration(snapshot, target);
     }
 

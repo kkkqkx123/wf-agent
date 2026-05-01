@@ -1,5 +1,5 @@
 /**
- * Workflow Storage Callback Interface Definition
+ * Workflow Storage Adapter Interface Definition
  * Define a uniform interface for workflow persistence operations
  */
 
@@ -9,17 +9,17 @@ import type {
   WorkflowVersionInfo,
   WorkflowVersionListOptions,
 } from "@wf-agent/types";
-import type { BaseStorageCallback } from "./base-storage-callback.js";
+import type { BaseStorageAdapter } from "./base-storage-adapter.js";
 
 /**
- * Workflow Storage Callback Interface
+ * Workflow Storage Adapter Interface
  *
  * Defines a unified interface for workflow persistence operations
- * - Inherits from BaseStorageCallback and provides standard CRUD operations.
+ * - Inherits from BaseStorageAdapter and provides standard CRUD operations.
  * - packages/storage provides a WorkflowStorageAdapter implementation based on this interface.
  * - The application layer can use WorkflowStorageAdapter directly or implement it by itself.
  */
-export interface WorkflowStorageCallback extends BaseStorageCallback<
+export interface WorkflowStorageAdapter extends BaseStorageAdapter<
   WorkflowStorageMetadata,
   WorkflowListOptions
 > {

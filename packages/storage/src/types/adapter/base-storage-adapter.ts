@@ -1,6 +1,8 @@
 /**
- * General Storage Callback Interface Definition
+ * General Storage Adapter Interface Definition
  * Provides an abstract base class for storage operations to reduce duplicate code.
+ * 
+ * @deprecated Use BaseStorageAdapter instead. This alias will be removed in a future version.
  */
 
 /**
@@ -29,13 +31,13 @@ export interface StorageLifecycle {
 }
 
 /**
- * General Storage Callback Interface
+ * General Storage Adapter Interface
  *
  * Provides standardized CRUD operation interfaces
  * @template TMetadata - Metadata type
  * @template TListOptions - List query option type
  */
-export interface BaseStorageCallback<TMetadata, TListOptions> extends StorageLifecycle {
+export interface BaseStorageAdapter<TMetadata, TListOptions> extends StorageLifecycle {
   /**
    * Save data
    * @param id: Unique identifier

@@ -111,7 +111,17 @@ export type EventType =
   /** Skill loading complete */
   | "SKILL_LOAD_COMPLETED"
   /** Skill load failed */
-  | "SKILL_LOAD_FAILED";
+  | "SKILL_LOAD_FAILED"
+  /** Promise callback registered */
+  | "PROMISE_CALLBACK_REGISTERED"
+  /** Promise callback resolved successfully */
+  | "PROMISE_CALLBACK_RESOLVED"
+  /** Promise callback rejected with error */
+  | "PROMISE_CALLBACK_REJECTED"
+  /** Promise callback execution failed */
+  | "PROMISE_CALLBACK_FAILED"
+  /** Promise callback cleaned up */
+  | "PROMISE_CALLBACK_CLEANED_UP";
 
 /**
  * Basic Event Types

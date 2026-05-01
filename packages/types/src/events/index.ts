@@ -36,6 +36,9 @@ export * from "./agent-events.js";
 // Export Skill related events
 export * from "./skill-events.js";
 
+// Export Promise callback related events
+export * from "./promise-callback-events.js";
+
 // Re-export the EventType for backward compatibility.
 export { EventType } from "./base.js";
 
@@ -119,6 +122,14 @@ import type {
   SkillLoadFailedEvent,
 } from "./skill-events.js";
 
+import type {
+  PromiseCallbackRegisteredEvent,
+  PromiseCallbackResolvedEvent,
+  PromiseCallbackRejectedEvent,
+  PromiseCallbackFailedEvent,
+  PromiseCallbackCleanedUpEvent,
+} from "./promise-callback-events.js";
+
 /**
  * Union type for all event types
  */
@@ -174,4 +185,9 @@ export type Event =
   | AgentCustomEvent
   | SkillLoadStartedEvent
   | SkillLoadCompletedEvent
-  | SkillLoadFailedEvent;
+  | SkillLoadFailedEvent
+  | PromiseCallbackRegisteredEvent
+  | PromiseCallbackResolvedEvent
+  | PromiseCallbackRejectedEvent
+  | PromiseCallbackFailedEvent
+  | PromiseCallbackCleanedUpEvent;

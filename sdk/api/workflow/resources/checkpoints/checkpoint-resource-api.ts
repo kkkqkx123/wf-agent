@@ -120,7 +120,8 @@ export class CheckpointResourceAPI extends CrudResourceAPI<Checkpoint, string, C
     if (!existing) {
       throw new Error(`Checkpoint not found: ${id}`);
     }
-    const updated = { ...existing, ...updates };
+    // Type-safe merge: preserve the type-specific properties
+    const updated: Checkpoint = { ...existing, ...updates } as Checkpoint;
     await this.stateManager.create(updated);
   }
 

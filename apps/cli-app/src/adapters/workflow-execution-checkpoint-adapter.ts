@@ -25,19 +25,15 @@ export class WorkflowExecutionCheckpointAdapter extends BaseAdapter {
    */
   async createCheckpoint(executionId: string, name?: string): Promise<any> {
     return this.executeWithErrorHandling(async () => {
-      const checkpoint = {
-        id: `checkpoint-${Date.now()}`,
-        executionId: executionId,
-        workflowId: "default", // Default workflow ID, which should be obtained from the execution during actual use.
-        timestamp: Date.now(),
-        metadata: {
-          name: name || `Checkpoint ${new Date().toISOString()}`,
-          description: "Manually created checkpoint",
-        },
-      };
-
-      await this.checkpointAPI.create(checkpoint);
-      this.output.infoLog(`Checkpoint created: ${checkpoint.id}`);
+      // Use the proper API method to create a checkpoint
+      const checkpointId = await this.checkpointAPI.createWorkflowExecutionCheckpoint(executionId, {
+        description: name || `Checkpoint ${new Date().toISOString()}`,
+      });
+      
+      this.output.infoLog(`Checkpoint created: ${checkpointId}`);
+      
+      // Return the created checkpoint details
+      const checkpoint = await this.checkpointAPI.get(checkpointId);
       return checkpoint;
     }, "Create a workflow execution checkpoint");
   }

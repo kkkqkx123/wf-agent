@@ -204,6 +204,14 @@ export class AgentLoopAdapter extends BaseAdapter {
   }
 
   /**
+   * Get Agent Loop entity (internal use)
+   * @param id Instance ID
+   */
+  getAgentLoopEntity(id: ID): any | undefined {
+    return this.coordinator.get(id);
+  }
+
+  /**
    * Get Agent Loop status
    * @param id Instance ID
    */

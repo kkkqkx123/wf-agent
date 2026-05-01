@@ -36,17 +36,19 @@ export class DeltaCheckpointRestorer extends DeltaRestorer<
    * Extract snapshot from checkpoint
    */
   protected extractSnapshot(checkpoint: Checkpoint): WorkflowExecutionStateSnapshot {
-    if (!checkpoint.executionState) {
+    const fullCp = checkpoint as import("@wf-agent/types").FullCheckpoint<WorkflowExecutionStateSnapshot>;
+    if (!fullCp.snapshot) {
       throw new Error(`Checkpoint ${checkpoint.id} has no execution state`);
     }
-    return checkpoint.executionState;
+    return fullCp.snapshot;
   }
 
   /**
    * Check if checkpoint has snapshot
    */
   protected hasSnapshot(checkpoint: Checkpoint): boolean {
-    return !!checkpoint.executionState;
+    const fullCp = checkpoint as import("@wf-agent/types").FullCheckpoint<WorkflowExecutionStateSnapshot>;
+    return !!fullCp.snapshot;
   }
 
   /**

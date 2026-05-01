@@ -116,15 +116,15 @@ export class CheckpointCoordinator {
     // Step 6: Create a checkpoint
     let checkpoint: Checkpoint;
 
-    if (checkpointType === CheckpointType["FULL"]) {
+    if (checkpointType === "FULL") {
       // Create a complete checkpoint
       checkpoint = {
         id: checkpointId,
         executionId: workflowExecutionEntity.id,
         workflowId: workflowExecutionEntity.getWorkflowId(),
         timestamp,
-        type: CheckpointType["FULL"]!,
-        executionState: currentState,
+        type: "FULL",
+        snapshot: currentState,
         metadata,
       };
     } else {
@@ -139,14 +139,14 @@ export class CheckpointCoordinator {
           executionId: workflowExecutionEntity.id,
           workflowId: workflowExecutionEntity.getWorkflowId(),
           timestamp,
-          type: CheckpointType["FULL"]!,
-          executionState: currentState,
+          type: "FULL",
+          snapshot: currentState,
           metadata,
         };
       } else {
         // Get the complete status of the previous checkpoint.
         let previousState: WorkflowExecutionStateSnapshot;
-        if (previousCheckpoint.type === CheckpointType["DELTA"]) {
+        if (previousCheckpoint.type === "DELTA") {
           // If the previous checkpoint was an incremental checkpoint, the full state needs to be restored.
           const restorer = new DeltaCheckpointRestorer(
             id => checkpointStateManager.get(id),
@@ -155,7 +155,8 @@ export class CheckpointCoordinator {
           const restoreResult = await restorer.restore(previousCheckpointId);
           previousState = restoreResult.snapshot;
         } else {
-          previousState = previousCheckpoint.executionState!;
+          const fullCp = previousCheckpoint as import("@wf-agent/types").FullCheckpoint<WorkflowExecutionStateSnapshot>;
+          previousState = fullCp.snapshot;
         }
 
         // Calculate the difference
@@ -165,9 +166,12 @@ export class CheckpointCoordinator {
         );
 
         // Find the baseline checkpoint ID
-        let baseCheckpointId = previousCheckpoint.baseCheckpointId;
-        if (!baseCheckpointId && previousCheckpoint.type === CheckpointType["FULL"]) {
+        let baseCheckpointId: string;
+        if (previousCheckpoint.type === "FULL") {
           baseCheckpointId = previousCheckpoint.id;
+        } else {
+          const deltaCp = previousCheckpoint as import("@wf-agent/types").DeltaCheckpoint<import("@wf-agent/types").CheckpointDelta>;
+          baseCheckpointId = deltaCp.baseCheckpointId;
         }
 
         checkpoint = {
@@ -175,7 +179,7 @@ export class CheckpointCoordinator {
           executionId: workflowExecutionEntity.id,
           workflowId: workflowExecutionEntity.getWorkflowId(),
           timestamp,
-          type: CheckpointType["DELTA"]!,
+          type: "DELTA",
           baseCheckpointId,
           previousCheckpointId,
           delta,
@@ -267,21 +271,21 @@ export class CheckpointCoordinator {
   ): TCheckpointType {
     // If incremental storage is not enabled, a complete checkpoint is always created.
     if (!config.enabled) {
-      return CheckpointType["FULL"]!;
+      return "FULL";
     }
 
     // The first checkpoint must be a complete checkpoint.
     if (checkpointCount === 0) {
-      return CheckpointType["FULL"]!;
+      return "FULL";
     }
 
     // Create a complete checkpoint every baselineInterval checkpoints.
     if (checkpointCount % config.baselineInterval === 0) {
-      return CheckpointType["FULL"]!;
+      return "FULL";
     }
 
     // Create incremental checkpoints in other cases.
-    return CheckpointType["DELTA"]!;
+    return "DELTA";
   }
 
   /**
@@ -312,7 +316,7 @@ export class CheckpointCoordinator {
 
     // Step 3: Obtain the complete workflow execution state (processing incremental checkpoints)
     let workflowExecutionState: WorkflowExecutionStateSnapshot;
-    if (checkpoint.type === CheckpointType["DELTA"]) {
+    if (checkpoint.type === "DELTA") {
       // If it's an incremental checkpoint, the full state needs to be restored.
       const restorer = new DeltaCheckpointRestorer(
         id => checkpointStateManager.get(id),
@@ -322,7 +326,8 @@ export class CheckpointCoordinator {
       workflowExecutionState = restoreResult.snapshot;
     } else {
       // Full checkpoint, use it directly.
-      workflowExecutionState = checkpoint.executionState!;
+      const fullCp = checkpoint as import("@wf-agent/types").FullCheckpoint<WorkflowExecutionStateSnapshot>;
+      workflowExecutionState = fullCp.snapshot;
     }
 
     // Step 4: Get the WorkflowGraph from the WorkflowGraphRegistry
@@ -573,20 +578,25 @@ export class CheckpointCoordinator {
       throw new Error("Invalid checkpoint: missing required fields");
     }
 
+    // Store the type for error reporting
+    const checkpointType = checkpoint.type;
+
     // Verify according to the checkpoint type.
-    if (checkpoint.type === CheckpointType["FULL"]) {
-      if (!checkpoint.executionState) {
-        throw new Error("Invalid full checkpoint: missing executionState");
+    if (checkpointType === "FULL") {
+      const fullCp = checkpoint as import("@wf-agent/types").FullCheckpoint<WorkflowExecutionStateSnapshot>;
+      if (!fullCp.snapshot) {
+        throw new Error("Invalid full checkpoint: missing snapshot");
       }
-    } else if (checkpoint.type === CheckpointType["DELTA"]) {
-      if (!checkpoint.delta) {
+    } else if (checkpointType === "DELTA") {
+      const deltaCp = checkpoint as import("@wf-agent/types").DeltaCheckpoint<import("@wf-agent/types").CheckpointDelta>;
+      if (!deltaCp.delta) {
         throw new Error("Invalid delta checkpoint: missing delta");
       }
-      if (!checkpoint.baseCheckpointId) {
+      if (!deltaCp.baseCheckpointId) {
         throw new Error("Invalid delta checkpoint: missing baseCheckpointId");
       }
     } else {
-      throw new Error(`Invalid checkpoint type: ${checkpoint.type}`);
+      throw new Error(`Invalid checkpoint type: ${checkpointType}`);
     }
   }
 }

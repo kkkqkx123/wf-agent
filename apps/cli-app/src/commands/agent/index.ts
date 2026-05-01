@@ -4,6 +4,7 @@
 
 import { Command } from "commander";
 import { AgentLoopAdapter } from "../../adapters/agent-loop-adapter.js";
+import { AgentLoopCheckpointAdapter } from "../../adapters/agent-loop-checkpoint-adapter.js";
 import { getOutput } from "../../utils/output.js";
 import { formatAgentLoop, formatAgentLoopList } from "../../utils/cli-formatters.js";
 import type { CommandOptions } from "../../types/cli-types.js";
@@ -360,18 +361,28 @@ export function createAgentCommands(): Command {
         output.infoLog(`Creating checkpoint for Agent Loop: ${id}`);
 
         const adapter = new AgentLoopAdapter();
+        const checkpointAdapter = new AgentLoopCheckpointAdapter();
+        
+        // Get the agent loop entity from registry
+        const entity = adapter.getAgentLoopEntity(id);
+        if (!entity) {
+          handleError(new CLIValidationError(`Agent Loop not found: ${id}`), {
+            operation: "createCheckpoint",
+            additionalInfo: { id },
+          });
+          return;
+        }
 
-        // Note: In real implementation, dependencies should be provided by the SDK
+        // Create checkpoint dependencies with real storage
         const dependencies = {
           saveCheckpoint: async (checkpoint: any) => {
-            output.infoLog(`Checkpoint saved: ${JSON.stringify(checkpoint)}`);
-            return `checkpoint-${Date.now()}`;
+            return await checkpointAdapter.saveCheckpointToStorage(checkpoint);
           },
           getCheckpoint: async (checkpointId: string) => {
-            return { id: checkpointId };
+            return await checkpointAdapter.getCheckpointFromStorage(checkpointId);
           },
           listCheckpoints: async (agentLoopId: string) => {
-            return [];
+            return await checkpointAdapter.listCheckpointIdsFromStorage(agentLoopId);
           },
         };
 
@@ -396,22 +407,32 @@ export function createAgentCommands(): Command {
       try {
         output.infoLog(`Restoring from checkpoint: ${checkpointId}`);
 
-        const adapter = new AgentLoopAdapter();
+        const checkpointAdapter = new AgentLoopCheckpointAdapter();
 
-        // Note: In real implementation, dependencies should be provided by the SDK
+        // Get checkpoint details first
+        const checkpoint = await checkpointAdapter.getCheckpoint(checkpointId);
+        if (!checkpoint) {
+          handleError(new CLIValidationError(`Checkpoint not found: ${checkpointId}`), {
+            operation: "restoreFromCheckpoint",
+            additionalInfo: { checkpointId },
+          });
+          return;
+        }
+
+        // Create checkpoint dependencies with real storage
         const dependencies = {
-          saveCheckpoint: async (checkpoint: any) => {
-            return `checkpoint-${Date.now()}`;
+          saveCheckpoint: async (cp: any) => {
+            return await checkpointAdapter.saveCheckpointToStorage(cp);
           },
-          getCheckpoint: async (id: string) => {
-            return { id };
+          getCheckpoint: async (cpId: string) => {
+            return await checkpointAdapter.getCheckpointFromStorage(cpId);
           },
           listCheckpoints: async (agentLoopId: string) => {
-            return [];
+            return await checkpointAdapter.listCheckpointIdsFromStorage(agentLoopId);
           },
         };
 
-        const result = await adapter.restoreFromCheckpoint(checkpointId, dependencies);
+        const result = await checkpointAdapter.restoreCheckpoint(checkpointId, dependencies);
         output.newLine();
         output.info(`Restored from checkpoint: ${result.id}`);
       } catch (error) {

@@ -162,4 +162,42 @@ export class AgentLoopCheckpointAdapter extends BaseAdapter {
       return count;
     }, "Delete all Agent Loop checkpoints");
   }
+
+  /**
+   * Save checkpoint to storage (for dependency injection)
+   * @param checkpoint Checkpoint object
+   */
+  async saveCheckpointToStorage(checkpoint: any): Promise<string> {
+    return this.executeWithErrorHandling(async () => {
+      // Use the checkpointAPI's internal storage
+      const result = await this.checkpointAPI.create(checkpoint);
+      return checkpoint.id;
+    }, "Save checkpoint to storage");
+  }
+
+  /**
+   * Get checkpoint from storage (for dependency injection)
+   * @param checkpointId Checkpoint ID
+   */
+  async getCheckpointFromStorage(checkpointId: string): Promise<any> {
+    return this.executeWithErrorHandling(async () => {
+      const result = await this.checkpointAPI.get(checkpointId);
+      return result || null;
+    }, "Get checkpoint from storage");
+  }
+
+  /**
+   * List checkpoint IDs from storage (for dependency injection)
+   * @param agentLoopId Agent Loop ID
+   */
+  async listCheckpointIdsFromStorage(agentLoopId: string): Promise<string[]> {
+    return this.executeWithErrorHandling(async () => {
+      // Get all checkpoints and filter by agentLoopId
+      const allCheckpoints = await this.checkpointAPI.getAll();
+      const checkpoints = (allCheckpoints as any).data || allCheckpoints;
+      return checkpoints
+        .filter((cp: any) => cp.agentLoopId === agentLoopId)
+        .map((cp: any) => cp.id);
+    }, "List checkpoint IDs from storage");
+  }
 }

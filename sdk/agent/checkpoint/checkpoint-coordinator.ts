@@ -148,12 +148,12 @@ export class AgentLoopCheckpointCoordinator {
     getCheckpoint: (id: string) => Promise<AgentLoopCheckpoint | null>,
     metadata?: CheckpointMetadata,
   ): Promise<AgentLoopCheckpoint> {
-    if (checkpointType === CheckpointType["FULL"]) {
+    if (checkpointType === "FULL") {
       return {
         id: checkpointId,
         agentLoopId: entity.id,
         timestamp,
-        type: CheckpointType["FULL"],
+        type: "FULL",
         snapshot: currentState,
         metadata,
       };
@@ -221,15 +221,15 @@ export class AgentLoopCheckpointCoordinator {
 
     // Find the baseline checkpoint ID
     const baseCheckpointId =
-      previousCheckpoint.type === CheckpointType["FULL"]
+      previousCheckpoint.type === "FULL"
         ? previousCheckpoint.id
-        : previousCheckpoint.baseCheckpointId;
+        : previousCheckpoint.baseCheckpointId!;
 
     return {
       id: checkpointId,
       agentLoopId: entity.id,
       timestamp,
-      type: "DELTA" as const,
+      type: "DELTA",
       baseCheckpointId,
       previousCheckpointId,
       delta,
@@ -244,7 +244,7 @@ export class AgentLoopCheckpointCoordinator {
     previousCheckpoint: AgentLoopCheckpoint,
     getCheckpoint: (id: string) => Promise<AgentLoopCheckpoint | null>,
   ): Promise<AgentLoopCheckpoint | null> {
-    if (previousCheckpoint.type === CheckpointType["FULL"]) {
+    if (previousCheckpoint.type === "FULL") {
       return previousCheckpoint;
     }
 
@@ -317,21 +317,23 @@ export class AgentLoopCheckpointCoordinator {
     }
 
     // Validation against checkpoint type
-    if (checkpoint.type === CheckpointType["DELTA"]) {
+    if (checkpoint.type === "DELTA") {
       // The incremental checkpoint requires verification of the delta field
-      if (!checkpoint.delta && !checkpoint.previousCheckpointId) {
+      const deltaCheckpoint = checkpoint as import("@wf-agent/types").DeltaCheckpoint<import("@wf-agent/types").AgentLoopDelta>;
+      if (!deltaCheckpoint.delta && !deltaCheckpoint.previousCheckpointId) {
         throw new Error(
           "Invalid delta checkpoint: missing delta data and previous checkpoint reference",
         );
       }
     } else {
       // The full checkpoint requires validation of the snapshot field
-      if (!checkpoint.snapshot) {
+      const fullCheckpoint = checkpoint as import("@wf-agent/types").FullCheckpoint<import("@wf-agent/types").AgentLoopStateSnapshot>;
+      if (!fullCheckpoint.snapshot) {
         throw new Error("Invalid full checkpoint: missing state snapshot");
       }
 
       // Verify the snapshot structure
-      const { snapshot } = checkpoint;
+      const { snapshot } = fullCheckpoint;
       if (!snapshot.status) {
         throw new Error("Invalid checkpoint: incomplete state snapshot");
       }

@@ -139,3 +139,30 @@ export interface BaseCheckpoint<TDelta, TSnapshot>
   /** Checkpoint metadata */
   metadata?: CheckpointMetadata;
 }
+
+/**
+ * Full Checkpoint Interface
+ * Represents a complete state snapshot
+ */
+export interface FullCheckpoint<TSnapshot> extends BaseCheckpoint<never, TSnapshot> {
+  type: "FULL";
+  snapshot: TSnapshot;
+}
+
+/**
+ * Delta Checkpoint Interface
+ * Represents incremental changes from a base checkpoint
+ */
+export interface DeltaCheckpoint<TDelta> extends BaseCheckpoint<TDelta, never> {
+  type: "DELTA";
+  baseCheckpointId: ID;
+  previousCheckpointId: ID;
+  delta: TDelta;
+}
+
+/**
+ * Union type for any checkpoint
+ */
+export type AnyCheckpoint<TDelta, TSnapshot> = 
+  | FullCheckpoint<TSnapshot>
+  | DeltaCheckpoint<TDelta>;

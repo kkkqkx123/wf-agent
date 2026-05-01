@@ -6,7 +6,7 @@ import type { ID, Timestamp } from "../../common.js";
 import type { WorkflowExecutionStateSnapshot } from "./snapshot.js";
 import type { WorkflowExecutionStatus } from "../../workflow-execution/index.js";
 import type { NodeExecutionResult } from "../../workflow-execution/index.js";
-import type { BaseCheckpoint } from "../base.js";
+import type { AnyCheckpoint } from "../base.js";
 
 /**
  * incremental data structure
@@ -40,16 +40,13 @@ export interface CheckpointDelta {
 
 /**
  * Graph Checkpoint
- * Extends BaseCheckpoint with Graph-specific fields
+ * Uses AnyCheckpoint union type for strong typing
  */
-export interface Checkpoint
-  extends BaseCheckpoint<CheckpointDelta, WorkflowExecutionStateSnapshot> {
+export type Checkpoint = AnyCheckpoint<CheckpointDelta, WorkflowExecutionStateSnapshot> & {
   /** Associated Execution ID */
   executionId: ID;
   /** Associated Workflow ID */
   workflowId: ID;
   /** Creation timestamp */
   timestamp: Timestamp;
-  /** Execution state snapshot (full checkpoint usage) */
-  executionState?: WorkflowExecutionStateSnapshot;
-}
+};

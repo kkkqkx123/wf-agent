@@ -17,6 +17,9 @@ export {
   AgentLoopCheckpointTriggerType,
   BaseCheckpointCore,
   BaseCheckpoint,
+  FullCheckpoint,
+  DeltaCheckpoint,
+  AnyCheckpoint,
 } from "./base.js";
 
 // Exporting Agent Loop Checkpoint Types

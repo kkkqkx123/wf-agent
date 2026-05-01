@@ -8,3 +8,5 @@ export { JsonWorkflowExecutionStorage } from "./json-workflow-execution-storage.
 export { JsonWorkflowStorage } from "./json-workflow-storage.js";
 export { JsonTaskStorage } from "./json-task-storage.js";
 export { JsonNoteStorage, type NoteEntry, type NoteMetadata } from "./json-note-storage.js";
+export { JsonAgentLoopCheckpointStorage } from "./json-agent-loop-checkpoint-storage.js";
+export { JsonAgentLoopStorage } from "./json-agent-loop-storage.js";

@@ -1,7 +1,7 @@
 /**
- * Checkpoint Serializer
+ * Workflow Checkpoint Serializer
  *
- * Handles serialization and deserialization of Checkpoint snapshots.
+ * Handles serialization and deserialization of Workflow Checkpoint snapshots.
  */
 
 import { Serializer } from "../serializer.js";
@@ -15,20 +15,20 @@ import type {
 } from "@wf-agent/types";
 
 /**
- * Checkpoint Snapshot
+ * Workflow Checkpoint Snapshot
  *
- * Extends SnapshotBase with Checkpoint-specific fields.
+ * Extends SnapshotBase with Workflow Checkpoint-specific fields.
  */
-export interface CheckpointSnapshot extends SnapshotBase {
-  _entityType: "checkpoint";
-  /** The underlying checkpoint data */
+export interface WorkflowCheckpointSnapshot extends SnapshotBase {
+  _entityType: "workflowCheckpoint";
+  /** The underlying workflow checkpoint data */
   checkpoint: Checkpoint;
 }
 
 /**
- * Checkpoint Snapshot Serializer
+ * Workflow Checkpoint Snapshot Serializer
  */
-export class CheckpointSnapshotSerializer extends Serializer<CheckpointSnapshot> {
+export class WorkflowCheckpointSerializer extends Serializer<WorkflowCheckpointSnapshot> {
   constructor() {
     super({ prettyPrint: true, targetVersion: 1 });
   }
@@ -37,10 +37,10 @@ export class CheckpointSnapshotSerializer extends Serializer<CheckpointSnapshot>
    * Serialize a Checkpoint directly to Uint8Array
    */
   async serializeCheckpoint(checkpoint: Checkpoint): Promise<Uint8Array> {
-    const snapshot: CheckpointSnapshot = {
+    const snapshot: WorkflowCheckpointSnapshot = {
       _version: 1,
       _timestamp: Date.now(),
-      _entityType: "checkpoint",
+      _entityType: "workflowCheckpoint",
       checkpoint,
     };
     return this.serialize(snapshot);
@@ -56,9 +56,9 @@ export class CheckpointSnapshotSerializer extends Serializer<CheckpointSnapshot>
 }
 
 /**
- * Checkpoint Delta Calculator
+ * Workflow Checkpoint Delta Calculator
  */
-export class CheckpointDeltaCalculator extends DeltaCalculator<CheckpointSnapshot> {
+export class WorkflowCheckpointDeltaCalculator extends DeltaCalculator<WorkflowCheckpointSnapshot> {
   constructor() {
     super({
       deepCompare: true,
@@ -95,8 +95,12 @@ export class CheckpointDeltaCalculator extends DeltaCalculator<CheckpointSnapsho
   ): CheckpointDelta | null {
     const delta: CheckpointDelta = {};
 
-    if (current.executionState && previous.executionState) {
-      const stateDelta = this.computeExecutionStateDelta(previous.executionState, current.executionState);
+    // Access snapshot from FullCheckpoint or skip for DeltaCheckpoint
+    const previousSnapshot = previous.type === "FULL" ? previous.snapshot : undefined;
+    const currentSnapshot = current.type === "FULL" ? current.snapshot : undefined;
+
+    if (currentSnapshot && previousSnapshot) {
+      const stateDelta = this.computeExecutionStateDelta(previousSnapshot, currentSnapshot);
 
       if (stateDelta && Object.keys(stateDelta).length > 0) {
         delta.addedMessages = stateDelta.addedMessages;
@@ -107,10 +111,10 @@ export class CheckpointDeltaCalculator extends DeltaCalculator<CheckpointSnapsho
       }
     }
 
-    if (previous.executionState?.status !== current.executionState?.status) {
+    if (previousSnapshot?.status !== currentSnapshot?.status) {
       delta.statusChange = {
-        from: previous.executionState?.status as import("@wf-agent/types").WorkflowExecutionStatus,
-        to: current.executionState?.status as import("@wf-agent/types").WorkflowExecutionStatus,
+        from: previousSnapshot?.status as import("@wf-agent/types").WorkflowExecutionStatus,
+        to: currentSnapshot?.status as import("@wf-agent/types").WorkflowExecutionStatus,
       };
     }
 
@@ -140,14 +144,34 @@ export class CheckpointDeltaCalculator extends DeltaCalculator<CheckpointSnapsho
 }
 
 /**
- * Register Checkpoint serializer with the global registry
+ * Register Workflow Checkpoint serializer with the global registry
  */
-export function registerCheckpointSerializer(): void {
+export function registerWorkflowCheckpointSerializer(): void {
   const registry = SerializationRegistry.getInstance();
 
   registry.register({
-    entityType: "checkpoint",
-    serializer: new CheckpointSnapshotSerializer(),
-    deltaCalculator: new CheckpointDeltaCalculator(),
+    entityType: "workflowCheckpoint",
+    serializer: new WorkflowCheckpointSerializer(),
+    deltaCalculator: new WorkflowCheckpointDeltaCalculator(),
   });
 }
+
+/**
+ * @deprecated Use WorkflowCheckpointSnapshot instead
+ */
+export type CheckpointSnapshot = WorkflowCheckpointSnapshot;
+
+/**
+ * @deprecated Use WorkflowCheckpointSerializer instead
+ */
+export const CheckpointSnapshotSerializer = WorkflowCheckpointSerializer;
+
+/**
+ * @deprecated Use WorkflowCheckpointDeltaCalculator instead
+ */
+export const CheckpointDeltaCalculator = WorkflowCheckpointDeltaCalculator;
+
+/**
+ * @deprecated Use registerWorkflowCheckpointSerializer instead
+ */
+export const registerCheckpointSerializer = registerWorkflowCheckpointSerializer;

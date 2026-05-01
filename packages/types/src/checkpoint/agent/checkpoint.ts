@@ -6,7 +6,7 @@ import type { ID, Timestamp } from "../../common.js";
 import type { Message } from "../../message/index.js";
 import type { IterationRecord } from "../../agent/records.js";
 import { AgentLoopStatus } from "../../agent/status.js";
-import type { BaseCheckpoint } from "../base.js";
+import type { AnyCheckpoint } from "../base.js";
 import type { AgentLoopStateSnapshot } from "./snapshot.js";
 
 /**
@@ -34,12 +34,11 @@ export interface AgentLoopDelta {
 
 /**
  * Agent Loop Checkpoint
- * Extends BaseCheckpoint with Agent-specific fields
+ * Uses AnyCheckpoint union type for strong typing
  */
-export interface AgentLoopCheckpoint
-  extends BaseCheckpoint<AgentLoopDelta, AgentLoopStateSnapshot> {
+export type AgentLoopCheckpoint = AnyCheckpoint<AgentLoopDelta, AgentLoopStateSnapshot> & {
   /** Agent Loop ID */
   agentLoopId: ID;
   /** Creation timestamp */
   timestamp: Timestamp;
-}
+};

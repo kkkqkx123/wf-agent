@@ -109,14 +109,15 @@ program
     await initializeStorageManager(config);
     const storageManager = getStorageManager();
 
-    // 7. Initialize the SDK with storage callbacks
+    // 7. Initialize the SDK with storage adapters
     const sdk = getSDK({
       debug: options.debug,
       logLevel: options.debug ? "debug" : options.verbose ? "info" : "warn",
       presets: config.presets,
-      checkpointStorageCallback: storageManager?.getCheckpointStorage() ?? undefined,
-      workflowStorageCallback: storageManager?.getWorkflowStorage() ?? undefined,
-      taskStorageCallback: storageManager?.getTaskStorage() ?? undefined,
+      checkpointStorageAdapter: storageManager?.getCheckpointStorage() ?? undefined,
+      workflowStorageAdapter: storageManager?.getWorkflowStorage() ?? undefined,
+      taskStorageAdapter: storageManager?.getTaskStorage() ?? undefined,
+      workflowExecutionStorageAdapter: storageManager?.getWorkflowExecutionStorage() ?? undefined,
     });
 
     // Wait for SDK bootstrap to complete

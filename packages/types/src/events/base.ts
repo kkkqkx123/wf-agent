@@ -121,7 +121,25 @@ export type EventType =
   /** Promise callback execution failed */
   | "PROMISE_CALLBACK_FAILED"
   /** Promise callback cleaned up */
-  | "PROMISE_CALLBACK_CLEANED_UP";
+  | "PROMISE_CALLBACK_CLEANED_UP"
+  /** Agent started */
+  | "AGENT_STARTED"
+  /** Agent completed */
+  | "AGENT_COMPLETED"
+  /** Agent turn started */
+  | "AGENT_TURN_STARTED"
+  /** Agent turn completed */
+  | "AGENT_TURN_COMPLETED"
+  /** Agent message started */
+  | "AGENT_MESSAGE_STARTED"
+  /** Agent message completed */
+  | "AGENT_MESSAGE_COMPLETED"
+  /** Agent tool execution started */
+  | "AGENT_TOOL_EXECUTION_STARTED"
+  /** Agent tool execution completed */
+  | "AGENT_TOOL_EXECUTION_COMPLETED"
+  /** Agent iteration completed */
+  | "AGENT_ITERATION_COMPLETED";
 
 /**
  * Basic Event Types

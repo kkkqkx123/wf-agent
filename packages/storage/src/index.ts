@@ -9,7 +9,7 @@
  *
  * Supported storage types:
  * - Checkpoint
- * - Thread
+ * - Workflow-Execution
  * - Workflow
  * - Task
  *
@@ -32,3 +32,6 @@ export * from "./json/index.js";
 
 // SQLite Storage Implementation
 export * from "./sqlite/index.js";
+
+// In-Memory Storage Implementation (for testing)
+export * from "./memory/index.js";

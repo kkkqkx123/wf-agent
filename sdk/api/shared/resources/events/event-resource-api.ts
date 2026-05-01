@@ -13,7 +13,7 @@
 
 import { ReadonlyResourceAPI } from "../generic-resource-api.js";
 import type { Event, EventType } from "@wf-agent/types";
-import { isNodeEvent } from "@wf-agent/types";
+import { isNodeEvent, isAgentEvent, hasAgentLoopId } from "@wf-agent/types";
 import type { Timestamp } from "@wf-agent/types";
 import { DispatchEventCommand } from "../../operations/events/dispatch-event-command.js";
 import type { APIDependencyManager } from "../../core/sdk-dependencies.js";
@@ -92,6 +92,16 @@ const ALL_EVENT_TYPES: EventType[] = [
   "SKILL_LOAD_STARTED",
   "SKILL_LOAD_COMPLETED",
   "SKILL_LOAD_FAILED",
+  // Agent lifecycle events
+  "AGENT_STARTED",
+  "AGENT_COMPLETED",
+  "AGENT_TURN_STARTED",
+  "AGENT_TURN_COMPLETED",
+  "AGENT_MESSAGE_STARTED",
+  "AGENT_MESSAGE_COMPLETED",
+  "AGENT_TOOL_EXECUTION_STARTED",
+  "AGENT_TOOL_EXECUTION_COMPLETED",
+  "AGENT_ITERATION_COMPLETED",
 ];
 
 /**
@@ -108,6 +118,8 @@ export interface EventFilter {
   workflowId?: string;
   /** Node ID */
   nodeId?: string;
+  /** Agent Loop ID */
+  agentLoopId?: string;
   /** Creation time range */
   timestampRange?: { start?: Timestamp; end?: Timestamp };
 }
@@ -235,6 +247,13 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
       // Use type guard for safe nodeId access
       if (filter.nodeId) {
         if (!isNodeEvent(event) || event.nodeId !== filter.nodeId) {
+          return false;
+        }
+      }
+      
+      // Use type guard for safe agentLoopId access
+      if (filter.agentLoopId) {
+        if (!hasAgentLoopId(event) || event.agentLoopId !== filter.agentLoopId) {
           return false;
         }
       }
@@ -464,5 +483,65 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
       start: Math.min(...timestamps),
       end: Math.max(...timestamps),
     };
+  }
+
+  // ============================================================================
+  // Agent-specific methods
+  // ============================================================================
+
+  /**
+   * Get agent execution events
+   * @param agentLoopId Agent Loop ID
+   * @returns Agent events for the specified loop
+   */
+  async getAgentEvents(agentLoopId: string): Promise<Event[]> {
+    return this.eventHistory.filter(
+      event => isAgentEvent(event) && hasAgentLoopId(event) && event.agentLoopId === agentLoopId,
+    );
+  }
+
+  /**
+   * Get agent turn events
+   * @param agentLoopId Agent Loop ID
+   * @returns Turn start/completion events
+   */
+  async getAgentTurnEvents(agentLoopId: string): Promise<Event[]> {
+    return this.eventHistory.filter(event => {
+      if (!isAgentEvent(event) || !hasAgentLoopId(event)) return false;
+      if (event.agentLoopId !== agentLoopId) return false;
+      return event.type === 'AGENT_TURN_STARTED' || event.type === 'AGENT_TURN_COMPLETED';
+    });
+  }
+
+  /**
+   * Get agent tool execution events
+   * @param agentLoopId Agent Loop ID
+   * @returns Tool execution start/completion events
+   */
+  async getAgentToolExecutionEvents(agentLoopId: string): Promise<Event[]> {
+    return this.eventHistory.filter(event => {
+      if (!isAgentEvent(event) || !hasAgentLoopId(event)) return false;
+      if (event.agentLoopId !== agentLoopId) return false;
+      return (
+        event.type === 'AGENT_TOOL_EXECUTION_STARTED' ||
+        event.type === 'AGENT_TOOL_EXECUTION_COMPLETED'
+      );
+    });
+  }
+
+  /**
+   * Get agent statistics by loop
+   * @returns Statistics grouped by agent loop ID
+   */
+  async getAgentLoopStatistics(): Promise<Record<string, number>> {
+    const stats: Record<string, number> = {};
+
+    for (const event of this.eventHistory) {
+      if (isAgentEvent(event) && hasAgentLoopId(event)) {
+        stats[event.agentLoopId] = (stats[event.agentLoopId] || 0) + 1;
+      }
+    }
+
+    return stats;
   }
 }

@@ -19,6 +19,7 @@ import type { EventRegistry } from "../../core/registry/event-registry.js";
 import { safeEmit } from "../../core/utils/event/event-emitter.js";
 import { logError } from "../../core/utils/error-utils.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
+import { generateId } from "../../utils/index.js";
 
 const logger = createContextualLogger({ component: "PromiseResolutionManager" });
 
@@ -83,6 +84,7 @@ export class PromiseResolutionManager<T = unknown> {
     // Emit event for observability
     if (this.eventManager) {
       await safeEmit(this.eventManager, {
+        id: generateId(),
         type: "PROMISE_CALLBACK_REGISTERED",
         executionId,
         timestamp: now(),
@@ -116,6 +118,7 @@ export class PromiseResolutionManager<T = unknown> {
       // Emit event for observability
       if (this.eventManager) {
         await safeEmit(this.eventManager, {
+          id: generateId(),
           type: "PROMISE_CALLBACK_RESOLVED",
           executionId,
           timestamp: now(),
@@ -139,6 +142,7 @@ export class PromiseResolutionManager<T = unknown> {
       // Emit failure event
       if (this.eventManager) {
         await safeEmit(this.eventManager, {
+          id: generateId(),
           type: "PROMISE_CALLBACK_FAILED",
           executionId,
           error: sdkError.message,
@@ -174,6 +178,7 @@ export class PromiseResolutionManager<T = unknown> {
       // Emit event for observability
       if (this.eventManager) {
         await safeEmit(this.eventManager, {
+          id: generateId(),
           type: "PROMISE_CALLBACK_REJECTED",
           executionId,
           errorMessage: error.message,
@@ -194,6 +199,7 @@ export class PromiseResolutionManager<T = unknown> {
       // Emit failure event
       if (this.eventManager) {
         await safeEmit(this.eventManager, {
+          id: generateId(),
           type: "PROMISE_CALLBACK_FAILED",
           executionId,
           error: err instanceof Error ? err.message : String(err),
@@ -243,6 +249,7 @@ export class PromiseResolutionManager<T = unknown> {
         // Emit cleanup event
         if (this.eventManager) {
           await safeEmit(this.eventManager, {
+            id: generateId(),
             type: "PROMISE_CALLBACK_CLEANED_UP",
             executionId,
             reason: "global_cleanup",
@@ -281,6 +288,7 @@ export class PromiseResolutionManager<T = unknown> {
       // Emit cleanup event
       if (this.eventManager) {
         await safeEmit(this.eventManager, {
+          id: generateId(),
           type: "PROMISE_CALLBACK_CLEANED_UP",
           executionId,
           reason: "individual_cleanup",

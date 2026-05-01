@@ -46,7 +46,7 @@ export {
   type MessageStreamErrorEvent,
   type MessageStreamAbortEvent,
   type MessageStreamEndEvent,
-} from "./message-stream-events.js";
+} from "@wf-agent/types";
 
 // Tool functions
 export * from "./message-helper.js";

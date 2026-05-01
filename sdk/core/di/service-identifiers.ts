@@ -335,3 +335,31 @@ export const SkillRegistry: ServiceIdentifier<unknown> = Symbol("SkillRegistry")
  * Responsible for loading Skills, performing permission verification, and managing resource access control.
  */
 export const SkillLoader: ServiceIdentifier<unknown> = Symbol("SkillLoader");
+
+// ============================================================
+// Storage Adapter Services
+// ============================================================
+
+/**
+ * CheckpointStorageAdapter - Checkpoint Storage Adapter
+ * Provides checkpoint persistence operations
+ */
+export const CheckpointStorageAdapter: ServiceIdentifier<unknown> = Symbol("CheckpointStorageAdapter");
+
+/**
+ * WorkflowStorageAdapter - Workflow Storage Adapter
+ * Provides workflow definition persistence operations
+ */
+export const WorkflowStorageAdapter: ServiceIdentifier<unknown> = Symbol("WorkflowStorageAdapter");
+
+/**
+ * TaskStorageAdapter - Task Storage Adapter
+ * Provides task persistence operations
+ */
+export const TaskStorageAdapter: ServiceIdentifier<unknown> = Symbol("TaskStorageAdapter");
+
+/**
+ * WorkflowExecutionStorageAdapter - Workflow Execution Storage Adapter
+ * Provides workflow execution history persistence operations
+ */
+export const WorkflowExecutionStorageAdapter: ServiceIdentifier<unknown> = Symbol("WorkflowExecutionStorageAdapter");

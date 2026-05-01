@@ -12,15 +12,15 @@
  * - Uses ConversationSession for message management
  */
 
-import type { LLMMessage, ToolSchema, AgentCustomEvent, AgentStreamEvent } from "@wf-agent/types";
+import type { LLMMessage, ToolSchema, AgentCustomEvent, AgentStreamEvent, MessageStreamEvent } from "@wf-agent/types";
 import { AgentStreamEventType } from "@wf-agent/types";
 import type { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import type { ConversationSession } from "../../../core/messaging/conversation-session.js";
-import type { MessageStreamEvent } from "../../../core/llm/message-stream-events.js";
 import type { LLMExecutor } from "../../../core/executors/llm-executor.js";
 import type { ToolCallExecutor } from "../../../core/executors/tool-call-executor.js";
 import type { ToolRegistry } from "../../../core/registry/tool-registry.js";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
+import type { Event as RegistryEvent } from "@wf-agent/types";
 import { isAbortError, checkInterruption } from "@wf-agent/common-utils";
 import { executeAgentHook } from "../handlers/hook-handlers/index.js";
 import {
@@ -58,6 +58,109 @@ export class AgentStreamExecutor {
   ) {}
 
   /**
+   * Emit event to both stream and EventRegistry
+   *
+   * This ensures events are available for:
+   * 1. Real-time streaming consumers (via yield)
+   * 2. Persistence and querying (via EventRegistry)
+   */
+  private async emitToRegistry<T extends AgentLoopStreamEvent>(
+    event: T,
+    entity: AgentLoopEntity,
+  ): Promise<void> {
+    // Also emit to EventRegistry if available
+    if (this.eventManager) {
+      try {
+        const registryEvent = this.convertToRegistryEvent(event, entity);
+        if (registryEvent) {
+          await this.eventManager.emit(registryEvent);
+        }
+      } catch (error) {
+        logger.warn("Failed to emit event to EventRegistry", {
+          eventType: event.type,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  }
+
+  /**
+   * Convert stream event to registry-compatible event
+   */
+  private convertToRegistryEvent(
+    event: AgentLoopStreamEvent,
+    entity: AgentLoopEntity,
+  ): RegistryEvent | null {
+    const baseData = {
+      id: crypto.randomUUID(),
+      timestamp: Date.now(),
+      workflowId: entity.id, // AgentLoopEntity.id is the execution ID
+      executionId: entity.id,
+      agentLoopId: entity.id,
+      nodeId: entity.nodeId,
+      metadata: {},
+    };
+
+    switch (event.type) {
+      case AgentStreamEventType.AGENT_START:
+        return {
+          ...baseData,
+          type: "AGENT_STARTED",
+          maxIterations: event.maxIterations,
+          initialMessageCount: event.initialMessageCount,
+        };
+
+      case AgentStreamEventType.AGENT_END:
+        return {
+          ...baseData,
+          type: "AGENT_COMPLETED",
+          iterations: event.iterations,
+          toolCallCount: event.toolCallCount,
+          success: event.success,
+        };
+
+      case AgentStreamEventType.ITERATION_COMPLETE:
+        return {
+          ...baseData,
+          type: "AGENT_ITERATION_COMPLETED",
+          iteration: event.iteration,
+          toolCallCount: 0, // Will be updated by caller
+          shouldContinue: event.shouldContinue,
+        };
+
+      case AgentStreamEventType.TOOL_EXECUTION_START:
+        return {
+          ...baseData,
+          type: "AGENT_TOOL_EXECUTION_STARTED",
+          toolCallId: event.toolCallId,
+          toolName: event.toolName,
+          iteration: event.iteration,
+        };
+
+      case AgentStreamEventType.TOOL_EXECUTION_END:
+        return {
+          ...baseData,
+          type: "AGENT_TOOL_EXECUTION_COMPLETED",
+          toolCallId: event.toolCallId,
+          toolName: event.toolName,
+          success: event.result.success,
+          duration: event.duration,
+          error: event.result.success ? undefined : event.result.error,
+          iteration: entity.state.currentIteration,
+        };
+
+      case AgentStreamEventType.ERROR:
+        // Don't emit ERROR events to registry - they're already handled by error handlers
+        return null;
+
+      default:
+        // For MessageStreamEvent types (text, message, etc.), don't emit to registry
+        // These are too granular and would overwhelm storage
+        return null;
+    }
+  }
+
+  /**
    * Execute Agent loop with streaming
    *
    * @param entity Agent loop entity
@@ -82,7 +185,17 @@ export class AgentStreamExecutor {
       agentLoopId,
       maxIterations,
       initialMessageCount: conversationManager.getMessageCount(),
-    };
+    } as const;
+    await this.emitToRegistry(
+      {
+        type: AgentStreamEventType.AGENT_START,
+        timestamp: Date.now(),
+        agentLoopId,
+        maxIterations,
+        initialMessageCount: conversationManager.getMessageCount(),
+      },
+      entity,
+    );
 
     try {
       while (entity.state.currentIteration < maxIterations) {
@@ -106,7 +219,18 @@ export class AgentStreamExecutor {
             error: "Execution cancelled",
             iteration: entity.state.currentIteration,
             context: "execution_cancelled",
-          };
+          } as const;
+          await this.emitToRegistry(
+            {
+              type: AgentStreamEventType.ERROR,
+              timestamp: Date.now(),
+              agentLoopId,
+              error: "Execution cancelled",
+              iteration: entity.state.currentIteration,
+              context: "execution_cancelled",
+            },
+            entity,
+          );
           return;
         }
 
@@ -124,7 +248,18 @@ export class AgentStreamExecutor {
             error: "Execution paused",
             iteration: entity.state.currentIteration,
             context: "execution_paused",
-          };
+          } as const;
+          await this.emitToRegistry(
+            {
+              type: AgentStreamEventType.ERROR,
+              timestamp: Date.now(),
+              agentLoopId,
+              error: "Execution paused",
+              iteration: entity.state.currentIteration,
+              context: "execution_paused",
+            },
+            entity,
+          );
           return;
         }
 
@@ -172,7 +307,18 @@ export class AgentStreamExecutor {
         error: standardizedError,
         iteration: entity.state.currentIteration,
         context: "agent_loop_stream_execution",
-      };
+      } as const;
+      await this.emitToRegistry(
+        {
+          type: AgentStreamEventType.ERROR,
+          timestamp: Date.now(),
+          agentLoopId,
+          error: standardizedError,
+          iteration: entity.state.currentIteration,
+          context: "agent_loop_stream_execution",
+        },
+        entity,
+      );
     }
   }
 
@@ -229,7 +375,18 @@ export class AgentStreamExecutor {
             error: (entity.state.error as Error | undefined)?.message || "Execution interrupted",
             iteration: entity.state.currentIteration,
             context: "llm_stream_call",
-          };
+          } as const;
+          await this.emitToRegistry(
+            {
+              type: AgentStreamEventType.ERROR,
+              timestamp: Date.now(),
+              agentLoopId,
+              error: (entity.state.error as Error | undefined)?.message || "Execution interrupted",
+              iteration: entity.state.currentIteration,
+              context: "llm_stream_call",
+            },
+            entity,
+          );
           return false;
         }
       }
@@ -249,7 +406,18 @@ export class AgentStreamExecutor {
         error: standardizedError,
         iteration: entity.state.currentIteration,
         context: "agent_loop_stream_execution",
-      };
+      } as const;
+      await this.emitToRegistry(
+        {
+          type: AgentStreamEventType.ERROR,
+          timestamp: Date.now(),
+          agentLoopId,
+          error: standardizedError,
+          iteration: entity.state.currentIteration,
+          context: "agent_loop_stream_execution",
+        },
+        entity,
+      );
       return false;
     }
 
@@ -299,7 +467,18 @@ export class AgentStreamExecutor {
           error: result.type === "paused" ? "Execution paused" : "Execution cancelled",
           iteration: entity.state.currentIteration,
           context: "stream_interruption",
-        };
+        } as const;
+        await this.emitToRegistry(
+          {
+            type: AgentStreamEventType.ERROR,
+            timestamp: Date.now(),
+            agentLoopId,
+            error: result.type === "paused" ? "Execution paused" : "Execution cancelled",
+            iteration: entity.state.currentIteration,
+            context: "stream_interruption",
+          },
+          entity,
+        );
         return false;
       }
 
@@ -307,6 +486,8 @@ export class AgentStreamExecutor {
       while (eventQueue.length > 0) {
         const event = eventQueue.shift()!;
         yield event;
+        // Note: MessageStreamEvent types are not emitted to EventRegistry
+        // They are too granular and would overwhelm storage
       }
 
       if (!streamDone) {
@@ -332,7 +513,18 @@ export class AgentStreamExecutor {
             error: (entity.state.error as Error | undefined)?.message || "Execution interrupted",
             iteration: entity.state.currentIteration,
             context: "llm_stream_call",
-          };
+          } as const;
+          await this.emitToRegistry(
+            {
+              type: AgentStreamEventType.ERROR,
+              timestamp: Date.now(),
+              agentLoopId,
+              error: (entity.state.error as Error | undefined)?.message || "Execution interrupted",
+              iteration: entity.state.currentIteration,
+              context: "llm_stream_call",
+            },
+            entity,
+          );
           return false;
         }
       }
@@ -352,7 +544,18 @@ export class AgentStreamExecutor {
         error: standardizedError,
         iteration: entity.state.currentIteration,
         context: "agent_loop_stream_execution",
-      };
+      } as const;
+      await this.emitToRegistry(
+        {
+          type: AgentStreamEventType.ERROR,
+          timestamp: Date.now(),
+          agentLoopId,
+          error: standardizedError,
+          iteration: entity.state.currentIteration,
+          context: "agent_loop_stream_execution",
+        },
+        entity,
+      );
       return false;
     }
 
@@ -416,7 +619,19 @@ export class AgentStreamExecutor {
         iterations: entity.state.currentIteration,
         toolCallCount: entity.state.toolCallCount,
         success: true,
-      };
+      } as const;
+      await this.emitToRegistry(
+        {
+          type: AgentStreamEventType.AGENT_END,
+          timestamp: Date.now(),
+          agentLoopId,
+          messages: conversationManager.getMessages(),
+          iterations: entity.state.currentIteration,
+          toolCallCount: entity.state.toolCallCount,
+          success: true,
+        },
+        entity,
+      );
       return false;
     }
 
@@ -429,7 +644,17 @@ export class AgentStreamExecutor {
       agentLoopId,
       iteration: entity.state.currentIteration,
       shouldContinue: true,
-    };
+    } as const;
+    await this.emitToRegistry(
+      {
+        type: AgentStreamEventType.ITERATION_COMPLETE,
+        timestamp: Date.now(),
+        agentLoopId,
+        iteration: entity.state.currentIteration,
+        shouldContinue: true,
+      },
+      entity,
+    );
 
     logger.debug("Stream iteration completed", {
       agentLoopId,
@@ -499,6 +724,25 @@ export class AgentStreamExecutor {
         iteration: entity.state.currentIteration,
       };
 
+      // Also emit to EventRegistry
+      if (this.eventManager) {
+        const registryEvent = this.convertToRegistryEvent(
+          {
+            type: AgentStreamEventType.TOOL_EXECUTION_START,
+            timestamp: Date.now(),
+            agentLoopId,
+            toolCallId: result.toolCallId,
+            toolName: toolCallInfo.name,
+            args: args,
+            iteration: entity.state.currentIteration,
+          },
+          entity,
+        );
+        if (registryEvent) {
+          await this.eventManager.emit(registryEvent);
+        }
+      }
+
       entity.state.recordToolCallStart(result.toolCallId, toolCallInfo.name, args);
 
       if (result.success) {
@@ -524,6 +768,30 @@ export class AgentStreamExecutor {
           },
           duration: result.executionTime,
         };
+
+        // Also emit to EventRegistry
+        if (this.eventManager) {
+          const registryEvent = this.convertToRegistryEvent(
+            {
+              type: AgentStreamEventType.TOOL_EXECUTION_END,
+              timestamp: Date.now(),
+              agentLoopId,
+              toolCallId: result.toolCallId,
+              toolName: toolCallInfo.name,
+              result: {
+                success: true,
+                result: result.result,
+                executionTime: result.executionTime,
+                retryCount: 0,
+              },
+              duration: result.executionTime,
+            },
+            entity,
+          );
+          if (registryEvent) {
+            await this.eventManager.emit(registryEvent);
+          }
+        }
       } else {
         entity.state.recordToolCallEnd(result.toolCallId, undefined, result.error);
 
@@ -547,6 +815,30 @@ export class AgentStreamExecutor {
           },
           duration: result.executionTime,
         };
+
+        // Also emit to EventRegistry
+        if (this.eventManager) {
+          const registryEvent = this.convertToRegistryEvent(
+            {
+              type: AgentStreamEventType.TOOL_EXECUTION_END,
+              timestamp: Date.now(),
+              agentLoopId,
+              toolCallId: result.toolCallId,
+              toolName: toolCallInfo.name,
+              result: {
+                success: false,
+                error: result.error,
+                executionTime: result.executionTime,
+                retryCount: 0,
+              },
+              duration: result.executionTime,
+            },
+            entity,
+          );
+          if (registryEvent) {
+            await this.eventManager.emit(registryEvent);
+          }
+        }
       }
     }
   }

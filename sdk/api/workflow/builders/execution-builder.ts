@@ -4,22 +4,13 @@
  * Supports Result, Promise and Observable interfaces
  */
 
-import type { WorkflowExecutionResult, WorkflowExecutionOptions } from "@wf-agent/types";
+import type { WorkflowExecutionResult, WorkflowExecutionOptions, Event } from "@wf-agent/types";
 import { ok, err, getErrorOrNew, withAbortSignal, now } from "@wf-agent/common-utils";
-import type { Result } from "@wf-agent/types";
+import type { Result, EventType } from "@wf-agent/types";
 import { Observable, create, type Observer } from "../../shared/utils/observable.js";
 import { ExecuteWorkflowCommand } from "../operations/execution/execute-workflow-command.js";
 import { ExecutionError as SDKExecutionError } from "@wf-agent/types";
 import { APIDependencyManager } from "../../shared/core/sdk-dependencies.js";
-import type {
-  ExecutionEvent,
-  StartEvent,
-  CompleteEvent,
-  ErrorEvent,
-  CancelledEvent,
-  ProgressEvent,
-  NodeExecutedEvent,
-} from "../../shared/types/execution-events.js";
 
 /**
  * ExecutionBuilder - Fluid Execution Builder
@@ -175,81 +166,93 @@ export class ExecutionBuilder {
   /**
    * Execute workflows asynchronously (return Observable)
    * Provides responsive interface to support progress monitoring and cancelation
-   * @returns Observable<ExecutionEvent>
+   * 
+   * This method integrates with EventRegistry to ensure events are:
+   * 1. Persisted and queryable
+   * 2. Available to all subscribers via EventRegistry.on()
+   * 3. Forwarded to Observable subscribers for convenience
+   * 
+   * @returns Observable<Event>
    */
-  executeAsync(): Observable<ExecutionEvent> {
+  executeAsync(): Observable<Event> {
     if (!this.workflowId) {
-      return create((observer: Observer<ExecutionEvent>) => {
+      return create((observer: Observer<Event>) => {
         observer.error(new Error("Workflow ID not set, please call withWorkflow() first."));
         return () => {};
       });
     }
 
-    const workflowId = this.workflowId; // The workflowId has been determined to exist here
+    const workflowId = this.workflowId;
+    const eventManager = this.dependencies.getEventManager();
     let executionId: string | undefined;
 
-    return create((observer: Observer<ExecutionEvent>) => {
+    return create((observer: Observer<Event>) => {
       // Creating an AbortController for canceling execution
       this.abortController = new AbortController();
       const signal = this.abortController.signal;
 
-      // Send start event
+      // Subscribe to EventRegistry events and forward to Observable
+      const eventTypes: EventType[] = [
+        "WORKFLOW_EXECUTION_STARTED",
+        "WORKFLOW_EXECUTION_COMPLETED",
+        "WORKFLOW_EXECUTION_FAILED",
+        "WORKFLOW_EXECUTION_CANCELLED",
+        "NODE_COMPLETED",
+      ];
+
+      const unsubscribers: Array<() => void> = [];
+      
+      for (const eventType of eventTypes) {
+        const unsubscribe = eventManager.on(eventType, (event: Event) => {
+          // Only forward events for this execution
+          if (event.executionId === executionId || !executionId) {
+            observer.next(event);
+          }
+        });
+        unsubscribers.push(unsubscribe);
+      }
+
+      // Send start event immediately (will be replaced by EventRegistry event)
       observer.next({
-        type: "start",
+        id: `evt_${now()}`,
+        type: "WORKFLOW_EXECUTION_STARTED",
         timestamp: now(),
         workflowId,
-      } as StartEvent);
+        executionId: "",
+        metadata: {},
+        input: this.options.input || {},
+      } as Event);
 
       // Implementation workflow
       const executePromise = this.executeWithSignal(signal);
 
       // Listening to execution results
-      let executionId: string | undefined;
       executePromise.then(result => {
         if (result.isOk()) {
           executionId = result.value.executionId;
-          // Send Completion Event
-          observer.next({
-            type: "complete",
-            timestamp: now(),
-            workflowId,
-            executionId: executionId,
-            result: result.value,
-            executionStats: {
-              duration: result.value.executionTime,
-              steps: result.value.nodeResults.length,
-              nodesExecuted: result.value.nodeResults.length,
-            },
-          } as CompleteEvent);
+          // Note: WORKFLOW_EXECUTION_COMPLETED event will be emitted by EventRegistry
+          // and forwarded via the subscription above
           observer.complete();
         } else {
           if (signal.aborted) {
-            // Send Cancel Event
-            observer.next({
-              type: "cancelled",
-              timestamp: now(),
-              workflowId,
-              executionId: executionId || "unknown",
-              reason: result.error.message,
-            } as CancelledEvent);
+            // Note: WORKFLOW_EXECUTION_CANCELLED event will be emitted by EventRegistry
             observer.complete();
           } else {
-            // Send error event
-            observer.next({
-              type: "error",
-              timestamp: now(),
-              workflowId,
-              executionId: executionId || "unknown",
-              error: result.error,
-            } as ErrorEvent);
+            // Note: WORKFLOW_EXECUTION_FAILED event will be emitted by EventRegistry
             observer.error(result.error);
           }
         }
+      }).catch(error => {
+        observer.error(error);
       });
 
       // Returns the unsubscribe function
       return {
         unsubscribe: () => {
+          // Unsubscribe from EventRegistry
+          unsubscribers.forEach(unsub => unsub());
+          
+          // Abort execution if still running
           if (this.abortController && !signal.aborted) {
             this.abortController.abort();
           }
@@ -305,25 +308,23 @@ export class ExecutionBuilder {
 
   /**
    * Get the execution progress Observable
-   * @returns Observable<ProgressEvent>
+   * @returns Observable<Event>
    */
-  observeProgress(): Observable<ProgressEvent> {
-    return create((observer: Observer<ProgressEvent>) => {
+  observeProgress(): Observable<Event> {
+    return create((observer: Observer<Event>) => {
       const callback = (progress: unknown) => {
         const progressRecord = progress as Record<string, unknown>;
         observer.next({
-          type: "progress",
+          id: `evt_${now()}`,
+          type: "NODE_COMPLETED",
           timestamp: now(),
           workflowId: this.workflowId!,
           executionId: (progressRecord["executionId"] as string) || "unknown",
-          progress: {
-            status: (progressRecord["status"] as string) || "running",
-            currentStep: (progressRecord["currentStep"] as number) || 0,
-            totalSteps: progressRecord["totalSteps"] as number | undefined,
-            currentNodeId: (progressRecord["currentNodeId"] as string) || "unknown",
-            currentNodeType: (progressRecord["currentNodeType"] as string) || "unknown",
-          },
-        } as ProgressEvent);
+          nodeId: (progressRecord["currentNodeId"] as string) || "unknown",
+          output: progress,
+          executionTime: 0,
+          metadata: {},
+        } as Event);
       };
 
       this.onProgressCallbacks.push(callback);
@@ -348,22 +349,23 @@ export class ExecutionBuilder {
 
   /**
    * Get the Observable for node execution events
-   * @returns Observable<NodeExecutedEvent>
+   * @returns Observable<Event>
    */
-  observeNodeExecuted(): Observable<NodeExecutedEvent> {
-    return create((observer: Observer<NodeExecutedEvent>) => {
+  observeNodeExecuted(): Observable<Event> {
+    return create((observer: Observer<Event>) => {
       const callback = (result: unknown) => {
         const resultRecord = result as Record<string, unknown>;
         observer.next({
-          type: "nodeExecuted",
+          id: `evt_${now()}`,
+          type: "NODE_COMPLETED",
           timestamp: now(),
           workflowId: this.workflowId!,
           executionId: (resultRecord["executionId"] as string) || "unknown",
           nodeId: (resultRecord["nodeId"] as string) || "unknown",
-          nodeType: (resultRecord["nodeType"] as string) || "unknown",
-          nodeResult: result,
+          output: result,
           executionTime: (resultRecord["executionTime"] as number) || 0,
-        } as NodeExecutedEvent);
+          metadata: {},
+        } as Event);
       };
 
       this.options.onNodeExecuted = callback;
@@ -387,19 +389,21 @@ export class ExecutionBuilder {
 
   /**
    * Get the error event Observable
-   * @returns Observable<ErrorEvent>
+   * @returns Observable<Event>
    */
-  observeError(): Observable<ErrorEvent> {
-    return create((observer: Observer<ErrorEvent>) => {
+  observeError(): Observable<Event> {
+    return create((observer: Observer<Event>) => {
       const callback = (error: unknown) => {
         const errorRecord = error as Record<string, unknown>;
         observer.next({
-          type: "error",
+          id: `evt_${now()}`,
+          type: "WORKFLOW_EXECUTION_FAILED",
           timestamp: now(),
           workflowId: this.workflowId!,
           executionId: (errorRecord["executionId"] as string) || "unknown",
           error: getErrorOrNew(error),
-        } as ErrorEvent);
+          metadata: {},
+        } as Event);
       };
 
       this.onErrorCallbacks.push(callback);
@@ -424,16 +428,16 @@ export class ExecutionBuilder {
 
   /**
    * Get all execution event Observables
-   * @returns Observable<ExecutionEvent>
+   * @returns Observable<Event>
    */
-  observeAll(): Observable<ExecutionEvent> {
-    return create((observer: Observer<ExecutionEvent>) => {
+  observeAll(): Observable<Event> {
+    return create((observer: Observer<Event>) => {
       const subscriptions: Array<{ unsubscribe: () => void; closed: boolean }> = [];
 
       // Subscribe to progress events
       subscriptions.push(
         this.observeProgress().subscribe(
-          (event: ProgressEvent) => observer.next(event),
+          (event: Event) => observer.next(event),
           (err: unknown) => observer.error(err),
           () => {},
         ),
@@ -442,7 +446,7 @@ export class ExecutionBuilder {
       // Subscribe to node execution events
       subscriptions.push(
         this.observeNodeExecuted().subscribe(
-          (event: NodeExecutedEvent) => observer.next(event),
+          (event: Event) => observer.next(event),
           (err: unknown) => observer.error(err),
           () => {},
         ),
@@ -451,7 +455,7 @@ export class ExecutionBuilder {
       // Subscribe to error events
       subscriptions.push(
         this.observeError().subscribe(
-          (event: ErrorEvent) => observer.next(event),
+          (event: Event) => observer.next(event),
           (err: unknown) => observer.error(err),
           () => {},
         ),

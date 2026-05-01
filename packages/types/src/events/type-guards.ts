@@ -26,6 +26,17 @@ import type {
 } from "./tool-events.js";
 import type { AgentCustomEvent } from "./agent-events.js";
 import type {
+  AgentStartedEvent,
+  AgentCompletedEvent,
+  AgentTurnStartedEvent,
+  AgentTurnCompletedEvent,
+  AgentMessageStartedEvent,
+  AgentMessageCompletedEvent,
+  AgentToolExecutionStartedEvent,
+  AgentToolExecutionCompletedEvent,
+  AgentIterationCompletedEvent,
+} from "./agent-events.js";
+import type {
   WorkflowExecutionStartedEvent,
   WorkflowExecutionCompletedEvent,
   WorkflowExecutionFailedEvent,
@@ -130,9 +141,50 @@ export function isWorkflowExecutionEvent(
 
 /**
  * Type guard for agent custom events
+ * @deprecated Use isAgentEvent instead
  */
 export function isAgentCustomEvent(event: Event): event is AgentCustomEvent {
   return event.type === 'AGENT_CUSTOM_EVENT';
+}
+
+/**
+ * Type guard for all agent-related events
+ * Narrows to any agent lifecycle event
+ */
+export function isAgentEvent(
+  event: Event,
+): event is
+  | AgentStartedEvent
+  | AgentCompletedEvent
+  | AgentTurnStartedEvent
+  | AgentTurnCompletedEvent
+  | AgentMessageStartedEvent
+  | AgentMessageCompletedEvent
+  | AgentToolExecutionStartedEvent
+  | AgentToolExecutionCompletedEvent
+  | AgentIterationCompletedEvent
+  | AgentCustomEvent {
+  return (
+    event.type === 'AGENT_STARTED' ||
+    event.type === 'AGENT_COMPLETED' ||
+    event.type === 'AGENT_TURN_STARTED' ||
+    event.type === 'AGENT_TURN_COMPLETED' ||
+    event.type === 'AGENT_MESSAGE_STARTED' ||
+    event.type === 'AGENT_MESSAGE_COMPLETED' ||
+    event.type === 'AGENT_TOOL_EXECUTION_STARTED' ||
+    event.type === 'AGENT_TOOL_EXECUTION_COMPLETED' ||
+    event.type === 'AGENT_ITERATION_COMPLETED' ||
+    event.type === 'AGENT_CUSTOM_EVENT'
+  );
+}
+
+/**
+ * Type guard for events with agentLoopId property
+ */
+export function hasAgentLoopId(
+  event: Event,
+): event is Event & { agentLoopId: string } {
+  return 'agentLoopId' in event && typeof event.agentLoopId === 'string';
 }
 
 /**
@@ -180,4 +232,6 @@ export const eventTypeGuards = {
   isAgentCustomEvent,
   isErrorEvent,
   isCompletionEvent,
+  isAgentEvent,
+  hasAgentLoopId,
 };

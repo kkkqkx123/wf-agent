@@ -5,7 +5,9 @@
  * Ensures proper initialization order and prevents uninitialized access.
  */
 
-import { logger } from "../../utils/logger.js";
+import { createContextualLogger } from "../../utils/contextual-logger.js";
+
+const logger = createContextualLogger({ component: "StorageInitializationService" });
 import type {
   CheckpointStorageAdapter,
   TaskStorageAdapter,
@@ -14,10 +16,23 @@ import type {
 } from "@wf-agent/storage";
 
 export interface StorageAdapters {
-  checkpoint: CheckpointStorageAdapter;
-  task: TaskStorageAdapter;
-  workflow: WorkflowStorageAdapter;
-  workflowExecution: WorkflowExecutionStorageAdapter;
+  checkpoint?: CheckpointStorageAdapter;
+  task?: TaskStorageAdapter;
+  workflow?: WorkflowStorageAdapter;
+  workflowExecution?: WorkflowExecutionStorageAdapter;
+}
+
+export interface HealthCheckResult {
+  adapter: string;
+  healthy: boolean;
+  message?: string;
+  details?: Record<string, unknown>;
+}
+
+export interface HealthCheckReport {
+  timestamp: Date;
+  results: HealthCheckResult[];
+  overallHealthy: boolean;
 }
 
 export class StorageInitializationService {
@@ -44,8 +59,16 @@ export class StorageInitializationService {
     }
 
     try {
-      // Validate adapters
-      this.validateAdapters(adapters);
+      // Validate adapters - at least one should be provided
+      const hasAnyAdapter = 
+        !!adapters.checkpoint || 
+        !!adapters.task || 
+        !!adapters.workflow || 
+        !!adapters.workflowExecution;
+
+      if (!hasAnyAdapter) {
+        logger.warn("No storage adapters provided during initialization");
+      }
 
       // Store adapters
       this.adapters = adapters;
@@ -100,20 +123,123 @@ export class StorageInitializationService {
   }
 
   /**
-   * Validate that all required adapters are provided
+   * Shutdown all storage adapters gracefully
+   * Closes connections, flushes buffers, and releases resources
    */
-  private validateAdapters(adapters: StorageAdapters): void {
-    const required: Array<keyof StorageAdapters> = [
-      "checkpoint",
-      "task",
-      "workflow",
-      "workflowExecution",
-    ];
-
-    const missing = required.filter((type) => !adapters[type]);
-
-    if (missing.length > 0) {
-      throw new Error(`Missing required storage adapters: ${missing.join(", ")}`);
+  async shutdown(): Promise<void> {
+    if (!this.initialized || !this.adapters) {
+      logger.warn("StorageInitializationService not initialized, skipping shutdown");
+      return;
     }
+
+    const shutdownErrors: Array<{ type: string; error: Error }> = [];
+
+    // Shutdown each adapter that has a close/shutdown method
+    const adapterTypes = [
+      { name: 'checkpoint', adapter: this.adapters.checkpoint },
+      { name: 'task', adapter: this.adapters.task },
+      { name: 'workflow', adapter: this.adapters.workflow },
+      { name: 'workflowExecution', adapter: this.adapters.workflowExecution },
+    ] as const;
+
+    for (const { name, adapter } of adapterTypes) {
+      if (adapter) {
+        try {
+          // Check if adapter has a close or shutdown method
+          if ('close' in adapter && typeof adapter.close === 'function') {
+            await (adapter.close as () => Promise<void>)();
+            logger.info(`${name} storage adapter closed successfully`);
+          } else if ('shutdown' in adapter && typeof adapter.shutdown === 'function') {
+            await (adapter.shutdown as () => Promise<void>)();
+            logger.info(`${name} storage adapter shut down successfully`);
+          } else {
+            logger.debug(`${name} storage adapter does not have close/shutdown method, skipping`);
+          }
+        } catch (error) {
+          const err = error instanceof Error ? error : new Error(String(error));
+          shutdownErrors.push({ type: name, error: err });
+          logger.error(`Failed to shutdown ${name} storage adapter`, { error: err });
+        }
+      }
+    }
+
+    // Reset state after shutdown
+    this.adapters = null;
+    this.initialized = false;
+
+    if (shutdownErrors.length > 0) {
+      logger.warn(`Shutdown completed with ${shutdownErrors.length} error(s)`, {
+        errors: shutdownErrors.map(e => ({ type: e.type, message: e.error.message })),
+      });
+      throw new Error(
+        `Shutdown completed with errors: ${shutdownErrors.map(e => `${e.type}: ${e.error.message}`).join(', ')}`,
+      );
+    }
+
+    logger.info("All storage adapters shut down successfully");
+  }
+
+  /**
+   * Perform health checks on all initialized adapters
+   */
+  async healthCheck(): Promise<HealthCheckReport> {
+    if (!this.initialized || !this.adapters) {
+      return {
+        timestamp: new Date(),
+        results: [],
+        overallHealthy: false,
+      };
+    }
+
+    const results: HealthCheckResult[] = [];
+
+    // Check each adapter that has a healthCheck method
+    const adapterTypes = [
+      { name: 'checkpoint', adapter: this.adapters.checkpoint },
+      { name: 'task', adapter: this.adapters.task },
+      { name: 'workflow', adapter: this.adapters.workflow },
+      { name: 'workflowExecution', adapter: this.adapters.workflowExecution },
+    ] as const;
+
+    for (const { name, adapter } of adapterTypes) {
+      if (adapter) {
+        try {
+          // Check if adapter has a healthCheck method
+          if ('healthCheck' in adapter && typeof adapter.healthCheck === 'function') {
+            const result = await (adapter.healthCheck as () => Promise<{ healthy: boolean; message?: string; details?: Record<string, unknown> }> )();
+            results.push({
+              adapter: name,
+              healthy: result.healthy,
+              message: result.message,
+              details: result.details,
+            });
+          } else {
+            // If no healthCheck method, assume healthy if adapter exists
+            results.push({
+              adapter: name,
+              healthy: true,
+              message: 'No healthCheck method available, assuming healthy',
+            });
+          }
+        } catch (error) {
+          const err = error instanceof Error ? error : new Error(String(error));
+          results.push({
+            adapter: name,
+            healthy: false,
+            message: `Health check failed: ${err.message}`,
+            details: { stack: err.stack },
+          });
+          logger.error(`Health check failed for ${name} storage adapter`, { error: err });
+        }
+      }
+    }
+
+    const overallHealthy = results.every(r => r.healthy);
+
+    return {
+      timestamp: new Date(),
+      results,
+      overallHealthy,
+    };
   }
 }

@@ -14,6 +14,7 @@ import {
   CompressionConfig,
   DEFAULT_COMPRESSION_CONFIG,
 } from "../compression/index.js";
+import { LRUCache } from "../utils/lru-cache.js";
 
 const logger = createModuleLogger("json-storage");
 
@@ -27,6 +28,10 @@ export interface BaseJsonStorageConfig {
   enableFileLock?: boolean;
   /** Compression configuration */
   compression?: CompressionConfig;
+  /** Enable lazy loading mode (default: false for backward compatibility) */
+  lazyLoading?: boolean;
+  /** Metadata cache size when lazy loading is enabled (default: 100) */
+  metadataCacheSize?: number;
 }
 
 /**
@@ -73,8 +78,17 @@ export abstract class BaseJsonStorage<TMetadata> {
   protected metadataIndex: Map<string, MetadataIndexEntry<TMetadata>> = new Map();
   protected initialized: boolean = false;
   protected lockFiles: Map<string, Promise<void>> = new Map();
+  // Lazy loading support
+  protected metadataCache: LRUCache<string, TMetadata> | null = null;
+  protected lazyMode: boolean = false;
 
-  constructor(protected readonly config: BaseJsonStorageConfig) {}
+  constructor(protected readonly config: BaseJsonStorageConfig) {
+    this.lazyMode = config.lazyLoading ?? false;
+    if (this.lazyMode) {
+      const cacheSize = config.metadataCacheSize ?? 100;
+      this.metadataCache = new LRUCache<string, TMetadata>(cacheSize);
+    }
+  }
 
   /**
    * Get metadata directory path
@@ -108,27 +122,120 @@ export abstract class BaseJsonStorage<TMetadata> {
 
   /**
    * Initialize storage
-   * Create directory structure and load metadata index
+   * Create directory structure and load metadata index (or initialize lazy mode)
    */
   async initialize(): Promise<void> {
-    logger.debug("Initializing JSON storage", { baseDir: this.config.baseDir });
+    logger.debug("Initializing JSON storage", {
+      baseDir: this.config.baseDir,
+      lazyMode: this.lazyMode,
+    });
 
     // Create directories
     await fs.mkdir(this.config.baseDir, { recursive: true });
     await fs.mkdir(this.getMetadataDir(), { recursive: true });
     await fs.mkdir(this.getDataDir(), { recursive: true });
 
-    await this.loadMetadataIndex();
+    if (this.lazyMode) {
+      // In lazy mode, only scan directory for IDs, don't load metadata
+      await this.buildLazyIndex();
+    } else {
+      // Traditional mode: load all metadata into memory
+      await this.loadMetadataIndex();
+    }
+
     this.initialized = true;
 
     logger.info("JSON storage initialized", {
       baseDir: this.config.baseDir,
       indexSize: this.metadataIndex.size,
+      lazyMode: this.lazyMode,
+      cacheSize: this.metadataCache?.size ?? 0,
     });
   }
 
   /**
-   * Load metadata index
+   * Build lazy index - only store IDs without loading metadata
+   * This is much faster than loading all metadata files
+   */
+  protected async buildLazyIndex(): Promise<void> {
+    try {
+      const entries = await fs.readdir(this.getMetadataDir(), { withFileTypes: true });
+
+      for (const entry of entries) {
+        if (entry.isFile() && entry.name.endsWith(".json")) {
+          // Extract ID from filename (remove .json extension)
+          const id = entry.name.slice(0, -5);
+          const safeId = this.sanitizeId(id);
+          const metadataPath = path.join(this.getMetadataDir(), `${safeId}.json`);
+          const dataPath = path.join(this.getDataDir(), `${safeId}.bin`);
+
+          // Store minimal info - just paths, no metadata content
+          this.metadataIndex.set(id, {
+            metadata: null as any, // Will be loaded on demand
+            metadataPath,
+            dataPath,
+            dataRef: null as any, // Will be loaded on demand
+          });
+        }
+      }
+
+      logger.debug("Lazy index built", { count: this.metadataIndex.size });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw error;
+      }
+    }
+  }
+
+  /**
+   * Load metadata on demand (lazy loading)
+   */
+  protected async loadMetadataOnDemand(id: string): Promise<MetadataIndexEntry<TMetadata> | null> {
+    const cached = this.metadataCache?.get(id);
+    if (cached !== undefined) {
+      logger.debug("Metadata cache hit", { id });
+      // Reconstruct entry with cached metadata
+      const existing = this.metadataIndex.get(id);
+      if (existing) {
+        return {
+          ...existing,
+          metadata: cached,
+        };
+      }
+    }
+
+    // Load from file
+    const metadataPath = this.getMetadataFilePath(id);
+    try {
+      const content = await fs.readFile(metadataPath, "utf-8");
+      const parsed = JSON.parse(content) as MetadataFileContent<TMetadata>;
+
+      if (parsed.id && parsed.metadata && parsed.dataRef) {
+        const dataPath = path.join(this.config.baseDir, parsed.dataRef.filePath);
+        const entry: MetadataIndexEntry<TMetadata> = {
+          metadata: parsed.metadata,
+          metadataPath,
+          dataPath,
+          dataRef: parsed.dataRef,
+        };
+
+        // Update full index entry
+        this.metadataIndex.set(id, entry);
+
+        // Cache metadata
+        this.metadataCache?.set(id, parsed.metadata);
+
+        return entry;
+      }
+    } catch (error) {
+      logger.warn("Failed to load metadata on demand", { id, error: (error as Error).message });
+    }
+
+    return null;
+  }
+
+  /**
+   * Load metadata index (traditional eager loading)
    * Only reads metadata files, not data files
    */
   protected async loadMetadataIndex(): Promise<void> {
@@ -299,7 +406,16 @@ export abstract class BaseJsonStorage<TMetadata> {
   async load(id: string): Promise<Uint8Array | null> {
     this.ensureInitialized();
 
-    const indexEntry = this.metadataIndex.get(id);
+    let indexEntry = this.metadataIndex.get(id);
+
+    // In lazy mode, load metadata on demand if not in index
+    if (!indexEntry && this.lazyMode) {
+      const loadedEntry = await this.loadMetadataOnDemand(id);
+      if (loadedEntry) {
+        indexEntry = loadedEntry;
+      }
+    }
+
     if (!indexEntry) {
       logger.debug("Data not found in index", { id });
       return null;
@@ -343,7 +459,26 @@ export abstract class BaseJsonStorage<TMetadata> {
   async delete(id: string): Promise<void> {
     this.ensureInitialized();
 
-    const indexEntry = this.metadataIndex.get(id);
+    let indexEntry = this.metadataIndex.get(id);
+
+    // In lazy mode, check if file exists even if not in index
+    if (!indexEntry && this.lazyMode) {
+      const metadataPath = this.getMetadataFilePath(id);
+      try {
+        await fs.access(metadataPath);
+        // File exists, create minimal entry for deletion
+        indexEntry = {
+          metadata: null as any,
+          metadataPath,
+          dataPath: this.getDataFilePath(id),
+          dataRef: null as any,
+        };
+      } catch {
+        logger.debug("Data not found for deletion", { id });
+        return;
+      }
+    }
+
     if (!indexEntry) {
       logger.debug("Data not found for deletion", { id });
       return;
@@ -379,17 +514,40 @@ export abstract class BaseJsonStorage<TMetadata> {
 
   /**
    * Check if data exists
+   * In lazy mode, checks if file exists; in eager mode, checks index
    */
   async exists(id: string): Promise<boolean> {
     this.ensureInitialized();
+
+    if (this.lazyMode) {
+      // Lazy mode: check if metadata file exists
+      const metadataPath = this.getMetadataFilePath(id);
+      try {
+        await fs.access(metadataPath);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    // Eager mode: check in-memory index
     return this.metadataIndex.has(id);
   }
 
   /**
    * Get metadata only (no data loading)
+   * Supports both eager and lazy loading modes
    */
   async getMetadata(id: string): Promise<TMetadata | null> {
     this.ensureInitialized();
+
+    if (this.lazyMode) {
+      // Lazy mode: load metadata on demand
+      const entry = await this.loadMetadataOnDemand(id);
+      return entry?.metadata ?? null;
+    }
+
+    // Eager mode: metadata already in memory
     const entry = this.metadataIndex.get(id);
     return entry?.metadata ?? null;
   }
@@ -443,8 +601,9 @@ export abstract class BaseJsonStorage<TMetadata> {
    * Close storage
    */
   async close(): Promise<void> {
-    logger.debug("Closing JSON storage");
+    logger.debug("Closing JSON storage", { lazyMode: this.lazyMode });
     this.metadataIndex.clear();
+    this.metadataCache?.clear();
     this.initialized = false;
     logger.info("JSON storage closed");
   }

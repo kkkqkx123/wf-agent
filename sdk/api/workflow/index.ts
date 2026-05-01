@@ -69,7 +69,6 @@ export {
   type ExecuteWorkflowParams,
   ExecuteWorkflowStreamCommand,
   type ExecuteWorkflowStreamParams,
-  type WorkflowStreamEvent,
   PauseWorkflowCommand,
   ResumeWorkflowCommand,
   CancelWorkflowCommand,

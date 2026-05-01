@@ -6,6 +6,10 @@
 import Database, { SqliteError } from "better-sqlite3";
 import { StorageError, StorageInitializationError } from "../types/storage-errors.js";
 import { createModuleLogger } from "../logger.js";
+import {
+  SqliteConnectionPool,
+  getGlobalConnectionPool,
+} from "./connection-pool.js";
 
 const logger = createModuleLogger("sqlite-storage");
 
@@ -23,6 +27,10 @@ export interface BaseSqliteStorageConfig {
   fileMustExist?: boolean;
   /** Timeout in milliseconds for database locks */
   timeout?: number;
+  /** Use shared connection pool (default: true) */
+  useConnectionPool?: boolean;
+  /** Custom connection pool instance (optional, uses global pool if not provided) */
+  connectionPool?: SqliteConnectionPool;
 }
 
 /**
@@ -32,6 +40,8 @@ export interface BaseSqliteStorageConfig {
 export abstract class BaseSqliteStorage<_TMetadataType> {
   protected db: Database.Database | null = null;
   protected initialized: boolean = false;
+  protected usingPool: boolean = false;
+  private connectionPool: SqliteConnectionPool | null = null;
 
   constructor(protected readonly config: BaseSqliteStorageConfig) {}
 
@@ -55,21 +65,36 @@ export abstract class BaseSqliteStorage<_TMetadataType> {
     logger.debug("Initializing SQLite storage", {
       dbPath: this.config.dbPath,
       readonly: this.config.readonly,
+      usePool: this.config.useConnectionPool ?? true,
     });
 
     try {
-      const options: Database.Options = {
-        readonly: this.config.readonly ?? false,
-        fileMustExist: this.config.fileMustExist ?? false,
-        timeout: this.config.timeout ?? 5000,
-      };
+      const usePool = this.config.useConnectionPool ?? true;
 
-      this.db = new Database(this.config.dbPath, options);
+      if (usePool && !this.config.readonly) {
+        // Use connection pool
+        this.connectionPool = this.config.connectionPool ?? getGlobalConnectionPool();
+        this.db = this.connectionPool.getConnection(this.config.dbPath);
+        this.usingPool = true;
+        logger.debug("Using pooled SQLite connection", { dbPath: this.config.dbPath });
+      } else {
+        // Create dedicated connection (for readonly or when pool is disabled)
+        const options: Database.Options = {
+          readonly: this.config.readonly ?? false,
+          fileMustExist: this.config.fileMustExist ?? false,
+          timeout: this.config.timeout ?? 5000,
+        };
 
-      // Enable WAL mode to improve concurrency performance
-      this.db.pragma("journal_mode = WAL");
-      this.db.pragma("wal_autocheckpoint = 1000");
-      this.db.pragma("synchronous = NORMAL");
+        this.db = new Database(this.config.dbPath, options);
+        this.usingPool = false;
+
+        // Enable WAL mode to improve concurrency performance
+        this.db.pragma("journal_mode = WAL");
+        this.db.pragma("wal_autocheckpoint = 1000");
+        this.db.pragma("synchronous = NORMAL");
+
+        logger.debug("Created dedicated SQLite connection", { dbPath: this.config.dbPath });
+      }
 
       // is marked as initialized so that createTableSchema can use the getDb
       this.initialized = true;
@@ -82,6 +107,7 @@ export abstract class BaseSqliteStorage<_TMetadataType> {
       logger.info("SQLite storage initialized", {
         dbPath: this.config.dbPath,
         tableName: this.getTableName(),
+        usingPool: this.usingPool,
       });
     } catch (error) {
       this.initialized = false;
@@ -213,12 +239,20 @@ export abstract class BaseSqliteStorage<_TMetadataType> {
 
   /**
    * Close the storage connection
+   * If using connection pool, releases the connection instead of closing it
    */
   async close(): Promise<void> {
     if (this.db) {
       try {
-        this.db.close();
-        logger.info("SQLite storage closed", { dbPath: this.config.dbPath });
+        if (this.usingPool && this.connectionPool) {
+          // Release connection back to pool
+          this.connectionPool.releaseConnection(this.config.dbPath);
+          logger.info("SQLite connection released to pool", { dbPath: this.config.dbPath });
+        } else {
+          // Close dedicated connection
+          this.db.close();
+          logger.info("SQLite storage closed", { dbPath: this.config.dbPath });
+        }
       } catch (error) {
         logger.error("Error closing SQLite database", {
           dbPath: this.config.dbPath,

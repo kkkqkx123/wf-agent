@@ -117,6 +117,17 @@ import type {
 
 import type { AgentCustomEvent } from "./agent-events.js";
 import type {
+  AgentStartedEvent,
+  AgentCompletedEvent,
+  AgentTurnStartedEvent,
+  AgentTurnCompletedEvent,
+  AgentMessageStartedEvent,
+  AgentMessageCompletedEvent,
+  AgentToolExecutionStartedEvent,
+  AgentToolExecutionCompletedEvent,
+  AgentIterationCompletedEvent,
+} from "./agent-events.js";
+import type {
   SkillLoadStartedEvent,
   SkillLoadCompletedEvent,
   SkillLoadFailedEvent,
@@ -182,6 +193,15 @@ export type Event =
   | LLMStreamErrorEvent
   | ContextCompressionRequestedEvent
   | ContextCompressionCompletedEvent
+  | AgentStartedEvent
+  | AgentCompletedEvent
+  | AgentTurnStartedEvent
+  | AgentTurnCompletedEvent
+  | AgentMessageStartedEvent
+  | AgentMessageCompletedEvent
+  | AgentToolExecutionStartedEvent
+  | AgentToolExecutionCompletedEvent
+  | AgentIterationCompletedEvent
   | AgentCustomEvent
   | SkillLoadStartedEvent
   | SkillLoadCompletedEvent

@@ -4,10 +4,10 @@
  */
 
 import type {
-  CheckpointStorageCallback,
-  WorkflowStorageCallback,
-  WorkflowExecutionStorageCallback,
-  TaskStorageCallback,
+  CheckpointStorageAdapter,
+  WorkflowStorageAdapter,
+  WorkflowExecutionStorageAdapter,
+  TaskStorageAdapter,
 } from "@wf-agent/storage";
 import {
   JsonCheckpointStorage,
@@ -18,6 +18,7 @@ import {
   type BaseJsonStorageConfig,
   SqliteCheckpointStorage,
   SqliteWorkflowStorage,
+  SqliteWorkflowExecutionStorage,
   SqliteTaskStorage,
   type BaseSqliteStorageConfig,
 } from "@wf-agent/storage";
@@ -32,10 +33,10 @@ registerLogger("cli-app.storage-manager", logger);
  * Unified management of all storage instances
  */
 export class StorageManager {
-  private workflowStorage: WorkflowStorageCallback | null = null;
-  private workflowExecutionStorage: WorkflowExecutionStorageCallback | null = null;
-  private checkpointStorage: CheckpointStorageCallback | null = null;
-  private taskStorage: TaskStorageCallback | null = null;
+  private workflowStorage: WorkflowStorageAdapter | null = null;
+  private workflowExecutionStorage: WorkflowExecutionStorageAdapter | null = null;
+  private checkpointStorage: CheckpointStorageAdapter | null = null;
+  private taskStorage: TaskStorageAdapter | null = null;
   private initialized: boolean = false;
 
   constructor(private config: CLIConfig) {}
@@ -137,10 +138,9 @@ export class StorageManager {
     await this.workflowStorage.initialize();
     logger.info("WorkflowStorage initialized", { dbPath, enableWAL });
 
-    // Note: SQLite WorkflowExecutionStorage not yet implemented
-    // this.workflowExecutionStorage = new SqliteWorkflowExecutionStorage(baseConfig);
-    // await this.workflowExecutionStorage.initialize();
-    // logger.info("WorkflowExecutionStorage initialized", { dbPath, enableWAL });
+    this.workflowExecutionStorage = new SqliteWorkflowExecutionStorage(baseConfig);
+    await this.workflowExecutionStorage.initialize();
+    logger.info("WorkflowExecutionStorage initialized", { dbPath, enableWAL });
 
     this.checkpointStorage = new SqliteCheckpointStorage(baseConfig);
     await this.checkpointStorage.initialize();
@@ -154,28 +154,28 @@ export class StorageManager {
   /**
    * Get workflow storage
    */
-  getWorkflowStorage(): WorkflowStorageCallback | null {
+  getWorkflowStorage(): WorkflowStorageAdapter | null {
     return this.workflowStorage;
   }
 
   /**
    * Get workflow execution storage
    */
-  getWorkflowExecutionStorage(): WorkflowExecutionStorageCallback | null {
+  getWorkflowExecutionStorage(): WorkflowExecutionStorageAdapter | null {
     return this.workflowExecutionStorage;
   }
 
   /**
    * Get checkpoint storage
    */
-  getCheckpointStorage(): CheckpointStorageCallback | null {
+  getCheckpointStorage(): CheckpointStorageAdapter | null {
     return this.checkpointStorage;
   }
 
   /**
    * Get task storage
    */
-  getTaskStorage(): TaskStorageCallback | null {
+  getTaskStorage(): TaskStorageAdapter | null {
     return this.taskStorage;
   }
 

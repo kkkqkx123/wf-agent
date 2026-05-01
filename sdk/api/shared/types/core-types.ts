@@ -29,6 +29,8 @@ export interface SDKOptions {
   workflowStorageAdapter?: WorkflowStorageAdapter;
   /** Task storage adapter interface (implemented by the application layer) */
   taskStorageAdapter?: TaskStorageAdapter;
+  /** Workflow execution storage adapter interface (implemented by the application layer) */
+  workflowExecutionStorageAdapter?: WorkflowExecutionStorageAdapter;
   /** Whether to enable verification */
   enableValidation?: boolean;
   /** Predefined feature options */

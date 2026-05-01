@@ -131,10 +131,7 @@ export { ExecuteWorkflowCommand } from "./workflow/operations/execution/execute-
 export type { ExecuteWorkflowParams } from "./workflow/operations/execution/execute-workflow-command.js";
 
 export { ExecuteWorkflowStreamCommand } from "./workflow/operations/execution/execute-workflow-stream-command.js";
-export type {
-  ExecuteWorkflowStreamParams,
-  WorkflowStreamEvent,
-} from "./workflow/operations/execution/execute-workflow-stream-command.js";
+export type { ExecuteWorkflowStreamParams } from "./workflow/operations/execution/execute-workflow-stream-command.js";
 
 export { PauseWorkflowCommand } from "./workflow/operations/execution/pause-workflow-command.js";
 

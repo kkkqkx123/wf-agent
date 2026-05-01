@@ -93,63 +93,28 @@ import { WorkflowExecutionEntity } from "../../workflow/entities/workflow-execut
 
 /** Global container instance */
 let container: Container | null = null;
-/** Storage adapters provided by the application layer */
-let storageAdapter: CheckpointStorageAdapter | null = null;
-let workflowStorageAdapter: WorkflowStorageAdapter | null = null;
-let taskStorageAdapter: TaskStorageAdapter | null = null;
 
 /**
- * Set checkpoint storage adapter
- * @param adapter Implementation of the checkpoint storage adapter interface
+ * Storage adapter configuration for initialization
+ * This is temporarily stored until the container is initialized
  */
-export function setStorageAdapter(adapter: CheckpointStorageAdapter): void {
-  storageAdapter = adapter;
+interface StorageAdapterConfig {
+  checkpoint?: CheckpointStorageAdapter;
+  workflow?: WorkflowStorageAdapter;
+  task?: TaskStorageAdapter;
+  workflowExecution?: any; // WorkflowExecutionStorageAdapter type will be added later
 }
 
-/**
- * Get the checkpoint storage adapter
- * @returns Implementation of the checkpoint storage adapter interface
- * @throws Error If the storage adapter is not initialized
- */
-export function getStorageAdapter(): CheckpointStorageAdapter {
-  if (!storageAdapter) {
-    throw new Error(
-      "Storage adapter not initialized. " + "Please call setStorageAdapter() before using SDK.",
-    );
-  }
-  return storageAdapter;
-}
+let pendingStorageConfig: StorageAdapterConfig | null = null;
 
 /**
- * Set workflow storage adapter
- * @param adapter Implementation of the workflow storage adapter interface
+ * Initialize the DI container
+ * Configure all service bindings in the order of dependencies
+ *
+ * @returns The configured container instance
  */
-export function setWorkflowStorageAdapter(adapter: WorkflowStorageAdapter): void {
-  workflowStorageAdapter = adapter;
-}
-
-/**
- * Get the workflow storage adapter
- * @returns Implementation of the workflow storage adapter interface or null
- */
-export function getWorkflowStorageAdapter(): WorkflowStorageAdapter | null {
-  return workflowStorageAdapter;
-}
-
-/**
- * Set task storage adapter
- * @param adapter Implementation of the task storage adapter interface
- */
-export function setTaskStorageAdapter(adapter: TaskStorageAdapter): void {
-  taskStorageAdapter = adapter;
-}
-
-/**
- * Get the task storage adapter
- * @returns Implementation of the task storage adapter interface or null
- */
-export function getTaskStorageAdapter(): TaskStorageAdapter | null {
-  return taskStorageAdapter;
+export function initializeContainer(): Container {
+  return initializeContainerWithAdapter();
 }
 
 /**
@@ -166,10 +131,50 @@ export function initializeContainerWithAdapter(storageAdapter?: CheckpointStorag
 
   container = new Container();
 
-  // If a storageAdapter is provided, set it.
+  // If a storageAdapter is provided via parameter, store it in pending config
   if (storageAdapter) {
-    setStorageAdapter(storageAdapter);
+    if (!pendingStorageConfig) {
+      pendingStorageConfig = {};
+    }
+    pendingStorageConfig.checkpoint = storageAdapter;
   }
+
+  // ============================================================
+  // Bind Storage Adapters in DI Container
+  // ============================================================
+
+  // CheckpointStorageAdapter
+  container
+    .bind(Identifiers.CheckpointStorageAdapter)
+    .toDynamicValue(() => {
+      if (!pendingStorageConfig?.checkpoint) {
+        throw new Error(
+          "CheckpointStorageAdapter not provided. " +
+            "Please provide it via initializeContainerWithAdapter() parameter or call setStorageAdapter() before initialization."
+        );
+      }
+      return pendingStorageConfig.checkpoint;
+    })
+    .inSingletonScope();
+
+  // WorkflowStorageAdapter
+  container
+    .bind(Identifiers.WorkflowStorageAdapter)
+    .toDynamicValue(() => {
+      return pendingStorageConfig?.workflow || null;
+    })
+    .inSingletonScope();
+
+  // TaskStorageAdapter
+  container
+    .bind(Identifiers.TaskStorageAdapter)
+    .toDynamicValue(() => {
+      return pendingStorageConfig?.task || null;
+    })
+    .inSingletonScope();
+
+  // Clear pending config after binding (adapters are now in DI container)
+  pendingStorageConfig = null;
 
   // ============================================================
   // First Layer: A storage layer service with no dependencies
@@ -191,7 +196,10 @@ export function initializeContainerWithAdapter(storageAdapter?: CheckpointStorag
   // Level 2: Business layer services with no dependencies
   // ============================================================
 
-  container.bind(Identifiers.EventRegistry).to(EventRegistry).inSingletonScope();
+  container
+    .bind(Identifiers.EventRegistry)
+    .toDynamicValue(() => new EventRegistry())
+    .inSingletonScope();
 
   container.bind(Identifiers.ToolRegistry).to(ToolRegistry).inSingletonScope();
 
@@ -351,21 +359,17 @@ export function initializeContainerWithAdapter(storageAdapter?: CheckpointStorag
   // ============================================================
 
   // CheckpointState - Checkpoint State Manager
-  // Requires CheckpointStorageCallback implementation from the application layer.
-  // Storage callbacks can be provided in two ways:
-  // 1. 在调用 initializeContainer() 时传入 storageCallback 参数
-  // 2. 在初始化容器前调用 setStorageCallback() 函数
+  // Requires CheckpointStorageAdapter from DI container
   container
     .bind(Identifiers.CheckpointState)
     .toDynamicValue((c: IContainer): CheckpointState => {
       const eventManager = c.get(Identifiers.EventRegistry) as EventRegistry;
-      const adapter = getStorageAdapter();
+      const adapter = c.get(Identifiers.CheckpointStorageAdapter) as CheckpointStorageAdapter;
 
       if (!adapter) {
         throw new Error(
           "CheckpointState requires a CheckpointStorageAdapter implementation. " +
-            "Please provide it either via initializeContainerWithAdapter(storageAdapter) parameter " +
-            "or by calling setStorageAdapter() before initialization.",
+            "Please provide it via initializeContainerWithAdapter(storageAdapter) parameter."
         );
       }
 
@@ -819,9 +823,7 @@ export function resetContainer(): void {
     container.clearAllCaches();
     container = null;
   }
-  storageAdapter = null;
-  workflowStorageAdapter = null;
-  taskStorageAdapter = null;
+  pendingStorageConfig = null;
 }
 
 /**

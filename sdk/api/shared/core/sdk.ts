@@ -15,9 +15,6 @@ import type { SDKOptions } from "../types/core-types.js";
 import { sdkLogger as logger } from "../../../utils/logger.js";
 import { getErrorMessage } from "@wf-agent/common-utils";
 import {
-  setStorageAdapter,
-  setWorkflowStorageAdapter,
-  setTaskStorageAdapter,
   getContainer,
 } from "../../../core/di/container-config.js";
 import * as Identifiers from "../../../core/di/service-identifiers.js";
@@ -28,6 +25,7 @@ import { TomlParserManager } from "../../../utils/toml-parser-manager.js";
 import type { ServiceIdentifier } from "@wf-agent/common-utils";
 import type { TriggerTemplateRegistry } from "../../../core/registry/trigger-template-registry.js";
 import type { WorkflowRegistry } from "../../../workflow/stores/workflow-registry.js";
+import { StorageInitializationService } from "../../../core/services/storage-initialization-service.js";
 import type { ToolRegistry } from "../../../core/registry/tool-registry.js";
 
 /**
@@ -42,17 +40,9 @@ class SDK {
    * @param options SDK configuration options
    */
   constructor(options?: SDKOptions) {
-    // If storage adapters are provided, set them to the DI container.
-    if (options?.checkpointStorageAdapter) {
-      setStorageAdapter(options.checkpointStorageAdapter);
-    }
-    if (options?.workflowStorageAdapter) {
-      setWorkflowStorageAdapter(options.workflowStorageAdapter);
-    }
-    if (options?.taskStorageAdapter) {
-      setTaskStorageAdapter(options.taskStorageAdapter);
-    }
-
+    // Store options for later initialization in bootstrap
+    this.pendingOptions = options;
+    
     // Initialize the API factory.
     this.factory = APIFactory.getInstance();
     // Initialize the dependency manager
@@ -63,13 +53,43 @@ class SDK {
       logger.error(`Failed to bootstrap SDK: ${getErrorMessage(error)}`);
     });
   }
+  
+  /**
+   * Pending options stored for bootstrap phase
+   */
+  private pendingOptions?: SDKOptions;
 
   /**
    * Initialize preset functionality
    * @param options SDK configuration options
    */
   private async bootstrap(options?: SDKOptions): Promise<void> {
-    // Preload lazy-loaded modules (TomlParserManager)
+    // Step 1: Initialize storage adapters through StorageInitializationService
+    try {
+      const storageService = StorageInitializationService.getInstance();
+      
+      // Only initialize if adapters are provided
+      if (options?.checkpointStorageAdapter || options?.taskStorageAdapter || options?.workflowStorageAdapter || options?.workflowExecutionStorageAdapter) {
+        await storageService.initialize({
+          checkpoint: options.checkpointStorageAdapter,
+          task: options.taskStorageAdapter,
+          workflow: options.workflowStorageAdapter,
+          workflowExecution: options.workflowExecutionStorageAdapter,
+        });
+        
+        logger.info("Storage adapters initialized via StorageInitializationService", {
+          checkpoint: !!options.checkpointStorageAdapter,
+          task: !!options.taskStorageAdapter,
+          workflow: !!options.workflowStorageAdapter,
+          workflowExecution: !!options.workflowExecutionStorageAdapter,
+        });
+      }
+    } catch (error) {
+      logger.error("Failed to initialize storage adapters", { error });
+      // Don't throw here - allow SDK to work without storage if needed
+    }
+    
+    // Step 2: Preload lazy-loaded modules (TomlParserManager)
     try {
       await TomlParserManager.initialize();
     } catch (error) {
@@ -297,6 +317,31 @@ class SDK {
       }
     }
 
+    // Add storage adapter health checks
+    try {
+      const storageService = StorageInitializationService.getInstance();
+      if (storageService.isInitialized()) {
+        const storageHealth = await storageService.healthCheck();
+        details["storageAdapters"] = {
+          healthy: storageHealth.overallHealthy,
+          results: storageHealth.results,
+          timestamp: storageHealth.timestamp.toISOString(),
+        };
+        
+        if (!storageHealth.overallHealthy) {
+          overallStatus = "degraded";
+        }
+      } else {
+        details["storageAdapters"] = { status: "not_initialized" };
+      }
+    } catch (error) {
+      details["storageAdapters"] = {
+        status: "unhealthy",
+        error: getErrorMessage(error),
+      };
+      overallStatus = "degraded";
+    }
+
     return { status: overallStatus, details };
   }
 
@@ -304,6 +349,13 @@ class SDK {
    * Terminate the SDK instance and clean up resources.
    */
   async destroy(): Promise<void> {
+    // Shutdown storage adapters first
+    try {
+      await this.shutdown();
+    } catch (error) {
+      logger.error("Error during shutdown", { error: getErrorMessage(error) });
+    }
+
     // Clean up the resources of each module.
     const cleanupTasks = [
       { name: "workflows", task: () => this.workflows.clear() },
@@ -338,6 +390,30 @@ class SDK {
     }
 
     logger.info("SDK instance destroyed");
+  }
+
+  /**
+   * Shutdown the SDK gracefully
+   * Closes all storage adapters and releases resources
+   */
+  async shutdown(): Promise<void> {
+    logger.info("Shutting down SDK...");
+
+    try {
+      // Shutdown storage adapters through StorageInitializationService
+      const storageService = StorageInitializationService.getInstance();
+      if (storageService.isInitialized()) {
+        await storageService.shutdown();
+        logger.info("Storage adapters shut down successfully");
+      } else {
+        logger.debug("StorageInitializationService not initialized, skipping shutdown");
+      }
+    } catch (error) {
+      logger.error("Failed to shutdown storage adapters", { error: getErrorMessage(error) });
+      // Continue with cleanup even if storage shutdown fails
+    }
+
+    logger.info("SDK shutdown completed");
   }
 }
 

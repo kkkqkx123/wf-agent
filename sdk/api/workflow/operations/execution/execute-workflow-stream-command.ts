@@ -37,11 +37,6 @@ export interface ExecuteWorkflowStreamParams {
 }
 
 /**
- * Workflow stream event - union of all relevant events during workflow execution
- */
-export type WorkflowStreamEvent = BaseEvent;
-
-/**
  * Execute Workflow Stream Command
  *
  * Workflow:
@@ -54,7 +49,7 @@ export type WorkflowStreamEvent = BaseEvent;
  * The stream yields events from the EventRegistry during execution,
  * allowing callers to process events in real-time.
  */
-export class ExecuteWorkflowStreamCommand extends BaseCommand<AsyncGenerator<WorkflowStreamEvent>> {
+export class ExecuteWorkflowStreamCommand extends BaseCommand<AsyncGenerator<BaseEvent>> {
   constructor(
     private readonly params: ExecuteWorkflowStreamParams,
     private readonly dependencies: APIDependencyManager,
@@ -62,14 +57,14 @@ export class ExecuteWorkflowStreamCommand extends BaseCommand<AsyncGenerator<Wor
     super();
   }
 
-  protected async executeInternal(): Promise<AsyncGenerator<WorkflowStreamEvent>> {
+  protected async executeInternal(): Promise<AsyncGenerator<BaseEvent>> {
     return this.executeStream();
   }
 
   /**
    * Execute workflow and yield events
    */
-  private async *executeStream(): AsyncGenerator<WorkflowStreamEvent> {
+  private async *executeStream(): AsyncGenerator<BaseEvent> {
     const lifecycleCoordinator = this.dependencies.getWorkflowLifecycleCoordinator();
     const workflowExecutionRegistry = this.dependencies.getWorkflowExecutionRegistry();
     const eventManager = this.dependencies.getEventManager();
@@ -89,8 +84,8 @@ export class ExecuteWorkflowStreamCommand extends BaseCommand<AsyncGenerator<Wor
 
     workflowExecutionRegistry.register(executionEntity);
 
-    const eventQueue: WorkflowStreamEvent[] = [];
-    let resolveEvent: ((value: IteratorResult<WorkflowStreamEvent>) => void) | null = null;
+    const eventQueue: BaseEvent[] = [];
+    let resolveEvent: ((value: IteratorResult<BaseEvent>) => void) | null = null;
     let executionComplete = false;
 
     const eventListener = (event: BaseEvent) => {
@@ -143,7 +138,7 @@ export class ExecuteWorkflowStreamCommand extends BaseCommand<AsyncGenerator<Wor
         } else if (!executionComplete) {
           await Promise.race([
             executionPromise,
-            new Promise<IteratorResult<WorkflowStreamEvent>>(resolve => {
+            new Promise<IteratorResult<BaseEvent>>(resolve => {
               resolveEvent = resolve;
             }).then(result => {
               if (result.done === false) {
@@ -153,7 +148,7 @@ export class ExecuteWorkflowStreamCommand extends BaseCommand<AsyncGenerator<Wor
             }),
           ]).then(result => {
             if (result && typeof result === "object" && "value" in result) {
-              return result as IteratorResult<WorkflowStreamEvent>;
+              return result as IteratorResult<BaseEvent>;
             }
             return null;
           });

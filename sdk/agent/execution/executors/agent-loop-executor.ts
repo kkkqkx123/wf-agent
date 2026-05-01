@@ -20,10 +20,9 @@
  * - tool-schema-helper: Tool schema utilities (shared with Graph)
  */
 
-import type { AgentLoopResult, AgentStreamEvent, AgentCustomEvent } from "@wf-agent/types";
+import type { AgentLoopResult, AgentStreamEvent, AgentCustomEvent, MessageStreamEvent } from "@wf-agent/types";
 import { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import { ToolRegistry } from "../../../core/registry/tool-registry.js";
-import type { MessageStreamEvent } from "../../../core/llm/message-stream-events.js";
 
 import { LLMExecutor } from "../../../core/executors/llm-executor.js";
 import { ToolCallExecutor } from "../../../core/executors/tool-call-executor.js";

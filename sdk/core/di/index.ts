@@ -24,10 +24,4 @@ export {
   getContainer,
   resetContainer,
   isContainerInitialized,
-  setStorageAdapter,
-  getStorageAdapter,
-  setWorkflowStorageAdapter,
-  getWorkflowStorageAdapter,
-  setTaskStorageAdapter,
-  getTaskStorageAdapter,
 } from "./container-config.js";

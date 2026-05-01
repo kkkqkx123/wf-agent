@@ -18,7 +18,7 @@ import {
   MessageStreamErrorEvent,
   MessageStreamAbortEvent,
   MessageStreamEndEvent,
-} from "./message-stream-events.js";
+} from "@wf-agent/types";
 import { getErrorOrNew } from "@wf-agent/common-utils";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 

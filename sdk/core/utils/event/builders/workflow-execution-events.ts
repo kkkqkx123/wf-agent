@@ -3,7 +3,7 @@
  * Provides builders for workflow execution lifecycle events
  */
 
-import { now } from "@wf-agent/common-utils";
+import { now, generateId } from "@wf-agent/common-utils";
 import type { WorkflowExecution, WorkflowExecutionResult } from "@wf-agent/types";
 import type {
   WorkflowExecutionStartedEvent,
@@ -31,6 +31,7 @@ import type { WorkflowExecutionEntity } from "../../../../workflow/entities/work
  * Build workflow execution started event
  */
 export const buildWorkflowExecutionStartedEvent = (workflowExecutionEntity: WorkflowExecutionEntity): WorkflowExecutionStartedEvent => ({
+  id: generateId(),
   type: "WORKFLOW_EXECUTION_STARTED",
   timestamp: now(),
   workflowId: workflowExecutionEntity.getWorkflowId(),
@@ -45,6 +46,7 @@ export const buildWorkflowExecutionCompletedEvent = (
   workflowExecutionEntity: WorkflowExecutionEntity,
   result: WorkflowExecutionResult,
 ): WorkflowExecutionCompletedEvent => ({
+  id: generateId(),
   type: "WORKFLOW_EXECUTION_COMPLETED",
   timestamp: now(),
   workflowId: workflowExecutionEntity.getWorkflowId(),
@@ -62,6 +64,7 @@ export const buildWorkflowExecutionFailedEvent = createErrorBuilder<WorkflowExec
  * Build workflow execution paused event
  */
 export const buildWorkflowExecutionPausedEvent = (workflowExecutionEntity: WorkflowExecutionEntity): WorkflowExecutionPausedEvent => ({
+  id: generateId(),
   type: "WORKFLOW_EXECUTION_PAUSED",
   timestamp: now(),
   workflowId: workflowExecutionEntity.getWorkflowId(),
@@ -72,6 +75,7 @@ export const buildWorkflowExecutionPausedEvent = (workflowExecutionEntity: Workf
  * Build workflow execution resumed event
  */
 export const buildWorkflowExecutionResumedEvent = (workflowExecutionEntity: WorkflowExecutionEntity): WorkflowExecutionResumedEvent => ({
+  id: generateId(),
   type: "WORKFLOW_EXECUTION_RESUMED",
   timestamp: now(),
   workflowId: workflowExecutionEntity.getWorkflowId(),
@@ -85,6 +89,7 @@ export const buildWorkflowExecutionCancelledEvent = (
   workflowExecutionEntity: WorkflowExecutionEntity,
   reason?: string,
 ): WorkflowExecutionCancelledEvent => ({
+  id: generateId(),
   type: "WORKFLOW_EXECUTION_CANCELLED",
   timestamp: now(),
   workflowId: workflowExecutionEntity.getWorkflowId(),
@@ -100,6 +105,7 @@ export const buildWorkflowExecutionStateChangedEvent = (
   previousStatus: string,
   newStatus: string,
 ): WorkflowExecutionStateChangedEvent => ({
+  id: generateId(),
   type: "WORKFLOW_EXECUTION_STATE_CHANGED",
   timestamp: now(),
   workflowId: workflowExecutionEntity.getWorkflowId(),

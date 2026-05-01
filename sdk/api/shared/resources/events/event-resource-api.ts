@@ -12,7 +12,8 @@
  */
 
 import { ReadonlyResourceAPI } from "../generic-resource-api.js";
-import type { BaseEvent, Event, EventType } from "@wf-agent/types";
+import type { Event, EventType } from "@wf-agent/types";
+import { isNodeEvent } from "@wf-agent/types";
 import type { Timestamp } from "@wf-agent/types";
 import { DispatchEventCommand } from "../../operations/events/dispatch-event-command.js";
 import type { APIDependencyManager } from "../../core/sdk-dependencies.js";
@@ -133,8 +134,8 @@ export interface EventStats {
  * - Collects event history by listening to EventRegistry
  * - Provides real-time event query and statistics functionality
  */
-export class EventResourceAPI extends ReadonlyResourceAPI<BaseEvent, string, EventFilter> {
-  private eventHistory: BaseEvent[] = [];
+export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFilter> {
+  private eventHistory: Event[] = [];
   private dependencies: APIDependencyManager;
   private executor: CommandExecutor;
   private unsubscribe?: () => void;
@@ -175,7 +176,7 @@ export class EventResourceAPI extends ReadonlyResourceAPI<BaseEvent, string, Eve
   /**
    * Add event to history (internal method)
    */
-  private addEventToHistory(event: BaseEvent): void {
+  private addEventToHistory(event: Event): void {
     this.eventHistory.push(event);
 
     // Auto-trim history
@@ -204,26 +205,22 @@ export class EventResourceAPI extends ReadonlyResourceAPI<BaseEvent, string, Eve
    * @param id Event ID
    * @returns Event object, or null if not found
    */
-  protected async getResource(id: string): Promise<BaseEvent | null> {
-    return (
-      this.eventHistory.find(
-        event => `${event.type}-${event.executionId}-${event.timestamp}` === id,
-      ) || null
-    );
+  protected async getResource(id: string): Promise<Event | null> {
+    return this.eventHistory.find(event => event.id === id) || null;
   }
 
   /**
    * Get all events
    * @returns Event array
    */
-  protected async getAllResources(): Promise<BaseEvent[]> {
+  protected async getAllResources(): Promise<Event[]> {
     return [...this.eventHistory];
   }
 
   /**
    * Apply filter conditions
    */
-  protected override applyFilter(events: BaseEvent[], filter: EventFilter): BaseEvent[] {
+  protected override applyFilter(events: Event[], filter: EventFilter): Event[] {
     return events.filter(event => {
       if (filter.eventType && event.type !== filter.eventType) {
         return false;
@@ -234,13 +231,14 @@ export class EventResourceAPI extends ReadonlyResourceAPI<BaseEvent, string, Eve
       if (filter.workflowId && event.workflowId !== filter.workflowId) {
         return false;
       }
-      if (
-        filter.nodeId &&
-        "nodeId" in event &&
-        (event as { nodeId?: string }).nodeId !== filter.nodeId
-      ) {
-        return false;
+      
+      // Use type guard for safe nodeId access
+      if (filter.nodeId) {
+        if (!isNodeEvent(event) || event.nodeId !== filter.nodeId) {
+          return false;
+        }
       }
+      
       if (filter.timestampRange?.start && event.timestamp < filter.timestampRange.start) {
         return false;
       }
@@ -259,8 +257,8 @@ export class EventResourceAPI extends ReadonlyResourceAPI<BaseEvent, string, Eve
    * Dispatch event to system bus
    * @param event Event object
    */
-  async dispatch(event: BaseEvent): Promise<void> {
-    const command = new DispatchEventCommand({ event: event as Event }, this.dependencies);
+  async dispatch(event: Event): Promise<void> {
+    const command = new DispatchEventCommand({ event }, this.dependencies);
     await this.executor.execute(command);
   }
 
@@ -269,7 +267,7 @@ export class EventResourceAPI extends ReadonlyResourceAPI<BaseEvent, string, Eve
    * @param filter Filter conditions
    * @returns Event array
    */
-  async getEvents(filter?: EventFilter): Promise<BaseEvent[]> {
+  async getEvents(filter?: EventFilter): Promise<Event[]> {
     let events = this.eventHistory;
 
     // Apply filter conditions
@@ -324,7 +322,7 @@ export class EventResourceAPI extends ReadonlyResourceAPI<BaseEvent, string, Eve
    * @param filter Filter conditions
    * @returns Recent event array
    */
-  async getRecentEvents(count: number, filter?: EventFilter): Promise<BaseEvent[]> {
+  async getRecentEvents(count: number, filter?: EventFilter): Promise<Event[]> {
     let events = this.eventHistory;
 
     // Apply filter conditions
@@ -342,7 +340,7 @@ export class EventResourceAPI extends ReadonlyResourceAPI<BaseEvent, string, Eve
    * @param filter Filter conditions
    * @returns Matching event array
    */
-  async searchEvents(query: string, filter?: EventFilter): Promise<BaseEvent[]> {
+  async searchEvents(query: string, filter?: EventFilter): Promise<Event[]> {
     let events = this.eventHistory;
 
     // Apply filter conditions
@@ -352,15 +350,16 @@ export class EventResourceAPI extends ReadonlyResourceAPI<BaseEvent, string, Eve
 
     return events.filter(event => {
       // Search event type, execution ID, workflow ID, etc.
-      const searchableFields = [
+      const searchableFields: Array<string | undefined> = [
         event.type,
         event.executionId,
         event.workflowId,
-        `${event.type}-${event.executionId}-${event.timestamp}`,
+        event.id,
       ];
 
-      if ("nodeId" in event) {
-        searchableFields.push((event as { nodeId?: string }).nodeId);
+      // Safely add nodeId if present
+      if (isNodeEvent(event)) {
+        searchableFields.push(event.nodeId);
       }
 
       return searchableFields.some(
@@ -375,7 +374,7 @@ export class EventResourceAPI extends ReadonlyResourceAPI<BaseEvent, string, Eve
    * @param workflowId Workflow ID
    * @returns Timeline event array
    */
-  async getEventTimeline(executionId?: string, workflowId?: string): Promise<BaseEvent[]> {
+  async getEventTimeline(executionId?: string, workflowId?: string): Promise<Event[]> {
     let events = this.eventHistory;
 
     // Apply filter conditions

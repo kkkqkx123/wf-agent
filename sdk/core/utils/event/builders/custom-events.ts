@@ -3,7 +3,7 @@
  * Provides builders for custom events (NodeCustomEvent, AgentCustomEvent)
  */
 
-import { now } from "@wf-agent/common-utils";
+import { now, generateId } from "@wf-agent/common-utils";
 import type { NodeCustomEvent, AgentCustomEvent, Metadata } from "@wf-agent/types";
 
 // =============================================================================
@@ -22,6 +22,7 @@ export const buildNodeCustomEvent = (params: {
   eventData: Record<string, unknown>;
   metadata?: Metadata;
 }): NodeCustomEvent => ({
+  id: generateId(),
   type: "NODE_CUSTOM_EVENT",
   timestamp: now(),
   ...params,
@@ -44,6 +45,7 @@ export const buildAgentCustomEvent = (params: {
   nodeId?: string;
   metadata?: Metadata;
 }): AgentCustomEvent => ({
+  id: generateId(),
   type: "AGENT_CUSTOM_EVENT",
   timestamp: now(),
   ...params,

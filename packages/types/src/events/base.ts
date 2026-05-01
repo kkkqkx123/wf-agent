@@ -117,6 +117,8 @@ export type EventType =
  * Basic Event Types
  */
 export interface BaseEvent {
+  /** Unique event identifier */
+  id: ID;
   /** Event Type */
   type: EventType;
   /** timestamp */

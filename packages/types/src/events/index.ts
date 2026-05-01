@@ -39,6 +39,9 @@ export * from "./skill-events.js";
 // Re-export the EventType for backward compatibility.
 export { EventType } from "./base.js";
 
+// Export type guard functions
+export * from "./type-guards.js";
+
 // Export the union type of all event types
 import type {
   WorkflowExecutionStartedEvent,

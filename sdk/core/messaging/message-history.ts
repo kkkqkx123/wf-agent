@@ -16,7 +16,7 @@
  */
 
 import type { LLMMessage, LLMToolCall, MessageRole, MessageMarkMap } from "@wf-agent/types";
-import type { CheckpointStorageCallback } from "@wf-agent/storage";
+import type { CheckpointStorageAdapter } from "@wf-agent/storage";
 import { MessageArrayUtils } from "../utils/messages/message-array-utils.js";
 import {
   startNewBatch,
@@ -268,7 +268,7 @@ export class MessageHistory {
    * @returns New batch number
    */
   async startNewBatchWithCheckpoint(
-    checkpointStorage: CheckpointStorageCallback,
+    checkpointStorage: CheckpointStorageAdapter,
     boundaryIndex?: number,
     keepInMemory: number = 2,
   ): Promise<number> {
@@ -351,7 +351,7 @@ export class MessageHistory {
    * @param keepInMemory Number of recent batches to keep in memory
    */
   protected async releaseOldBatches(
-    checkpointStorage: CheckpointStorageCallback,
+    checkpointStorage: CheckpointStorageAdapter,
     keepInMemory: number,
   ): Promise<void> {
     const batchesToRelease = getBatchesToRelease(this.markMap, keepInMemory);
@@ -395,7 +395,7 @@ export class MessageHistory {
    */
   async loadBatchFromCheckpoint(
     batchId: number,
-    checkpointStorage: CheckpointStorageCallback,
+    checkpointStorage: CheckpointStorageAdapter,
   ): Promise<LLMMessage[] | null> {
     const checkpointId = getBatchCheckpointId(this.markMap, batchId);
 
@@ -440,7 +440,7 @@ export class MessageHistory {
    * @returns Complete array of all messages
    */
   async getAllMessagesWithRestore(
-    checkpointStorage: CheckpointStorageCallback,
+    checkpointStorage: CheckpointStorageAdapter,
   ): Promise<LLMMessage[]> {
     const allMessages: LLMMessage[] = [];
     const batches = this.markMap.boundaryToBatch;

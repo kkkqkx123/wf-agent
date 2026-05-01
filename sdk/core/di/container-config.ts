@@ -29,10 +29,6 @@ import type {
   CheckpointStorageAdapter,
   WorkflowStorageAdapter,
   TaskStorageAdapter,
-  // Backward compatibility aliases
-  CheckpointStorageCallback,
-  WorkflowStorageCallback,
-  TaskStorageCallback,
 } from "@wf-agent/storage";
 import * as Identifiers from "./service-identifiers.js";
 
@@ -105,27 +101,9 @@ let taskStorageAdapter: TaskStorageAdapter | null = null;
 /**
  * Set checkpoint storage adapter
  * @param adapter Implementation of the checkpoint storage adapter interface
- * @deprecated Use setStorageAdapter instead. This function will be removed in a future version.
- */
-export function setStorageCallback(callback: CheckpointStorageCallback): void {
-  setStorageAdapter(callback);
-}
-
-/**
- * Set checkpoint storage adapter
- * @param adapter Implementation of the checkpoint storage adapter interface
  */
 export function setStorageAdapter(adapter: CheckpointStorageAdapter): void {
   storageAdapter = adapter;
-}
-
-/**
- * Get the checkpoint storage adapter
- * @returns Implementation of the checkpoint storage adapter interface
- * @throws Error If the storage adapter is not initialized
- */
-export function getStorageCallback(): CheckpointStorageCallback {
-  return getStorageAdapter();
 }
 
 /**
@@ -145,27 +123,9 @@ export function getStorageAdapter(): CheckpointStorageAdapter {
 /**
  * Set workflow storage adapter
  * @param adapter Implementation of the workflow storage adapter interface
- * @deprecated Use setWorkflowStorageAdapter instead. This function will be removed in a future version.
- */
-export function setWorkflowStorageCallback(callback: WorkflowStorageCallback): void {
-  setWorkflowStorageAdapter(callback);
-}
-
-/**
- * Set workflow storage adapter
- * @param adapter Implementation of the workflow storage adapter interface
  */
 export function setWorkflowStorageAdapter(adapter: WorkflowStorageAdapter): void {
   workflowStorageAdapter = adapter;
-}
-
-/**
- * Get the workflow storage adapter
- * @returns Implementation of the workflow storage adapter interface or null
- * @deprecated Use getWorkflowStorageAdapter instead. This function will be removed in a future version.
- */
-export function getWorkflowStorageCallback(): WorkflowStorageCallback | null {
-  return getWorkflowStorageAdapter();
 }
 
 /**
@@ -179,15 +139,6 @@ export function getWorkflowStorageAdapter(): WorkflowStorageAdapter | null {
 /**
  * Set task storage adapter
  * @param adapter Implementation of the task storage adapter interface
- * @deprecated Use setTaskStorageAdapter instead. This function will be removed in a future version.
- */
-export function setTaskStorageCallback(callback: TaskStorageCallback): void {
-  setTaskStorageAdapter(callback);
-}
-
-/**
- * Set task storage adapter
- * @param adapter Implementation of the task storage adapter interface
  */
 export function setTaskStorageAdapter(adapter: TaskStorageAdapter): void {
   taskStorageAdapter = adapter;
@@ -196,30 +147,9 @@ export function setTaskStorageAdapter(adapter: TaskStorageAdapter): void {
 /**
  * Get the task storage adapter
  * @returns Implementation of the task storage adapter interface or null
- * @deprecated Use getTaskStorageAdapter instead. This function will be removed in a future version.
- */
-export function getTaskStorageCallback(): TaskStorageCallback | null {
-  return getTaskStorageAdapter();
-}
-
-/**
- * Get the task storage adapter
- * @returns Implementation of the task storage adapter interface or null
  */
 export function getTaskStorageAdapter(): TaskStorageAdapter | null {
   return taskStorageAdapter;
-}
-
-/**
- * Initialize the DI container
- * Configure all service bindings in the order of dependencies
- *
- * @param storageAdapter Implementation of the storage adapter interface (optional; if not provided, setStorageAdapter must be called before initialization)
- * @returns The configured container instance
- * @deprecated Use initializeContainerWithAdapter instead. This function will be removed in a future version.
- */
-export function initializeContainer(storageAdapter?: CheckpointStorageAdapter): Container {
-  return initializeContainerWithAdapter(storageAdapter);
 }
 
 /**
@@ -429,17 +359,17 @@ export function initializeContainerWithAdapter(storageAdapter?: CheckpointStorag
     .bind(Identifiers.CheckpointState)
     .toDynamicValue((c: IContainer): CheckpointState => {
       const eventManager = c.get(Identifiers.EventRegistry) as EventRegistry;
-      const callback = getStorageCallback();
+      const adapter = getStorageAdapter();
 
-      if (!callback) {
+      if (!adapter) {
         throw new Error(
-          "CheckpointState requires a CheckpointStorageCallback implementation. " +
-            "Please provide it either via initializeContainer(storageCallback) parameter " +
-            "or by calling setStorageCallback() before initialization.",
+          "CheckpointState requires a CheckpointStorageAdapter implementation. " +
+            "Please provide it either via initializeContainerWithAdapter(storageAdapter) parameter " +
+            "or by calling setStorageAdapter() before initialization.",
         );
       }
 
-      return new CheckpointState(callback, eventManager);
+      return new CheckpointState(adapter, eventManager);
     })
     .inSingletonScope();
 

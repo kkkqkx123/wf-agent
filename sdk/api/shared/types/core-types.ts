@@ -5,10 +5,10 @@
 
 import type { WorkflowExecutionOptions, PresetsConfig } from "@wf-agent/types";
 import type {
-  CheckpointStorageCallback,
-  WorkflowStorageCallback,
-  WorkflowExecutionStorageCallback,
-  TaskStorageCallback,
+  CheckpointStorageAdapter,
+  WorkflowStorageAdapter,
+  WorkflowExecutionStorageAdapter,
+  TaskStorageAdapter,
 } from "@wf-agent/storage";
 
 /**
@@ -23,12 +23,12 @@ export interface SDKOptions {
   defaultTimeout?: number;
   /** Whether to enable checkpoints */
   enableCheckpoints?: boolean;
-  /** Checkpoint storage callback interface (implemented by the application layer) */
-  checkpointStorageCallback?: CheckpointStorageCallback;
-  /** Workflow storage callback interface (implemented by the application layer) */
-  workflowStorageCallback?: WorkflowStorageCallback;
-  /** Task storage callback interface (implemented by the application layer) */
-  taskStorageCallback?: TaskStorageCallback;
+  /** Checkpoint storage adapter interface (implemented by the application layer) */
+  checkpointStorageAdapter?: CheckpointStorageAdapter;
+  /** Workflow storage adapter interface (implemented by the application layer) */
+  workflowStorageAdapter?: WorkflowStorageAdapter;
+  /** Task storage adapter interface (implemented by the application layer) */
+  taskStorageAdapter?: TaskStorageAdapter;
   /** Whether to enable verification */
   enableValidation?: boolean;
   /** Predefined feature options */
@@ -49,8 +49,8 @@ export interface SDKDependencies {
   scriptRegistry?: unknown;
   /** Event Manager */
   eventManager?: unknown;
-  /** Checkpoint storage callback interface (implemented by the application layer) */
-  checkpointStorageCallback?: CheckpointStorageCallback;
+  /** Checkpoint storage adapter interface (implemented by the application layer) */
+  checkpointStorageAdapter?: CheckpointStorageAdapter;
 }
 
 export type { WorkflowExecutionOptions };

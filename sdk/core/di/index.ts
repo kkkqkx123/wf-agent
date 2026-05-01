@@ -20,14 +20,14 @@ export * as ServiceIdentifiers from "./service-identifiers.js";
 
 // Export container configuration function
 export {
-  initializeContainer,
+  initializeContainerWithAdapter,
   getContainer,
   resetContainer,
   isContainerInitialized,
-  setStorageCallback,
-  getStorageCallback,
-  setWorkflowStorageCallback,
-  getWorkflowStorageCallback,
-  setTaskStorageCallback,
-  getTaskStorageCallback,
+  setStorageAdapter,
+  getStorageAdapter,
+  setWorkflowStorageAdapter,
+  getWorkflowStorageAdapter,
+  setTaskStorageAdapter,
+  getTaskStorageAdapter,
 } from "./container-config.js";

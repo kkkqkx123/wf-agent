@@ -2,7 +2,36 @@
  * Generic Delta Restorer
  *
  * Provides generic restoration logic for snapshots with delta support.
- * Used by both Graph and Agent modules.
+ * Used by both Graph and Agent modules to reconstruct full state from delta chains.
+ * 
+ * ## How Delta Restoration Works
+ * 
+ * 1. **Delta Chain**: Snapshots can form a chain where each delta references a base snapshot.
+ *    For example: Full Snapshot -> Delta 1 -> Delta 2 -> Delta 3
+ * 
+ * 2. **Recursive Restoration**: To restore from Delta 3, the system:
+ *    - Loads the base snapshot (Full Snapshot)
+ *    - Applies Delta 1 to get State 1
+ *    - Applies Delta 2 to get State 2
+ *    - Applies Delta 3 to get the final State 3
+ * 
+ * 3. **Chain Length Limits**: Long delta chains can impact performance. It's recommended
+ *    to create new full snapshots periodically to reset the chain.
+ * 
+ * ## Usage Example
+ * 
+ * ```typescript
+ * const restorer = new DeltaRestorer<MySnapshot>(
+ *   async (id) => await storage.load(id),
+ *   async (parentId) => await storage.listChildren(parentId)
+ * );
+ * 
+ * // Restore from any point in the delta chain
+ * const result = await restorer.restore('delta-3-id');
+ * console.log(result.snapshot); // Full reconstructed state
+ * console.log(result.deltasApplied); // Number of deltas applied (e.g., 3)
+ * console.log(result.restorationChain); // ['full-snapshot-id', 'delta-1-id', 'delta-2-id', 'delta-3-id']
+ * ```
  */
 
 import type { SnapshotBase } from "@wf-agent/types";

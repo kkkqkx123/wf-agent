@@ -5,7 +5,7 @@
  * Reconstruction Notes:
  * - Use APIFactory to centrally manage the creation of API instances.
  * - Simplify the configuration process and remove unnecessary configuration mechanisms.
- * - Support the application layer to implement the CheckpointStorageCallback interface.
+ * - Support the application layer to implement the CheckpointStorageAdapter interface.
  */
 
 import { APIFactory } from "./api-factory.js";
@@ -15,9 +15,9 @@ import type { SDKOptions } from "../types/core-types.js";
 import { sdkLogger as logger } from "../../../utils/logger.js";
 import { getErrorMessage } from "@wf-agent/common-utils";
 import {
-  setStorageCallback,
-  setWorkflowStorageCallback,
-  setTaskStorageCallback,
+  setStorageAdapter,
+  setWorkflowStorageAdapter,
+  setTaskStorageAdapter,
   getContainer,
 } from "../../../core/di/container-config.js";
 import * as Identifiers from "../../../core/di/service-identifiers.js";
@@ -42,15 +42,15 @@ class SDK {
    * @param options SDK configuration options
    */
   constructor(options?: SDKOptions) {
-    // If storage callbacks are provided, set them to the DI container.
-    if (options?.checkpointStorageCallback) {
-      setStorageCallback(options.checkpointStorageCallback);
+    // If storage adapters are provided, set them to the DI container.
+    if (options?.checkpointStorageAdapter) {
+      setStorageAdapter(options.checkpointStorageAdapter);
     }
-    if (options?.workflowStorageCallback) {
-      setWorkflowStorageCallback(options.workflowStorageCallback);
+    if (options?.workflowStorageAdapter) {
+      setWorkflowStorageAdapter(options.workflowStorageAdapter);
     }
-    if (options?.taskStorageCallback) {
-      setTaskStorageCallback(options.taskStorageCallback);
+    if (options?.taskStorageAdapter) {
+      setTaskStorageAdapter(options.taskStorageAdapter);
     }
 
     // Initialize the API factory.

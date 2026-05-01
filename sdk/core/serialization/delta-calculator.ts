@@ -2,7 +2,37 @@
  * Generic Delta Calculator
  *
  * Provides generic difference calculation logic for snapshots.
- * Used by both Graph and Agent modules.
+ * Used by both Graph and Agent modules to optimize storage by only storing changes.
+ * 
+ * ## How Delta Calculation Works
+ * 
+ * 1. **Full Snapshot**: When there's no previous snapshot or changes are too large,
+ *    the entire state is stored as a complete snapshot.
+ * 
+ * 2. **Delta Snapshot**: When changes are minimal, only the differences between
+ *    the current and previous snapshot are stored, significantly reducing storage size.
+ * 
+ * 3. **Deep Comparison**: The calculator performs deep object comparison to detect
+ *    nested changes accurately, with configurable field exclusions.
+ * 
+ * ## Usage Example
+ * 
+ * ```typescript
+ * const calculator = new DeltaCalculator<MySnapshot>({
+ *   deepCompare: true,
+ *   ignoreFields: ['_timestamp', 'metadata'],
+ * });
+ * 
+ * const result = calculator.calculate(previousSnapshot, currentSnapshot);
+ * 
+ * if (result.type === 'DELTA') {
+ *   // Store only the delta
+ *   await storage.save(deltaId, result.delta);
+ * } else {
+ *   // Store full snapshot
+ *   await storage.save(snapshotId, result.snapshot);
+ * }
+ * ```
  */
 
 import type { SnapshotBase, DeltaResult } from "@wf-agent/types";

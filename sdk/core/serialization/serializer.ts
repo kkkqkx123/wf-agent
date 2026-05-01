@@ -12,7 +12,6 @@ import type {
   SerializedError,
 } from "@wf-agent/types";
 import { compressBlob, decompressBlob } from "@wf-agent/storage";
-import { MigrationManager } from "./migration-manager.js";
 
 /**
  * Default serialization options
@@ -47,26 +46,34 @@ export class Serializer<TSnapshot extends SnapshotBase> {
    * @returns Serialized data as byte array (compressed if enabled)
    */
   async serialize(snapshot: TSnapshot): Promise<Uint8Array> {
-    const data = {
-      ...snapshot,
-      _version: this.currentVersion,
-      _timestamp: snapshot._timestamp ?? Date.now(),
-    };
+    try {
+      const data = {
+        ...snapshot,
+        _version: this.currentVersion,
+        _timestamp: snapshot._timestamp ?? Date.now(),
+      };
 
-    const json = this.prettyPrint ? JSON.stringify(data, null, 2) : JSON.stringify(data);
-    const bytes = new TextEncoder().encode(json);
+      const json = this.prettyPrint ? JSON.stringify(data, null, 2) : JSON.stringify(data);
+      const bytes = new TextEncoder().encode(json);
 
-    // Apply compression if enabled
-    if (this.compression) {
-      const result = await compressBlob(bytes, {
-        enabled: true,
-        algorithm: "gzip",
-        threshold: 512, // Compress data larger than 512 bytes
-      });
-      return result.compressed;
+      // Apply compression if enabled
+      if (this.compression) {
+        const result = await compressBlob(bytes, {
+          enabled: true,
+          algorithm: "gzip",
+          threshold: 512, // Compress data larger than 512 bytes
+        });
+        return result.compressed;
+      }
+
+      return bytes;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `Failed to serialize ${snapshot._entityType}: ${errorMessage}`,
+        { cause: error },
+      );
     }
-
-    return bytes;
   }
 
   /**
@@ -77,23 +84,36 @@ export class Serializer<TSnapshot extends SnapshotBase> {
    * @returns The deserialized snapshot
    */
   async deserialize(data: Uint8Array, options?: DeserializationOptions): Promise<TSnapshot> {
-    let bytes = data;
+    try {
+      let bytes = data;
 
-    // Try to detect and decompress if needed
-    // Check if data appears to be compressed (gzip magic number: 0x1f 0x8b)
-    if (data.length > 2 && data[0] === 0x1f && data[1] === 0x8b) {
-      try {
-        bytes = await decompressBlob(data, "gzip");
-      } catch (error) {
-        // If decompression fails, assume data is not compressed
-        console.warn("Failed to decompress data, treating as uncompressed:", error);
+      // Try to detect and decompress if needed
+      // Check if data appears to be compressed (gzip magic number: 0x1f 0x8b)
+      if (data.length > 2 && data[0] === 0x1f && data[1] === 0x8b) {
+        try {
+          bytes = await decompressBlob(data, "gzip");
+        } catch (error) {
+          // If decompression fails, assume data is not compressed
+          console.warn("Failed to decompress data, treating as uncompressed:", error);
+        }
       }
+
+      const json = new TextDecoder().decode(bytes);
+      const snapshot = JSON.parse(json) as TSnapshot;
+
+      return await this.migrateIfNeeded(snapshot, options?.targetVersion);
+    } catch (error) {
+      // Don't wrap migration errors as they already have context
+      if (error instanceof Error && error.message.includes("Failed to migrate")) {
+        throw error;
+      }
+      
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `Failed to deserialize data: ${errorMessage}`,
+        { cause: error },
+      );
     }
-
-    const json = new TextDecoder().decode(bytes);
-    const snapshot = JSON.parse(json) as TSnapshot;
-
-    return await this.migrateIfNeeded(snapshot, options?.targetVersion);
   }
 
   /**
@@ -107,21 +127,7 @@ export class Serializer<TSnapshot extends SnapshotBase> {
     const target = targetVersion ?? this.currentVersion;
 
     if (snapshot._version < target) {
-      // Try to use MigrationManager if available
-      const migrationManager = MigrationManager.getInstance();
-      
-      if (migrationManager.hasMigrations(snapshot._entityType)) {
-        try {
-          const result = await migrationManager.migrate(snapshot, snapshot._entityType, target);
-          return result.snapshot;
-        } catch (error) {
-          console.warn(`MigrationManager failed, falling back to performMigration:`, error);
-          // Fallback to simple migration
-          return this.performMigration(snapshot, target);
-        }
-      }
-      
-      // No migrations registered, use simple version bump
+      // Simple version bump migration
       return this.performMigration(snapshot, target);
     }
 

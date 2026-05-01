@@ -6,7 +6,7 @@
  * - Tracks task status, execution results, timestamps, etc.
  * - Provides functionality for querying and cleaning up tasks
  * - Routes task operations to the appropriate managers
- * - Supports optional persistence through TaskStorageCallback
+ * - Supports optional persistence through TaskstorageAdapter
  *
  * Design Principles:
  * - Global singleton, accessible through SingletonRegistry
@@ -30,7 +30,7 @@ import {
   hasLoadedInstance,
   isStoredTaskInfo,
 } from "../../../core/types/index.js";
-import type { TaskStorageCallback } from "@wf-agent/storage";
+import type { TaskStorageAdapter } from "@wf-agent/storage";
 import {
   SerializationRegistry,
   ErrorSerializer,
@@ -68,8 +68,8 @@ export interface TaskManager {
  * TaskRegistry Configuration
  */
 export interface TaskRegistryConfig {
-  /** Optional storage callback for persistence */
-  storageCallback?: TaskStorageCallback;
+  /** Optional storage adapter for persistence */
+  storageAdapter?: TaskStorageAdapter;
   /** Enable auto-persist on status changes */
   autoPersist?: boolean;
 }
@@ -78,8 +78,8 @@ export interface TaskRegistryConfig {
  * TaskRegistry - Task Registry (global singleton)
  *
  * Supports both in-memory and persistent storage modes:
- * - Without storageCallback: Pure in-memory mode (default, backward compatible)
- * - With storageCallback: Persistent mode with automatic sync
+ * - Without storageAdapter: Pure in-memory mode (default, backward compatible)
+ * - With storageAdapter: Persistent mode with automatic sync
  */
 export class TaskRegistry {
   private static instance: TaskRegistry;
@@ -106,9 +106,9 @@ export class TaskRegistry {
   };
 
   /**
-   * Storage callback for persistence (optional)
+   * Storage adapter for persistence (optional)
    */
-  private storageCallback?: TaskStorageCallback;
+  private storageAdapter?: TaskStorageAdapter;
 
   /**
    * Auto-persist flag
@@ -137,13 +137,13 @@ export class TaskRegistry {
    * @param config Configuration options
    */
   async initialize(config?: TaskRegistryConfig): Promise<void> {
-    if (config?.storageCallback) {
-      this.storageCallback = config.storageCallback;
+    if (config?.storageAdapter) {
+      this.storageAdapter = config.storageAdapter;
       this.autoPersist = config.autoPersist ?? true;
 
       // Initialize storage if not already initialized
       try {
-        await this.storageCallback.initialize();
+        await this.storageAdapter.initialize();
 
         // Load existing tasks from storage
         await this.loadFromStorage();
@@ -152,7 +152,7 @@ export class TaskRegistry {
       } catch (error) {
         // If storage initialization fails, fall back to in-memory mode
         logger.warn("Failed to initialize task storage, falling back to in-memory mode", { error });
-        this.storageCallback = undefined;
+        this.storageAdapter = undefined;
         this.autoPersist = false;
       }
     }
@@ -162,14 +162,14 @@ export class TaskRegistry {
    * Load tasks from storage
    */
   private async loadFromStorage(): Promise<void> {
-    if (!this.storageCallback) return;
+    if (!this.storageAdapter) return;
 
     try {
-      const taskIds = await this.storageCallback.list();
+      const taskIds = await this.storageAdapter.list();
       const registry = SerializationRegistry.getInstance();
 
       for (const taskId of taskIds) {
-        const data = await this.storageCallback.load(taskId);
+        const data = await this.storageAdapter.load(taskId);
         if (data) {
           const snapshot = await registry.deserialize<TaskSnapshot>("task", data);
           const storedTask: StoredTaskInfo = {
@@ -204,7 +204,7 @@ export class TaskRegistry {
    * @param taskId Task ID
    */
   private async persistTask(taskId: string): Promise<void> {
-    if (!this.storageCallback || !this.autoPersist) return;
+    if (!this.storageAdapter || !this.autoPersist) return;
 
     const taskInfo = this.tasks.get(taskId);
     if (!taskInfo) return;
@@ -269,7 +269,7 @@ export class TaskRegistry {
         errorStack: snapshot.error?.stack,
       };
 
-      await this.storageCallback.save(taskId, data, metadata);
+      await this.storageAdapter.save(taskId, data, metadata);
     } catch (error) {
       logger.warn(`Failed to persist task ${taskId}`, { error });
     }
@@ -280,10 +280,10 @@ export class TaskRegistry {
    * @param taskId Task ID
    */
   private async unpersistTask(taskId: string): Promise<void> {
-    if (!this.storageCallback) return;
+    if (!this.storageAdapter) return;
 
     try {
-      await this.storageCallback.delete(taskId);
+      await this.storageAdapter.delete(taskId);
     } catch (error) {
       logger.warn(`Failed to delete task ${taskId} from storage`, { error });
     }
@@ -651,9 +651,9 @@ export class TaskRegistry {
    */
   async clear(): Promise<void> {
     // Clear from storage if persistence is enabled
-    if (this.storageCallback) {
+    if (this.storageAdapter) {
       try {
-        await this.storageCallback.clear();
+        await this.storageAdapter.clear();
       } catch (error) {
         logger.warn("Failed to clear task storage", { error });
       }
@@ -681,9 +681,9 @@ export class TaskRegistry {
    * Close the registry and release resources
    */
   async close(): Promise<void> {
-    if (this.storageCallback) {
+    if (this.storageAdapter) {
       try {
-        await this.storageCallback.close();
+        await this.storageAdapter.close();
       } catch (error) {
         logger.warn("Failed to close task storage", { error });
       }
@@ -696,7 +696,7 @@ export class TaskRegistry {
    * @returns Whether persistence is enabled
    */
   isPersistenceEnabled(): boolean {
-    return this.storageCallback !== undefined;
+    return this.storageAdapter !== undefined;
   }
 
   /**
@@ -705,9 +705,9 @@ export class TaskRegistry {
    * @returns Task snapshot or null
    */
   async getTaskSnapshot(taskId: string): Promise<TaskSnapshot | null> {
-    if (!this.storageCallback) return null;
+    if (!this.storageAdapter) return null;
 
-    const data = await this.storageCallback.load(taskId);
+    const data = await this.storageAdapter.load(taskId);
     if (!data) return null;
 
     const registry = SerializationRegistry.getInstance();

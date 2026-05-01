@@ -3,5 +3,6 @@
  */
 
 export * from "./storage-errors.js";
-export * from "./callback/index.js";
+// Callback module has been removed - use adapter module instead
+// export * from "./callback/index.js";
 export * from "./adapter/index.js";

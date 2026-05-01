@@ -26,7 +26,7 @@ import {
   createCustomContextCompressionTrigger,
   createCustomContextCompressionWorkflow,
 } from "../../resources/predefined/index.js";
-import { initializeContainer, resetContainer, setStorageCallback } from "../di/container-config.js";
+import { initializeContainerWithAdapter, resetContainer, getContainer } from "../di/container-config.js";
 import type { WorkflowGraphRegistry } from "../../workflow/stores/workflow-graph-registry.js";
 import type { WorkflowExecutionRegistry } from "../../workflow/stores/workflow-execution-registry.js";
 import * as Identifiers from "../di/service-identifiers.js";
@@ -53,11 +53,10 @@ describe("Predefined Triggers -predefined triggers", () => {
   beforeEach(() => {
     // Reset container before each test
     resetContainer();
-    setStorageCallback(mockStorageCallback);
-    initializeContainer();
+    initializeContainerWithAdapter(mockStorageCallback);
 
     // Get instances from container
-    const container = initializeContainer(mockStorageCallback);
+    const container = getContainer();
     workflowGraphRegistry = container.get(Identifiers.WorkflowGraphRegistry) as WorkflowGraphRegistry;
     workflowExecutionRegistry = container.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry;
 

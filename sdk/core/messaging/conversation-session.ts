@@ -14,7 +14,7 @@
  */
 
 import type { LLMMessage, TokenUsageStats, Tool, LLMUsage } from "@wf-agent/types";
-import type { CheckpointStorageCallback } from "@wf-agent/storage";
+import type { CheckpointStorageAdapter } from "@wf-agent/storage";
 import { MessageHistory, type MessageHistoryState } from "./message-history.js";
 import { TokenUsageTracker } from "../utils/token/token-usage-tracker.js";
 import type { EventRegistry } from "../registry/event-registry.js";
@@ -50,7 +50,7 @@ export interface ConversationSessionConfig {
   /** Initial message */
   initialMessages?: LLMMessage[];
   /** Checkpoint Storage Callback for memory optimization */
-  checkpointStorage?: CheckpointStorageCallback;
+  checkpointStorage?: CheckpointStorageAdapter;
 }
 
 /**
@@ -71,7 +71,7 @@ export class ConversationSession extends MessageHistory implements LifecycleCapa
   protected eventManager?: EventRegistry;
   protected executionId?: string;
   protected workflowId?: string;
-  protected checkpointStorage?: CheckpointStorageCallback;
+  protected checkpointStorage?: CheckpointStorageAdapter;
 
   /**
    * Constructor
@@ -93,7 +93,7 @@ export class ConversationSession extends MessageHistory implements LifecycleCapa
    * Set checkpoint storage for memory optimization
    * @param storage Checkpoint storage callback
    */
-  setCheckpointStorage(storage: CheckpointStorageCallback): void {
+  setCheckpointStorage(storage: CheckpointStorageAdapter): void {
     this.checkpointStorage = storage;
   }
 
@@ -101,7 +101,7 @@ export class ConversationSession extends MessageHistory implements LifecycleCapa
    * Get checkpoint storage
    * @returns Checkpoint storage callback or undefined
    */
-  getCheckpointStorage(): CheckpointStorageCallback | undefined {
+  getCheckpointStorage(): CheckpointStorageAdapter | undefined {
     return this.checkpointStorage;
   }
 

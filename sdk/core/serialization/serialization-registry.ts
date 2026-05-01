@@ -9,7 +9,9 @@ import type { SnapshotBase, SerializationOptions, DeserializationOptions } from 
 import { Serializer } from "./serializer.js";
 import { DeltaCalculator } from "./delta-calculator.js";
 import { DeltaRestorer, SnapshotLoader, SnapshotLister } from "./delta-restorer.js";
-import { StrategyRegistry, type SerializationStrategy } from "./serialization-strategy.js";
+import { createContextualLogger } from "../../utils/contextual-logger.js";
+
+const logger = createContextualLogger({ operation: "SerializationRegistry" });
 
 /**
  * Serializer entry containing all serialization components for an entity type
@@ -32,11 +34,8 @@ export interface SerializerEntry {
 export class SerializationRegistry {
   private static instance: SerializationRegistry;
   private entries: Map<string, SerializerEntry> = new Map();
-  private strategyRegistry: StrategyRegistry;
 
-  private constructor() {
-    this.strategyRegistry = StrategyRegistry.getInstance();
-  }
+  private constructor() {}
 
   /**
    * Get the singleton instance
@@ -86,7 +85,7 @@ export class SerializationRegistry {
   }
 
   /**
-   * Serialize a snapshot using registered serializer or strategy
+   * Serialize a snapshot using registered serializer
    *
    * @param snapshot The snapshot to serialize
    * @param options Serialization options
@@ -98,30 +97,32 @@ export class SerializationRegistry {
   ): Promise<Uint8Array> {
     const entityType = snapshot._entityType;
     
-    // Try to use strategy if configured for this entity type
-    const strategy = this.strategyRegistry.getStrategy(entityType);
-    if (strategy && strategy.name !== "json-gzip") {
-      // Use custom strategy if not default
+    // Use registered serializer if available
+    const serializer = this.getSerializer(entityType);
+    if (serializer) {
       try {
-        return await strategy.serialize(snapshot);
+        return await serializer.serialize(snapshot);
       } catch (error) {
-        console.warn(`Strategy ${strategy.name} failed, falling back to serializer`, error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        logger.error(`Serialization failed for entity type '${entityType}'`, {
+          entityType,
+          error: errorMessage,
+        });
+        throw new Error(
+          `Failed to serialize ${entityType}: ${errorMessage}`,
+          { cause: error },
+        );
       }
     }
 
-    // Fall back to registered serializer
-    const serializer = this.getSerializer(entityType);
-    if (serializer) {
-      return serializer.serialize(snapshot);
-    }
-
-    // Use default serializer as last resort
+    // Use default serializer as fallback
+    logger.debug(`No serializer registered for '${entityType}', using default serializer`);
     const defaultSerializer = new Serializer<TSnapshot>(options);
     return defaultSerializer.serialize(snapshot);
   }
 
   /**
-   * Deserialize data to a snapshot using registered serializer or strategy
+   * Deserialize data to a snapshot using registered serializer
    *
    * @param entityType The entity type
    * @param data The serialized data
@@ -133,24 +134,27 @@ export class SerializationRegistry {
     data: Uint8Array,
     options?: DeserializationOptions,
   ): Promise<TSnapshot> {
-    // Try to use strategy if configured for this entity type
-    const strategy = this.strategyRegistry.getStrategy(entityType);
-    if (strategy && strategy.name !== "json-gzip") {
-      // Use custom strategy if not default
+    // Use registered serializer if available
+    const serializer = this.getSerializer(entityType);
+    if (serializer) {
       try {
-        return await strategy.deserialize<TSnapshot>(data);
+        return (await serializer.deserialize(data, options)) as TSnapshot;
       } catch (error) {
-        console.warn(`Strategy ${strategy.name} failed, falling back to serializer`, error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        logger.error(`Deserialization failed for entity type '${entityType}'`, {
+          entityType,
+          dataSize: data.length,
+          error: errorMessage,
+        });
+        throw new Error(
+          `Failed to deserialize ${entityType}: ${errorMessage}`,
+          { cause: error },
+        );
       }
     }
 
-    // Fall back to registered serializer
-    const serializer = this.getSerializer(entityType);
-    if (serializer) {
-      return (await serializer.deserialize(data, options)) as TSnapshot;
-    }
-
-    // Use default serializer as last resort
+    // Use default serializer as fallback
+    logger.debug(`No serializer registered for '${entityType}', using default serializer`);
     const defaultSerializer = new Serializer<TSnapshot>();
     return await defaultSerializer.deserialize(data, options);
   }
@@ -182,12 +186,6 @@ export class SerializationRegistry {
    */
   clear(): void {
     this.entries.clear();
-  }
-
-  /**
-   * Get the strategy registry for managing serialization strategies
-   */
-  getStrategyRegistry(): StrategyRegistry {
-    return this.strategyRegistry;
+    logger.info("Cleared all registered serializers");
   }
 }

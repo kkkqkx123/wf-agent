@@ -4,7 +4,6 @@
  * Handles the parsing and transformation of AgentLoopConfigFile
  */
 
-import * as fs from "fs/promises";
 import type {
   AgentLoopConfigFile,
   AgentLoopConfig,
@@ -15,10 +14,12 @@ import type { Condition } from "@wf-agent/types";
 import type { ParsedAgentLoopConfig } from "../types.js";
 import type { ConfigFormat } from "../types.js";
 import { parseToml, parseJson } from "../index.js";
+import { ValidationError, ConfigurationError } from "@wf-agent/types";
 import {
   validateAgentLoopConfig,
   getAgentLoopValidationWarnings,
 } from "../validators/agent-loop-validator.js";
+import { stringifyJson } from "../json-parser.js";
 
 /**
  * Basic structure check: Verify whether the parsed result has the basic structure of AgentLoopConfigFile
@@ -89,7 +90,7 @@ export function parseAndValidateAgentLoopConfig(
   const result = validateAgentLoopConfig(parsed.config);
 
   if (result.isErr()) {
-    const errorMessages = result.error.map(err => err.message).join("\n");
+    const errorMessages = result.error.map((err: ValidationError) => err.message).join("\n");
     throw new Error(`Agent Loop validation failed:\n${errorMessages}`);
   }
 
@@ -128,6 +129,29 @@ export function transformToAgentLoopConfig(configFile: AgentLoopConfigFile): Age
 }
 
 /**
+ * Export Agent Loop configuration
+ * @param config AgentLoopConfigFile object
+ * @param format Configuration format
+ * @returns String containing the configuration file content
+ */
+export function exportAgentLoopConfig(config: AgentLoopConfigFile, format: ConfigFormat): string {
+  switch (format) {
+    case "json":
+      return stringifyJson(config, true);
+    case "toml":
+      throw new ConfigurationError(
+        "TOML format does not support export, please use JSON format",
+        format,
+        {
+          suggestion: "Use JSON instead",
+        },
+      );
+    default:
+      throw new ConfigurationError(`Unsupported configuration format: ${format}`, format);
+  }
+}
+
+/**
  * Translate Hook Configuration
  * @param hookFile The Hook configuration file
  * @returns AgentHook
@@ -162,41 +186,4 @@ function parseCondition(conditionStr: string): Condition {
   return {
     expression: conditionStr,
   };
-}
-
-/**
- * Load Agent Loop configuration from the configuration file
- * @param filePath Path to the configuration file
- * @param onWarning Optional warning callback function, used to receive validation warnings
- * @returns AgentLoopConfig
- * @throws Throws an error if file reading fails, parsing fails, or validation fails
- */
-export async function loadAgentLoopConfig(
-  filePath: string,
-  onWarning?: (warnings: string[]) => void,
-): Promise<AgentLoopConfig> {
-  let content: string;
-  try {
-    content = await fs.readFile(filePath, "utf-8");
-  } catch (error) {
-    throw new Error(
-      `Unable to read configuration file "${filePath}": ${error instanceof Error ? error.message : String(error)}`,
-      { cause: error },
-    );
-  }
-
-  // Determine the format based on the file extension.
-  const format = filePath.endsWith(".toml") ? "toml" : "json";
-
-  let parsed: ParsedAgentLoopConfig;
-  try {
-    parsed = parseAndValidateAgentLoopConfig(content, format, onWarning);
-  } catch (error) {
-    throw new Error(
-      `configuration file "${filePath}" load fail: ${error instanceof Error ? error.message : String(error)}`,
-      { cause: error },
-    );
-  }
-
-  return transformToAgentLoopConfig(parsed.config);
 }

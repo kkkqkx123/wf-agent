@@ -3,7 +3,6 @@
  * Responsible for parsing configuration files in JSON format
  */
 
-import * as fs from "fs/promises";
 import type { WorkflowConfigFile } from "./types.js";
 import { ConfigurationError } from "@wf-agent/types";
 import { isError } from "@wf-agent/common-utils";
@@ -85,52 +84,5 @@ export function validateJsonSyntax(content: string): boolean {
     return true;
   } catch {
     return false;
-  }
-}
-
-/**
- * Load JSON content from a file path
- * @param filePath File path
- * @returns JSON content as a string
- * @throws {ConfigurationError} Throws when reading the file fails
- */
-export async function loadJsonFromFile(filePath: string): Promise<string> {
-  try {
-    return await fs.readFile(filePath, "utf-8");
-  } catch (error) {
-    if (isError(error)) {
-      throw new ConfigurationError(`Unable to read file：${error.message}`, filePath, {
-        originalError: error.message,
-      });
-    }
-    throw new ConfigurationError("Failed to read file: unknown error");
-  }
-}
-
-/**
- * Save the configuration object to a JSON file
- * @param config The configuration object
- * @param filePath The file path
- * @param pretty Whether to format the output
- * @throws {ConfigurationError} Throws an error when saving the file fails
- */
-export async function saveJsonToFile(
-  config: WorkflowConfigFile,
-  filePath: string,
-  pretty: boolean = true,
-): Promise<void> {
-  try {
-    const content = stringifyJson(config, pretty);
-    await fs.writeFile(filePath, content, "utf-8");
-  } catch (error) {
-    if (error instanceof ConfigurationError) {
-      throw error;
-    }
-    if (isError(error)) {
-      throw new ConfigurationError(`Failed to save file：${error.message}`, filePath, {
-        originalError: error.message,
-      });
-    }
-    throw new ConfigurationError("Failed to save file: unknown error");
   }
 }

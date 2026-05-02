@@ -7,11 +7,13 @@
 import type { ParsedConfig } from "../types.js";
 import { ConfigFormat } from "../types.js";
 import type { Result } from "@wf-agent/types";
-import { ValidationError } from "@wf-agent/types";
-import { validatePromptTemplateConfig } from "../validators/prompt-template-validator.js";
+import { ValidationError, ConfigurationError } from "@wf-agent/types";
 import { ok } from "@wf-agent/common-utils";
 import type { PromptTemplate } from "@wf-agent/prompt-templates";
+import type { PromptTemplateConfigFile } from "../types.js";
 import { loadPromptTemplateConfig, mergePromptTemplateConfig } from "../prompt-template-loader.js";
+import { validatePromptTemplateConfig } from "../validators/prompt-template-validator.js";
+import { stringifyJson } from "../json-parser.js";
 
 /**
  * Verify PromptTemplate configuration
@@ -21,13 +23,13 @@ import { loadPromptTemplateConfig, mergePromptTemplateConfig } from "../prompt-t
 export function validatePromptTemplate(
   config: ParsedConfig<"prompt_template">,
 ): Result<ParsedConfig<"prompt_template">, ValidationError[]> {
-  const result = validatePromptTemplateConfig(config.config);
-
-  // Use `andThen` for type conversion.
-  return result.andThen(() => ok(config)) as Result<
-    ParsedConfig<"prompt_template">,
-    ValidationError[]
-  >;
+  const cfg = config.config as PromptTemplateConfigFile;
+  
+  // Delegate to specialized validator
+  const result = validatePromptTemplateConfig(cfg);
+  
+  // Use `andThen` for type conversion
+  return result.andThen(() => ok(config)) as Result<ParsedConfig<"prompt_template">, ValidationError[]>;
 }
 
 /**
@@ -42,6 +44,29 @@ export function transformPromptTemplate(
   defaultTemplate: PromptTemplate,
 ): PromptTemplate {
   return mergePromptTemplateConfig(defaultTemplate, config.config);
+}
+
+/**
+ * Export PromptTemplate configuration
+ * @param template PromptTemplate object
+ * @param format Configuration format
+ * @returns String containing the configuration file content
+ */
+export function exportPromptTemplate(template: PromptTemplate, format: ConfigFormat): string {
+  switch (format) {
+    case "json":
+      return stringifyJson(template, true);
+    case "toml":
+      throw new ConfigurationError(
+        "TOML format does not support export, please use JSON format",
+        format,
+        {
+          suggestion: "Use JSON instead",
+        },
+      );
+    default:
+      throw new ConfigurationError(`Unsupported configuration format: ${format}`, format);
+  }
 }
 
 /**
@@ -61,9 +86,14 @@ export function loadAndTransformPromptTemplate(
   const appConfig = loadPromptTemplateConfig(content, format);
 
   // Verify the configuration.
-  const validationResult = validatePromptTemplateConfig(appConfig);
+  const validationResult = validatePromptTemplate({
+    configType: "prompt_template",
+    format,
+    config: appConfig,
+    rawContent: content,
+  });
   if (validationResult.isErr()) {
-    const errorMessages = validationResult.error.map(err => err.message).join("\n");
+    const errorMessages = validationResult.error.map((err: ValidationError) => err.message).join("\n");
     throw new Error(`Prompt template configuration validation failed:\n${errorMessages}`);
   }
 

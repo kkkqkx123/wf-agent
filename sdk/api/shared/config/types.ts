@@ -150,6 +150,21 @@ export type ConfigFile =
   | ToolConfigFile;
 
 /**
+ * Type mapping from ConfigType to corresponding config file type
+ * Uses a mapped type for better readability and maintainability
+ */
+type ConfigTypeToFileMap = {
+  workflow: WorkflowConfigFile;
+  node_template: NodeTemplateConfigFile;
+  trigger_template: TriggerTemplateConfigFile;
+  script: ScriptConfigFile;
+  llm_profile: LLMProfileConfigFile;
+  prompt_template: PromptTemplateConfigFile;
+  agent_loop: AgentLoopProfileConfigFile;
+  tool: ToolConfigFile;
+};
+
+/**
  * The parsed configuration object (universal version)
  */
 export interface ParsedConfig<T extends ConfigType = ConfigType> {
@@ -157,38 +172,9 @@ export interface ParsedConfig<T extends ConfigType = ConfigType> {
   configType: T;
   /** Configuration Format */
   format: ConfigFormat;
-  /** Configuration file content */
-  config: T extends "workflow"
-    ? WorkflowConfigFile
-    : T extends "node_template"
-      ? NodeTemplateConfigFile
-      : T extends "trigger_template"
-        ? TriggerTemplateConfigFile
-        : T extends "script"
-          ? ScriptConfigFile
-          : T extends "llm_profile"
-            ? LLMProfileConfigFile
-            : T extends "prompt_template"
-              ? PromptTemplateConfigFile
-              : T extends "agent_loop"
-                ? AgentLoopProfileConfigFile
-                : ConfigFile;
-  /** ```markdown
-# Translation Task
-
-## Task Description
-The task is to translate the given natural language content into English, ensuring that all code syntax and structure are preserved, as well as any markdown formatting and code examples. The translation should be done without adding any additional explanations.
-
-## Input Content
-```markdown
-# Original Text
-# This is the natural language content that needs to be translated.
-
-## Output Content
-```markdown
-# Translated Text
-# This is the natural language content translated into English.
-``` */
+  /** Configuration file content - type-safe mapping based on configType */
+  config: ConfigTypeToFileMap[T];
+  /** Raw configuration file content (original string) */
   rawContent: string;
 }
 

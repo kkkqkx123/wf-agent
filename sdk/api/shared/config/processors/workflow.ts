@@ -8,7 +8,7 @@ import type { ParsedConfig } from "../types.js";
 import { ConfigFormat } from "../types.js";
 import type { Result } from "@wf-agent/types";
 import { ValidationError } from "@wf-agent/types";
-import { validateWorkflowConfig } from "../validators/workflow-validator.js";
+import { WorkflowValidator } from "../../../../workflow/validation/workflow-validator.js";
 import { ConfigTransformer } from "../config-transformer.js";
 import type { WorkflowDefinition } from "@wf-agent/types";
 import { stringifyJson } from "../json-parser.js";
@@ -23,7 +23,9 @@ import { ok } from "@wf-agent/common-utils";
 export function validateWorkflow(
   config: ParsedConfig<"workflow">,
 ): Result<ParsedConfig<"workflow">, ValidationError[]> {
-  const result = validateWorkflowConfig(config.config);
+  const workflow = config.config as WorkflowDefinition;
+  const workflowValidator = new WorkflowValidator();
+  const result = workflowValidator.validate(workflow);
 
   // Use `andThen` for type conversion
   return result.andThen(() => ok(config)) as Result<ParsedConfig<"workflow">, ValidationError[]>;

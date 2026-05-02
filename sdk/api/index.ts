@@ -346,7 +346,6 @@ export {
 // Shared - Configuration Parsing Utilities
 // ============================================================================
 export {
-  loadConfigContent,
   parseToml,
   parseJson,
   parseWorkflow,
@@ -355,5 +354,4 @@ export {
   parseScript,
   parseLLMProfile,
   parseAndValidateAgentLoopConfig,
-  loadAgentLoopConfig,
 } from "./shared/config/index.js";

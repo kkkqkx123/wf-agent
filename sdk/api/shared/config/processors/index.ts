@@ -30,6 +30,7 @@ export { validateLLMProfile, transformLLMProfile, exportLLMProfile } from "./llm
 export {
   validatePromptTemplate,
   transformPromptTemplate,
+  exportPromptTemplate,
   loadAndTransformPromptTemplate,
 } from "./prompt-template.js";
 
@@ -38,5 +39,5 @@ export {
   parseAgentLoopConfig,
   parseAndValidateAgentLoopConfig,
   transformToAgentLoopConfig,
-  loadAgentLoopConfig,
+  exportAgentLoopConfig,
 } from "./agent-loop.js";

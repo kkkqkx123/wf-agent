@@ -21,7 +21,8 @@ import { generateId } from "../../../utils/id-utils.js";
 import { getContainer } from "../../../core/di/index.js";
 import * as Identifiers from "../../../core/di/service-identifiers.js";
 import { ConfigParser, ConfigFormat } from "../../shared/config/index.js";
-import { loadConfigContent } from "../../shared/config/config-utils.js";
+import { detectConfigFormat } from "../../shared/config/config-utils.js";
+import * as fs from "fs/promises";
 import { NodeBuilder } from "./node-builder.js";
 import { BaseBuilder } from "../../shared/base-builder.js";
 
@@ -518,7 +519,8 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowDefinition> {
     const parser = new ConfigParser();
 
     // The application layer is responsible for file reading
-    const { content, format } = await loadConfigContent(filePath);
+    const content = await fs.readFile(filePath, "utf-8");
+    const format = detectConfigFormat(filePath);
     const workflowDef = await parser.parseAndTransform(content, format, parameters);
 
     const builder = new WorkflowBuilder(workflowDef.id);

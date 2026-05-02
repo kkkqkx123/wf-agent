@@ -39,7 +39,7 @@ export {
 export { ConfigParser } from "./config-parser.js";
 
 // Configuration Tool Functions
-export { detectConfigFormat, readConfigFile, loadConfigContent } from "./config-utils.js";
+export { detectConfigFormat } from "./config-utils.js";
 
 // JSON Parsing Functions
 export { parseJson, stringifyJson, validateJsonSyntax } from "./json-parser.js";
@@ -67,7 +67,7 @@ export {
 } from "./parsers.js";
 
 // Validator
-// Validation Tool Function Export
+// Validation Tool Function Export (moved to validators for better organization)
 export {
   validateRequiredFields,
   validateStringField,
@@ -76,16 +76,9 @@ export {
   validateArrayField,
   validateObjectField,
   validateEnumField,
-} from "./validators/base-validator.js";
+} from "./validators/index.js";
 
-// Configuration Validation Function Export
-export { validateWorkflowConfig } from "./validators/workflow-validator.js";
-export { validateNodeTemplateConfig } from "./validators/node-template-validator.js";
-export { validateTriggerTemplateConfig } from "./validators/trigger-template-validator.js";
-export { validateScriptConfig } from "./validators/script-validator.js";
-export { validateLLMProfileConfig } from "./validators/llm-profile-validator.js";
-export { validatePromptTemplateConfig } from "./validators/prompt-template-validator.js";
-
+// Configuration Validation Function Export (removed as they are now integrated into processors)
 // Batch Validation Function Export
 // Note: The return type is Result<T[], ValidationError[][]>, a 2D array when errors occur, each config's error list
 export {
@@ -93,7 +86,7 @@ export {
   validateBatchNodeTemplates,
   validateBatchTriggerTemplates,
   validateBatchScripts,
-} from "./validators/batch-validators.js";
+} from "./processors/batch-validators.js";
 
 // Configuration handler export (pure function)
 export {
@@ -120,12 +113,13 @@ export {
   // PromptTemplate
   validatePromptTemplate,
   transformPromptTemplate,
+  exportPromptTemplate,
   loadAndTransformPromptTemplate,
   // Agent Loop
   parseAgentLoopConfig,
   parseAndValidateAgentLoopConfig,
   transformToAgentLoopConfig,
-  loadAgentLoopConfig,
+  exportAgentLoopConfig,
 } from "./processors/index.js";
 
 // Cue word template loader export

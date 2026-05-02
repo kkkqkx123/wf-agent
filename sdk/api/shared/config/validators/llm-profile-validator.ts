@@ -1,33 +1,31 @@
 /**
- * LLM Profile Configuration Validation Function
- * Responsible for verifying the validity of LLM Profile configurations.
+ * LLM Profile Configuration Validator
+ * Provides validation logic for LLMProfile configurations
  */
 
 import type { LLMProfile } from "@wf-agent/types";
-import type { ConfigFile } from "../types.js";
-import { ok, err } from "@wf-agent/common-utils";
 import type { Result } from "@wf-agent/types";
 import { ValidationError } from "@wf-agent/types";
+import { ok, err } from "@wf-agent/common-utils";
 import {
   validateRequiredFields,
   validateStringField,
   validateEnumField,
   validateNumberField,
   validateObjectField,
-} from "./base-validator.js";
+} from "./validation-helpers.js";
 
 /**
- * Verify LLM Profile configuration
- * @param config Configuration object
- * @returns Verification result
+ * Validate LLM Profile configuration
+ * @param profile The LLMProfile object to validate
+ * @returns Validation result
  */
 export function validateLLMProfileConfig(
-  config: ConfigFile,
+  profile: LLMProfile,
 ): Result<LLMProfile, ValidationError[]> {
-  const profile = config as LLMProfile;
   const errors: ValidationError[] = [];
 
-  // Verify required fields
+  // Validate required fields
   errors.push(
     ...validateRequiredFields(
       profile as unknown as Record<string, unknown>,
@@ -36,7 +34,7 @@ export function validateLLMProfileConfig(
     ),
   );
 
-  // Verify ID
+  // Validate ID
   if (profile.id) {
     errors.push(
       ...validateStringField(profile.id, "LLMProfile.id", {
@@ -46,7 +44,7 @@ export function validateLLMProfileConfig(
     );
   }
 
-  // Verify the name
+  // Validate name
   if (profile.name) {
     errors.push(
       ...validateStringField(profile.name, "LLMProfile.name", {
@@ -56,7 +54,7 @@ export function validateLLMProfileConfig(
     );
   }
 
-  // Verify provider
+  // Validate provider
   if (profile.provider) {
     errors.push(
       ...validateEnumField(profile.provider, "LLMProfile.provider", [
@@ -70,7 +68,7 @@ export function validateLLMProfileConfig(
     );
   }
 
-  // Verify model name
+  // Validate model name
   if (profile.model) {
     errors.push(
       ...validateStringField(profile.model, "LLMProfile.model", {
@@ -80,7 +78,7 @@ export function validateLLMProfileConfig(
     );
   }
 
-  // Verify the API key
+  // Validate API key
   if (profile.apiKey) {
     errors.push(
       ...validateStringField(profile.apiKey, "LLMProfile.apiKey", {
@@ -89,7 +87,7 @@ export function validateLLMProfileConfig(
     );
   }
 
-  // Verify the base URL (optional).
+  // Validate base URL (optional)
   if (profile.baseUrl !== undefined) {
     errors.push(
       ...validateStringField(profile.baseUrl, "LLMProfile.baseUrl", {
@@ -98,17 +96,17 @@ export function validateLLMProfileConfig(
     );
   }
 
-  // Verify the parameter object
+  // Validate parameters object
   if (profile.parameters !== undefined) {
     errors.push(...validateObjectField(profile.parameters, "LLMProfile.parameters"));
   }
 
-  // Verify request headers (optional)
+  // Validate request headers (optional)
   if (profile.headers !== undefined) {
     errors.push(...validateObjectField(profile.headers, "LLMProfile.headers"));
   }
 
-  // Verification timeout period (optional)
+  // Validate timeout (optional)
   if (profile.timeout !== undefined) {
     errors.push(
       ...validateNumberField(profile.timeout, "LLMProfile.timeout", {
@@ -118,7 +116,7 @@ export function validateLLMProfileConfig(
     );
   }
 
-  // Verify the maximum number of retries (optional)
+  // Validate max retries (optional)
   if (profile.maxRetries !== undefined) {
     errors.push(
       ...validateNumberField(profile.maxRetries, "LLMProfile.maxRetries", {
@@ -128,7 +126,7 @@ export function validateLLMProfileConfig(
     );
   }
 
-  // Verify retry delay (optional)
+  // Validate retry delay (optional)
   if (profile.retryDelay !== undefined) {
     errors.push(
       ...validateNumberField(profile.retryDelay, "LLMProfile.retryDelay", {
@@ -138,7 +136,7 @@ export function validateLLMProfileConfig(
     );
   }
 
-  // Verify metadata (optional)
+  // Validate metadata (optional)
   if (profile.metadata !== undefined) {
     errors.push(...validateObjectField(profile.metadata, "LLMProfile.metadata"));
   }

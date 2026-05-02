@@ -3,10 +3,8 @@
  * Provide auxiliary functions related to configuration files
  */
 
-import * as fs from "fs/promises";
 import * as path from "path";
 import { ConfigFormat } from "./types.js";
-import { isError } from "@wf-agent/common-utils";
 
 /**
  * Detect the configuration format based on the file extension.
@@ -28,32 +26,76 @@ export function detectConfigFormat(filePath: string): ConfigFormat {
 }
 
 /**
- * Read the content of the configuration file
- * @param filePath File path
- * @returns String containing the file content
- * @throws {Error} Throws an error if the file cannot be read
+ * Substitute parameters in an object by replacing {{parameters.xxx}} placeholders
+ * @param obj The object to process
+ * @param parameters The parameter object containing replacement values
+ * @returns A new object with parameters substituted
  */
-export async function readConfigFile(filePath: string): Promise<string> {
-  try {
-    return await fs.readFile(filePath, "utf-8");
-  } catch (error) {
-    if (isError(error)) {
-      throw new Error(`Unable to read configuration file：${error.message}`, { cause: error });
+export function substituteParameters<T>(
+  obj: T,
+  parameters: Record<string, unknown>,
+): T {
+  // If no parameters, return original object
+  if (!parameters || Object.keys(parameters).length === 0) {
+    return obj;
+  }
+
+  // Deep clone and replace parameters
+  const processed = JSON.parse(JSON.stringify(obj));
+  replaceParametersInObject(processed, parameters);
+  return processed;
+}
+
+/**
+ * Recursively replace parameter placeholders in an object
+ * @param obj The object to be processed (modified in place)
+ * @param parameters The parameter object
+ */
+function replaceParametersInObject(
+  obj: unknown,
+  parameters: Record<string, unknown>,
+): void {
+  if (Array.isArray(obj)) {
+    for (let i = 0; i < obj.length; i++) {
+      if (typeof obj[i] === 'string') {
+        obj[i] = replaceParameterInString(obj[i] as string, parameters);
+      } else if (typeof obj[i] === 'object' && obj[i] !== null) {
+        replaceParametersInObject(obj[i], parameters);
+      }
     }
-    throw new Error("Failed to read the configuration file: Unknown error.", { cause: error });
+  } else if (obj && typeof obj === 'object') {
+    const objRecord = obj as Record<string, unknown>;
+    for (const key in objRecord) {
+      if (Object.prototype.hasOwnProperty.call(objRecord, key)) {
+        if (typeof objRecord[key] === 'string') {
+          objRecord[key] = replaceParameterInString(
+            objRecord[key] as string,
+            parameters,
+          );
+        } else if (typeof objRecord[key] === 'object' && objRecord[key] !== null) {
+          replaceParametersInObject(objRecord[key], parameters);
+        }
+      }
+    }
   }
 }
 
 /**
- * Load configuration content from the file path and check its format.
- * @param filePath File path
- * @returns An object containing the content and format
+ * Replace parameter placeholders in a string
+ * Matches {{parameters.paramName}} pattern and replaces with actual value
+ * @param str The string to process
+ * @param parameters The parameter object
+ * @returns The string with placeholders replaced
  */
-export async function loadConfigContent(filePath: string): Promise<{
-  content: string;
-  format: ConfigFormat;
-}> {
-  const content = await readConfigFile(filePath);
-  const format = detectConfigFormat(filePath);
-  return { content, format };
+function replaceParameterInString(
+  str: string,
+  parameters: Record<string, unknown>,
+): string {
+  const regex = /\{\{parameters\.(\w+)\}\}/g;
+  return str.replace(regex, (match, paramName: string) => {
+    if (parameters[paramName] !== undefined) {
+      return String(parameters[paramName]);
+    }
+    return match; // Keep original if parameter not found
+  });
 }

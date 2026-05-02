@@ -8,10 +8,15 @@ import type { ParsedConfig } from "../types.js";
 import { ConfigFormat } from "../types.js";
 import type { Result } from "@wf-agent/types";
 import { ValidationError, ConfigurationError } from "@wf-agent/types";
-import { validateTriggerTemplateConfig } from "../validators/trigger-template-validator.js";
-import { ok } from "@wf-agent/common-utils";
+import { validateWorkflowTrigger } from "../../../../core/validation/trigger-validator.js";
+import {
+  validateRequiredFields,
+  validateNumberField,
+} from "../validators/validation-helpers.js";
+import { ok, err } from "@wf-agent/common-utils";
 import type { TriggerTemplate } from "@wf-agent/types";
 import { stringifyJson } from "../json-parser.js";
+import { substituteParameters } from "../config-utils.js";
 
 /**
  * Verify TriggerTemplate configuration
@@ -21,13 +26,60 @@ import { stringifyJson } from "../json-parser.js";
 export function validateTriggerTemplate(
   config: ParsedConfig<"trigger_template">,
 ): Result<ParsedConfig<"trigger_template">, ValidationError[]> {
-  const result = validateTriggerTemplateConfig(config.config);
+  const template = config.config as TriggerTemplate;
+  const errors: ValidationError[] = [];
 
-  // Use `andThen` for type conversion.
-  return result.andThen(() => ok(config)) as Result<
-    ParsedConfig<"trigger_template">,
-    ValidationError[]
-  >;
+  // Verify required fields
+  errors.push(
+    ...validateRequiredFields(
+      template as unknown as Record<string, unknown>,
+      ["name", "condition", "action", "createdAt", "updatedAt"],
+      "TriggerTemplate",
+    ),
+  );
+
+  // Verify the timestamp
+  if (template.createdAt !== undefined) {
+    errors.push(
+      ...validateNumberField(template.createdAt, "TriggerTemplate.createdAt", {
+        integer: true,
+        min: 0,
+      }),
+    );
+  }
+
+  if (template.updatedAt !== undefined) {
+    errors.push(
+      ...validateNumberField(template.updatedAt, "TriggerTemplate.updatedAt", {
+        integer: true,
+        min: 0,
+      }),
+    );
+  }
+
+  // Trigger configuration validation fully delegated to the core validator
+  // Create a temporary WorkflowTrigger object to be used for validation.
+  const tempTrigger = {
+    id: "temp-trigger-id",
+    name: template.name,
+    description: template.description,
+    condition: template.condition,
+    action: template.action,
+    enabled: template.enabled,
+    maxTriggers: template.maxTriggers,
+    metadata: template.metadata,
+  };
+
+  const triggerResult = validateWorkflowTrigger(tempTrigger, "TriggerTemplate");
+  if (triggerResult.isErr()) {
+    errors.push(...triggerResult.error);
+  }
+
+  if (errors.length > 0) {
+    return err(errors) as Result<ParsedConfig<"trigger_template">, ValidationError[]>;
+  }
+
+  return ok(config) as Result<ParsedConfig<"trigger_template">, ValidationError[]>;
 }
 
 /**
@@ -43,9 +95,9 @@ export function transformTriggerTemplate(
 ): TriggerTemplate {
   let template = config.config;
 
-  // If parameters are provided, perform a simple parameter substitution.
+  // If parameters are provided, perform parameter substitution
   if (parameters && Object.keys(parameters).length > 0) {
-    template = processParameters(template, parameters);
+    template = substituteParameters(template, parameters);
   }
 
   return template;
@@ -72,64 +124,4 @@ export function exportTriggerTemplate(template: TriggerTemplate, format: ConfigF
     default:
       throw new ConfigurationError(`Unsupported configuration format: ${format}`, format);
   }
-}
-
-/**
- * Handle parameter replacement
- * @param template: Trigger template
- * @param parameters: Parameter object
- * @returns: Processed trigger template
- */
-function processParameters(
-  template: TriggerTemplate,
-  parameters: Record<string, unknown>,
-): TriggerTemplate {
-  // Deep clone and replace parameters
-  const processed = JSON.parse(JSON.stringify(template));
-  replaceParametersInObject(processed, parameters);
-  return processed;
-}
-
-/**
- * Recursive replacement of parameter placeholders in an object
- * @param obj The object to be processed
- * @param parameters The parameter object
- */
-function replaceParametersInObject(obj: unknown, parameters: Record<string, unknown>): void {
-  if (Array.isArray(obj)) {
-    for (let i = 0; i < obj.length; i++) {
-      if (typeof obj[i] === "string") {
-        obj[i] = replaceParameterInString(obj[i] as string, parameters);
-      } else if (typeof obj[i] === "object" && obj[i] !== null) {
-        replaceParametersInObject(obj[i], parameters);
-      }
-    }
-  } else if (obj && typeof obj === "object") {
-    const objRecord = obj as Record<string, unknown>;
-    for (const key in objRecord) {
-      if (Object.prototype.hasOwnProperty.call(objRecord, key)) {
-        if (typeof objRecord[key] === "string") {
-          objRecord[key] = replaceParameterInString(objRecord[key] as string, parameters);
-        } else if (typeof objRecord[key] === "object" && objRecord[key] !== null) {
-          replaceParametersInObject(objRecord[key], parameters);
-        }
-      }
-    }
-  }
-}
-
-/**
- * Replace parameter placeholders in the string
- * @param str The string to be processed
- * @param parameters The parameter object
- * @returns The replaced string
- */
-function replaceParameterInString(str: string, parameters: Record<string, unknown>): string {
-  const regex = /\{\{parameters\.(\w+)\}\}/g;
-  return str.replace(regex, (match, paramName: string) => {
-    if (parameters[paramName] !== undefined) {
-      return String(parameters[paramName]);
-    }
-    return match;
-  });
 }

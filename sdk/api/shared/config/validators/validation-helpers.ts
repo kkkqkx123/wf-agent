@@ -1,6 +1,6 @@
 /**
- * Configure validation tool functions
- * Provide general configuration validation helper functions
+ * Validation helper functions
+ * Provides low-level field validation utilities for configuration validators
  */
 
 import { ValidationError, SchemaValidationError } from "@wf-agent/types";

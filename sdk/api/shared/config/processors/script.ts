@@ -8,10 +8,15 @@ import type { ParsedConfig } from "../types.js";
 import { ConfigFormat } from "../types.js";
 import type { Result } from "@wf-agent/types";
 import { ValidationError, ConfigurationError } from "@wf-agent/types";
-import { validateScriptConfig } from "../validators/script-validator.js";
-import { ok } from "@wf-agent/common-utils";
+import { CodeConfigValidator } from "../../../../workflow/validation/script-config-validator.js";
+import {
+  validateRequiredFields,
+  validateBooleanField,
+} from "../validators/validation-helpers.js";
+import { ok, err } from "@wf-agent/common-utils";
 import type { Script } from "@wf-agent/types";
 import { stringifyJson } from "../json-parser.js";
+import { substituteParameters } from "../config-utils.js";
 
 /**
  * Verify Script Configuration
@@ -21,10 +26,47 @@ import { stringifyJson } from "../json-parser.js";
 export function validateScript(
   config: ParsedConfig<"script">,
 ): Result<ParsedConfig<"script">, ValidationError[]> {
-  const result = validateScriptConfig(config.config);
+  const script = config.config as Script;
+  const errors: ValidationError[] = [];
+  const codeConfigValidator = new CodeConfigValidator();
 
-  // Use `andThen` for type conversion.
-  return result.andThen(() => ok(config)) as Result<ParsedConfig<"script">, ValidationError[]>;
+  // Verify required fields
+  errors.push(
+    ...validateRequiredFields(
+      script as unknown as Record<string, unknown>,
+      ["id", "name", "type", "description", "options"],
+      "Script",
+    ),
+  );
+
+  // Verify the activation status.
+  if (script.enabled !== undefined) {
+    errors.push(...validateBooleanField(script.enabled, "Script.enabled"));
+  }
+
+  // Fully delegate the script configuration validation to CodeConfigValidator.
+  const scriptResult = codeConfigValidator.validateScript(script);
+  if (scriptResult.isErr()) {
+    errors.push(...scriptResult.error);
+  }
+
+  // Verify script type compatibility
+  if (script.type && (script.content || script.filePath)) {
+    const compatibilityResult = codeConfigValidator.validateScriptTypeCompatibility(
+      script.type,
+      script.content,
+      script.filePath,
+    );
+    if (compatibilityResult.isErr()) {
+      errors.push(...compatibilityResult.error);
+    }
+  }
+
+  if (errors.length > 0) {
+    return err(errors) as Result<ParsedConfig<"script">, ValidationError[]>;
+  }
+
+  return ok(config) as Result<ParsedConfig<"script">, ValidationError[]>;
 }
 
 /**
@@ -40,9 +82,9 @@ export function transformScript(
 ): Script {
   let script = config.config;
 
-  // If parameters are provided, perform a simple parameter substitution.
+  // If parameters are provided, perform parameter substitution
   if (parameters && Object.keys(parameters).length > 0) {
-    script = processParameters(script, parameters);
+    script = substituteParameters(script, parameters);
   }
 
   return script;
@@ -69,61 +111,4 @@ export function exportScript(script: Script, format: ConfigFormat): string {
     default:
       throw new ConfigurationError(`Unsupported configuration format: ${format}`, format);
   }
-}
-
-/**
- * Handle parameter replacement
- * @param script: Script configuration
- * @param parameters: Parameter object
- * @returns: Processed script configuration
- */
-function processParameters(script: Script, parameters: Record<string, unknown>): Script {
-  // Deep clone and replace parameters
-  const processed = JSON.parse(JSON.stringify(script));
-  replaceParametersInObject(processed, parameters);
-  return processed;
-}
-
-/**
- * Recursive replacement of parameter placeholders in an object
- * @param obj The object to be processed
- * @param parameters The parameter object
- */
-function replaceParametersInObject(obj: unknown, parameters: Record<string, unknown>): void {
-  if (Array.isArray(obj)) {
-    for (let i = 0; i < obj.length; i++) {
-      if (typeof obj[i] === "string") {
-        obj[i] = replaceParameterInString(obj[i] as string, parameters);
-      } else if (typeof obj[i] === "object" && obj[i] !== null) {
-        replaceParametersInObject(obj[i], parameters);
-      }
-    }
-  } else if (obj && typeof obj === "object") {
-    const objRecord = obj as Record<string, unknown>;
-    for (const key in objRecord) {
-      if (Object.prototype.hasOwnProperty.call(objRecord, key)) {
-        if (typeof objRecord[key] === "string") {
-          objRecord[key] = replaceParameterInString(objRecord[key] as string, parameters);
-        } else if (typeof objRecord[key] === "object" && objRecord[key] !== null) {
-          replaceParametersInObject(objRecord[key], parameters);
-        }
-      }
-    }
-  }
-}
-
-/**
- * Replace parameter placeholders in the string
- * @param str The string to be processed
- * @param parameters The parameter object
- * @returns The replaced string
- */
-function replaceParameterInString(str: string, parameters: Record<string, unknown>): string {
-  const regex = /\{\{parameters\.(\w+)\}\}/g;
-  return str.replace(regex, (match, paramName: string) => {
-    if (parameters[paramName] !== undefined) {
-      return String(parameters[paramName]);
-    }
-    return match;
-  });
 }

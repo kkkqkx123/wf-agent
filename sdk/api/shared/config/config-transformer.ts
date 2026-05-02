@@ -8,6 +8,7 @@ import type { WorkflowDefinition } from "@wf-agent/types";
 import type { Node } from "@wf-agent/types";
 import type { Edge as EdgeType } from "@wf-agent/types";
 import { generateId } from "../../../utils/id-utils.js";
+import { substituteParameters } from "./config-utils.js";
 
 /**
  * Configuration converter class
@@ -86,62 +87,7 @@ export class ConfigTransformer implements IConfigTransformer {
       return configFile;
     }
 
-    // Deep cloning of configuration files to avoid modifying the original objects
-    const processed = JSON.parse(JSON.stringify(configFile));
-
-    // Recursively replace all {{parameters.xxx}} placeholders
-    this.replaceParametersInObject(processed, parameters);
-
-    return processed;
-  }
-
-  /**
-   * Recursive replacement of parameter placeholders in an object
-   * @param obj The object to be processed
-   * @param parameters Parameter object
-   */
-  private replaceParametersInObject(obj: unknown, parameters: Record<string, unknown>): void {
-    if (Array.isArray(obj)) {
-      // Working with arrays
-      for (let i = 0; i < obj.length; i++) {
-        if (typeof obj[i] === "string") {
-          // Directly replacing strings in an array
-          obj[i] = this.replaceParameterInString(obj[i] as string, parameters);
-        } else {
-          this.replaceParametersInObject(obj[i], parameters);
-        }
-      }
-    } else if (obj && typeof obj === "object") {
-      // processed object
-      const objRecord = obj as Record<string, unknown>;
-      for (const key in objRecord) {
-        if (Object.prototype.hasOwnProperty.call(objRecord, key)) {
-          if (typeof objRecord[key] === "string") {
-            // Direct replacement of strings in object properties
-            objRecord[key] = this.replaceParameterInString(objRecord[key] as string, parameters);
-          } else {
-            this.replaceParametersInObject(objRecord[key], parameters);
-          }
-        }
-      }
-    }
-  }
-
-  /**
-   * Replacement of parameter placeholders in strings
-   * @param str The string to be processed
-   * @param parameters Parameter object
-   * @returns The replaced string
-   */
-  private replaceParameterInString(str: string, parameters: Record<string, unknown>): string {
-    const regex = /\{\{parameters\.(\w+)\}\}/g;
-    return str.replace(regex, (match, paramName: string) => {
-      if (parameters[paramName] !== undefined) {
-        return String(parameters[paramName]);
-      }
-      // If the parameter does not exist, the original placeholder is preserved
-      return match;
-    });
+    return substituteParameters(configFile, parameters);
   }
 
   /**

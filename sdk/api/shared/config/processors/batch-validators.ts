@@ -17,10 +17,11 @@ import type { ConfigFile } from "../types.js";
 import { allWithErrors } from "@wf-agent/common-utils";
 import type { Result } from "@wf-agent/types";
 import { ValidationError } from "@wf-agent/types";
-import { validateWorkflowConfig } from "./workflow-validator.js";
-import { validateNodeTemplateConfig } from "./node-template-validator.js";
-import { validateTriggerTemplateConfig } from "./trigger-template-validator.js";
-import { validateScriptConfig } from "./script-validator.js";
+import { validateWorkflow } from "./workflow.js";
+import { validateNodeTemplate } from "./node-template.js";
+import { validateTriggerTemplate } from "./trigger-template.js";
+import { validateScript } from "./script.js";
+import { ok, err } from "@wf-agent/common-utils";
 
 /**
  * Batch validate workflow configurations
@@ -30,9 +31,16 @@ import { validateScriptConfig } from "./script-validator.js";
 export function validateBatchWorkflows(
   configs: ConfigFile[],
 ): Result<WorkflowDefinition[], ValidationError[][]> {
-  const results: Result<WorkflowDefinition, ValidationError[]>[] = configs.map(config =>
-    validateWorkflowConfig(config),
-  );
+  const results: Result<WorkflowDefinition, ValidationError[]>[] = configs.map(config => {
+    const parsed: any = {
+      configType: "workflow",
+      format: "json",
+      config,
+      rawContent: "",
+    };
+    const res = validateWorkflow(parsed);
+    return res.isOk() ? ok(res.value.config as WorkflowDefinition) : err(res.error);
+  });
 
   // Collect all errors, rather than just returning the first one.
   return allWithErrors(results);
@@ -46,9 +54,16 @@ export function validateBatchWorkflows(
 export function validateBatchNodeTemplates(
   configs: ConfigFile[],
 ): Result<NodeTemplate[], ValidationError[][]> {
-  const results: Result<NodeTemplate, ValidationError[]>[] = configs.map(config =>
-    validateNodeTemplateConfig(config),
-  );
+  const results: Result<NodeTemplate, ValidationError[]>[] = configs.map(config => {
+    const parsed: any = {
+      configType: "node_template",
+      format: "json",
+      config,
+      rawContent: "",
+    };
+    const res = validateNodeTemplate(parsed);
+    return res.isOk() ? ok(res.value.config as NodeTemplate) : err(res.error);
+  });
 
   // Collect all errors, rather than just returning the first one.
   return allWithErrors(results);
@@ -62,9 +77,16 @@ export function validateBatchNodeTemplates(
 export function validateBatchTriggerTemplates(
   configs: ConfigFile[],
 ): Result<TriggerTemplate[], ValidationError[][]> {
-  const results: Result<TriggerTemplate, ValidationError[]>[] = configs.map(config =>
-    validateTriggerTemplateConfig(config),
-  );
+  const results: Result<TriggerTemplate, ValidationError[]>[] = configs.map(config => {
+    const parsed: any = {
+      configType: "trigger_template",
+      format: "json",
+      config,
+      rawContent: "",
+    };
+    const res = validateTriggerTemplate(parsed);
+    return res.isOk() ? ok(res.value.config as TriggerTemplate) : err(res.error);
+  });
 
   // Collect all errors, rather than just returning the first one.
   return allWithErrors(results);
@@ -76,9 +98,16 @@ export function validateBatchTriggerTemplates(
  * @returns Validation result, returns ValidationError[][] on failure (error array for each config)
  */
 export function validateBatchScripts(configs: ConfigFile[]): Result<Script[], ValidationError[][]> {
-  const results: Result<Script, ValidationError[]>[] = configs.map(config =>
-    validateScriptConfig(config),
-  );
+  const results: Result<Script, ValidationError[]>[] = configs.map(config => {
+    const parsed: any = {
+      configType: "script",
+      format: "json",
+      config,
+      rawContent: "",
+    };
+    const res = validateScript(parsed);
+    return res.isOk() ? ok(res.value.config as Script) : err(res.error);
+  });
 
   // Collect all errors, rather than just returning the first one.
   return allWithErrors(results);

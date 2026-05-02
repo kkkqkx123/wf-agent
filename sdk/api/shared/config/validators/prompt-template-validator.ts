@@ -1,72 +1,72 @@
 /**
- * Prompt Template Configuration Validation Function
- * Responsible for verifying the validity of prompt template configurations
+ * Prompt Template Configuration Validator
+ * Provides validation logic for PromptTemplate configurations
  */
 
-import type { PromptTemplateConfigFile } from "../types.js";
 import type { Result } from "@wf-agent/types";
 import { ValidationError, SchemaValidationError } from "@wf-agent/types";
 import { ok, err } from "@wf-agent/common-utils";
+import type { PromptTemplateConfigFile } from "../types.js";
 import {
   validateRequiredFields,
   validateStringField,
   validateEnumField,
   validateArrayField,
-} from "./base-validator.js";
+} from "./validation-helpers.js";
 
 /**
- * Verify prompt word template configuration
- * @param config Configuration object
- * @returns Verification result
+ * Validate Prompt Template configuration
+ * @param cfg The PromptTemplateConfigFile object to validate
+ * @returns Validation result
  */
 export function validatePromptTemplateConfig(
-  config: PromptTemplateConfigFile,
+  cfg: PromptTemplateConfigFile,
 ): Result<PromptTemplateConfigFile, ValidationError[]> {
   const errors: ValidationError[] = [];
 
-  // Verify required fields
+  // Validate required fields
   const requiredFields = ["id"];
   errors.push(
     ...validateRequiredFields(
-      config as unknown as Record<string, unknown>,
+      cfg as unknown as Record<string, unknown>,
       requiredFields,
       "prompt_template",
     ),
   );
 
-  // Verify the id field
-  if (config.id !== undefined) {
+  // Validate id field
+  if (cfg.id !== undefined) {
     errors.push(
-      ...validateStringField(config.id, "id", {
+      ...validateStringField(cfg.id, "id", {
         minLength: 1,
         maxLength: 100,
       }),
     );
   }
 
-  // Verify the name field (if it exists).
-  if (config.name !== undefined) {
+  // Validate name field (if exists)
+  if (cfg.name !== undefined) {
     errors.push(
-      ...validateStringField(config.name, "name", {
+      ...validateStringField(cfg.name, "name", {
         minLength: 1,
         maxLength: 200,
       }),
     );
   }
 
-  // Verify the description field (if it exists).
-  if (config.description !== undefined) {
+  // Validate description field (if exists)
+  if (cfg.description !== undefined) {
     errors.push(
-      ...validateStringField(config.description, "description", {
+      ...validateStringField(cfg.description, "description", {
         maxLength: 1000,
       }),
     );
   }
 
-  // Verify the category field (if it exists).
-  if (config.category !== undefined) {
+  // Validate category field (if exists)
+  if (cfg.category !== undefined) {
     errors.push(
-      ...validateEnumField(config.category, "category", [
+      ...validateEnumField(cfg.category, "category", [
         "system",
         "rules",
         "user-command",
@@ -76,32 +76,32 @@ export function validatePromptTemplateConfig(
     );
   }
 
-  // Verify the content field (if it exists).
-  if (config.content !== undefined) {
+  // Validate content field (if exists)
+  if (cfg.content !== undefined) {
     errors.push(
-      ...validateStringField(config.content, "content", {
+      ...validateStringField(cfg.content, "content", {
         minLength: 1,
       }),
     );
   }
 
-  // Verify the variables field (if it exists).
-  if (config.variables !== undefined) {
-    errors.push(...validateArrayField(config.variables, "variables"));
-    // Verify each variable definition.
-    if (Array.isArray(config.variables)) {
-      config.variables.forEach((variable, index) => {
+  // Validate variables field (if exists)
+  if (cfg.variables !== undefined) {
+    errors.push(...validateArrayField(cfg.variables, "variables"));
+    // Validate each variable definition
+    if (Array.isArray(cfg.variables)) {
+      cfg.variables.forEach((variable: any, index: number) => {
         errors.push(...validateVariableDefinition(variable, index));
       });
     }
   }
 
-  // Verify the fragments field (if it exists).
-  if (config.fragments !== undefined) {
-    errors.push(...validateArrayField(config.fragments, "fragments"));
-    // Verify each fragment ID
-    if (Array.isArray(config.fragments)) {
-      config.fragments.forEach((fragmentId, index) => {
+  // Validate fragments field (if exists)
+  if (cfg.fragments !== undefined) {
+    errors.push(...validateArrayField(cfg.fragments, "fragments"));
+    // Validate each fragment ID
+    if (Array.isArray(cfg.fragments)) {
+      cfg.fragments.forEach((fragmentId: any, index: number) => {
         errors.push(
           ...validateStringField(fragmentId, `fragments[${index}]`, {
             minLength: 1,
@@ -111,30 +111,32 @@ export function validatePromptTemplateConfig(
     }
   }
 
-  // Return the validation results.
   if (errors.length > 0) {
     return err(errors);
   }
 
-  return ok(config);
+  return ok(cfg);
 }
 
 /**
- * Verify variable definition
- * @param variable: Variable definition
- * @param index: Variable index
- * @returns: Array of verification errors
+ * Validate variable definition
+ * @param variable Variable definition
+ * @param index Variable index
+ * @returns Array of validation errors
  */
-function validateVariableDefinition(variable: unknown, index: number): ValidationError[] {
+function validateVariableDefinition(
+  variable: unknown,
+  index: number,
+): ValidationError[] {
   const errors: ValidationError[] = [];
   const prefix = `variables[${index}]`;
 
-  // Verify required fields
+  // Validate required fields
   const requiredFields = ["name", "type", "required"];
   const variableRecord = variable as unknown as Record<string, unknown>;
   errors.push(...validateRequiredFields(variableRecord, requiredFields, prefix));
 
-  // Verify the name field.
+  // Validate name field
   if (variableRecord["name"] !== undefined) {
     errors.push(
       ...validateStringField(variableRecord["name"] as string, `${prefix}.name`, {
@@ -144,7 +146,7 @@ function validateVariableDefinition(variable: unknown, index: number): Validatio
     );
   }
 
-  // Verify the type field
+  // Validate type field
   if (variableRecord["type"] !== undefined) {
     errors.push(
       ...validateEnumField(variableRecord["type"] as string, `${prefix}.type`, [
@@ -156,8 +158,11 @@ function validateVariableDefinition(variable: unknown, index: number): Validatio
     );
   }
 
-  // Verify the required fields.
-  if (variableRecord["required"] !== undefined && typeof variableRecord["required"] !== "boolean") {
+  // Validate required field
+  if (
+    variableRecord["required"] !== undefined &&
+    typeof variableRecord["required"] !== "boolean"
+  ) {
     errors.push(
       new SchemaValidationError(`${prefix}.required must be a boolean`, {
         field: `${prefix}.required`,
@@ -166,12 +171,16 @@ function validateVariableDefinition(variable: unknown, index: number): Validatio
     );
   }
 
-  // Verify the description field (if it exists).
+  // Validate description field (if exists)
   if (variableRecord["description"] !== undefined) {
     errors.push(
-      ...validateStringField(variableRecord["description"] as string, `${prefix}.description`, {
-        maxLength: 500,
-      }),
+      ...validateStringField(
+        variableRecord["description"] as string,
+        `${prefix}.description`,
+        {
+          maxLength: 500,
+        },
+      ),
     );
   }
 

@@ -30,10 +30,25 @@ import type { ToolRegistry } from "../../../core/registry/tool-registry.js";
 
 /**
  * SDK Main Class - Unified API Entry Point (Internal class, not exported)
+ * 
+ * Architecture Principles:
+ * - SDK provides the mechanism for initialization
+ * - Apps provide the policy through configuration options
+ * - Sensible defaults with opt-out capability for presets
+ * - Dependency injection pattern for storage adapters
+ * 
+ * Initialization Flow:
+ * 1. Constructor stores options and starts async bootstrap
+ * 2. Bootstrap initializes storage adapters (if provided)
+ * 3. Bootstrap preloads internal modules (TomlParserManager)
+ * 4. Bootstrap registers presets based on config (context compression, tools, prompts)
+ * 5. Apps can await waitForReady() for explicit control
  */
 class SDK {
   private factory: APIFactory;
   private dependencies: APIDependencyManager;
+  private bootstrapPromise?: Promise<void>;
+  private isBootstrapped: boolean = false;
 
   /**
    * Create an SDK instance
@@ -49,8 +64,10 @@ class SDK {
     this.dependencies = new APIDependencyManager();
 
     // Initialize preload content (executed asynchronously, without blocking the constructor)
-    this.bootstrap(options).catch(error => {
+    this.bootstrapPromise = this.bootstrap(options).catch(error => {
       logger.error(`Failed to bootstrap SDK: ${getErrorMessage(error)}`);
+      // Call error hook if provided
+      options?.hooks?.onBootstrapError?.(error);
     });
   }
   
@@ -64,6 +81,9 @@ class SDK {
    * @param options SDK configuration options
    */
   private async bootstrap(options?: SDKOptions): Promise<void> {
+    // Call start hook if provided
+    await options?.hooks?.onBootstrapStart?.();
+
     // Step 1: Initialize storage adapters through StorageInitializationService
     try {
       const storageService = StorageInitializationService.getInstance();
@@ -167,6 +187,31 @@ class SDK {
     }
 
     // Subsequent registration for other L1/L2 content can be done automatically based on the selected options.
+
+    // Mark as bootstrapped
+    this.isBootstrapped = true;
+
+    // Call complete hook if provided
+    await options?.hooks?.onBootstrapComplete?.();
+  }
+
+  /**
+   * Wait for SDK bootstrap to complete
+   * Useful when apps need to ensure all initialization is done before proceeding
+   * @returns Promise that resolves when bootstrap is complete
+   */
+  async waitForReady(): Promise<void> {
+    if (this.bootstrapPromise) {
+      await this.bootstrapPromise;
+    }
+  }
+
+  /**
+   * Check if SDK has completed bootstrap
+   * @returns true if bootstrap is complete, false otherwise
+   */
+  isReady(): boolean {
+    return this.isBootstrapped;
   }
 
   /**
@@ -351,6 +396,9 @@ class SDK {
    * Terminate the SDK instance and clean up resources.
    */
   async destroy(): Promise<void> {
+    // Call destroy hook if provided
+    await this.pendingOptions?.hooks?.onDestroy?.();
+
     // Shutdown storage adapters first
     try {
       await this.shutdown();
@@ -427,7 +475,25 @@ let globalSDK: SDK | null = null;
 /**
  * Get the global SDK instance.
  * Delay initialization to avoid initializing the DI container when the module is loaded.
+ * 
+ * Usage Pattern:
+ * ```typescript
+ * // Simple usage with automatic initialization
+ * const sdk = getSDK({ presets: { predefinedTools: { enabled: true } } });
+ * 
+ * // Explicit control - wait for initialization
+ * const sdk = getSDK(options);
+ * await sdk.waitForReady();
+ * // Now safe to use all SDK features
+ * 
+ * // Check readiness status
+ * if (sdk.isReady()) {
+ *   // SDK is fully initialized
+ * }
+ * ```
+ * 
  * @param options SDK configuration options (only effective during the initial initialization)
+ * @returns Global SDK instance
  */
 export function getSDK(options?: SDKOptions): SDK {
   if (!globalSDK) {

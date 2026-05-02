@@ -1,164 +1,453 @@
-# Command模式核心模块
+# SDK Initialization Guide
 
-## 概述
+This document explains how to properly initialize and use the SDK in your applications.
 
-本模块提供了Command模式的基础设施，包括Command接口、执行器和中间件系统。这是SDK API改造阶段1的核心交付物。
+## Architecture Principles
 
-## 核心组件
+The SDK follows a clear architectural pattern:
 
-### 1. Command接口
+- **SDK provides the mechanism**: Internal initialization logic, preset registration, module preloading
+- **Apps provide the policy**: Configuration options, storage adapters, feature toggles
+- **Dependency Injection**: Apps implement concrete storage, SDK uses abstract interfaces
+- **Sensible Defaults**: Features enabled by default with opt-out capability
 
-所有命令都需要实现 [`Command<T>`](command.ts:52) 接口：
+## Initialization Flow
+
+When you call `getSDK(options)`, the following happens automatically:
+
+1. **Constructor Phase** (synchronous):
+   - Stores configuration options
+   - Initializes API factory
+   - Creates dependency manager
+   - Starts async bootstrap (non-blocking)
+
+2. **Bootstrap Phase** (asynchronous):
+   - Initializes storage adapters (if provided)
+   - Preloads internal modules (TomlParserManager)
+   - Registers presets based on config:
+     - Context compression (enabled by default)
+     - Predefined tools (enabled by default)
+     - Predefined prompts (enabled by default)
+
+3. **Ready State**:
+   - All presets registered
+   - Storage adapters initialized
+   - SDK fully operational
+
+## Basic Usage Patterns
+
+### 1. Simple Initialization (Automatic)
 
 ```typescript
-interface Command<T> {
-  execute(): Promise<ExecutionResult<T>>;
-  undo?(): Promise<ExecutionResult<void>>;
-  validate(): CommandValidationResult;
-  getMetadata(): CommandMetadata;
+import { getSDK } from '@wf-agent/sdk/api';
+
+// Simplest usage - bootstrap happens automatically
+const sdk = getSDK({
+  debug: false,
+  logLevel: "info",
+  presets: {
+    contextCompression: { enabled: true },
+    predefinedTools: { enabled: true },
+    predefinedPrompts: { enabled: true },
+  },
+});
+
+// SDK is initializing in the background
+// You can start using it immediately for most operations
+```
+
+### 2. Explicit Initialization Control
+
+```typescript
+import { getSDK } from '@wf-agent/sdk/api';
+
+const sdk = getSDK({
+  debug: true,
+  logLevel: "debug",
+  presets: {
+    predefinedTools: { enabled: true },
+  },
+});
+
+// Wait for bootstrap to complete
+await sdk.waitForReady();
+
+// Now guaranteed that all presets are registered
+console.log("SDK is fully ready:", sdk.isReady());
+```
+
+**When to use**: Critical paths that depend on fully initialized SDK features.
+
+### 3. Using Lifecycle Hooks
+
+```typescript
+import { getSDK, type SDKLifecycleHooks } from '@wf-agent/sdk/api';
+
+const hooks: SDKLifecycleHooks = {
+  onBootstrapStart: () => {
+    console.log("SDK bootstrap starting...");
+    // Start performance timer, show loading indicator, etc.
+  },
+  onBootstrapComplete: () => {
+    console.log("SDK bootstrap completed successfully!");
+    // Stop timer, hide loading indicator, emit metrics
+  },
+  onBootstrapError: (error: Error) => {
+    console.error("SDK bootstrap failed:", error);
+    // Send error to monitoring service, show user-friendly message
+  },
+  onDestroy: () => {
+    console.log("SDK is being destroyed...");
+    // Cleanup app-specific resources
+  },
+};
+
+const sdk = getSDK({
+  presets: { predefinedTools: { enabled: true } },
+  hooks,
+});
+
+await sdk.waitForReady();
+```
+
+**When to use**: Observability, metrics, custom setup/teardown logic.
+
+### 4. Storage Adapter Integration
+
+```typescript
+import { getSDK } from '@wf-agent/sdk/api';
+
+// Apps implement storage adapters
+const checkpointAdapter = new JsonCheckpointStorage(config);
+const workflowAdapter = new SqliteWorkflowStorage(config);
+const taskAdapter = new JsonTaskStorage(config);
+
+// Pass adapters to SDK
+const sdk = getSDK({
+  checkpointStorageAdapter: checkpointAdapter,
+  workflowStorageAdapter: workflowAdapter,
+  taskStorageAdapter: taskAdapter,
+  workflowExecutionStorageAdapter: executionAdapter,
+  agentLoopCheckpointStorageAdapter: agentLoopAdapter,
+  presets: {
+    predefinedTools: { enabled: true },
+  },
+});
+
+await sdk.waitForReady();
+
+// Storage is now initialized and ready to use
+```
+
+**Key Point**: Apps implement concrete storage (JSON, SQLite, etc.), SDK remains agnostic.
+
+### 5. Selective Preset Configuration
+
+```typescript
+import { getSDK } from '@wf-agent/sdk/api';
+
+const sdk = getSDK({
+  presets: {
+    // Enable context compression
+    contextCompression: {
+      enabled: true,
+    },
+    
+    // Enable only specific tools
+    predefinedTools: {
+      enabled: true,
+      allowList: ["read_file", "write_file"], // Only these tools
+      blockList: ["run_shell"], // Except this one
+    },
+    
+    // Disable predefined prompts
+    predefinedPrompts: {
+      enabled: false,
+    },
+  },
+});
+
+await sdk.waitForReady();
+```
+
+### 6. Health Check Pattern
+
+```typescript
+import { getSDK } from '@wf-agent/sdk/api';
+
+const sdk = getSDK({
+  presets: { predefinedTools: { enabled: true } },
+});
+
+// Wait for initialization
+await sdk.waitForReady();
+
+// Perform health check
+const health = await sdk.healthCheck();
+console.log("SDK Health Status:", health.status);
+console.log("Module Details:", health.details);
+
+if (health.status === "unhealthy") {
+  console.error("Some modules are not working correctly");
 }
 ```
 
-### 2. BaseCommand抽象类
-
-[`BaseCommand<T>`](command.ts:82) 提供了通用的命令实现，包含执行时间跟踪等功能。
-
-### 3. CommandExecutor
-
-[`CommandExecutor`](command-executor.ts:26) 负责执行命令并管理中间件链：
+### 7. Graceful Shutdown
 
 ```typescript
-const executor = new CommandExecutor();
-executor.addMiddleware(new LoggingMiddleware());
-const result = await executor.execute(command);
-```
+import { getSDK } from '@wf-agent/sdk/api';
 
-### 4. 中间件系统
+const sdk = getSDK({
+  presets: { predefinedTools: { enabled: true } },
+});
 
-提供了5个内置中间件：
+await sdk.waitForReady();
 
-- [`LoggingMiddleware`](command-middleware.ts:38) - 日志记录
-- [`ValidationMiddleware`](command-middleware.ts:80) - 参数验证
-- [`CacheMiddleware`](command-middleware.ts:101) - 结果缓存
-- [`MetricsMiddleware`](command-middleware.ts:149) - 指标收集
-- [`RetryMiddleware`](command-middleware.ts:223) - 自动重试
+// ... Use SDK ...
 
-## 快速开始
-
-### 基本使用
-
-```typescript
-import { CommandExecutor, BaseCommand, CommandMetadata, validationSuccess } from "sdk/api";
-import { success } from "sdk/api/types";
-
-// 创建自定义命令
-class MyCommand extends BaseCommand<string> {
-  async execute(): Promise<ExecutionResult<string>> {
-    return success("Hello, World!", this.getExecutionTime());
-  }
-
-  validate(): CommandValidationResult {
-    return validationSuccess();
-  }
-
-  getMetadata(): CommandMetadata {
-    return {
-      name: "MyCommand",
-      description: "My custom command",
-      category: "execution",
-      requiresAuth: false,
-      version: "1.0.0",
-    };
-  }
+// When done, shutdown gracefully
+try {
+  await sdk.shutdown(); // Closes storage adapters
+  console.log("SDK shut down successfully");
+} catch (error) {
+  console.error("Error during shutdown:", error);
 }
 
-// 执行命令
-const executor = new CommandExecutor();
-const result = await executor.execute(new MyCommand());
+// Or completely destroy (more thorough cleanup)
+await sdk.destroy();
+console.log("SDK destroyed");
 ```
 
-### 使用中间件
+### 8. Readiness Check Pattern
 
 ```typescript
-import { CommandExecutor, LoggingMiddleware, ValidationMiddleware, CacheMiddleware } from "sdk/api";
+import { getSDK } from '@wf-agent/sdk/api';
 
-const executor = new CommandExecutor();
+const sdk = getSDK({
+  presets: { predefinedTools: { enabled: true } },
+});
 
-// 添加中间件
-executor.addMiddleware(new LoggingMiddleware());
-executor.addMiddleware(new ValidationMiddleware());
-executor.addMiddleware(new CacheMiddleware(5000)); // 5秒TTL
-
-// 执行命令
-const result = await executor.execute(command);
-```
-
-### 批量执行
-
-```typescript
-// 串行执行
-const results = await executor.executeBatch(commands, false);
-
-// 并行执行
-const results = await executor.executeBatch(commands, true);
-```
-
-## 示例代码
-
-详细的示例代码请参考：
-
-- [`examples/example-commands.ts`](examples/example-commands.ts) - 5个Command实现示例
-- [`examples/usage-examples.ts`](examples/usage-examples.ts) - 10个使用场景示例
-
-## 类型定义
-
-### ExecutionResult<T>
-
-统一的执行结果类型：
-
-```typescript
-interface ExecutionResult<T> {
-  result: Result<T, SDKError>;
-  executionTime: number;
+// Non-blocking check
+if (sdk.isReady()) {
+  console.log("SDK is already initialized");
+  // Safe to use immediately
+} else {
+  console.log("SDK is still initializing...");
+  // Either wait or handle gracefully
+  sdk.waitForReady().then(() => {
+    console.log("SDK is now ready");
+  });
 }
 ```
 
-基于 packages/types 的 Result 类型，添加 executionTime 支持。
+## Real-World Example: CLI App
 
-### ExecutionOptions
-
-统一的执行选项：
+Here's how the CLI app initializes the SDK (simplified):
 
 ```typescript
-interface ExecutionOptions {
-  timeout?: number;
-  retries?: number;
-  retryDelay?: number;
-  cache?: boolean;
-  logging?: boolean;
-  validation?: boolean;
+import { getSDK } from '@wf-agent/sdk/api';
+import { initializeStorageManager, getStorageManager } from './storage';
+import { loadConfigWithEnvOverride } from './config';
+
+async function initializeCLI(options: CLIOptions) {
+  // 1. Load app configuration
+  const config = await loadConfigWithEnvOverride(options.config);
+
+  // 2. Initialize output system
+  const output = initializeOutput({
+    logFile: options.logFile,
+    verbose: options.verbose,
+    debug: options.debug,
+    outputDir: config.output?.dir,
+    enableSDKLogs: config.output?.enableSDKLogs,
+    sdkLogLevel: config.output?.sdkLogLevel,
+  });
+
+  // 3. Initialize loggers
+  initLogger({ /* ... */ });
+  initSDKLogger({ /* ... */ });
+
+  // 4. Initialize storage manager
+  await initializeStorageManager(config);
+  const storageManager = getStorageManager();
+
+  // 5. Initialize SDK with app-provided adapters
+  const sdk = getSDK({
+    debug: options.debug,
+    logLevel: options.debug ? "debug" : options.verbose ? "info" : "warn",
+    presets: config.presets,
+    checkpointStorageAdapter: storageManager?.getCheckpointStorage(),
+    workflowStorageAdapter: storageManager?.getWorkflowStorage(),
+    taskStorageAdapter: storageManager?.getTaskStorage(),
+    workflowExecutionStorageAdapter: storageManager?.getWorkflowExecutionStorage(),
+    agentLoopCheckpointStorageAdapter: storageManager?.getAgentLoopCheckpointStorage(),
+    hooks: {
+      onBootstrapComplete: () => {
+        output.infoLog("CLI SDK initialized successfully");
+      },
+    },
+  });
+
+  // 6. Wait for SDK to be ready
+  await sdk.waitForReady();
+
+  // 7. Register app-specific handlers
+  const humanRelayHandler = new CLIHumanRelayHandler();
+  sdk.humanRelay.registerHandler(humanRelayHandler);
+
+  return sdk;
 }
 ```
 
-## 设计原则
+## Best Practices
 
-1. **统一性**：所有命令都遵循相同的接口和执行模式
-2. **可扩展性**：通过中间件系统轻松添加横切关注点
-3. **可测试性**：Command可以独立测试
-4. **类型安全**：完整的TypeScript类型支持
-5. **灵活性**：支持同步和异步命令，支持撤销操作
+### ✅ DO:
 
-## 下一步
+1. **Pass configuration through SDKOptions**
+   - Let SDK handle internal initialization
+   - Control behavior through options, not manual calls
 
-阶段1已完成Command模式的基础设施建设。下一阶段（阶段2）将使用Command模式重构核心API：
+2. **Use `waitForReady()` when timing matters**
+   - For critical paths that need full initialization
+   - Before accessing preset-dependent features
 
-- ThreadExecutorAPI
-- LLMAPI
-- ToolAPI
-- ScriptAPI
+3. **Implement lifecycle hooks for observability**
+   - Track initialization performance
+   - Handle errors gracefully
+   - Cleanup app-specific resources
 
-## 相关文档
+4. **Provide storage adapters via dependency injection**
+   - Apps implement concrete storage (JSON, SQLite, etc.)
+   - SDK remains agnostic to implementation details
 
-- [阶段1完成总结](../../../docs/sdk/api/phase-1-completion-summary.md)
-- [API改造分阶段执行方案](../../../docs/sdk/api/sdk-api-implementation-phases.md)
-- [API重新设计方案](../../../docs/sdk/api/sdk-api-redesign-specification.md)
+5. **Handle errors gracefully**
+   - Use try-catch around `waitForReady()` if needed
+   - Check health status after initialization
+
+### ❌ DON'T:
+
+1. **Try to manually initialize SDK internals**
+   - Don't call `bootstrap()` directly
+   - Don't access private methods or properties
+
+2. **Duplicate initialization logic across apps**
+   - Each app should follow the same pattern
+   - Centralize common initialization in shared utilities
+
+3. **Ignore initialization errors**
+   - Always check for errors in production code
+   - Use lifecycle hooks to monitor failures
+
+4. **Assume immediate readiness**
+   - Bootstrap is asynchronous
+   - Use `isReady()` or `waitForReady()` to check status
+
+## Configuration Reference
+
+### SDKOptions
+
+```typescript
+interface SDKOptions {
+  // Debug mode
+  debug?: boolean;
+  
+  // Log level
+  logLevel?: "debug" | "info" | "warn" | "error";
+  
+  // Default timeout (milliseconds)
+  defaultTimeout?: number;
+  
+  // Enable checkpoints
+  enableCheckpoints?: boolean;
+  
+  // Storage adapters (implemented by apps)
+  checkpointStorageAdapter?: CheckpointStorageAdapter;
+  workflowStorageAdapter?: WorkflowStorageAdapter;
+  taskStorageAdapter?: TaskStorageAdapter;
+  workflowExecutionStorageAdapter?: WorkflowExecutionStorageAdapter;
+  agentLoopCheckpointStorageAdapter?: AgentLoopCheckpointStorageAdapter;
+  
+  // Enable validation
+  enableValidation?: boolean;
+  
+  // Preset configuration
+  presets?: PresetsConfig;
+  
+  // Lifecycle hooks
+  hooks?: SDKLifecycleHooks;
+}
+```
+
+### SDKLifecycleHooks
+
+```typescript
+interface SDKLifecycleHooks {
+  // Called when bootstrap starts
+  onBootstrapStart?: () => void | Promise<void>;
+  
+  // Called when bootstrap completes successfully
+  onBootstrapComplete?: () => void | Promise<void>;
+  
+  // Called when bootstrap fails
+  onBootstrapError?: (error: Error) => void | Promise<void>;
+  
+  // Called when SDK is being destroyed
+  onDestroy?: () => void | Promise<void>;
+}
+```
+
+## Troubleshooting
+
+### SDK not ready when I try to use it
+
+**Problem**: Calling SDK methods before bootstrap completes.
+
+**Solution**: Use `waitForReady()`:
+```typescript
+const sdk = getSDK(options);
+await sdk.waitForReady();
+// Now safe to use
+```
+
+### Presets not registered
+
+**Problem**: Expected tools/workflows not available.
+
+**Solution**: 
+1. Check preset configuration in options
+2. Verify `waitForReady()` was called
+3. Check logs for bootstrap errors
+
+### Storage adapter not working
+
+**Problem**: Data not persisting.
+
+**Solution**:
+1. Ensure adapter is passed in options
+2. Check adapter initialization in app layer
+3. Verify adapter implements correct interface
+
+### Bootstrap errors
+
+**Problem**: SDK fails to initialize.
+
+**Solution**:
+1. Use `onBootstrapError` hook to capture errors
+2. Check logs for detailed error messages
+3. Verify storage adapters are properly configured
+
+## Summary
+
+The SDK initialization design follows the principle: **"SDK provides the mechanism, apps provide the policy"**. 
+
+- Apps control WHAT gets initialized through configuration
+- SDK handles HOW initialization happens internally
+- This separation keeps apps simple and SDK flexible
+
+For most use cases, simple initialization is sufficient:
+```typescript
+const sdk = getSDK({ presets: { predefinedTools: { enabled: true } } });
+await sdk.waitForReady();
+```
+
+For advanced scenarios, use lifecycle hooks and explicit readiness checks to gain more control over the initialization process.

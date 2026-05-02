@@ -62,6 +62,9 @@ export {
 // Global SDK Example
 export { getSDK } from "./shared/core/sdk.js";
 
+// SDK Types
+export type { SDKOptions, SDKLifecycleHooks } from "./shared/types/core-types.js";
+
 // API Factory
 export { APIFactory, getAPIFactory, type AllAPIs } from "./shared/core/api-factory.js";
 

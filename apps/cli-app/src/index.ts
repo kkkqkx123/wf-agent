@@ -109,7 +109,7 @@ program
     await initializeStorageManager(config);
     const storageManager = getStorageManager();
 
-    // 7. Initialize the SDK with storage adapters
+    // 7. Initialize the SDK with storage adapters and lifecycle hooks
     const sdk = getSDK({
       debug: options.debug,
       logLevel: options.debug ? "debug" : options.verbose ? "info" : "warn",
@@ -119,18 +119,31 @@ program
       taskStorageAdapter: storageManager?.getTaskStorage() ?? undefined,
       workflowExecutionStorageAdapter: storageManager?.getWorkflowExecutionStorage() ?? undefined,
       agentLoopCheckpointStorageAdapter: storageManager?.getAgentLoopCheckpointStorage() ?? undefined,
+      hooks: {
+        onBootstrapStart: () => {
+          output.infoLog("Initializing SDK...");
+        },
+        onBootstrapComplete: () => {
+          output.infoLog("SDK initialized successfully");
+        },
+        onBootstrapError: error => {
+          output.errorLog(`SDK initialization failed: ${error.message}`);
+        },
+        onDestroy: async () => {
+          output.infoLog("Shutting down SDK and storage...");
+          await closeStorageManager();
+        },
+      },
     });
 
     // Wait for SDK bootstrap to complete
     try {
-      await sdk.healthCheck();
+      await sdk.waitForReady();
     } catch (error) {
-      // If health check fails, log but continue - some modules may not be ready yet
-      if (options.debug) {
-        output.debugLog(
-          `SDK health check warning: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      }
+      output.errorLog(
+        `SDK initialization failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      await ExitManager.exit(1);
     }
 
     // 8. Register Human Relay Handler
@@ -215,8 +228,9 @@ const shutdown = async () => {
   output.infoLog("Cleaning up resources...");
 
   try {
-    // Close storage manager
-    await closeStorageManager();
+    // Destroy SDK (triggers onDestroy hook which closes storage manager)
+    const sdk = getSDK();
+    await sdk.destroy();
 
     // Dynamically import terminal modules (to avoid circular dependencies)
     const { TerminalManager } = await import("./terminal/terminal-manager.js");

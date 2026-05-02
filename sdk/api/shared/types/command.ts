@@ -5,7 +5,6 @@
 
 import type { ExecutionResult } from "./execution-result.js";
 import { SDKError, ExecutionError as SDKExecutionError } from "@wf-agent/types";
-import { CommandValidator } from "../utils/command-validator.js";
 import { ok, err, isError, now, diffTimestamp } from "@wf-agent/common-utils";
 
 /**
@@ -194,14 +193,6 @@ export abstract class BaseCommand<T> implements Command<T> {
       result: err(error),
       executionTime,
     };
-  }
-
-  /**
-   * Get a validator instance
-   * @returns CommandValidator instance
-   */
-  protected createValidator(): CommandValidator {
-    return new CommandValidator();
   }
 }
 

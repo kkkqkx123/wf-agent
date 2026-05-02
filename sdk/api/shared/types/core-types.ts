@@ -13,6 +13,21 @@ import type {
 } from "@wf-agent/storage";
 
 /**
+ * SDK Lifecycle Hooks
+ * Allows apps to hook into SDK initialization lifecycle
+ */
+export interface SDKLifecycleHooks {
+  /** Called when SDK bootstrap starts */
+  onBootstrapStart?: () => void | Promise<void>;
+  /** Called when SDK bootstrap completes successfully */
+  onBootstrapComplete?: () => void | Promise<void>;
+  /** Called when SDK bootstrap fails */
+  onBootstrapError?: (error: Error) => void | Promise<void>;
+  /** Called when SDK is being destroyed */
+  onDestroy?: () => void | Promise<void>;
+}
+
+/**
  * SDK Options
  */
 export interface SDKOptions {
@@ -38,6 +53,8 @@ export interface SDKOptions {
   enableValidation?: boolean;
   /** Predefined feature options */
   presets?: PresetsConfig;
+  /** Lifecycle hooks for SDK initialization */
+  hooks?: SDKLifecycleHooks;
 }
 
 /**

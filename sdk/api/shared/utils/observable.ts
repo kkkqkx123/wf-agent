@@ -39,14 +39,7 @@ export interface Observable<T> {
     error?: (error: unknown) => void,
     complete?: () => void,
   ): Subscription;
-  /** Pipe operator (reserved for future expansion) */
-  pipe<R>(...operators: OperatorFunction<T, R>[]): Observable<R>;
 }
-
-/**
- * Operator function types (reserved for future expansion)
- */
-export type OperatorFunction<T, R> = (source: Observable<T>) => Observable<R>;
 
 /**
  * Observable implementation class
@@ -148,12 +141,6 @@ export class ObservableImpl<T> implements Observable<T> {
     };
   }
 
-  /**
-   * Pipe operator (reserved for future expansion)
-   */
-  pipe<R>(...operators: OperatorFunction<T, R>[]): Observable<R> {
-    return operators.reduce((obs, op) => op(obs as unknown as Observable<T>), this as unknown as Observable<R>);
-  }
 
   /**
    * Cancel all cleanup functions

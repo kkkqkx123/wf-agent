@@ -15,3 +15,10 @@ export {
   type CompressionResult,
   DEFAULT_COMPRESSION_CONFIG,
 } from "./compressor.js";
+
+export {
+  CompressionService,
+  type GlobalCompressionConfig,
+  type EntityType,
+  DEFAULT_GLOBAL_COMPRESSION_CONFIG,
+} from "./compression-service.js";

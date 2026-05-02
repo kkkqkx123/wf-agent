@@ -11,7 +11,10 @@
 import type { CheckpointStorageMetadata, CheckpointStorageListOptions } from "@wf-agent/types";
 import type { CheckpointStorageAdapter } from "../types/adapter/index.js";
 import { BaseSqliteStorage, BaseSqliteStorageConfig } from "./base-sqlite-storage.js";
-import { compressBlob, decompressBlob } from "./compression.js";
+import { compressBlob, decompressBlob, compressBlobSync, decompressBlobSync } from "./compression.js";
+import { createModuleLogger } from "../logger.js";
+
+const logger = createModuleLogger("sqlite-checkpoint-storage");
 
 /**
  * SQLite Checkpoint Storage
@@ -147,6 +150,7 @@ export class SqliteCheckpointStorage
    * Save checkpoint with metadata-BLOB separation and compression
    */
   async save(id: string, data: Uint8Array, metadata: CheckpointStorageMetadata): Promise<void> {
+    const startTime = Date.now();
     const db = this.getDb();
     const now = Date.now();
 
@@ -227,6 +231,10 @@ export class SqliteCheckpointStorage
 
         insertBlob.run(id, Buffer.from(compressed), algorithm ? 1 : 0, algorithm);
       })();
+
+      // Track metrics
+      const elapsed = Date.now() - startTime;
+      this.updateMetric('save', elapsed, compressed.length);
     } catch (error) {
       this.handleSqliteError(error, "save", { id });
     }
@@ -236,6 +244,7 @@ export class SqliteCheckpointStorage
    * Load checkpoint data with automatic decompression
    */
   override async load(id: string): Promise<Uint8Array | null> {
+    const startTime = Date.now();
     const db = this.getDb();
 
     try {
@@ -260,9 +269,14 @@ export class SqliteCheckpointStorage
 
       // Decompress if needed
       if (row.compressed && row.compression_algorithm) {
-        return await decompressBlob(data, row.compression_algorithm);
+        const decompressed = await decompressBlob(data, row.compression_algorithm);
+        const elapsed = Date.now() - startTime;
+        this.updateMetric('load', elapsed, decompressed.length);
+        return decompressed;
       }
 
+      const elapsed = Date.now() - startTime;
+      this.updateMetric('load', elapsed, data.length);
       return data;
     } catch (error) {
       this.handleSqliteError(error, "load", { id });
@@ -273,12 +287,16 @@ export class SqliteCheckpointStorage
    * Delete checkpoint (cascade delete will handle blob)
    */
   override async delete(id: string): Promise<void> {
+    const startTime = Date.now();
     const db = this.getDb();
 
     try {
       // Due to ON DELETE CASCADE, deleting from metadata will also delete from blob table
       const stmt = db.prepare(`DELETE FROM checkpoint_metadata WHERE id = ?`);
       stmt.run(id);
+      
+      const elapsed = Date.now() - startTime;
+      this.updateMetric('delete', elapsed);
     } catch (error) {
       this.handleSqliteError(error, "delete", { id });
     }
@@ -303,6 +321,7 @@ export class SqliteCheckpointStorage
    * List checkpoint IDs (optimized - only scans metadata table)
    */
   async list(options?: CheckpointStorageListOptions): Promise<string[]> {
+    const startTime = Date.now();
     const db = this.getDb();
 
     try {
@@ -346,6 +365,9 @@ export class SqliteCheckpointStorage
 
       const stmt = db.prepare(sql);
       const rows = stmt.all(...params) as Array<{ id: string }>;
+
+      const elapsed = Date.now() - startTime;
+      this.updateMetric('list', elapsed);
 
       return rows.map(row => row.id);
     } catch (error) {
@@ -444,6 +466,180 @@ export class SqliteCheckpointStorage
       };
     } catch (error) {
       this.handleSqliteError(error, "getStats", {});
+    }
+  }
+
+  /**
+   * Save multiple checkpoints in a single transaction
+   */
+  override async saveBatch(
+    items: Array<{ id: string; data: Uint8Array; metadata: CheckpointStorageMetadata }>,
+  ): Promise<void> {
+    const db = this.getDb();
+    const now = Date.now();
+
+    // Prepare statements
+    const insertMetadata = db.prepare(`
+      INSERT INTO checkpoint_metadata (
+        id, execution_id, workflow_id, timestamp, checkpoint_type,
+        base_checkpoint_id, previous_checkpoint_id, message_count, variable_count,
+        blob_size, blob_hash, tags, custom_fields, created_at, updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        execution_id = excluded.execution_id,
+        workflow_id = excluded.workflow_id,
+        timestamp = excluded.timestamp,
+        checkpoint_type = excluded.checkpoint_type,
+        base_checkpoint_id = excluded.base_checkpoint_id,
+        previous_checkpoint_id = excluded.previous_checkpoint_id,
+        message_count = excluded.message_count,
+        variable_count = excluded.variable_count,
+        blob_size = excluded.blob_size,
+        blob_hash = excluded.blob_hash,
+        tags = excluded.tags,
+        custom_fields = excluded.custom_fields,
+        updated_at = excluded.updated_at
+    `);
+
+    const insertBlob = db.prepare(`
+      INSERT INTO checkpoint_blob (checkpoint_id, blob_data, compressed, compression_algorithm)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(checkpoint_id) DO UPDATE SET
+        blob_data = excluded.blob_data,
+        compressed = excluded.compressed,
+        compression_algorithm = excluded.compression_algorithm
+    `);
+
+    await this.saveBatchWithCustomLogic(items, (db, item) => {
+      const metrics = this.extractMetrics(item.data);
+      
+      let checkpointType: string | null = null;
+      let baseCheckpointId: string | null = null;
+      let previousCheckpointId: string | null = null;
+
+      try {
+        const decoder = new TextDecoder();
+        const jsonStr = decoder.decode(item.data);
+        const checkpoint = JSON.parse(jsonStr);
+        checkpointType = checkpoint.type ?? null;
+        baseCheckpointId = checkpoint.baseCheckpointId ?? null;
+        previousCheckpointId = checkpoint.previousCheckpointId ?? null;
+      } catch {
+        // Ignore parsing errors
+      }
+
+      // Compress BLOB data synchronously for batch operation
+      const { compressed, algorithm } = compressBlobSync(item.data);
+
+      insertMetadata.run(
+        item.id,
+        item.metadata.executionId,
+        item.metadata.workflowId,
+        item.metadata.timestamp,
+        checkpointType,
+        baseCheckpointId,
+        previousCheckpointId,
+        metrics.messageCount,
+        metrics.variableCount,
+        compressed.length,
+        metrics.blobHash,
+        item.metadata.tags ? JSON.stringify(item.metadata.tags) : null,
+        item.metadata.customFields ? JSON.stringify(item.metadata.customFields) : null,
+        now,
+        now,
+      );
+
+      insertBlob.run(item.id, Buffer.from(compressed), algorithm ? 1 : 0, algorithm);
+    });
+  }
+
+  /**
+   * Load multiple checkpoints efficiently
+   */
+  override async loadBatch(ids: string[]): Promise<Array<{ id: string; data: Uint8Array | null }>> {
+    const db = this.getDb();
+
+    if (ids.length === 0) {
+      return [];
+    }
+
+    try {
+      // Use IN clause for efficient batch loading from blob table
+      const placeholders = ids.map(() => '?').join(',');
+      const stmt = db.prepare(`
+        SELECT cb.checkpoint_id as id, cb.blob_data, cb.compressed, cb.compression_algorithm
+        FROM checkpoint_blob cb
+        WHERE cb.checkpoint_id IN (${placeholders})
+      `);
+      const rows = stmt.all(...ids) as Array<{
+        id: string;
+        blob_data: Buffer;
+        compressed: number;
+        compression_algorithm: string | null;
+      }>;
+
+      // Create a map for quick lookup
+      const dataMap = new Map<string, Uint8Array>();
+      for (const row of rows) {
+        const buffer = row.blob_data;
+        let data: Uint8Array;
+
+        if (row.compressed && row.compression_algorithm) {
+          // Decompress
+          data = decompressBlobSync(new Uint8Array(buffer), row.compression_algorithm);
+        } else {
+          data = new Uint8Array(buffer);
+        }
+
+        dataMap.set(row.id, data);
+      }
+
+      // Maintain order and handle missing items
+      const results = ids.map(id => ({
+        id,
+        data: dataMap.get(id) || null,
+      }));
+
+      logger.debug("Batch load completed", {
+        table: this.getTableName(),
+        requested: ids.length,
+        found: rows.length,
+      });
+
+      return results;
+    } catch (error) {
+      this.handleSqliteError(error, "loadBatch", { count: ids.length });
+    }
+  }
+
+  /**
+   * Delete multiple checkpoints in a single transaction
+   */
+  override async deleteBatch(ids: string[]): Promise<void> {
+    const db = this.getDb();
+
+    if (ids.length === 0) {
+      return;
+    }
+
+    try {
+      // Due to ON DELETE CASCADE, deleting from metadata will also delete from blob table
+      const transaction = db.transaction(() => {
+        const stmt = db.prepare(`DELETE FROM checkpoint_metadata WHERE id = ?`);
+        for (const id of ids) {
+          stmt.run(id);
+        }
+      });
+
+      transaction();
+
+      logger.debug("Batch delete completed", {
+        table: this.getTableName(),
+        count: ids.length,
+      });
+    } catch (error) {
+      this.handleSqliteError(error, "deleteBatch", { count: ids.length });
     }
   }
 }

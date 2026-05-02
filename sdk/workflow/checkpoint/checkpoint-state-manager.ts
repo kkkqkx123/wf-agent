@@ -26,6 +26,7 @@ import {
 } from "../execution/utils/event/index.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 import { logError, emitErrorEvent } from "../../core/utils/error-utils.js";
+import type { CleanupScheduler } from "@wf-agent/storage";
 
 const logger = createContextualLogger({ operation: "checkpoint-state-manager" });
 
@@ -52,15 +53,22 @@ export class CheckpointState implements LifecycleCapable<void> {
   private eventManager?: EventRegistry;
   private serializationRegistry: SerializationRegistry;
   private checkpointSerializer: WorkflowCheckpointSerializer;
+  private cleanupScheduler?: CleanupScheduler;
 
   /**
    * Constructor
    * @param storageAdapter: Storage adapter interface (implemented by the application layer)
    * @param eventManager: Event manager (optional)
+   * @param cleanupScheduler: Background cleanup scheduler (optional)
    */
-  constructor(storageAdapter: CheckpointStorageAdapter, eventManager?: EventRegistry) {
+  constructor(
+    storageAdapter: CheckpointStorageAdapter,
+    eventManager?: EventRegistry,
+    cleanupScheduler?: CleanupScheduler
+  ) {
     this.storageAdapter = storageAdapter;
     this.eventManager = eventManager;
+    this.cleanupScheduler = cleanupScheduler;
     this.serializationRegistry = SerializationRegistry.getInstance();
     
     // Get serializer from registry or create if not registered
@@ -374,9 +382,15 @@ export class CheckpointState implements LifecycleCapable<void> {
 
   /**
    * Clean up resources
-   * Clear all checkpoints
+   * Clear all checkpoints and stop cleanup scheduler if active
    */
   async cleanup(): Promise<void> {
+    // Stop cleanup scheduler if active
+    if (this.cleanupScheduler) {
+      this.cleanupScheduler.stop();
+      logger.debug("Cleanup scheduler stopped during checkpoint state cleanup");
+    }
+
     const checkpointIds = await this.storageAdapter.list();
     for (const checkpointId of checkpointIds) {
       await this.storageAdapter.delete(checkpointId);

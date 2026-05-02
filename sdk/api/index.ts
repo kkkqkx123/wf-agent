@@ -357,4 +357,6 @@ export {
   parseScript,
   parseLLMProfile,
   parseAndValidateAgentLoopConfig,
+  loadConfigContent,
+  loadAgentLoopConfig,
 } from "./shared/config/index.js";

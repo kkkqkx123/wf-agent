@@ -39,7 +39,11 @@ export {
 export { ConfigParser } from "./config-parser.js";
 
 // Configuration Tool Functions
-export { detectConfigFormat } from "./config-utils.js";
+export {
+  detectConfigFormat,
+  loadConfigContent,
+  loadAgentLoopConfig,
+} from "./config-utils.js";
 
 // JSON Parsing Functions
 export { parseJson, stringifyJson, validateJsonSyntax } from "./json-parser.js";

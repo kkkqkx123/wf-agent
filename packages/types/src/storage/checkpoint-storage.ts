@@ -33,10 +33,20 @@ export interface CheckpointStorageListOptions {
   workflowId?: ID;
   /** Filter by tag (match any tag) */
   tags?: string[];
+  /** Filter by timestamp range - start */
+  timestampFrom?: Timestamp;
+  /** Filter by timestamp range - end */
+  timestampTo?: Timestamp;
+  /** Filter by checkpoint type */
+  type?: 'FULL' | 'DELTA';
   /** Maximum number of returns (paged) */
   limit?: number;
   /** Offset (paging) */
   offset?: number;
+  /** Sort Fields */
+  sortBy?: 'timestamp' | 'size' | 'id';
+  /** sorting direction */
+  sortOrder?: 'asc' | 'desc';
 }
 
 /**

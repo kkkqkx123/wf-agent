@@ -15,6 +15,8 @@ import {
   DEFAULT_COMPRESSION_CONFIG,
 } from "../compression/index.js";
 import { LRUCache } from "../utils/lru-cache.js";
+import type { StorageMetrics } from "../types/metrics.js";
+import { DEFAULT_STORAGE_METRICS } from "../types/metrics.js";
 
 const logger = createModuleLogger("json-storage");
 
@@ -81,6 +83,7 @@ export abstract class BaseJsonStorage<TMetadata> {
   // Lazy loading support
   protected metadataCache: LRUCache<string, TMetadata> | null = null;
   protected lazyMode: boolean = false;
+  protected metrics: StorageMetrics = { ...DEFAULT_STORAGE_METRICS };
 
   constructor(protected readonly config: BaseJsonStorageConfig) {
     this.lazyMode = config.lazyLoading ?? false;
@@ -330,6 +333,7 @@ export abstract class BaseJsonStorage<TMetadata> {
    * Writes metadata to JSON file and data to binary file
    */
   async save(id: string, data: Uint8Array, metadata: TMetadata): Promise<void> {
+    const startTime = Date.now();
     this.ensureInitialized();
 
     const metadataPath = this.getMetadataFilePath(id);
@@ -383,6 +387,9 @@ export abstract class BaseJsonStorage<TMetadata> {
         dataRef,
       });
 
+      const elapsed = Date.now() - startTime;
+      this.updateMetric('save', elapsed, data.length);
+
       logger.debug("Data saved to JSON storage", {
         id,
         compressed: dataRef.compressed,
@@ -404,6 +411,7 @@ export abstract class BaseJsonStorage<TMetadata> {
    * Reads binary data file and decompresses if needed
    */
   async load(id: string): Promise<Uint8Array | null> {
+    const startTime = Date.now();
     this.ensureInitialized();
 
     let indexEntry = this.metadataIndex.get(id);
@@ -432,6 +440,9 @@ export abstract class BaseJsonStorage<TMetadata> {
         data = new Uint8Array(decompressed);
       }
 
+      const elapsed = Date.now() - startTime;
+      this.updateMetric('load', elapsed, data.length);
+
       logger.debug("Data loaded from JSON storage", {
         id,
         dataSize: data.length,
@@ -457,6 +468,7 @@ export abstract class BaseJsonStorage<TMetadata> {
    * Deletes both metadata and data files
    */
   async delete(id: string): Promise<void> {
+    const startTime = Date.now();
     this.ensureInitialized();
 
     let indexEntry = this.metadataIndex.get(id);
@@ -506,6 +518,10 @@ export abstract class BaseJsonStorage<TMetadata> {
       }
 
       this.metadataIndex.delete(id);
+      
+      const elapsed = Date.now() - startTime;
+      this.updateMetric('delete', elapsed);
+      
       logger.debug("Data deleted from JSON storage", { id });
     } finally {
       releaseLock();
@@ -606,5 +622,175 @@ export abstract class BaseJsonStorage<TMetadata> {
     this.metadataCache?.clear();
     this.initialized = false;
     logger.info("JSON storage closed");
+  }
+
+  /**
+   * Get storage metrics
+   */
+  async getMetrics(): Promise<StorageMetrics> {
+    let totalSize = 0;
+    for (const entry of this.metadataIndex.values()) {
+      totalSize += entry.dataRef.size;
+    }
+
+    return {
+      ...this.metrics,
+      totalCount: this.metadataIndex.size,
+      totalBlobSize: totalSize,
+    };
+  }
+
+  /**
+   * Reset metrics counters
+   */
+  resetMetrics(): void {
+    this.metrics = { ...DEFAULT_STORAGE_METRICS };
+  }
+
+  /**
+   * Update metrics for an operation
+   */
+  protected updateMetric(operation: string, timeMs: number, dataSize?: number): void {
+    const countKey = `${operation}Count` as keyof StorageMetrics;
+    const timeKey = `avg${operation.charAt(0).toUpperCase()}${operation.slice(1)}Time` as keyof StorageMetrics;
+
+    this.metrics[countKey] = (this.metrics[countKey] as number) + 1;
+
+    // Running average calculation
+    const currentAvg = this.metrics[timeKey] as number;
+    const count = this.metrics[countKey] as number;
+    this.metrics[timeKey] = currentAvg + (timeMs - currentAvg) / count;
+
+    if (dataSize !== undefined) {
+      this.metrics.totalBlobSize += dataSize;
+    }
+  }
+
+  /**
+   * Save multiple items in parallel
+   * More efficient than sequential saves for bulk operations
+   * @param items Array of items to save with id, data, and metadata
+   */
+  async saveBatch(
+    items: Array<{ id: string; data: Uint8Array; metadata: TMetadata }>,
+  ): Promise<void> {
+    const startTime = Date.now();
+    this.ensureInitialized();
+
+    logger.debug("Starting batch save", { count: items.length });
+
+    try {
+      // Save items in parallel using Promise.all
+      await Promise.all(
+        items.map(item => this.save(item.id, item.data, item.metadata))
+      );
+
+      const elapsed = Date.now() - startTime;
+      const totalSize = items.reduce((sum, item) => sum + item.data.length, 0);
+      this.updateMetric('save', elapsed / items.length, totalSize);
+
+      logger.debug("Batch save completed", {
+        count: items.length,
+        totalTimeMs: elapsed,
+      });
+    } catch (error) {
+      logger.error("Batch save failed", {
+        error: (error as Error).message,
+      });
+      throw new StorageError(
+        `Batch save failed: ${(error as Error).message}`,
+        "saveBatch",
+        { count: items.length },
+        error as Error,
+      );
+    }
+  }
+
+  /**
+   * Load multiple items in parallel
+   * @param ids Array of IDs to load
+   * @returns Array of loaded data (null if not found), maintaining order
+   */
+  async loadBatch(ids: string[]): Promise<Array<{ id: string; data: Uint8Array | null }>> {
+    const startTime = Date.now();
+    this.ensureInitialized();
+
+    if (ids.length === 0) {
+      return [];
+    }
+
+    logger.debug("Starting batch load", { count: ids.length });
+
+    try {
+      // Load items in parallel using Promise.all
+      const results = await Promise.all(
+        ids.map(async (id) => {
+          const data = await this.load(id);
+          return { id, data };
+        })
+      );
+
+      const elapsed = Date.now() - startTime;
+      this.updateMetric('load', elapsed / ids.length);
+
+      logger.debug("Batch load completed", {
+        requested: ids.length,
+        found: results.filter(r => r.data !== null).length,
+        totalTimeMs: elapsed,
+      });
+
+      return results;
+    } catch (error) {
+      logger.error("Batch load failed", {
+        error: (error as Error).message,
+      });
+      throw new StorageError(
+        `Batch load failed: ${(error as Error).message}`,
+        "loadBatch",
+        { count: ids.length },
+        error as Error,
+      );
+    }
+  }
+
+  /**
+   * Delete multiple items in parallel
+   * More efficient than sequential deletes for bulk operations
+   * @param ids Array of IDs to delete
+   */
+  async deleteBatch(ids: string[]): Promise<void> {
+    const startTime = Date.now();
+    this.ensureInitialized();
+
+    if (ids.length === 0) {
+      return;
+    }
+
+    logger.debug("Starting batch delete", { count: ids.length });
+
+    try {
+      // Delete items in parallel using Promise.all
+      await Promise.all(
+        ids.map(id => this.delete(id))
+      );
+
+      const elapsed = Date.now() - startTime;
+      this.updateMetric('delete', elapsed / ids.length);
+
+      logger.debug("Batch delete completed", {
+        count: ids.length,
+        totalTimeMs: elapsed,
+      });
+    } catch (error) {
+      logger.error("Batch delete failed", {
+        error: (error as Error).message,
+      });
+      throw new StorageError(
+        `Batch delete failed: ${(error as Error).message}`,
+        "deleteBatch",
+        { count: ids.length },
+        error as Error,
+      );
+    }
   }
 }

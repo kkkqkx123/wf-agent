@@ -5,6 +5,8 @@
  * @deprecated Use BaseStorageAdapter instead. This alias will be removed in a future version.
  */
 
+import type { StorageMetrics } from "../metrics.js";
+
 /**
  * Storage Lifecycle Interface
  *
@@ -79,4 +81,44 @@ export interface BaseStorageAdapter<TMetadata, TListOptions> extends StorageLife
    * @returns: Metadata; returns null if not found
    */
   getMetadata(id: string): Promise<TMetadata | null>;
+
+  /**
+   * Get storage metrics
+   * @returns Storage metrics including operation counts, timings, and sizes
+   */
+  getMetrics(): Promise<StorageMetrics>;
+
+  /**
+   * Reset metrics counters
+   * Preserves size information but resets operation counts and timings
+   */
+  resetMetrics(): void;
+
+  /**
+   * Save multiple items in a single transaction
+   * More efficient than individual saves for bulk operations
+   * @param items Array of items to save with id, data, and metadata
+   */
+  saveBatch(items: Array<{
+    id: string;
+    data: Uint8Array;
+    metadata: TMetadata;
+  }>): Promise<void>;
+
+  /**
+   * Load multiple items efficiently
+   * @param ids Array of IDs to load
+   * @returns Array of loaded data (null if not found), maintaining order
+   */
+  loadBatch(ids: string[]): Promise<Array<{
+    id: string;
+    data: Uint8Array | null;
+  }>>;
+
+  /**
+   * Delete multiple items in a single transaction
+   * More efficient than individual deletes for bulk operations
+   * @param ids Array of IDs to delete
+   */
+  deleteBatch(ids: string[]): Promise<void>;
 }

@@ -1,51 +1,15 @@
 /**
- * Configuration Tool Helper Functions
- * Provide auxiliary functions related to configuration files
+ * Configuration Utility Functions
+ * 
+ * Provides utility functions for configuration processing.
+ * Focus on parameter substitution and transformation logic.
+ * 
+ * Note: File I/O operations have been moved to config-file-loader.ts
  */
 
-import * as path from "path";
-import * as fs from "fs/promises";
-import { ConfigFormat } from "./types.js";
-
-/**
- * Detect the configuration format based on the file extension.
- * @param filePath File path
- * @returns Configuration format
- * @throws {Error} Throws an error when the file extension cannot be recognized.
- */
-export function detectConfigFormat(filePath: string): ConfigFormat {
-  const ext = path.extname(filePath).toLowerCase();
-
-  switch (ext) {
-    case ".toml":
-      return "toml";
-    case ".json":
-      return "json";
-    default:
-      throw new Error(`Unrecognized configuration file extension: ${ext}`);
-  }
-}
-
-/**
- * Load configuration file content and detect format
- * @param filePath Configuration file path
- * @returns Object containing file content and detected format
- * @throws {Error} Throws an error if file cannot be read or format is not recognized
- */
-export async function loadConfigContent(
-  filePath: string,
-): Promise<{ content: string; format: ConfigFormat }> {
-  try {
-    const content = await fs.readFile(filePath, "utf-8");
-    const format = detectConfigFormat(filePath);
-    return { content, format };
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      throw new Error(`Configuration file not found: ${filePath}`);
-    }
-    throw error;
-  }
-}
+import type { ConfigFormat } from "./types.js";
+import { parseAndValidateAgentLoopConfig } from "./processors/agent-loop.js";
+import { loadConfigFile } from "./config-file-loader.js";
 
 /**
  * Load and parse Agent Loop configuration from file
@@ -54,10 +18,7 @@ export async function loadConfigContent(
  * @throws {Error} Throws an error if file cannot be read, parsed, or validated
  */
 export async function loadAgentLoopConfig(filePath: string): Promise<any> {
-  // Dynamic import to avoid circular dependencies
-  const { parseAndValidateAgentLoopConfig } = await import("./processors/agent-loop.js");
-  
-  const { content, format } = await loadConfigContent(filePath);
+  const { content, format } = await loadConfigFile(filePath);
   return parseAndValidateAgentLoopConfig(content, format);
 }
 

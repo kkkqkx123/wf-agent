@@ -1,14 +1,54 @@
 /**
  * AgentLoopState - Agent Loop Execution State Manager
  *
- * Manages the temporary state of an Agent Loop during execution, separate from the persistent data.
- * Refer to the ExecutionState design pattern.
+ * Manages the temporary state of an Agent Loop during execution, separate from persistent data.
+ * This is the ONLY part of AgentLoopEntity that gets serialized to checkpoints.
  *
- * Note: Snapshot functionality has been moved to snapshot/agent-loop-snapshot.ts
+ * ## Architecture Role
  *
- * Enhanced with streaming state tracking (inspired by pi-agent-core):
- * - streamMessage: Partial message during streaming
- * - pendingToolCalls: Set of pending tool call IDs
+ * In the Agent Loop architecture:
+ * - `AgentLoopConfig`: Immutable configuration (NOT serialized, contains functions)
+ * - `AgentLoopState`: Mutable execution state (✅ SERIALIZED to checkpoints)
+ * - `AgentLoopEntity`: Wrapper that holds config + state + runtime managers
+ *
+ * ## Serialization Strategy
+ *
+ * When creating a checkpoint:
+ * 1. ✅ Serialize: `AgentLoopState` via `createSnapshot()` / `restoreFromSnapshot()`
+ * 2. ❌ Skip: `AgentLoopConfig` (contains unserializable functions)
+ * 3. ❌ Skip: Runtime managers (`ConversationSession`, `VariableState`)
+ *
+ * When restoring from checkpoint:
+ * 1. Application provides `AgentLoopConfig` (re-inject callbacks)
+ * 2. Restore `AgentLoopState` from snapshot
+ * 3. Rebuild `AgentLoopEntity` with config + restored state
+ * 4. Recreate runtime managers (conversation, variables)
+ *
+ * ## State Categories
+ *
+ * ### Persistent State (Serialized)
+ * - `_status`: Current execution status
+ * - `_currentIteration`: Iteration counter
+ * - `_toolCallCount`: Total tool calls made
+ * - `_iterationHistory`: Complete iteration log
+ * - `_startTime`, `_endTime`: Execution timestamps
+ * - `_error`: Last error if failed
+ *
+ * ### Transient State (Not Serialized)
+ * - `_streamMessage`: Partial streaming message (lost on pause/resume)
+ * - `_pendingToolCalls`: In-flight tool calls (must complete before checkpoint)
+ * - `_shouldPause`, `_shouldStop`: Control flags (reset on restore)
+ *
+ * ## Design Principles
+ *
+ * 1. **Separation of Concerns**: State management isolated from business logic
+ * 2. **Serializable by Default**: All persistent fields are plain data (no functions)
+ * 3. **Lifecycle Bound**: Tied to execution cycle, recreated on restore
+ * 4. **Pure State Manager**: No side effects, no async operations
+ *
+ * @see AgentLoopEntity - Execution instance that owns this state
+ * @see AgentLoopConfig - Configuration (not serialized)
+ * @see AgentLoopSnapshotManager - Checkpoint serialization logic
  */
 
 import { now } from "@wf-agent/common-utils";

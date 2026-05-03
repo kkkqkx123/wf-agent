@@ -1,35 +1,40 @@
 /**
  * Agent Loop Configuration Validator
- * Provides validation logic for AgentLoopConfigFile
+ * Provides validation logic for AgentLoopConfigFile using Zod schema
  */
 
-import type { AgentLoopConfigFile } from "@wf-agent/types";
+import type { AgentLoopConfigFile } from "../types.js";
 import type { Result } from "@wf-agent/types";
 import { ValidationError, SchemaValidationError } from "@wf-agent/types";
 import { ok, err } from "@wf-agent/common-utils";
+import { AgentLoopConfigFileSchema } from "./agent-loop-schema.js";
 
 /**
- * Validate Agent Loop configuration
+ * Validate Agent Loop configuration using Zod schema
  * @param config The configuration object
  * @returns Validation result
  */
 export function validateAgentLoopConfig(
   config: AgentLoopConfigFile,
 ): Result<AgentLoopConfigFile, ValidationError[]> {
-  const errors: ValidationError[] = [];
+  const result = AgentLoopConfigFileSchema.safeParse(config);
 
-  if (!config.id) {
-    errors.push(new SchemaValidationError("id is required", { field: "id" }));
-  }
-
-  if (!config.profileId) {
-    errors.push(new SchemaValidationError("profileId is required", { field: "profileId" }));
-  }
-
-  if (errors.length > 0) {
+  if (!result.success) {
+    const errors = result.error.issues.map((issue: any) => {
+      const fieldPath = issue.path.join(".");
+      return new SchemaValidationError(issue.message, {
+        field: fieldPath || "unknown",
+        context: {
+          code: "SCHEMA_VALIDATION_ERROR",
+          expected: issue.expected,
+          received: issue.received,
+        },
+      });
+    });
     return err(errors);
   }
 
+  // Return original config (not result.data) to preserve exact type
   return ok(config);
 }
 

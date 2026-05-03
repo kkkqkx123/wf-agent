@@ -1,143 +1,20 @@
 /**
  * CLI Configuration Schema
  * Zod schema definitions for configuration validation.
+ * 
+ * This file defines only CLI-specific schemas and composes shared schemas
+ * from @wf-agent/types to maintain a single source of truth.
  */
 
 import { z } from "zod";
-import type {
-  CompressionConfig,
-  JsonStorageConfig,
-  SqliteStorageConfig,
-  StorageConfig,
-  OutputConfig,
-  ContextCompressionPresetConfig,
-  PredefinedToolsPresetConfig,
-  PredefinedPromptsPresetConfig,
-  PresetsConfig,
-} from "@wf-agent/types";
 import type { CLIConfig } from "./types.js";
 
-/**
- * Compression Configuration Schema
- */
-export const CompressionConfigSchema = z.object({
-  enabled: z.boolean().default(false),
-  algorithm: z.enum(["gzip", "brotli"]).default("gzip"),
-  threshold: z.number().default(1024),
-}) satisfies z.ZodType<CompressionConfig>;
-
-/**
- * JSON Storage Configuration Schema
- */
-export const JsonStorageConfigSchema = z.object({
-  baseDir: z.string().default("./storage"),
-  enableFileLock: z.boolean().default(false),
-  compression: CompressionConfigSchema.optional(),
-}) satisfies z.ZodType<JsonStorageConfig>;
-
-/**
- * SQLite Storage Configuration Schema
- */
-export const SqliteStorageConfigSchema = z.object({
-  dbPath: z.string().default("./storage/cli-app.db"),
-  enableWAL: z.boolean().default(true),
-  enableLogging: z.boolean().default(false),
-  readonly: z.boolean().default(false),
-  fileMustExist: z.boolean().default(false),
-  timeout: z.number().positive().default(5000),
-}) satisfies z.ZodType<SqliteStorageConfig>;
-
-/**
- * Storage Configuration Schema
- */
-export const StorageConfigSchema = z.object({
-  type: z.enum(["json", "sqlite", "memory"]).default("json"),
-  json: JsonStorageConfigSchema.optional(),
-  sqlite: SqliteStorageConfigSchema.optional(),
-}) satisfies z.ZodType<StorageConfig>;
-
-/**
- * Output Configuration Schema
- */
-export const OutputConfigSchema = z.object({
-  dir: z.string().default("./outputs"),
-  logFilePattern: z.string().default("cli-app-{date}.log"),
-  enableLogTerminal: z.boolean().default(true),
-  enableSDKLogs: z.boolean().default(true),
-  sdkLogLevel: z.enum(["silent", "error", "warn", "info", "debug"]).default("silent"),
-}) satisfies z.ZodType<OutputConfig>;
-
-/**
- * Context Compression Preset Configuration Schema
- */
-export const ContextCompressionPresetConfigSchema = z.object({
-  enabled: z.boolean().default(true),
-  prompt: z.string().optional(),
-  timeout: z.number().optional(),
-  maxTriggers: z.number().optional(),
-}) satisfies z.ZodType<ContextCompressionPresetConfig>;
-
-/**
- * Predefined Tools Preset Configuration Schema
- */
-export const PredefinedToolsPresetConfigSchema = z.object({
-  enabled: z.boolean().default(true),
-  allowList: z.array(z.string()).optional(),
-  blockList: z.array(z.string()).optional(),
-  config: z
-    .object({
-      readFile: z
-        .object({
-          workspaceDir: z.string().optional(),
-          maxFileSize: z.number().optional(),
-        })
-        .optional(),
-      writeFile: z
-        .object({
-          workspaceDir: z.string().optional(),
-        })
-        .optional(),
-      editFile: z
-        .object({
-          workspaceDir: z.string().optional(),
-        })
-        .optional(),
-      bash: z
-        .object({
-          defaultTimeout: z.number().optional(),
-          maxTimeout: z.number().optional(),
-        })
-        .optional(),
-      sessionNote: z
-        .object({
-          workspaceDir: z.string().optional(),
-          memoryFile: z.string().optional(),
-        })
-        .optional(),
-      backgroundShell: z
-        .object({
-          workspaceDir: z.string().optional(),
-        })
-        .optional(),
-    })
-    .optional(),
-}) satisfies z.ZodType<PredefinedToolsPresetConfig>;
-
-/**
- * Predefined Prompts Preset Configuration Schema
- */
-export const PredefinedPromptsPresetConfigSchema = z.object({
-  enabled: z.boolean().default(true),
-}) satisfies z.ZodType<PredefinedPromptsPresetConfig>;
-
-/**
- * Presets Configuration Schema
- */
-export const PresetsConfigSchema = z.object({
-  contextCompression: ContextCompressionPresetConfigSchema.optional(),
-  predefinedTools: PredefinedToolsPresetConfigSchema.optional(),
-  predefinedPrompts: PredefinedPromptsPresetConfigSchema.optional(),
-}) satisfies z.ZodType<PresetsConfig>;
+// Import shared schemas from types package
+import {
+  StorageConfigSchema,
+  OutputConfigSchema,
+  PresetsConfigSchema,
+} from "@wf-agent/types";
 
 /**
  * Complete Configuration Schema

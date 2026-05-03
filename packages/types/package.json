@@ -1,7 +1,7 @@
 {
   "name": "@wf-agent/types",
   "version": "1.0.0",
-  "description": "Type definition package",
+  "description": "Core type definitions and Zod validation schemas for wf-agent",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -23,8 +23,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
-  "dependencies": {},
-  "devDependencies": {
+  "dependencies": {
     "zod": "4.3.6"
-  }
+  },
+  "devDependencies": {}
 }

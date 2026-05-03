@@ -7,12 +7,12 @@
 import type { ParsedConfig } from "../types.js";
 import { ConfigFormat } from "../types.js";
 import type { Result } from "@wf-agent/types";
-import { ValidationError, ConfigurationError } from "@wf-agent/types";
-import { ok } from "@wf-agent/common-utils";
+import { ValidationError, ConfigurationError, SchemaValidationError } from "@wf-agent/types";
+import { ok, err } from "@wf-agent/common-utils";
 import type { PromptTemplate } from "@wf-agent/prompt-templates";
+import { PromptTemplateSchema } from "@wf-agent/prompt-templates";
 import type { PromptTemplateConfigFile } from "../types.js";
 import { loadPromptTemplateConfig, mergePromptTemplateConfig } from "../prompt-template-loader.js";
-import { validatePromptTemplateConfig } from "../validators/prompt-template-validator.js";
 import { stringifyJson } from "../json-parser.js";
 
 /**
@@ -25,11 +25,15 @@ export function validatePromptTemplate(
 ): Result<ParsedConfig<"prompt_template">, ValidationError[]> {
   const cfg = config.config as PromptTemplateConfigFile;
   
-  // Delegate to specialized validator
-  const result = validatePromptTemplateConfig(cfg);
+  // Use Zod schema for validation
+  const result = PromptTemplateSchema.safeParse(cfg);
   
-  // Use `andThen` for type conversion
-  return result.andThen(() => ok(config)) as Result<ParsedConfig<"prompt_template">, ValidationError[]>;
+  if (!result.success) {
+    const errors = result.error.issues.map((e: any) => new SchemaValidationError(e.message));
+    return err(errors);
+  }
+  
+  return ok(config);
 }
 
 /**

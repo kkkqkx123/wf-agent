@@ -3,8 +3,6 @@
  * Provides configuration validation functions
  */
 
-export { validateLLMProfileConfig } from './llm-profile-validator.js';
-export { validatePromptTemplateConfig } from './prompt-template-validator.js';
 export { validateAgentLoopConfig, getAgentLoopValidationWarnings } from './agent-loop-validator.js';
 
 // Base validation utilities

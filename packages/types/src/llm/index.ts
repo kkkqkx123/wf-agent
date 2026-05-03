@@ -9,6 +9,9 @@ export * from "./state.js";
 // Export profile type
 export * from "./profile.js";
 
+// Export Profile Schema
+export * from "./profile-schema.js";
+
 // Export request type
 export * from "./request.js";
 

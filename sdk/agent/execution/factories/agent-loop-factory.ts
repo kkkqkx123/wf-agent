@@ -44,14 +44,54 @@ export interface AgentLoopEntityOptions {
 /**
  * AgentLoopFactory - Agent Loop Factory Class
  *
- * Responsibilities:
- * - Creates new AgentLoopEntity instances.
- * - Recovers AgentLoopEntity instances from checkpoints.
+ * ## Responsibilities
  *
- * Design Principles:
- * - Factory Pattern: Centralized management of instance creation.
- * - Decoupling: Separates the creation logic from the entity class.
- * - Extensibility: Supports multiple creation methods.
+ * 1. **Create New Instances**: Build `AgentLoopEntity` from `AgentLoopConfig`
+ * 2. **Restore from Checkpoints**: Rebuild entity from serialized state + re-provided config
+ * 3. **Parent-Child Management**: Register with parent workflow for lifecycle tracking
+ *
+ * ## Architecture Context
+ *
+ * This factory bridges the gap between configuration and runtime:
+ * 
+ * ```
+ * AgentLoopConfig (with functions)
+ *     ↓ Factory.create()
+ * AgentLoopEntity {
+ *   config: AgentLoopConfig       ← Injected here
+ *   state: AgentLoopState         ← Created fresh or restored
+ *   conversationManager           ← Created fresh
+ *   variableStateManager          ← Created fresh
+ * }
+ * ```
+ *
+ * ## Checkpoint Restoration Flow
+ *
+ * When restoring from checkpoint:
+ * 1. Application calls `AgentLoopFactory.fromCheckpoint(checkpointId, config)`
+ * 2. Factory loads serialized `AgentLoopState` from storage
+ * 3. Factory creates NEW `AgentLoopEntity` with:
+ *    - Re-provided `config` (application must supply callbacks)
+ *    - Restored `state` (from checkpoint snapshot)
+ *    - Fresh managers (conversation, variables)
+ * 4. Entity resumes execution from saved iteration
+ *
+ * ## Why Config Must Be Re-provided
+ *
+ * `AgentLoopConfig` contains functions (`transformContext`, `convertToLlm`) that cannot be
+ * serialized to checkpoints. Therefore:
+ * - ❌ Config is NOT saved to checkpoint
+ * - ✅ Application must provide config when calling `fromCheckpoint()`
+ * - ✅ Only `AgentLoopState` is restored from checkpoint
+ *
+ * This design ensures:
+ * - Functions can be updated between runs (e.g., bug fixes)
+ * - Different configs can restore same state (flexibility)
+ * - No serialization issues with closures/callbacks
+ *
+ * @see AgentLoopEntity - The entity created by this factory
+ * @see AgentLoopConfig - Configuration required for creation
+ * @see AgentLoopState - State restored from checkpoints
  */
 export class AgentLoopFactory {
   /**

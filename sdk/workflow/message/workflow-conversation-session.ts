@@ -30,7 +30,7 @@ const logger = createContextualLogger({ component: "WorkflowConversationSession"
  * Tool Availability Set
  */
 export interface AvailableTools {
-  initial: Set<string>;
+  initial: string[];
   dynamic: Set<string>;
 }
 
@@ -90,7 +90,7 @@ export class WorkflowConversationSession extends ConversationSession {
     }
 
     // Use only the initial set of tools.
-    const initialToolIds = Array.from(this.availableTools.initial);
+    const initialToolIds = this.availableTools.initial;
     if (initialToolIds.length === 0) {
       return null;
     }

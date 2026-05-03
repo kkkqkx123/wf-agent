@@ -588,9 +588,9 @@ export class WorkflowValidator {
 
     // Verify the availableTools configuration.
     if (workflow.availableTools) {
-      if (!workflow.availableTools.initial || !(workflow.availableTools.initial instanceof Set)) {
+      if (!Array.isArray(workflow.availableTools.initial)) {
         errors.push(
-          new ConfigurationValidationError("availableTools.initial must be a Set of tool IDs", {
+          new ConfigurationValidationError("availableTools.initial must be an array of tool IDs", {
             configType: "workflow",
             configPath: "workflow.availableTools.initial",
           }),

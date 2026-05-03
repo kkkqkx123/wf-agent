@@ -66,7 +66,7 @@ export interface WorkflowGraph extends WorkflowGraphStructure {
 
   /** Available tool configurations */
   availableTools?: {
-    /** Initial set of available tools (tool ID or name) */
-    initial: Set<string>;
+    /** Initial set of available tools (tool IDs). Array format for JSON/TOML serialization compatibility */
+    initial: string[];
   };
 }

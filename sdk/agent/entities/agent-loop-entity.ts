@@ -4,16 +4,50 @@
  * A pure data entity that encapsulates the data access operations of an Agent Loop instance.
  * Refer to WorkflowExecutionEntity design pattern.
  *
- * Note that the factory methods are provided by AgentLoopFactory:
- * - Factory methods are provided by AgentLoopFactory
- * - Lifecycle management is provided by AgentLoopLifecycle.
- * - Snapshot functionality is provided by the AgentLoopSnapshotManager.
+ * ## Architecture Overview
  *
- * Architecture Improvements:
- * - Unified ConversationSession to manage message history
- * - Consistent message management with the Graph module
- * - Support for Token statistics and event triggering
- * - Steering and Follow-up mechanisms (inspired by pi-agent-core)
+ * This entity wraps three key components:
+ * 1. **Config** (immutable): `AgentLoopConfig` - defines behavior and callbacks
+ * 2. **State** (mutable): `AgentLoopState` - tracks execution progress (serializable)
+ * 3. **Managers** (runtime): `ConversationSession`, `VariableState` - runtime state managers
+ *
+ * ## Why Not Separate Data Object?
+ *
+ * Unlike `WorkflowExecutionEntity` which separates data into `WorkflowExecution` + `WorkflowExecutionState`,
+ * `AgentLoopEntity` keeps config and state together because:
+ *
+ * 1. **Simpler Execution Model**: Linear iteration vs graph traversal
+ *    - Agent Loop: Single node, repeated iterations
+ *    - Workflow: Multiple nodes, complex graph navigation, parallel execution
+ *
+ * 2. **Lighter Runtime Data**: Iteration count vs node results + variable scopes
+ *    - Agent Loop: ~5-6 fields (iteration, history, status)
+ *    - Workflow: ~15+ fields (graph, nodeResults, 4-level variable scopes, subgraph context)
+ *
+ * 3. **No Need for Separate Serializable Object**
+ *    - Agent Loop: Only `AgentLoopState` needs serialization (already separate)
+ *    - Workflow: Complex `WorkflowExecution` object needs independent serialization
+ *
+ * ## Checkpoint Strategy
+ *
+ * - **Serialized**: `AgentLoopState` (iteration history, tool calls, streaming state)
+ * - **NOT Serialized**: `AgentLoopConfig` (contains functions), managers (runtime-only)
+ * - **On Restore**: Config is re-provided by application, state is restored from checkpoint
+ *
+ * ## Comparison with WorkflowExecutionEntity
+ *
+ * | Aspect | AgentLoopEntity | WorkflowExecutionEntity |
+ * |--------|----------------|------------------------|
+ * | Data Object | ❌ No separate data object | ✅ WorkflowExecution (complex graph) |
+ * | State Manager | ✅ AgentLoopState | ✅ WorkflowExecutionState |
+ * | Complexity | Low (linear iteration) | High (graph traversal) |
+ * | Serializable Data | State only | Data object + State |
+ * | Restoration | Re-provide config + restore state | Restore data object + state |
+ *
+ * @see AgentLoopConfig - Runtime configuration (with callbacks)
+ * @see AgentLoopState - Execution state manager (serializable)
+ * @see AgentLoopFactory - Factory for creating instances
+ * @see WorkflowExecutionEntity - Similar pattern for workflow execution
  */
 
 import type { ID, LLMMessage, AgentLoopConfig, AgentLoopStateSnapshot } from "@wf-agent/types";

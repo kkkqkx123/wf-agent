@@ -9,13 +9,6 @@ export { AgentLoopStatus } from "./status.js";
 // Configuration Type
 export type { AgentLoopConfig, TransformContextFn, ConvertToLlmFn } from "./config.js";
 
-// Configuration file type
-export type {
-  AgentLoopConfigFile,
-  AgentHookConfigFile,
-  AgentTriggerConfigFile,
-} from "./agent-loop-config-file.js";
-
 // Result Type
 export type { AgentLoopResult } from "./result.js";
 

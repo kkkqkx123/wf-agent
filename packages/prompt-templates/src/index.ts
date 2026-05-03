@@ -11,6 +11,9 @@
 // Export all type definitions
 export * from "./types/index.js";
 
+// Export Zod schemas
+export * from "./schema.js";
+
 // Export all constants
 export * from "./constants/index.js";
 

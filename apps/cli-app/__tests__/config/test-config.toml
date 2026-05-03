@@ -22,6 +22,8 @@ enableFileLock = false
 
 [storage.json.compression]
 enabled = false
+algorithm = "gzip"
+threshold = 1024
 
 [output]
 dir = "./__tests__/outputs"

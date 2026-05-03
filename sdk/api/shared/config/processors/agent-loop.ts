@@ -1,19 +1,23 @@
 /**
  * Agent Loop Configuration Processor
  *
- * Handles the parsing and transformation of AgentLoopConfigFile
+ * Handles the parsing and transformation of AgentLoopConfigFile to AgentLoopConfig
  */
 
 import type {
-  AgentLoopConfigFile,
   AgentLoopConfig,
   AgentHook,
-  AgentHookConfigFile,
+  AgentHookType,
 } from "@wf-agent/types";
 import type { Condition } from "@wf-agent/types";
-import type { ParsedAgentLoopConfig } from "../types.js";
-import type { ConfigFormat } from "../types.js";
-import { parseToml, parseJson } from "../index.js";
+import type {
+  AgentLoopConfigFile,
+  AgentHookConfigFile,
+  ParsedAgentLoopConfig,
+  ConfigFormat,
+} from "../types.js";
+import { parseToml } from "../toml-parser.js";
+import { parseJson } from "../json-parser.js";
 import { ValidationError, ConfigurationError } from "@wf-agent/types";
 import {
   validateAgentLoopConfig,
@@ -105,7 +109,7 @@ export function parseAndValidateAgentLoopConfig(
 
 /**
  * Convert the configuration file format to runtime configuration
- * @param configFile The configuration file
+ * @param configFile The agent loop configuration file
  * @returns AgentLoopConfig
  */
 export function transformToAgentLoopConfig(configFile: AgentLoopConfigFile): AgentLoopConfig {
@@ -130,14 +134,14 @@ export function transformToAgentLoopConfig(configFile: AgentLoopConfigFile): Age
 
 /**
  * Export Agent Loop configuration
- * @param config AgentLoopConfigFile object
+ * @param configFile AgentLoopConfigFile object
  * @param format Configuration format
  * @returns String containing the configuration file content
  */
-export function exportAgentLoopConfig(config: AgentLoopConfigFile, format: ConfigFormat): string {
+export function exportAgentLoopConfig(configFile: AgentLoopConfigFile, format: ConfigFormat): string {
   switch (format) {
     case "json":
-      return stringifyJson(config, true);
+      return stringifyJson(configFile, true);
     case "toml":
       throw new ConfigurationError(
         "TOML format does not support export, please use JSON format",
@@ -158,7 +162,7 @@ export function exportAgentLoopConfig(config: AgentLoopConfigFile, format: Confi
  */
 function transformHook(hookFile: AgentHookConfigFile): AgentHook {
   const hook: AgentHook = {
-    hookType: hookFile.hookType,
+    hookType: hookFile.hookType as AgentHookType,
     eventName: hookFile.eventName,
     enabled: hookFile.enabled,
     weight: hookFile.weight,

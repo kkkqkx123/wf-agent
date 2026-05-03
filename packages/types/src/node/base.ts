@@ -100,22 +100,37 @@ export type NodeStatus =
 interface BaseNodeProps {
   /** Node Unique Identifier */
   id: ID;
+  
   /** Node Name */
   name: string;
+  
   /** Optional node description */
   description?: string;
+  
   /** Optional metadata */
   metadata?: Metadata;
-  /** Array of outgoing edge IDs for routing decisions */
+  
+  /**
+   * Array of outgoing edge IDs for routing decisions
+   * @internal This field is populated during graph preprocessing and should not be set manually in config files
+   */
   outgoingEdgeIds: ID[];
-  /** Array of entry edge IDs for backtracking */
+  
+  /**
+   * Array of incoming edge IDs for backtracking
+   * @internal This field is populated during graph preprocessing and should not be set manually in config files
+   */
   incomingEdgeIds: ID[];
+  
   /** Optional Dynamic Attribute Object */
   properties?: unknown[];
+  
   /** Optional Hook Configuration Array */
   hooks?: unknown[];
+  
   /** Whether checkpoints are created before node execution */
   checkpointBeforeExecute?: boolean;
+  
   /** Whether checkpoints are created after node execution */
   checkpointAfterExecute?: boolean;
 }

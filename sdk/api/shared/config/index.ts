@@ -23,6 +23,9 @@ export {
   ScriptConfigFile,
   LLMProfileConfigFile,
   PromptTemplateConfigFile,
+  AgentLoopConfigFile,
+  AgentHookConfigFile,
+  AgentTriggerConfigFile,
   ConfigFile,
   ParsedConfig,
   ParsedWorkflowConfig,
@@ -31,6 +34,7 @@ export {
   ParsedScriptConfig,
   ParsedLLMProfileConfig,
   ParsedPromptTemplateConfig,
+  ParsedAgentLoopConfig,
   IConfigParser,
   IConfigTransformer,
 } from "./types.js";
@@ -38,12 +42,23 @@ export {
 // analyzer
 export { ConfigParser } from "./config-parser.js";
 
-// Configuration Tool Functions
+// Configuration Tool Functions (re-exported from config-file-loader for backward compatibility)
 export {
-  detectConfigFormat,
-  loadConfigContent,
   loadAgentLoopConfig,
 } from "./config-utils.js";
+
+// Parameter Substitution Utility
+export { substituteParameters } from "./config-utils.js";
+
+// Configuration File Loader (File I/O operations)
+export {
+  readConfigFile,
+  getConfigFormatFromPath,
+  loadConfigFile,
+  // Backward compatibility aliases
+  getConfigFormatFromPath as detectConfigFormat,
+  loadConfigFile as loadConfigContent,
+} from "./config-file-loader.js";
 
 // JSON Parsing Functions
 export { parseJson, stringifyJson, validateJsonSyntax } from "./json-parser.js";

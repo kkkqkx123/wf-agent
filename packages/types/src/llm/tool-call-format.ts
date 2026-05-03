@@ -5,6 +5,8 @@
  * in prompts and how LLMs should format their tool calls.
  */
 
+import { z } from "zod";
+
 /**
  * Tool call format types
  * Defines how tools are described in prompts and how LLM should format tool calls
@@ -169,3 +171,44 @@ export function validateToolCallFormatConfig(config: ToolCallFormatConfig): {
     errors,
   };
 }
+
+/**
+ * Tool Call Format Schema
+ */
+export const ToolCallFormatSchema: z.ZodType<ToolCallFormat> = z.enum([
+  "function_call",
+  "xml",
+  "json_wrapped",
+  "json_raw",
+]);
+
+/**
+ * Tool Call Format Markers Schema
+ */
+export const ToolCallFormatMarkersSchema: z.ZodType<ToolCallFormatMarkers> = z.object({
+  start: z.string().min(1, { message: "Start marker is required" }),
+  end: z.string().min(1, { message: "End marker is required" }),
+});
+
+/**
+ * Tool Call XML Tags Schema
+ */
+export const ToolCallXmlTagsSchema: z.ZodType<ToolCallXmlTags> = z.object({
+  toolUse: z.string().min(1, { message: "Tool use tag is required" }),
+  toolName: z.string().min(1, { message: "Tool name tag is required" }),
+  parameters: z.string().min(1, { message: "Parameters tag is required" }),
+  item: z.string().optional(),
+});
+
+/**
+ * Tool Call Format Config Schema
+ */
+export const ToolCallFormatConfigSchema: z.ZodType<ToolCallFormatConfig> = z.object({
+  format: ToolCallFormatSchema,
+  markers: ToolCallFormatMarkersSchema.optional(),
+  xmlTags: ToolCallXmlTagsSchema.optional(),
+  includeDescription: z.boolean(),
+  descriptionStyle: z.enum(["detailed", "compact", "minimal"]),
+  includeExamples: z.boolean().optional(),
+  includeRules: z.boolean().optional(),
+});

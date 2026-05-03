@@ -125,6 +125,33 @@ export const WorkflowDefinitionBasicSchema = z.object({
 });
 
 /**
+ * Complete Workflow Definition Schema
+ * Validates the entire workflow structure including nodes, edges, and configuration.
+ * This is a lightweight schema validation - deep business logic validation should be done by WorkflowValidator.
+ */
+export const WorkflowDefinitionSchema = z.object({
+  id: z.string().min(1, "Workflow ID is required"),
+  name: z.string().min(1, "Workflow name is required"),
+  type: z.enum(["STANDALONE", "TRIGGERED_SUBWORKFLOW", "DEPENDENT"]).optional(),
+  description: z.string().optional(),
+  nodes: z.array(z.any()).min(1, "Workflow must have at least one node"),
+  edges: z.array(z.any()),
+  variables: z.array(WorkflowVariableSchema).optional(),
+  triggers: z.array(z.any()).optional(),
+  triggeredSubworkflowConfig: TriggeredSubworkflowConfigSchema.optional(),
+  config: WorkflowConfigSchema.optional(),
+  metadata: WorkflowMetadataSchema.optional(),
+  version: z.string().min(1, "Workflow version is required"),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+  availableTools: z
+    .object({
+      initial: z.set(z.string()),
+    })
+    .optional(),
+});
+
+/**
  * Type Guards
  */
 

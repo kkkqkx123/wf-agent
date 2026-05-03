@@ -7,12 +7,12 @@
 import type { ParsedConfig } from "../types.js";
 import { ConfigFormat } from "../types.js";
 import type { Result } from "@wf-agent/types";
-import { ValidationError, ConfigurationError } from "@wf-agent/types";
-import { ok } from "@wf-agent/common-utils";
+import { ValidationError, ConfigurationError, SchemaValidationError } from "@wf-agent/types";
+import { ok, err } from "@wf-agent/common-utils";
 import type { LLMProfile } from "@wf-agent/types";
+import { LLMProfileSchema } from "@wf-agent/types";
 import { stringifyJson } from "../json-parser.js";
 import { substituteParameters } from "../config-utils.js";
-import { validateLLMProfileConfig } from "../validators/llm-profile-validator.js";
 
 /**
  * Verify LLM Profile configuration
@@ -24,11 +24,15 @@ export function validateLLMProfile(
 ): Result<ParsedConfig<"llm_profile">, ValidationError[]> {
   const profile = config.config as LLMProfile;
   
-  // Delegate to specialized validator
-  const result = validateLLMProfileConfig(profile);
+  // Use Zod schema for validation
+  const result = LLMProfileSchema.safeParse(profile);
   
-  // Use `andThen` for type conversion
-  return result.andThen(() => ok(config)) as Result<ParsedConfig<"llm_profile">, ValidationError[]>;
+  if (!result.success) {
+    const errors = result.error.issues.map((e: any) => new SchemaValidationError(e.message));
+    return err(errors);
+  }
+  
+  return ok(config);
 }
 
 /**

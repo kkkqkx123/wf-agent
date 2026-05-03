@@ -1,7 +1,17 @@
 /**
- * Agent Loop configuration type definition
+ * Agent Loop Runtime Configuration
  *
- * Enhanced with message transformation pipeline (inspired by pi-agent-core)
+ * This type represents the runtime configuration used during Agent Loop execution.
+ * It includes both declarative settings (profileId, maxIterations) and imperative
+ * functions (transformContext, convertToLlm) that cannot be serialized to config files.
+ *
+ * For file-based configuration (TOML/JSON), use AgentLoopConfigFile from SDK's config module.
+ * The SDK provides transformToAgentLoopConfig() to convert file configs to runtime configs.
+ *
+ * Key differences from AgentLoopConfigFile:
+ * - Contains executable functions (TransformContextFn, ConvertToLlmFn)
+ * - Used directly by AgentLoopEntity and AgentLoopCoordinator
+ * - Cannot be loaded from configuration files due to function types
  */
 
 import type { ID } from "../common.js";
@@ -49,7 +59,53 @@ export type TransformContextFn = (
 export type ConvertToLlmFn = (messages: LLMMessage[]) => LLMMessage[];
 
 /**
- * Agent Loop Configuration
+ * Agent Loop Runtime Configuration
+ *
+ * This type represents the runtime configuration used to create and customize AgentLoopEntity instances.
+ * It defines the behavior and capabilities of an agent loop, including both declarative settings
+ * (profileId, maxIterations) and imperative callbacks (transformContext, convertToLlm).
+ *
+ * ## Architecture Context
+ *
+ * This is NOT the execution instance data. The actual execution state is managed by:
+ * - `AgentLoopState`: Tracks iteration count, history, streaming state (serializable)
+ * - `AgentLoopEntity`: Wraps config + state + runtime managers (conversation, variables)
+ *
+ * ## Key Characteristics
+ *
+ * 1. **Immutable Configuration**: Once created, this config should not be modified
+ * 2. **Contains Functions**: Includes callback functions that cannot be serialized to JSON/TOML
+ * 3. **Re-provided on Restore**: When restoring from checkpoint, this config is re-injected
+ * 4. **Used by Factory**: AgentLoopFactory.create() uses this to build AgentLoopEntity
+ *
+ * ## Serialization Strategy
+ *
+ * - ❌ **NOT serialized to checkpoints**: Functions (transformContext, convertToLlm) can't serialize
+ * - ✅ **Only AgentLoopState is serialized**: Contains iteration history, tool calls, etc.
+ * - ✅ **Config re-provided on restore**: Application provides config when calling fromCheckpoint()
+ *
+ * ## Comparison with AgentLoopConfigFile
+ *
+ * | Aspect | AgentLoopConfigFile | AgentLoopConfig |
+ * |--------|-------------------|-----------------|
+ * | Location | SDK (sdk/api/shared/config) | packages/types |
+ * | Purpose | File-based config (TOML/JSON) | Runtime config with callbacks |
+ * | Functions | ❌ No functions | ✅ Contains TransformContextFn, ConvertToLlmFn |
+ * | Serializable | ✅ Yes | ❌ No (due to functions) |
+ * | Usage | Loaded from files, transformed to AgentLoopConfig | Used directly by AgentLoopFactory |
+ *
+ * ## Design Rationale
+ *
+ * Unlike Workflow which separates WorkflowExecution (data) from WorkflowExecutionEntity (wrapper),
+ * Agent Loop keeps config and state together in AgentLoopEntity because:
+ * 1. Simpler execution model (linear iteration vs graph traversal)
+ * 2. Lighter runtime data (iteration count vs node results + variable scopes)
+ * 3. No need for separate serializable data object
+ *
+ * @see AgentLoopConfigFile - File-based configuration format (SDK)
+ * @see AgentLoopEntity - Runtime execution instance
+ * @see AgentLoopState - Execution state manager (serializable)
+ * @see AgentLoopFactory - Factory for creating AgentLoopEntity instances
  */
 export interface AgentLoopConfig {
   /** LLM Profile ID */

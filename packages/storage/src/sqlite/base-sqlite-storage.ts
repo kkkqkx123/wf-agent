@@ -33,6 +33,10 @@ export interface BaseSqliteStorageConfig {
   useConnectionPool?: boolean;
   /** Custom connection pool instance (optional, uses global pool if not provided) */
   connectionPool?: SqliteConnectionPool;
+  /** Enable data integrity verification on load (default: false for performance) */
+  verifyIntegrity?: boolean;
+  /** Verify integrity every Nth load operation (default: 100, only used when verifyIntegrity is true) */
+  integrityCheckFrequency?: number;
 }
 
 /**
@@ -51,6 +55,7 @@ export abstract class BaseSqliteStorage<_TMetadataType> {
   protected usingPool: boolean = false;
   private connectionPool: SqliteConnectionPool | null = null;
   protected metrics: StorageMetrics = { ...DEFAULT_STORAGE_METRICS };
+  protected loadCounter: number = 0; // Counter for integrity check frequency
 
   constructor(protected readonly config: BaseSqliteStorageConfig) {}
 
@@ -165,6 +170,85 @@ export abstract class BaseSqliteStorage<_TMetadataType> {
   }
 
   /**
+   * Compute hash for BLOB data using Web Crypto API
+   * Uses sampling for large objects to improve performance
+   * Can be overridden by subclasses for different hash algorithms
+   */
+  protected async computeHash(data: Uint8Array): Promise<string> {
+    // For very large objects (>1MB), use sampling to improve performance
+    const LARGE_OBJECT_THRESHOLD = 1024 * 1024; // 1MB
+    
+    let hashInput: Uint8Array;
+    if (data.length > LARGE_OBJECT_THRESHOLD) {
+      // Sample-based hashing: first 64KB + last 64KB + size
+      const sampleSize = 64 * 1024; // 64KB
+      const sample = new Uint8Array(sampleSize * 2 + 8);
+      
+      // Copy first 64KB
+      sample.set(data.slice(0, sampleSize));
+      // Copy last 64KB
+      sample.set(data.slice(-sampleSize), sampleSize);
+      // Append size as uint64
+      const view = new DataView(sample.buffer);
+      view.setBigUint64(sampleSize * 2, BigInt(data.length), true); // little-endian
+      
+      hashInput = sample;
+    } else {
+      hashInput = data;
+    }
+    
+    // Convert to ArrayBuffer for crypto API compatibility
+    const arrayBuffer = hashInput.buffer.slice(
+      hashInput.byteOffset, 
+      hashInput.byteOffset + hashInput.byteLength
+    ) as ArrayBuffer;
+    
+    const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 16);
+  }
+
+  /**
+   * Verify data integrity by comparing hash
+   * @param data The data to verify
+   * @param expectedHash The expected hash from metadata
+   * @param id The ID of the data (for logging)
+   * @throws StorageError if integrity check fails
+   */
+  protected async verifyIntegrity(
+    data: Uint8Array,
+    expectedHash: string,
+    id: string,
+  ): Promise<void> {
+    const actualHash = await this.computeHash(data);
+    if (actualHash !== expectedHash) {
+      logger.error("Data integrity check failed", { 
+        id, 
+        expected: expectedHash, 
+        actual: actualHash 
+      });
+      throw new StorageError(
+        "Data integrity verification failed",
+        "load",
+        { id, expectedHash, actualHash }
+      );
+    }
+  }
+
+  /**
+   * Check if integrity verification should be performed
+   */
+  protected shouldVerifyIntegrity(): boolean {
+    if (!this.config.verifyIntegrity) {
+      return false;
+    }
+    
+    const frequency = this.config.integrityCheckFrequency ?? 100;
+    this.loadCounter++;
+    return this.loadCounter % frequency === 0;
+  }
+
+  /**
    * Handling SQLite Errors
    */
   protected handleSqliteError(
@@ -211,7 +295,9 @@ export abstract class BaseSqliteStorage<_TMetadataType> {
       }
 
       logger.debug("Data loaded from SQLite", { id, dataSize: row.data.length });
-      return new Uint8Array(row.data);
+      // Zero-copy conversion: use shared ArrayBuffer to avoid memory duplication
+      const buffer = row.data;
+      return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
     } catch (error) {
       this.handleSqliteError(error, "load", { id });
     }
@@ -393,15 +479,15 @@ export abstract class BaseSqliteStorage<_TMetadataType> {
     const startTime = Date.now();
 
     try {
+      // Prepare statement once outside loop for better performance
+      const stmt = db.prepare(`
+        INSERT INTO ${this.getTableName()} (id, data) VALUES (?, ?)
+        ON CONFLICT(id) DO UPDATE SET data = excluded.data
+      `);
+
       // Use transaction for atomicity and performance
       const transaction = db.transaction(() => {
         for (const item of items) {
-          // Default implementation: simple save without custom logic
-          // Subclasses should override this method for custom save behavior
-          const stmt = db.prepare(`
-            INSERT INTO ${this.getTableName()} (id, data) VALUES (?, ?)
-            ON CONFLICT(id) DO UPDATE SET data = excluded.data
-          `);
           stmt.run(item.id, Buffer.from(item.data));
         }
       });
@@ -452,6 +538,11 @@ export abstract class BaseSqliteStorage<_TMetadataType> {
         totalTimeMs: elapsed,
       });
     } catch (error) {
+      logger.error("Batch save failed", { 
+        table: this.getTableName(), 
+        count: items.length,
+        error: (error as Error).message 
+      });
       this.handleSqliteError(error, "saveBatch", { count: items.length });
     }
   }
@@ -482,7 +573,9 @@ export abstract class BaseSqliteStorage<_TMetadataType> {
       // Create a map for quick lookup
       const dataMap = new Map<string, Uint8Array>();
       for (const row of rows) {
-        dataMap.set(row.id, new Uint8Array(row.data));
+        // Zero-copy conversion: use shared ArrayBuffer to avoid memory duplication
+        const buffer = row.data;
+        dataMap.set(row.id, new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength));
       }
 
       // Maintain order and handle missing items
@@ -577,9 +670,11 @@ export abstract class BaseSqliteStorage<_TMetadataType> {
         return;
       }
 
+      // Prepare statement once outside loop for better performance
+      const stmt = db.prepare(`DELETE FROM ${this.getTableName()} WHERE id = ?`);
+
       // Use transaction for atomicity and performance
       const transaction = db.transaction(() => {
-        const stmt = db.prepare(`DELETE FROM ${this.getTableName()} WHERE id = ?`);
         for (const id of ids) {
           stmt.run(id);
         }
@@ -596,6 +691,11 @@ export abstract class BaseSqliteStorage<_TMetadataType> {
         totalTimeMs: elapsed,
       });
     } catch (error) {
+      logger.error("Batch delete failed", { 
+        table: this.getTableName(), 
+        count: ids.length,
+        error: (error as Error).message 
+      });
       this.handleSqliteError(error, "deleteBatch", { count: ids.length });
     }
   }

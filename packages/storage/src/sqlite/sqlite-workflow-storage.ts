@@ -16,7 +16,8 @@ import type {
 } from "@wf-agent/types";
 import type { WorkflowStorageAdapter } from "../types/adapter/index.js";
 import { BaseSqliteStorage, BaseSqliteStorageConfig } from "./base-sqlite-storage.js";
-import { compressBlob, decompressBlob } from "./compression.js";
+import { CompressionService } from "../compression/compression-service.js";
+import { compressBlob, decompressBlob } from "../compression/compressor.js";
 import { StorageError } from "../types/storage-errors.js";
 
 /**
@@ -147,16 +148,6 @@ export class SqliteWorkflowStorage
     );
   }
 
-  /**
-   * Compute hash for BLOB data using Web Crypto API
-   */
-  private async computeHash(data: Uint8Array): Promise<string> {
-    // Convert to ArrayBuffer for crypto API compatibility
-    const arrayBuffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
-    const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 16);
-  }
 
   /**
    * Save workflow with metadata-BLOB separation and compression
@@ -173,8 +164,12 @@ export class SqliteWorkflowStorage
       // Compute blob hash
       const blobHash = await this.computeHash(data);
 
+      // Get adaptive compression config
+      const service = CompressionService.getInstance();
+      const config = service.getAdaptiveConfig(data, 'workflow');
+
       // Compress BLOB data
-      const { compressed, algorithm } = await compressBlob(data);
+      const { compressed, algorithm } = await compressBlob(data, config);
 
       const insertMetadata = db.prepare(`
         INSERT INTO workflow_metadata (
@@ -535,8 +530,12 @@ export class SqliteWorkflowStorage
     const now = Date.now();
 
     try {
+      // Get adaptive compression config for version
+      const service = CompressionService.getInstance();
+      const config = service.getAdaptiveConfig(data, 'workflow');
+
       // Compress BLOB data
-      const { compressed, algorithm } = await compressBlob(data);
+      const { compressed, algorithm } = await compressBlob(data, config);
 
       const insertMetadata = db.prepare(`
         INSERT INTO workflow_version_metadata (

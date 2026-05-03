@@ -11,7 +11,8 @@
 import type { CheckpointStorageMetadata, CheckpointStorageListOptions } from "@wf-agent/types";
 import type { CheckpointStorageAdapter } from "../types/adapter/index.js";
 import { BaseSqliteStorage, BaseSqliteStorageConfig } from "./base-sqlite-storage.js";
-import { compressBlob, decompressBlob, compressBlobSync, decompressBlobSync } from "./compression.js";
+import { CompressionService } from "../compression/compression-service.js";
+import { compressBlob, decompressBlob, compressBlobSync, decompressBlobSync } from "../compression/compressor.js";
 import { createModuleLogger } from "../logger.js";
 
 const logger = createModuleLogger("sqlite-checkpoint-storage");
@@ -138,17 +139,6 @@ export class SqliteCheckpointStorage
   }
 
   /**
-   * Compute hash for BLOB data using Web Crypto API
-   */
-  private async computeHash(data: Uint8Array): Promise<string> {
-    // Convert to ArrayBuffer for crypto API compatibility
-    const arrayBuffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
-    const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 16);
-  }
-
-  /**
    * Save checkpoint with metadata-BLOB separation and compression
    */
   async save(id: string, data: Uint8Array, metadata: CheckpointStorageMetadata): Promise<void> {
@@ -160,8 +150,12 @@ export class SqliteCheckpointStorage
       // Extract metrics from data
       const metrics = await this.extractMetrics(data);
 
+      // Get adaptive compression config
+      const service = CompressionService.getInstance();
+      const config = service.getAdaptiveConfig(data, 'checkpoint');
+
       // Compress BLOB data
-      const { compressed, algorithm } = await compressBlob(data);
+      const { compressed, algorithm } = await compressBlob(data, config);
 
       // Use transaction to ensure atomicity
       const insertMetadata = db.prepare(`
@@ -197,41 +191,49 @@ export class SqliteCheckpointStorage
       `);
 
       db.transaction(() => {
-        // Extract checkpoint type and IDs if available
-        let checkpointType: string | null = null;
-        let baseCheckpointId: string | null = null;
-        let previousCheckpointId: string | null = null;
-
         try {
-          const decoder = new TextDecoder();
-          const jsonStr = decoder.decode(data);
-          const checkpoint = JSON.parse(jsonStr);
-          checkpointType = checkpoint.type ?? null;
-          baseCheckpointId = checkpoint.baseCheckpointId ?? null;
-          previousCheckpointId = checkpoint.previousCheckpointId ?? null;
-        } catch {
-          // Ignore parsing errors
+          // Extract checkpoint type and IDs if available
+          let checkpointType: string | null = null;
+          let baseCheckpointId: string | null = null;
+          let previousCheckpointId: string | null = null;
+
+          try {
+            const decoder = new TextDecoder();
+            const jsonStr = decoder.decode(data);
+            const checkpoint = JSON.parse(jsonStr);
+            checkpointType = checkpoint.type ?? null;
+            baseCheckpointId = checkpoint.baseCheckpointId ?? null;
+            previousCheckpointId = checkpoint.previousCheckpointId ?? null;
+          } catch {
+            // Ignore parsing errors
+          }
+
+          insertMetadata.run(
+            id,
+            metadata.executionId,
+            metadata.workflowId,
+            metadata.timestamp,
+            checkpointType,
+            baseCheckpointId,
+            previousCheckpointId,
+            metrics.messageCount,
+            metrics.variableCount,
+            compressed.length,
+            metrics.blobHash,
+            metadata.tags ? JSON.stringify(metadata.tags) : null,
+            metadata.customFields ? JSON.stringify(metadata.customFields) : null,
+            now,
+            now,
+          );
+
+          insertBlob.run(id, compressed, algorithm ? 1 : 0, algorithm || null);
+        } catch (error) {
+          logger.error("Transaction failed during checkpoint save, rolling back", { 
+            id, 
+            error: (error as Error).message 
+          });
+          throw error; // Transaction will automatically rollback
         }
-
-        insertMetadata.run(
-          id,
-          metadata.executionId,
-          metadata.workflowId,
-          metadata.timestamp,
-          checkpointType,
-          baseCheckpointId,
-          previousCheckpointId,
-          metrics.messageCount,
-          metrics.variableCount,
-          compressed.length,
-          metrics.blobHash,
-          metadata.tags ? JSON.stringify(metadata.tags) : null,
-          metadata.customFields ? JSON.stringify(metadata.customFields) : null,
-          now,
-          now,
-        );
-
-        insertBlob.run(id, compressed, algorithm ? 1 : 0, algorithm || null);
       })();
 
       // Track metrics
@@ -250,16 +252,19 @@ export class SqliteCheckpointStorage
     const db = this.getDb();
 
     try {
+      // Get both blob data and metadata for integrity verification
       const stmt = db.prepare(`
-        SELECT blob_data, compressed, compression_algorithm
-        FROM checkpoint_blob
-        WHERE checkpoint_id = ?
+        SELECT cb.blob_data, cb.compressed, cb.compression_algorithm, cm.blob_hash
+        FROM checkpoint_blob cb
+        INNER JOIN checkpoint_metadata cm ON cb.checkpoint_id = cm.id
+        WHERE cb.checkpoint_id = ?
       `);
       const row = stmt.get(id) as
         | {
             blob_data: Buffer;
             compressed: number;
             compression_algorithm: string | null;
+            blob_hash: string;
           }
         | undefined;
 
@@ -267,19 +272,26 @@ export class SqliteCheckpointStorage
         return null;
       }
 
-      const data = new Uint8Array(row.blob_data);
+      // Zero-copy conversion: use shared ArrayBuffer to avoid memory duplication
+      const buffer = row.blob_data;
+      const data = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
 
       // Decompress if needed
+      let finalData: Uint8Array;
       if (row.compressed && row.compression_algorithm) {
-        const decompressed = await decompressBlob(data, row.compression_algorithm);
-        const elapsed = Date.now() - startTime;
-        this.updateMetric('load', elapsed, decompressed.length);
-        return decompressed;
+        finalData = await decompressBlob(data, row.compression_algorithm);
+      } else {
+        finalData = data;
+      }
+
+      // Optional integrity verification
+      if (this.shouldVerifyIntegrity()) {
+        await this.verifyIntegrity(finalData, row.blob_hash, id);
       }
 
       const elapsed = Date.now() - startTime;
-      this.updateMetric('load', elapsed, data.length);
-      return data;
+      this.updateMetric('load', elapsed, finalData.length);
+      return finalData;
     } catch (error) {
       this.handleSqliteError(error, "load", { id });
     }
@@ -536,8 +548,12 @@ export class SqliteCheckpointStorage
         // Ignore parsing errors
       }
 
+      // Get adaptive compression config for batch operation
+      const service = CompressionService.getInstance();
+      const config = service.getAdaptiveConfig(item.data, 'checkpoint');
+
       // Compress BLOB data synchronously for batch operation
-      const { compressed, algorithm } = compressBlobSync(item.data);
+      const { compressed, algorithm } = compressBlobSync(item.data, config);
 
       insertMetadata.run(
         item.id,
@@ -593,10 +609,12 @@ export class SqliteCheckpointStorage
         let data: Uint8Array;
 
         if (row.compressed && row.compression_algorithm) {
-          // Decompress
-          data = decompressBlobSync(new Uint8Array(buffer), row.compression_algorithm);
+          // Decompress - zero-copy conversion before decompression
+          const uncompressedBuffer = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+          data = decompressBlobSync(uncompressedBuffer, row.compression_algorithm);
         } else {
-          data = new Uint8Array(buffer);
+          // Zero-copy conversion: use shared ArrayBuffer to avoid memory duplication
+          data = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
         }
 
         dataMap.set(row.id, data);

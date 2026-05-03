@@ -15,7 +15,8 @@ import type {
 } from "@wf-agent/types";
 import type { AgentLoopStorageAdapter } from "../types/adapter/index.js";
 import { BaseSqliteStorage, BaseSqliteStorageConfig } from "./base-sqlite-storage.js";
-import { compressBlob, decompressBlob } from "./compression.js";
+import { CompressionService } from "../compression/compression-service.js";
+import { compressBlob, decompressBlob } from "../compression/compressor.js";
 
 /**
  * SQLite Agent Loop Storage
@@ -97,8 +98,12 @@ export class SqliteAgentLoopStorage
     const now = Date.now();
 
     try {
+      // Get adaptive compression config
+      const service = CompressionService.getInstance();
+      const config = service.getAdaptiveConfig(data, 'agentLoop');
+
       // Compress BLOB data
-      const { compressed, algorithm } = await compressBlob(data);
+      const { compressed, algorithm } = await compressBlob(data, config);
 
       const insertMetadata = db.prepare(`
         INSERT INTO agent_loop_metadata (

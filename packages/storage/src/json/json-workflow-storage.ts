@@ -14,7 +14,8 @@ import type {
 import type { WorkflowStorageAdapter } from "../types/adapter/workflow-adapter.js";
 import { BaseJsonStorage, BaseJsonStorageConfig } from "./base-json-storage.js";
 import { StorageError, SerializationError } from "../types/storage-errors.js";
-import { compressBlob, decompressBlob, DEFAULT_COMPRESSION_CONFIG } from "../compression/index.js";
+import { CompressionService } from "../compression/compression-service.js";
+import { compressBlob, decompressBlob } from "../compression/compressor.js";
 import { createHash } from "crypto";
 
 /**
@@ -300,9 +301,12 @@ export class JsonWorkflowStorage
     const releaseLock = await this["acquireLock"](metadataPath);
 
     try {
+      // Get adaptive compression config
+      const service = CompressionService.getInstance();
+      const config = service.getAdaptiveConfig(data, 'workflow');
+
       // Compress data
-      const compressionConfig = this.config.compression ?? DEFAULT_COMPRESSION_CONFIG;
-      const compressionResult = await compressBlob(data, compressionConfig);
+      const compressionResult = await compressBlob(data, config);
 
       const dataToWrite = compressionResult.compressed;
       const dataHash = this.computeHash(data);

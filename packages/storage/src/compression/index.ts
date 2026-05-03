@@ -22,3 +22,10 @@ export {
   type EntityType,
   DEFAULT_GLOBAL_COMPRESSION_CONFIG,
 } from "./compression-service.js";
+
+export {
+  detectDataType,
+  selectCompressionStrategy,
+  logCompressionDecision,
+  type DataType,
+} from "./adaptive-compression.js";

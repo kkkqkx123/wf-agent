@@ -17,8 +17,12 @@ import type {
 } from "@wf-agent/types";
 import type { TaskStorageAdapter } from "../types/adapter/index.js";
 import { BaseSqliteStorage, BaseSqliteStorageConfig } from "./base-sqlite-storage.js";
-import { compressBlob, decompressBlob } from "./compression.js";
+import { CompressionService } from "../compression/compression-service.js";
+import { compressBlob, decompressBlob } from "../compression/compressor.js";
 import { StorageError } from "../types/storage-errors.js";
+import { createModuleLogger } from "../logger.js";
+
+const logger = createModuleLogger("sqlite-task-storage");
 
 /**
  * SQLite Task Storage
@@ -110,17 +114,6 @@ export class SqliteTaskStorage
   }
 
   /**
-   * Compute hash for BLOB data using Web Crypto API
-   */
-  private async computeHash(data: Uint8Array): Promise<string> {
-    // Convert to ArrayBuffer for crypto API compatibility
-    const arrayBuffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
-    const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 16);
-  }
-
-  /**
    * Save task with metadata-BLOB separation and compression
    */
   async save(taskId: string, data: Uint8Array, metadata: TaskStorageMetadata): Promise<void> {
@@ -137,8 +130,12 @@ export class SqliteTaskStorage
       // Compute blob hash
       const blobHash = await this.computeHash(data);
 
+      // Get adaptive compression config
+      const service = CompressionService.getInstance();
+      const config = service.getAdaptiveConfig(data, 'task');
+
       // Compress BLOB data
-      const { compressed, algorithm } = await compressBlob(data);
+      const { compressed, algorithm } = await compressBlob(data, config);
 
       const insertMetadata = db.prepare(`
         INSERT INTO task_metadata (
@@ -175,27 +172,35 @@ export class SqliteTaskStorage
       `);
 
       db.transaction(() => {
-        insertMetadata.run(
-          taskId,
-          metadata.executionId,
-          metadata.workflowId,
-          metadata.status,
-          metadata.submitTime,
-          metadata.startTime ?? null,
-          metadata.completeTime ?? null,
-          metadata.timeout ?? null,
-          executionDuration,
-          metadata.error ?? null,
-          metadata.errorStack ?? null,
-          compressed.length,
-          blobHash,
-          metadata.tags ? JSON.stringify(metadata.tags) : null,
-          metadata.customFields ? JSON.stringify(metadata.customFields) : null,
-          now,
-          now,
-        );
+        try {
+          insertMetadata.run(
+            taskId,
+            metadata.executionId,
+            metadata.workflowId,
+            metadata.status,
+            metadata.submitTime,
+            metadata.startTime ?? null,
+            metadata.completeTime ?? null,
+            metadata.timeout ?? null,
+            executionDuration,
+            metadata.error ?? null,
+            metadata.errorStack ?? null,
+            compressed.length,
+            blobHash,
+            metadata.tags ? JSON.stringify(metadata.tags) : null,
+            metadata.customFields ? JSON.stringify(metadata.customFields) : null,
+            now,
+            now,
+          );
 
-        insertBlob.run(taskId, compressed, algorithm ? 1 : 0, algorithm || null);
+          insertBlob.run(taskId, compressed, algorithm ? 1 : 0, algorithm || null);
+        } catch (error) {
+          logger.error("Transaction failed during task save, rolling back", { 
+            taskId, 
+            error: (error as Error).message 
+          });
+          throw error; // Transaction will automatically rollback
+        }
       })();
     } catch (error) {
       this.handleSqliteError(error, "save", { taskId });
@@ -209,16 +214,19 @@ export class SqliteTaskStorage
     const db = this.getDb();
 
     try {
+      // Get both blob data and metadata for integrity verification
       const stmt = db.prepare(`
-        SELECT blob_data, compressed, compression_algorithm
-        FROM task_blob
-        WHERE task_id = ?
+        SELECT tb.blob_data, tb.compressed, tb.compression_algorithm, tm.blob_hash
+        FROM task_blob tb
+        INNER JOIN task_metadata tm ON tb.task_id = tm.id
+        WHERE tb.task_id = ?
       `);
       const row = stmt.get(id) as
         | {
             blob_data: Buffer;
             compressed: number;
             compression_algorithm: string | null;
+            blob_hash: string;
           }
         | undefined;
 
@@ -226,14 +234,24 @@ export class SqliteTaskStorage
         return null;
       }
 
-      const data = new Uint8Array(row.blob_data);
+      // Zero-copy conversion: use shared ArrayBuffer to avoid memory duplication
+      const buffer = row.blob_data;
+      const data = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
 
       // Decompress if needed
+      let finalData: Uint8Array;
       if (row.compressed && row.compression_algorithm) {
-        return await decompressBlob(data, row.compression_algorithm);
+        finalData = await decompressBlob(data, row.compression_algorithm);
+      } else {
+        finalData = data;
       }
 
-      return data;
+      // Optional integrity verification
+      if (this.shouldVerifyIntegrity()) {
+        await this.verifyIntegrity(finalData, row.blob_hash, id);
+      }
+
+      return finalData;
     } catch (error) {
       this.handleSqliteError(error, "load", { id });
     }

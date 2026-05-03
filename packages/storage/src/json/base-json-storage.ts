@@ -8,11 +8,11 @@ import * as path from "path";
 import { createHash } from "crypto";
 import { StorageError, SerializationError } from "../types/storage-errors.js";
 import { createModuleLogger } from "../logger.js";
+import { CompressionService } from "../compression/compression-service.js";
 import {
   compressBlob,
   decompressBlob,
-  CompressionConfig,
-  DEFAULT_COMPRESSION_CONFIG,
+  type CompressionConfig,
 } from "../compression/index.js";
 import { LRUCache } from "../utils/lru-cache.js";
 import type { StorageMetrics } from "../types/metrics.js";
@@ -324,8 +324,12 @@ export abstract class BaseJsonStorage<TMetadata> {
   /**
    * Get compression config
    */
-  protected getCompressionConfig(): CompressionConfig {
-    return this.config.compression ?? DEFAULT_COMPRESSION_CONFIG;
+  protected getCompressionConfig(data?: Uint8Array, entityType?: string): CompressionConfig {
+    if (data && entityType) {
+      const service = CompressionService.getInstance();
+      return service.getAdaptiveConfig(data, entityType as any);
+    }
+    return this.config.compression ?? { enabled: false };
   }
 
   /**
@@ -351,7 +355,7 @@ export abstract class BaseJsonStorage<TMetadata> {
 
     try {
       // Compress data if enabled
-      const compressionConfig = this.getCompressionConfig();
+      const compressionConfig = this.getCompressionConfig(data);
       const compressionResult = await compressBlob(data, compressionConfig);
 
       const dataToWrite = compressionResult.compressed;

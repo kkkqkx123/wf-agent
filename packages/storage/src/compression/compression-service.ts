@@ -4,6 +4,7 @@
  */
 
 import { CompressionConfig, DEFAULT_COMPRESSION_CONFIG } from "../compression/compressor.js";
+import { selectCompressionStrategy, logCompressionDecision, detectDataType } from "./adaptive-compression.js";
 import { createModuleLogger } from "../logger.js";
 
 const logger = createModuleLogger("compression-service");
@@ -165,5 +166,37 @@ export class CompressionService {
   isEnabled(entityType?: EntityType): boolean {
     const config = this.getConfig(entityType);
     return config.enabled;
+  }
+
+  /**
+   * Get adaptive compression config based on data characteristics
+   * @param data The data to be compressed
+   * @param entityType Optional entity type for context
+   * @returns Optimized compression configuration
+   */
+  getAdaptiveConfig(data: Uint8Array, entityType?: EntityType): CompressionConfig {
+    // If a specific entity config exists and has explicit settings, use it as base
+    const baseConfig = entityType ? this.config.entityConfigs[entityType] : undefined;
+    
+    // Get adaptive strategy
+    const adaptiveConfig = selectCompressionStrategy(data, entityType);
+    
+    // Merge with base config if it exists (base config takes precedence for 'enabled' flag)
+    const finalConfig: CompressionConfig = {
+      ...adaptiveConfig,
+      ...(baseConfig || {}),
+    };
+
+    // Log the decision for monitoring
+    if (finalConfig.enabled) {
+      logger.debug("Selected adaptive compression config", {
+        entityType,
+        dataType: detectDataType(data),
+        algorithm: finalConfig.algorithm,
+        threshold: finalConfig.threshold,
+      });
+    }
+
+    return finalConfig;
   }
 }

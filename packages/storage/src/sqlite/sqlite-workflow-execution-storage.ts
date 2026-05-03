@@ -16,8 +16,12 @@ import type {
 } from "@wf-agent/types";
 import type { WorkflowExecutionStorageAdapter } from "../types/adapter/workflow-execution-adapter.js";
 import { BaseSqliteStorage, BaseSqliteStorageConfig } from "./base-sqlite-storage.js";
-import { compressBlob, decompressBlob } from "./compression.js";
+import { CompressionService } from "../compression/compression-service.js";
+import { compressBlob, decompressBlob } from "../compression/compressor.js";
 import { StorageError } from "../types/storage-errors.js";
+import { createModuleLogger } from "../logger.js";
+
+const logger = createModuleLogger("sqlite-workflow-execution-storage");
 
 /**
  * SQLite Workflow Execution Storage
@@ -45,16 +49,6 @@ export class SqliteWorkflowExecutionStorage
     return "workflow_execution_blob";
   }
 
-  /**
-   * Compute hash for BLOB data using Web Crypto API
-   */
-  private async computeHash(data: Uint8Array): Promise<string> {
-    // Convert to ArrayBuffer for crypto API compatibility
-    const arrayBuffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
-    const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 16);
-  }
 
   /**
    * Create table structure with metadata-BLOB separation
@@ -130,8 +124,12 @@ export class SqliteWorkflowExecutionStorage
     const now = Date.now();
 
     try {
+      // Get adaptive compression config
+      const service = CompressionService.getInstance();
+      const config = service.getAdaptiveConfig(data, 'execution');
+
       // Compress BLOB data
-      const { compressed, algorithm } = await compressBlob(data);
+      const { compressed, algorithm } = await compressBlob(data, config);
       
       // Compute blob hash
       const blobHash = await this.computeHash(data);
@@ -170,25 +168,33 @@ export class SqliteWorkflowExecutionStorage
       `);
 
       db.transaction(() => {
-        insertMetadata.run(
-          id,
-          metadata.workflowId,
-          metadata.workflowVersion,
-          metadata.status,
-          metadata.executionType ?? null,
-          metadata.currentNodeId ?? null,
-          metadata.parentExecutionId ?? null,
-          metadata.startTime,
-          metadata.endTime ?? null,
-          compressed.length,
-          blobHash,
-          metadata.tags ? JSON.stringify(metadata.tags) : null,
-          metadata.customFields ? JSON.stringify(metadata.customFields) : null,
-          now,
-          now,
-        );
+        try {
+          insertMetadata.run(
+            id,
+            metadata.workflowId,
+            metadata.workflowVersion,
+            metadata.status,
+            metadata.executionType ?? null,
+            metadata.currentNodeId ?? null,
+            metadata.parentExecutionId ?? null,
+            metadata.startTime,
+            metadata.endTime ?? null,
+            compressed.length,
+            blobHash,
+            metadata.tags ? JSON.stringify(metadata.tags) : null,
+            metadata.customFields ? JSON.stringify(metadata.customFields) : null,
+            now,
+            now,
+          );
 
-        insertBlob.run(id, compressed, algorithm ? 1 : 0, algorithm || null);
+          insertBlob.run(id, compressed, algorithm ? 1 : 0, algorithm || null);
+        } catch (error) {
+          logger.error("Transaction failed during workflow execution save, rolling back", { 
+            id, 
+            error: (error as Error).message 
+          });
+          throw error; // Transaction will automatically rollback
+        }
       })();
     } catch (error) {
       this.handleSqliteError(error, "save", { id });
@@ -202,16 +208,19 @@ export class SqliteWorkflowExecutionStorage
     const db = this.getDb();
 
     try {
+      // Get both blob data and metadata for integrity verification
       const stmt = db.prepare(`
-        SELECT blob_data, compressed, compression_algorithm
-        FROM workflow_execution_blob
-        WHERE execution_id = ?
+        SELECT web.blob_data, web.compressed, web.compression_algorithm, wem.blob_hash
+        FROM workflow_execution_blob web
+        INNER JOIN workflow_execution_metadata wem ON web.execution_id = wem.id
+        WHERE web.execution_id = ?
       `);
       const row = stmt.get(id) as
         | {
             blob_data: Buffer;
             compressed: number;
             compression_algorithm: string | null;
+            blob_hash: string;
           }
         | undefined;
 
@@ -219,14 +228,24 @@ export class SqliteWorkflowExecutionStorage
         return null;
       }
 
-      const data = new Uint8Array(row.blob_data);
+      // Zero-copy conversion: use shared ArrayBuffer to avoid memory duplication
+      const buffer = row.blob_data;
+      const data = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
 
       // Decompress if needed
+      let finalData: Uint8Array;
       if (row.compressed && row.compression_algorithm) {
-        return await decompressBlob(data, row.compression_algorithm);
+        finalData = await decompressBlob(data, row.compression_algorithm);
+      } else {
+        finalData = data;
       }
 
-      return data;
+      // Optional integrity verification
+      if (this.shouldVerifyIntegrity()) {
+        await this.verifyIntegrity(finalData, row.blob_hash, id);
+      }
+
+      return finalData;
     } catch (error) {
       this.handleSqliteError(error, "load", { id });
     }

@@ -36,6 +36,12 @@ export interface BaseSqliteStorageConfig {
 }
 
 /**
+ * Default pagination limits
+ */
+const DEFAULT_PAGE_LIMIT = 100;
+const MAX_PAGE_LIMIT = 1000;
+
+/**
  * SQLite File Storage Abstract Base Class
  * @template TMetadata metadata type
  */
@@ -74,14 +80,17 @@ export abstract class BaseSqliteStorage<_TMetadataType> {
     try {
       const usePool = this.config.useConnectionPool ?? true;
 
-      if (usePool && !this.config.readonly) {
+      // Disable connection pool when fileMustExist is true to ensure proper error handling
+      const shouldUsePool = usePool && !this.config.readonly && !(this.config.fileMustExist ?? false);
+
+      if (shouldUsePool) {
         // Use connection pool
         this.connectionPool = this.config.connectionPool ?? getGlobalConnectionPool();
         this.db = this.connectionPool.getConnection(this.config.dbPath);
         this.usingPool = true;
         logger.debug("Using pooled SQLite connection", { dbPath: this.config.dbPath });
       } else {
-        // Create dedicated connection (for readonly or when pool is disabled)
+        // Create dedicated connection (for readonly, fileMustExist, or when pool is disabled)
         const options: Database.Options = {
           readonly: this.config.readonly ?? false,
           fileMustExist: this.config.fileMustExist ?? false,
@@ -95,6 +104,7 @@ export abstract class BaseSqliteStorage<_TMetadataType> {
         this.db.pragma("journal_mode = WAL");
         this.db.pragma("wal_autocheckpoint = 1000");
         this.db.pragma("synchronous = NORMAL");
+        this.db.pragma("foreign_keys = ON");
 
         logger.debug("Created dedicated SQLite connection", { dbPath: this.config.dbPath });
       }
@@ -123,6 +133,18 @@ export abstract class BaseSqliteStorage<_TMetadataType> {
         error as Error,
       );
     }
+  }
+
+  /**
+   * Validate and normalize pagination parameters
+   */
+  protected validatePagination(limit?: number, offset?: number): { limit: number; offset: number } {
+    const validatedLimit = limit !== undefined 
+      ? Math.min(Math.max(1, limit), MAX_PAGE_LIMIT) 
+      : DEFAULT_PAGE_LIMIT;
+    const validatedOffset = offset !== undefined ? Math.max(0, offset) : 0;
+    
+    return { limit: validatedLimit, offset: validatedOffset };
   }
 
   /**
@@ -237,6 +259,30 @@ export abstract class BaseSqliteStorage<_TMetadataType> {
       logger.info("SQLite table cleared", { table: this.getTableName() });
     } catch (error) {
       this.handleSqliteError(error, "clear", {});
+    }
+  }
+
+  /**
+   * Optimize database by running VACUUM and ANALYZE
+   * Should be called periodically to maintain performance
+   */
+  async optimize(): Promise<void> {
+    const db = this.getDb();
+
+    try {
+      logger.info("Starting database optimization", { table: this.getTableName() });
+      
+      // Reclaim unused space
+      db.exec('VACUUM');
+      logger.debug("VACUUM completed", { table: this.getTableName() });
+      
+      // Update query planner statistics
+      db.exec('ANALYZE');
+      logger.debug("ANALYZE completed", { table: this.getTableName() });
+      
+      logger.info("Database optimization completed", { table: this.getTableName() });
+    } catch (error) {
+      this.handleSqliteError(error, "optimize", {});
     }
   }
 

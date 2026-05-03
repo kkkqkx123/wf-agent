@@ -232,7 +232,7 @@ export class SqliteAgentLoopStorage
 
       if (options?.tags && options.tags.length > 0) {
         conditions.push(`tags LIKE ?`);
-        params.push(`%"${options.tags[0]}"%`);
+        params.push(`%${options.tags[0]}%`);
       }
 
       if (options?.createdAfter) {

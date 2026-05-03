@@ -18,6 +18,7 @@ import type {
 import type { TaskStorageAdapter } from "../types/adapter/index.js";
 import { BaseSqliteStorage, BaseSqliteStorageConfig } from "./base-sqlite-storage.js";
 import { compressBlob, decompressBlob } from "./compression.js";
+import { StorageError } from "../types/storage-errors.js";
 
 /**
  * SQLite Task Storage
@@ -63,12 +64,12 @@ export class SqliteTaskStorage
         complete_time INTEGER,
         timeout INTEGER,
         execution_duration INTEGER,
-        error TEXT,
-        error_stack TEXT,
+        error TEXT CHECK(length(error) <= 4096),
+        error_stack TEXT CHECK(length(error_stack) <= 8192),
         blob_size INTEGER,
         blob_hash TEXT,
-        tags TEXT,
-        custom_fields TEXT,
+        tags TEXT CHECK(length(tags) <= 4096),
+        custom_fields TEXT CHECK(length(custom_fields) <= 8192),
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       )
@@ -79,8 +80,12 @@ export class SqliteTaskStorage
       CREATE TABLE IF NOT EXISTS task_blob (
         task_id TEXT PRIMARY KEY,
         blob_data BLOB NOT NULL,
-        compressed BOOLEAN DEFAULT FALSE,
+        compressed INTEGER DEFAULT 0 CHECK(compressed IN (0, 1)),
         compression_algorithm TEXT,
+        CHECK(
+          (compressed = 0 AND compression_algorithm IS NULL) OR
+          (compressed = 1 AND compression_algorithm IS NOT NULL)
+        ),
         FOREIGN KEY (task_id) REFERENCES task_metadata(id) ON DELETE CASCADE
       )
     `);
@@ -96,18 +101,23 @@ export class SqliteTaskStorage
     db.exec(
       `CREATE INDEX IF NOT EXISTS idx_task_meta_status_submit ON task_metadata(status, submit_time)`,
     );
+    db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_task_meta_created_at ON task_metadata(created_at)`,
+    );
+    db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_task_meta_updated_at ON task_metadata(updated_at)`,
+    );
   }
 
   /**
-   * Compute simple hash for BLOB data
+   * Compute hash for BLOB data using Web Crypto API
    */
-  private computeHash(data: Uint8Array): string {
-    let hash = 0x811c9dc5;
-    for (let i = 0; i < data.length; i++) {
-      hash ^= data[i]!;
-      hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
-    }
-    return (hash >>> 0).toString(16).padStart(8, "0");
+  private async computeHash(data: Uint8Array): Promise<string> {
+    // Convert to ArrayBuffer for crypto API compatibility
+    const arrayBuffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
+    const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 16);
   }
 
   /**
@@ -125,7 +135,7 @@ export class SqliteTaskStorage
           : null;
 
       // Compute blob hash
-      const blobHash = this.computeHash(data);
+      const blobHash = await this.computeHash(data);
 
       // Compress BLOB data
       const { compressed, algorithm } = await compressBlob(data);
@@ -185,7 +195,7 @@ export class SqliteTaskStorage
           now,
         );
 
-        insertBlob.run(taskId, Buffer.from(compressed), algorithm ? 1 : 0, algorithm);
+        insertBlob.run(taskId, compressed, algorithm ? 1 : 0, algorithm || null);
       })();
     } catch (error) {
       this.handleSqliteError(error, "save", { taskId });
@@ -321,7 +331,7 @@ export class SqliteTaskStorage
 
       if (options?.tags && options.tags.length > 0) {
         conditions.push(`tags LIKE ?`);
-        params.push(`%"${options.tags[0]}"%`);
+        params.push(`%${options.tags[0]}%`);
       }
 
       if (conditions.length > 0) {
@@ -330,25 +340,37 @@ export class SqliteTaskStorage
 
       const sortBy = options?.sortBy ?? "submitTime";
       const sortOrder = options?.sortOrder ?? "desc";
-      // Convert camelCase to snake_case for SQL column names
-      const sortColumn =
-        sortBy === "submitTime"
-          ? "submit_time"
-          : sortBy === "startTime"
-            ? "start_time"
-            : sortBy === "completeTime"
-              ? "complete_time"
-              : sortBy;
+      // Convert camelCase to snake_case for SQL column names and validate
+      const allowedSortColumns = ['submit_time', 'start_time', 'complete_time', 'created_at', 'updated_at'];
+      const sortColumnMap: Record<string, string> = {
+        submitTime: 'submit_time',
+        startTime: 'start_time',
+        completeTime: 'complete_time',
+        createdAt: 'created_at',
+        updatedAt: 'updated_at',
+      };
+      const sortColumn = sortColumnMap[sortBy] || sortBy;
+      
+      if (!allowedSortColumns.includes(sortColumn)) {
+        throw new StorageError(`Invalid sort column: ${sortBy}`, 'list', { sortBy });
+      }
+      
       sql += ` ORDER BY ${sortColumn} ${sortOrder.toUpperCase()}`;
+
+      // Pagination with validation
+      const { limit: validatedLimit, offset: validatedOffset } = this.validatePagination(
+        options?.limit,
+        options?.offset
+      );
 
       if (options?.limit !== undefined) {
         sql += " LIMIT ?";
-        params.push(options.limit);
+        params.push(validatedLimit);
       }
 
       if (options?.offset !== undefined) {
         sql += " OFFSET ?";
-        params.push(options.offset);
+        params.push(validatedOffset);
       }
 
       const stmt = db.prepare(sql);

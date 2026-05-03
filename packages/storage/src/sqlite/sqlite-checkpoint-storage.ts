@@ -62,8 +62,8 @@ export class SqliteCheckpointStorage
         variable_count INTEGER,
         blob_size INTEGER,
         blob_hash TEXT,
-        tags TEXT,
-        custom_fields TEXT,
+        tags TEXT CHECK(length(tags) <= 4096),
+        custom_fields TEXT CHECK(length(custom_fields) <= 8192),
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       )
@@ -74,8 +74,12 @@ export class SqliteCheckpointStorage
       CREATE TABLE IF NOT EXISTS checkpoint_blob (
         checkpoint_id TEXT PRIMARY KEY,
         blob_data BLOB NOT NULL,
-        compressed BOOLEAN DEFAULT FALSE,
+        compressed INTEGER DEFAULT 0 CHECK(compressed IN (0, 1)),
         compression_algorithm TEXT,
+        CHECK(
+          (compressed = 0 AND compression_algorithm IS NULL) OR
+          (compressed = 1 AND compression_algorithm IS NOT NULL)
+        ),
         FOREIGN KEY (checkpoint_id) REFERENCES checkpoint_metadata(id) ON DELETE CASCADE
       )
     `);
@@ -104,11 +108,11 @@ export class SqliteCheckpointStorage
   /**
    * Extract metrics from checkpoint data for metadata storage
    */
-  private extractMetrics(data: Uint8Array): {
+  private async extractMetrics(data: Uint8Array): Promise<{
     messageCount: number;
     variableCount: number;
     blobHash: string;
-  } {
+  }> {
     try {
       // Parse the checkpoint data to extract metrics
       const decoder = new TextDecoder();
@@ -120,7 +124,7 @@ export class SqliteCheckpointStorage
       const variableCount = executionState?.variables?.length ?? 0;
 
       // Simple hash for deduplication detection
-      const blobHash = this.computeHash(data);
+      const blobHash = await this.computeHash(data);
 
       return { messageCount, variableCount, blobHash };
     } catch {
@@ -128,22 +132,20 @@ export class SqliteCheckpointStorage
       return {
         messageCount: 0,
         variableCount: 0,
-        blobHash: this.computeHash(data),
+        blobHash: await this.computeHash(data),
       };
     }
   }
 
   /**
-   * Compute simple hash for BLOB data
+   * Compute hash for BLOB data using Web Crypto API
    */
-  private computeHash(data: Uint8Array): string {
-    // Simple FNV-1a hash implementation
-    let hash = 0x811c9dc5;
-    for (let i = 0; i < data.length; i++) {
-      hash ^= data[i]!;
-      hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
-    }
-    return (hash >>> 0).toString(16).padStart(8, "0");
+  private async computeHash(data: Uint8Array): Promise<string> {
+    // Convert to ArrayBuffer for crypto API compatibility
+    const arrayBuffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
+    const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 16);
   }
 
   /**
@@ -156,7 +158,7 @@ export class SqliteCheckpointStorage
 
     try {
       // Extract metrics from data
-      const metrics = this.extractMetrics(data);
+      const metrics = await this.extractMetrics(data);
 
       // Compress BLOB data
       const { compressed, algorithm } = await compressBlob(data);
@@ -229,7 +231,7 @@ export class SqliteCheckpointStorage
           now,
         );
 
-        insertBlob.run(id, Buffer.from(compressed), algorithm ? 1 : 0, algorithm);
+        insertBlob.run(id, compressed, algorithm ? 1 : 0, algorithm || null);
       })();
 
       // Track metrics
@@ -342,7 +344,7 @@ export class SqliteCheckpointStorage
 
       if (options?.tags && options.tags.length > 0) {
         conditions.push(`tags LIKE ?`);
-        params.push(`%"${options.tags[0]}"%`);
+        params.push(`%${options.tags[0]}%`);
       }
 
       if (conditions.length > 0) {
@@ -352,15 +354,20 @@ export class SqliteCheckpointStorage
       // Sort by timestamp descending
       sql += " ORDER BY timestamp DESC";
 
-      // Pagination
+      // Pagination with validation
+      const { limit: validatedLimit, offset: validatedOffset } = this.validatePagination(
+        options?.limit,
+        options?.offset
+      );
+      
       if (options?.limit !== undefined) {
         sql += " LIMIT ?";
-        params.push(options.limit);
+        params.push(validatedLimit);
       }
 
       if (options?.offset !== undefined) {
         sql += " OFFSET ?";
-        params.push(options.offset);
+        params.push(validatedOffset);
       }
 
       const stmt = db.prepare(sql);
@@ -511,8 +518,8 @@ export class SqliteCheckpointStorage
         compression_algorithm = excluded.compression_algorithm
     `);
 
-    await this.saveBatchWithCustomLogic(items, (db, item) => {
-      const metrics = this.extractMetrics(item.data);
+    await this.saveBatchWithCustomLogic(items, async (db, item) => {
+      const metrics = await this.extractMetrics(item.data);
       
       let checkpointType: string | null = null;
       let baseCheckpointId: string | null = null;
@@ -550,7 +557,7 @@ export class SqliteCheckpointStorage
         now,
       );
 
-      insertBlob.run(item.id, Buffer.from(compressed), algorithm ? 1 : 0, algorithm);
+      insertBlob.run(item.id, compressed, algorithm ? 1 : 0, algorithm || null);
     });
   }
 

@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as fs from "fs/promises";
 import * as path from "path";
 import * as os from "os";
-import { BaseSqliteStorage, type BaseSqliteStorageConfig } from "../base-sqlite-storage.js";
+import { BaseSqliteStorage } from "../base-sqlite-storage.js";
 import { StorageError, StorageInitializationError } from "../../types/storage-errors.js";
 
 interface TestMetadata {

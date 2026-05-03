@@ -44,6 +44,17 @@ export class SqliteAgentLoopCheckpointStorage
   }
 
   /**
+   * Compute hash for BLOB data using Web Crypto API
+   */
+  private async computeHash(data: Uint8Array): Promise<string> {
+    // Convert to ArrayBuffer for crypto API compatibility
+    const arrayBuffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
+    const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 16);
+  }
+
+  /**
    * Create table structure with metadata-BLOB separation
    */
   protected createTableSchema(): void {
@@ -57,8 +68,10 @@ export class SqliteAgentLoopCheckpointStorage
         timestamp INTEGER NOT NULL,
         type TEXT NOT NULL,
         version INTEGER,
-        tags TEXT,
-        custom_fields TEXT,
+        blob_size INTEGER,
+        blob_hash TEXT,
+        tags TEXT CHECK(length(tags) <= 4096),
+        custom_fields TEXT CHECK(length(custom_fields) <= 8192),
         created_at INTEGER NOT NULL
       )
     `);
@@ -68,8 +81,12 @@ export class SqliteAgentLoopCheckpointStorage
       CREATE TABLE IF NOT EXISTS agent_loop_checkpoint_blob (
         checkpoint_id TEXT PRIMARY KEY,
         blob_data BLOB NOT NULL,
-        compressed BOOLEAN DEFAULT FALSE,
+        compressed INTEGER DEFAULT 0 CHECK(compressed IN (0, 1)),
         compression_algorithm TEXT,
+        CHECK(
+          (compressed = 0 AND compression_algorithm IS NULL) OR
+          (compressed = 1 AND compression_algorithm IS NOT NULL)
+        ),
         FOREIGN KEY (checkpoint_id) REFERENCES agent_loop_checkpoint_metadata(id) ON DELETE CASCADE
       )
     `);
@@ -99,18 +116,23 @@ export class SqliteAgentLoopCheckpointStorage
     try {
       // Compress BLOB data
       const { compressed, algorithm } = await compressBlob(data);
+      
+      // Compute blob hash
+      const blobHash = await this.computeHash(data);
 
       const insertMetadata = db.prepare(`
         INSERT INTO agent_loop_checkpoint_metadata (
           id, agent_loop_id, timestamp, type, version,
-          tags, custom_fields, created_at
+          blob_size, blob_hash, tags, custom_fields, created_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           agent_loop_id = excluded.agent_loop_id,
           timestamp = excluded.timestamp,
           type = excluded.type,
           version = excluded.version,
+          blob_size = excluded.blob_size,
+          blob_hash = excluded.blob_hash,
           tags = excluded.tags,
           custom_fields = excluded.custom_fields,
           created_at = excluded.created_at
@@ -132,12 +154,14 @@ export class SqliteAgentLoopCheckpointStorage
           metadata.timestamp,
           metadata.type,
           metadata.version ?? null,
+          compressed.length,
+          blobHash,
           metadata.tags ? JSON.stringify(metadata.tags) : null,
           metadata.customFields ? JSON.stringify(metadata.customFields) : null,
           now,
         );
 
-        insertBlob.run(checkpointId, Buffer.from(compressed), algorithm ? 1 : 0, algorithm);
+        insertBlob.run(checkpointId, compressed, algorithm ? 1 : 0, algorithm || null);
       })();
     } catch (error) {
       this.handleSqliteError(error, "save", { checkpointId });
@@ -242,14 +266,20 @@ export class SqliteAgentLoopCheckpointStorage
 
       sql += ` ORDER BY timestamp DESC`;
 
+      // Pagination with validation
+      const { limit: validatedLimit, offset: validatedOffset } = this.validatePagination(
+        options?.limit,
+        options?.offset
+      );
+      
       if (options?.limit !== undefined) {
         sql += " LIMIT ?";
-        params.push(options.limit);
+        params.push(validatedLimit);
       }
 
       if (options?.offset !== undefined) {
         sql += " OFFSET ?";
-        params.push(options.offset);
+        params.push(validatedOffset);
       }
 
       const stmt = db.prepare(sql);
@@ -314,20 +344,20 @@ export class SqliteAgentLoopCheckpointStorage
     options?: Omit<AgentCheckpointListOptions, "agentLoopId">,
   ): Promise<string[]> {
     const db = this.getDb();
-
+  
     try {
       let sql = `SELECT id FROM agent_loop_checkpoint_metadata WHERE agent_loop_id = ?`;
       const params: unknown[] = [agentLoopId];
       const conditions: string[] = [];
-
+  
       if (options?.type) {
         conditions.push("type = ?");
         params.push(options.type);
       }
-
+  
       if (options?.tags && options.tags.length > 0) {
         conditions.push(`tags LIKE ?`);
-        params.push(`%"${options.tags[0]}"%`);
+        params.push(`%${options.tags[0]}%`);
       }
 
       if (conditions.length > 0) {
@@ -336,14 +366,20 @@ export class SqliteAgentLoopCheckpointStorage
 
       sql += ` ORDER BY timestamp DESC`;
 
+      // Pagination with validation
+      const { limit: validatedLimit, offset: validatedOffset } = this.validatePagination(
+        options?.limit,
+        options?.offset
+      );
+
       if (options?.limit !== undefined) {
         sql += " LIMIT ?";
-        params.push(options.limit);
+        params.push(validatedLimit);
       }
 
       if (options?.offset !== undefined) {
         sql += " OFFSET ?";
-        params.push(options.offset);
+        params.push(validatedOffset);
       }
 
       const stmt = db.prepare(sql);

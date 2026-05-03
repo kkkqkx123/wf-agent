@@ -17,6 +17,7 @@ import type {
 import type { WorkflowStorageAdapter } from "../types/adapter/index.js";
 import { BaseSqliteStorage, BaseSqliteStorageConfig } from "./base-sqlite-storage.js";
 import { compressBlob, decompressBlob } from "./compression.js";
+import { StorageError } from "../types/storage-errors.js";
 
 /**
  * SQLite Workflow Storage
@@ -70,10 +71,10 @@ export class SqliteWorkflowStorage
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         version TEXT NOT NULL,
-        description TEXT,
-        author TEXT,
-        category TEXT,
-        tags TEXT,
+        description TEXT CHECK(length(description) <= 2048),
+        author TEXT CHECK(length(author) <= 256),
+        category TEXT CHECK(length(category) <= 128),
+        tags TEXT CHECK(length(tags) <= 4096),
         enabled INTEGER DEFAULT 1,
         node_count INTEGER NOT NULL,
         edge_count INTEGER NOT NULL,
@@ -81,7 +82,7 @@ export class SqliteWorkflowStorage
         blob_hash TEXT,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL,
-        custom_fields TEXT
+        custom_fields TEXT CHECK(length(custom_fields) <= 8192)
       )
     `);
 
@@ -90,8 +91,12 @@ export class SqliteWorkflowStorage
       CREATE TABLE IF NOT EXISTS workflow_blob (
         workflow_id TEXT PRIMARY KEY,
         blob_data BLOB NOT NULL,
-        compressed BOOLEAN DEFAULT FALSE,
+        compressed INTEGER DEFAULT 0 CHECK(compressed IN (0, 1)),
         compression_algorithm TEXT,
+        CHECK(
+          (compressed = 0 AND compression_algorithm IS NULL) OR
+          (compressed = 1 AND compression_algorithm IS NOT NULL)
+        ),
         FOREIGN KEY (workflow_id) REFERENCES workflow_metadata(id) ON DELETE CASCADE
       )
     `);
@@ -102,10 +107,10 @@ export class SqliteWorkflowStorage
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         workflow_id TEXT NOT NULL,
         version TEXT NOT NULL,
-        change_note TEXT,
+        change_note TEXT CHECK(length(change_note) <= 2048),
         blob_size INTEGER,
         created_at INTEGER NOT NULL,
-        created_by TEXT,
+        created_by TEXT CHECK(length(created_by) <= 256),
         UNIQUE(workflow_id, version),
         FOREIGN KEY (workflow_id) REFERENCES workflow_metadata(id) ON DELETE CASCADE
       )
@@ -116,8 +121,12 @@ export class SqliteWorkflowStorage
       CREATE TABLE IF NOT EXISTS workflow_version_blob (
         version_id INTEGER PRIMARY KEY,
         blob_data BLOB NOT NULL,
-        compressed BOOLEAN DEFAULT FALSE,
+        compressed INTEGER DEFAULT 0 CHECK(compressed IN (0, 1)),
         compression_algorithm TEXT,
+        CHECK(
+          (compressed = 0 AND compression_algorithm IS NULL) OR
+          (compressed = 1 AND compression_algorithm IS NOT NULL)
+        ),
         FOREIGN KEY (version_id) REFERENCES workflow_version_metadata(id) ON DELETE CASCADE
       )
     `);
@@ -128,20 +137,25 @@ export class SqliteWorkflowStorage
     db.exec(`CREATE INDEX IF NOT EXISTS idx_workflow_meta_author ON workflow_metadata(author)`);
     db.exec(`CREATE INDEX IF NOT EXISTS idx_workflow_meta_enabled ON workflow_metadata(enabled)`);
     db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_workflow_meta_created_at ON workflow_metadata(created_at)`,
+    );
+    db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_workflow_meta_updated_at ON workflow_metadata(updated_at)`,
+    );
+    db.exec(
       `CREATE INDEX IF NOT EXISTS idx_workflow_version_meta_workflow_id ON workflow_version_metadata(workflow_id)`,
     );
   }
 
   /**
-   * Compute simple hash for BLOB data
+   * Compute hash for BLOB data using Web Crypto API
    */
-  private computeHash(data: Uint8Array): string {
-    let hash = 0x811c9dc5;
-    for (let i = 0; i < data.length; i++) {
-      hash ^= data[i]!;
-      hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
-    }
-    return (hash >>> 0).toString(16).padStart(8, "0");
+  private async computeHash(data: Uint8Array): Promise<string> {
+    // Convert to ArrayBuffer for crypto API compatibility
+    const arrayBuffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
+    const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 16);
   }
 
   /**
@@ -157,7 +171,7 @@ export class SqliteWorkflowStorage
 
     try {
       // Compute blob hash
-      const blobHash = this.computeHash(data);
+      const blobHash = await this.computeHash(data);
 
       // Compress BLOB data
       const { compressed, algorithm } = await compressBlob(data);
@@ -212,7 +226,7 @@ export class SqliteWorkflowStorage
           metadata.customFields ? JSON.stringify(metadata.customFields) : null,
         );
 
-        insertBlob.run(workflowId, Buffer.from(compressed), algorithm ? 1 : 0, algorithm);
+        insertBlob.run(workflowId, compressed, algorithm ? 1 : 0, algorithm || null);
       })();
     } catch (error) {
       this.handleSqliteError(error, "save", { workflowId });
@@ -339,7 +353,7 @@ export class SqliteWorkflowStorage
 
       if (options?.tags && options.tags.length > 0) {
         conditions.push(`tags LIKE ?`);
-        params.push(`%"${options.tags[0]}"%`);
+        params.push(`%${options.tags[0]}%`);
       }
 
       if (conditions.length > 0) {
@@ -348,19 +362,35 @@ export class SqliteWorkflowStorage
 
       const sortBy = options?.sortBy ?? "updatedAt";
       const sortOrder = options?.sortOrder ?? "desc";
-      // Convert camelCase to snake_case for SQL column names
-      const sortColumn =
-        sortBy === "updatedAt" ? "updated_at" : sortBy === "createdAt" ? "created_at" : sortBy;
+      // Convert camelCase to snake_case for SQL column names and validate
+      const allowedSortColumns = ['updated_at', 'created_at', 'name'];
+      const sortColumnMap: Record<string, string> = {
+        updatedAt: 'updated_at',
+        createdAt: 'created_at',
+        name: 'name',
+      };
+      const sortColumn = sortColumnMap[sortBy] || sortBy;
+      
+      if (!allowedSortColumns.includes(sortColumn)) {
+        throw new StorageError(`Invalid sort column: ${sortBy}`, 'list', { sortBy });
+      }
+      
       sql += ` ORDER BY ${sortColumn} ${sortOrder.toUpperCase()}`;
+
+      // Pagination with validation
+      const { limit: validatedLimit, offset: validatedOffset } = this.validatePagination(
+        options?.limit,
+        options?.offset
+      );
 
       if (options?.limit !== undefined) {
         sql += " LIMIT ?";
-        params.push(options.limit);
+        params.push(validatedLimit);
       }
 
       if (options?.offset !== undefined) {
         sql += " OFFSET ?";
-        params.push(options.offset);
+        params.push(validatedOffset);
       }
 
       const stmt = db.prepare(sql);
@@ -517,12 +547,12 @@ export class SqliteWorkflowStorage
           change_note = excluded.change_note,
           blob_size = excluded.blob_size,
           created_at = excluded.created_at
+        RETURNING id
       `);
 
       const insertBlob = db.prepare(`
         INSERT INTO workflow_version_blob (version_id, blob_data, compressed, compression_algorithm)
-        SELECT id, ?, ?, ? FROM workflow_version_metadata
-        WHERE workflow_id = ? AND version = ?
+        VALUES (?, ?, ?, ?)
         ON CONFLICT(version_id) DO UPDATE SET
           blob_data = excluded.blob_data,
           compressed = excluded.compressed,
@@ -530,9 +560,21 @@ export class SqliteWorkflowStorage
       `);
 
       db.transaction(() => {
-        insertMetadata.run(workflowId, version, changeNote ?? null, compressed.length, now);
+        // Insert metadata and get the version_id
+        const result = insertMetadata.get(
+          workflowId,
+          version,
+          changeNote ?? null,
+          compressed.length,
+          now
+        ) as { id: number } | undefined;
 
-        insertBlob.run(Buffer.from(compressed), algorithm ? 1 : 0, algorithm, workflowId, version);
+        if (!result) {
+          throw new Error('Failed to insert version metadata');
+        }
+
+        // Insert blob using the returned version_id
+        insertBlob.run(result.id, compressed, algorithm ? 1 : 0, algorithm || null);
       })();
     } catch (error) {
       this.handleSqliteError(error, "saveVersion", { workflowId, version });

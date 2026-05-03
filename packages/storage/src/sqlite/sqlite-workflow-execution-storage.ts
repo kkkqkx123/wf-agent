@@ -46,6 +46,17 @@ export class SqliteWorkflowExecutionStorage
   }
 
   /**
+   * Compute hash for BLOB data using Web Crypto API
+   */
+  private async computeHash(data: Uint8Array): Promise<string> {
+    // Convert to ArrayBuffer for crypto API compatibility
+    const arrayBuffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
+    const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 16);
+  }
+
+  /**
    * Create table structure with metadata-BLOB separation
    */
   protected createTableSchema(): void {
@@ -63,8 +74,10 @@ export class SqliteWorkflowExecutionStorage
         parent_execution_id TEXT,
         start_time INTEGER NOT NULL,
         end_time INTEGER,
-        tags TEXT,
-        custom_fields TEXT,
+        blob_size INTEGER,
+        blob_hash TEXT,
+        tags TEXT CHECK(length(tags) <= 4096),
+        custom_fields TEXT CHECK(length(custom_fields) <= 8192),
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       )
@@ -75,8 +88,12 @@ export class SqliteWorkflowExecutionStorage
       CREATE TABLE IF NOT EXISTS workflow_execution_blob (
         execution_id TEXT PRIMARY KEY,
         blob_data BLOB NOT NULL,
-        compressed BOOLEAN DEFAULT FALSE,
+        compressed INTEGER DEFAULT 0 CHECK(compressed IN (0, 1)),
         compression_algorithm TEXT,
+        CHECK(
+          (compressed = 0 AND compression_algorithm IS NULL) OR
+          (compressed = 1 AND compression_algorithm IS NOT NULL)
+        ),
         FOREIGN KEY (execution_id) REFERENCES workflow_execution_metadata(id) ON DELETE CASCADE
       )
     `);
@@ -115,15 +132,18 @@ export class SqliteWorkflowExecutionStorage
     try {
       // Compress BLOB data
       const { compressed, algorithm } = await compressBlob(data);
+      
+      // Compute blob hash
+      const blobHash = await this.computeHash(data);
 
       // Use transaction to ensure atomicity
       const insertMetadata = db.prepare(`
         INSERT INTO workflow_execution_metadata (
           id, workflow_id, workflow_version, status, execution_type,
           current_node_id, parent_execution_id, start_time, end_time,
-          tags, custom_fields, created_at, updated_at
+          blob_size, blob_hash, tags, custom_fields, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           workflow_id = excluded.workflow_id,
           workflow_version = excluded.workflow_version,
@@ -133,6 +153,8 @@ export class SqliteWorkflowExecutionStorage
           parent_execution_id = excluded.parent_execution_id,
           start_time = excluded.start_time,
           end_time = excluded.end_time,
+          blob_size = excluded.blob_size,
+          blob_hash = excluded.blob_hash,
           tags = excluded.tags,
           custom_fields = excluded.custom_fields,
           updated_at = excluded.updated_at
@@ -158,13 +180,15 @@ export class SqliteWorkflowExecutionStorage
           metadata.parentExecutionId ?? null,
           metadata.startTime,
           metadata.endTime ?? null,
+          compressed.length,
+          blobHash,
           metadata.tags ? JSON.stringify(metadata.tags) : null,
           metadata.customFields ? JSON.stringify(metadata.customFields) : null,
           now,
           now,
         );
 
-        insertBlob.run(id, Buffer.from(compressed), algorithm ? 1 : 0, algorithm);
+        insertBlob.run(id, compressed, algorithm ? 1 : 0, algorithm || null);
       })();
     } catch (error) {
       this.handleSqliteError(error, "save", { id });
@@ -298,7 +322,7 @@ export class SqliteWorkflowExecutionStorage
 
       if (options?.tags && options.tags.length > 0) {
         conditions.push(`tags LIKE ?`);
-        params.push(`%"${options.tags[0]}"%`);
+        params.push(`%${options.tags[0]}%`);
       }
 
       if (conditions.length > 0) {
@@ -322,15 +346,20 @@ export class SqliteWorkflowExecutionStorage
           break;
       }
 
-      // Pagination
+      // Pagination with validation
+      const { limit: validatedLimit, offset: validatedOffset } = this.validatePagination(
+        options?.limit,
+        options?.offset
+      );
+
       if (options?.limit !== undefined) {
         sql += " LIMIT ?";
-        params.push(options.limit);
+        params.push(validatedLimit);
       }
 
       if (options?.offset !== undefined) {
         sql += " OFFSET ?";
-        params.push(options.offset);
+        params.push(validatedOffset);
       }
 
       const stmt = db.prepare(sql);

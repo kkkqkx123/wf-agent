@@ -104,8 +104,6 @@ export type EventType =
   | "LLM_STREAM_ABORTED"
   /** LLM Streaming Error */
   | "LLM_STREAM_ERROR"
-  /** Agent Custom Events */
-  | "AGENT_CUSTOM_EVENT"
   /** Skill loading begins */
   | "SKILL_LOAD_STARTED"
   /** Skill loading complete */
@@ -139,7 +137,9 @@ export type EventType =
   /** Agent tool execution completed */
   | "AGENT_TOOL_EXECUTION_COMPLETED"
   /** Agent iteration completed */
-  | "AGENT_ITERATION_COMPLETED";
+  | "AGENT_ITERATION_COMPLETED"
+  /** Agent hook triggered */
+  | "AGENT_HOOK_TRIGGERED";
 
 /**
  * Basic Event Types

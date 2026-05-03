@@ -3,8 +3,8 @@
  */
 
 import type { Message } from "../../message/index.js";
-import { AgentLoopStatus } from "../../agent/status.js";
-import type { IterationRecord } from "../../agent/records.js";
+import { AgentLoopStatus } from "../../agent-execution/types.js";
+import type { IterationRecord } from "../../agent-execution/types.js";
 
 /**
  * Agent Loop Status Snapshot

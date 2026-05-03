@@ -12,7 +12,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { AgentLoopEntity } from "../entities/agent-loop-entity.js";
 import { AgentLoopCheckpointCoordinator } from "../checkpoint/checkpoint-coordinator.js";
-import type { AgentLoopConfig, AgentLoopCheckpoint, CheckpointMetadata } from "@wf-agent/types";
+import type { AgentLoopRuntimeConfig, AgentLoopCheckpoint, CheckpointMetadata } from "@wf-agent/types";
 import { CheckpointType } from "@wf-agent/types";
 
 describe("Agent Loop Checkpoint", () => {
@@ -20,7 +20,7 @@ describe("Agent Loop Checkpoint", () => {
   let checkpoints: Map<string, AgentLoopCheckpoint>;
   let agentLoopCheckpoints: Map<string, string[]>;
 
-  const basicConfig: AgentLoopConfig = {
+  const basicConfig: AgentLoopRuntimeConfig = {
     maxIterations: 10,
     profileId: "test-profile",
   };

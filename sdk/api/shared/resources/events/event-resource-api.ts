@@ -87,7 +87,7 @@ const ALL_EVENT_TYPES: EventType[] = [
   "LLM_STREAM_ABORTED",
   "LLM_STREAM_ERROR",
   // Agent events
-  "AGENT_CUSTOM_EVENT",
+  "AGENT_HOOK_TRIGGERED",
   // Skill events
   "SKILL_LOAD_STARTED",
   "SKILL_LOAD_COMPLETED",

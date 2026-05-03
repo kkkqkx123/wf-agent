@@ -1,57 +1,61 @@
 /**
  * Agent Hook Event Emitter
  *
- * Responsible for emitting Agent Hook related custom events.
- * Referenced from Graph module's event-emitter.ts design.
+ * Responsible for emitting Agent Hook triggered events.
+ * Uses the new AgentHookTriggeredEvent type instead of deprecated AgentCustomEvent.
  */
 
 import type { AgentLoopEntity } from "../../../entities/agent-loop-entity.js";
-import type { AgentCustomEvent } from "@wf-agent/types";
+import type { AgentHookTriggeredEvent, AgentHookType } from "@wf-agent/types";
 import { EventSystemError } from "@wf-agent/types";
 import { getErrorOrNew } from "@wf-agent/common-utils";
-import { buildAgentCustomEvent } from "../../../../core/utils/event/builders/index.js";
+import { buildAgentHookTriggeredEvent } from "../../../../core/utils/event/builders/index.js";
 
 /**
- * Agent Custom Event Data
+ * Agent Hook Event Data
  *
- * Extends BaseEvent to add Agent-specific fields.
+ * Data for building AgentHookTriggeredEvent.
  */
-export interface AgentCustomEventData {
+export interface AgentHookEventData {
   /** Agent Loop ID */
   agentLoopId: string;
+  /** Hook type that triggered the event */
+  hookType: AgentHookType;
   /** Event name */
   eventName: string;
   /** Event data */
   eventData: Record<string, unknown>;
   /** Current iteration count */
-  iteration?: number;
-  /** Parent Execution ID (if executed as a Graph node) */
-  parentExecutionId?: string;
+  iteration: number;
+  /** Parent Workflow Execution ID (if executed as a Graph node) */
+  parentWorkflowExecutionId?: string;
   /** Node ID (if executed as a Graph node) */
   nodeId?: string;
 }
 
 /**
- * Emit Agent custom event
+ * Emit Agent Hook Triggered Event
  *
  * @param entity Agent Loop entity
+ * @param hookType Type of hook that triggered
  * @param eventName Event name
  * @param eventData Event data
  * @param emitEvent Event emitting function
  */
 export async function emitAgentHookEvent(
   entity: AgentLoopEntity,
+  hookType: AgentHookType,
   eventName: string,
   eventData: Record<string, unknown> | undefined,
-  emitEvent: (event: AgentCustomEvent) => Promise<void>,
+  emitEvent: (event: AgentHookTriggeredEvent) => Promise<void>,
 ): Promise<void> {
-  const event = buildAgentCustomEvent({
-    executionId: entity.parentExecutionId || entity.id, // Use parentExecutionId or entity.id as executionId
+  const event = buildAgentHookTriggeredEvent({
     agentLoopId: entity.id,
+    hookType,
     eventName,
     eventData: eventData ?? {},
     iteration: entity.state.currentIteration,
-    parentExecutionId: entity.parentExecutionId,
+    parentWorkflowExecutionId: entity.parentExecutionId,
     nodeId: entity.nodeId,
     metadata: {
       profileId: entity.config.profileId,
@@ -62,14 +66,13 @@ export async function emitAgentHookEvent(
   try {
     await emitEvent(event);
   } catch (error) {
-    // Throw an event system error, which is handled centrally by higher layers
     throw new EventSystemError(
-      `Failed to emit agent custom event "${eventName}" for agent loop "${entity.id}"`,
+      `Failed to emit agent hook event "${eventName}" for agent loop "${entity.id}"`,
       "emit",
-      "AGENT_CUSTOM_EVENT",
+      "HOOK_TRIGGERED",
       entity.nodeId,
       undefined,
-      { eventName, agentLoopId: entity.id, originalError: getErrorOrNew(error) },
+      { eventName, hookType, agentLoopId: entity.id, originalError: getErrorOrNew(error) },
     );
   }
 }

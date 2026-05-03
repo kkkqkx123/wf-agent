@@ -8,7 +8,7 @@ import * as path from "path";
 import { createHash } from "crypto";
 import { StorageError, SerializationError } from "../types/storage-errors.js";
 import { createModuleLogger } from "../logger.js";
-import { CompressionService } from "../compression/compression-service.js";
+import { selectCompressionStrategy } from "../compression/adaptive-compression.js";
 import {
   compressBlob,
   decompressBlob,
@@ -324,10 +324,9 @@ export abstract class BaseJsonStorage<TMetadata> {
   /**
    * Get compression config
    */
-  protected getCompressionConfig(data?: Uint8Array, entityType?: string): CompressionConfig {
-    if (data && entityType) {
-      const service = CompressionService.getInstance();
-      return service.getAdaptiveConfig(data, entityType as any);
+  protected getCompressionConfig(data?: Uint8Array): CompressionConfig {
+    if (data) {
+      return selectCompressionStrategy(data);
     }
     return this.config.compression ?? { enabled: false };
   }

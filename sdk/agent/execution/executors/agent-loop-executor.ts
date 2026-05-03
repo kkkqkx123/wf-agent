@@ -20,7 +20,7 @@
  * - tool-schema-helper: Tool schema utilities (shared with Graph)
  */
 
-import type { AgentLoopResult, AgentStreamEvent, AgentCustomEvent, MessageStreamEvent } from "@wf-agent/types";
+import type { AgentLoopResult, AgentStreamEvent, AgentHookTriggeredEvent, MessageStreamEvent, AgentHookTriggeredCoreEvent } from "@wf-agent/types";
 import { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import { ToolRegistry } from "../../../core/registry/tool-registry.js";
 
@@ -61,7 +61,7 @@ export class AgentLoopExecutor {
   private toolCallExecutor: ToolCallExecutor;
   private toolService: ToolRegistry;
   private eventManager?: EventRegistry;
-  private emitEvent?: (event: AgentCustomEvent) => Promise<void>;
+  private emitEvent?: (event: AgentHookTriggeredEvent) => Promise<void>;
 
   // Sub-executors
   private iterationExecutor: AgentIterationExecutor;
@@ -71,7 +71,7 @@ export class AgentLoopExecutor {
     llmExecutor: LLMExecutor,
     toolService: ToolRegistry,
     eventManager?: EventRegistry,
-    emitEvent?: (event: AgentCustomEvent) => Promise<void>,
+    emitEvent?: (event: AgentHookTriggeredEvent) => Promise<void>,
   ) {
     this.llmExecutor = llmExecutor;
     this.toolService = toolService;
@@ -98,7 +98,7 @@ export class AgentLoopExecutor {
    * Set event emitter function
    * @param emitEvent Event emitter function
    */
-  setEventEmitter(emitEvent: (event: AgentCustomEvent) => Promise<void>): void {
+  setEventEmitter(emitEvent: (event: AgentHookTriggeredEvent) => Promise<void>): void {
     this.emitEvent = emitEvent;
     // Update sub-executors
     this.iterationExecutor = new AgentIterationExecutor(
@@ -127,12 +127,25 @@ export class AgentLoopExecutor {
    * Unified event emission method
    * Prioritizes EventRegistry, otherwise uses emitEvent callback
    * Note: These are observability events for external consumers.
-   * @param event Agent custom event
+   * @param event Agent hook triggered event
    */
-  private async emitAgentEvent(event: AgentCustomEvent): Promise<void> {
+  private async emitAgentEvent(event: AgentHookTriggeredEvent): Promise<void> {
     if (this.eventManager) {
       try {
-        await emit(this.eventManager, event);
+        const coreEvent: AgentHookTriggeredCoreEvent = {
+          id: event.id,
+          type: "AGENT_HOOK_TRIGGERED",
+          timestamp: event.timestamp,
+          agentLoopId: event.agentLoopId,
+          hookType: event.hookType,
+          eventName: event.eventName,
+          eventData: event.eventData,
+          iteration: event.iteration,
+          parentWorkflowExecutionId: event.parentWorkflowExecutionId,
+          nodeId: event.nodeId,
+          metadata: event.metadata,
+        };
+        await emit(this.eventManager, coreEvent);
       } catch (error) {
         // Log but don't break the main flow - these are observability events
         logger.debug("Failed to emit agent event", { 

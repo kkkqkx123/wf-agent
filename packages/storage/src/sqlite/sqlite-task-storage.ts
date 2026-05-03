@@ -17,7 +17,7 @@ import type {
 } from "@wf-agent/types";
 import type { TaskStorageAdapter } from "../types/adapter/index.js";
 import { BaseSqliteStorage, BaseSqliteStorageConfig } from "./base-sqlite-storage.js";
-import { CompressionService } from "../compression/compression-service.js";
+import { selectCompressionStrategy } from "../compression/adaptive-compression.js";
 import { compressBlob, decompressBlob } from "../compression/compressor.js";
 import { StorageError } from "../types/storage-errors.js";
 import { createModuleLogger } from "../logger.js";
@@ -131,8 +131,8 @@ export class SqliteTaskStorage
       const blobHash = await this.computeHash(data);
 
       // Get adaptive compression config
-      const service = CompressionService.getInstance();
-      const config = service.getAdaptiveConfig(data, 'task');
+      // Get compression config based on data characteristics
+      const config = selectCompressionStrategy(data);
 
       // Compress BLOB data
       const { compressed, algorithm } = await compressBlob(data, config);

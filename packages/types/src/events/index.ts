@@ -115,7 +115,6 @@ import type {
   ContextCompressionCompletedEvent,
 } from "./system-events.js";
 
-import type { AgentCustomEvent } from "./agent-events.js";
 import type {
   AgentStartedEvent,
   AgentCompletedEvent,
@@ -126,6 +125,7 @@ import type {
   AgentToolExecutionStartedEvent,
   AgentToolExecutionCompletedEvent,
   AgentIterationCompletedEvent,
+  AgentHookTriggeredCoreEvent,
 } from "./agent-events.js";
 import type {
   SkillLoadStartedEvent,
@@ -202,7 +202,7 @@ export type Event =
   | AgentToolExecutionStartedEvent
   | AgentToolExecutionCompletedEvent
   | AgentIterationCompletedEvent
-  | AgentCustomEvent
+  | AgentHookTriggeredCoreEvent
   | SkillLoadStartedEvent
   | SkillLoadCompletedEvent
   | SkillLoadFailedEvent

@@ -1,8 +1,12 @@
 /**
- * Agent event type definition
+ * Agent Event Type Definitions
  *
- * Note: Streaming events at the LLM layer (such as text increments, thought content, etc.) are provided by Stream Event,
- * Only events specific to the Agent layer (tool calls, iteration completions, etc.) are defined here.
+ * This module contains runtime event types for Agent Loop execution.
+ * Part of the agent-execution package for runtime-related types.
+ *
+ * Note: Streaming events at the LLM layer (such as text increments, thought content, etc.)
+ * are provided by Stream Event. Only events specific to the Agent layer (tool calls,
+ * iteration completions, etc.) are defined here.
  *
  * Architecture design:
  * - LLM API Streaming Response → MessageStream → MessageStreamEvent
@@ -14,9 +18,10 @@
  * - Supports steering and follow-up mechanisms
  */
 
+import type { ID, Metadata } from "../common.js";
 import type { LLMMessage } from "../message/index.js";
-import type { ToolCall } from "../tool/execution.js";
 import type { ToolExecutionResult } from "../tool/execution.js";
+import type { AgentHookType } from "./hooks.js";
 
 /**
  * Agent event types
@@ -67,6 +72,10 @@ export enum AgentStreamEventType {
   STEERING_INJECTED = "steering_injected",
   /** Follow-up message queued */
   FOLLOWUP_QUEUED = "followup_queued",
+
+  // ========== Hook Events ==========
+  /** Hook triggered event */
+  HOOK_TRIGGERED = "hook_triggered",
 }
 
 /**
@@ -276,6 +285,35 @@ export interface FollowupQueuedEvent {
 }
 
 /**
+ * Agent Hook Triggered Event
+ *
+ * Emitted when an agent hook is triggered during execution.
+ * This replaces the deprecated AgentCustomEvent with a more structured approach.
+ */
+export interface AgentHookTriggeredEvent {
+  /** Unique event identifier */
+  id: ID;
+  type: AgentStreamEventType.HOOK_TRIGGERED;
+  timestamp: number;
+  /** Agent loop ID */
+  agentLoopId: ID;
+  /** Hook type that triggered this event */
+  hookType: AgentHookType;
+  /** Event name (from hook configuration) */
+  eventName: string;
+  /** Event payload data */
+  eventData: Record<string, unknown>;
+  /** Current iteration number */
+  iteration: number;
+  /** Parent Workflow Execution ID (if executed as a Graph node) */
+  parentWorkflowExecutionId?: ID;
+  /** Node ID (if executed as a Graph node) */
+  nodeId?: ID;
+  /** Additional metadata */
+  metadata?: Metadata;
+}
+
+/**
  * Agent Stream Event (union type)
  *
  * All possible agent stream events
@@ -294,4 +332,5 @@ export type AgentStreamEvent =
   | IterationCompleteEvent
   | AgentErrorEvent
   | SteeringInjectedEvent
-  | FollowupQueuedEvent;
+  | FollowupQueuedEvent
+  | AgentHookTriggeredEvent;

@@ -15,6 +15,7 @@ export * from "./node/index.js";
 
 // Agent Proprietary type
 export * from "./agent/index.js";
+export * from "./agent-execution/index.js";
 
 // Implementation-related types
 export * from "./workflow-execution/index.js";

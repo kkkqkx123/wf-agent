@@ -5,7 +5,7 @@
 
 import type { ID, Timestamp } from "../common.js";
 import type { TCheckpointType } from "../checkpoint/index.js";
-import type { AgentLoopStatus } from "../agent/status.js";
+import type { AgentLoopStatus } from "../agent-execution/types.js";
 
 /**
  * Agent Checkpoint Storage Metadata

@@ -6,7 +6,7 @@
  */
 
 import type { ID } from "@wf-agent/types";
-import type { AgentLoopConfig, AgentLoopResult } from "@wf-agent/types";
+import type { AgentLoopRuntimeConfig, AgentLoopResult } from "@wf-agent/types";
 import { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import { AgentLoopStatus } from "@wf-agent/types";
 import { AgentLoopFactory, type AgentLoopEntityOptions } from "../../execution/factories/index.js";
@@ -54,7 +54,7 @@ export class AgentLoopCoordinator {
    * @returns: AgentLoopEntity instance
    */
   private async buildEntity(
-    config: AgentLoopConfig,
+    config: AgentLoopRuntimeConfig,
     options: AgentLoopExecuteOptions = {},
   ): Promise<AgentLoopEntity> {
     // If a checkpoint ID is provided, restore from that checkpoint.
@@ -75,7 +75,7 @@ export class AgentLoopCoordinator {
    * @returns: Execution result
    */
   async execute(
-    config: AgentLoopConfig,
+    config: AgentLoopRuntimeConfig,
     options: AgentLoopExecuteOptions = {},
   ): Promise<AgentLoopResult> {
     // 1. Construct entities
@@ -145,7 +145,7 @@ export class AgentLoopCoordinator {
    * @returns Stream event generator (including LLM layer events and Agent layer events)
    */
   async *executeStream(
-    config: AgentLoopConfig,
+    config: AgentLoopRuntimeConfig,
     options: AgentLoopExecuteOptions = {},
   ): AsyncGenerator<AgentLoopStreamEvent> {
     // 1. Build entities
@@ -207,7 +207,7 @@ export class AgentLoopCoordinator {
    * @param options: Execution options
    * @returns: Instance ID
    */
-  async start(config: AgentLoopConfig, options: AgentLoopExecuteOptions = {}): Promise<ID> {
+  async start(config: AgentLoopRuntimeConfig, options: AgentLoopExecuteOptions = {}): Promise<ID> {
     // 1. Construct entities
     const entity = await this.buildEntity(config, options);
 

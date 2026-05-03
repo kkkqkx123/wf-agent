@@ -6,7 +6,7 @@
 
 import { Serializer } from "../serializer.js";
 import { SerializationRegistry } from "../serialization-registry.js";
-import type { SnapshotBase, AgentLoopConfig, Message } from "@wf-agent/types";
+import type { SnapshotBase, AgentLoopRuntimeConfig, Message } from "@wf-agent/types";
 import type { AgentLoopStateSnapshot } from "@wf-agent/types";
 import type { AgentLoopEntity } from "../../../agent/entities/agent-loop-entity.js";
 
@@ -20,7 +20,7 @@ export interface AgentLoopEntitySnapshot extends SnapshotBase {
   /** Agent Loop ID */
   id: string;
   /** Agent Loop configuration */
-  config: AgentLoopConfig;
+  config: AgentLoopRuntimeConfig;
   /** State snapshot */
   state: AgentLoopStateSnapshot;
   /** Messages */

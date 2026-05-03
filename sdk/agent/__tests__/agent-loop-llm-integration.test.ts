@@ -8,7 +8,7 @@ import { AgentLoopExecutor } from "../execution/executors/agent-loop-executor.js
 import { AgentLoopRegistry } from "../loop/agent-loop-registry.js";
 import { ToolRegistry } from "../../core/registry/tool-registry.js";
 import { EventRegistry } from "../../core/registry/event-registry.js";
-import type { AgentLoopConfig, LLMResult, LLMMessage } from "@wf-agent/types";
+import type { AgentLoopRuntimeConfig, LLMResult, LLMMessage } from "@wf-agent/types";
 
 // Mock LLM Executor
 class MockLLMExecutor {
@@ -81,7 +81,7 @@ describe("Agent Loop LLM Integration", () => {
   let registry: AgentLoopRegistry;
   let mockLLMExecutor: MockLLMExecutor;
 
-  const config: AgentLoopConfig = {
+  const config: AgentLoopRuntimeConfig = {
     maxIterations: 5,
     profileId: "test-profile",
   };
@@ -120,7 +120,7 @@ describe("Agent Loop LLM Integration", () => {
     });
 
     it("should use profile ID", async () => {
-      const customConfig: AgentLoopConfig = {
+      const customConfig: AgentLoopRuntimeConfig = {
         maxIterations: 5,
         profileId: "custom-profile",
       };

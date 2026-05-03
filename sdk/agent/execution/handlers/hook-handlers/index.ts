@@ -27,4 +27,4 @@ export {
   type AgentHookEvaluationContext,
 } from "./context-builder.js";
 
-export { emitAgentHookEvent, type AgentCustomEventData } from "./event-emitter.js";
+export { emitAgentHookEvent, type AgentHookEventData } from "./event-emitter.js";

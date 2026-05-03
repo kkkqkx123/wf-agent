@@ -15,7 +15,7 @@ import type {
 } from "@wf-agent/types";
 import type { AgentLoopCheckpointStorageAdapter } from "../types/adapter/index.js";
 import { BaseSqliteStorage, BaseSqliteStorageConfig } from "./base-sqlite-storage.js";
-import { CompressionService } from "../compression/compression-service.js";
+import { selectCompressionStrategy } from "../compression/adaptive-compression.js";
 import { compressBlob, decompressBlob } from "../compression/compressor.js";
 
 /**
@@ -106,8 +106,8 @@ export class SqliteAgentLoopCheckpointStorage
 
     try {
       // Get adaptive compression config
-      const service = CompressionService.getInstance();
-      const config = service.getAdaptiveConfig(data, 'agentLoopCheckpoint');
+      // Get compression config based on data characteristics
+      const config = selectCompressionStrategy(data);
 
       // Compress BLOB data
       const { compressed, algorithm } = await compressBlob(data, config);

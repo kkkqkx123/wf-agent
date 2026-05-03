@@ -3,10 +3,13 @@
  *
  * These events represent the agent lifecycle and are integrated into the core Event system.
  * They enable querying, filtering, and persistence of agent execution history.
+ *
+ * Note: AgentHookTriggeredEvent is defined in agent-execution/event.ts for better separation.
  */
 
 import type { ID, Metadata } from "../common.js";
 import type { BaseEvent } from "./base.js";
+import type { AgentHookType } from "../agent-execution/hooks.js";
 
 /**
  * Agent Started Event
@@ -185,26 +188,30 @@ export interface AgentIterationCompletedEvent extends BaseEvent {
 }
 
 /**
- * Agent Custom Event Types
+ * Agent Hook Triggered Event (Core Event System)
  *
- * Custom Events for Agent Hook Triggering
- * @deprecated Use specific agent event types above instead
+ * Emitted when an agent hook is triggered during execution.
+ * This is the core event system version that extends BaseEvent.
+ *
+ * Note: For streaming events, use AgentHookTriggeredEvent from agent-execution/event.ts
  */
-export interface AgentCustomEvent extends BaseEvent {
-  type: "AGENT_CUSTOM_EVENT";
+export interface AgentHookTriggeredCoreEvent extends BaseEvent {
+  type: "AGENT_HOOK_TRIGGERED";
   /** Agent Loop ID */
   agentLoopId: ID;
-  /** Custom Event Names */
+  /** Hook type that triggered this event */
+  hookType: AgentHookType;
+  /** Event name (from hook configuration) */
   eventName: string;
-  /** Event data */
+  /** Event payload data */
   eventData: Record<string, unknown>;
-  /** Current number of iterations */
-  iteration?: number;
+  /** Current iteration number */
+  iteration: number;
   /** Parent Workflow Execution ID (if executed as a Graph node) */
   parentWorkflowExecutionId?: ID;
   /** Node ID (if executed as a Graph node) */
   nodeId?: ID;
-  /** event metadata */
+  /** Additional metadata */
   metadata?: Metadata;
 }
 
@@ -221,4 +228,4 @@ export type AgentEvent =
   | AgentToolExecutionStartedEvent
   | AgentToolExecutionCompletedEvent
   | AgentIterationCompletedEvent
-  | AgentCustomEvent;
+  | AgentHookTriggeredCoreEvent;

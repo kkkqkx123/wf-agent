@@ -7,7 +7,7 @@
  * ## Architecture Role
  *
  * In the Agent Loop architecture:
- * - `AgentLoopConfig`: Immutable configuration (NOT serialized, contains functions)
+ * - `AgentLoopRuntimeConfig`: Immutable configuration (NOT serialized, contains functions)
  * - `AgentLoopState`: Mutable execution state (✅ SERIALIZED to checkpoints)
  * - `AgentLoopEntity`: Wrapper that holds config + state + runtime managers
  *
@@ -15,11 +15,11 @@
  *
  * When creating a checkpoint:
  * 1. ✅ Serialize: `AgentLoopState` via `createSnapshot()` / `restoreFromSnapshot()`
- * 2. ❌ Skip: `AgentLoopConfig` (contains unserializable functions)
+ * 2. ❌ Skip: `AgentLoopRuntimeConfig` (contains unserializable functions)
  * 3. ❌ Skip: Runtime managers (`ConversationSession`, `VariableState`)
  *
  * When restoring from checkpoint:
- * 1. Application provides `AgentLoopConfig` (re-inject callbacks)
+ * 1. Application provides `AgentLoopRuntimeConfig` (re-inject callbacks)
  * 2. Restore `AgentLoopState` from snapshot
  * 3. Rebuild `AgentLoopEntity` with config + restored state
  * 4. Recreate runtime managers (conversation, variables)
@@ -47,7 +47,7 @@
  * 4. **Pure State Manager**: No side effects, no async operations
  *
  * @see AgentLoopEntity - Execution instance that owns this state
- * @see AgentLoopConfig - Configuration (not serialized)
+ * @see AgentLoopRuntimeConfig - Configuration (not serialized)
  * @see AgentLoopSnapshotManager - Checkpoint serialization logic
  */
 

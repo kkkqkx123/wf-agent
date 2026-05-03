@@ -2,7 +2,7 @@
  * Agent Loop Checkpoint Configuration Type Definition
  */
 
-import type { IterationRecord } from "../../agent/records.js";
+import type { IterationRecord } from "../../agent-execution/types.js";
 import type {
   DeltaStorageConfig,
   CheckpointConfigSource,

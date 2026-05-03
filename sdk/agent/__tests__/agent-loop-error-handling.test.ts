@@ -12,12 +12,12 @@ import {
 } from "../execution/handlers/agent-error-handler.js";
 import { EventRegistry } from "../../core/registry/event-registry.js";
 import { SDKError, AbortError } from "@wf-agent/types";
-import type { AgentLoopConfig } from "@wf-agent/types";
+import type { AgentLoopRuntimeConfig } from "@wf-agent/types";
 
 describe("Agent Loop Error Handling", () => {
   let entity: AgentLoopEntity;
   let eventManager: EventRegistry;
-  const config: AgentLoopConfig = {
+  const config: AgentLoopRuntimeConfig = {
     maxIterations: 10,
     profileId: "test-profile",
   };

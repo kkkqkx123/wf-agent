@@ -28,55 +28,49 @@ import type { TriggeredSubworkflowConfig } from "./config.js";
 export interface WorkflowTemplate {
   /** Workflow unique identifier (required) */
   id: ID;
-  
+
   /** Workflow name (required) */
   name: string;
-  
+
   /** Type of workflow (e.g., 'main', 'subworkflow', 'triggered') */
   type: WorkflowTemplateType;
-  
+
   /** Optional workflow description for documentation purposes */
   description?: string;
-  
+
   /** Array of nodes defining all execution steps in the workflow */
   nodes: Node[];
-  
+
   /** Array of edges defining the connections and flow between nodes */
   edges: Edge[];
-  
+
   /** Array of workflow variable definitions for declaring variables required during execution */
   variables?: WorkflowVariable[];
-  
+
   /** Workflow trigger definitions for declaring workflow-level event triggers */
   triggers?: (WorkflowTrigger | TriggerReference)[];
-  
+
   /** Trigger subworkflow-specific configuration (only for workflows containing START_FROM_TRIGGER nodes) */
   triggeredSubworkflowConfig?: TriggeredSubworkflowConfig;
-  
+
   /** Optional workflow execution behavior configuration (timeout, retry, etc.) */
   config?: WorkflowConfig;
-  
+
   /** Optional metadata information (tags, author, custom properties) */
   metadata?: WorkflowMetadata;
-  
+
   /** Workflow version number for tracking changes */
   version: Version;
-  
+
   /** Creation timestamp (ISO 8601 format) */
   createdAt: Timestamp;
-  
+
   /** Last update timestamp (ISO 8601 format) */
   updatedAt: Timestamp;
-  
+
   /** Available tool configurations for LLM nodes */
   availableTools?: {
     /** Initial set of available tools (tool IDs). Array format for JSON/TOML serialization compatibility */
     initial: string[];
   };
 }
-
-/**
- * Workflow Definition
- * Alias for WorkflowTemplate for backward compatibility
- */
-export type WorkflowDefinition = WorkflowTemplate;

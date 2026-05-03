@@ -20,5 +20,5 @@ export {
   convertToEvaluationContext,
   type AgentHookEvaluationContext,
   emitAgentHookEvent,
-  type AgentCustomEventData,
+  type AgentHookEventData,
 } from "./handlers/index.js";

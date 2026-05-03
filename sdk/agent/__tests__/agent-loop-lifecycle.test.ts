@@ -9,11 +9,11 @@ import {
   cleanupAgentLoop,
   cloneAgentLoop,
 } from "../execution/handlers/agent-loop-lifecycle.js";
-import type { AgentLoopConfig, AgentLoopCheckpoint } from "@wf-agent/types";
+import type { AgentLoopRuntimeConfig, AgentLoopCheckpoint } from "@wf-agent/types";
 
 describe("Agent Loop Lifecycle", () => {
   let entity: AgentLoopEntity;
-  const config: AgentLoopConfig = {
+  const config: AgentLoopRuntimeConfig = {
     maxIterations: 10,
     profileId: "test-profile",
   };

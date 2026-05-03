@@ -1,6 +1,6 @@
 /**
  * Event Type Guard Functions
- * 
+ *
  * Provides type-safe narrowing functions using discriminated union types
  * All guards check the event.type field for precise type narrowing
  */
@@ -24,7 +24,6 @@ import type {
   ToolCallFailedEvent,
   ToolAddedEvent,
 } from "./tool-events.js";
-import type { AgentCustomEvent } from "./agent-events.js";
 import type {
   AgentStartedEvent,
   AgentCompletedEvent,
@@ -35,6 +34,7 @@ import type {
   AgentToolExecutionStartedEvent,
   AgentToolExecutionCompletedEvent,
   AgentIterationCompletedEvent,
+  AgentHookTriggeredCoreEvent,
 } from "./agent-events.js";
 import type {
   WorkflowExecutionStartedEvent,
@@ -140,11 +140,10 @@ export function isWorkflowExecutionEvent(
 }
 
 /**
- * Type guard for agent custom events
- * @deprecated Use isAgentEvent instead
+ * Type guard for agent hook triggered event
  */
-export function isAgentCustomEvent(event: Event): event is AgentCustomEvent {
-  return event.type === 'AGENT_CUSTOM_EVENT';
+export function isAgentHookTriggeredEvent(event: Event): event is AgentHookTriggeredCoreEvent {
+  return event.type === 'AGENT_HOOK_TRIGGERED';
 }
 
 /**
@@ -163,7 +162,7 @@ export function isAgentEvent(
   | AgentToolExecutionStartedEvent
   | AgentToolExecutionCompletedEvent
   | AgentIterationCompletedEvent
-  | AgentCustomEvent {
+  | AgentHookTriggeredCoreEvent {
   return (
     event.type === 'AGENT_STARTED' ||
     event.type === 'AGENT_COMPLETED' ||
@@ -174,7 +173,7 @@ export function isAgentEvent(
     event.type === 'AGENT_TOOL_EXECUTION_STARTED' ||
     event.type === 'AGENT_TOOL_EXECUTION_COMPLETED' ||
     event.type === 'AGENT_ITERATION_COMPLETED' ||
-    event.type === 'AGENT_CUSTOM_EVENT'
+    event.type === 'AGENT_HOOK_TRIGGERED'
   );
 }
 
@@ -229,7 +228,7 @@ export const eventTypeGuards = {
   isCheckpointEvent,
   isToolEvent,
   isWorkflowExecutionEvent,
-  isAgentCustomEvent,
+  isAgentHookTriggeredEvent,
   isErrorEvent,
   isCompletionEvent,
   isAgentEvent,

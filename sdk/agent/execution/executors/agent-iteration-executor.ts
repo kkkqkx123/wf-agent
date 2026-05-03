@@ -12,7 +12,7 @@
  * - Uses ConversationSession for message management
  */
 
-import type { LLMMessage, AgentCustomEvent, LLMToolCall, ToolSchema } from "@wf-agent/types";
+import type { LLMMessage, AgentHookTriggeredEvent, LLMToolCall, ToolSchema } from "@wf-agent/types";
 import type { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import type { ConversationSession } from "../../../core/messaging/conversation-session.js";
 import type { LLMExecutor } from "../../../core/executors/llm-executor.js";
@@ -51,7 +51,7 @@ export class AgentIterationExecutor {
   constructor(
     private llmExecutor: LLMExecutor,
     private toolCallExecutor: ToolCallExecutor,
-    private emitAgentEvent: (event: AgentCustomEvent) => Promise<void>,
+    private emitAgentEvent: (event: AgentHookTriggeredEvent) => Promise<void>,
   ) {}
 
   /**

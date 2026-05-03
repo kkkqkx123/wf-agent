@@ -7,7 +7,7 @@
  * ## Architecture Overview
  *
  * This entity wraps three key components:
- * 1. **Config** (immutable): `AgentLoopConfig` - defines behavior and callbacks
+ * 1. **Config** (immutable): `AgentLoopRuntimeConfig` - defines behavior and callbacks
  * 2. **State** (mutable): `AgentLoopState` - tracks execution progress (serializable)
  * 3. **Managers** (runtime): `ConversationSession`, `VariableState` - runtime state managers
  *
@@ -31,7 +31,7 @@
  * ## Checkpoint Strategy
  *
  * - **Serialized**: `AgentLoopState` (iteration history, tool calls, streaming state)
- * - **NOT Serialized**: `AgentLoopConfig` (contains functions), managers (runtime-only)
+ * - **NOT Serialized**: `AgentLoopRuntimeConfig` (contains functions), managers (runtime-only)
  * - **On Restore**: Config is re-provided by application, state is restored from checkpoint
  *
  * ## Comparison with WorkflowExecutionEntity
@@ -44,13 +44,13 @@
  * | Serializable Data | State only | Data object + State |
  * | Restoration | Re-provide config + restore state | Restore data object + state |
  *
- * @see AgentLoopConfig - Runtime configuration (with callbacks)
+ * @see AgentLoopRuntimeConfig - Runtime configuration (with callbacks)
  * @see AgentLoopState - Execution state manager (serializable)
  * @see AgentLoopFactory - Factory for creating instances
  * @see WorkflowExecutionEntity - Similar pattern for workflow execution
  */
 
-import type { ID, LLMMessage, AgentLoopConfig, AgentLoopStateSnapshot } from "@wf-agent/types";
+import type { ID, LLMMessage, AgentLoopRuntimeConfig, AgentLoopStateSnapshot } from "@wf-agent/types";
 import { AgentLoopStatus } from "@wf-agent/types";
 import { AgentLoopState } from "./agent-loop-state.js";
 import {
@@ -98,7 +98,7 @@ export class AgentLoopEntity {
   readonly id: string;
 
   /** deployment */
-  readonly config: AgentLoopConfig;
+  readonly config: AgentLoopRuntimeConfig;
 
   /** execution status (computing) */
   readonly state: AgentLoopState;
@@ -141,7 +141,7 @@ export class AgentLoopEntity {
    */
   constructor(
     id: string,
-    config: AgentLoopConfig,
+    config: AgentLoopRuntimeConfig,
     state?: AgentLoopState,
     conversationManagerConfig?: Partial<ConversationSessionConfig>,
   ) {
@@ -578,7 +578,7 @@ export class AgentLoopEntity {
     state.restoreFromSnapshot(snapshot);
 
     // Create entity with restored state
-    const entity = new AgentLoopEntity(id, snapshot.config as AgentLoopConfig, state);
+    const entity = new AgentLoopEntity(id, snapshot.config as AgentLoopRuntimeConfig, state);
 
     // Restore messages
     entity.setMessages(snapshot.messages as LLMMessage[]);

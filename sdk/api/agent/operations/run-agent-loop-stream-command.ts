@@ -23,7 +23,7 @@ import {
   validationSuccess,
   validationFailure,
 } from "../../shared/types/command.js";
-import type { AgentLoopConfig } from "@wf-agent/types";
+import type { AgentLoopRuntimeConfig } from "@wf-agent/types";
 import {
   AgentLoopExecutor,
   type AgentLoopStreamEvent,
@@ -35,7 +35,7 @@ import { AgentLoopEntity } from "../../../agent/entities/agent-loop-entity.js";
  */
 export interface RunAgentLoopStreamParams {
   /** Agent Loop Configuration */
-  config: AgentLoopConfig;
+  config: AgentLoopRuntimeConfig;
 }
 
 /**

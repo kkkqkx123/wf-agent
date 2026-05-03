@@ -5,7 +5,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { AgentLoopRegistry } from "../loop/agent-loop-registry.js";
 import { AgentLoopEntity } from "../entities/agent-loop-entity.js";
-import type { AgentLoopConfig } from "@wf-agent/types";
+import type { AgentLoopRuntimeConfig } from "@wf-agent/types";
 import { AgentLoopStatus } from "@wf-agent/types";
 
 describe("Agent Loop Registry", () => {
@@ -13,7 +13,7 @@ describe("Agent Loop Registry", () => {
   let entity1: AgentLoopEntity;
   let entity2: AgentLoopEntity;
 
-  const config: AgentLoopConfig = {
+  const config: AgentLoopRuntimeConfig = {
     maxIterations: 10,
     profileId: "test-profile",
   };

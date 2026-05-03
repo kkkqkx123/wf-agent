@@ -4,10 +4,10 @@
 
 import { describe, it, expect, beforeEach } from "vitest";
 import { AgentLoopFactory } from "../execution/factories/agent-loop-factory.js";
-import type { AgentLoopConfig, LLMMessage } from "@wf-agent/types";
+import type { AgentLoopRuntimeConfig, LLMMessage } from "@wf-agent/types";
 
 describe("Agent Loop Factory", () => {
-  const basicConfig: AgentLoopConfig = {
+  const basicConfig: AgentLoopRuntimeConfig = {
     maxIterations: 10,
     profileId: "test-profile",
   };

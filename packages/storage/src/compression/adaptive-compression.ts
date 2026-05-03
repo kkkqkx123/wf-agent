@@ -1,9 +1,14 @@
 /**
  * Adaptive Compression Utilities
  * Provides intelligent compression strategy selection based on data characteristics
+ * 
+ * Uses pure heuristic-based approach: data type and size determine compression strategy
  */
 
 import type { CompressionConfig } from "./compressor.js";
+import { createModuleLogger } from "../logger.js";
+
+const logger = createModuleLogger("adaptive-compression");
 
 /**
  * Data type classification for compression optimization
@@ -68,93 +73,109 @@ export function detectDataType(data: Uint8Array): DataType {
 
 /**
  * Select optimal compression strategy based on data characteristics
+ * 
+ * Pure heuristic approach: decisions are driven solely by data type and size.
+ * No entity-type context needed - a 50KB JSON checkpoint compresses the same as a 50KB JSON workflow.
+ * 
  * @param data The data to compress
- * @param entityType Optional entity type for context (e.g., "checkpoint", "task")
- * @returns Compression configuration
+ * @returns Compression configuration optimized for the data
  */
-export function selectCompressionStrategy(
-  data: Uint8Array,
-  entityType?: string,
-): CompressionConfig {
+export function selectCompressionStrategy(data: Uint8Array): CompressionConfig {
   const dataType = detectDataType(data);
   const size = data.length;
 
   // For small data (< 100 bytes), skip compression overhead
   if (size < 100) {
+    logger.debug("Skipping compression for small data", { size });
     return { enabled: false };
   }
 
   // Strategy selection based on data type and size
+  let config: CompressionConfig;
+  
   switch (dataType) {
     case "json":
-      // JSON compresses very well, use brotli for better ratios
+      // JSON compresses very well, use brotli for better ratios on large data
       if (size > 10 * 1024) {
-        // Large JSON: use brotli with higher quality
-        return {
+        // Large JSON (>10KB): use brotli with higher quality for best compression
+        config = {
           enabled: true,
           algorithm: "brotli",
-          threshold: 0, // Always compress
+          threshold: 0, // Always compress (already passed size check)
           level: 8,
         };
       } else {
-        // Small JSON: use gzip for speed
-        return {
+        // Small JSON (<10KB): use gzip for speed
+        config = {
           enabled: true,
           algorithm: "gzip",
           threshold: 0,
           level: 6,
         };
       }
+      break;
 
     case "text":
       // Text data compresses well
       if (size > 50 * 1024) {
-        // Large text: brotli
-        return {
+        // Large text (>50KB): brotli for better ratio
+        config = {
           enabled: true,
           algorithm: "brotli",
           threshold: 0,
           level: 7,
         };
       } else {
-        // Small text: gzip
-        return {
+        // Small text (<50KB): gzip for speed
+        config = {
           enabled: true,
           algorithm: "gzip",
           threshold: 0,
           level: 6,
         };
       }
+      break;
 
     case "binary":
       // Binary data may not compress well, be more conservative
       if (size > 100 * 1024) {
-        // Large binary: try gzip with higher threshold
-        return {
+        // Large binary (>100KB): try gzip with higher threshold to ensure benefit
+        config = {
           enabled: true,
           algorithm: "gzip",
           threshold: 10 * 1024, // Only compress if savings > 10KB
           level: 6,
         };
       } else {
-        // Small binary: use default strategy
-        return {
+        // Small binary (<100KB): use default strategy
+        config = {
           enabled: true,
           algorithm: "gzip",
           threshold: 1024,
           level: 6,
         };
       }
+      break;
 
     default:
       // Unknown: use default configuration
-      return {
+      config = {
         enabled: true,
         algorithm: "gzip",
         threshold: 1024,
         level: 6,
       };
   }
+
+  // Log the decision for monitoring/debugging
+  logger.debug("Selected compression strategy", {
+    dataType,
+    dataSize: size,
+    algorithm: config.algorithm,
+    threshold: config.threshold,
+  });
+
+  return config;
 }
 
 /**

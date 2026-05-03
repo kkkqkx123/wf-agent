@@ -18,7 +18,7 @@ import {
   validationSuccess,
   validationFailure,
 } from "../../shared/types/command.js";
-import type { AgentLoopConfig, AgentLoopResult } from "@wf-agent/types";
+import type { AgentLoopRuntimeConfig, AgentLoopResult } from "@wf-agent/types";
 import { AgentLoopCoordinator } from "../../../agent/execution/coordinators/agent-loop-coordinator.js";
 import type { AgentLoopEntityOptions } from "../../../agent/execution/factories/agent-loop-factory.js";
 
@@ -27,7 +27,7 @@ import type { AgentLoopEntityOptions } from "../../../agent/execution/factories/
  */
 export interface RunAgentLoopParams {
   /** Agent Cycle Configuration */
-  config: AgentLoopConfig;
+  config: AgentLoopRuntimeConfig;
   /** implementation option */
   options?: AgentLoopEntityOptions;
 }

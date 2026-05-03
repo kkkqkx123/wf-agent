@@ -1,10 +1,10 @@
 /**
  * Custom Event Builders
- * Provides builders for custom events (NodeCustomEvent, AgentCustomEvent)
+ * Provides builders for custom events (NodeCustomEvent, AgentHookTriggeredEvent)
  */
 
 import { now, generateId } from "@wf-agent/common-utils";
-import type { NodeCustomEvent, AgentCustomEvent, Metadata } from "@wf-agent/types";
+import type { NodeCustomEvent, AgentHookTriggeredEvent, AgentHookType, Metadata, AgentStreamEventType } from "@wf-agent/types";
 
 // =============================================================================
 // Node Custom Event Builder
@@ -29,24 +29,33 @@ export const buildNodeCustomEvent = (params: {
 });
 
 // =============================================================================
-// Agent Custom Event Builder
+// Agent Hook Triggered Event Builder
 // =============================================================================
 
 /**
- * Build agent custom event
+ * Build agent hook triggered event
+ *
+ * This replaces the deprecated AgentCustomEvent with a more structured approach.
  */
-export const buildAgentCustomEvent = (params: {
-  executionId: string;
+export const buildAgentHookTriggeredEvent = (params: {
   agentLoopId: string;
+  hookType: AgentHookType;
   eventName: string;
   eventData: Record<string, unknown>;
-  iteration?: number;
-  parentExecutionId?: string;
+  iteration: number;
+  parentWorkflowExecutionId?: string;
   nodeId?: string;
   metadata?: Metadata;
-}): AgentCustomEvent => ({
+}): AgentHookTriggeredEvent => ({
   id: generateId(),
-  type: "AGENT_CUSTOM_EVENT",
+  type: "hook_triggered" as AgentStreamEventType.HOOK_TRIGGERED,
   timestamp: now(),
-  ...params,
+  agentLoopId: params.agentLoopId,
+  hookType: params.hookType,
+  eventName: params.eventName,
+  eventData: params.eventData,
+  iteration: params.iteration,
+  parentWorkflowExecutionId: params.parentWorkflowExecutionId,
+  nodeId: params.nodeId,
+  metadata: params.metadata,
 });

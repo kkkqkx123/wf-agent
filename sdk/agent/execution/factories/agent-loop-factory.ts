@@ -14,7 +14,7 @@
  */
 
 import { randomUUID } from "crypto";
-import type { LLMMessage, AgentLoopConfig, ID } from "@wf-agent/types";
+import type { LLMMessage, AgentLoopRuntimeConfig, ID } from "@wf-agent/types";
 import type { WorkflowExecutionRegistry } from "../../../workflow/stores/workflow-execution-registry.js";
 import { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import type { ConversationSession } from "../../../core/messaging/conversation-session.js";
@@ -46,7 +46,7 @@ export interface AgentLoopEntityOptions {
  *
  * ## Responsibilities
  *
- * 1. **Create New Instances**: Build `AgentLoopEntity` from `AgentLoopConfig`
+ * 1. **Create New Instances**: Build `AgentLoopEntity` from `AgentLoopRuntimeConfig`
  * 2. **Restore from Checkpoints**: Rebuild entity from serialized state + re-provided config
  * 3. **Parent-Child Management**: Register with parent workflow for lifecycle tracking
  *
@@ -55,10 +55,10 @@ export interface AgentLoopEntityOptions {
  * This factory bridges the gap between configuration and runtime:
  * 
  * ```
- * AgentLoopConfig (with functions)
+ * AgentLoopRuntimeConfig (with functions)
  *     ↓ Factory.create()
  * AgentLoopEntity {
- *   config: AgentLoopConfig       ← Injected here
+ *   config: AgentLoopRuntimeConfig  ← Injected here
  *   state: AgentLoopState         ← Created fresh or restored
  *   conversationManager           ← Created fresh
  *   variableStateManager          ← Created fresh
@@ -78,7 +78,7 @@ export interface AgentLoopEntityOptions {
  *
  * ## Why Config Must Be Re-provided
  *
- * `AgentLoopConfig` contains functions (`transformContext`, `convertToLlm`) that cannot be
+ * `AgentLoopRuntimeConfig` contains functions (`transformContext`, `convertToLlm`) that cannot be
  * serialized to checkpoints. Therefore:
  * - ❌ Config is NOT saved to checkpoint
  * - ✅ Application must provide config when calling `fromCheckpoint()`
@@ -90,7 +90,7 @@ export interface AgentLoopEntityOptions {
  * - No serialization issues with closures/callbacks
  *
  * @see AgentLoopEntity - The entity created by this factory
- * @see AgentLoopConfig - Configuration required for creation
+ * @see AgentLoopRuntimeConfig - Configuration required for creation
  * @see AgentLoopState - State restored from checkpoints
  */
 export class AgentLoopFactory {
@@ -101,7 +101,7 @@ export class AgentLoopFactory {
    * @returns: AgentLoopEntity instance
    */
   static async create(
-    config: AgentLoopConfig,
+    config: AgentLoopRuntimeConfig,
     options: AgentLoopEntityOptions = {},
   ): Promise<AgentLoopEntity> {
     const id = `agent-loop-${randomUUID()}`;

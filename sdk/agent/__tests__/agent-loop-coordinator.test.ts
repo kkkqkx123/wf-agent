@@ -8,7 +8,7 @@ import { AgentLoopExecutor } from "../execution/executors/agent-loop-executor.js
 import { AgentLoopRegistry } from "../loop/agent-loop-registry.js";
 import { ToolRegistry } from "../../core/registry/tool-registry.js";
 import { EventRegistry } from "../../core/registry/event-registry.js";
-import type { AgentLoopConfig, LLMResult } from "@wf-agent/types";
+import type { AgentLoopRuntimeConfig, LLMResult } from "@wf-agent/types";
 import { AgentLoopStatus } from "@wf-agent/types";
 
 // Mock LLM Executor
@@ -50,7 +50,7 @@ describe("Agent Loop Coordinator", () => {
   let registry: AgentLoopRegistry;
   let eventManager: EventRegistry;
 
-  const config: AgentLoopConfig = {
+  const config: AgentLoopRuntimeConfig = {
     maxIterations: 5,
     profileId: "test-profile",
   };

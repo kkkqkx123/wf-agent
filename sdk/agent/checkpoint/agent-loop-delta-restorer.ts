@@ -118,7 +118,7 @@ export class AgentLoopDeltaRestorer extends DeltaRestorer<
     // Apply other changes
     if (delta.otherChanges) {
       for (const [key, change] of Object.entries(delta.otherChanges)) {
-        result[key] = change.to;
+        result[key] = (change as { to: unknown }).to;
       }
     }
 

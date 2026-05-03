@@ -14,7 +14,7 @@
  */
 
 import type { AgentLoopEntity } from "../../../entities/agent-loop-entity.js";
-import type { AgentHook, AgentHookType, AgentCustomEvent } from "@wf-agent/types";
+import type { AgentHook, AgentHookType, AgentHookTriggeredEvent } from "@wf-agent/types";
 import { ExecutionError } from "@wf-agent/types";
 import {
   filterAndSortHooks,
@@ -100,10 +100,11 @@ function createCustomHandler(): HookHandler<AgentHookExecutionContext> {
  * Create an event emitter handler
  */
 function createEventEmitterHandler(
-  emitEvent: (event: AgentCustomEvent) => Promise<void>,
+  hookType: AgentHookType,
+  emitEvent: (event: AgentHookTriggeredEvent) => Promise<void>,
 ): HookHandler<AgentHookExecutionContext> {
   return async (context, hook, eventData) => {
-    await emitAgentHookEvent(context.entity, hook.eventName, eventData, emitEvent);
+    await emitAgentHookEvent(context.entity, hookType, hook.eventName, eventData, emitEvent);
   };
 }
 
@@ -119,7 +120,7 @@ function createEventEmitterHandler(
 export async function executeAgentHook(
   entity: AgentLoopEntity,
   hookType: AgentHookType,
-  emitEvent: (event: AgentCustomEvent) => Promise<void>,
+  emitEvent: (event: AgentHookTriggeredEvent) => Promise<void>,
   toolCallInfo?: {
     id: string;
     name: string;
@@ -157,7 +158,7 @@ export async function executeAgentHook(
   // Create a processor chain
   const handlers: HookHandler<AgentHookExecutionContext>[] = [
     createCustomHandler(),
-    createEventEmitterHandler(emitEvent),
+    createEventEmitterHandler(hookType, emitEvent),
   ];
 
   // Execute a Hook using a general framework.
@@ -185,4 +186,4 @@ export {
 } from "./context-builder.js";
 
 // Export event emitter functions
-export { emitAgentHookEvent, type AgentCustomEventData } from "./event-emitter.js";
+export { emitAgentHookEvent, type AgentHookEventData } from "./event-emitter.js";

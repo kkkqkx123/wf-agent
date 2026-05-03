@@ -11,7 +11,7 @@
 import type { CheckpointStorageMetadata, CheckpointStorageListOptions } from "@wf-agent/types";
 import type { CheckpointStorageAdapter } from "../types/adapter/index.js";
 import { BaseSqliteStorage, BaseSqliteStorageConfig } from "./base-sqlite-storage.js";
-import { CompressionService } from "../compression/compression-service.js";
+import { selectCompressionStrategy } from "../compression/adaptive-compression.js";
 import { compressBlob, decompressBlob, compressBlobSync, decompressBlobSync } from "../compression/compressor.js";
 import { createModuleLogger } from "../logger.js";
 
@@ -150,9 +150,8 @@ export class SqliteCheckpointStorage
       // Extract metrics from data
       const metrics = await this.extractMetrics(data);
 
-      // Get adaptive compression config
-      const service = CompressionService.getInstance();
-      const config = service.getAdaptiveConfig(data, 'checkpoint');
+      // Get compression config based on data characteristics
+      const config = selectCompressionStrategy(data);
 
       // Compress BLOB data
       const { compressed, algorithm } = await compressBlob(data, config);
@@ -549,8 +548,8 @@ export class SqliteCheckpointStorage
       }
 
       // Get adaptive compression config for batch operation
-      const service = CompressionService.getInstance();
-      const config = service.getAdaptiveConfig(item.data, 'checkpoint');
+      // Get compression config for each item
+      const config = selectCompressionStrategy(item.data);
 
       // Compress BLOB data synchronously for batch operation
       const { compressed, algorithm } = compressBlobSync(item.data, config);

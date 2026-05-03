@@ -23,6 +23,11 @@ import type { TriggerTemplate } from "@wf-agent/types";
 import type { Script } from "@wf-agent/types";
 import type { LLMProfile } from "@wf-agent/types";
 import type { Tool } from "@wf-agent/types";
+import type {
+  AgentLoopDefinition,
+  AgentHookStatic,
+  AgentTriggerStatic,
+} from "@wf-agent/types";
 
 /**
  * Configuration Format
@@ -81,119 +86,32 @@ export type LLMProfileConfigFile = LLMProfile;
 /**
  * Agent Loop Configuration File Format
  *
- * This type represents file-based configuration (TOML/JSON) for Agent Loop.
- * It's a subset of AgentLoopConfig without runtime functions, plus file-specific metadata.
+ * Directly reuse the AgentLoopDefinition type from @wf-agent/types.
+ * This type is fully serializable and suitable for file-based configuration (TOML/JSON).
  *
- * Key differences from AgentLoopConfig:
- * - No executable functions (transformContext, convertToLlm)
- * - Includes file metadata (id, name, description, version)
- * - Uses nested checkpoint structure instead of flat boolean flags
+ * Key characteristics:
+ * - Pure data structure with no executable functions
+ * - Includes metadata, versioning, and component definitions (hooks, triggers)
  * - Hooks use string conditions instead of Condition objects
+ * - Transformed to AgentLoopRuntimeConfig by SDK processors
  */
-export interface AgentLoopConfigFile {
-  /** Layout ID (required for file configs) */
-  id: string;
-  /** Placement Name */
-  name?: string;
-  /** Configuration Description */
-  description?: string;
-  /** Configuration version */
-  version?: string;
-
-  /** LLM Profile ID */
-  profileId?: string;
-  /** System prompt */
-  systemPrompt?: string;
-  /** System prompt template ID (referencing prompts configuration) */
-  systemPromptTemplate?: string;
-  /** Maximum number of iterations (-1 means unlimited) */
-  maxIterations?: number;
-  /** Initial message list */
-  initialMessages?: any[]; // Message[] - using any to avoid circular dependency
-  /** List of allowed tools (array of tool IDs) */
-  tools?: string[];
-  /** Streaming output or not */
-  stream?: boolean;
-
-  /** Checkpoint Configuration */
-  checkpoint?: {
-    /** Whether to create checkpoints at the end */
-    createOnEnd?: boolean;
-    /** Whether to create checkpoints on error */
-    createOnError?: boolean;
-    /** Whether to create checkpoints after each iteration */
-    createOnIteration?: boolean;
-  };
-
-  /** Hook Configuration List */
-  hooks?: AgentHookConfigFile[];
-
-  /** Trigger Configuration List (future expansion) */
-  triggers?: AgentTriggerConfigFile[];
-
-  /** Metadata */
-  metadata?: {
-    /** Author */
-    author?: string;
-    /** Creation time */
-    createdAt?: string;
-    /** Update time */
-    updatedAt?: string;
-    /** Tags */
-    tags?: string[];
-    /** Custom Properties */
-    [key: string]: unknown;
-  };
-}
+export type AgentLoopConfigFile = AgentLoopDefinition;
 
 /**
  * Agent Loop Hook Configuration File Format
  *
- * Note: Uses string for condition instead of Condition object for file serialization.
- * The SDK transforms this to Condition during parsing.
+ * Directly reuse the AgentHookStatic type from @wf-agent/types.
+ * Uses string for condition instead of Condition object for file serialization.
  */
-export interface AgentHookConfigFile {
-  /** Hook Type */
-  hookType: string; // AgentHookType - using string for flexibility
-  /** Trigger condition expression (optional, as string for file format) */
-  condition?: string;
-  /** Name of the custom event to trigger */
-  eventName: string;
-  /** Event payload (optional) */
-  eventPayload?: Record<string, unknown>;
-  /** Enable or not (default true) */
-  enabled?: boolean;
-  /** Weighting (the higher the number the higher the priority) */
-  weight?: number;
-  /** Whether to create checkpoints when triggered */
-  createCheckpoint?: boolean;
-  /** Checkpoint Description */
-  checkpointDescription?: string;
-}
+export type AgentHookConfigFile = AgentHookStatic;
 
 /**
  * Agent Loop Trigger Configuration File Format
  *
- * Note: Triggers are not currently supported directly in the Agent-Loop layer.
- * This configuration is used for future extensions or indirectly through Graph nodes.
+ * Directly reuse the AgentTriggerStatic type from @wf-agent/types.
+ * Triggers are designed for future extension.
  */
-export interface AgentTriggerConfigFile {
-  /** Trigger ID */
-  id: string;
-  /** Trigger Type */
-  type: "event" | "condition" | "schedule";
-  /** Trigger condition */
-  condition?: string;
-  /** Event name (event type) */
-  eventName?: string;
-  /** Enable or disable */
-  enabled?: boolean;
-  /** Actions after triggering */
-  action: {
-    type: "pause" | "stop" | "checkpoint" | "custom";
-    config?: Record<string, unknown>;
-  };
-}
+export type AgentTriggerConfigFile = AgentTriggerStatic;
 
 /**
  * Tool Configuration File Format

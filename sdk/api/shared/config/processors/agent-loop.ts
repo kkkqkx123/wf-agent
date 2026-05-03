@@ -1,11 +1,11 @@
 /**
  * Agent Loop Configuration Processor
  *
- * Handles the parsing and transformation of AgentLoopConfigFile to AgentLoopConfig
+ * Handles the parsing and transformation of AgentLoopConfigFile to AgentLoopRuntimeConfig
  */
 
 import type {
-  AgentLoopConfig,
+  AgentLoopRuntimeConfig,
   AgentHook,
   AgentHookType,
 } from "@wf-agent/types";
@@ -110,12 +110,14 @@ export function parseAndValidateAgentLoopConfig(
 /**
  * Convert the configuration file format to runtime configuration
  * @param configFile The agent loop configuration file
- * @returns AgentLoopConfig
+ * @returns AgentLoopRuntimeConfig
  */
-export function transformToAgentLoopConfig(configFile: AgentLoopConfigFile): AgentLoopConfig {
-  const config: AgentLoopConfig = {
+export function transformToAgentLoopConfig(configFile: AgentLoopConfigFile): AgentLoopRuntimeConfig {
+  const config: AgentLoopRuntimeConfig = {
     profileId: configFile.profileId,
     systemPrompt: configFile.systemPrompt,
+    systemPromptTemplateId: configFile.systemPromptTemplateId,
+    systemPromptTemplateVariables: configFile.systemPromptTemplateVariables,
     maxIterations: configFile.maxIterations,
     initialMessages: configFile.initialMessages,
     tools: configFile.tools,
@@ -124,7 +126,6 @@ export function transformToAgentLoopConfig(configFile: AgentLoopConfigFile): Age
     createCheckpointOnError: configFile.checkpoint?.createOnError,
   };
 
-  // Translate hooks
   if (configFile.hooks && configFile.hooks.length > 0) {
     config.hooks = configFile.hooks.map(hook => transformHook(hook));
   }

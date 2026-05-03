@@ -61,7 +61,7 @@ export class VariableState implements LifecycleCapable<{
   }
 
   /**
-   * Initialize variable states from WorkflowDefinition
+   * Initialize variable states from WorkflowTemplate
    * @param workflowVariables: Workflow variable definitions
    */
   initializeFromWorkflow(workflowVariables: WorkflowVariable[]): void {

@@ -135,7 +135,7 @@ sdk/
 
 ```typescript
 import {
-  WorkflowDefinition,
+  WorkflowTemplate,
   Node,
   NodeType,
   Edge,
@@ -154,7 +154,7 @@ import {
 ### 创建工作流
 
 ```typescript
-const workflow: WorkflowDefinition = {
+const workflow: WorkflowTemplate = {
   id: IDUtils.generate(),
   name: "示例工作流",
   version: "1.0.0",

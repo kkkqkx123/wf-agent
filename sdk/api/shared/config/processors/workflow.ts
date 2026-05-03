@@ -10,8 +10,8 @@ import type { Result } from "@wf-agent/types";
 import { ValidationError, SchemaValidationError } from "@wf-agent/types";
 import { WorkflowValidator } from "../../../../workflow/validation/workflow-validator.js";
 import { ConfigTransformer } from "../config-transformer.js";
-import type { WorkflowDefinition } from "@wf-agent/types";
-import { WorkflowDefinitionSchema } from "@wf-agent/types";
+import type { WorkflowTemplate } from "@wf-agent/types";
+import { WorkflowTemplateSchema } from "@wf-agent/types";
 import { stringifyJson } from "../json-parser.js";
 import { ConfigurationError } from "@wf-agent/types";
 import { ok, err } from "@wf-agent/common-utils";
@@ -27,10 +27,10 @@ import { ok, err } from "@wf-agent/common-utils";
 export function validateWorkflow(
   config: ParsedConfig<"workflow">,
 ): Result<ParsedConfig<"workflow">, ValidationError[]> {
-  const workflow = config.config as WorkflowDefinition;
+  const workflow = config.config as WorkflowTemplate;
   
   // Phase 1: Lightweight Schema validation
-  const schemaResult = WorkflowDefinitionSchema.safeParse(workflow);
+  const schemaResult = WorkflowTemplateSchema.safeParse(workflow);
   if (!schemaResult.success) {
     const errors = schemaResult.error.issues.map((e: any) => new SchemaValidationError(e.message));
     return err(errors);
@@ -49,23 +49,23 @@ export function validateWorkflow(
  * Handle parameter substitution and edge reference updates
  * @param config The parsed configuration object
  * @param parameters Runtime parameters (optional)
- * @returns The transformed WorkflowDefinition
+ * @returns The transformed WorkflowTemplate
  */
 export function transformWorkflow(
   config: ParsedConfig<"workflow">,
   parameters?: Record<string, unknown>,
-): WorkflowDefinition {
+): WorkflowTemplate {
   const transformer = new ConfigTransformer();
   return transformer.transformToWorkflow(config.config, parameters);
 }
 
 /**
  * Export Workflow configuration
- * @param workflowDef WorkflowDefinition object
+ * @param workflowDef WorkflowTemplate object
  * @param format Configuration format
  * @returns String containing the configuration file content
  */
-export function exportWorkflow(workflowDef: WorkflowDefinition, format: ConfigFormat): string {
+export function exportWorkflow(workflowDef: WorkflowTemplate, format: ConfigFormat): string {
   const transformer = new ConfigTransformer();
   const configFile = transformer.transformFromWorkflow(workflowDef);
 

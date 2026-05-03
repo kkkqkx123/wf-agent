@@ -12,7 +12,7 @@
  * - Verify the combination of nodes that trigger sub-workflows.
  *
  * Differences from GraphValidator:
- * - WorkflowValidator performs validation during the workflow registration phase; the input is a WorkflowDefinition.
+ * - WorkflowValidator performs validation during the workflow registration phase; the input is a WorkflowTemplate.
  * - GraphValidator performs validation during the graph preprocessing phase; the input is GraphData.
  * - WorkflowValidator validates all rules that can be determined during the definition phase (validation before registration).
  * - GraphValidator validates rules that require the graph structure to be determined (validation during the preprocessing phase).
@@ -28,7 +28,7 @@
  * - Verification of node reachability.
  */
 
-import type { WorkflowDefinition } from "@wf-agent/types";
+import type { WorkflowTemplate } from "@wf-agent/types";
 import type { Node, NodeHook } from "@wf-agent/types";
 import { ConfigurationValidationError } from "@wf-agent/types";
 import type { Result } from "@wf-agent/types";
@@ -38,7 +38,7 @@ import { validateHooks } from "../../core/validation/hook-validator.js";
 import { validateTriggers } from "../../core/validation/trigger-validator.js";
 import { SelfReferenceValidationStrategy } from "./strategies/self-reference-validation-strategy.js";
 import { validateConfig } from "../../core/validation/utils.js";
-import { WorkflowConfigSchema, WorkflowDefinitionBasicSchema } from "@wf-agent/types";
+import { WorkflowConfigSchema, WorkflowTemplateBasicSchema } from "@wf-agent/types";
 
 /**
  * Workflow Validator Class
@@ -50,8 +50,8 @@ export class WorkflowValidator {
    * @returns: The verification result
    */
   validate(
-    workflow: WorkflowDefinition,
-  ): Result<WorkflowDefinition, ConfigurationValidationError[]> {
+    workflow: WorkflowTemplate,
+  ): Result<WorkflowTemplate, ConfigurationValidationError[]> {
     const errors: ConfigurationValidationError[] = [];
 
     // Verify basic information
@@ -92,8 +92,8 @@ export class WorkflowValidator {
    * @param workflow: Workflow definition
    * @returns: Verification result
    */
-  private validateBasicInfo(workflow: WorkflowDefinition): ConfigurationValidationError[] {
-    const result = validateConfig(workflow, WorkflowDefinitionBasicSchema, "workflow", "workflow");
+  private validateBasicInfo(workflow: WorkflowTemplate): ConfigurationValidationError[] {
+    const result = validateConfig(workflow, WorkflowTemplateBasicSchema, "workflow", "workflow");
     if (result.isErr()) {
       return result.error;
     }
@@ -114,7 +114,7 @@ export class WorkflowValidator {
    * @param workflow: Workflow definition
    * @returns: Validation result
    */
-  private validateWorkflowType(workflow: WorkflowDefinition): ConfigurationValidationError[] {
+  private validateWorkflowType(workflow: WorkflowTemplate): ConfigurationValidationError[] {
     const errors: ConfigurationValidationError[] = [];
     const { type, nodes, triggers } = workflow;
 
@@ -230,7 +230,7 @@ export class WorkflowValidator {
    * @param workflow: Workflow definition
    * @returns: Verification result
    */
-  private validateNodes(workflow: WorkflowDefinition): ConfigurationValidationError[] {
+  private validateNodes(workflow: WorkflowTemplate): ConfigurationValidationError[] {
     const errors: ConfigurationValidationError[] = [];
 
     // Verify that the node array is not empty.
@@ -427,7 +427,7 @@ export class WorkflowValidator {
    * @param workflow: Workflow definition
    * @returns: Verification result
    */
-  private validateEdges(workflow: WorkflowDefinition): ConfigurationValidationError[] {
+  private validateEdges(workflow: WorkflowTemplate): ConfigurationValidationError[] {
     const errors: ConfigurationValidationError[] = [];
     const edgeIds = new Set<string>();
 
@@ -495,7 +495,7 @@ export class WorkflowValidator {
    * @param workflow: Workflow definition
    * @returns: Verification result
    */
-  private validateReferences(workflow: WorkflowDefinition): ConfigurationValidationError[] {
+  private validateReferences(workflow: WorkflowTemplate): ConfigurationValidationError[] {
     const errors: ConfigurationValidationError[] = [];
     const nodeIds = new Set(workflow.nodes.map(n => n.id));
 
@@ -527,7 +527,7 @@ export class WorkflowValidator {
    * @param workflow: Workflow definition
    * @returns: Verification result
    */
-  private validateConfig(workflow: WorkflowDefinition): ConfigurationValidationError[] {
+  private validateConfig(workflow: WorkflowTemplate): ConfigurationValidationError[] {
     if (!workflow.config) {
       return [];
     }
@@ -549,7 +549,7 @@ export class WorkflowValidator {
    * @param workflow Workflow definition
    * @returns Verification result
    */
-  private validateTriggers(workflow: WorkflowDefinition): ConfigurationValidationError[] {
+  private validateTriggers(workflow: WorkflowTemplate): ConfigurationValidationError[] {
     const errors: ConfigurationValidationError[] = [];
 
     // If no trigger is found, return a success status directly.
@@ -572,7 +572,7 @@ export class WorkflowValidator {
    * @param workflow Workflow definition
    * @returns Verification result
    */
-  private validateSelfReferences(workflow: WorkflowDefinition): ConfigurationValidationError[] {
+  private validateSelfReferences(workflow: WorkflowTemplate): ConfigurationValidationError[] {
     const errors = SelfReferenceValidationStrategy.validateNodes(workflow.nodes, workflow.id);
 
     return errors;
@@ -583,7 +583,7 @@ export class WorkflowValidator {
    * @param workflow: Workflow definition
    * @returns: Verification result
    */
-  private validateTools(workflow: WorkflowDefinition): ConfigurationValidationError[] {
+  private validateTools(workflow: WorkflowTemplate): ConfigurationValidationError[] {
     const errors: ConfigurationValidationError[] = [];
 
     // Verify the availableTools configuration.

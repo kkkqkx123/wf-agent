@@ -9,7 +9,7 @@
  * - Return error type is ValidationError[][], where each config's errors is an array
  */
 
-import type { WorkflowDefinition } from "@wf-agent/types";
+import type { WorkflowTemplate } from "@wf-agent/types";
 import type { NodeTemplate } from "@wf-agent/types";
 import type { TriggerTemplate } from "@wf-agent/types";
 import type { Script } from "@wf-agent/types";
@@ -30,8 +30,8 @@ import { ok, err } from "@wf-agent/common-utils";
  */
 export function validateBatchWorkflows(
   configs: ConfigFile[],
-): Result<WorkflowDefinition[], ValidationError[][]> {
-  const results: Result<WorkflowDefinition, ValidationError[]>[] = configs.map(config => {
+): Result<WorkflowTemplate[], ValidationError[][]> {
+  const results: Result<WorkflowTemplate, ValidationError[]>[] = configs.map(config => {
     const parsed: any = {
       configType: "workflow",
       format: "json",
@@ -39,7 +39,7 @@ export function validateBatchWorkflows(
       rawContent: "",
     };
     const res = validateWorkflow(parsed);
-    return res.isOk() ? ok(res.value.config as WorkflowDefinition) : err(res.error);
+    return res.isOk() ? ok(res.value.config as WorkflowTemplate) : err(res.error);
   });
 
   // Collect all errors, rather than just returning the first one.

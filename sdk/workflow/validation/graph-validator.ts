@@ -12,7 +12,7 @@
  *
  * Differences from WorkflowValidator:
  * - GraphValidator performs validation during the graph preprocessing phase; the input is GraphData.
- * - WorkflowValidator performs validation during the workflow registration phase; the input is WorkflowDefinition.
+ * - WorkflowValidator performs validation during the workflow registration phase; the input is WorkflowTemplate.
  * - GraphValidator verifies rules that depend on the graph structure (preprocessing phase).
  * - WorkflowValidator verifies all rules that can be determined during the definition phase (validation before registration).
  *

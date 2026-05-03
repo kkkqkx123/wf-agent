@@ -8,7 +8,7 @@ import { AgentLoopCheckpointAdapter } from "../../adapters/agent-loop-checkpoint
 import { getOutput } from "../../utils/output.js";
 import { formatAgentLoop, formatAgentLoopList } from "../../utils/cli-formatters.js";
 import type { CommandOptions } from "../../types/cli-types.js";
-import type { AgentLoopConfig } from "@wf-agent/types";
+import type { AgentLoopRuntimeConfig } from "@wf-agent/types";
 import { handleError } from "../../utils/error-handler.js";
 import { CLIValidationError } from "../../types/cli-types.js";
 import { loadAgentLoopConfig, parseAndValidateAgentLoopConfig } from "@wf-agent/sdk";
@@ -49,7 +49,7 @@ export function createAgentCommands(): Command {
         try {
           output.infoLog("Executing Agent Loop...");
 
-          let config: AgentLoopConfig;
+          let config: AgentLoopRuntimeConfig;
 
           // Load from configuration file or use command line arguments
           if (options.config) {
@@ -168,7 +168,7 @@ export function createAgentCommands(): Command {
         try {
           output.infoLog("Starting Agent Loop...");
 
-          const config: AgentLoopConfig = {
+          const config: AgentLoopRuntimeConfig = {
             profileId: options.profile || "DEFAULT",
             systemPrompt: options.systemPrompt,
             maxIterations: parseInt(options.maxIterations || "10", 10),

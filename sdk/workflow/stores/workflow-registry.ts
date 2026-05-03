@@ -10,7 +10,7 @@
  */
 
 import type {
-  WorkflowDefinition,
+  WorkflowTemplate,
   WorkflowRelationship,
   WorkflowHierarchy,
   RegisterOptions,
@@ -47,14 +47,14 @@ const logger = createContextualLogger();
 export interface WorkflowVersion {
   version: string;
   createdAt: number;
-  workflow: WorkflowDefinition;
+  workflow: WorkflowTemplate;
 }
 
 /**
  * WorkflowRegistry - Workflow Registry
  */
 export class WorkflowRegistry {
-  private workflows: Map<string, WorkflowDefinition> = new Map();
+  private workflows: Map<string, WorkflowTemplate> = new Map();
   private workflowRelationships: Map<string, WorkflowRelationship> = new Map();
   private activeWorkflows: Set<string> = new Set();
   private referenceRelations: Map<string, WorkflowReferenceRelation[]> = new Map();
@@ -225,7 +225,7 @@ export class WorkflowRegistry {
    * @param options: Registration options
    * @throws ValidationError: If the workflow definition is invalid or the ID already exists
    */
-  register(workflow: WorkflowDefinition, options?: RegisterOptions): void {
+  register(workflow: WorkflowTemplate, options?: RegisterOptions): void {
     // Verify the workflow definition.
     const validationResult = this.validate(workflow);
     if (!validationResult.valid) {
@@ -266,7 +266,7 @@ export class WorkflowRegistry {
    * @param options: Registration options
    * @throws ValidationError: If the workflow definition is invalid or the ID already exists
    */
-  async registerAsync(workflow: WorkflowDefinition, options?: RegisterOptions): Promise<void> {
+  async registerAsync(workflow: WorkflowTemplate, options?: RegisterOptions): Promise<void> {
     // Verify the workflow definition.
     const validationResult = this.validate(workflow);
     if (!validationResult.valid) {
@@ -322,7 +322,7 @@ export class WorkflowRegistry {
    * @param workflow: Workflow definition
    * @returns: Preprocessed graph
    */
-  private async preprocessWorkflow(workflow: WorkflowDefinition): Promise<void> {
+  private async preprocessWorkflow(workflow: WorkflowTemplate): Promise<void> {
     const graphRegistry = this.getWorkflowGraphRegistry();
 
     // Check if it has already been preprocessed.
@@ -352,7 +352,7 @@ export class WorkflowRegistry {
    * @param workflows: An array of workflow definitions
    * @param options: Batch registration options
    */
-  registerBatch(workflows: WorkflowDefinition[], options?: BatchRegisterOptions): void {
+  registerBatch(workflows: WorkflowTemplate[], options?: BatchRegisterOptions): void {
     for (const workflow of workflows) {
       try {
         this.register(workflow, options);
@@ -373,12 +373,12 @@ export class WorkflowRegistry {
    * @throws NotFoundError If the workflow does not exist
    * @throws ValidationError If the updated configuration is invalid
    */
-  update(workflowId: string, updates: Partial<WorkflowDefinition>, options?: UpdateOptions): void {
+  update(workflowId: string, updates: Partial<WorkflowTemplate>, options?: UpdateOptions): void {
     const workflow = this.workflows.get(workflowId);
     if (!workflow) {
       if (options?.createIfNotExists && updates.id === workflowId) {
         // Allow automatic creation
-        const newWorkflow = { ...updates, id: workflowId } as WorkflowDefinition;
+        const newWorkflow = { ...updates, id: workflowId } as WorkflowTemplate;
         this.register(newWorkflow);
         return;
       }
@@ -389,7 +389,7 @@ export class WorkflowRegistry {
     }
 
     // Create an updated workflow
-    const updatedWorkflow: WorkflowDefinition = {
+    const updatedWorkflow: WorkflowTemplate = {
       ...workflow,
       ...updates,
       id: workflow.id, // The ID cannot be changed.
@@ -416,7 +416,7 @@ export class WorkflowRegistry {
    * Register or update the workflow definition (update if it exists, create if it doesn't).
    * @param workflow The workflow definition
    */
-  upsert(workflow: WorkflowDefinition): void {
+  upsert(workflow: WorkflowTemplate): void {
     if (this.workflows.has(workflow.id)) {
       this.update(workflow.id, workflow);
     } else {
@@ -429,7 +429,7 @@ export class WorkflowRegistry {
    * @param workflowId: Workflow ID
    * @returns: Workflow definition; returns undefined if it does not exist
    */
-  get(workflowId: string): WorkflowDefinition | undefined {
+  get(workflowId: string): WorkflowTemplate | undefined {
     return this.workflows.get(workflowId);
   }
 
@@ -438,7 +438,7 @@ export class WorkflowRegistry {
    * @param name: Workflow name
    * @returns: Workflow definition; returns undefined if it does not exist
    */
-  getByName(name: string): WorkflowDefinition | undefined {
+  getByName(name: string): WorkflowTemplate | undefined {
     for (const workflow of this.workflows.values()) {
       if (workflow.name === name) {
         return workflow;
@@ -452,8 +452,8 @@ export class WorkflowRegistry {
    * @param tags An array of tags
    * @returns A list of workflow definitions that match the provided tags
    */
-  getByTags(tags: string[]): WorkflowDefinition[] {
-    const result: WorkflowDefinition[] = [];
+  getByTags(tags: string[]): WorkflowTemplate[] {
+    const result: WorkflowTemplate[] = [];
     for (const workflow of this.workflows.values()) {
       const workflowTags = workflow.metadata?.tags || [];
       if (tags.every(tag => workflowTags.includes(tag))) {
@@ -468,8 +468,8 @@ export class WorkflowRegistry {
    * @param category: The category
    * @returns: A list of workflow definitions that match the specified category
    */
-  getByCategory(category: string): WorkflowDefinition[] {
-    const result: WorkflowDefinition[] = [];
+  getByCategory(category: string): WorkflowTemplate[] {
+    const result: WorkflowTemplate[] = [];
     for (const workflow of this.workflows.values()) {
       if (workflow.metadata?.category === category) {
         result.push(workflow);
@@ -483,8 +483,8 @@ export class WorkflowRegistry {
    * @param author Author
    * @returns List of matching workflow definitions
    */
-  getByAuthor(author: string): WorkflowDefinition[] {
-    const result: WorkflowDefinition[] = [];
+  getByAuthor(author: string): WorkflowTemplate[] {
+    const result: WorkflowTemplate[] = [];
     for (const workflow of this.workflows.values()) {
       if (workflow.metadata?.author === author) {
         result.push(workflow);
@@ -697,7 +697,7 @@ export class WorkflowRegistry {
    * @param workflow: Workflow definition
    * @returns: Validation result
    */
-  validate(workflow: WorkflowDefinition): { valid: boolean; errors: string[] } {
+  validate(workflow: WorkflowTemplate): { valid: boolean; errors: string[] } {
     const errors: string[] = [];
 
     // Basic validation
@@ -728,7 +728,7 @@ export class WorkflowRegistry {
    * @param workflows: An array of workflow definitions
    * @returns: An array of validation results
    */
-  validateBatch(workflows: WorkflowDefinition[]): { valid: boolean; errors: string[] }[] {
+  validateBatch(workflows: WorkflowTemplate[]): { valid: boolean; errors: string[] }[] {
     return workflows.map(workflow => this.validate(workflow));
   }
 
@@ -776,7 +776,7 @@ export class WorkflowRegistry {
    */
   import(json: string, options?: RegisterOptions): string {
     try {
-      const workflow = JSON.parse(json) as WorkflowDefinition;
+      const workflow = JSON.parse(json) as WorkflowTemplate;
       this.register(workflow, options);
       return workflow.id;
     } catch (error) {

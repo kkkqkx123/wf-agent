@@ -9,7 +9,7 @@
  * - No registry manipulation
  */
 
-import type { WorkflowDefinition } from "@wf-agent/types";
+import type { WorkflowTemplate } from "@wf-agent/types";
 import type { NodeTemplate } from "@wf-agent/types";
 import type { TriggerTemplate } from "@wf-agent/types";
 import type { Script } from "@wf-agent/types";
@@ -30,13 +30,13 @@ const llmProfileParser = new ConfigParser();
  * @param content Configuration file content
  * @param format Configuration format
  * @param parameters runtime parameters (for template replacement)
- * @returns WorkflowDefinition
+ * @returns WorkflowTemplate
  */
 export async function parseWorkflow(
   content: string,
   format: ConfigFormat,
   parameters?: Record<string, unknown>,
-): Promise<WorkflowDefinition> {
+): Promise<WorkflowTemplate> {
   return workflowParser.parseAndTransform(content, format, parameters);
 }
 
@@ -69,13 +69,13 @@ export function parseWorkflowConfig(
  * @param contents Configuration contents array
  * @param formats Configuration formats array
  * @param parameters Array of runtime parameters
- * @returns WorkflowDefinition array
+ * @returns WorkflowTemplate array
  */
 export async function parseBatchWorkflows(
   contents: string[],
   formats: ConfigFormat[],
   parameters?: Record<string, unknown>[],
-): Promise<WorkflowDefinition[]> {
+): Promise<WorkflowTemplate[]> {
   if (contents.length !== formats.length) {
     throw new Error("The lengths of the `contents` and `formats` arrays must be the same.");
   }

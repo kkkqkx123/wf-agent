@@ -1,10 +1,10 @@
 /**
  * Configuration Converter
- * Responsible for converting the configuration file format to WorkflowDefinition
+ * Responsible for converting the configuration file format to WorkflowTemplate
  */
 
 import type { WorkflowConfigFile, IConfigTransformer } from "./types.js";
-import type { WorkflowDefinition } from "@wf-agent/types";
+import type { WorkflowTemplate } from "@wf-agent/types";
 import type { Node } from "@wf-agent/types";
 import type { Edge as EdgeType } from "@wf-agent/types";
 import { generateId } from "../../../utils/id-utils.js";
@@ -15,15 +15,15 @@ import { substituteParameters } from "./config-utils.js";
  */
 export class ConfigTransformer implements IConfigTransformer {
   /**
-   * Converting the config file format to WorkflowDefinition
+   * Converting the config file format to WorkflowTemplate
    * @param configFile The parsed configuration file.
    * @param parameters runtime parameters (for template replacement)
-   * @returns WorkflowDefinition
+   * @returns WorkflowTemplate
    */
   transformToWorkflow(
     configFile: WorkflowConfigFile,
     parameters?: Record<string, unknown>,
-  ): WorkflowDefinition {
+  ): WorkflowTemplate {
     // 1. Flatten the workflow properties to top level (TOML format has workflow section)
     const flattenedConfig = this.flattenWorkflowConfig(configFile);
 
@@ -39,15 +39,15 @@ export class ConfigTransformer implements IConfigTransformer {
     // 5. Update edge references of the nodes
     this.updateNodeEdgeReferences(transformedNodes, transformedEdges);
 
-    // 6. Build and return the complete WorkflowDefinition
+    // 6. Build and return the complete WorkflowTemplate
     const now = Date.now();
-    const workflowDef: WorkflowDefinition = {
+    const workflowDef: WorkflowTemplate = {
       ...processedConfig,
       nodes: transformedNodes,
       edges: transformedEdges,
       createdAt: typeof processedConfig.createdAt === "number" ? processedConfig.createdAt : now,
       updatedAt: typeof processedConfig.updatedAt === "number" ? processedConfig.updatedAt : now,
-    } as WorkflowDefinition;
+    } as WorkflowTemplate;
 
     return workflowDef;
   }
@@ -55,11 +55,11 @@ export class ConfigTransformer implements IConfigTransformer {
   /**
    * Flatten workflow configuration from TOML format
    * TOML format: { workflow: { id, name, ... }, nodes: [...], edges: [...] }
-   * WorkflowDefinition: { id, name, nodes: [...], edges: [...], ... }
+   * WorkflowTemplate: { id, name, nodes: [...], edges: [...], ... }
    * @param configFile The parsed configuration file
-   * @returns Flattened WorkflowDefinition
+   * @returns Flattened WorkflowTemplate
    */
-  private flattenWorkflowConfig(configFile: WorkflowConfigFile): WorkflowDefinition {
+  private flattenWorkflowConfig(configFile: WorkflowConfigFile): WorkflowTemplate {
     // Check if the config has a nested 'workflow' property (TOML format)
     const configRecord = configFile as unknown as Record<string, unknown>;
     if (configRecord["workflow"] && typeof configRecord["workflow"] === "object") {
@@ -67,7 +67,7 @@ export class ConfigTransformer implements IConfigTransformer {
       return {
         ...(workflow as Record<string, unknown>),
         ...rest,
-      } as unknown as WorkflowDefinition;
+      } as unknown as WorkflowTemplate;
     }
     // Already in flat format (JSON format)
     return configFile;
@@ -236,11 +236,11 @@ export class ConfigTransformer implements IConfigTransformer {
   }
 
   /**
-   * Converting a WorkflowDefinition to a Configuration File Format
-   * @param workflowDef WorkflowDefinition
+   * Converting a WorkflowTemplate to a Configuration File Format
+   * @param workflowDef WorkflowTemplate
    * @returns Configuration file format
    */
-  transformFromWorkflow(workflowDef: WorkflowDefinition): WorkflowConfigFile {
+  transformFromWorkflow(workflowDef: WorkflowTemplate): WorkflowConfigFile {
     return workflowDef;
   }
 }

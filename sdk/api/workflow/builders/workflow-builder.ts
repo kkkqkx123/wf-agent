@@ -4,7 +4,7 @@
  */
 
 import type {
-  WorkflowDefinition,
+  WorkflowTemplate,
   WorkflowVariable,
   WorkflowConfig,
   WorkflowMetadata,
@@ -28,7 +28,7 @@ import { BaseBuilder } from "../../shared/base-builder.js";
 /**
  * WorkflowBuilder - Declarative Workflow Builder
  */
-export class WorkflowBuilder extends BaseBuilder<WorkflowDefinition> {
+export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
   private _id: string;
   private _name: string;
   private _version: string = "1.0.0";
@@ -362,7 +362,7 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowDefinition> {
    * Building Workflow Definitions
    * @returns Workflow Definitions
    */
-  build(): WorkflowDefinition {
+  build(): WorkflowTemplate {
     // Update edge references of a node
     this.updateNodeEdgeReferences();
 
@@ -370,7 +370,7 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowDefinition> {
     this.validate();
 
     // Building a complete workflow definition
-    const workflow: WorkflowDefinition = {
+    const workflow: WorkflowTemplate = {
       id: this._id,
       name: this._name,
       version: this._version,
@@ -383,7 +383,7 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowDefinition> {
       triggers: this.triggers.length > 0 ? this.triggers : undefined,
       createdAt: this.getCreatedAt(),
       updatedAt: this.getUpdatedAt(),
-    } as unknown as WorkflowDefinition;
+    } as unknown as WorkflowTemplate;
 
     return workflow;
   }

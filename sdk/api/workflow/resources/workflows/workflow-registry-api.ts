@@ -12,7 +12,7 @@ import {
 
 import { now } from "@wf-agent/common-utils";
 import { CrudResourceAPI } from "../../../shared/resources/generic-resource-api.js";
-import type { WorkflowDefinition } from "@wf-agent/types";
+import type { WorkflowTemplate } from "@wf-agent/types";
 import { WorkflowNotFoundError } from "@wf-agent/types";
 import type { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
 import type { Timestamp } from "@wf-agent/types";
@@ -69,7 +69,7 @@ export interface WorkflowSummary {
  * WorkflowRegistryAPI - Workflow Registry API
  */
 export class WorkflowRegistryAPI extends CrudResourceAPI<
-  WorkflowDefinition,
+  WorkflowTemplate,
   string,
   WorkflowFilter
 > {
@@ -87,16 +87,16 @@ export class WorkflowRegistryAPI extends CrudResourceAPI<
   /**
    * Getting workflows from the registry
    */
-  protected async getResource(id: string): Promise<WorkflowDefinition | null> {
+  protected async getResource(id: string): Promise<WorkflowTemplate | null> {
     return this.dependencies.getWorkflowRegistry().get(id) || null;
   }
 
   /**
    * Get all workflows from the registry
    */
-  protected async getAllResources(): Promise<WorkflowDefinition[]> {
+  protected async getAllResources(): Promise<WorkflowTemplate[]> {
     const summaries = this.dependencies.getWorkflowRegistry().list();
-    const workflows: WorkflowDefinition[] = [];
+    const workflows: WorkflowTemplate[] = [];
     for (const summary of summaries) {
       const workflow = this.dependencies.getWorkflowRegistry().get(summary.id);
       if (workflow) {
@@ -109,7 +109,7 @@ export class WorkflowRegistryAPI extends CrudResourceAPI<
   /**
    * Creating Workflows
    */
-  protected async createResource(workflow: WorkflowDefinition): Promise<void> {
+  protected async createResource(workflow: WorkflowTemplate): Promise<void> {
     await this.dependencies.getWorkflowRegistry().registerAsync(workflow);
   }
 
@@ -124,7 +124,7 @@ export class WorkflowRegistryAPI extends CrudResourceAPI<
    * Update Workflow - Create New Version Instance
    * Versioning by creating a new workflow instance based on the immutability principle
    */
-  protected async updateResource(id: string, updates: Partial<WorkflowDefinition>): Promise<void> {
+  protected async updateResource(id: string, updates: Partial<WorkflowTemplate>): Promise<void> {
     // Call createVersionedUpdate directly to implement the update operation.
     await this.createVersionedUpdate(id, updates, {
       keepOriginal: false,
@@ -138,7 +138,7 @@ export class WorkflowRegistryAPI extends CrudResourceAPI<
    */
   async createVersionedUpdate(
     id: string,
-    updates: Partial<WorkflowDefinition>,
+    updates: Partial<WorkflowTemplate>,
     options?: {
       versionStrategy?: "patch" | "minor" | "major";
       keepOriginal?: boolean;
@@ -155,7 +155,7 @@ export class WorkflowRegistryAPI extends CrudResourceAPI<
     const newVersion = this.autoIncrementVersion(existingWorkflow.version, strategy);
 
     // Create a brand new workflow instance (completely unrelated to the previous one)
-    const newWorkflow: WorkflowDefinition = {
+    const newWorkflow: WorkflowTemplate = {
       ...existingWorkflow,
       ...updates,
       version: newVersion,
@@ -214,9 +214,9 @@ export class WorkflowRegistryAPI extends CrudResourceAPI<
    * Applying Filter Criteria
    */
   protected override applyFilter(
-    workflows: WorkflowDefinition[],
+    workflows: WorkflowTemplate[],
     filter: WorkflowFilter,
-  ): WorkflowDefinition[] {
+  ): WorkflowTemplate[] {
     return workflows.filter(workflow => {
       if (filter.ids && !filter.ids.some(id => workflow.id.includes(id))) {
         return false;
@@ -255,7 +255,7 @@ export class WorkflowRegistryAPI extends CrudResourceAPI<
    * @returns Validation results
    */
   protected override async validateResource(
-    workflow: WorkflowDefinition,
+    workflow: WorkflowTemplate,
   ): Promise<{ valid: boolean; errors: string[] }> {
     const errors: string[] = [];
 
@@ -368,7 +368,7 @@ export class WorkflowRegistryAPI extends CrudResourceAPI<
    * @param name Workflow name
    * @returns Workflow definition, or null if it doesn't exist.
    */
-  async getWorkflowByName(name: string): Promise<WorkflowDefinition | null> {
+  async getWorkflowByName(name: string): Promise<WorkflowTemplate | null> {
     const workflow = this.dependencies.getWorkflowRegistry().getByName(name);
     if (workflow) {
       // Cache update logic (if caching is needed, it can be implemented here)
@@ -381,7 +381,7 @@ export class WorkflowRegistryAPI extends CrudResourceAPI<
    * @param tags: An array of tags
    * @returns: An array of workflow definitions
    */
-  async getWorkflowsByTags(tags: string[]): Promise<WorkflowDefinition[]> {
+  async getWorkflowsByTags(tags: string[]): Promise<WorkflowTemplate[]> {
     return this.dependencies.getWorkflowRegistry().getByTags(tags);
   }
 
@@ -390,7 +390,7 @@ export class WorkflowRegistryAPI extends CrudResourceAPI<
    * @param category: Category
    * @returns: Array of workflow definitions
    */
-  async getWorkflowsByCategory(category: string): Promise<WorkflowDefinition[]> {
+  async getWorkflowsByCategory(category: string): Promise<WorkflowTemplate[]> {
     return this.dependencies.getWorkflowRegistry().getByCategory(category);
   }
 
@@ -399,7 +399,7 @@ export class WorkflowRegistryAPI extends CrudResourceAPI<
    * @param author  Author
    * @returns Array of workflow definitions
    */
-  async getWorkflowsByAuthor(author: string): Promise<WorkflowDefinition[]> {
+  async getWorkflowsByAuthor(author: string): Promise<WorkflowTemplate[]> {
     return this.dependencies.getWorkflowRegistry().getByAuthor(author);
   }
 
@@ -451,7 +451,7 @@ export class WorkflowRegistryAPI extends CrudResourceAPI<
    * @param workflow: Workflow definition
    * @returns: Processed workflow definition
    */
-  async preprocessAndStoreWorkflow(workflow: WorkflowDefinition): Promise<unknown> {
+  async preprocessAndStoreWorkflow(workflow: WorkflowTemplate): Promise<unknown> {
     // Use registerAsync for full validation and preprocessing
     await this.dependencies.getWorkflowRegistry().registerAsync(workflow);
     // Return the preprocessed image.

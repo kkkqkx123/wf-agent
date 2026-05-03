@@ -1,7 +1,7 @@
 /**
  * WorkflowExecutionBuilder - Workflow Execution Builder
  *
- * Responsible for retrieving WorkflowDefinition from WorkflowRegistry and creating WorkflowExecutionEntity instances.
+ * Responsible for retrieving WorkflowTemplate from WorkflowRegistry and creating WorkflowExecutionEntity instances.
  * Provides support for workflow execution template caching and deep copying, as well as the use of preprocessed graphs and graph navigation.
  *
  * Note: WorkflowExecutionBuilder is used directly for workflow execution creation, not wrapped as WorkflowExecutionFactory.

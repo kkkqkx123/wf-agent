@@ -12,7 +12,7 @@
 
 import type { ParsedConfig, IConfigParser } from "./types.js";
 import { ConfigFormat, ConfigType } from "./types.js";
-import type { WorkflowDefinition } from "@wf-agent/types";
+import type { WorkflowTemplate } from "@wf-agent/types";
 import { parseToml } from "./toml-parser.js";
 import { parseJson } from "./json-parser.js";
 import { ConfigurationError } from "@wf-agent/types";
@@ -127,21 +127,21 @@ export class ConfigParser implements IConfigParser {
   }
 
   /**
-   * Parse and convert the configuration into a WorkflowDefinition.
+   * Parse and convert the configuration into a WorkflowTemplate.
    * @param content: The content of the configuration file.
    * @param format: The format of the configuration.
    * @param parameters: Runtime parameters (optional).
-   * @returns: A WorkflowDefinition.
+   * @returns: A WorkflowTemplate.
    */
   async parseAndTransform(
     content: string,
     format: ConfigFormat,
     parameters?: Record<string, unknown>,
-  ): Promise<WorkflowDefinition> {
+  ): Promise<WorkflowTemplate> {
     // Parse the configuration.
     const parsedConfig = this.parse(content, format, "workflow");
 
-    // Transform the parsed configuration to WorkflowDefinition
+    // Transform the parsed configuration to WorkflowTemplate
     return transformWorkflow(parsedConfig, parameters);
   }
 }

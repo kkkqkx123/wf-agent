@@ -115,7 +115,7 @@ export const WorkflowMetadataSchema: z.ZodType<WorkflowMetadata> = z.object({
  * Workflow Definition Basic Schema
  * Validates the basic information of a workflow definition
  */
-export const WorkflowDefinitionBasicSchema = z.object({
+export const WorkflowTemplateBasicSchema = z.object({
   id: z.string().min(1, "Workflow ID is required"),
   name: z.string().min(1, "Workflow name is required"),
   description: z.string().optional(),
@@ -129,7 +129,7 @@ export const WorkflowDefinitionBasicSchema = z.object({
  * Validates the entire workflow structure including nodes, edges, and configuration.
  * This is a lightweight schema validation - deep business logic validation should be done by WorkflowValidator.
  */
-export const WorkflowDefinitionSchema = z.object({
+export const WorkflowTemplateSchema = z.object({
   id: z.string().min(1, "Workflow ID is required"),
   name: z.string().min(1, "Workflow name is required"),
   type: z.enum(["STANDALONE", "TRIGGERED_SUBWORKFLOW", "DEPENDENT"]).optional(),

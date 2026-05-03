@@ -16,7 +16,7 @@ import {
   type AgentLoopCheckpointDependencies,
   type AgentLoopEntity,
 } from "@wf-agent/sdk/agent";
-import type { AgentLoopConfig, AgentLoopResult, ID } from "@wf-agent/types";
+import type { AgentLoopRuntimeConfig, AgentLoopResult, ID } from "@wf-agent/types";
 import { LLMExecutor, LLMWrapper, ToolRegistry, EventRegistry } from "@wf-agent/sdk/core";
 import { CLINotFoundError } from "../types/cli-types.js";
 
@@ -47,7 +47,7 @@ export class AgentLoopAdapter extends BaseAdapter {
    * @param options Creation options
    */
   async createAgentLoop(
-    config: AgentLoopConfig,
+    config: AgentLoopRuntimeConfig,
     options: AgentLoopEntityOptions = {},
   ): Promise<{ id: ID }> {
     return this.executeWithErrorHandling(async () => {
@@ -65,7 +65,7 @@ export class AgentLoopAdapter extends BaseAdapter {
    * @param options Execution options
    */
   async executeAgentLoop(
-    config: AgentLoopConfig,
+    config: AgentLoopRuntimeConfig,
     options: AgentLoopEntityOptions = {},
   ): Promise<AgentLoopResult> {
     return this.executeWithErrorHandling(async () => {
@@ -88,7 +88,7 @@ export class AgentLoopAdapter extends BaseAdapter {
    * @param onEvent Event callback
    */
   async executeAgentLoopStream(
-    config: AgentLoopConfig,
+    config: AgentLoopRuntimeConfig,
     options: AgentLoopEntityOptions = {},
     onEvent?: (event: any) => void,
   ): Promise<AgentLoopResult> {
@@ -141,7 +141,7 @@ export class AgentLoopAdapter extends BaseAdapter {
    * @param config Loop configuration
    * @param options Execution options
    */
-  async startAgentLoop(config: AgentLoopConfig, options: AgentLoopEntityOptions = {}): Promise<ID> {
+  async startAgentLoop(config: AgentLoopRuntimeConfig, options: AgentLoopEntityOptions = {}): Promise<ID> {
     return this.executeWithErrorHandling(async () => {
       const id = await this.coordinator.start(config, options);
       this.output.infoLog(`Agent Loop started: ${id}`);

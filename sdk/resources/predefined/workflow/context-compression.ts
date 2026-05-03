@@ -5,7 +5,7 @@
  * Combines the definition layer with the execution layer, simplifying the architecture
  */
 
-import type { WorkflowDefinition, Node, Edge, TruncateMessageOperation } from "@wf-agent/types";
+import type { WorkflowTemplate, Node, Edge, TruncateMessageOperation } from "@wf-agent/types";
 import { now, generateId } from "@wf-agent/common-utils";
 import type { WorkflowRegistry } from "../../../workflow/stores/workflow-registry.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
@@ -46,7 +46,7 @@ export interface ContextCompressionConfig {
 /**
  * Create a predefined context compression workflow
  */
-export function createContextCompressionWorkflow(compressionPrompt?: string): WorkflowDefinition {
+export function createContextCompressionWorkflow(compressionPrompt?: string): WorkflowTemplate {
   const currentTime = now();
 
   const startNodeId = generateId();
@@ -170,7 +170,7 @@ export function createContextCompressionWorkflow(compressionPrompt?: string): Wo
  */
 export function createCustomContextCompressionWorkflow(
   config: ContextCompressionConfig = {},
-): WorkflowDefinition {
+): WorkflowTemplate {
   return createContextCompressionWorkflow(config.compressionPrompt);
 }
 

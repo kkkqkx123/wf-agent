@@ -53,7 +53,7 @@ export class VariableCoordinator {
   ) {}
 
   /**
-   * Initialize variables from WorkflowDefinition
+   * Initialize variables from WorkflowTemplate
    * @param workflowVariables Workflow variable definitions
    */
   initializeFromWorkflow(workflowVariables: WorkflowVariable[]): void {
@@ -158,7 +158,7 @@ export class VariableCoordinator {
 
     if (!variableDef) {
       throw new RuntimeValidationError(
-        `Variable '${name}' is not defined in workflow. Variables must be defined in WorkflowDefinition.`,
+        `Variable '${name}' is not defined in workflow. Variables must be defined in WorkflowTemplate.`,
         {
           operation: "setVariable",
           field: "variableName",

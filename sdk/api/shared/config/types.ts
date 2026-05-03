@@ -9,7 +9,7 @@
  * - Avoid duplicate definitions to ensure type safety
  *
  * Explanation:
- * - WorkflowDefinition represents the static definition after parsing the configuration file
+ * - WorkflowTemplate represents the static definition after parsing the configuration file
  * - The configuration files are directly mapped to the corresponding types, with exact consistency
  * - No type conversion or field removal is required
  * - Multiple configuration types are supported: workflows, node templates, trigger templates, scripts, and Agent Loop
@@ -17,17 +17,13 @@
 
 import type { Node } from "@wf-agent/types";
 import type { Edge } from "@wf-agent/types";
-import type { WorkflowDefinition } from "@wf-agent/types";
+import type { WorkflowTemplate } from "@wf-agent/types";
 import type { NodeTemplate } from "@wf-agent/types";
 import type { TriggerTemplate } from "@wf-agent/types";
 import type { Script } from "@wf-agent/types";
 import type { LLMProfile } from "@wf-agent/types";
 import type { Tool } from "@wf-agent/types";
-import type {
-  AgentLoopDefinition,
-  AgentHookStatic,
-  AgentTriggerStatic,
-} from "@wf-agent/types";
+import type { AgentLoopDefinition, AgentHookStatic, AgentTriggerStatic } from "@wf-agent/types";
 
 /**
  * Configuration Format
@@ -51,9 +47,9 @@ export type EdgeConfigFile = Edge;
 /**
  * Workflow Configuration File Format
  *
- * Description: Directly reuse the WorkflowDefinition type; it is completely identical.
+ * Description: Directly reuse the WorkflowTemplate type; it is completely identical.
  */
-export type WorkflowConfigFile = WorkflowDefinition;
+export type WorkflowConfigFile = WorkflowTemplate;
 
 /**
  * Node Template Configuration File Format
@@ -261,13 +257,13 @@ export interface IConfigParser {
  */
 export interface IConfigTransformer {
   /**
-   * Convert the configuration file format to WorkflowDefinition
+   * Convert the configuration file format to WorkflowTemplate
    * @param configFile The parsed configuration file
    * @param parameters Runtime parameters (used for template replacement)
-   * @returns WorkflowDefinition
+   * @returns WorkflowTemplate
    */
   transformToWorkflow(
     configFile: WorkflowConfigFile,
     parameters?: Record<string, unknown>,
-  ): WorkflowDefinition;
+  ): WorkflowTemplate;
 }

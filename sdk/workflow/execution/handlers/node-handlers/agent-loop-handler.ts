@@ -76,11 +76,11 @@ function createCoordinator(context: AgentLoopHandlerContext): AgentLoopCoordinat
   const registry =
     context.agentLoopRegistry ??
     (container.get(Identifiers.AgentLoopRegistry) as AgentLoopRegistry);
-  const executor = new AgentLoopExecutor(
-    context.llmExecutor,
-    context.toolService,
-    context.eventManager,
-  );
+  const executor = new AgentLoopExecutor({
+    llmExecutor: context.llmExecutor,
+    toolService: context.toolService,
+    eventManager: context.eventManager,
+  });
 
   return new AgentLoopCoordinator(registry, executor);
 }

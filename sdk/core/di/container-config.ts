@@ -712,7 +712,10 @@ export function initializeContainerWithAdapter(storageAdapter?: CheckpointStorag
         create: () => {
           const llmExecutor = c.get(Identifiers.LLMExecutor) as LLMExecutor;
           const toolService = c.get(Identifiers.ToolRegistry) as ToolRegistry;
-          return new AgentLoopExecutor(llmExecutor, toolService);
+          return new AgentLoopExecutor({
+            llmExecutor,
+            toolService,
+          });
         },
       };
     })

@@ -54,7 +54,6 @@
     "@wf-agent/types": "workspace:*",
     "@wf-agent/common-utils": "workspace:*",
     "@wf-agent/tool-executors": "workspace:*",
-    "@wf-agent/script-executors": "workspace:*",
     "@wf-agent/prompt-templates": "workspace:*",
     "@wf-agent/storage": "workspace:*",
     "zod": "^4.3.6",

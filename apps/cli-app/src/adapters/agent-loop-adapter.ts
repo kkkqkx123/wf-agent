@@ -37,7 +37,11 @@ export class AgentLoopAdapter extends BaseAdapter {
     const llmWrapper = new LLMWrapper(this.eventRegistry);
     const llmExecutor = new LLMExecutor(llmWrapper);
     const toolRegistry = new ToolRegistry();
-    const executor = new AgentLoopExecutor(llmExecutor, toolRegistry, this.eventRegistry);
+    const executor = new AgentLoopExecutor({
+      llmExecutor,
+      toolService: toolRegistry,
+      eventManager: this.eventRegistry,
+    });
     this.coordinator = new AgentLoopCoordinator(this.registry, executor);
   }
 

@@ -347,7 +347,6 @@ describe("createAuditLoggingHook", () => {
         type: "SCRIPT",
         config: {
           scriptName: "test-script.js",
-          scriptType: "javascript",
           risk: "high",
         },
       },

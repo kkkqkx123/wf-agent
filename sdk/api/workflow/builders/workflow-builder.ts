@@ -199,7 +199,6 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
    * Adding a CODE node
    * @param id Node ID
    * @param scriptName Script name
-   * @param scriptType script type
    * @param risk Risk level
    * @param name Node name (optional)
    * @returns this
@@ -207,13 +206,11 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
   addCodeNode(
     id: string,
     scriptName: string,
-    scriptType: "shell" | "cmd" | "powershell" | "python" | "javascript",
     risk: "none" | "low" | "medium" | "high",
     name?: string,
   ): this {
     const config = {
       scriptName,
-      scriptType,
       risk,
     };
     return this.addNode(id, "SCRIPT", config, name);

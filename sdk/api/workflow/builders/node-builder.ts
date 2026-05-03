@@ -173,18 +173,12 @@ export class NodeBuilder extends BaseBuilder<Node> {
   /**
    * Creating a CODE node
    * @param scriptName Script name
-   * @param scriptType Script type
    * @param risk Risk level
    * @returns this
    */
-  code(
-    scriptName: string,
-    scriptType: "shell" | "cmd" | "powershell" | "python" | "javascript",
-    risk: "none" | "low" | "medium" | "high",
-  ): this {
+  code(scriptName: string, risk: "none" | "low" | "medium" | "high"): this {
     return this.type("code" as NodeType).mergeConfig({
       scriptName,
-      scriptType,
       risk,
     });
   }

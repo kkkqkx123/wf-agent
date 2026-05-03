@@ -4,18 +4,6 @@
  */
 
 import { z } from "zod";
-import type { ScriptType } from "./script.js";
-
-// ============================================================================
-// Script Type Schema
-// ============================================================================
-
-/**
- * Script Type Schema
- */
-export const ScriptTypeSchema = z.custom<ScriptType>((val): val is ScriptType =>
-  ["SHELL", "CMD", "POWERSHELL", "PYTHON", "JAVASCRIPT"].includes(val as ScriptType),
-);
 
 // ============================================================================
 // Sandbox Config Schema
@@ -93,7 +81,7 @@ export const ScriptSchema = z
   .object({
     id: z.string().min(1, "Script ID is required"),
     name: z.string().min(1, "Script name is required"),
-    type: ScriptTypeSchema,
+    type: z.string().optional(), // Deprecated - kept for backward compatibility
     description: z.string().min(1, "Script description is required"),
     content: z.string().optional(),
     filePath: z.string().optional(),
@@ -187,7 +175,6 @@ export const AuditEventSchema = z.object({
 export const ScriptExecutionResultSchema = z.object({
   success: z.boolean(),
   scriptName: z.string(),
-  scriptType: ScriptTypeSchema,
   stdout: z.string().optional(),
   stderr: z.string().optional(),
   exitCode: z.number().optional(),

@@ -7,16 +7,16 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import { SqliteAgentLoopStorage } from "../../src/sqlite/sqlite-agent-loop-storage.js";
-import type { AgentEntityMetadata } from "@wf-agent/types";
+import { AgentLoopStatus, type AgentEntityMetadata } from "@wf-agent/types";
 
 describe("SqliteAgentLoopStorage", () => {
   let tempDir: string;
   let dbPath: string;
   let storage: SqliteAgentLoopStorage;
 
-  const createTestMetadata = (agentLoopId: string, status: string = "RUNNING"): AgentEntityMetadata => ({
+  const createTestMetadata = (agentLoopId: string, status: AgentLoopStatus = AgentLoopStatus.RUNNING): AgentEntityMetadata => ({
     agentLoopId,
-    status: status as any,
+    status: status,
     createdAt: Date.now(),
     updatedAt: Date.now(),
     profileId: `profile-${agentLoopId}`,
@@ -154,13 +154,13 @@ describe("SqliteAgentLoopStorage", () => {
     });
 
     it("should filter by status", async () => {
-      const metadata1 = createTestMetadata("agent-loop-1", "RUNNING");
-      const metadata2 = createTestMetadata("agent-loop-2", "COMPLETED");
+      const metadata1 = createTestMetadata("agent-loop-1", AgentLoopStatus.RUNNING);
+      const metadata2 = createTestMetadata("agent-loop-2", AgentLoopStatus.COMPLETED);
 
       await storage.save("agent-loop-1", createTestData(100), metadata1);
       await storage.save("agent-loop-2", createTestData(100), metadata2);
       
-      const list = await storage.list({ status: "RUNNING" });
+      const list = await storage.list({ status: AgentLoopStatus.RUNNING });
       expect(list).toHaveLength(1);
       expect(list).toContain("agent-loop-1");
     });
@@ -283,46 +283,46 @@ describe("SqliteAgentLoopStorage", () => {
   describe("updateAgentLoopStatus", () => {
     it("should update agent loop status", async () => {
       const agentLoopId = "agent-loop-1";
-      const metadata = createTestMetadata(agentLoopId, "RUNNING");
+      const metadata = createTestMetadata(agentLoopId, AgentLoopStatus.RUNNING);
 
       await storage.save(agentLoopId, createTestData(100), metadata);
-      await storage.updateAgentLoopStatus(agentLoopId, "COMPLETED");
+      await storage.updateAgentLoopStatus(agentLoopId, AgentLoopStatus.COMPLETED);
       
       const retrieved = await storage.getMetadata(agentLoopId);
-      expect(retrieved!.status).toBe("COMPLETED");
+      expect(retrieved!.status).toBe(AgentLoopStatus.COMPLETED);
       expect(retrieved!.completedAt).toBeDefined();
     });
 
     it("should set completedAt for terminal states", async () => {
       const agentLoopId = "agent-loop-1";
-      const metadata = createTestMetadata(agentLoopId, "RUNNING");
+      const metadata = createTestMetadata(agentLoopId, AgentLoopStatus.RUNNING);
 
       await storage.save(agentLoopId, createTestData(100), metadata);
       
       const beforeUpdate = await storage.getMetadata(agentLoopId);
       expect(beforeUpdate!.completedAt).toBeUndefined();
       
-      await storage.updateAgentLoopStatus(agentLoopId, "FAILED");
+      await storage.updateAgentLoopStatus(agentLoopId, AgentLoopStatus.FAILED);
       
       const afterUpdate = await storage.getMetadata(agentLoopId);
-      expect(afterUpdate!.status).toBe("FAILED");
+      expect(afterUpdate!.status).toBe(AgentLoopStatus.FAILED);
       expect(afterUpdate!.completedAt).toBeDefined();
     });
 
     it("should not set completedAt for non-terminal states", async () => {
       const agentLoopId = "agent-loop-1";
-      const metadata = createTestMetadata(agentLoopId, "RUNNING");
+      const metadata = createTestMetadata(agentLoopId, AgentLoopStatus.RUNNING);
 
       await storage.save(agentLoopId, createTestData(100), metadata);
-      await storage.updateAgentLoopStatus(agentLoopId, "RUNNING");
+      await storage.updateAgentLoopStatus(agentLoopId, AgentLoopStatus.RUNNING);
       
       const retrieved = await storage.getMetadata(agentLoopId);
-      expect(retrieved!.status).toBe("RUNNING");
+      expect(retrieved!.status).toBe(AgentLoopStatus.RUNNING);
       expect(retrieved!.completedAt).toBeUndefined();
     });
 
     it("should throw error when updating non-existent agent loop", async () => {
-      await expect(storage.updateAgentLoopStatus("non-existent", "COMPLETED")).rejects.toThrow(
+      await expect(storage.updateAgentLoopStatus("non-existent", AgentLoopStatus.COMPLETED)).rejects.toThrow(
         "Agent loop not found"
       );
     });
@@ -339,7 +339,7 @@ describe("SqliteAgentLoopStorage", () => {
       // Wait a bit to ensure timestamp changes
       await new Promise(resolve => setTimeout(resolve, 10));
       
-      await storage.updateAgentLoopStatus(agentLoopId, "RUNNING");
+      await storage.updateAgentLoopStatus(agentLoopId, AgentLoopStatus.RUNNING);
       
       const afterUpdate = await storage.getMetadata(agentLoopId);
       expect(afterUpdate!.updatedAt).toBeGreaterThan(originalUpdatedAt!);
@@ -348,35 +348,35 @@ describe("SqliteAgentLoopStorage", () => {
 
   describe("listByStatus", () => {
     it("should list agent loops by status", async () => {
-      const metadata1 = createTestMetadata("agent-loop-1", "RUNNING");
-      const metadata2 = createTestMetadata("agent-loop-2", "COMPLETED");
-      const metadata3 = createTestMetadata("agent-loop-3", "RUNNING");
+      const metadata1 = createTestMetadata("agent-loop-1", AgentLoopStatus.RUNNING);
+      const metadata2 = createTestMetadata("agent-loop-2", AgentLoopStatus.COMPLETED);
+      const metadata3 = createTestMetadata("agent-loop-3", AgentLoopStatus.RUNNING);
 
       await storage.save("agent-loop-1", createTestData(100), metadata1);
       await storage.save("agent-loop-2", createTestData(100), metadata2);
       await storage.save("agent-loop-3", createTestData(100), metadata3);
       
-      const running = await storage.listByStatus("RUNNING");
+      const running = await storage.listByStatus(AgentLoopStatus.RUNNING);
       expect(running).toHaveLength(2);
       expect(running).toContain("agent-loop-1");
       expect(running).toContain("agent-loop-3");
       
-      const completed = await storage.listByStatus("COMPLETED");
+      const completed = await storage.listByStatus(AgentLoopStatus.COMPLETED);
       expect(completed).toHaveLength(1);
       expect(completed).toContain("agent-loop-2");
     });
 
     it("should return empty array when no agent loops match status", async () => {
-      const list = await storage.listByStatus("COMPLETED");
+      const list = await storage.listByStatus(AgentLoopStatus.COMPLETED);
       expect(list).toHaveLength(0);
     });
   });
 
   describe("getAgentLoopStats", () => {
     it("should return correct statistics", async () => {
-      const metadata1 = createTestMetadata("agent-loop-1", "RUNNING");
-      const metadata2 = createTestMetadata("agent-loop-2", "COMPLETED");
-      const metadata3 = createTestMetadata("agent-loop-3", "RUNNING");
+      const metadata1 = createTestMetadata("agent-loop-1", AgentLoopStatus.RUNNING);
+      const metadata2 = createTestMetadata("agent-loop-2", AgentLoopStatus.COMPLETED);
+      const metadata3 = createTestMetadata("agent-loop-3", AgentLoopStatus.RUNNING);
 
       await storage.save("agent-loop-1", createTestData(100), metadata1);
       await storage.save("agent-loop-2", createTestData(100), metadata2);

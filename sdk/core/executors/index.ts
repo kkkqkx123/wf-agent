@@ -5,3 +5,4 @@
 
 export * from "./llm-executor.js";
 export * from "./tool-call-executor.js";
+export { ScriptExecutor } from './script-executor.js';

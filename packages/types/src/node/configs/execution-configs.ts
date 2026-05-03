@@ -12,8 +12,6 @@ import { ScriptRiskLevel } from '../../script/script-security.js';
 export interface ScriptNodeConfig {
   /** screenplay title */
   scriptName: string;
-  /** 脚本语言(shell/cmd/powershell/python/javascript) */
-  scriptType: 'shell' | 'cmd' | 'powershell' | 'python' | 'javascript';
   /** Risk level [different execution policies will be implemented in the application layer, e.g. none not checked, HIGH runs in the sandbox] */
   risk: ScriptRiskLevel;
   /** Whether it is an inline code */

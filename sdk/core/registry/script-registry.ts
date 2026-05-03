@@ -8,24 +8,16 @@
 
 import type {
   Script,
-  ScriptType,
   ScriptExecutionOptions,
   ScriptExecutionResult,
 } from "@wf-agent/types";
-import type { IScriptExecutor } from "@wf-agent/script-executors";
-import {
-  ShellExecutor,
-  PythonExecutor,
-  JavaScriptExecutor,
-  PowerShellExecutor,
-  CmdExecutor,
-} from "@wf-agent/script-executors";
+import { ScriptExecutor } from '../executors/script-executor.js';
 import {
   ScriptExecutionError,
   ScriptNotFoundError,
   ConfigurationValidationError,
 } from "@wf-agent/types";
-import { tryCatchAsyncWithSignal, all } from "@wf-agent/common-utils";
+import { all } from "@wf-agent/common-utils";
 import type { Result } from "@wf-agent/types";
 import { ok, err } from "@wf-agent/common-utils";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
@@ -38,22 +30,10 @@ const logger = createContextualLogger({ component: "ScriptRegistry" });
  */
 class ScriptRegistry {
   private scripts: Map<string, Script> = new Map();
-  private executors: Map<ScriptType, IScriptExecutor> = new Map();
+  private executor: ScriptExecutor;
 
   constructor() {
-    this.initializeExecutors();
-  }
-
-  /**
-   * Initialize the executor
-   * The script type is the standard type of SDK, using static initialization.
-   */
-  private initializeExecutors(): void {
-    this.executors.set("SHELL", new ShellExecutor());
-    this.executors.set("PYTHON", new PythonExecutor());
-    this.executors.set("JAVASCRIPT", new JavaScriptExecutor());
-    this.executors.set("POWERSHELL", new PowerShellExecutor());
-    this.executors.set("CMD", new CmdExecutor());
+    this.executor = new ScriptExecutor();
   }
 
   /**
@@ -82,7 +62,7 @@ class ScriptRegistry {
 
     // Registration script
     this.scripts.set(script.name, scriptWithDefaults);
-    logger.info("Script registered", { scriptName: script.name, scriptType: script.type });
+    logger.info("Script registered", { scriptName: script.name });
   }
 
   /**
@@ -345,43 +325,24 @@ class ScriptRegistry {
   ): Promise<Result<ScriptExecutionResult, ScriptExecutionError>> {
     logger.debug("Script execution started", { scriptName });
 
-    // Obtain script definitions
+    // Get script definition
     const script = this.getScript(scriptName);
 
-    // Get the corresponding executor.
-    const executor = this.executors.get(script.type);
-    if (!executor) {
+    // Execute using the simplified ScriptExecutor
+    const result = await this.executor.execute(script, options);
+
+    if (!result.success) {
       return err(
         new ScriptExecutionError(
-          `No executor found for script type '${script.type}'`,
+          result.error || 'Script execution failed',
           scriptName,
-          script.type,
           { options },
         ),
       );
     }
 
-    // Merge execution options (default script options + passed-in options)
-    const executionOptions: ScriptExecutionOptions = {
-      ...script.options,
-      ...options,
-    };
-
-    // Use `tryCatchAsyncWithSignal` to ensure that the signal is passed correctly.
-    const result = await tryCatchAsyncWithSignal<ScriptExecutionResult>(
-      (signal: AbortSignal | undefined) =>
-        executor.execute(script, { ...executionOptions, signal }),
-      executionOptions?.signal,
-    );
-
-    if (result.isErr()) {
-      return err(
-        this.convertToScriptExecutionError(result.error, scriptName, script.type, executionOptions),
-      );
-    }
-
-    logger.debug("Script execution completed", { scriptName, success: result.value.success });
-    return ok(result.value);
+    logger.debug("Script execution completed", { scriptName, success: result.success });
+    return ok(result);
   }
 
   /**
@@ -402,37 +363,6 @@ class ScriptRegistry {
 
     // Combine the results; return "success" if everything is successful, otherwise return the first error.
     return all(results);
-  }
-
-  /**
-   * Translate from auto to en:
-   *
-   * Convert error to ScriptExecutionError
-   *
-   * @param error The original error
-   * @param scriptName The script name
-   * @param scriptType The script type
-   */
-  private convertToScriptExecutionError(
-    error: unknown,
-    scriptName: string,
-    scriptType: string,
-    options: ScriptExecutionOptions,
-  ): ScriptExecutionError {
-    // If it is already a ScriptExecutionError, return it directly.
-    if (error instanceof ScriptExecutionError) {
-      return error;
-    }
-
-    const message = error instanceof Error ? error.message : String(error);
-
-    return new ScriptExecutionError(
-      `Script execution failed: ${message}`,
-      scriptName,
-      scriptType,
-      { options },
-      error instanceof Error ? error : undefined,
-    );
   }
 }
 

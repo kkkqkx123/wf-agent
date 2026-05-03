@@ -3,7 +3,6 @@
  * Define types and interfaces related to the script API
  */
 
-import type { ScriptType } from "@wf-agent/types";
 import type { Timestamp } from "@wf-agent/types";
 
 /**
@@ -14,8 +13,6 @@ export interface ScriptFilter {
   ids?: string[];
   /** Script name (fuzzy matching is supported) */
   name?: string;
-  /** Script Type */
-  type?: ScriptType;
   /** Classification */
   category?: string;
   /** Tag array */
@@ -122,8 +119,6 @@ export interface ScriptRegistrationConfig {
   id?: string;
   /** Script Name */
   name: string;
-  /** Script Type */
-  type: ScriptType;
   /** Script Description */
   description: string;
   /** Script content (inline code) */

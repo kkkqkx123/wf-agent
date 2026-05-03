@@ -6,19 +6,11 @@
 import type { ID, Metadata } from "../common.js";
 
 /**
- * Script type
+ * Script type - DEPRECATED
+ * @deprecated Script types are no longer used. All scripts are treated as shell commands.
+ * This type is kept for backward compatibility only and will be removed in a future version.
  */
-export type ScriptType =
-  /** Shell Scripts */
-  | "SHELL"
-  /** CMD Screenplay */
-  | "CMD"
-  /** PowerShell scripts */
-  | "POWERSHELL"
-  /** Python script */
-  | "PYTHON"
-  /** JavaScript Scripts */
-  | "JAVASCRIPT";
+export type ScriptType = "SHELL";
 
 /**
  * Script execution options
@@ -85,8 +77,6 @@ export interface ScriptExecutionResult {
   success: boolean;
   /** screenplay title */
   scriptName: string;
-  /** Script type */
-  scriptType: ScriptType;
   /** standard output */
   stdout?: string;
   /** standard error */
@@ -111,8 +101,8 @@ export interface Script {
   id: ID;
   /** screenplay title */
   name: string;
-  /** Script type */
-  type: ScriptType;
+  /** Script type - DEPRECATED, kept for backward compatibility. Any string value is accepted. */
+  type?: string;
   /** Script Description */
   description: string;
   /** Script content (inline code) */

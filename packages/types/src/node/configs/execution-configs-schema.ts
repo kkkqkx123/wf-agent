@@ -10,9 +10,6 @@ import { z } from "zod";
  */
 export const ScriptNodeConfigSchema = z.object({
   scriptName: z.string().min(1, "Script name is required"),
-  scriptType: z.enum(["shell", "cmd", "powershell", "python", "javascript"], {
-    message: "Script type must be one of: shell, cmd, powershell, python, javascript",
-  }),
   risk: z.enum(["none", "low", "medium", "high"], {
     message: "Risk level must be one of: none, low, medium, high",
   }),

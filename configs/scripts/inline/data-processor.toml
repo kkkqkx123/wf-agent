@@ -1,6 +1,5 @@
 # 数据处理脚本配置
 name = "data-processor"
-script_type = "PYTHON"
 description = "A Python script for processing data with error handling"
 enabled = true
 

@@ -104,9 +104,6 @@ export class ScriptRegistryAPI extends CrudResourceAPI<Script, string, ScriptFil
       if (filter.name && !script.name.includes(filter.name)) {
         return false;
       }
-      if (filter.type && script.type !== filter.type) {
-        return false;
-      }
       if (filter.category && script.metadata?.category !== filter.category) {
         return false;
       }

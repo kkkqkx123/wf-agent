@@ -6,7 +6,6 @@ export * from "./script-security.js";
 
 // Export Zod Schemas for Script Validation
 export {
-  ScriptTypeSchema,
   SandboxConfigSchema,
   ScriptExecutionOptionsSchema,
   ScriptMetadataSchema,

@@ -68,12 +68,11 @@ export class ScriptExecutionError extends SDKError {
   constructor(
     message: string,
     public readonly scriptName?: string,
-    public readonly scriptType?: string,
     context?: Record<string, unknown>,
     cause?: Error,
     severity?: ErrorSeverity,
   ) {
-    super(message, severity, { ...context, scriptName, scriptType }, cause);
+    super(message, severity, { ...context, scriptName }, cause);
   }
 
   protected override getDefaultSeverity(): ErrorSeverity {

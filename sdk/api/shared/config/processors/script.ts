@@ -34,7 +34,7 @@ export function validateScript(
   errors.push(
     ...validateRequiredFields(
       script as unknown as Record<string, unknown>,
-      ["id", "name", "type", "description", "options"],
+      ["id", "name", "description", "options"],
       "Script",
     ),
   );
@@ -48,18 +48,6 @@ export function validateScript(
   const scriptResult = codeConfigValidator.validateScript(script);
   if (scriptResult.isErr()) {
     errors.push(...scriptResult.error);
-  }
-
-  // Verify script type compatibility
-  if (script.type && (script.content || script.filePath)) {
-    const compatibilityResult = codeConfigValidator.validateScriptTypeCompatibility(
-      script.type,
-      script.content,
-      script.filePath,
-    );
-    if (compatibilityResult.isErr()) {
-      errors.push(...compatibilityResult.error);
-    }
   }
 
   if (errors.length > 0) {

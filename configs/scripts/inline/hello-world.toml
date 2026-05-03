@@ -1,6 +1,5 @@
 # Hello World脚本配置
 name = "hello-world"
-script_type = "SHELL"
 description = "A simple hello world script that demonstrates script execution"
 enabled = true
 

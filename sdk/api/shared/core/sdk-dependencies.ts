@@ -24,7 +24,7 @@ import type { TriggerTemplateRegistry } from "../../../core/registry/trigger-tem
 import type { WorkflowGraphRegistry } from "../../../workflow/stores/workflow-graph-registry.js";
 import type { SkillRegistry } from "../../../core/registry/skill-registry.js";
 import type { SkillLoader } from "../../../core/utils/skill-loader.js";
-import type { AgentLoopRegistry } from "../../../agent/loop/agent-loop-registry.js";
+import type { AgentLoopRegistry } from "../../../agent/stores/agent-loop-registry.js";
 import type { AgentLoopCoordinator } from "../../../agent/execution/coordinators/agent-loop-coordinator.js";
 import type { ServiceIdentifier } from "@wf-agent/common-utils";
 

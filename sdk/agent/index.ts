@@ -64,8 +64,8 @@ export {
   type CreateCheckpointOptions,
 } from "./checkpoint/index.js";
 
-// Service layer (export class for direct instantiation, also available via DI)
-export { AgentLoopRegistry } from "./loop/agent-loop-registry.js";
+// Stores layer (export class for direct instantiation, also available via DI)
+export { AgentLoopRegistry } from "./stores/agent-loop-registry.js";
 
 // Error Handler
 export {

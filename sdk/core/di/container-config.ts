@@ -87,7 +87,7 @@ import { VariableState } from "../../workflow/state-managers/variable-state.js";
 import { TriggerState } from "../../workflow/state-managers/trigger-state.js";
 import { InterruptionState } from "../types/interruption-state.js";
 import { AgentLoopExecutor } from "../../agent/execution/executors/agent-loop-executor.js";
-import { AgentLoopRegistry } from "../../agent/loop/agent-loop-registry.js";
+import { AgentLoopRegistry } from "../../agent/stores/agent-loop-registry.js";
 import { AgentLoopCoordinator } from "../../agent/execution/coordinators/agent-loop-coordinator.js";
 import { WorkflowExecutionEntity } from "../../workflow/entities/workflow-execution-entity.js";
 

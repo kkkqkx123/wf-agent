@@ -9,7 +9,7 @@
 
 import { ReadonlyResourceAPI } from "../../shared/resources/generic-resource-api.js";
 import type { ID } from "@wf-agent/types";
-import type { AgentLoopRegistry } from "../../../agent/loop/agent-loop-registry.js";
+import type { AgentLoopRegistry } from "../../../agent/stores/agent-loop-registry.js";
 import { getContainer } from "../../../core/di/index.js";
 import * as Identifiers from "../../../core/di/service-identifiers.js";
 

@@ -37,7 +37,7 @@ import { now, getErrorOrNew } from "@wf-agent/common-utils";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import { getContainer } from "../../../core/di/index.js";
 import * as Identifiers from "../../../core/di/service-identifiers.js";
-import type { AgentLoopRegistry } from "../../../agent/loop/agent-loop-registry.js";
+import type { AgentLoopRegistry } from "../../../agent/stores/agent-loop-registry.js";
 
 const logger = createContextualLogger({ component: "WorkflowStateTransitor" });
 

@@ -9,7 +9,7 @@
  */
 
 import { CrudResourceAPI } from "../../shared/resources/generic-resource-api.js";
-import type { AgentLoopRegistry } from "../../../agent/loop/agent-loop-registry.js";
+import type { AgentLoopRegistry } from "../../../agent/stores/agent-loop-registry.js";
 import type { AgentLoopEntity } from "../../../agent/entities/agent-loop-entity.js";
 import { AgentLoopStatus, type ID } from "@wf-agent/types";
 import { getErrorMessage, isSuccess, getData } from "../../shared/types/execution-result.js";

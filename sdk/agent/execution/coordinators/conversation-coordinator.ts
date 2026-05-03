@@ -12,7 +12,7 @@
  */
 
 import { LLMMessage } from "@wf-agent/types";
-import { AgentLoopRegistry } from "../../loop/agent-loop-registry.js";
+import { AgentLoopRegistry } from "../../stores/agent-loop-registry.js";
 import { ConversationSession } from "../../../core/messaging/conversation-session.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 

@@ -5,7 +5,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { AgentLoopCoordinator } from "../execution/coordinators/agent-loop-coordinator.js";
 import { AgentLoopExecutor } from "../execution/executors/agent-loop-executor.js";
-import { AgentLoopRegistry } from "../loop/agent-loop-registry.js";
+import { AgentLoopRegistry } from "../stores/agent-loop-registry.js";
 import { ToolRegistry } from "../../core/registry/tool-registry.js";
 import { EventRegistry } from "../../core/registry/event-registry.js";
 import type { AgentLoopRuntimeConfig, LLMResult, LLMMessage } from "@wf-agent/types";

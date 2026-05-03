@@ -88,7 +88,6 @@ export class AgentLoopExecutor {
     this.streamExecutor = new AgentStreamExecutor(
       llmExecutor,
       this.toolCallExecutor,
-      toolService,
       this.emitAgentEvent.bind(this),
       eventManager,
     );
@@ -109,7 +108,6 @@ export class AgentLoopExecutor {
     this.streamExecutor = new AgentStreamExecutor(
       this.llmExecutor,
       this.toolCallExecutor,
-      this.toolService,
       this.emitAgentEvent.bind(this),
       this.eventManager,
     );

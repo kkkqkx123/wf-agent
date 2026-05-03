@@ -10,7 +10,7 @@ import type { AgentLoopRuntimeConfig, AgentLoopResult } from "@wf-agent/types";
 import { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import { AgentLoopStatus } from "@wf-agent/types";
 import { AgentLoopFactory, type AgentLoopEntityOptions } from "../../execution/factories/index.js";
-import { AgentLoopRegistry } from "../../loop/agent-loop-registry.js";
+import { AgentLoopRegistry } from "../../stores/agent-loop-registry.js";
 import { AgentLoopExecutor, type AgentLoopStreamEvent } from "../executors/agent-loop-executor.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 

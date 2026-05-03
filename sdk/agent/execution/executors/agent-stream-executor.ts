@@ -12,7 +12,13 @@
  * - Uses ConversationSession for message management
  */
 
-import type { LLMMessage, ToolSchema, AgentHookTriggeredEvent, AgentStreamEvent, MessageStreamEvent } from "@wf-agent/types";
+import type {
+  LLMMessage,
+  ToolSchema,
+  AgentHookTriggeredEvent,
+  AgentStreamEvent,
+  MessageStreamEvent,
+} from "@wf-agent/types";
 import { AgentStreamEventType } from "@wf-agent/types";
 import type { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import type { ConversationSession } from "../../../core/messaging/conversation-session.js";
@@ -52,7 +58,6 @@ export class AgentStreamExecutor {
   constructor(
     private llmExecutor: LLMExecutor,
     private toolCallExecutor: ToolCallExecutor,
-    private toolService: ToolRegistry,
     private emitAgentEvent: (event: AgentHookTriggeredEvent) => Promise<void>,
     private eventManager?: EventRegistry,
   ) {}

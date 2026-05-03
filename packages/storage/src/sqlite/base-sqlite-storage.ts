@@ -37,6 +37,8 @@ export interface BaseSqliteStorageConfig {
   verifyIntegrity?: boolean;
   /** Verify integrity every Nth load operation (default: 100, only used when verifyIntegrity is true) */
   integrityCheckFrequency?: number;
+  /** Schema version for migration support (default: 1) */
+  schemaVersion?: number;
 }
 
 /**
@@ -56,6 +58,8 @@ export abstract class BaseSqliteStorage<_TMetadataType> {
   private connectionPool: SqliteConnectionPool | null = null;
   protected metrics: StorageMetrics = { ...DEFAULT_STORAGE_METRICS };
   protected loadCounter: number = 0; // Counter for integrity check frequency
+  private statementCache: Map<string, Database.Statement> = new Map();
+  private readonly MAX_CACHE_SIZE = 100;
 
   constructor(protected readonly config: BaseSqliteStorageConfig) {}
 
@@ -117,18 +121,38 @@ export abstract class BaseSqliteStorage<_TMetadataType> {
       // is marked as initialized so that createTableSchema can use the getDb
       this.initialized = true;
 
-      // Create table structure (skip in read-only mode)
+      // Create or migrate schema (skip in read-only mode)
       if (!this.config.readonly) {
-        this.createTableSchema();
+        await this.initializeSchema();
       }
 
       logger.info("SQLite storage initialized", {
         dbPath: this.config.dbPath,
         tableName: this.getTableName(),
         usingPool: this.usingPool,
+        schemaVersion: this.getCurrentSchemaVersion(),
       });
     } catch (error) {
       this.initialized = false;
+      
+      // Clean up connection on failure to prevent resource leaks
+      if (this.db) {
+        try {
+          if (this.usingPool && this.connectionPool) {
+            this.connectionPool.releaseConnection(this.config.dbPath);
+          } else {
+            this.db.close();
+          }
+        } catch (cleanupError) {
+          logger.error("Error cleaning up connection after initialization failure", {
+            dbPath: this.config.dbPath,
+            error: (cleanupError as Error).message,
+          });
+        } finally {
+          this.db = null;
+        }
+      }
+      
       logger.error("Failed to initialize SQLite storage", {
         dbPath: this.config.dbPath,
         error: (error as Error).message,
@@ -138,6 +162,92 @@ export abstract class BaseSqliteStorage<_TMetadataType> {
         error as Error,
       );
     }
+  }
+
+  /**
+   * Initialize or migrate database schema
+   */
+  private async initializeSchema(): Promise<void> {
+    const db = this.getDb();
+    const currentVersion = this.getCurrentSchemaVersion();
+    const targetVersion = this.config.schemaVersion ?? 1;
+
+    // Create schema version tracking table if it doesn't exist
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS _schema_versions (
+        table_name TEXT PRIMARY KEY,
+        version INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `);
+
+    // Get current version for this table
+    const versionRow = db.prepare(
+      'SELECT version FROM _schema_versions WHERE table_name = ?'
+    ).get(this.getTableName()) as { version: number } | undefined;
+
+    const installedVersion = versionRow?.version ?? 0;
+
+    if (installedVersion === 0) {
+      // Fresh installation - create tables
+      logger.info("Creating new schema", { 
+        table: this.getTableName(), 
+        version: targetVersion 
+      });
+      this.createTableSchema();
+      
+      // Record version
+      db.prepare(
+        'INSERT INTO _schema_versions (table_name, version, updated_at) VALUES (?, ?, ?)'
+      ).run(this.getTableName(), targetVersion, Date.now());
+    } else if (installedVersion < targetVersion) {
+      // Migration needed
+      logger.info("Migrating schema", { 
+        table: this.getTableName(), 
+        fromVersion: installedVersion, 
+        toVersion: targetVersion 
+      });
+      await this.migrateSchema(installedVersion, targetVersion);
+      
+      // Update version
+      db.prepare(
+        'UPDATE _schema_versions SET version = ?, updated_at = ? WHERE table_name = ?'
+      ).run(targetVersion, Date.now(), this.getTableName());
+    } else if (installedVersion > targetVersion) {
+      logger.warn("Database schema version is newer than expected", {
+        table: this.getTableName(),
+        installedVersion,
+        targetVersion,
+      });
+    } else {
+      logger.debug("Schema is up to date", { 
+        table: this.getTableName(), 
+        version: installedVersion 
+      });
+    }
+  }
+
+  /**
+   * Get current schema version
+   */
+  protected getCurrentSchemaVersion(): number {
+    return this.config.schemaVersion ?? 1;
+  }
+
+  /**
+   * Migrate schema from one version to another
+   * Override this method in subclasses to implement custom migrations
+   * @param fromVersion Current schema version
+   * @param toVersion Target schema version
+   */
+  protected async migrateSchema(fromVersion: number, toVersion: number): Promise<void> {
+    // Default implementation does nothing
+    // Subclasses should override to implement actual migrations
+    logger.warn("Schema migration not implemented", {
+      table: this.getTableName(),
+      fromVersion,
+      toVersion,
+    });
   }
 
   /**
@@ -167,6 +277,43 @@ export abstract class BaseSqliteStorage<_TMetadataType> {
   protected getDb(): Database.Database {
     this.ensureInitialized();
     return this.db!;
+  }
+
+  /**
+   * Get or create a prepared statement with caching
+   * @param sql SQL query string
+   * @returns Cached or newly created prepared statement
+   */
+  protected getPreparedStatement(sql: string): Database.Statement {
+    // Check cache first
+    const cached = this.statementCache.get(sql);
+    if (cached) {
+      return cached;
+    }
+
+    // Prepare new statement
+    const db = this.getDb();
+    const stmt = db.prepare(sql);
+
+    // Add to cache with LRU eviction
+    if (this.statementCache.size >= this.MAX_CACHE_SIZE) {
+      // Remove oldest entry (first key in Map)
+      const firstKey = this.statementCache.keys().next().value;
+      if (firstKey) {
+        this.statementCache.delete(firstKey);
+      }
+    }
+
+    this.statementCache.set(sql, stmt);
+    return stmt;
+  }
+
+  /**
+   * Clear statement cache
+   * Call this when schema changes or for memory management
+   */
+  protected clearStatementCache(): void {
+    this.statementCache.clear();
   }
 
   /**
@@ -286,7 +433,7 @@ export abstract class BaseSqliteStorage<_TMetadataType> {
     const db = this.getDb();
 
     try {
-      const stmt = db.prepare(`SELECT data FROM ${this.getTableName()} WHERE id = ?`);
+      const stmt = this.getPreparedStatement(`SELECT data FROM ${this.getTableName()} WHERE id = ?`);
       const row = stmt.get(id) as { data: Buffer } | undefined;
 
       if (!row) {
@@ -299,7 +446,7 @@ export abstract class BaseSqliteStorage<_TMetadataType> {
       const buffer = row.data;
       return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
     } catch (error) {
-      this.handleSqliteError(error, "load", { id });
+      return this.handleSqliteError(error, "load", { id });
     }
   }
 
@@ -310,11 +457,11 @@ export abstract class BaseSqliteStorage<_TMetadataType> {
     const db = this.getDb();
 
     try {
-      const stmt = db.prepare(`DELETE FROM ${this.getTableName()} WHERE id = ?`);
+      const stmt = this.getPreparedStatement(`DELETE FROM ${this.getTableName()} WHERE id = ?`);
       stmt.run(id);
       logger.debug("Data deleted from SQLite", { id, table: this.getTableName() });
     } catch (error) {
-      this.handleSqliteError(error, "delete", { id });
+      return this.handleSqliteError(error, "delete", { id });
     }
   }
 
@@ -325,11 +472,11 @@ export abstract class BaseSqliteStorage<_TMetadataType> {
     const db = this.getDb();
 
     try {
-      const stmt = db.prepare(`SELECT 1 FROM ${this.getTableName()} WHERE id = ?`);
+      const stmt = this.getPreparedStatement(`SELECT 1 FROM ${this.getTableName()} WHERE id = ?`);
       const row = stmt.get(id);
       return row !== undefined;
     } catch (error) {
-      this.handleSqliteError(error, "exists", { id });
+      return this.handleSqliteError(error, "exists", { id });
     }
   }
 
@@ -340,11 +487,11 @@ export abstract class BaseSqliteStorage<_TMetadataType> {
     const db = this.getDb();
 
     try {
-      const stmt = db.prepare(`DELETE FROM ${this.getTableName()}`);
+      const stmt = this.getPreparedStatement(`DELETE FROM ${this.getTableName()}`);
       stmt.run();
       logger.info("SQLite table cleared", { table: this.getTableName() });
     } catch (error) {
-      this.handleSqliteError(error, "clear", {});
+      return this.handleSqliteError(error, "clear", {});
     }
   }
 
@@ -368,7 +515,7 @@ export abstract class BaseSqliteStorage<_TMetadataType> {
       
       logger.info("Database optimization completed", { table: this.getTableName() });
     } catch (error) {
-      this.handleSqliteError(error, "optimize", {});
+      return this.handleSqliteError(error, "optimize", {});
     }
   }
 
@@ -379,6 +526,9 @@ export abstract class BaseSqliteStorage<_TMetadataType> {
   async close(): Promise<void> {
     if (this.db) {
       try {
+        // Clear statement cache before closing
+        this.clearStatementCache();
+        
         if (this.usingPool && this.connectionPool) {
           // Release connection back to pool
           this.connectionPool.releaseConnection(this.config.dbPath);
@@ -479,20 +629,26 @@ export abstract class BaseSqliteStorage<_TMetadataType> {
     const startTime = Date.now();
 
     try {
-      // Prepare statement once outside loop for better performance
-      const stmt = db.prepare(`
-        INSERT INTO ${this.getTableName()} (id, data) VALUES (?, ?)
-        ON CONFLICT(id) DO UPDATE SET data = excluded.data
-      `);
+      if (items.length === 0) {
+        return;
+      }
 
       // Use transaction for atomicity and performance
-      const transaction = db.transaction(() => {
-        for (const item of items) {
+      const transaction = db.transaction((itemsToSave: Array<{ id: string; data: Uint8Array }>) => {
+        // Prepare statement once
+        const stmt = db.prepare(`
+          INSERT INTO ${this.getTableName()} (id, data) VALUES (?, ?)
+          ON CONFLICT(id) DO UPDATE SET data = excluded.data
+        `);
+
+        // Batch insert using prepared statement
+        for (const item of itemsToSave) {
           stmt.run(item.id, Buffer.from(item.data));
         }
       });
 
-      transaction();
+      // Execute transaction with items
+      transaction(items.map(item => ({ id: item.id, data: item.data })));
 
       const elapsed = Date.now() - startTime;
       this.updateMetric('save', elapsed / items.length, items.reduce((sum, item) => sum + item.data.length, 0));
@@ -503,7 +659,7 @@ export abstract class BaseSqliteStorage<_TMetadataType> {
         totalTimeMs: elapsed,
       });
     } catch (error) {
-      this.handleSqliteError(error, "saveBatch", { count: items.length });
+      return this.handleSqliteError(error, "saveBatch", { count: items.length });
     }
   }
 
@@ -543,7 +699,7 @@ export abstract class BaseSqliteStorage<_TMetadataType> {
         count: items.length,
         error: (error as Error).message 
       });
-      this.handleSqliteError(error, "saveBatch", { count: items.length });
+      return this.handleSqliteError(error, "saveBatch", { count: items.length });
     }
   }
 
@@ -596,7 +752,7 @@ export abstract class BaseSqliteStorage<_TMetadataType> {
 
       return results;
     } catch (error) {
-      this.handleSqliteError(error, "loadBatch", { count: ids.length });
+      return this.handleSqliteError(error, "loadBatch", { count: ids.length });
     }
   }
 
@@ -652,7 +808,7 @@ export abstract class BaseSqliteStorage<_TMetadataType> {
 
       return results;
     } catch (error) {
-      this.handleSqliteError(error, "loadBatch", { count: ids.length });
+      return this.handleSqliteError(error, "loadBatch", { count: ids.length });
     }
   }
 
@@ -670,17 +826,17 @@ export abstract class BaseSqliteStorage<_TMetadataType> {
         return;
       }
 
-      // Prepare statement once outside loop for better performance
-      const stmt = db.prepare(`DELETE FROM ${this.getTableName()} WHERE id = ?`);
-
       // Use transaction for atomicity and performance
-      const transaction = db.transaction(() => {
-        for (const id of ids) {
+      const transaction = db.transaction((idsToDelete: string[]) => {
+        // Prepare statement once
+        const stmt = db.prepare(`DELETE FROM ${this.getTableName()} WHERE id = ?`);
+        
+        for (const id of idsToDelete) {
           stmt.run(id);
         }
       });
 
-      transaction();
+      transaction(ids);
 
       const elapsed = Date.now() - startTime;
       this.updateMetric('delete', elapsed / ids.length);
@@ -696,7 +852,7 @@ export abstract class BaseSqliteStorage<_TMetadataType> {
         count: ids.length,
         error: (error as Error).message 
       });
-      this.handleSqliteError(error, "deleteBatch", { count: ids.length });
+      return this.handleSqliteError(error, "deleteBatch", { count: ids.length });
     }
   }
 }

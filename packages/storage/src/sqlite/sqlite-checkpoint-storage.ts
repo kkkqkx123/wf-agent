@@ -354,8 +354,10 @@ export class SqliteCheckpointStorage
       }
 
       if (options?.tags && options.tags.length > 0) {
-        conditions.push(`tags LIKE ?`);
-        params.push(`%${options.tags[0]}%`);
+        // Use parameterized query for tags to prevent SQL injection
+        const tagPattern = `%${options.tags[0]}%`;
+        conditions.push("tags LIKE ?");
+        params.push(tagPattern);
       }
 
       if (conditions.length > 0) {

@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { AgentLoopRegistry } from "../loop/agent-loop-registry.js";
+import { AgentLoopRegistry } from "../stores/agent-loop-registry.js";
 import { AgentLoopEntity } from "../entities/agent-loop-entity.js";
 import type { AgentLoopRuntimeConfig } from "@wf-agent/types";
 import { AgentLoopStatus } from "@wf-agent/types";

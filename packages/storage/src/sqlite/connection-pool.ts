@@ -18,6 +18,10 @@ export interface ConnectionPoolConfig {
   enableWAL?: boolean;
   /** Timeout for acquiring connection in milliseconds (default: 5000) */
   acquireTimeoutMs?: number;
+  /** Enable connection health checks */
+  enableHealthCheck?: boolean;
+  /** Health check interval in milliseconds (default: 60000) */
+  healthCheckIntervalMs?: number;
 }
 
 /**
@@ -28,6 +32,8 @@ interface ManagedConnection {
   path: string;
   refCount: number;
   createdAt: number;
+  lastHealthCheck?: number;
+  isHealthy: boolean;
 }
 
 /**
@@ -44,6 +50,8 @@ export class SqliteConnectionPool {
       maxConnections: config.maxConnections ?? 1, // SQLite typically uses 1 connection
       enableWAL: config.enableWAL ?? true,
       acquireTimeoutMs: config.acquireTimeoutMs ?? 5000,
+      enableHealthCheck: config.enableHealthCheck ?? false,
+      healthCheckIntervalMs: config.healthCheckIntervalMs ?? 60000,
     };
   }
 
@@ -55,6 +63,18 @@ export class SqliteConnectionPool {
     const existing = this.connections.get(dbPath);
     
     if (existing) {
+      // Perform health check if enabled
+      if (this.config.enableHealthCheck && !this.isConnectionHealthy(existing)) {
+        logger.warn("Unhealthy connection detected, recreating", { dbPath });
+        try {
+          existing.db.close();
+        } catch (error) {
+          logger.error("Error closing unhealthy connection", { dbPath, error: (error as Error).message });
+        }
+        this.connections.delete(dbPath);
+        return this.createConnection(dbPath);
+      }
+      
       existing.refCount++;
       logger.debug("Reusing existing SQLite connection", {
         dbPath,
@@ -63,7 +83,13 @@ export class SqliteConnectionPool {
       return existing.db;
     }
 
-    // Create new connection
+    return this.createConnection(dbPath);
+  }
+
+  /**
+   * Create a new database connection
+   */
+  private createConnection(dbPath: string): Database.Database {
     logger.debug("Creating new SQLite connection", { dbPath });
     const db = new Database(dbPath);
 
@@ -86,6 +112,7 @@ export class SqliteConnectionPool {
       path: dbPath,
       refCount: 1,
       createdAt: Date.now(),
+      isHealthy: true,
     };
 
     this.connections.set(dbPath, managedConn);
@@ -96,6 +123,38 @@ export class SqliteConnectionPool {
     });
 
     return db;
+  }
+
+  /**
+   * Check if a connection is healthy
+   */
+  private isConnectionHealthy(conn: ManagedConnection): boolean {
+    if (!conn.isHealthy) {
+      return false;
+    }
+
+    // Skip health check if it was performed recently
+    if (conn.lastHealthCheck) {
+      const timeSinceLastCheck = Date.now() - conn.lastHealthCheck;
+      if (timeSinceLastCheck < this.config.healthCheckIntervalMs) {
+        return true;
+      }
+    }
+
+    // Perform a simple query to verify connection
+    try {
+      conn.db.pragma('quick_check');
+      conn.lastHealthCheck = Date.now();
+      conn.isHealthy = true;
+      return true;
+    } catch (error) {
+      logger.error("Connection health check failed", { 
+        dbPath: conn.path, 
+        error: (error as Error).message 
+      });
+      conn.isHealthy = false;
+      return false;
+    }
   }
 
   /**

@@ -348,8 +348,10 @@ export class SqliteTaskStorage
       }
 
       if (options?.tags && options.tags.length > 0) {
-        conditions.push(`tags LIKE ?`);
-        params.push(`%${options.tags[0]}%`);
+        // Use parameterized query for tags to prevent SQL injection
+        const tagPattern = `%${options.tags[0]}%`;
+        conditions.push("tags LIKE ?");
+        params.push(tagPattern);
       }
 
       if (conditions.length > 0) {
@@ -358,7 +360,7 @@ export class SqliteTaskStorage
 
       const sortBy = options?.sortBy ?? "submitTime";
       const sortOrder = options?.sortOrder ?? "desc";
-      // Convert camelCase to snake_case for SQL column names and validate
+      // Convert camelCase to snake_case for SQL column names and validate strictly
       const allowedSortColumns = ['submit_time', 'start_time', 'complete_time', 'created_at', 'updated_at'];
       const sortColumnMap: Record<string, string> = {
         submitTime: 'submit_time',
@@ -367,13 +369,15 @@ export class SqliteTaskStorage
         createdAt: 'created_at',
         updatedAt: 'updated_at',
       };
-      const sortColumn = sortColumnMap[sortBy] || sortBy;
+      const sortColumn = sortColumnMap[sortBy];
       
-      if (!allowedSortColumns.includes(sortColumn)) {
-        throw new StorageError(`Invalid sort column: ${sortBy}`, 'list', { sortBy });
+      if (!sortColumn || !allowedSortColumns.includes(sortColumn)) {
+        throw new StorageError(`Invalid sort column: ${sortBy}. Allowed: ${allowedSortColumns.join(', ')}`, 'list', { sortBy });
       }
       
-      sql += ` ORDER BY ${sortColumn} ${sortOrder.toUpperCase()}`;
+      // Use whitelist validation - never interpolate user input directly
+      const orderDirection = sortOrder.toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+      sql += ` ORDER BY ${sortColumn} ${orderDirection}`;
 
       // Pagination with validation
       const { limit: validatedLimit, offset: validatedOffset } = this.validatePagination(

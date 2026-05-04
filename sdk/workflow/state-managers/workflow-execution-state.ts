@@ -9,6 +9,41 @@ import { now } from "@wf-agent/common-utils";
 import type { WorkflowExecutionStatus } from "@wf-agent/types";
 
 /**
+ * Operation-level execution state
+ * Tracks progress within individual node operations
+ */
+export interface OperationState {
+  /** Type of operation */
+  type: "LLM_STREAMING" | "TOOL_EXECUTION" | "SCRIPT_EXECUTION";
+
+  /** Operation ID (e.g., toolCallId, requestId) */
+  operationId: string;
+
+  /** Node ID where operation is running */
+  nodeId: string;
+
+  /** Start timestamp */
+  startedAt: number;
+
+  /** Progress information (operation-specific) */
+  progress?: {
+    /** For LLM: tokens generated so far */
+    tokensGenerated?: number;
+    /** For tools: items processed / total items */
+    itemsProcessed?: number;
+    totalItems?: number;
+    /** Generic progress percentage (0-100) */
+    percentage?: number;
+  };
+
+  /** Partial result accumulated so far */
+  partialResult?: unknown;
+
+  /** Operation-specific metadata */
+  metadata?: Record<string, unknown>;
+}
+
+/**
  * WorkflowExecutionState - Workflow Execution State Manager
  *
  * Core Responsibilities:
@@ -41,6 +76,9 @@ export class WorkflowExecutionState {
 
   /** Interrupted flag */
   private _interrupted: boolean = false;
+
+  /** Current operation state (if any) */
+  private _currentOperation: OperationState | null = null;
 
   /**
    * Get the current status
@@ -240,6 +278,62 @@ export class WorkflowExecutionState {
   }
 
   /**
+   * Get current operation state
+   */
+  getCurrentOperation(): OperationState | null {
+    return this._currentOperation;
+  }
+
+  /**
+   * Set current operation state
+   */
+  setCurrentOperation(operation: OperationState | null): void {
+    this._currentOperation = operation;
+  }
+
+  /**
+   * Update operation progress
+   */
+  updateOperationProgress(progress: Partial<OperationState["progress"]>): void {
+    if (this._currentOperation) {
+      this._currentOperation.progress = {
+        ...this._currentOperation.progress,
+        ...progress,
+      };
+    }
+  }
+
+  /**
+   * Update partial result
+   */
+  updatePartialResult(result: unknown): void {
+    if (this._currentOperation) {
+      this._currentOperation.partialResult = result;
+    }
+  }
+
+  /**
+   * Clear operation state (when operation completes)
+   */
+  clearOperation(): void {
+    this._currentOperation = null;
+  }
+
+  /**
+   * Serialize operation state for checkpoint
+   */
+  getOperationStateSnapshot(): OperationState | null {
+    return this._currentOperation ? { ...this._currentOperation } : null;
+  }
+
+  /**
+   * Restore operation state from checkpoint
+   */
+  restoreOperationState(snapshot: OperationState | null): void {
+    this._currentOperation = snapshot ? { ...snapshot } : null;
+  }
+
+  /**
    * Clean up resources
    */
   cleanup(): void {
@@ -257,6 +351,8 @@ export class WorkflowExecutionState {
     cloned._startTime = this._startTime;
     cloned._endTime = this._endTime;
     cloned._error = this._error;
+    cloned._interrupted = this._interrupted;
+    cloned._currentOperation = this._currentOperation ? { ...this._currentOperation } : null;
     return cloned;
   }
 }

@@ -65,4 +65,8 @@ export interface WorkflowExecutionResultMetadata {
   nodeCount: number;
   /** Number of errors */
   errorCount: number;
+  /** Interruption type (if interrupted) */
+  interruptionType?: "PAUSE" | "STOP";
+  /** Node ID where interruption occurred */
+  interruptedAtNodeId?: string;
 }

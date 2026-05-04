@@ -29,7 +29,9 @@ import { getContainer } from "../../../core/di/index.js";
 import * as Identifiers from "../../../core/di/service-identifiers.js";
 import type { AgentLoopRegistry } from "../../../agent/stores/agent-loop-registry.js";
 import type { ExecutionHierarchyRegistry } from "../../../core/registry/execution-hierarchy-registry.js";
+import { restoreWorkflowFromCheckpoint } from "../utils/checkpoint-restoration.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
+import { PauseTimeoutManager } from "../utils/pause-timeout-manager.js";
 
 const logger = createContextualLogger({ component: "WorkflowLifecycleCoordinator" });
 
@@ -39,12 +41,37 @@ const logger = createContextualLogger({ component: "WorkflowLifecycleCoordinator
  * Responsible for high-level process orchestration and coordination, organizing multiple components to complete complex workflow execution lifecycle operations.
  */
 export class WorkflowLifecycleCoordinator {
+  private pauseTimeoutManager?: PauseTimeoutManager;
+
   constructor(
     private readonly workflowExecutionRegistry: WorkflowExecutionRegistry,
     private readonly workflowStateTransitor: WorkflowStateTransitor,
     private readonly workflowExecutionBuilder: WorkflowExecutionBuilder,
     private readonly workflowExecutor: WorkflowExecutor,
   ) {}
+
+  /**
+   * Initialize pause timeout manager (optional)
+   * Call this to enable automatic timeout for paused workflows
+   */
+  initializePauseTimeout(config?: {
+    maxPauseDuration?: number;
+    warningThreshold?: number;
+  }): void {
+    const container = getContainer();
+    const eventManager = container.get(Identifiers.EventRegistry);
+    
+    this.pauseTimeoutManager = new PauseTimeoutManager(
+      this.workflowExecutionRegistry,
+      eventManager as any,
+      config,
+    );
+    
+    logger.info("Pause timeout manager initialized", {
+      maxPauseDuration: config?.maxPauseDuration || 24 * 60 * 60 * 1000,
+      warningThreshold: config?.warningThreshold || 60 * 60 * 1000,
+    });
+  }
 
   /**
    * Execute Workflow
@@ -108,6 +135,12 @@ export class WorkflowLifecycleCoordinator {
 
     // Fully delegate the state transition and event triggering to the Transitor.
     await this.workflowStateTransitor.pauseWorkflowExecution(workflowExecutionEntity);
+
+    // Start monitoring for pause timeout (if enabled)
+    if (this.pauseTimeoutManager) {
+      this.pauseTimeoutManager.startMonitoring(executionId);
+      logger.debug("Started pause timeout monitoring", { executionId });
+    }
   }
 
   /**
@@ -115,9 +148,10 @@ export class WorkflowLifecycleCoordinator {
    *
    * Process:
    * 1. Obtain the workflow execution context.
-   * 2. Update the workflow execution status to RUNNING.
-   * 3. Clear the pause flag.
-   * 4. Continue executing the workflow.
+   * 2. Restore from last checkpoint (if available).
+   * 3. Update the workflow execution status to RUNNING.
+   * 4. Clear the pause flag.
+   * 5. Continue executing the workflow from restored position.
    *
    * @param workflowExecutionId: Workflow Execution ID
    * @returns: Execution result
@@ -129,13 +163,38 @@ export class WorkflowLifecycleCoordinator {
       throw new WorkflowExecutionNotFoundError(`WorkflowExecutionEntity not found`, executionId);
     }
 
-    // 1. Fully delegate the state transition and event triggering to the Manager.
+    logger.info("Resuming workflow execution", { executionId });
+
+    // Stop pause timeout monitoring (if enabled)
+    if (this.pauseTimeoutManager) {
+      this.pauseTimeoutManager.stopMonitoring(executionId);
+      logger.debug("Stopped pause timeout monitoring", { executionId });
+    }
+
+    // 1. Restore from last checkpoint
+    const restored = await restoreWorkflowFromCheckpoint(
+      executionId,
+      workflowExecutionEntity,
+      this.workflowExecutionRegistry,
+    );
+
+    if (restored) {
+      logger.info("Workflow restored from checkpoint", {
+        executionId,
+        restoredNodeId: workflowExecutionEntity.getCurrentNodeId(),
+        checkpointId: restored.checkpointId,
+      });
+    } else {
+      logger.warn("No checkpoint found, resuming from start", { executionId });
+    }
+
+    // 2. State transition
     await this.workflowStateTransitor.resumeWorkflowExecution(workflowExecutionEntity);
 
-    // 2. Reset the interrupt status (including the AbortController)
+    // 3. Reset interrupt status (including AbortController)
     workflowExecutionEntity.resetInterrupt();
 
-    // 3. Continue execution
+    // 4. Continue execution from restored position
     return await this.workflowExecutor.executeWorkflow(workflowExecutionEntity);
   }
 
@@ -157,6 +216,12 @@ export class WorkflowLifecycleCoordinator {
     const workflowExecutionEntity = this.workflowExecutionRegistry.get(executionId);
     if (!workflowExecutionEntity) {
       throw new WorkflowExecutionNotFoundError(`WorkflowExecutionEntity not found`, executionId);
+    }
+
+    // Stop pause timeout monitoring (if enabled)
+    if (this.pauseTimeoutManager) {
+      this.pauseTimeoutManager.stopMonitoring(executionId);
+      logger.debug("Stopped pause timeout monitoring", { executionId });
     }
 
     // Fully delegate the state transitions and event triggering to the Manager.

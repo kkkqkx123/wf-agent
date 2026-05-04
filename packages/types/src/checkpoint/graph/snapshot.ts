@@ -10,6 +10,41 @@ import type { TokenUsageStats } from "../../llm/index.js";
 import type { MessageMarkMap } from "../../message/index.js";
 
 /**
+ * Operation-level execution state
+ * Tracks progress within individual node operations
+ */
+export interface OperationState {
+  /** Type of operation */
+  type: "LLM_STREAMING" | "TOOL_EXECUTION" | "SCRIPT_EXECUTION";
+
+  /** Operation ID (e.g., toolCallId, requestId) */
+  operationId: string;
+
+  /** Node ID where operation is running */
+  nodeId: string;
+
+  /** Start timestamp */
+  startedAt: number;
+
+  /** Progress information (operation-specific) */
+  progress?: {
+    /** For LLM: tokens generated so far */
+    tokensGenerated?: number;
+    /** For tools: items processed / total items */
+    itemsProcessed?: number;
+    totalItems?: number;
+    /** Generic progress percentage (0-100) */
+    percentage?: number;
+  };
+
+  /** Partial result accumulated so far */
+  partialResult?: unknown;
+
+  /** Operation-specific metadata */
+  metadata?: Record<string, unknown>;
+}
+
+/**
  * Workflow Execution state snapshot type
  */
 export interface WorkflowExecutionStateSnapshot {
@@ -65,4 +100,6 @@ export interface WorkflowExecutionStateSnapshot {
   };
   /** Triggered Sub-workflow Context (Master-Slave Separation Mode) */
   triggeredSubworkflowContext?: TriggeredSubworkflowContext;
+  /** Current operation state (for mid-node resume) */
+  currentOperation?: OperationState;
 }

@@ -11,7 +11,15 @@ import type { InterruptionState } from "../../../core/types/interruption-state.j
 import type { ToolVisibilityCoordinator } from "./tool-visibility-coordinator.js";
 import type { NodeExecutionCoordinator } from "./node-execution-coordinator.js";
 import type { WorkflowNavigator } from "../../builder/workflow-navigator.js";
-import { WorkflowExecutionInterruptedException } from "@wf-agent/types";
+import {
+  checkInterruption,
+  shouldContinue,
+  getInterruptionDescription,
+} from "@wf-agent/common-utils";
+import type { InterruptionCheckResult } from "@wf-agent/common-utils";
+import { createContextualLogger } from "../../../utils/contextual-logger.js";
+
+const logger = createContextualLogger({ component: "workflow-execution-coordinator" });
 
 /**
  * WorkflowExecutionCoordinator - Workflow Execution Coordinator
@@ -48,23 +56,18 @@ export class WorkflowExecutionCoordinator {
 
     // Execution process orchestration
     while (true) {
-      // Check the interrupt status.
-      if (this.interruptionManager.shouldPause()) {
-        throw new WorkflowExecutionInterruptedException(
-          "Workflow execution paused",
-          "PAUSE",
-          executionId,
-          this.workflowExecutionEntity.getCurrentNodeId(),
-        );
-      }
+      // ✅ Use return-value pattern instead of throwing exceptions
+      const interruption = checkInterruption(this.interruptionManager.getAbortSignal());
 
-      if (this.interruptionManager.shouldStop()) {
-        throw new WorkflowExecutionInterruptedException(
-          "Workflow execution stopped",
-          "STOP",
+      if (!shouldContinue(interruption)) {
+        logger.info("Workflow execution interrupted", {
           executionId,
-          this.workflowExecutionEntity.getCurrentNodeId(),
-        );
+          interruptionType: interruption.type,
+          currentNodeId: this.workflowExecutionEntity.getCurrentNodeId(),
+        });
+
+        // Handle interruption gracefully
+        return await this.handleInterruptionGracefully(interruption);
       }
 
       // Get the current node
@@ -113,20 +116,70 @@ export class WorkflowExecutionCoordinator {
       }
     }
 
-    // Build the execution results
+    // Build successful execution result
+    return this.buildSuccessResult();
+  }
+
+  /**
+   * Handle interruption gracefully using return-value pattern
+   * @param interruption Interruption check result
+   * @returns Workflow execution result with interruption status
+   */
+  private async handleInterruptionGracefully(
+    interruption: InterruptionCheckResult,
+  ): Promise<WorkflowExecutionResult> {
+    const type = interruption.type === "paused" ? "PAUSE" : "STOP";
+    const currentNodeId = this.workflowExecutionEntity.getCurrentNodeId();
+
+    // Delegate to node coordinator for checkpoint creation and event emission
+    if (currentNodeId) {
+      await this.nodeExecutionCoordinator.handleInterruption(
+        this.workflowExecutionEntity.id,
+        currentNodeId,
+        type,
+      );
+    }
+
+    // Update status
+    this.workflowExecutionEntity.setStatus(type === "PAUSE" ? "PAUSED" : "CANCELLED");
+
+    // Build interrupted result
+    return {
+      executionId: this.workflowExecutionEntity.id,
+      output: this.workflowExecutionEntity.getOutput(),
+      executionTime: Date.now() - (this.workflowExecutionEntity.getStartTime() || Date.now()),
+      nodeResults: this.workflowExecutionEntity.getNodeResults(),
+      metadata: {
+        status: type === "PAUSE" ? "PAUSED" : "CANCELLED",
+        startTime: this.workflowExecutionEntity.getStartTime() || Date.now(),
+        endTime: Date.now(),
+        executionTime: Date.now() - (this.workflowExecutionEntity.getStartTime() || Date.now()),
+        nodeCount: this.workflowExecutionEntity.getNodeResults().length,
+        errorCount: this.workflowExecutionEntity.getErrors().length,
+        interruptionType: type,
+        interruptedAtNodeId: currentNodeId,
+      },
+    };
+  }
+
+  /**
+   * Build successful execution result
+   * @returns Workflow execution result with success status
+   */
+  private buildSuccessResult(): WorkflowExecutionResult {
     const endTime = this.workflowExecutionEntity.getEndTime() || Date.now();
-    const executionTime = endTime - (startTime || Date.now());
+    const startTime = this.workflowExecutionEntity.getStartTime() || Date.now();
 
     return {
-      executionId,
+      executionId: this.workflowExecutionEntity.id,
       output: this.workflowExecutionEntity.getOutput(),
-      executionTime,
+      executionTime: endTime - startTime,
       nodeResults: this.workflowExecutionEntity.getNodeResults(),
       metadata: {
         status: this.workflowExecutionEntity.getStatus(),
-        startTime: startTime || Date.now(),
+        startTime,
         endTime,
-        executionTime,
+        executionTime: endTime - startTime,
         nodeCount: this.workflowExecutionEntity.getNodeResults().length,
         errorCount: this.workflowExecutionEntity.getErrors().length,
       },

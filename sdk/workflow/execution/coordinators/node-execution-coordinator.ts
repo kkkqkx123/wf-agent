@@ -211,9 +211,10 @@ export class NodeExecutionCoordinator {
     }
 
     // Create an interrupt checkpoint
+    let checkpointId: string | undefined;
     if (this.checkpointDependencies) {
       try {
-        await createCheckpoint(
+        checkpointId = await createCheckpoint(
           {
             workflowExecutionId,
             nodeId,
@@ -227,7 +228,7 @@ export class NodeExecutionCoordinator {
           },
           this.checkpointDependencies,
         );
-        logger.debug("Interruption checkpoint created", { executionId: workflowExecutionId, nodeId, type });
+        logger.debug("Interruption checkpoint created", { executionId: workflowExecutionId, nodeId, type, checkpointId });
       } catch (error) {
         // `workflowExecutionContext` is of the `WorkflowExecutionEntity` type.
         await handleErrorWithContext(
@@ -240,16 +241,32 @@ export class NodeExecutionCoordinator {
       }
     }
 
-    // Trigger the corresponding event.
+    // Trigger the corresponding event with rich context
     if (type === "PAUSE") {
       workflowExecutionContext.setStatus("PAUSED");
-      const pausedEvent = buildWorkflowExecutionPausedEvent(workflowExecutionContext);
+      const pausedEvent = buildWorkflowExecutionPausedEvent(workflowExecutionContext, {
+        nodeId,
+        completedNodes: workflowExecutionContext.getNodeResults().length,
+        pendingToolsCancelled: true,
+        checkpointCreated: !!checkpointId,
+        checkpointId,
+      });
       await emit(this.eventManager, pausedEvent);
       logger.info("Workflow execution paused event emitted", { executionId: workflowExecutionId, nodeId });
     } else if (type === "STOP") {
       workflowExecutionContext.setStatus("CANCELLED");
       workflowExecutionContext.state.cancel();
-      const cancelledEvent = buildWorkflowExecutionCancelledEvent(workflowExecutionContext, "user_requested");
+      const cancelledEvent = buildWorkflowExecutionCancelledEvent(
+        workflowExecutionContext,
+        "user_requested",
+        {
+          nodeId,
+          completedNodes: workflowExecutionContext.getNodeResults().length,
+          pendingToolsCancelled: true,
+          checkpointCreated: !!checkpointId,
+          checkpointId,
+        },
+      );
       await emit(this.eventManager, cancelledEvent);
       logger.info("Workflow execution cancelled event emitted", { executionId: workflowExecutionId, nodeId });
     }

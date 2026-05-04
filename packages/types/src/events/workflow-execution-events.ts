@@ -41,6 +41,16 @@ export interface WorkflowExecutionPausedEvent extends BaseEvent {
   type: "WORKFLOW_EXECUTION_PAUSED";
   /** Reason for suspension */
   reason?: string;
+  /** Node ID where pause occurred */
+  nodeId?: string;
+  /** Number of completed nodes */
+  completedNodes?: number;
+  /** Whether pending tools were cancelled */
+  pendingToolsCancelled?: boolean;
+  /** Whether a checkpoint was created */
+  checkpointCreated?: boolean;
+  /** Checkpoint ID */
+  checkpointId?: string;
 }
 
 /**
@@ -57,6 +67,20 @@ export interface WorkflowExecutionCancelledEvent extends BaseEvent {
   type: "WORKFLOW_EXECUTION_CANCELLED";
   /** Reason for cancellation */
   reason?: string;
+  /** Node ID where cancellation occurred */
+  nodeId?: string;
+  /** Number of completed nodes */
+  completedNodes?: number;
+  /** Whether pending tools were cancelled */
+  pendingToolsCancelled?: boolean;
+  /** Whether a checkpoint was created */
+  checkpointCreated?: boolean;
+  /** Checkpoint ID */
+  checkpointId?: string;
+  /** Pause duration in milliseconds (if cancelled due to pause timeout) */
+  pauseDuration?: number;
+  /** Maximum pause duration configured (if cancelled due to pause timeout) */
+  maxPauseDuration?: number;
 }
 
 /**

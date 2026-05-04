@@ -9,6 +9,7 @@ import {
   createCheckpointLoader,
 } from "../../../core/utils/checkpoint/delta-restorer.js";
 import type { Checkpoint, WorkflowExecutionStateSnapshot, CheckpointDelta } from "@wf-agent/types";
+import { WorkflowCheckpointError } from "@wf-agent/types";
 
 /**
  * Checkpoint Delta Restorer
@@ -38,7 +39,14 @@ export class DeltaCheckpointRestorer extends DeltaRestorer<
   protected extractSnapshot(checkpoint: Checkpoint): WorkflowExecutionStateSnapshot {
     const fullCp = checkpoint as import("@wf-agent/types").FullCheckpoint<WorkflowExecutionStateSnapshot>;
     if (!fullCp.snapshot) {
-      throw new Error(`Checkpoint ${checkpoint.id} has no execution state`);
+      throw new WorkflowCheckpointError(
+        `Checkpoint ${checkpoint.id} has no execution state`,
+        "restore",
+        checkpoint.id,
+        undefined,
+        checkpoint.workflowId,
+        checkpoint.executionId,
+      );
     }
     return fullCp.snapshot;
   }

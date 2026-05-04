@@ -45,7 +45,8 @@ export class BusinessLogicError extends ExecutionError {
  * Note: For more specific error scenarios, use the following specialized error types:
  * - DependencyInjectionError: Dependency injection failure
  * - StateManagementError: State management failure
- * - CheckpointError: Checkpoint operation failed
+ * - AgentCheckpointError: Agent checkpoint operation failed
+ * - WorkflowCheckpointError: Workflow checkpoint operation failed
  * - EventSystemError: Event system error
  */
 export class SystemExecutionError extends ExecutionError {
@@ -144,29 +145,67 @@ export class StateManagementError extends ExecutionError {
 }
 
 /**
- * Checkpoint Error Type
+ * Agent Checkpoint Error Type
  *
- * Specialized for checkpoint-related errors
- * Used when a checkpoint creation, recovery, deletion, or validation operation fails
+ * Specialized for agent loop checkpoint-related errors
+ * Used when an agent checkpoint creation, recovery, deletion, or validation operation fails
  *
  * Usage Scenario:
- * - Checkpoint creation failure
- * - Checkpoint recovery failure
- * - Checkpoint deletion failure
- * - Checkpoint validation failure
+ * - Agent checkpoint creation failure
+ * - Agent checkpoint recovery failure
+ * - Agent checkpoint deletion failure
+ * - Agent checkpoint validation failure
  */
-export class CheckpointError extends ExecutionError {
+export class AgentCheckpointError extends ExecutionError {
   constructor(
     message: string,
     public readonly operation: "create" | "restore" | "delete" | "validate",
     public readonly checkpointId?: string,
-    nodeId?: string,
-    workflowId?: string,
+    public readonly agentLoopId?: string,
     context?: Record<string, unknown>,
     cause?: Error,
     severity?: ErrorSeverity,
   ) {
-    super(message, nodeId, workflowId, { ...context, operation, checkpointId }, cause, severity);
+    super(message, undefined, undefined, { ...context, operation, checkpointId, agentLoopId }, cause, severity);
+  }
+
+  protected override getDefaultSeverity(): ErrorSeverity {
+    return "error";
+  }
+}
+
+/**
+ * Workflow Checkpoint Error Type
+ *
+ * Specialized for workflow/graph checkpoint-related errors
+ * Used when a workflow checkpoint creation, recovery, deletion, or validation operation fails
+ *
+ * Usage Scenario:
+ * - Workflow checkpoint creation failure
+ * - Workflow checkpoint recovery failure
+ * - Workflow checkpoint deletion failure
+ * - Workflow checkpoint validation failure
+ */
+export class WorkflowCheckpointError extends ExecutionError {
+  constructor(
+    message: string,
+    public readonly operation: "create" | "restore" | "delete" | "validate",
+    public readonly checkpointId?: string,
+    public override readonly nodeId?: string,
+    public override readonly workflowId?: string,
+    public readonly executionId?: string,
+    context?: Record<string, unknown>,
+    cause?: Error,
+    severity?: ErrorSeverity,
+  ) {
+    super(
+      message,
+      nodeId,
+      workflowId,
+      { ...context, operation, checkpointId, executionId },
+      cause,
+      severity,
+    );
   }
 
   protected override getDefaultSeverity(): ErrorSeverity {

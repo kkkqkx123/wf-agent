@@ -21,7 +21,7 @@ import type { ToolContextStore } from "../../stores/tool-context-store.js";
 import { emit } from "../utils/index.js";
 import type { ToolApprovalData } from "@wf-agent/types";
 import { generateId } from "../../../utils/index.js";
-import { getErrorOrNew } from "@wf-agent/common-utils";
+import { getErrorOrNew, now } from "@wf-agent/common-utils";
 import { ExecutionError } from "@wf-agent/types";
 import { CheckpointCoordinator } from "../../checkpoint/checkpoint-coordinator.js";
 import { InterruptionDetectorImpl, type InterruptionDetector } from "../interruption-detector.js";
@@ -305,111 +305,147 @@ export class LLMExecutionCoordinator {
     }
 
     // Execute an LLM call (passing the AbortSignal)
-    const llmResult = await this.contextFactory.getLLMExecutor().executeLLMCall(
-      conversationState.getMessages(),
-      {
-        prompt,
-        profileId: profileId || "DEFAULT",
-        parameters: parameters || {},
-        tools: availableToolSchemas as ToolSchema[],
-      },
-      { abortSignal },
-    );
-
-    // Check if it is in an interrupted state.
-    if (!llmResult.success) {
-      return (llmResult as { success: false; interruption: InterruptionCheckResult }).interruption;
-    }
-
-    const result = llmResult.result;
-
-    // Update Token usage statistics
-    if (result.usage) {
-      conversationState.updateTokenUsage(result.usage as LLMUsage);
-    }
-
-    // Complete the Token statistics for the current request.
-    conversationState.finalizeCurrentRequest();
-
-    // Add the LLM response to the conversation history.
-    const assistantMessage = {
-      role: "assistant" as MessageRole,
-      content: result.content,
-      toolCalls: result.toolCalls?.map((tc: { id: string; name: string; arguments: string }) => ({
-        id: tc.id,
-        type: "function" as const,
-        function: {
-          name: tc.name,
-          arguments: tc.arguments,
+    // Track operation state for mid-node resume
+    if (executionEntity) {
+      const operationId = generateId();
+      executionEntity.state.setCurrentOperation({
+        type: "LLM_STREAMING",
+        operationId,
+        nodeId,
+        startedAt: now(),
+        progress: {
+          tokensGenerated: 0,
         },
-      })),
-    };
-    conversationState.addMessage(assistantMessage);
-
-    // Trigger message addition event
-    const assistantMessageEvent = buildMessageAddedEvent({
-      executionId: executionId || "",
-      role: assistantMessage.role,
-      content: assistantMessage.content,
-      nodeId,
-    });
-    
-    try {
-      await emit(this.contextFactory.getEventManager(), assistantMessageEvent);
-    } catch (error) {
-      logger.debug("Failed to emit MESSAGE_ADDED event", { eventType: assistantMessageEvent.type, error });
+        metadata: {
+          profileId: profileId || "DEFAULT",
+        },
+      });
     }
 
-    // Check if there are any tool calls.
-    if (result.toolCalls && result.toolCalls.length > 0) {
-      // Verify the number of tool calls returned in a single instance.
-      const maxToolsPerResponse = maxToolCallsPerRequest ?? 3;
-      if (result.toolCalls.length > maxToolsPerResponse) {
-        throw new ExecutionError(
-          `LLM returned ${result.toolCalls.length} tool calls, ` +
-            `exceeds limit of ${maxToolsPerResponse}. ` +
-            `Configure maxToolCallsPerRequest to adjust this limit.`,
+    try {
+      const llmResult = await this.contextFactory.getLLMExecutor().executeLLMCall(
+        conversationState.getMessages(),
+        {
+          prompt,
+          profileId: profileId || "DEFAULT",
+          parameters: parameters || {},
+          tools: availableToolSchemas as ToolSchema[],
+        },
+        { abortSignal },
+      );
+
+      // Check if it is in an interrupted state.
+      if (!llmResult.success) {
+        // If interrupted, preserve operation state for resume
+        if (executionEntity && abortSignal?.aborted) {
+          logger.info("LLM call interrupted, preserving operation state for resume", {
+            executionId,
+            nodeId,
+          });
+        } else {
+          // On other errors, clear operation state
+          executionEntity?.state.clearOperation();
+        }
+        return (llmResult as { success: false; interruption: InterruptionCheckResult }).interruption;
+      }
+
+      const result = llmResult.result;
+
+      // Clear operation state on success
+      executionEntity?.state.clearOperation();
+
+      // Update Token usage statistics
+      if (result.usage) {
+        conversationState.updateTokenUsage(result.usage as LLMUsage);
+      }
+
+      // Complete the Token statistics for the current request.
+      conversationState.finalizeCurrentRequest();
+
+      // Add the LLM response to the conversation history.
+      const assistantMessage = {
+        role: "assistant" as MessageRole,
+        content: result.content,
+        toolCalls: result.toolCalls?.map((tc: { id: string; name: string; arguments: string }) => ({
+          id: tc.id,
+          type: "function" as const,
+          function: {
+            name: tc.name,
+            arguments: tc.arguments,
+          },
+        })),
+      };
+      conversationState.addMessage(assistantMessage);
+
+      // Trigger message addition event
+      const assistantMessageEvent = buildMessageAddedEvent({
+        executionId: executionId || "",
+        role: assistantMessage.role,
+        content: assistantMessage.content,
+        nodeId,
+      });
+      
+      try {
+        await emit(this.contextFactory.getEventManager(), assistantMessageEvent);
+      } catch (error) {
+        logger.debug("Failed to emit MESSAGE_ADDED event", { eventType: assistantMessageEvent.type, error });
+      }
+
+      // Check if there are any tool calls.
+      if (result.toolCalls && result.toolCalls.length > 0) {
+        // Verify the number of tool calls returned in a single instance.
+        const maxToolsPerResponse = maxToolCallsPerRequest ?? 3;
+        if (result.toolCalls.length > maxToolsPerResponse) {
+          throw new ExecutionError(
+            `LLM returned ${result.toolCalls.length} tool calls, ` +
+              `exceeds limit of ${maxToolsPerResponse}. ` +
+              `Configure maxToolCallsPerRequest to adjust this limit.`,
+            nodeId,
+          );
+        }
+
+        // Check for interruptions before executing the tool call.
+        if (abortSignal) {
+          const interruption = checkInterruption(abortSignal);
+          if (!shouldContinue(interruption)) {
+            return interruption;
+          }
+        }
+
+        // Use the injection tool to call the executor to perform the tool call (passing the AbortSignal).
+        await this.executeToolCallsWithApproval(
+          result.toolCalls,
+          conversationState,
+          executionId,
           nodeId,
+          params.workflowConfig,
+          this.contextFactory.getToolCallExecutor(),
+          { abortSignal },
         );
       }
 
-      // Check for interruptions before executing the tool call.
-      if (abortSignal) {
-        const interruption = checkInterruption(abortSignal);
-        if (!shouldContinue(interruption)) {
-          return interruption;
-        }
+      // Trigger a dialog state change event
+      const finalTokenUsage = conversationState.getTokenUsage();
+      const stateChangedEvent = buildConversationStateChangedEvent({
+        executionId: executionId || "",
+        messageCount: conversationState.getMessages().length,
+        tokenUsage: finalTokenUsage?.totalTokens || 0,
+        nodeId,
+      });
+      
+      try {
+        await emit(this.contextFactory.getEventManager(), stateChangedEvent);
+      } catch (error) {
+        logger.debug("Failed to emit CONVERSATION_STATE_CHANGED event", { eventType: stateChangedEvent.type, error });
       }
 
-      // Use the injection tool to call the executor to perform the tool call (passing the AbortSignal).
-      await this.executeToolCallsWithApproval(
-        result.toolCalls,
-        conversationState,
-        executionId,
-        nodeId,
-        params.workflowConfig,
-        this.contextFactory.getToolCallExecutor(),
-        { abortSignal },
-      );
-    }
-
-    // Trigger a dialog state change event
-    const finalTokenUsage = conversationState.getTokenUsage();
-    const stateChangedEvent = buildConversationStateChangedEvent({
-      executionId: executionId || "",
-      messageCount: conversationState.getMessages().length,
-      tokenUsage: finalTokenUsage?.totalTokens || 0,
-      nodeId,
-    });
-    
-    try {
-      await emit(this.contextFactory.getEventManager(), stateChangedEvent);
+      // Return the final content
+      return result.content;
     } catch (error) {
-      logger.debug("Failed to emit CONVERSATION_STATE_CHANGED event", { eventType: stateChangedEvent.type, error });
+      // On exception, clear operation state
+      executionEntity?.state.clearOperation();
+      throw error;
     }
-
-    // Return the final content
-    return result.content;
   }
 
   /**

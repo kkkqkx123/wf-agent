@@ -62,13 +62,29 @@ export const buildWorkflowExecutionFailedEvent = createErrorBuilder<WorkflowExec
 
 /**
  * Build workflow execution paused event
+ * Enhanced with rich context information
  */
-export const buildWorkflowExecutionPausedEvent = (workflowExecutionEntity: WorkflowExecutionEntity): WorkflowExecutionPausedEvent => ({
+export const buildWorkflowExecutionPausedEvent = (
+  workflowExecutionEntity: WorkflowExecutionEntity,
+  context?: {
+    nodeId?: string;
+    completedNodes?: number;
+    pendingToolsCancelled?: boolean;
+    checkpointCreated?: boolean;
+    checkpointId?: string;
+  },
+): WorkflowExecutionPausedEvent => ({
   id: generateId(),
   type: "WORKFLOW_EXECUTION_PAUSED",
   timestamp: now(),
   workflowId: workflowExecutionEntity.getWorkflowId(),
   executionId: workflowExecutionEntity.id,
+  reason: context?.nodeId ? `Paused at node: ${context.nodeId}` : undefined,
+  nodeId: context?.nodeId,
+  completedNodes: context?.completedNodes,
+  pendingToolsCancelled: context?.pendingToolsCancelled,
+  checkpointCreated: context?.checkpointCreated,
+  checkpointId: context?.checkpointId,
 });
 
 /**
@@ -84,17 +100,34 @@ export const buildWorkflowExecutionResumedEvent = (workflowExecutionEntity: Work
 
 /**
  * Build workflow execution cancelled event
+ * Enhanced with rich context information
  */
 export const buildWorkflowExecutionCancelledEvent = (
   workflowExecutionEntity: WorkflowExecutionEntity,
   reason?: string,
+  context?: {
+    nodeId?: string;
+    completedNodes?: number;
+    pendingToolsCancelled?: boolean;
+    checkpointCreated?: boolean;
+    checkpointId?: string;
+    pauseDuration?: number;
+    maxPauseDuration?: number;
+  },
 ): WorkflowExecutionCancelledEvent => ({
   id: generateId(),
   type: "WORKFLOW_EXECUTION_CANCELLED",
   timestamp: now(),
   workflowId: workflowExecutionEntity.getWorkflowId(),
   executionId: workflowExecutionEntity.id,
-  reason,
+  reason: context?.nodeId ? `${reason || "Cancelled"} at node: ${context.nodeId}` : reason,
+  nodeId: context?.nodeId,
+  completedNodes: context?.completedNodes,
+  pendingToolsCancelled: context?.pendingToolsCancelled,
+  checkpointCreated: context?.checkpointCreated,
+  checkpointId: context?.checkpointId,
+  pauseDuration: context?.pauseDuration,
+  maxPauseDuration: context?.maxPauseDuration,
 });
 
 /**

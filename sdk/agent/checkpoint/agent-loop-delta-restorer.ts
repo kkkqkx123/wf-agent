@@ -10,6 +10,7 @@ import {
   type RestoreResult,
 } from "../../core/utils/checkpoint/delta-restorer.js";
 import type { AgentLoopCheckpoint, AgentLoopStateSnapshot, AgentLoopDelta } from "@wf-agent/types";
+import { AgentCheckpointError } from "@wf-agent/types";
 
 /**
  * Agent Loop restore result
@@ -66,7 +67,12 @@ export class AgentLoopDeltaRestorer extends DeltaRestorer<
    */
   protected extractSnapshot(checkpoint: AgentLoopCheckpoint): AgentLoopStateSnapshot {
     if (!checkpoint.snapshot) {
-      throw new Error(`Checkpoint ${checkpoint.id} has no snapshot`);
+      throw new AgentCheckpointError(
+        `Checkpoint ${checkpoint.id} has no snapshot`,
+        "restore",
+        checkpoint.id,
+        checkpoint.agentLoopId,
+      );
     }
     return checkpoint.snapshot;
   }

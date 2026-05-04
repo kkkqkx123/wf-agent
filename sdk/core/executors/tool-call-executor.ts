@@ -28,7 +28,7 @@ import type { EventRegistry } from "../registry/event-registry.js";
 import type { Tool, ID, Event } from "@wf-agent/types";
 import { now, diffTimestamp, generateId } from "@wf-agent/common-utils";
 import type { ConversationSession } from "../messaging/conversation-session.js";
-import { WorkflowExecutionInterruptedException, CheckpointError } from "@wf-agent/types";
+import { WorkflowExecutionInterruptedException, WorkflowCheckpointError } from "@wf-agent/types";
 import { MessageBuilder } from "../messaging/message-builder.js";
 import type { CheckpointDependencies } from "../../workflow/checkpoint/utils/checkpoint-utils.js";
 import type { ToolVisibilityStore } from "../../workflow/stores/tool-visibility-store.js";
@@ -302,6 +302,33 @@ export class ToolCallExecutor {
   ): Promise<ToolExecutionResult> {
     const startTime = taskInfo.startTime;
 
+    // Track operation state for mid-node resume (if execution registry is available)
+    const executionRegistry = (this as any).executionRegistry;
+    let hasOperationState = false;
+    
+    if (executionRegistry && executionId) {
+      const executionEntity = executionRegistry.get(executionId);
+      if (executionEntity) {
+        executionEntity.state.setCurrentOperation({
+          type: "TOOL_EXECUTION",
+          operationId: toolCall.id,
+          nodeId: nodeId || "",
+          startedAt: now(),
+          progress: {
+            itemsProcessed: 0,
+            percentage: 0,
+          },
+          metadata: {
+            toolName: toolCall.name,
+            arguments: toolCall.arguments,
+            batchId,
+            taskId: taskInfo.taskId,
+          },
+        });
+        hasOperationState = true;
+      }
+    }
+
     // Obtain tool configuration
     let toolConfig: Tool | undefined;
     try {
@@ -324,7 +351,7 @@ export class ToolCallExecutor {
     if (executionId && this.toolVisibilityStore) {
       if (!this.toolVisibilityStore.isToolVisible(executionId, toolCall.name)) {
         const visibleTools = this.toolVisibilityStore.getVisibleTools(executionId);
-        const errorMessage = `工具 '${toolCall.name}' 在当前作用域不可用。当前可用工具：[${Array.from(visibleTools).join(", ")}]`;
+        const errorMessage = `Tool '${toolCall.name}' Not available in the current scope. Currently available tools: [${Array.from(visibleTools).join(", ")}]`;
 
         // Failed to construct the tool result message using MessageBuilder.
         const toolMessage = MessageBuilder.buildToolMessage(toolCall.id, {
@@ -397,12 +424,13 @@ export class ToolCallExecutor {
             this.checkpointDependencies,
           );
         } catch (error) {
-          throw new CheckpointError(
+          throw new WorkflowCheckpointError(
             `Failed to create checkpoint before tool "${toolCall.name}"`,
             "create",
             undefined,
             undefined,
             undefined,
+            executionId,
             {
               toolId: toolCall.name,
               originalError: error instanceof Error ? error : new Error(String(error)),
@@ -440,39 +468,135 @@ export class ToolCallExecutor {
     };
 
     // Call ToolRegistry to execute the tool.
-    const result = await this.toolService.execute(
-      toolCall.name,
-      JSON.parse(toolCall.arguments),
-      executionOptions,
-      executionId,
-    );
+    try {
+      const result = await this.toolService.execute(
+        toolCall.name,
+        JSON.parse(toolCall.arguments),
+        executionOptions,
+        executionId,
+      );
 
-    const executionTime = diffTimestamp(startTime, now());
+      const executionTime = diffTimestamp(startTime, now());
 
-    if (result.isErr()) {
-      const error = result.error;
-      const errorMessage = error.message;
-
-      // Handle AbortError
-      if (isAbortError(error)) {
-        const result = checkInterruption(options?.abortSignal);
-        // Only PAUSE or STOP will convert to WorkflowExecutionInterruptedException.
-        if (result.type === "paused" || result.type === "stopped") {
-          throw new WorkflowExecutionInterruptedException(
-            "Tool execution interrupted",
-            result.type === "paused" ? "PAUSE" : "STOP",
-            result.executionId || executionId || "",
-            result.nodeId || nodeId || "",
-          );
-        }
-        // Aborted or continued, with the original error being re-thrown.
-        throw error;
+      // Clear operation state on success
+      if (hasOperationState && executionRegistry && executionId) {
+        const executionEntity = executionRegistry.get(executionId);
+        executionEntity?.state.clearOperation();
       }
 
-      // Failed to construct the tool result message using MessageBuilder.
+      if (result.isErr()) {
+        const error = result.error;
+        const errorMessage = error.message;
+
+        // Handle AbortError
+        if (isAbortError(error)) {
+          const interruptionResult = checkInterruption(options?.abortSignal);
+          // Only PAUSE or STOP will convert to WorkflowExecutionInterruptedException.
+          if (interruptionResult.type === "paused" || interruptionResult.type === "stopped") {
+            throw new WorkflowExecutionInterruptedException(
+              "Tool execution interrupted",
+              interruptionResult.type === "paused" ? "PAUSE" : "STOP",
+              interruptionResult.executionId || executionId || "",
+              interruptionResult.nodeId || nodeId || "",
+            );
+          }
+          // Aborted or continued, with the original error being re-thrown.
+          throw error;
+        }
+
+        // Failed to construct the tool result message using MessageBuilder.
+        const toolMessage = MessageBuilder.buildToolMessage(toolCall.id, {
+          success: false,
+          error: errorMessage || "Tool execution failed",
+          executionTime,
+          retryCount: 0,
+        });
+        conversationState.addMessage(toolMessage);
+
+        // Trigger message addition event
+        if (this.eventManager && this.eventBuilder && this.safeEmitFn) {
+          const messageEvent = this.eventBuilder.buildMessageAddedEvent({
+            executionId: executionId || "",
+            role: toolMessage.role,
+            content:
+              typeof toolMessage.content === "string"
+                ? toolMessage.content
+                : JSON.stringify(toolMessage.content),
+            nodeId,
+          });
+          await this.safeEmitFn(this.eventManager, messageEvent);
+        }
+
+        // Trigger tool call failure event
+        if (this.eventManager && this.eventBuilder && this.safeEmitFn) {
+          const failedEvent = this.eventBuilder.buildToolCallFailedEvent({
+            executionId: executionId || "",
+            nodeId: nodeId || "",
+            toolId: toolCall.name,
+            toolName: toolCall.name,
+            error: new Error(errorMessage),
+            taskId: taskInfo.taskId,
+            batchId,
+          });
+          await this.safeEmitFn(this.eventManager, failedEvent);
+        }
+
+        return {
+          toolCallId: toolCall.id,
+          toolId: toolCall.name,
+          success: false,
+          error: errorMessage,
+          executionTime,
+        };
+      }
+
+      // Tool execution succeeded
+      const successResult = result.value;
+
+      // Create a checkpoint after the tool call (if configured).
+      if (
+        toolConfig?.createCheckpoint &&
+        this.checkpointDependencies &&
+        executionId &&
+        this.createCheckpointFn
+      ) {
+        const checkpointConfig = toolConfig.createCheckpoint;
+        if (
+          checkpointConfig === true ||
+          checkpointConfig === "after" ||
+          checkpointConfig === "both"
+        ) {
+          try {
+            await this.createCheckpointFn(
+              {
+                workflowExecutionId: executionId,
+                toolId: toolCall.name,
+                description:
+                  toolConfig.checkpointDescriptionTemplate || `After tool: ${toolCall.name}`,
+              },
+              this.checkpointDependencies,
+            );
+          } catch (error) {
+            throw new WorkflowCheckpointError(
+              `Failed to create checkpoint after tool "${toolCall.name}"`,
+              "create",
+              undefined,
+              undefined,
+              undefined,
+              executionId,
+              {
+                toolId: toolCall.name,
+                originalError: error instanceof Error ? error : new Error(String(error)),
+              },
+            );
+          }
+        }
+      }
+
+      // Build a successful tool result message using MessageBuilder.
       const toolMessage = MessageBuilder.buildToolMessage(toolCall.id, {
-        success: false,
-        error: errorMessage || "Tool execution failed",
+        success: true,
+        result: successResult,
         executionTime,
         retryCount: 0,
       });
@@ -492,112 +616,44 @@ export class ToolCallExecutor {
         await this.safeEmitFn(this.eventManager, messageEvent);
       }
 
-      // Trigger tool call failure event
+      // Triggering the tool invocation completed the event.
       if (this.eventManager && this.eventBuilder && this.safeEmitFn) {
-        const failedEvent = this.eventBuilder.buildToolCallFailedEvent({
+        const completedEvent = this.eventBuilder.buildToolCallCompletedEvent({
           executionId: executionId || "",
           nodeId: nodeId || "",
           toolId: toolCall.name,
           toolName: toolCall.name,
-          error: new Error(errorMessage),
+          result: successResult,
+          executionTime,
           taskId: taskInfo.taskId,
           batchId,
         });
-        await this.safeEmitFn(this.eventManager, failedEvent);
+        await this.safeEmitFn(this.eventManager, completedEvent);
       }
 
       return {
         toolCallId: toolCall.id,
         toolId: toolCall.name,
-        success: false,
-        error: errorMessage,
+        success: true,
+        result: successResult,
         executionTime,
       };
-    }
-
-    // Execution successful.
-    const serviceResult = result.value;
-
-    // Construct a successful tool result message using MessageBuilder.
-    const toolMessage = MessageBuilder.buildToolMessage(toolCall.id, {
-      success: serviceResult.success,
-      result: serviceResult.result,
-      error: serviceResult.error,
-      executionTime,
-      retryCount: 0,
-    });
-    conversationState.addMessage(toolMessage);
-
-    // Trigger message addition event
-    if (this.eventManager && this.eventBuilder && this.safeEmitFn) {
-      const messageEvent = this.eventBuilder.buildMessageAddedEvent({
-        executionId: executionId || "",
-        role: toolMessage.role,
-        content:
-          typeof toolMessage.content === "string"
-            ? toolMessage.content
-            : JSON.stringify(toolMessage.content),
-        nodeId,
-      });
-      await this.safeEmitFn(this.eventManager, messageEvent);
-    }
-
-    // A checkpoint is created after the tool is called (if configured).
-    if (
-      toolConfig?.createCheckpoint &&
-      this.checkpointDependencies &&
-      executionId &&
-      this.createCheckpointFn
-    ) {
-      const checkpointConfig = toolConfig.createCheckpoint;
-      if (checkpointConfig === "after" || checkpointConfig === "both") {
-        try {
-          await this.createCheckpointFn(
-            {
-              workflowExecutionId: executionId,
-              toolId: toolCall.name,
-              description:
-                toolConfig.checkpointDescriptionTemplate || `After tool: ${toolCall.name}`,
-            },
-            this.checkpointDependencies,
-          );
-        } catch (error) {
-          throw new CheckpointError(
-            `Failed to create checkpoint after tool "${toolCall.name}"`,
-            "create",
-            undefined,
-            undefined,
-            undefined,
-            {
-              toolId: toolCall.name,
-              originalError: error instanceof Error ? error : new Error(String(error)),
-            },
-          );
+    } catch (error) {
+      // On exception, clear operation state if interrupted
+      if (hasOperationState && executionRegistry && executionId) {
+        const executionEntity = executionRegistry.get(executionId);
+        if (isAbortError(error)) {
+          // Preserve operation state for resume
+          logger.info("Tool execution interrupted, preserving operation state for resume", {
+            executionId,
+            toolCallId: toolCall.id,
+          });
+        } else {
+          // Clear operation state on other errors
+          executionEntity?.state.clearOperation();
         }
       }
+      throw error;
     }
-
-    // Trigger the completion event for the tool invocation.
-    if (this.eventManager && this.eventBuilder && this.safeEmitFn) {
-      const completedEvent = this.eventBuilder.buildToolCallCompletedEvent({
-        executionId: executionId || "",
-        nodeId: nodeId || "",
-        toolId: toolCall.name,
-        toolName: toolCall.name,
-        toolResult: serviceResult.result,
-        executionTime,
-        taskId: taskInfo.taskId,
-        batchId,
-      });
-      await this.safeEmitFn(this.eventManager, completedEvent);
-    }
-
-    return {
-      toolCallId: toolCall.id,
-      toolId: toolCall.name,
-      success: true,
-      result: serviceResult.result,
-      executionTime,
-    };
   }
 }

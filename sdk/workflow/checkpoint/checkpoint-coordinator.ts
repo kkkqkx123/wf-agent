@@ -7,6 +7,7 @@ import {
   WorkflowExecutionNotFoundError,
   CheckpointNotFoundError,
   WorkflowNotFoundError,
+  WorkflowCheckpointError,
 } from "@wf-agent/types";
 import { CheckpointType } from "@wf-agent/types";
 import { DEFAULT_DELTA_STORAGE_CONFIG } from "../../core/utils/checkpoint/constants.js";
@@ -241,6 +242,9 @@ export class CheckpointCoordinator {
     // Get a snapshot of the trigger status.
     const triggerStateSnapshot = workflowExecutionEntity.getTriggerStateSnapshot();
 
+    // Capture operation state for mid-node resume
+    const operationState = workflowExecutionEntity.state.getOperationStateSnapshot();
+
     return {
       status: workflowExecutionEntity.getStatus(),
       currentNodeId: workflowExecution.currentNodeId,
@@ -260,6 +264,7 @@ export class CheckpointCoordinator {
           : undefined,
       forkJoinContext: workflowExecution.forkJoinContext,
       triggeredSubworkflowContext: workflowExecution.triggeredSubworkflowContext,
+      currentOperation: operationState ?? undefined,
     };
   }
 
@@ -435,7 +440,17 @@ export class CheckpointCoordinator {
       );
     }
 
-    // Step 15: Inferring FORK/JOIN status (if needed)
+    // Step 15: Restore operation state for mid-node resume
+    if (workflowExecutionState.currentOperation) {
+      workflowExecutionEntity.state.restoreOperationState(workflowExecutionState.currentOperation);
+      console.info("Restored operation state from checkpoint", {
+        executionId: workflowExecutionEntity.id,
+        operationType: workflowExecutionState.currentOperation.type,
+        operationId: workflowExecutionState.currentOperation.operationId,
+      });
+    }
+
+    // Step 16: Inferring FORK/JOIN status (if needed)
     // Note: FORK/JOIN status does not need to be saved to Checkpoint and can be inferred from the diagram structure and execution sequence during recovery
     // If the current node is a JOIN node, you can infer which branches have completed
     if (workflowExecution.graph) {
@@ -446,7 +461,7 @@ export class CheckpointCoordinator {
       }
     }
 
-    // Step 16: Validate hierarchy integrity (if registry is available)
+    // Step 17: Validate hierarchy integrity (if registry is available)
     const { hierarchyRegistry } = dependencies;
     if (hierarchyRegistry) {
       const hierarchyMetadata = workflowExecutionEntity.getHierarchyMetadata();
@@ -463,7 +478,7 @@ export class CheckpointCoordinator {
       }
     }
 
-    // Step 17: Reestablish the parent-child relationship for child workflows
+    // Step 18: Reestablish the parent-child relationship for child workflows
     if (
       workflowExecutionState.triggeredSubworkflowContext?.childExecutionIds &&
       workflowExecutionState.triggeredSubworkflowContext.childExecutionIds.length > 0
@@ -488,7 +503,7 @@ export class CheckpointCoordinator {
       }
     }
 
-    // Step 17: Register with WorkflowExecutionRegistry
+    // Step 19: Register with WorkflowExecutionRegistry
     workflowExecutionRegistry.register(workflowExecutionEntity);
 
     return {
@@ -594,9 +609,21 @@ export class CheckpointCoordinator {
    * Verify the integrity and compatibility of checkpoints (static private methods)
    */
   private static validateCheckpoint(checkpoint: Checkpoint): void {
+    // Store common fields before type narrowing
+    const checkpointId = checkpoint.id;
+    const workflowId = checkpoint.workflowId;
+    const executionId = checkpoint.executionId;
+
     // Verify required fields
-    if (!checkpoint.id || !checkpoint.executionId || !checkpoint.workflowId) {
-      throw new Error("Invalid checkpoint: missing required fields");
+    if (!checkpointId || !executionId || !workflowId) {
+      throw new WorkflowCheckpointError(
+        "Invalid checkpoint: missing required fields",
+        "validate",
+        checkpointId,
+        undefined,
+        workflowId,
+        executionId,
+      );
     }
 
     // Store the type for error reporting
@@ -606,18 +633,46 @@ export class CheckpointCoordinator {
     if (checkpointType === "FULL") {
       const fullCp = checkpoint as import("@wf-agent/types").FullCheckpoint<WorkflowExecutionStateSnapshot>;
       if (!fullCp.snapshot) {
-        throw new Error("Invalid full checkpoint: missing snapshot");
+        throw new WorkflowCheckpointError(
+          "Invalid full checkpoint: missing snapshot",
+          "validate",
+          checkpointId,
+          undefined,
+          workflowId,
+          executionId,
+        );
       }
     } else if (checkpointType === "DELTA") {
       const deltaCp = checkpoint as import("@wf-agent/types").DeltaCheckpoint<import("@wf-agent/types").CheckpointDelta>;
       if (!deltaCp.delta) {
-        throw new Error("Invalid delta checkpoint: missing delta");
+        throw new WorkflowCheckpointError(
+          "Invalid delta checkpoint: missing delta",
+          "validate",
+          checkpointId,
+          undefined,
+          workflowId,
+          executionId,
+        );
       }
       if (!deltaCp.baseCheckpointId) {
-        throw new Error("Invalid delta checkpoint: missing baseCheckpointId");
+        throw new WorkflowCheckpointError(
+          "Invalid delta checkpoint: missing baseCheckpointId",
+          "validate",
+          checkpointId,
+          undefined,
+          workflowId,
+          executionId,
+        );
       }
     } else {
-      throw new Error(`Invalid checkpoint type: ${checkpointType}`);
+      throw new WorkflowCheckpointError(
+        `Invalid checkpoint type: ${checkpointType}`,
+        "validate",
+        checkpointId,
+        undefined,
+        workflowId,
+        executionId,
+      );
     }
   }
 }

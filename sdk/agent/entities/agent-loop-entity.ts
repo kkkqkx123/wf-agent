@@ -51,6 +51,11 @@
  */
 
 import type { ID, LLMMessage, AgentLoopRuntimeConfig, AgentLoopStateSnapshot } from "@wf-agent/types";
+import type {
+  ParentExecutionContext,
+  ChildExecutionReference,
+  ExecutionHierarchyMetadata,
+} from "@wf-agent/types";
 import { AgentLoopStatus } from "@wf-agent/types";
 import { AgentLoopState } from "./agent-loop-state.js";
 import {
@@ -59,6 +64,7 @@ import {
 } from "../../core/messaging/conversation-session.js";
 import { VariableState } from "../../workflow/state-managers/variable-state.js";
 import { buildInitialMessages, type InitialMessagesConfig } from "../../core/prompt/index.js";
+import { ExecutionHierarchyManager } from "../../core/execution/execution-hierarchy-manager.js";
 
 /**
  * Steering Mode
@@ -118,6 +124,9 @@ export class AgentLoopEntity {
   /** Node ID (if executed as a Graph node) */
   nodeId?: ID;
 
+  /** Execution Hierarchy Manager (NEW - unified parent-child relationship management) */
+  private readonly hierarchyManager: ExecutionHierarchyManager;
+
   // ========== Steering & Follow-up (NEW) ==========
 
   /** Steering message queue (for interrupting tool execution) */
@@ -149,6 +158,9 @@ export class AgentLoopEntity {
     this.config = config;
     this.state = state ?? new AgentLoopState();
     this.variableStateManager = new VariableState();
+
+    // Initialize hierarchy manager as root node (Agent loops are typically root executions)
+    this.hierarchyManager = new ExecutionHierarchyManager(id, 'AGENT_LOOP');
 
     // Initialize the ConversationSession (without setting an initial message).
     // The initial message will be set asynchronously in the factory method.
@@ -539,6 +551,153 @@ export class AgentLoopEntity {
    */
   getFollowUpQueueLength(): number {
     return this.followUpQueue.length;
+  }
+
+  // ========== Hierarchy Management (NEW) ==========
+
+  /**
+   * Set parent execution context (NEW unified API)
+   * 
+   * Replaces parentExecutionId and nodeId fields for unified parent-child relationship management.
+   * Supports both Workflow and Agent parents with type safety.
+   * 
+   * @param parentContext Parent execution context
+   * @example
+   * ```typescript
+   * // Set Workflow parent (Agent spawned from workflow node)
+   * entity.setParentContext({
+   *   parentType: 'WORKFLOW',
+   *   parentId: 'parent-workflow-id'
+   * });
+   * 
+   * // Set Agent parent (Agent delegation/sub-agent)
+   * entity.setParentContext({
+   *   parentType: 'AGENT_LOOP',
+   *   parentId: 'parent-agent-id',
+   *   delegationPurpose: 'Code review task'
+   * });
+   * ```
+   */
+  setParentContext(parentContext: ParentExecutionContext): void {
+    this.hierarchyManager.setParent(parentContext);
+  }
+
+  /**
+   * Get parent execution context (NEW unified API)
+   * 
+   * @returns Parent execution context or undefined if root node
+   */
+  getParentContext(): ParentExecutionContext | undefined {
+    return this.hierarchyManager.getParent();
+  }
+
+  /**
+   * Register child execution reference (NEW unified API)
+   * 
+   * Supports tracking both Workflow and Agent children spawned by this Agent.
+   * 
+   * @param childRef Child execution reference
+   * @example
+   * ```typescript
+   * // Register spawned Agent child (delegation)
+   * entity.registerChild({
+   *   childType: 'AGENT_LOOP',
+   *   childId: 'sub-agent-id',
+   *   nodeId: undefined, // Not applicable for agent-spawned agents
+   *   spawnedAt: Date.now()
+   * });
+   * 
+   * // Register triggered Workflow child
+   * entity.registerChild({
+   *   childType: 'WORKFLOW',
+   *   childId: 'child-workflow-id'
+   * });
+   * ```
+   */
+  registerChild(childRef: ChildExecutionReference): void {
+    this.hierarchyManager.addChild(childRef);
+  }
+
+  /**
+   * Unregister child execution reference (NEW unified API)
+   * 
+   * @param childId Child execution ID
+   * @param childType Child execution type (defaults to 'AGENT_LOOP' for backward compatibility)
+   */
+  unregisterChild(childId: ID, childType: 'WORKFLOW' | 'AGENT_LOOP' = 'AGENT_LOOP'): void {
+    this.hierarchyManager.removeChild(childId, childType);
+  }
+
+  /**
+   * Get all child execution references (NEW unified API)
+   * 
+   * @returns Array of child execution references
+   */
+  getChildReferences(): ChildExecutionReference[] {
+    return this.hierarchyManager.getChildren();
+  }
+
+  /**
+   * Get hierarchy depth (NEW unified API)
+   * 
+   * @returns Depth in hierarchy tree (0 for root)
+   */
+  getHierarchyDepth(): number {
+    return this.hierarchyManager.getDepth();
+  }
+
+  /**
+   * Get root execution ID (NEW unified API)
+   * 
+   * @returns Root execution ID
+   */
+  getRootExecutionId(): ID {
+    return this.hierarchyManager.getRootExecutionId();
+  }
+
+  /**
+   * Get root execution type (NEW unified API)
+   * 
+   * @returns Root execution type
+   */
+  getRootExecutionType(): 'WORKFLOW' | 'AGENT_LOOP' {
+    return this.hierarchyManager.getRootExecutionType();
+  }
+
+  /**
+   * Check if this is a root execution (NEW unified API)
+   * 
+   * @returns True if no parent
+   */
+  isRootExecution(): boolean {
+    return this.hierarchyManager.getParent() === undefined;
+  }
+
+  /**
+   * Get complete hierarchy metadata (NEW unified API)
+   * 
+   * @returns Hierarchy metadata for serialization
+   */
+  getHierarchyMetadata(): ExecutionHierarchyMetadata | undefined {
+    return this.hierarchyManager.toMetadata();
+  }
+
+  /**
+   * Restore hierarchy from metadata (NEW unified API)
+   * 
+   * Used during checkpoint restoration.
+   * 
+   * @param metadata Hierarchy metadata
+   */
+  restoreHierarchy(metadata: ExecutionHierarchyMetadata): void {
+    // Create new manager with restored metadata
+    const newManager = new ExecutionHierarchyManager(
+      this.id,
+      'AGENT_LOOP',
+      metadata
+    );
+    // Replace the manager (using reflection since it's readonly)
+    (this as any).hierarchyManager = newManager;
   }
 
   // ========== Resource Cleanup ==========

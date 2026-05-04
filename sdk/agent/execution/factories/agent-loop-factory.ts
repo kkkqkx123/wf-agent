@@ -146,11 +146,14 @@ export class AgentLoopFactory {
       });
     }
 
-    // Set the parent Execution ID and node ID
-    entity.parentExecutionId = options.parentExecutionId;
-    entity.nodeId = options.nodeId;
-
-    if (options.parentExecutionId || options.nodeId) {
+    // Set parent context using new unified API (Phase 4)
+    if (options.parentExecutionId) {
+      entity.setParentContext({
+        parentType: 'WORKFLOW',
+        parentId: options.parentExecutionId,
+        nodeId: options.nodeId,
+      });
+      
       logger.debug("Agent Loop set with parent context", {
         agentLoopId: id,
         parentExecutionId: options.parentExecutionId,

@@ -309,6 +309,13 @@ export const LLMWrapper: ServiceIdentifier<unknown> = Symbol("LLMWrapper");
 export const AgentLoopRegistry: ServiceIdentifier<unknown> = Symbol("AgentLoopRegistry");
 
 /**
+ * ExecutionHierarchyRegistry - Unified Execution Hierarchy Registry
+ * Manages parent-child relationships across all execution types (Workflow, Agent)
+ * Provides unified cleanup and query operations for mixed hierarchies
+ */
+export const ExecutionHierarchyRegistry: ServiceIdentifier<unknown> = Symbol("ExecutionHierarchyRegistry");
+
+/**
  * AgentLoopExecutor - Agent Loop Executor
  * Responsible for executing the iterative loop of the Agent tool, creating an independent message history with each execution.
  */

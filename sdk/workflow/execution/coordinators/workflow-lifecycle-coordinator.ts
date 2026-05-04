@@ -28,6 +28,7 @@ import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-
 import { getContainer } from "../../../core/di/index.js";
 import * as Identifiers from "../../../core/di/service-identifiers.js";
 import type { AgentLoopRegistry } from "../../../agent/stores/agent-loop-registry.js";
+import type { ExecutionHierarchyRegistry } from "../../../core/execution/execution-hierarchy-registry.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "WorkflowLifecycleCoordinator" });
@@ -170,15 +171,31 @@ export class WorkflowLifecycleCoordinator {
   private async cleanupChildAgentLoops(executionId: string): Promise<void> {
     try {
       const container = getContainer();
-      const agentLoopRegistry = container.get(Identifiers.AgentLoopRegistry) as AgentLoopRegistry;
-
-      if (agentLoopRegistry) {
-        const cleanedCount = agentLoopRegistry.cleanupByParentWorkflowExecutionId(executionId);
+      
+      // Try to use unified hierarchy registry first (Phase 4 - preferred)
+      const hierarchyRegistry = container.get(Identifiers.ExecutionHierarchyRegistry) as ExecutionHierarchyRegistry | undefined;
+      
+      if (hierarchyRegistry) {
+        // Use unified cleanup that handles mixed hierarchies (Workflow → Agent, Agent → Agent, etc.)
+        const cleanedCount = hierarchyRegistry.cleanupHierarchy(executionId);
         if (cleanedCount > 0) {
-          logger.info("Cleaned up child AgentLoops", {
+          logger.info("Cleaned up execution hierarchy using unified registry", {
             executionId,
             cleanedCount,
           });
+        }
+      } else {
+        // Fallback to legacy cleanup (backward compatibility)
+        const agentLoopRegistry = container.get(Identifiers.AgentLoopRegistry) as AgentLoopRegistry;
+
+        if (agentLoopRegistry) {
+          const cleanedCount = agentLoopRegistry.cleanupByParentWorkflowExecutionId(executionId);
+          if (cleanedCount > 0) {
+            logger.info("Cleaned up child AgentLoops (legacy method)", {
+              executionId,
+              cleanedCount,
+            });
+          }
         }
       }
     } catch (error) {

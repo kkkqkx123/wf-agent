@@ -44,8 +44,13 @@ describe("Agent Loop Factory", () => {
         nodeId: "node-456",
       });
 
-      expect(entity.parentExecutionId).toBe("wfexec-123");
-      expect(entity.nodeId).toBe("node-456");
+      const parentContext = entity.getParentContext();
+      expect(parentContext).toBeDefined();
+      expect(parentContext?.parentType).toBe('WORKFLOW');
+      expect(parentContext?.parentId).toBe("wfexec-123");
+      if (parentContext?.parentType === 'WORKFLOW') {
+        expect(parentContext.nodeId).toBe("node-456");
+      }
     });
   });
 

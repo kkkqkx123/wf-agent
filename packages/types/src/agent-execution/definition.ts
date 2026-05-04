@@ -27,6 +27,7 @@ import type { ID, Timestamp } from "../common.js";
 import type { Message } from "../message/index.js";
 import { AgentLoopStatus } from "./types.js";
 import type { IterationRecord } from "./types.js";
+import type { ExecutionHierarchyMetadata } from "../execution/hierarchy.js";
 
 /**
  * Agent Loop Execution
@@ -89,6 +90,43 @@ export interface AgentLoopExecution {
 
   /** Node ID in parent workflow (if executed as a Graph node) */
   nodeId?: ID;
+
+  /**
+   * Execution hierarchy metadata (NEW)
+   * 
+   * Replaces the original parentWorkflowExecutionId and nodeId for unified parent-child relationship management.
+   * Supports richer parent-child relationships including Agent → Agent delegation.
+   * 
+   * @example
+   * ```typescript
+   * // Set parent context for Workflow parent
+   * execution.hierarchy = {
+   *   parent: {
+   *     parentType: 'WORKFLOW',
+   *     parentId: 'workflow-123',
+   *     nodeId: 'agent-node-1',
+   *   },
+   *   children: [],
+   *   depth: 1,
+   *   rootExecutionId: 'root-workflow-id',
+   *   rootExecutionType: 'WORKFLOW',
+   * };
+   * 
+   * // Set parent context for Agent parent (Agent → Agent delegation)
+   * execution.hierarchy = {
+   *   parent: {
+   *     parentType: 'AGENT_LOOP',
+   *     parentId: 'parent-agent-456',
+   *     delegationPurpose: 'Code review task delegation',
+   *   },
+   *   children: [],
+   *   depth: 2,
+   *   rootExecutionId: 'root-workflow-id',
+   *   rootExecutionType: 'WORKFLOW',
+   * };
+   * ```
+   */
+  hierarchy?: ExecutionHierarchyMetadata;
 }
 
 /**

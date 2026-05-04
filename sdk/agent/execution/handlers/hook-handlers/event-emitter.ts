@@ -49,14 +49,23 @@ export async function emitAgentHookEvent(
   eventData: Record<string, unknown> | undefined,
   emitEvent: (event: AgentHookTriggeredEvent) => Promise<void>,
 ): Promise<void> {
+  const parentContext = entity.getParentContext();
   const event = buildAgentHookTriggeredEvent({
     agentLoopId: entity.id,
     hookType,
     eventName,
     eventData: eventData ?? {},
     iteration: entity.state.currentIteration,
-    parentWorkflowExecutionId: entity.parentExecutionId,
-    nodeId: entity.nodeId,
+    // Keep old fields for backward compatibility
+    parentWorkflowExecutionId: parentContext?.parentType === 'WORKFLOW' ? parentContext.parentId : undefined,
+    nodeId: parentContext?.parentType === 'WORKFLOW' ? parentContext.nodeId : undefined,
+    // Add new unified parent context
+    parentContext: parentContext ? {
+      parentType: parentContext.parentType,
+      parentId: parentContext.parentId,
+      ...(parentContext.parentType === 'WORKFLOW' && { nodeId: parentContext.nodeId }),
+      ...(parentContext.parentType === 'AGENT_LOOP' && { delegationPurpose: parentContext.delegationPurpose }),
+    } : undefined,
     metadata: {
       profileId: entity.config.profileId,
       toolCallCount: entity.state.toolCallCount,

@@ -9,6 +9,7 @@ import type { ForkJoinContext, TriggeredSubworkflowContext } from "./context.js"
 import type { WorkflowExecutionVariable } from "./variables.js";
 import type { NodeExecutionResult } from "./history.js";
 import type { VariableScopes } from "./scopes.js";
+import type { ExecutionHierarchyMetadata } from "../execution/hierarchy.js";
 
 /**
  * Workflow Execution Definition Type (Execution Instance)
@@ -102,4 +103,27 @@ export interface WorkflowExecution {
 
   /** Triggered subworkflow context (only present if executionType is TRIGGERED_SUBWORKFLOW) */
   triggeredSubworkflowContext?: TriggeredSubworkflowContext;
+
+  /**
+   * Execution hierarchy metadata (NEW)
+   * 
+   * Replaces the original triggeredSubworkflowContext for unified parent-child relationship management.
+   * Supports tracking relationships with all execution types (Workflow and Agent Loop).
+   * 
+   * @example
+   * ```typescript
+   * // Set parent context
+   * execution.hierarchy = {
+   *   parent: {
+   *     parentType: 'WORKFLOW',
+   *     parentId: 'parent-workflow-id',
+   *   },
+   *   children: [],
+   *   depth: 1,
+   *   rootExecutionId: 'root-workflow-id',
+   *   rootExecutionType: 'WORKFLOW',
+   * };
+   * ```
+   */
+  hierarchy?: ExecutionHierarchyMetadata;
 }

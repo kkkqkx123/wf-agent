@@ -155,15 +155,20 @@ export class AgentLoopRegistry {
    * Get AgentLoopEntities by parent execution ID
    * @param executionId Parent execution ID
    * @returns Array of AgentLoopEntity with the specified parent execution ID
+   * @deprecated Use ExecutionHierarchyRegistry.getChildrenOf() instead
    */
   getByParentExecutionId(executionId: ID): AgentLoopEntity[] {
-    return this.getAll().filter(entity => entity.parentExecutionId === executionId);
+    return this.getAll().filter(entity => {
+      const parentContext = entity.getParentContext();
+      return parentContext?.parentId === executionId;
+    });
   }
 
   /**
    * Get AgentLoopEntity IDs by parent execution ID
    * @param executionId Parent execution ID
    * @returns Array of AgentLoopEntity IDs
+   * @deprecated Use ExecutionHierarchyRegistry.getChildrenOf() instead
    */
   getIdsByParentExecutionId(executionId: ID): ID[] {
     return this.getByParentExecutionId(executionId).map(entity => entity.id);
@@ -174,6 +179,7 @@ export class AgentLoopRegistry {
    * Stops and removes all AgentLoopEntities associated with the specified workflow execution.
    * @param executionId Parent execution ID
    * @returns Number of instances cleaned up
+   * @deprecated Use ExecutionHierarchyRegistry.cleanupHierarchy() instead
    */
   cleanupByParentExecutionId(executionId: ID): number {
     const entities = this.getByParentExecutionId(executionId);
@@ -195,6 +201,7 @@ export class AgentLoopRegistry {
    * Get running AgentLoopEntities by parent execution ID
    * @param executionId Parent execution ID
    * @returns Array of running AgentLoopEntity
+   * @deprecated Use filtered query on ExecutionHierarchyRegistry instead
    */
   getRunningByParentExecutionId(executionId: ID): AgentLoopEntity[] {
     return this.getByParentExecutionId(executionId).filter(entity => entity.isRunning());
@@ -204,6 +211,7 @@ export class AgentLoopRegistry {
    * Get paused AgentLoopEntities by parent execution ID
    * @param executionId Parent execution ID
    * @returns Array of paused AgentLoopEntity
+   * @deprecated Use filtered query on ExecutionHierarchyRegistry instead
    */
   getPausedByParentExecutionId(executionId: ID): AgentLoopEntity[] {
     return this.getByParentExecutionId(executionId).filter(entity => entity.isPaused());
@@ -215,6 +223,7 @@ export class AgentLoopRegistry {
    * Get AgentLoopEntities by parent workflow execution ID
    * @param workflowExecutionId Parent workflow execution ID
    * @returns Array of AgentLoopEntity with the specified parent workflow execution ID
+   * @deprecated Use ExecutionHierarchyRegistry.getChildrenOf() instead
    */
   getByParentWorkflowExecutionId(workflowExecutionId: ID): AgentLoopEntity[] {
     return this.getByParentExecutionId(workflowExecutionId);
@@ -224,6 +233,7 @@ export class AgentLoopRegistry {
    * Get AgentLoopEntity IDs by parent workflow execution ID
    * @param workflowExecutionId Parent workflow execution ID
    * @returns Array of AgentLoopEntity IDs
+   * @deprecated Use ExecutionHierarchyRegistry.getChildrenOf() instead
    */
   getIdsByParentWorkflowExecutionId(workflowExecutionId: ID): ID[] {
     return this.getIdsByParentExecutionId(workflowExecutionId);
@@ -234,6 +244,7 @@ export class AgentLoopRegistry {
    * Stops and removes all AgentLoopEntities associated with the specified workflow execution.
    * @param workflowExecutionId Parent workflow execution ID
    * @returns Number of instances cleaned up
+   * @deprecated Use ExecutionHierarchyRegistry.cleanupHierarchy() instead
    */
   cleanupByParentWorkflowExecutionId(workflowExecutionId: ID): number {
     return this.cleanupByParentExecutionId(workflowExecutionId);
@@ -243,6 +254,7 @@ export class AgentLoopRegistry {
    * Get running AgentLoopEntities by parent workflow execution ID
    * @param workflowExecutionId Parent workflow execution ID
    * @returns Array of running AgentLoopEntity
+   * @deprecated Use filtered query on ExecutionHierarchyRegistry instead
    */
   getRunningByParentWorkflowExecutionId(workflowExecutionId: ID): AgentLoopEntity[] {
     return this.getRunningByParentExecutionId(workflowExecutionId);
@@ -252,8 +264,35 @@ export class AgentLoopRegistry {
    * Get paused AgentLoopEntities by parent workflow execution ID
    * @param workflowExecutionId Parent workflow execution ID
    * @returns Array of paused AgentLoopEntity
+   * @deprecated Use filtered query on ExecutionHierarchyRegistry instead
    */
   getPausedByParentWorkflowExecutionId(workflowExecutionId: ID): AgentLoopEntity[] {
     return this.getPausedByParentExecutionId(workflowExecutionId);
+  }
+
+  // ========== New Hierarchy-Aware Methods ==========
+
+  /**
+   * Get child AgentLoopEntities by parent AgentLoop ID
+   * Supports Agent → Agent hierarchy relationships
+   * 
+   * @param parentAgentLoopId Parent AgentLoop execution ID
+   * @returns Array of child AgentLoopEntity instances
+   */
+  getChildrenByParentAgentLoopId(parentAgentLoopId: ID): AgentLoopEntity[] {
+    return this.getAll().filter(entity => {
+      const parent = entity.getParentContext();
+      return parent?.parentType === 'AGENT_LOOP' && parent.parentId === parentAgentLoopId;
+    });
+  }
+
+  /**
+   * Get child AgentLoopEntity IDs by parent AgentLoop ID
+   * 
+   * @param parentAgentLoopId Parent AgentLoop execution ID
+   * @returns Array of child AgentLoopEntity IDs
+   */
+  getChildIdsByParentAgentLoopId(parentAgentLoopId: ID): ID[] {
+    return this.getChildrenByParentAgentLoopId(parentAgentLoopId).map(entity => entity.id);
   }
 }

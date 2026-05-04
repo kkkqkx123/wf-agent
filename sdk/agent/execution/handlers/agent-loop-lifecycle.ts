@@ -115,8 +115,11 @@ export function cloneAgentLoop(entity: AgentLoopEntity): AgentLoopEntity {
   const variableSnapshot = entity.variableStateManager.createSnapshot();
   cloned.variableStateManager.restoreFromSnapshot(variableSnapshot);
 
-  cloned.parentExecutionId = entity.parentExecutionId;
-  cloned.nodeId = entity.nodeId;
+  // Clone parent context using unified hierarchy API
+  const parentContext = entity.getParentContext();
+  if (parentContext) {
+    cloned.setParentContext(parentContext);
+  }
 
   logger.info("Agent Loop entity cloned successfully", {
     agentLoopId: entity.id,

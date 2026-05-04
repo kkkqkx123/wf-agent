@@ -45,6 +45,12 @@ export const buildAgentHookTriggeredEvent = (params: {
   iteration: number;
   parentWorkflowExecutionId?: string;
   nodeId?: string;
+  parentContext?: {
+    parentType: 'WORKFLOW' | 'AGENT_LOOP';
+    parentId: string;
+    nodeId?: string;
+    delegationPurpose?: string;
+  };
   metadata?: Metadata;
 }): AgentHookTriggeredEvent => ({
   id: generateId(),
@@ -55,7 +61,10 @@ export const buildAgentHookTriggeredEvent = (params: {
   eventName: params.eventName,
   eventData: params.eventData,
   iteration: params.iteration,
+  // Keep old fields for backward compatibility
   parentWorkflowExecutionId: params.parentWorkflowExecutionId,
   nodeId: params.nodeId,
+  // Add new unified parent context
+  parentContext: params.parentContext,
   metadata: params.metadata,
 });

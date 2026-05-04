@@ -128,4 +128,30 @@ export class WorkflowExecutionRegistry {
   getByWorkflowId(workflowId: string): WorkflowExecutionEntity[] {
     return this.getAll().filter(workflowExecutionEntity => workflowExecutionEntity.getWorkflowId() === workflowId);
   }
+
+  // ========== Hierarchy-Aware Methods ==========
+
+  /**
+   * Get child WorkflowExecutionEntities by parent execution ID
+   * Supports Workflow → Workflow hierarchy relationships
+   * 
+   * @param parentExecutionId Parent execution ID (can be Workflow or Agent)
+   * @returns Array of child WorkflowExecutionEntity instances
+   */
+  getChildrenByParentExecutionId(parentExecutionId: string): WorkflowExecutionEntity[] {
+    return this.getAll().filter(entity => {
+      const parentContext = entity.getParentContext();
+      return parentContext?.parentId === parentExecutionId;
+    });
+  }
+
+  /**
+   * Get child WorkflowExecutionEntity IDs by parent execution ID
+   * 
+   * @param parentExecutionId Parent execution ID
+   * @returns Array of child WorkflowExecutionEntity IDs
+   */
+  getChildIdsByParentExecutionId(parentExecutionId: string): string[] {
+    return this.getChildrenByParentExecutionId(parentExecutionId).map(entity => entity.id);
+  }
 }

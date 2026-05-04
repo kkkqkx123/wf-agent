@@ -13,11 +13,17 @@
 import type { ID, LLMMessage, NodeExecutionResult } from "@wf-agent/types";
 import type { WorkflowExecution, WorkflowExecutionStatus, WorkflowExecutionType } from "@wf-agent/types";
 import type { WorkflowGraph } from "@wf-agent/types";
+import type {
+  ParentExecutionContext,
+  ChildExecutionReference,
+  ExecutionHierarchyMetadata,
+} from "@wf-agent/types";
 import type { SubgraphContext } from "../state-managers/execution-state.js";
 import { ExecutionState } from "../state-managers/execution-state.js";
 import { WorkflowExecutionState } from "../state-managers/workflow-execution-state.js";
 import { MessageHistory } from "../../agent/message/message-history.js";
 import { VariableState } from "../state-managers/variable-state.js";
+import { ExecutionHierarchyManager } from "../../core/execution/execution-hierarchy-manager.js";
 
 /**
  * WorkflowExecutionEntity - Workflow Execution Entity
@@ -66,8 +72,11 @@ export class WorkflowExecutionEntity {
   /** Tool Visibility Coordinator */
   toolVisibilityCoordinator?: unknown;
 
-  /** Child AgentLoop IDs (for lifecycle management) */
+  /** Child AgentLoop IDs (for lifecycle management) - DEPRECATED, use hierarchyManager instead */
   private childAgentLoopIds: Set<string> = new Set();
+
+  /** Execution Hierarchy Manager (NEW - unified parent-child relationship management) */
+  private readonly hierarchyManager: ExecutionHierarchyManager;
 
   /**
    * Constructor
@@ -82,6 +91,13 @@ export class WorkflowExecutionEntity {
     this.state = state ?? new WorkflowExecutionState();
     this.messageHistoryManager = new MessageHistory(workflowExecution.id);
     this.variableStateManager = new VariableState(workflowExecution.id);
+
+    // Initialize hierarchy manager with existing hierarchy metadata or as root node
+    this.hierarchyManager = new ExecutionHierarchyManager(
+      workflowExecution.id,
+      'WORKFLOW',
+      workflowExecution.hierarchy
+    );
   }
 
   // Basic Property Access ============
@@ -203,47 +219,33 @@ export class WorkflowExecutionEntity {
   // Triggering Sub-workflow Context ============
 
   registerChildExecution(childExecutionId: ID): void {
-    if (!this.workflowExecution.triggeredSubworkflowContext) {
-      this.workflowExecution.triggeredSubworkflowContext = {
-        parentExecutionId: "",
-        childExecutionIds: [],
-        triggeredSubworkflowId: "",
-      };
-    }
-    if (!this.workflowExecution.triggeredSubworkflowContext.childExecutionIds) {
-      this.workflowExecution.triggeredSubworkflowContext.childExecutionIds = [];
-    }
-    if (!this.workflowExecution.triggeredSubworkflowContext.childExecutionIds.includes(childExecutionId)) {
-      this.workflowExecution.triggeredSubworkflowContext.childExecutionIds.push(childExecutionId);
-    }
+    this.registerChild({
+      childType: 'WORKFLOW',
+      childId: childExecutionId,
+      createdAt: Date.now(),
+    });
   }
 
   unregisterChildExecution(childExecutionId: ID): void {
-    if (this.workflowExecution.triggeredSubworkflowContext?.childExecutionIds) {
-      this.workflowExecution.triggeredSubworkflowContext.childExecutionIds =
-        this.workflowExecution.triggeredSubworkflowContext.childExecutionIds.filter(
-          (id: ID) => id !== childExecutionId,
-        );
-    }
+    this.unregisterChild(childExecutionId, 'WORKFLOW');
   }
 
   getParentExecutionId(): ID | undefined {
-    return this.workflowExecution.triggeredSubworkflowContext?.parentExecutionId;
+    const parentContext = this.hierarchyManager.getParent();
+    return parentContext?.parentId;
   }
 
   getChildExecutionIds(): ID[] {
-    return this.workflowExecution.triggeredSubworkflowContext?.childExecutionIds || [];
+    return this.hierarchyManager.getChildren()
+      .filter(ref => ref.childType === 'WORKFLOW')
+      .map(ref => ref.childId);
   }
 
   setParentExecutionId(parentExecutionId: ID): void {
-    if (!this.workflowExecution.triggeredSubworkflowContext) {
-      this.workflowExecution.triggeredSubworkflowContext = {
-        parentExecutionId: parentExecutionId,
-        childExecutionIds: [],
-        triggeredSubworkflowId: "",
-      };
-    }
-    this.workflowExecution.triggeredSubworkflowContext.parentExecutionId = parentExecutionId;
+    this.setParentContext({
+      parentType: 'WORKFLOW',
+      parentId: parentExecutionId,
+    });
   }
 
   getTriggeredSubworkflowId(): ID | undefined {
@@ -361,7 +363,11 @@ export class WorkflowExecutionEntity {
    * @param agentLoopId AgentLoop ID
    */
   registerChildAgentLoop(agentLoopId: string): void {
-    this.childAgentLoopIds.add(agentLoopId);
+    this.registerChild({
+      childType: 'AGENT_LOOP',
+      childId: agentLoopId,
+      createdAt: Date.now(),
+    });
   }
 
   /**
@@ -369,7 +375,7 @@ export class WorkflowExecutionEntity {
    * @param agentLoopId AgentLoop ID
    */
   unregisterChildAgentLoop(agentLoopId: string): void {
-    this.childAgentLoopIds.delete(agentLoopId);
+    this.unregisterChild(agentLoopId, 'AGENT_LOOP');
   }
 
   /**
@@ -377,7 +383,10 @@ export class WorkflowExecutionEntity {
    * @returns Set of AgentLoop IDs
    */
   getChildAgentLoopIds(): Set<string> {
-    return new Set(this.childAgentLoopIds);
+    const children = this.hierarchyManager.getChildren()
+      .filter(ref => ref.childType === 'AGENT_LOOP')
+      .map(ref => ref.childId);
+    return new Set(children);
   }
 
   /**
@@ -503,6 +512,214 @@ export class WorkflowExecutionEntity {
   }
 
   // Parent-Child Execution Management ============
+
+  /**
+   * Set parent execution context (NEW unified API)
+   * 
+   * Replaces setParentExecutionId() for unified parent-child relationship management.
+   * Supports both Workflow and Agent parents with type safety.
+   * 
+   * @param parentContext Parent execution context
+   * @example
+   * ```typescript
+   * // Set Workflow parent
+   * entity.setParentContext({
+   *   parentType: 'WORKFLOW',
+   *   parentId: 'parent-workflow-id'
+   * });
+   * 
+   * // Set Agent parent with delegation purpose
+   * entity.setParentContext({
+   *   parentType: 'AGENT_LOOP',
+   *   parentId: 'parent-agent-id',
+   *   delegationPurpose: 'Execute subtask'
+   * });
+   * ```
+   */
+  setParentContext(parentContext: ParentExecutionContext): void {
+    this.hierarchyManager.setParent(parentContext);
+    
+    // Update the underlying data object for backward compatibility
+    if (!this.workflowExecution.hierarchy) {
+      this.workflowExecution.hierarchy = {
+        parent: undefined,
+        children: [],
+        depth: 0,
+        rootExecutionId: this.id,
+        rootExecutionType: 'WORKFLOW'
+      };
+    }
+    this.workflowExecution.hierarchy.parent = {
+      parentType: parentContext.parentType,
+      parentId: parentContext.parentId,
+    };
+    if (parentContext.parentType === 'AGENT_LOOP' && parentContext.delegationPurpose) {
+      (this.workflowExecution.hierarchy.parent as any).delegationPurpose = parentContext.delegationPurpose;
+    }
+    
+    // Update depth and root from manager
+    this.workflowExecution.hierarchy.depth = this.hierarchyManager.getDepth();
+    this.workflowExecution.hierarchy.rootExecutionId = this.hierarchyManager.getRootExecutionId();
+    this.workflowExecution.hierarchy.rootExecutionType = this.hierarchyManager.getRootExecutionType();
+  }
+
+  /**
+   * Get parent execution context (NEW unified API)
+   * 
+   * @returns Parent execution context or undefined if root node
+   */
+  getParentContext(): ParentExecutionContext | undefined {
+    return this.hierarchyManager.getParent();
+  }
+
+  /**
+   * Register child execution reference (NEW unified API)
+   * 
+   * Replaces registerChildExecution() for unified child tracking.
+   * Supports both Workflow and Agent children with type safety.
+   * 
+   * @param childRef Child execution reference
+   * @example
+   * ```typescript
+   * // Register Workflow child
+   * entity.registerChild({
+   *   childType: 'WORKFLOW',
+   *   childId: 'child-workflow-id'
+   * });
+   * 
+   * // Register Agent child with metadata
+   * entity.registerChild({
+   *   childType: 'AGENT_LOOP',
+   *   childId: 'child-agent-id',
+   *   nodeId: 'agent-node-id',
+   *   spawnedAt: Date.now()
+   * });
+   * ```
+   */
+  registerChild(childRef: ChildExecutionReference): void {
+    this.hierarchyManager.addChild(childRef);
+    
+    // Update the underlying data object for backward compatibility
+    if (!this.workflowExecution.hierarchy) {
+      this.workflowExecution.hierarchy = {
+        parent: undefined,
+        children: [],
+        depth: 0,
+        rootExecutionId: this.id,
+        rootExecutionType: 'WORKFLOW'
+      };
+    }
+    
+    // Convert to internal format and add to children array
+    const childEntry: any = {
+      childType: childRef.childType,
+      childId: childRef.childId,
+    };
+    if (childRef.childType === 'AGENT_LOOP') {
+      if ('nodeId' in childRef && childRef.nodeId) childEntry.nodeId = childRef.nodeId;
+      if ('spawnedAt' in childRef && childRef.spawnedAt) childEntry.spawnedAt = childRef.spawnedAt;
+    }
+    
+    // Avoid duplicates
+    const exists = this.workflowExecution.hierarchy.children.some(
+      (c: any) => c.childId === childRef.childId
+    );
+    if (!exists) {
+      this.workflowExecution.hierarchy.children.push(childEntry);
+    }
+  }
+
+  /**
+   * Unregister child execution reference (NEW unified API)
+   * 
+   * @param childId Child execution ID
+   * @param childType Child execution type (defaults to 'WORKFLOW' for backward compatibility)
+   */
+  unregisterChild(childId: ID, childType: 'WORKFLOW' | 'AGENT_LOOP' = 'WORKFLOW'): void {
+    this.hierarchyManager.removeChild(childId, childType);
+    
+    // Update the underlying data object for backward compatibility
+    if (this.workflowExecution.hierarchy?.children) {
+      this.workflowExecution.hierarchy.children = this.workflowExecution.hierarchy.children.filter(
+        (c: any) => c.childId !== childId
+      );
+    }
+  }
+
+  /**
+   * Get all child execution references (NEW unified API)
+   * 
+   * @returns Array of child execution references
+   */
+  getChildReferences(): ChildExecutionReference[] {
+    return this.hierarchyManager.getChildren();
+  }
+
+  /**
+   * Get hierarchy depth (NEW unified API)
+   * 
+   * @returns Depth in hierarchy tree (0 for root)
+   */
+  getHierarchyDepth(): number {
+    return this.hierarchyManager.getDepth();
+  }
+
+  /**
+   * Get root execution ID (NEW unified API)
+   * 
+   * @returns Root execution ID
+   */
+  getRootExecutionId(): ID {
+    return this.hierarchyManager.getRootExecutionId();
+  }
+
+  /**
+   * Get root execution type (NEW unified API)
+   * 
+   * @returns Root execution type
+   */
+  getRootExecutionType(): 'WORKFLOW' | 'AGENT_LOOP' {
+    return this.hierarchyManager.getRootExecutionType();
+  }
+
+  /**
+   * Check if this is a root execution (NEW unified API)
+   * 
+   * @returns True if no parent
+   */
+  isRootExecution(): boolean {
+    return this.hierarchyManager.getParent() === undefined;
+  }
+
+  /**
+   * Get complete hierarchy metadata (NEW unified API)
+   * 
+   * @returns Hierarchy metadata for serialization
+   */
+  getHierarchyMetadata(): ExecutionHierarchyMetadata | undefined {
+    return this.hierarchyManager.toMetadata();
+  }
+
+  /**
+   * Restore hierarchy from metadata (NEW unified API)
+   * 
+   * Used during checkpoint restoration.
+   * 
+   * @param metadata Hierarchy metadata
+   */
+  restoreHierarchy(metadata: ExecutionHierarchyMetadata): void {
+    // Create new manager with restored metadata
+    const newManager = new ExecutionHierarchyManager(
+      this.id,
+      'WORKFLOW',
+      metadata
+    );
+    // Replace the manager (using reflection since it's readonly)
+    (this as any).hierarchyManager = newManager;
+    
+    // Also update the data object
+    this.workflowExecution.hierarchy = metadata;
+  }
 
   // Event Building ============
 

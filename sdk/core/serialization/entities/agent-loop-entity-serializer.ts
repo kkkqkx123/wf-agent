@@ -27,10 +27,13 @@ export interface AgentLoopEntitySnapshot extends SnapshotBase {
   messages: Message[];
   /** Variables */
   variables: Record<string, unknown>;
-  /** Parent execution ID (if applicable) */
-  parentExecutionId?: string;
-  /** Node ID (if applicable) */
-  nodeId?: string;
+  /** Parent execution context (unified hierarchy) */
+  parentContext?: {
+    parentType: 'WORKFLOW' | 'AGENT_LOOP';
+    parentId: string;
+    nodeId?: string;
+    delegationPurpose?: string;
+  };
 }
 
 /**
@@ -45,6 +48,7 @@ export class AgentLoopEntitySerializer extends Serializer<AgentLoopEntitySnapsho
    * Serialize an Agent Loop entity to Uint8Array
    */
   async serializeEntity(entity: AgentLoopEntity): Promise<Uint8Array> {
+    const parentContext = entity.getParentContext();
     const snapshot: AgentLoopEntitySnapshot = {
       _version: 1,
       _timestamp: Date.now(),
@@ -54,8 +58,12 @@ export class AgentLoopEntitySerializer extends Serializer<AgentLoopEntitySnapsho
       state: this.createStateSnapshot(entity),
       messages: entity.getMessages(),
       variables: entity.getAllVariables(),
-      parentExecutionId: entity.parentExecutionId,
-      nodeId: entity.nodeId,
+      parentContext: parentContext ? {
+        parentType: parentContext.parentType,
+        parentId: parentContext.parentId,
+        ...(parentContext.parentType === 'WORKFLOW' && { nodeId: parentContext.nodeId }),
+        ...(parentContext.parentType === 'AGENT_LOOP' && { delegationPurpose: parentContext.delegationPurpose }),
+      } : undefined,
     };
     return this.serialize(snapshot);
   }

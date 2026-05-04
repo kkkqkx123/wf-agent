@@ -305,10 +305,17 @@ export interface AgentHookTriggeredEvent {
   eventData: Record<string, unknown>;
   /** Current iteration number */
   iteration: number;
-  /** Parent Workflow Execution ID (if executed as a Graph node) */
+  /** Parent Workflow Execution ID (if executed as a Graph node) - DEPRECATED, use parentContext */
   parentWorkflowExecutionId?: ID;
-  /** Node ID (if executed as a Graph node) */
+  /** Node ID (if executed as a Graph node) - DEPRECATED, use parentContext */
   nodeId?: ID;
+  /** Parent execution context (unified hierarchy) - NEW */
+  parentContext?: {
+    parentType: 'WORKFLOW' | 'AGENT_LOOP';
+    parentId: string;
+    nodeId?: string;
+    delegationPurpose?: string;
+  };
   /** Additional metadata */
   metadata?: Metadata;
 }

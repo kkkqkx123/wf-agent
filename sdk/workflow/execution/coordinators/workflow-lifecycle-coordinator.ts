@@ -28,7 +28,7 @@ import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-
 import { getContainer } from "../../../core/di/index.js";
 import * as Identifiers from "../../../core/di/service-identifiers.js";
 import type { AgentLoopRegistry } from "../../../agent/stores/agent-loop-registry.js";
-import type { ExecutionHierarchyRegistry } from "../../../core/execution/execution-hierarchy-registry.js";
+import type { ExecutionHierarchyRegistry } from "../../../core/registry/execution-hierarchy-registry.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "WorkflowLifecycleCoordinator" });
@@ -59,6 +59,11 @@ export class WorkflowLifecycleCoordinator {
 
     // Step 2: Register WorkflowExecutionEntity
     this.workflowExecutionRegistry.register(workflowExecutionEntity);
+    
+    // Step 2.5: Register with ExecutionHierarchyRegistry for unified hierarchy management
+    const container = getContainer();
+    const hierarchyRegistry = container.get(Identifiers.ExecutionHierarchyRegistry) as ExecutionHierarchyRegistry;
+    hierarchyRegistry.register(workflowExecutionEntity);
 
     // Step 3: Start the Workflow Execution
     await this.workflowStateTransitor.startWorkflowExecution(workflowExecutionEntity);

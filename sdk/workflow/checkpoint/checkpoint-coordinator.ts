@@ -38,6 +38,8 @@ import { generateId } from "../../utils/index.js";
 import { now } from "@wf-agent/common-utils";
 import { mergeMetadata } from "../../utils/metadata-utils.js";
 import type { Metadata } from "@wf-agent/types";
+import type { ExecutionHierarchyRegistry } from "../../core/registry/execution-hierarchy-registry.js";
+import { HierarchyIntegrityService } from "../../core/execution/hierarchy-integrity-service.js";
 
 /**
  * Checkpoint dependencies
@@ -47,6 +49,8 @@ export interface CheckpointDependencies {
   checkpointStateManager: CheckpointState;
   workflowRegistry: WorkflowRegistry;
   workflowGraphRegistry: WorkflowGraphRegistry;
+  /** Execution Hierarchy Registry for integrity validation */
+  hierarchyRegistry?: ExecutionHierarchyRegistry;
   /** Incremental storage configuration (optional) */
   deltaConfig?: DeltaStorageConfig;
   /** WorkflowStateCoordinator map (optional, for new architecture) */
@@ -442,7 +446,24 @@ export class CheckpointCoordinator {
       }
     }
 
-    // Step 16: Reverting to the sub-workflow execution (Option 3: Master-Slave Separation Mode)
+    // Step 16: Validate hierarchy integrity (if registry is available)
+    const { hierarchyRegistry } = dependencies;
+    if (hierarchyRegistry) {
+      const hierarchyMetadata = workflowExecutionEntity.getHierarchyMetadata();
+      if (hierarchyMetadata) {
+        const validation = HierarchyIntegrityService.validateIntegrity(hierarchyMetadata, hierarchyRegistry);
+        
+        if (!validation.valid) {
+          console.warn('Hierarchy integrity issues detected after checkpoint restore', {
+            executionId: workflowExecutionEntity.id,
+            issues: validation.issues,
+          });
+          // Note: The entity's hierarchy manager will handle corrections when it accesses the registry
+        }
+      }
+    }
+
+    // Step 17: Reestablish the parent-child relationship for child workflows
     if (
       workflowExecutionState.triggeredSubworkflowContext?.childExecutionIds &&
       workflowExecutionState.triggeredSubworkflowContext.childExecutionIds.length > 0

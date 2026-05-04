@@ -38,7 +38,7 @@ import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import { getContainer } from "../../../core/di/index.js";
 import * as Identifiers from "../../../core/di/service-identifiers.js";
 import type { AgentLoopRegistry } from "../../../agent/stores/agent-loop-registry.js";
-import type { ExecutionHierarchyRegistry } from "../../../core/execution/execution-hierarchy-registry.js";
+import type { ExecutionHierarchyRegistry } from "../../../core/registry/execution-hierarchy-registry.js";
 
 const logger = createContextualLogger({ component: "WorkflowStateTransitor" });
 

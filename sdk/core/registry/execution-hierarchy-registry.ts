@@ -14,7 +14,8 @@
 import type { ID, ExecutionType } from '@wf-agent/types';
 import type { WorkflowExecutionEntity } from '../../workflow/entities/workflow-execution-entity.js';
 import type { AgentLoopEntity } from '../../agent/entities/agent-loop-entity.js';
-import type { ChildExecutionReference } from '@wf-agent/types';
+import type { ChildExecutionReference, ExecutionHierarchyMetadata } from '@wf-agent/types';
+import { HierarchyIntegrityService, type HierarchyValidationResult, type IHierarchyRegistry } from '../execution/hierarchy-integrity-service.js';
 
 /**
  * Union type for any execution entity
@@ -53,7 +54,7 @@ export interface ExecutionsByRoot {
  * registry.cleanupHierarchy(workflow.id);
  * ```
  */
-export class ExecutionHierarchyRegistry {
+export class ExecutionHierarchyRegistry implements IHierarchyRegistry {
   private executions: Map<ID, AnyExecutionEntity> = new Map();
 
   /**
@@ -328,6 +329,47 @@ export class ExecutionHierarchyRegistry {
         return 'conversationManager' in entity && !!entity.conversationManager;
       }
     });
+  }
+
+  /**
+   * Validates hierarchy integrity against the registry
+   * 
+   * Checks:
+   * 1. Parent reference exists in registry (if present)
+   * 2. All child references exist in registry
+   * 3. No orphaned references
+   * 
+   * @param hierarchy - The hierarchy metadata to validate
+   * @returns Validation result with any issues found
+   */
+  validateHierarchyIntegrity(hierarchy: ExecutionHierarchyMetadata): HierarchyValidationResult {
+    return HierarchyIntegrityService.validateIntegrity(hierarchy, this);
+  }
+
+  /**
+   * Cleans up orphaned references in hierarchy metadata
+   * 
+   * Removes references to entities that no longer exist in the registry.
+   * This should be called after validation detects issues.
+   * 
+   * @param hierarchy - The hierarchy metadata to clean up
+   * @returns Cleaned hierarchy metadata
+   */
+  cleanupOrphanedReferences(hierarchy: ExecutionHierarchyMetadata): ExecutionHierarchyMetadata {
+    return HierarchyIntegrityService.cleanupOrphanedReferences(hierarchy, this);
+  }
+
+  /**
+   * Repairs hierarchy by recalculating root information
+   * 
+   * If parent reference is valid but root info is incorrect,
+   * this function recalculates the correct root execution info.
+   * 
+   * @param hierarchy - The hierarchy metadata to repair
+   * @returns Repaired hierarchy metadata
+   */
+  repairRootInfo(hierarchy: ExecutionHierarchyMetadata): ExecutionHierarchyMetadata {
+    return HierarchyIntegrityService.repairRootInfo(hierarchy, this);
   }
 
   /**

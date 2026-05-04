@@ -24,6 +24,7 @@ import { WorkflowExecutionState } from "../state-managers/workflow-execution-sta
 import { MessageHistory } from "../../agent/message/message-history.js";
 import { VariableState } from "../state-managers/variable-state.js";
 import { ExecutionHierarchyManager } from "../../core/execution/execution-hierarchy-manager.js";
+import type { ExecutionHierarchyRegistry } from "../../core/registry/execution-hierarchy-registry.js";
 
 /**
  * WorkflowExecutionEntity - Workflow Execution Entity
@@ -72,10 +73,7 @@ export class WorkflowExecutionEntity {
   /** Tool Visibility Coordinator */
   toolVisibilityCoordinator?: unknown;
 
-  /** Child AgentLoop IDs (for lifecycle management) - DEPRECATED, use hierarchyManager instead */
-  private childAgentLoopIds: Set<string> = new Set();
-
-  /** Execution Hierarchy Manager (NEW - unified parent-child relationship management) */
+  /** Execution Hierarchy Manager (unified parent-child relationship management) */
   private readonly hierarchyManager: ExecutionHierarchyManager;
 
   /**
@@ -83,8 +81,14 @@ export class WorkflowExecutionEntity {
    * @param workflowExecution: WorkflowExecution data object
    * @param executionState: Execution state manager
    * @param state: Execution status (optional; a new instance is created by default)
+   * @param registry: Optional execution hierarchy registry for cycle detection and depth calculation
    */
-  constructor(workflowExecution: WorkflowExecution, executionState: ExecutionState, state?: WorkflowExecutionState) {
+  constructor(
+    workflowExecution: WorkflowExecution,
+    executionState: ExecutionState,
+    state?: WorkflowExecutionState,
+    registry?: ExecutionHierarchyRegistry
+  ) {
     this.id = workflowExecution.id;
     this.workflowExecution = workflowExecution;
     this.executionState = executionState;
@@ -96,7 +100,8 @@ export class WorkflowExecutionEntity {
     this.hierarchyManager = new ExecutionHierarchyManager(
       workflowExecution.id,
       'WORKFLOW',
-      workflowExecution.hierarchy
+      workflowExecution.hierarchy,
+      registry
     );
   }
 
@@ -394,14 +399,8 @@ export class WorkflowExecutionEntity {
    * @returns Whether there are child AgentLoops
    */
   hasChildAgentLoops(): boolean {
-    return this.childAgentLoopIds.size > 0;
-  }
-
-  /**
-   * Clear all child AgentLoop IDs
-   */
-  clearChildAgentLoops(): void {
-    this.childAgentLoopIds.clear();
+    return this.hierarchyManager.getChildren()
+      .some(ref => ref.childType === 'AGENT_LOOP');
   }
 
   // ========== Data Access (for internal use) ----------
@@ -514,6 +513,29 @@ export class WorkflowExecutionEntity {
   // Parent-Child Execution Management ============
 
   /**
+   * Synchronizes hierarchy metadata from manager to data object
+   * 
+   * This is a short-term solution to reduce code duplication while maintaining
+   * backward compatibility with the old workflowExecution.hierarchy field.
+   * 
+   * @private
+   */
+  private syncHierarchyToDataObject(): void {
+    const metadata = this.hierarchyManager.toMetadata();
+    
+    if (!this.workflowExecution.hierarchy) {
+      this.workflowExecution.hierarchy = { ...metadata };
+    } else {
+      // Update existing hierarchy object
+      this.workflowExecution.hierarchy.parent = metadata.parent;
+      this.workflowExecution.hierarchy.children = metadata.children;
+      this.workflowExecution.hierarchy.depth = metadata.depth;
+      this.workflowExecution.hierarchy.rootExecutionId = metadata.rootExecutionId;
+      this.workflowExecution.hierarchy.rootExecutionType = metadata.rootExecutionType;
+    }
+  }
+
+  /**
    * Set parent execution context (NEW unified API)
    * 
    * Replaces setParentExecutionId() for unified parent-child relationship management.
@@ -539,28 +561,8 @@ export class WorkflowExecutionEntity {
   setParentContext(parentContext: ParentExecutionContext): void {
     this.hierarchyManager.setParent(parentContext);
     
-    // Update the underlying data object for backward compatibility
-    if (!this.workflowExecution.hierarchy) {
-      this.workflowExecution.hierarchy = {
-        parent: undefined,
-        children: [],
-        depth: 0,
-        rootExecutionId: this.id,
-        rootExecutionType: 'WORKFLOW'
-      };
-    }
-    this.workflowExecution.hierarchy.parent = {
-      parentType: parentContext.parentType,
-      parentId: parentContext.parentId,
-    };
-    if (parentContext.parentType === 'AGENT_LOOP' && parentContext.delegationPurpose) {
-      (this.workflowExecution.hierarchy.parent as any).delegationPurpose = parentContext.delegationPurpose;
-    }
-    
-    // Update depth and root from manager
-    this.workflowExecution.hierarchy.depth = this.hierarchyManager.getDepth();
-    this.workflowExecution.hierarchy.rootExecutionId = this.hierarchyManager.getRootExecutionId();
-    this.workflowExecution.hierarchy.rootExecutionType = this.hierarchyManager.getRootExecutionType();
+    // Sync to data object for backward compatibility
+    this.syncHierarchyToDataObject();
   }
 
   /**
@@ -599,34 +601,8 @@ export class WorkflowExecutionEntity {
   registerChild(childRef: ChildExecutionReference): void {
     this.hierarchyManager.addChild(childRef);
     
-    // Update the underlying data object for backward compatibility
-    if (!this.workflowExecution.hierarchy) {
-      this.workflowExecution.hierarchy = {
-        parent: undefined,
-        children: [],
-        depth: 0,
-        rootExecutionId: this.id,
-        rootExecutionType: 'WORKFLOW'
-      };
-    }
-    
-    // Convert to internal format and add to children array
-    const childEntry: any = {
-      childType: childRef.childType,
-      childId: childRef.childId,
-    };
-    if (childRef.childType === 'AGENT_LOOP') {
-      if ('nodeId' in childRef && childRef.nodeId) childEntry.nodeId = childRef.nodeId;
-      if ('spawnedAt' in childRef && childRef.spawnedAt) childEntry.spawnedAt = childRef.spawnedAt;
-    }
-    
-    // Avoid duplicates
-    const exists = this.workflowExecution.hierarchy.children.some(
-      (c: any) => c.childId === childRef.childId
-    );
-    if (!exists) {
-      this.workflowExecution.hierarchy.children.push(childEntry);
-    }
+    // Sync to data object for backward compatibility
+    this.syncHierarchyToDataObject();
   }
 
   /**
@@ -638,12 +614,8 @@ export class WorkflowExecutionEntity {
   unregisterChild(childId: ID, childType: 'WORKFLOW' | 'AGENT_LOOP' = 'WORKFLOW'): void {
     this.hierarchyManager.removeChild(childId, childType);
     
-    // Update the underlying data object for backward compatibility
-    if (this.workflowExecution.hierarchy?.children) {
-      this.workflowExecution.hierarchy.children = this.workflowExecution.hierarchy.children.filter(
-        (c: any) => c.childId !== childId
-      );
-    }
+    // Sync to data object for backward compatibility
+    this.syncHierarchyToDataObject();
   }
 
   /**

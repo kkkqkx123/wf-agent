@@ -19,12 +19,21 @@ import type {
   ExecutionHierarchyMetadata,
   ID,
 } from '@wf-agent/types';
+import { sdkLogger as logger } from '../../utils/logger.js';
+import type { ExecutionHierarchyRegistry } from '../registry/execution-hierarchy-registry.js';
 
 /**
  * Maximum allowed hierarchy depth to prevent infinite nesting
  * Can be configured via environment variable or configuration file
  */
 const MAX_DEPTH = parseInt(process.env['MAX_EXECUTION_DEPTH'] || '10', 10);
+
+/**
+ * Maximum number of ancestors to traverse during cycle detection
+ * This prevents excessive traversal in extremely deep hierarchies
+ * Should be >= MAX_DEPTH for correctness
+ */
+const MAX_CYCLE_CHECK_DEPTH = MAX_DEPTH + 5;
 
 /**
  * Execution Hierarchy Manager
@@ -40,6 +49,7 @@ export class ExecutionHierarchyManager {
   private depth: number = 0;
   private rootExecutionId: ID;
   private rootExecutionType: ExecutionType;
+  private registry?: ExecutionHierarchyRegistry;
 
   /**
    * Creates a new ExecutionHierarchyManager
@@ -47,14 +57,17 @@ export class ExecutionHierarchyManager {
    * @param executionId - The ID of this execution instance
    * @param executionType - The type of this execution (WORKFLOW or AGENT_LOOP)
    * @param existingHierarchy - Optional existing hierarchy metadata to restore from
+   * @param registry - Optional registry reference for cycle detection and depth calculation
    */
   constructor(
     executionId: ID,
     executionType: ExecutionType,
-    existingHierarchy?: ExecutionHierarchyMetadata
+    existingHierarchy?: ExecutionHierarchyMetadata,
+    registry?: ExecutionHierarchyRegistry
   ) {
     this.executionId = executionId;
     this.executionType = executionType;
+    this.registry = registry;
 
     // Restore state from existing hierarchy metadata if provided
     if (existingHierarchy) {
@@ -91,7 +104,7 @@ export class ExecutionHierarchyManager {
 
     this.parent = parentContext;
 
-    // Recalculate depth and root based on parent
+    // Recalculate depth and root based on parent (cached values updated)
     this.recalculateHierarchy();
   }
 
@@ -138,6 +151,9 @@ export class ExecutionHierarchyManager {
   /**
    * Gets the current hierarchy depth
    * 
+   * Returns cached value (O(1) operation).
+   * Cache is automatically invalidated and recalculated when parent changes.
+   * 
    * @returns The depth (0 for root nodes)
    */
   getDepth(): number {
@@ -147,6 +163,9 @@ export class ExecutionHierarchyManager {
   /**
    * Gets the root execution ID
    * 
+   * Returns cached value (O(1) operation).
+   * Cache is automatically invalidated and recalculated when parent changes.
+   * 
    * @returns The ID of the root execution in this hierarchy tree
    */
   getRootExecutionId(): ID {
@@ -155,6 +174,9 @@ export class ExecutionHierarchyManager {
 
   /**
    * Gets the root execution type
+   * 
+   * Returns cached value (O(1) operation).
+   * Cache is automatically invalidated and recalculated when parent changes.
    * 
    * @returns The type of the root execution
    */
@@ -210,7 +232,9 @@ export class ExecutionHierarchyManager {
   /**
    * Checks if setting the given parent would create a circular reference
    * 
-   * Traverses up the parent chain to see if we encounter our own ID
+   * Traverses up the parent chain to see if we encounter our own ID.
+   * Uses the registry to access parent entities and traverse the full ancestor chain.
+   * Optimized with early termination and depth limits to prevent excessive traversal.
    * 
    * @param targetParentId - The ID of the proposed parent
    * @returns true if a cycle would be created
@@ -221,30 +245,80 @@ export class ExecutionHierarchyManager {
       return true;
     }
 
-    // For now, we only check direct self-reference
-    // In a full implementation, we would need access to a registry
-    // to traverse the entire parent chain
-    // TODO: Implement full cycle detection with registry access
+    // If registry is not available, we can only check direct self-reference
+    if (!this.registry) {
+      logger.warn('Registry not available, skipping full cycle detection');
+      return false;
+    }
+
+    // Traverse the ancestor chain to detect cycles
+    let currentId: ID | undefined = targetParentId;
+    const visited = new Set<ID>();
+    let traversalDepth = 0;
+    
+    while (currentId) {
+      // Safety check: prevent excessive traversal
+      if (traversalDepth > MAX_CYCLE_CHECK_DEPTH) {
+        logger.warn('Cycle detection exceeded maximum traversal depth', {
+          targetParentId,
+          maxDepth: MAX_CYCLE_CHECK_DEPTH,
+        });
+        // Assume no cycle to avoid blocking legitimate deep hierarchies
+        // The depth limit validation will catch excessively deep trees
+        return false;
+      }
+      
+      // Check if we've reached ourselves (cycle detected)
+      if (currentId === this.executionId) {
+        return true;
+      }
+      
+      // Check if we've already visited this node (cycle in parent chain)
+      if (visited.has(currentId)) {
+        logger.warn('Cycle detected in parent chain during traversal', { currentId });
+        return true;
+      }
+      
+      visited.add(currentId);
+      traversalDepth++;
+      
+      // Get the parent entity from registry
+      const parentEntity = this.registry.get(currentId);
+      if (!parentEntity || !('getParentContext' in parentEntity)) {
+        // Reached root node or entity not found
+        break;
+      }
+      
+      // Move up to the next parent
+      const parentContext = parentEntity.getParentContext();
+      currentId = parentContext?.parentId;
+    }
+    
     return false;
   }
 
   /**
    * Gets the depth of a parent execution
    * 
-   * In a full implementation, this would query the registry
-   * For now, we use a simplified approach
+   * Queries the registry to get the actual parent's depth.
+   * Falls back to 0 if registry is not available or parent is not found.
    * 
    * @param parentContext - The parent context
    * @returns The depth of the parent execution
    */
   private getParentDepth(parentContext: ParentExecutionContext): number {
-    // Simplified implementation
-    // In production, this should query the ExecutionHierarchyRegistry
-    // to get the actual parent's depth
+    if (!this.registry) {
+      logger.warn('Registry not available, assuming parent is root (depth=0)');
+      return 0;
+    }
+
+    const parentEntity = this.registry.get(parentContext.parentId);
+    if (!parentEntity || !('getHierarchyDepth' in parentEntity)) {
+      // Parent not found or doesn't have hierarchy methods, assume it's root
+      return 0;
+    }
     
-    // For root parents (no parent themselves), depth is 0
-    // For non-root parents, we'd need to look them up
-    return 0; // Temporary implementation
+    return parentEntity.getHierarchyDepth();
   }
 
   /**
@@ -266,10 +340,40 @@ export class ExecutionHierarchyManager {
       const parentDepth = this.getParentDepth(this.parent);
       this.depth = parentDepth + 1;
       
-      // Root information comes from parent's root
-      // TODO: In full implementation, query registry for parent's root info
-      this.rootExecutionId = this.parent.parentId; // Simplified
-      this.rootExecutionType = this.parent.parentType; // Simplified
+      // Inherit root information from parent
+      this.inheritRootInfoFromParent();
+    }
+  }
+
+  /**
+   * Inherits root execution information from parent
+   * 
+   * Queries the registry to get the parent's root execution info.
+   * Falls back to parent's own ID if registry is not available.
+   */
+  private inheritRootInfoFromParent(): void {
+    if (!this.registry || !this.parent) {
+      // Fallback: assume parent is root
+      logger.warn('Registry not available or parent is undefined, assuming parent is root');
+      if (this.parent) {
+        this.rootExecutionId = this.parent.parentId;
+        this.rootExecutionType = this.parent.parentType;
+      }
+      return;
+    }
+
+    const parentEntity = this.registry.get(this.parent.parentId);
+    if (parentEntity && 'getRootExecutionId' in parentEntity && 'getRootExecutionType' in parentEntity) {
+      // Inherit from parent's root
+      this.rootExecutionId = parentEntity.getRootExecutionId();
+      this.rootExecutionType = parentEntity.getRootExecutionType();
+    } else {
+      // Fallback: assume parent is root
+      logger.warn('Parent entity not found or missing hierarchy methods, assuming parent is root', {
+        parentId: this.parent.parentId,
+      });
+      this.rootExecutionId = this.parent.parentId;
+      this.rootExecutionType = this.parent.parentType;
     }
   }
 }

@@ -22,6 +22,7 @@ import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import { getContainer } from "../../../core/di/index.js";
 import * as Identifiers from "../../../core/di/service-identifiers.js";
 import { AgentLoopCheckpointCoordinator } from "../../checkpoint/index.js";
+import type { ExecutionHierarchyRegistry } from "../../../core/registry/execution-hierarchy-registry.js";
 
 const logger = createContextualLogger({ component: "AgentLoopFactory" });
 
@@ -105,7 +106,12 @@ export class AgentLoopFactory {
     options: AgentLoopEntityOptions = {},
   ): Promise<AgentLoopEntity> {
     const id = `agent-loop-${randomUUID()}`;
-    const entity = new AgentLoopEntity(id, config);
+    
+    // Get execution hierarchy registry from DI container
+    const container = getContainer();
+    const registry = container.get(Identifiers.ExecutionHierarchyRegistry) as ExecutionHierarchyRegistry;
+    
+    const entity = new AgentLoopEntity(id, config, undefined, undefined, registry);
 
     logger.info("Creating new Agent Loop entity", {
       agentLoopId: id,

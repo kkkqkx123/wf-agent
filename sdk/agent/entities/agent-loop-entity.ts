@@ -65,6 +65,7 @@ import {
 import { VariableState } from "../../workflow/state-managers/variable-state.js";
 import { buildInitialMessages, type InitialMessagesConfig } from "../../core/prompt/index.js";
 import { ExecutionHierarchyManager } from "../../core/execution/execution-hierarchy-manager.js";
+import type { ExecutionHierarchyRegistry } from "../../core/registry/execution-hierarchy-registry.js";
 
 /**
  * Steering Mode
@@ -147,12 +148,14 @@ export class AgentLoopEntity {
    * @param config Cyclic configuration
    * @param state Execution state (optional, new instance created by default)
    * @param conversationManagerConfig conversation manager configuration (optional)
+   * @param registry Optional execution hierarchy registry for cycle detection and depth calculation
    */
   constructor(
     id: string,
     config: AgentLoopRuntimeConfig,
     state?: AgentLoopState,
     conversationManagerConfig?: Partial<ConversationSessionConfig>,
+    registry?: ExecutionHierarchyRegistry,
   ) {
     this.id = id;
     this.config = config;
@@ -160,7 +163,7 @@ export class AgentLoopEntity {
     this.variableStateManager = new VariableState();
 
     // Initialize hierarchy manager as root node (Agent loops are typically root executions)
-    this.hierarchyManager = new ExecutionHierarchyManager(id, 'AGENT_LOOP');
+    this.hierarchyManager = new ExecutionHierarchyManager(id, 'AGENT_LOOP', undefined, registry);
 
     // Initialize the ConversationSession (without setting an initial message).
     // The initial message will be set asynchronously in the factory method.

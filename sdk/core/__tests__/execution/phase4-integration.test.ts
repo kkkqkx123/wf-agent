@@ -6,8 +6,8 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { ExecutionHierarchyRegistry } from '../../execution/execution-hierarchy-registry.js';
-import type { AnyExecutionEntity } from '../../execution/execution-hierarchy-registry.js';
+import { ExecutionHierarchyRegistry } from '../../registry/execution-hierarchy-registry.js';
+import type { AnyExecutionEntity } from '../../registry/execution-hierarchy-registry.js';
 
 // Mock execution entities for integration testing
 class MockWorkflowEntity {

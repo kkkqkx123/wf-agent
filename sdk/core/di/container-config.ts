@@ -90,7 +90,7 @@ import { TriggerState } from "../../workflow/state-managers/trigger-state.js";
 import { InterruptionState } from "../types/interruption-state.js";
 import { AgentLoopExecutor } from "../../agent/execution/executors/agent-loop-executor.js";
 import { AgentLoopRegistry } from "../../agent/stores/agent-loop-registry.js";
-import { ExecutionHierarchyRegistry } from "../execution/execution-hierarchy-registry.js";
+import { ExecutionHierarchyRegistry } from "../registry/execution-hierarchy-registry.js";
 import { AgentLoopCoordinator } from "../../agent/execution/coordinators/agent-loop-coordinator.js";
 import { WorkflowExecutionEntity } from "../../workflow/entities/workflow-execution-entity.js";
 

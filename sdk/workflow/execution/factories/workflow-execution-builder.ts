@@ -29,6 +29,7 @@ import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import type { ToolRegistry } from "../../../core/registry/tool-registry.js";
 import { ConversationSession } from "../../../core/messaging/conversation-session.js";
 import { logError, emitErrorEvent } from "../../../core/utils/error-utils.js";
+import type { ExecutionHierarchyRegistry } from "../../../core/registry/execution-hierarchy-registry.js";
 
 const logger = createContextualLogger({ operation: "workflow-execution-builder" });
 
@@ -90,6 +91,14 @@ export class WorkflowExecutionBuilder {
   private getToolService(): ToolRegistry {
     const container = getContainer();
     return container.get(Identifiers.ToolRegistry) as ToolRegistry;
+  }
+
+  /**
+   * Get execution hierarchy registry (from DI container)
+   */
+  private getExecutionHierarchyRegistry(): ExecutionHierarchyRegistry {
+    const container = getContainer();
+    return container.get(Identifiers.ExecutionHierarchyRegistry) as ExecutionHierarchyRegistry;
   }
 
   /**
@@ -207,10 +216,12 @@ export class WorkflowExecutionBuilder {
     const executionState = new ExecutionState();
 
     // Step 6: Create WorkflowExecutionEntity (without ConversationManager)
+    const registry = this.getExecutionHierarchyRegistry();
     const workflowExecutionEntity = new WorkflowExecutionEntity(
       workflowExecution,
       executionState,
       workflowExecutionState,
+      registry
     );
 
     // Step 7: Create ConversationSession
@@ -304,10 +315,12 @@ export class WorkflowExecutionBuilder {
     const executionState = new ExecutionState();
 
     // Create WorkflowExecutionEntity (without ConversationManager)
+    const registry = this.getExecutionHierarchyRegistry();
     const copiedWorkflowExecutionEntity = new WorkflowExecutionEntity(
       copiedWorkflowExecution,
       executionState,
       workflowExecutionState,
+      registry
     );
 
     // Create ConversationSession (clone from source message history)
@@ -402,10 +415,12 @@ export class WorkflowExecutionBuilder {
     const executionState = new ExecutionState();
 
     // Create WorkflowExecutionEntity (without ConversationManager)
+    const registry = this.getExecutionHierarchyRegistry();
     const forkWorkflowExecutionEntity = new WorkflowExecutionEntity(
       forkWorkflowExecution,
       executionState,
       workflowExecutionState,
+      registry
     );
 
     // Create ConversationSession (clone from parent message history)

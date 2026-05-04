@@ -29,6 +29,8 @@ import type {
   CheckpointStorageAdapter,
   WorkflowStorageAdapter,
   TaskStorageAdapter,
+  WorkflowExecutionStorageAdapter,
+  AgentLoopCheckpointStorageAdapter,
 } from "@wf-agent/storage";
 import * as Identifiers from "./service-identifiers.js";
 
@@ -102,42 +104,26 @@ interface StorageAdapterConfig {
   checkpoint?: CheckpointStorageAdapter;
   workflow?: WorkflowStorageAdapter;
   task?: TaskStorageAdapter;
-  workflowExecution?: any; // WorkflowExecutionStorageAdapter type will be added later
+  workflowExecution?: WorkflowExecutionStorageAdapter;
+  agentLoopCheckpoint?: AgentLoopCheckpointStorageAdapter;
 }
 
 let pendingStorageConfig: StorageAdapterConfig | null = null;
 
 /**
- * Initialize the DI container
+ * Initialize the DI container with storage adapters
  * Configure all service bindings in the order of dependencies
  *
+ * @param adapters All storage adapters (optional)
  * @returns The configured container instance
  */
-export function initializeContainer(): Container {
-  return initializeContainerWithAdapter();
-}
-
-/**
- * Initialize the DI container
- * Configure all service bindings in the order of dependencies
- *
- * @param storageAdapter Implementation of the storage adapter interface (optional; if not provided, setStorageAdapter must be called before initialization)
- * @returns The configured container instance
- */
-export function initializeContainerWithAdapter(storageAdapter?: CheckpointStorageAdapter): Container {
+export function initializeContainerWithAdapters(adapters: StorageAdapterConfig = {}): Container {
   if (container) {
     return container;
   }
 
   container = new Container();
-
-  // If a storageAdapter is provided via parameter, store it in pending config
-  if (storageAdapter) {
-    if (!pendingStorageConfig) {
-      pendingStorageConfig = {};
-    }
-    pendingStorageConfig.checkpoint = storageAdapter;
-  }
+  pendingStorageConfig = adapters;
 
   // ============================================================
   // Bind Storage Adapters in DI Container
@@ -146,31 +132,31 @@ export function initializeContainerWithAdapter(storageAdapter?: CheckpointStorag
   // CheckpointStorageAdapter
   container
     .bind(Identifiers.CheckpointStorageAdapter)
-    .toDynamicValue(() => {
-      if (!pendingStorageConfig?.checkpoint) {
-        throw new Error(
-          "CheckpointStorageAdapter not provided. " +
-            "Please provide it via initializeContainerWithAdapter() parameter or call setStorageAdapter() before initialization."
-        );
-      }
-      return pendingStorageConfig.checkpoint;
-    })
+    .toDynamicValue(() => pendingStorageConfig?.checkpoint || null)
     .inSingletonScope();
 
   // WorkflowStorageAdapter
   container
     .bind(Identifiers.WorkflowStorageAdapter)
-    .toDynamicValue(() => {
-      return pendingStorageConfig?.workflow || null;
-    })
+    .toDynamicValue(() => pendingStorageConfig?.workflow || null)
     .inSingletonScope();
 
   // TaskStorageAdapter
   container
     .bind(Identifiers.TaskStorageAdapter)
-    .toDynamicValue(() => {
-      return pendingStorageConfig?.task || null;
-    })
+    .toDynamicValue(() => pendingStorageConfig?.task || null)
+    .inSingletonScope();
+
+  // WorkflowExecutionStorageAdapter
+  container
+    .bind(Identifiers.WorkflowExecutionStorageAdapter)
+    .toDynamicValue(() => pendingStorageConfig?.workflowExecution || null)
+    .inSingletonScope();
+
+  // AgentLoopCheckpointStorageAdapter
+  container
+    .bind(Identifiers.AgentLoopCheckpointStorageAdapter)
+    .toDynamicValue(() => pendingStorageConfig?.agentLoopCheckpoint || null)
     .inSingletonScope();
 
   // Clear pending config after binding (adapters are now in DI container)
@@ -369,7 +355,7 @@ export function initializeContainerWithAdapter(storageAdapter?: CheckpointStorag
       if (!adapter) {
         throw new Error(
           "CheckpointState requires a CheckpointStorageAdapter implementation. " +
-            "Please provide it via initializeContainerWithAdapter(storageAdapter) parameter."
+            "Please provide it via initializeContainerWithAdapters({ checkpoint: adapter }) parameter."
         );
       }
 
@@ -836,4 +822,48 @@ export function resetContainer(): void {
  */
 export function isContainerInitialized(): boolean {
   return container !== null;
+}
+
+/**
+ * Shutdown all storage adapters gracefully
+ * Closes connections, flushes buffers, and releases resources
+ */
+export async function shutdownStorageAdapters(): Promise<void> {
+  if (!container) {
+    return;
+  }
+
+  const shutdownErrors: Array<{ type: string; error: Error }> = [];
+
+  // Shutdown each adapter that has a close/shutdown method
+  const adapterTypes = [
+    { name: 'checkpoint', identifier: Identifiers.CheckpointStorageAdapter },
+    { name: 'workflow', identifier: Identifiers.WorkflowStorageAdapter },
+    { name: 'task', identifier: Identifiers.TaskStorageAdapter },
+    { name: 'workflowExecution', identifier: Identifiers.WorkflowExecutionStorageAdapter },
+    { name: 'agentLoopCheckpoint', identifier: Identifiers.AgentLoopCheckpointStorageAdapter },
+  ] as const;
+
+  for (const { name, identifier } of adapterTypes) {
+    try {
+      const adapter = container.get(identifier) as any;
+      if (adapter) {
+        // Check if adapter has a close or shutdown method
+        if (typeof adapter.close === 'function') {
+          await adapter.close();
+        } else if (typeof adapter.shutdown === 'function') {
+          await adapter.shutdown();
+        }
+      }
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      shutdownErrors.push({ type: name, error: err });
+    }
+  }
+
+  if (shutdownErrors.length > 0) {
+    throw new Error(
+      `Shutdown completed with errors: ${shutdownErrors.map(e => `${e.type}: ${e.error.message}`).join(', ')}`,
+    );
+  }
 }

@@ -10,7 +10,7 @@ import {
   SqliteConnectionPool,
   getGlobalConnectionPool,
   resetGlobalConnectionPool,
-} from "../../src/sqlite/connection-pool.js";
+} from "../connection-pool.js";
 
 describe("SqliteConnectionPool", () => {
   let tempDir: string;

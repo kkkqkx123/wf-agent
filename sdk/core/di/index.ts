@@ -20,8 +20,9 @@ export * as ServiceIdentifiers from "./service-identifiers.js";
 
 // Export container configuration function
 export {
-  initializeContainerWithAdapter,
+  initializeContainerWithAdapters,
   getContainer,
   resetContainer,
   isContainerInitialized,
+  shutdownStorageAdapters,
 } from "./container-config.js";

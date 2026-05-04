@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "fs";
 import path from "path";
 import os from "os";
-import { SqliteAgentLoopStorage } from "../../src/sqlite/sqlite-agent-loop-storage.js";
+import { SqliteAgentLoopStorage } from "../sqlite-agent-loop-storage.js";
 import { AgentLoopStatus, type AgentEntityMetadata } from "@wf-agent/types";
 
 describe("SqliteAgentLoopStorage", () => {

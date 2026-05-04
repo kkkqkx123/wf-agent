@@ -16,6 +16,8 @@ import { sdkLogger as logger } from "../../../utils/logger.js";
 import { getErrorMessage } from "@wf-agent/common-utils";
 import {
   getContainer,
+  initializeContainerWithAdapters,
+  shutdownStorageAdapters,
 } from "../../../core/di/container-config.js";
 import * as Identifiers from "../../../core/di/service-identifiers.js";
 import { registerContextCompression } from "../../../resources/predefined/index.js";
@@ -25,7 +27,6 @@ import { TomlParserManager } from "../../../utils/toml-parser-manager.js";
 import type { ServiceIdentifier } from "@wf-agent/common-utils";
 import type { TriggerTemplateRegistry } from "../../../core/registry/trigger-template-registry.js";
 import type { WorkflowRegistry } from "../../../workflow/stores/workflow-registry.js";
-import { StorageInitializationService } from "../../../core/services/storage-initialization-service.js";
 import type { ToolRegistry } from "../../../core/registry/tool-registry.js";
 
 /**
@@ -84,30 +85,25 @@ class SDK {
     // Call start hook if provided
     await options?.hooks?.onBootstrapStart?.();
 
-    // Step 1: Initialize storage adapters through StorageInitializationService
+    // Step 1: Initialize DI container with storage adapters
     try {
-      const storageService = StorageInitializationService.getInstance();
+      initializeContainerWithAdapters({
+        checkpoint: options?.checkpointStorageAdapter,
+        task: options?.taskStorageAdapter,
+        workflow: options?.workflowStorageAdapter,
+        workflowExecution: options?.workflowExecutionStorageAdapter,
+        agentLoopCheckpoint: options?.agentLoopCheckpointStorageAdapter,
+      });
       
-      // Only initialize if adapters are provided
-      if (options?.checkpointStorageAdapter || options?.taskStorageAdapter || options?.workflowStorageAdapter || options?.workflowExecutionStorageAdapter || options?.agentLoopCheckpointStorageAdapter) {
-        await storageService.initialize({
-          checkpoint: options.checkpointStorageAdapter,
-          task: options.taskStorageAdapter,
-          workflow: options.workflowStorageAdapter,
-          workflowExecution: options.workflowExecutionStorageAdapter,
-          agentLoopCheckpoint: options.agentLoopCheckpointStorageAdapter,
-        });
-        
-        logger.info("Storage adapters initialized via StorageInitializationService", {
-          checkpoint: !!options.checkpointStorageAdapter,
-          task: !!options.taskStorageAdapter,
-          workflow: !!options.workflowStorageAdapter,
-          workflowExecution: !!options.workflowExecutionStorageAdapter,
-          agentLoopCheckpoint: !!options.agentLoopCheckpointStorageAdapter,
-        });
-      }
+      logger.info("DI container initialized with storage adapters", {
+        checkpoint: !!options?.checkpointStorageAdapter,
+        task: !!options?.taskStorageAdapter,
+        workflow: !!options?.workflowStorageAdapter,
+        workflowExecution: !!options?.workflowExecutionStorageAdapter,
+        agentLoopCheckpoint: !!options?.agentLoopCheckpointStorageAdapter,
+      });
     } catch (error) {
-      logger.error("Failed to initialize storage adapters", { error });
+      logger.error("Failed to initialize DI container", { error });
       // Don't throw here - allow SDK to work without storage if needed
     }
     
@@ -366,20 +362,54 @@ class SDK {
 
     // Add storage adapter health checks
     try {
-      const storageService = StorageInitializationService.getInstance();
-      if (storageService.isInitialized()) {
-        const storageHealth = await storageService.healthCheck();
-        details["storageAdapters"] = {
-          healthy: storageHealth.overallHealthy,
-          results: storageHealth.results,
-          timestamp: storageHealth.timestamp.toISOString(),
-        };
-        
-        if (!storageHealth.overallHealthy) {
-          overallStatus = "degraded";
+      const container = getContainer();
+      const adapterTypes = [
+        { name: 'checkpoint', identifier: Identifiers.CheckpointStorageAdapter },
+        { name: 'workflow', identifier: Identifiers.WorkflowStorageAdapter },
+        { name: 'task', identifier: Identifiers.TaskStorageAdapter },
+        { name: 'workflowExecution', identifier: Identifiers.WorkflowExecutionStorageAdapter },
+        { name: 'agentLoopCheckpoint', identifier: Identifiers.AgentLoopCheckpointStorageAdapter },
+      ];
+
+      const results = [];
+      for (const { name, identifier } of adapterTypes) {
+        const adapter = container.get(identifier) as any;
+        if (adapter) {
+          if (typeof adapter.healthCheck === 'function') {
+            try {
+              const result = await adapter.healthCheck();
+              results.push({
+                adapter: name,
+                healthy: result.healthy,
+                message: result.message,
+                details: result.details,
+              });
+            } catch (error) {
+              results.push({
+                adapter: name,
+                healthy: false,
+                message: `Health check failed: ${getErrorMessage(error)}`,
+              });
+            }
+          } else {
+            results.push({
+              adapter: name,
+              healthy: true,
+              message: 'No healthCheck method available',
+            });
+          }
         }
-      } else {
-        details["storageAdapters"] = { status: "not_initialized" };
+      }
+
+      const overallHealthy = results.every((r: any) => r.healthy);
+      details["storageAdapters"] = {
+        healthy: overallHealthy,
+        results,
+        timestamp: new Date().toISOString(),
+      };
+
+      if (!overallHealthy) {
+        overallStatus = "degraded";
       }
     } catch (error) {
       details["storageAdapters"] = {
@@ -450,14 +480,9 @@ class SDK {
     logger.info("Shutting down SDK...");
 
     try {
-      // Shutdown storage adapters through StorageInitializationService
-      const storageService = StorageInitializationService.getInstance();
-      if (storageService.isInitialized()) {
-        await storageService.shutdown();
-        logger.info("Storage adapters shut down successfully");
-      } else {
-        logger.debug("StorageInitializationService not initialized, skipping shutdown");
-      }
+      // Shutdown storage adapters through DI container
+      await shutdownStorageAdapters();
+      logger.info("Storage adapters shut down successfully");
     } catch (error) {
       logger.error("Failed to shutdown storage adapters", { error: getErrorMessage(error) });
       // Continue with cleanup even if storage shutdown fails

@@ -64,7 +64,7 @@ import type { CheckpointStorageAdapter } from '@wf-agent/storage';
 | Promise Manager | `CallbackState` | `PromiseResolutionManager` |
 | Storage Interface | `*StorageCallback` | `*StorageAdapter` |
 | DI Functions | `set/get*Callback` | `set/get*Adapter` |
-| Init Function | `initializeContainer` | `initializeContainerWithAdapter` |
+| Init Function | `initializeContainer` | `initializeContainerWithAdapters` |
 | SDK Options | `*StorageCallback` | `*StorageAdapter` |
 
 ---

@@ -2,11 +2,11 @@
  * Modular Agent SDK - Main Entry Point
  */
 
-import { initializeContainer } from "./core/di/container-config.js";
+import { initializeContainerWithAdapters } from "./core/di/container-config.js";
 import { registerAllSerializers } from "./core/serialization/entities/index.js";
 
-// Initialize the DI container
-initializeContainer();
+// Initialize the DI container with no adapters (adapters will be provided via SDK options)
+initializeContainerWithAdapters();
 
 // Register all entity serializers with the global registry
 registerAllSerializers();

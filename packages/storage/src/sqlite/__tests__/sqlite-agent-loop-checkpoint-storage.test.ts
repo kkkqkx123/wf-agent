@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "fs";
 import path from "path";
 import os from "os";
-import { SqliteAgentLoopCheckpointStorage } from "../../src/sqlite/sqlite-agent-loop-checkpoint-storage.js";
+import { SqliteAgentLoopCheckpointStorage } from "../sqlite-agent-loop-checkpoint-storage.js";
 import type { AgentCheckpointMetadata } from "@wf-agent/types";
 
 describe("SqliteAgentLoopCheckpointStorage", () => {

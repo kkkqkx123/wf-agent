@@ -363,3 +363,9 @@ export const TaskStorageAdapter: ServiceIdentifier<unknown> = Symbol("TaskStorag
  * Provides workflow execution history persistence operations
  */
 export const WorkflowExecutionStorageAdapter: ServiceIdentifier<unknown> = Symbol("WorkflowExecutionStorageAdapter");
+
+/**
+ * AgentLoopCheckpointStorageAdapter - Agent Loop Checkpoint Storage Adapter
+ * Provides agent loop checkpoint persistence operations
+ */
+export const AgentLoopCheckpointStorageAdapter: ServiceIdentifier<unknown> = Symbol("AgentLoopCheckpointStorageAdapter");

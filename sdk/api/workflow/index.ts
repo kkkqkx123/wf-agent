@@ -83,6 +83,6 @@ export { EnableTriggerCommand } from "./operations/triggers/enable-trigger-comma
 export { DisableTriggerCommand } from "./operations/triggers/disable-trigger-command.js";
 
 // Operations - Subscriptions
-export { OnEventSubscription } from "./operations/subscriptions/events/on-event-subscription.js";
-export { OffEventSubscription } from "./operations/subscriptions/events/off-event-subscription.js";
-export { OnceEventSubscription } from "./operations/subscriptions/events/once-event-subscription.js";
+export { OnEventSubscription } from "./operations/events/on-event-subscription.js";
+export { OffEventSubscription } from "./operations/events/off-event-subscription.js";
+export { OnceEventSubscription } from "./operations/events/once-event-subscription.js";

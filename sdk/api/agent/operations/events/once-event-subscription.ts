@@ -12,9 +12,9 @@
  * - Returns unsubscribe function
  */
 
-import { BaseSubscription, SubscriptionMetadata } from "../../../../shared/types/subscription.js";
+import { BaseSubscription, SubscriptionMetadata } from "../../../shared/types/subscription.js";
 import type { EventType, EventListener, BaseEvent } from "@wf-agent/types";
-import type { APIDependencyManager } from "../../../../shared/core/sdk-dependencies.js";
+import type { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
 
 /**
  * Register one-time event listener parameters

@@ -2,9 +2,9 @@
  * OnEventSubscription - Registering an event listener
  */
 
-import { BaseSubscription, SubscriptionMetadata } from "../../../../shared/types/subscription.js";
+import { BaseSubscription, SubscriptionMetadata } from "../../../shared/types/subscription.js";
 import type { EventType, EventListener, BaseEvent } from "@wf-agent/types";
-import type { APIDependencyManager } from "../../../../shared/core/sdk-dependencies.js";
+import type { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
 
 /**
  * Register event listener parameters

@@ -157,14 +157,14 @@ export { DisableTriggerCommand } from "./workflow/operations/triggers/disable-tr
 export type { DisableTriggerParams } from "./workflow/operations/triggers/disable-trigger-command.js";
 
 // Subscriptions
-export { OnEventSubscription } from "./workflow/operations/subscriptions/events/on-event-subscription.js";
-export type { OnEventParams } from "./workflow/operations/subscriptions/events/on-event-subscription.js";
+export { OnEventSubscription } from "./workflow/operations/events/on-event-subscription.js";
+export type { OnEventParams } from "./workflow/operations/events/on-event-subscription.js";
 
-export { OnceEventSubscription } from "./workflow/operations/subscriptions/events/once-event-subscription.js";
-export type { OnceEventParams } from "./workflow/operations/subscriptions/events/once-event-subscription.js";
+export { OnceEventSubscription } from "./workflow/operations/events/once-event-subscription.js";
+export type { OnceEventParams } from "./workflow/operations/events/once-event-subscription.js";
 
-export { OffEventSubscription } from "./workflow/operations/subscriptions/events/off-event-subscription.js";
-export type { OffEventParams } from "./workflow/operations/subscriptions/events/off-event-subscription.js";
+export { OffEventSubscription } from "./workflow/operations/events/off-event-subscription.js";
+export type { OffEventParams } from "./workflow/operations/events/off-event-subscription.js";
 
 // ============================================================================
 // Shared - Command class (with side-effect operations)
@@ -269,17 +269,17 @@ export {
 export {
   OnEventSubscription as AgentOnEventSubscription,
   type OnAgentEventParams,
-} from "./agent/operations/subscriptions/events/on-event-subscription.js";
+} from "./agent/operations/events/on-event-subscription.js";
 
 export {
   OffEventSubscription as AgentOffEventSubscription,
   type OffAgentEventParams,
-} from "./agent/operations/subscriptions/events/off-event-subscription.js";
+} from "./agent/operations/events/off-event-subscription.js";
 
 export {
   OnceEventSubscription as AgentOnceEventSubscription,
   type OnceAgentEventParams,
-} from "./agent/operations/subscriptions/events/once-event-subscription.js";
+} from "./agent/operations/events/once-event-subscription.js";
 
 // ============================================================================
 // Agent - Resources

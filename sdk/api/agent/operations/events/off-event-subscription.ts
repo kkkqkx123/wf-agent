@@ -12,9 +12,9 @@
  * - Returns empty function (already cancelled)
  */
 
-import { BaseSubscription, SubscriptionMetadata } from "../../../../shared/types/subscription.js";
+import { BaseSubscription, SubscriptionMetadata } from "../../../shared/types/subscription.js";
 import type { EventType, EventListener, BaseEvent } from "@wf-agent/types";
-import type { APIDependencyManager } from "../../../../shared/core/sdk-dependencies.js";
+import type { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
 
 /**
  * Cancel event listener parameters

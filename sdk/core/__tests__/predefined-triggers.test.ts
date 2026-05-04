@@ -42,6 +42,15 @@ const mockStorageCallback = {
   initialize: vi.fn(),
   close: vi.fn(),
   clear: vi.fn(),
+  getMetrics: vi.fn().mockResolvedValue({
+    operationCounts: { save: 0, load: 0, delete: 0, list: 0, exists: 0, getMetadata: 0 },
+    timings: { save: 0, load: 0, delete: 0, list: 0, exists: 0, getMetadata: 0 },
+    sizes: { totalDataSize: 0, averageDataSize: 0 },
+  }),
+  resetMetrics: vi.fn(),
+  saveBatch: vi.fn(),
+  loadBatch: vi.fn().mockResolvedValue([]),
+  deleteBatch: vi.fn(),
 };
 
 describe("Predefined Triggers -predefined triggers", () => {

@@ -48,17 +48,17 @@ export {
 export {
   OnEventSubscription,
   type OnAgentEventParams,
-} from "./operations/subscriptions/events/on-event-subscription.js";
+} from "./operations/events/on-event-subscription.js";
 
 export {
   OffEventSubscription,
   type OffAgentEventParams,
-} from "./operations/subscriptions/events/off-event-subscription.js";
+} from "./operations/events/off-event-subscription.js";
 
 export {
   OnceEventSubscription,
   type OnceAgentEventParams,
-} from "./operations/subscriptions/events/once-event-subscription.js";
+} from "./operations/events/once-event-subscription.js";
 
 // ============================================================================
 // Resources - Resources API

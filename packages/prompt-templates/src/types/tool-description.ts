@@ -32,8 +32,16 @@ export interface ToolDescriptionData {
   id: string;
   /** Tool type */
   type: "STATELESS" | "STATEFUL";
-  /** Tool Classification */
-  category?: "filesystem" | "shell" | "memory" | "code" | "http";
+  /** Tool Classification (optional, used for internal organization and UI grouping) */
+  category?:
+    | "filesystem"
+    | "shell"
+    | "memory"
+    | "code"
+    | "http"
+    | "workflow"
+    | "agent"
+    | "integration";
   /** Tool Description */
   description: string;
   /** parameter list */

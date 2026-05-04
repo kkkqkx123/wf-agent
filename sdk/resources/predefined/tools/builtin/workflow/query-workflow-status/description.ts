@@ -11,7 +11,7 @@ export const QUERY_WORKFLOW_STATUS_TOOL_DESCRIPTION: ToolDescriptionData = {
   name: "query_workflow_status",
   id: "builtin_query_workflow_status",
   type: "STATELESS",
-  category: "code",
+  category: "workflow",
   description:
     "Query the status of an asynchronously submitted workflow task. Use this tool to check if a background workflow has completed, failed, or is still running.",
   parameters: [

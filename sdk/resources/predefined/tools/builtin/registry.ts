@@ -25,6 +25,13 @@ import {
   createCancelWorkflowHandler,
 } from "./workflow/index.js";
 
+// Import agent tools
+import {
+  callAgentSchema,
+  CALL_AGENT_TOOL_DESCRIPTION,
+  createCallAgentHandler,
+} from "./agent/index.js";
+
 /**
  * Check if the tool is disabled
  */
@@ -91,6 +98,21 @@ export function createBuiltinTools(options?: BuiltinToolsOptions): Tool[] {
       config: {
         name: "cancel_workflow",
         execute: createCancelWorkflowHandler(),
+      },
+    });
+  }
+
+  // call_agent
+  if (!isDisabled("call_agent", options)) {
+    tools.push({
+      id: "builtin_call_agent",
+      name: "call_agent",
+      type: "BUILTIN",
+      description: renderToolDescription(CALL_AGENT_TOOL_DESCRIPTION),
+      parameters: callAgentSchema,
+      config: {
+        name: "call_agent",
+        execute: createCallAgentHandler(),
       },
     });
   }

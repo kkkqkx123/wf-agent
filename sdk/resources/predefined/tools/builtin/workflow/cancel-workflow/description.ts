@@ -11,7 +11,7 @@ export const CANCEL_WORKFLOW_TOOL_DESCRIPTION: ToolDescriptionData = {
   name: "cancel_workflow",
   id: "builtin_cancel_workflow",
   type: "STATELESS",
-  category: "code",
+  category: "workflow",
   description:
     "Cancel a running workflow task. Use this tool to stop a background workflow execution.",
   parameters: [

@@ -49,6 +49,21 @@ export function createExecuteWorkflowHandler() {
       });
     }
 
+    // Validate parent workflow execution entity BEFORE accessing DI container
+    if (!workflowContext.parentExecutionEntity) {
+      throw new RuntimeValidationError(
+        "Parent workflow execution entity is required for workflow execution",
+        {
+          operation: "execute_workflow",
+          field: "parentExecutionEntity",
+          context: {
+            workflowId,
+            executionId: context.executionId,
+          },
+        },
+      );
+    }
+
     // Get TriggeredSubworkflowHandler from DI container
     const container = getContainer();
     const triggeredSubworkflowManager = container.get(
@@ -69,25 +84,12 @@ export function createExecuteWorkflowHandler() {
       );
     }
 
-    // Validate parent workflow execution entity
-    if (!workflowContext.parentExecutionEntity) {
-      throw new RuntimeValidationError("Parent workflow execution entity is required for workflow execution", {
-        operation: "execute_workflow",
-        field: "parentExecutionEntity",
-        context: {
-          workflowId,
-          executionId: workflowContext.executionId,
-          availableContextKeys: Object.keys(workflowContext),
-        },
-      });
-    }
-
     // Build execution task
     const task: TriggeredSubgraphTask = {
       subgraphId: workflowId,
       input,
       mainWorkflowExecutionEntity: workflowContext.parentExecutionEntity,
-      triggerId: `builtin-${Date.now()}`,
+      triggerId: `builtin-${context.executionId}-${Date.now()}`,
       config: {
         waitForCompletion,
         timeout,

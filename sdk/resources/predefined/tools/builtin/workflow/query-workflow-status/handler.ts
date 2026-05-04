@@ -35,6 +35,18 @@ export function createQueryWorkflowStatusHandler() {
       });
     }
 
+    // Validate parent workflow execution entity for hierarchy security
+    if (!context.parentExecutionEntity) {
+      throw new RuntimeValidationError("Parent workflow execution entity is required for workflow status query", {
+        operation: "query_workflow_status",
+        field: "parentExecutionEntity",
+        context: {
+          taskId,
+          executionId: context.executionId,
+        },
+      });
+    }
+
     // Get TriggeredSubworkflowHandler from DI container
     const container = getContainer();
     const triggeredSubworkflowManager = container.get(

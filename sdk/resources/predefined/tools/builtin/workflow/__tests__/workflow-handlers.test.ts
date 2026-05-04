@@ -8,38 +8,61 @@
  * - Error Handling
  */
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createExecuteWorkflowHandler } from "../execute-workflow/handler.js";
 import { createQueryWorkflowStatusHandler } from "../query-workflow-status/handler.js";
 import { createCancelWorkflowHandler } from "../cancel-workflow/handler.js";
 import type { BuiltinToolExecutionContext } from "@wf-agent/types";
 import { RuntimeValidationError } from "@wf-agent/types";
+import { initializeContainerWithAdapters, resetContainer, getContainer } from "../../../../../../core/di/container-config.js";
 
-// Mock DI container
+// Mock storage callback
+const mockStorageCallback = {
+  save: vi.fn(),
+  load: vi.fn(),
+  delete: vi.fn(),
+  list: vi.fn(),
+  exists: vi.fn(),
+  getMetadata: vi.fn(),
+  initialize: vi.fn(),
+  close: vi.fn(),
+  clear: vi.fn(),
+  getMetrics: vi.fn().mockResolvedValue({
+    operationCounts: { save: 0, load: 0, delete: 0, list: 0, exists: 0, getMetadata: 0 },
+    timings: { save: 0, load: 0, delete: 0, list: 0, exists: 0, getMetadata: 0 },
+    sizes: { totalDataSize: 0, averageDataSize: 0 },
+  }),
+  resetMetrics: vi.fn(),
+  saveBatch: vi.fn(),
+  loadBatch: vi.fn().mockResolvedValue([]),
+  deleteBatch: vi.fn(),
+};
+
+// Mock TriggeredSubworkflowHandler
 const mockTriggeredSubworkflowManager = {
   executeTriggeredSubgraph: vi.fn(),
   getTaskStatus: vi.fn(),
   cancelTask: vi.fn(),
 };
 
-const mockContainer = {
-  get: vi.fn((identifier: any) => {
-    if (identifier.toString().includes("TriggeredSubworkflowHandler")) {
-      return mockTriggeredSubworkflowManager;
-    }
-    return null;
-  }),
-};
-
-// Mock getContainer
-vi.mock("../../../../../core/di/index.js", () => ({
-  getContainer: () => mockContainer,
-}));
-
 describe("Workflow Builtin Tools Handlers", () => {
   let mockContext: BuiltinToolExecutionContext;
 
   beforeEach(() => {
+    // Reset and initialize container before each test
+    resetContainer();
+    initializeContainerWithAdapters({ checkpoint: mockStorageCallback });
+
+    // Patch container.get to return mock for TriggeredSubworkflowHandler
+    const container = getContainer();
+    const originalGet = container.get.bind(container);
+    (container as any).get = (serviceId: any) => {
+      if (serviceId.toString().includes("TriggeredSubworkflowHandler")) {
+        return mockTriggeredSubworkflowManager;
+      }
+      return originalGet(serviceId);
+    };
+
     vi.clearAllMocks();
 
     // Mock context
@@ -55,6 +78,10 @@ describe("Workflow Builtin Tools Handlers", () => {
         unregisterChildExecution: vi.fn(),
       } as any,
     };
+  });
+
+  afterEach(() => {
+    resetContainer();
   });
 
   describe("Execute Workflow Handler", () => {
@@ -169,13 +196,19 @@ describe("Workflow Builtin Tools Handlers", () => {
     it("should query task status successfully", async () => {
       const handler = createQueryWorkflowStatusHandler();
 
+      // Create a mock workflow execution entity
+      const mockExecutionEntity = {
+        id: "wfexec-456",
+        getExecutionId: vi.fn(() => "wfexec-456"),
+        getWorkflowId: vi.fn(() => "workflow-789"),
+      } as any;
+
       const mockTaskInfo = {
         id: "task-123",
-        status: "RUNNING",
-        executionEntity: {
-          getId: vi.fn(() => "wfexec-456"),
-          getWorkflowId: vi.fn(() => "workflow-789"),
-        },
+        instanceType: "workflowExecution" as const,
+        instance: mockExecutionEntity,
+        status: "RUNNING" as const,
+        submitTime: Date.now(),
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };

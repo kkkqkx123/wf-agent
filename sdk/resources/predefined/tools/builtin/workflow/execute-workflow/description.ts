@@ -11,7 +11,7 @@ export const EXECUTE_WORKFLOW_TOOL_DESCRIPTION: ToolDescriptionData = {
   name: "execute_workflow",
   id: "builtin_execute_workflow",
   type: "STATELESS",
-  category: "code",
+  category: "workflow",
   description:
     "Execute a graph workflow dynamically. Use this tool to run a predefined workflow with the given input parameters. Supports both synchronous and asynchronous execution modes.",
   parameters: [

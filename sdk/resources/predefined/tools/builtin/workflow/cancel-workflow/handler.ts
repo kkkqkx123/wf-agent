@@ -34,6 +34,18 @@ export function createCancelWorkflowHandler() {
       });
     }
 
+    // Validate parent workflow execution entity for hierarchy security
+    if (!context.parentExecutionEntity) {
+      throw new RuntimeValidationError("Parent workflow execution entity is required for workflow cancellation", {
+        operation: "cancel_workflow",
+        field: "parentExecutionEntity",
+        context: {
+          taskId,
+          executionId: context.executionId,
+        },
+      });
+    }
+
     // Get TriggeredSubworkflowHandler from DI container
     const container = getContainer();
     const triggeredSubworkflowManager = container.get(

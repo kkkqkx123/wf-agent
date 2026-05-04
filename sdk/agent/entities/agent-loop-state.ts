@@ -522,6 +522,7 @@ export class AgentLoopState {
       })),
       isStreaming: this._isStreaming,
       pendingToolCalls: Array.from(this._pendingToolCalls),
+      streamMessage: this._streamMessage, // Preserve partial streaming message
     };
   }
 
@@ -558,10 +559,17 @@ export class AgentLoopState {
       this._isStreaming = false;
     }
 
+    // Restore streaming message if present (for pause/resume support)
+    const streamMsg = snapshot["streamMessage"] as LLMMessage | null | undefined;
+    if (streamMsg !== undefined) {
+      this._streamMessage = streamMsg;
+    } else {
+      this._streamMessage = null;
+    }
+
     // Reset runtime state that cannot be restored
     this._currentIterationRecord = null;
     this._shouldPause = false;
     this._shouldStop = false;
-    this._streamMessage = null;
   }
 }

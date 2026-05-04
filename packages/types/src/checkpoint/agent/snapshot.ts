@@ -37,6 +37,8 @@ export interface AgentLoopStateSnapshot {
   isStreaming?: boolean;
   /** Pending tool call IDs */
   pendingToolCalls?: string[];
+  /** Partial streaming message (preserved across pause/resume) */
+  streamMessage?: Message | null;
 
   /** Allow additional properties for extensibility */
   [key: string]: unknown;

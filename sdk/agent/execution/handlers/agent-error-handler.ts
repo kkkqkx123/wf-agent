@@ -17,10 +17,12 @@
 import type { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import type { ErrorContext, SDKError } from "@wf-agent/types";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
-import { SDKError as SDKErrorClass } from "@wf-agent/types";
+import { SDKError as SDKErrorClass, AgentStreamEventType } from "@wf-agent/types";
 import { isAbortError, checkInterruption } from "@wf-agent/common-utils";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import { handleError } from "../../../core/utils/error-utils.js";
+import { emit } from "../../../core/utils/event/event-emitter.js";
+import { generateId, now } from "@wf-agent/common-utils";
 
 const logger = createContextualLogger({ component: "AgentErrorHandler" });
 
@@ -165,6 +167,12 @@ export async function handleAgentInterruption(
     operation,
     interruptionType: result.type,
     iteration: entity.state.currentIteration,
+    // Enhanced context for better observability
+    isStreaming: entity.state.isStreaming,
+    pendingToolCalls: Array.from(entity.state.pendingToolCalls),
+    streamMessageLength: entity.state.streamMessage?.content?.length || 0,
+    toolCallCount: entity.state.toolCallCount,
+    abortReason: entity.getAbortSignal().reason ? String(entity.getAbortSignal().reason) : undefined,
   });
 
   // Build error context
@@ -194,14 +202,59 @@ export async function handleAgentInterruption(
       agentLoopId: entity.id,
       operation,
       iteration: entity.state.currentIteration,
+      // Enhanced context
+      isStreaming: entity.state.isStreaming,
+      pendingToolCalls: Array.from(entity.state.pendingToolCalls),
+      streamMessagePreserved: !!entity.state.streamMessage,
     });
+
+    // Emit pause event (TODO: Add proper type after rebuilding types package)
+    if (eventManager) {
+      try {
+        await emit(eventManager, {
+          id: generateId(),
+          type: "AGENT_PAUSED" as any,
+          timestamp: now(),
+          agentLoopId: entity.id,
+          iteration: entity.state.currentIteration,
+          toolCallCount: entity.state.toolCallCount,
+          isStreaming: entity.state.isStreaming,
+          pendingToolCalls: entity.state.pendingToolCalls.size,
+          streamMessagePreserved: !!entity.state.streamMessage,
+        } as any);
+      } catch (error) {
+        logger.debug("Failed to emit AGENT_PAUSED event", { error });
+      }
+    }
   } else {
     entity.state.cancel();
     logger.info("Agent Loop cancelled", {
       agentLoopId: entity.id,
       operation,
       iteration: entity.state.currentIteration,
+      // Enhanced context
+      isStreaming: entity.state.isStreaming,
+      pendingToolCalls: Array.from(entity.state.pendingToolCalls),
+      toolCallCount: entity.state.toolCallCount,
     });
+
+    // Emit cancel event (TODO: Add proper type after rebuilding types package)
+    if (eventManager) {
+      try {
+        await emit(eventManager, {
+          id: generateId(),
+          type: "AGENT_CANCELLED" as any,
+          timestamp: now(),
+          agentLoopId: entity.id,
+          iteration: entity.state.currentIteration,
+          toolCallCount: entity.state.toolCallCount,
+          isStreaming: entity.state.isStreaming,
+          pendingToolCalls: entity.state.pendingToolCalls.size,
+        } as any);
+      } catch (error) {
+        logger.debug("Failed to emit AGENT_CANCELLED event", { error });
+      }
+    }
   }
 
   return true;

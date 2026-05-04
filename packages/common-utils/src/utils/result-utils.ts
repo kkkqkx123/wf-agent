@@ -120,7 +120,7 @@ export function any<T, E>(results: Result<T, E>[]): Result<T, E> {
  * 从可能抛出异常的异步函数创建Result，支持Signal
  *
  * 说明：
- * 1. 支持任何扩展了 AbortSignal 的类型（如 WorkflowExecutionAbortSignal）
+ * 1. 支持标准 AbortSignal，通过 reason 属性传递中断上下文信息
  * 2. 自动捕获异常并转换为 Result
  * 3. 类型安全，确保传入的 Signal 类型符合要求
  *
@@ -130,16 +130,9 @@ export function any<T, E>(results: Result<T, E>[]): Result<T, E> {
  *
  * @example
  * // 使用标准 AbortSignal
- * const result1 = await tryCatchAsyncWithSignal(
+ * const result = await tryCatchAsyncWithSignal(
  *   (signal) => fetch(url, { signal }),
  *   abortSignal
- * );
- *
- * @example
- * // 使用 WorkflowExecutionAbortSignal
- * const result2 = await tryCatchAsyncWithSignal<unknown, WorkflowExecutionAbortSignal>(
- *   (signal) => llmWrapper.generate({ signal }),
- *   workflowExecutionAbortSignal
  * );
  */
 export async function tryCatchAsyncWithSignal<T, S extends AbortSignal = AbortSignal>(

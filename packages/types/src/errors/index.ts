@@ -26,3 +26,6 @@ export * from "./other-errors.js";
 
 // Tool-related errors
 export * from "./tool-errors.js";
+
+// Serialization-related errors
+export * from "./serialized-error.js";

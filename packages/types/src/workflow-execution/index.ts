@@ -27,6 +27,3 @@ export * from "./workflow-execution.js";
 
 // Export History Type
 export * from "./history.js";
-
-// Exported signal type
-export * from "./signal/index.js";

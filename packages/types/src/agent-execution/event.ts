@@ -76,6 +76,12 @@ export enum AgentStreamEventType {
   // ========== Hook Events ==========
   /** Hook triggered event */
   HOOK_TRIGGERED = "hook_triggered",
+
+  // ========== Interruption Events ==========
+  /** Agent execution paused */
+  AGENT_PAUSED = "agent_paused",
+  /** Agent execution cancelled/stopped */
+  AGENT_CANCELLED = "agent_cancelled",
 }
 
 /**
@@ -321,6 +327,52 @@ export interface AgentHookTriggeredEvent {
 }
 
 /**
+ * Agent Paused Event
+ *
+ * Emitted when agent execution is paused by user request.
+ */
+export interface AgentPausedEvent {
+  type: AgentStreamEventType.AGENT_PAUSED;
+  timestamp: number;
+  /** Agent loop ID */
+  agentLoopId: ID;
+  /** Current iteration when paused */
+  iteration: number;
+  /** Total tool calls made */
+  toolCallCount: number;
+  /** Whether was streaming when paused */
+  isStreaming: boolean;
+  /** Number of pending tool calls */
+  pendingToolCalls: number;
+  /** Whether streaming message was preserved */
+  streamMessagePreserved: boolean;
+  /** Reason for pause (optional) */
+  reason?: string;
+}
+
+/**
+ * Agent Cancelled Event
+ *
+ * Emitted when agent execution is cancelled/stopped by user request.
+ */
+export interface AgentCancelledEvent {
+  type: AgentStreamEventType.AGENT_CANCELLED;
+  timestamp: number;
+  /** Agent loop ID */
+  agentLoopId: ID;
+  /** Current iteration when cancelled */
+  iteration: number;
+  /** Total tool calls made */
+  toolCallCount: number;
+  /** Whether was streaming when cancelled */
+  isStreaming: boolean;
+  /** Number of pending tool calls */
+  pendingToolCalls: number;
+  /** Reason for cancellation (optional) */
+  reason?: string;
+}
+
+/**
  * Agent Stream Event (union type)
  *
  * All possible agent stream events
@@ -340,4 +392,6 @@ export type AgentStreamEvent =
   | AgentErrorEvent
   | SteeringInjectedEvent
   | FollowupQueuedEvent
-  | AgentHookTriggeredEvent;
+  | AgentHookTriggeredEvent
+  | AgentPausedEvent
+  | AgentCancelledEvent;

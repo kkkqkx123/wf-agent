@@ -6,6 +6,7 @@
  */
 
 import type { ID, Timestamp } from "../common.js";
+import type { SerializedError } from "../errors/serialized-error.js";
 
 /**
  * Snapshot version for format identification
@@ -61,23 +62,6 @@ export interface DeltaResult<TSnapshot extends SnapshotBase> {
   delta?: Partial<TSnapshot>;
   /** Base snapshot ID (when type is DELTA) */
   baseSnapshotId?: ID;
-}
-
-/**
- * Serialized error representation
- *
- * Error objects cannot be directly serialized with JSON.stringify,
- * so we convert them to this format.
- */
-export interface SerializedError {
-  /** Error message */
-  message: string;
-  /** Error name (constructor name) */
-  name: string;
-  /** Stack trace */
-  stack?: string;
-  /** Cause of the error */
-  cause?: unknown;
 }
 
 /**

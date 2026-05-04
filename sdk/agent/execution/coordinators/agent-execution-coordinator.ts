@@ -359,6 +359,17 @@ export class AgentExecutionCoordinator {
     entity.state.startIteration();
     await executeAgentHook(entity, "BEFORE_LLM_CALL", this.emitAgentEvent);
 
+    // Check interruption before LLM call
+    const preLLMInterruption = checkInterruption(entity.getAbortSignal());
+    if (preLLMInterruption.type === "paused" || preLLMInterruption.type === "stopped") {
+      logger.info("Interrupted before LLM call", {
+        agentLoopId,
+        iteration: entity.state.currentIteration,
+        interruptionType: preLLMInterruption.type,
+      });
+      return this.handleLLMFailure(entity, preLLMInterruption.type);
+    }
+
     logger.debug("Calling LLM", {
       agentLoopId,
       iteration: entity.state.currentIteration,
@@ -370,6 +381,17 @@ export class AgentExecutionCoordinator {
       { prompt: "", profileId, parameters: {}, tools: toolSchemas, stream: false },
       { abortSignal: entity.getAbortSignal(), executionId: entity.id, nodeId: entity.nodeId },
     );
+
+    // Check interruption after LLM call
+    const postLLMInterruption = checkInterruption(entity.getAbortSignal());
+    if (postLLMInterruption.type === "paused" || postLLMInterruption.type === "stopped") {
+      logger.info("Interrupted after LLM call", {
+        agentLoopId,
+        iteration: entity.state.currentIteration,
+        interruptionType: postLLMInterruption.type,
+      });
+      return this.handleLLMFailure(entity, postLLMInterruption.type);
+    }
 
     logger.debug("LLM call completed", {
       agentLoopId,
@@ -778,6 +800,22 @@ export class AgentExecutionCoordinator {
       toolCallCount: toolCalls.length,
     });
 
+    // Check interruption before tool execution
+    const preToolInterruption = checkInterruption(entity.getAbortSignal());
+    if (preToolInterruption.type === "paused" || preToolInterruption.type === "stopped") {
+      logger.info("Interrupted before tool execution", {
+        agentLoopId,
+        iteration,
+        interruptionType: preToolInterruption.type,
+        pendingToolCalls: toolCalls.length,
+      });
+      // Cancel all pending tool calls
+      for (const tc of toolCalls) {
+        entity.state.recordToolCallEnd(tc.id, undefined, "Cancelled due to interruption");
+      }
+      return;
+    }
+
     const toolResults = await this.toolCallExecutor.executeToolCalls(
       toolCalls.map(tc => ({ id: tc.id, name: tc.name, arguments: tc.arguments })),
       conversationManager,
@@ -785,6 +823,17 @@ export class AgentExecutionCoordinator {
       entity.nodeId,
       { abortSignal: entity.getAbortSignal() },
     );
+
+    // Check interruption after tool execution
+    const postToolInterruption = checkInterruption(entity.getAbortSignal());
+    if (postToolInterruption.type === "paused" || postToolInterruption.type === "stopped") {
+      logger.info("Interrupted after tool execution", {
+        agentLoopId,
+        iteration,
+        interruptionType: postToolInterruption.type,
+      });
+      // Still record results but will be handled by main loop
+    }
 
     logger.debug("Tool calls execution completed", {
       agentLoopId,

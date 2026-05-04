@@ -13,7 +13,8 @@
  */
 
 import type { LLMMessage } from "@wf-agent/types";
-import type { LifecycleCapable } from "../../core/types/lifecycle-capable.js";
+import type { StateManager } from "../../core/types/state-manager.js";
+import { RuntimeValidationError } from "@wf-agent/types";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "MessageHistory" });
@@ -28,7 +29,7 @@ export interface MessageHistoryState {
 /**
  * MessageHistory - The message history manager class
  */
-export class MessageHistory implements LifecycleCapable<MessageHistoryState> {
+export class MessageHistory implements StateManager<MessageHistoryState> {
   private messages: LLMMessage[] = [];
 
   constructor(private agentLoopId: string) {
@@ -48,6 +49,21 @@ export class MessageHistory implements LifecycleCapable<MessageHistoryState> {
    * @param message LLM message
    */
   addMessage(message: LLMMessage): void {
+    // Validate input
+    if (!message) {
+      throw new RuntimeValidationError("Message cannot be null or undefined", {
+        operation: "addMessage",
+        field: "message",
+      });
+    }
+
+    if (!message.role) {
+      throw new RuntimeValidationError("Message role is required", {
+        operation: "addMessage",
+        field: "message.role",
+      });
+    }
+
     this.messages.push(message);
   }
 
@@ -108,6 +124,30 @@ export class MessageHistory implements LifecycleCapable<MessageHistoryState> {
    * @param messages List of messages
    */
   setMessages(messages: LLMMessage[]): void {
+    // Validate input
+    if (!messages || !Array.isArray(messages)) {
+      throw new RuntimeValidationError("Messages must be an array", {
+        operation: "setMessages",
+        field: "messages",
+      });
+    }
+
+    // Validate each message
+    messages.forEach((msg, index) => {
+      if (!msg) {
+        throw new RuntimeValidationError(`Message at index ${index} is null or undefined`, {
+          operation: "setMessages",
+          field: `messages[${index}]`,
+        });
+      }
+      if (!msg.role) {
+        throw new RuntimeValidationError(`Message at index ${index} is missing role`, {
+          operation: "setMessages",
+          field: `messages[${index}].role`,
+        });
+      }
+    });
+
     logger.debug("Setting message history", {
       agentLoopId: this.agentLoopId,
       messageCount: messages.length,
@@ -250,5 +290,29 @@ export class MessageHistory implements LifecycleCapable<MessageHistoryState> {
       messageCount,
     });
     this.messages = [];
+  }
+
+  /**
+   * Get the number of messages managed
+   * @returns Count of messages
+   */
+  size(): number {
+    return this.messages.length;
+  }
+
+  /**
+   * Check if the message history is empty (no messages)
+   * @returns true if no messages exist
+   */
+  isEmpty(): boolean {
+    return this.messages.length === 0;
+  }
+
+  /**
+   * Reset to initial state
+   * Clears all messages
+   */
+  reset(): void {
+    this.cleanup();
   }
 }

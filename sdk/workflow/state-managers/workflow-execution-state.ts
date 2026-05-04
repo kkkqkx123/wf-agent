@@ -7,6 +7,8 @@
 
 import { now } from "@wf-agent/common-utils";
 import type { WorkflowExecutionStatus } from "@wf-agent/types";
+import { RuntimeValidationError } from "@wf-agent/types";
+import type { StateManager } from "../../core/types/state-manager.js";
 
 /**
  * Operation-level execution state
@@ -44,6 +46,20 @@ export interface OperationState {
 }
 
 /**
+ * WorkflowExecutionState snapshot for checkpoint support
+ */
+export interface WorkflowExecutionStateSnapshot {
+  status: WorkflowExecutionStatus;
+  shouldPause: boolean;
+  shouldStop: boolean;
+  startTime: number | null;
+  endTime: number | null;
+  error: unknown;
+  interrupted: boolean;
+  currentOperation: OperationState | null;
+}
+
+/**
  * WorkflowExecutionState - Workflow Execution State Manager
  *
  * Core Responsibilities:
@@ -55,7 +71,7 @@ export interface OperationState {
  * - Bound to the lifecycle and execution cycle
  * - Pure state management, without including business logic
  */
-export class WorkflowExecutionState {
+export class WorkflowExecutionState implements StateManager<WorkflowExecutionStateSnapshot> {
   /** Current Status */
   private _status: WorkflowExecutionStatus = "CREATED";
 
@@ -169,6 +185,12 @@ export class WorkflowExecutionState {
    * Pause execution
    */
   pause(): void {
+    if (this._status !== "RUNNING") {
+      throw new RuntimeValidationError(
+        `Can only pause RUNNING execution, current status: ${this._status}`,
+        { operation: "pause", field: "status", value: this._status },
+      );
+    }
     this._status = "PAUSED";
     this._shouldPause = false;
   }
@@ -177,6 +199,12 @@ export class WorkflowExecutionState {
    * Resume execution
    */
   resume(): void {
+    if (this._status !== "PAUSED") {
+      throw new RuntimeValidationError(
+        `Can only resume PAUSED execution, current status: ${this._status}`,
+        { operation: "resume", field: "status", value: this._status },
+      );
+    }
     this._status = "RUNNING";
     this._shouldPause = false;
   }
@@ -338,6 +366,68 @@ export class WorkflowExecutionState {
    */
   cleanup(): void {
     this._error = null;
+  }
+
+  /**
+   * Create a snapshot of the workflow execution state
+   * @returns Snapshot containing all state fields
+   */
+  createSnapshot(): WorkflowExecutionStateSnapshot {
+    return {
+      status: this._status,
+      shouldPause: this._shouldPause,
+      shouldStop: this._shouldStop,
+      startTime: this._startTime,
+      endTime: this._endTime,
+      error: this._error,
+      interrupted: this._interrupted,
+      currentOperation: this._currentOperation ? { ...this._currentOperation } : null,
+    };
+  }
+
+  /**
+   * Restore workflow execution state from snapshot
+   * @param snapshot The state snapshot
+   */
+  restoreFromSnapshot(snapshot: WorkflowExecutionStateSnapshot): void {
+    this._status = snapshot.status;
+    this._shouldPause = snapshot.shouldPause;
+    this._shouldStop = snapshot.shouldStop;
+    this._startTime = snapshot.startTime;
+    this._endTime = snapshot.endTime;
+    this._error = snapshot.error;
+    this._interrupted = snapshot.interrupted;
+    this._currentOperation = snapshot.currentOperation ? { ...snapshot.currentOperation } : null;
+  }
+
+  /**
+   * Get the size (always 1 as this is a single state object)
+   * @returns 1
+   */
+  size(): number {
+    return 1;
+  }
+
+  /**
+   * Check if the state is empty (always false as state always exists)
+   * @returns false
+   */
+  isEmpty(): boolean {
+    return false;
+  }
+
+  /**
+   * Reset to initial CREATED state
+   */
+  reset(): void {
+    this._status = "CREATED";
+    this._shouldPause = false;
+    this._shouldStop = false;
+    this._startTime = null;
+    this._endTime = null;
+    this._error = null;
+    this._interrupted = false;
+    this._currentOperation = null;
   }
 
   /**

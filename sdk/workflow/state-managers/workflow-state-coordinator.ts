@@ -16,6 +16,7 @@
 import type { LLMMessage, TokenUsageStats, MessageMarkMap } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../entities/workflow-execution-entity.js";
 import type { ConversationSession } from "../../core/messaging/conversation-session.js";
+import { RuntimeValidationError } from "@wf-agent/types";
 
 /**
  * Workflow State Snapshot
@@ -74,6 +75,21 @@ export class WorkflowStateCoordinator {
    * @param message LLM message
    */
   addMessage(message: LLMMessage): void {
+    // Validate input
+    if (!message) {
+      throw new RuntimeValidationError("Message cannot be null", {
+        operation: "addMessage",
+        field: "message",
+      });
+    }
+
+    if (!message.role || !message.content) {
+      throw new RuntimeValidationError("Message must have role and content", {
+        operation: "addMessage",
+        field: "message",
+      });
+    }
+
     // Add to WorkflowExecutionEntity's message history
     this.workflowExecutionEntity.messageHistoryManager.addMessage(message);
     // Sync to ConversationSession for Workflow-specific features

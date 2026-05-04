@@ -19,7 +19,7 @@ import type { TriggerStatus, TriggerRuntimeState } from "@wf-agent/types";
 import type { ID } from "@wf-agent/types";
 import { ExecutionError, NotFoundError, RuntimeValidationError } from "@wf-agent/types";
 import { now } from "@wf-agent/common-utils";
-import type { LifecycleCapable } from "../../core/types/lifecycle-capable.js";
+import type { StateManager } from "../../core/types/state-manager.js";
 
 export type { TriggerRuntimeState };
 
@@ -32,7 +32,7 @@ export type { TriggerRuntimeState };
  * - Support state snapshots and restoration
  * - Ensure concurrent safety
  */
-export class TriggerState implements LifecycleCapable<Map<ID, TriggerRuntimeState>> {
+export class TriggerState implements StateManager<Map<ID, TriggerRuntimeState>> {
   private states: Map<ID, TriggerRuntimeState> = new Map();
   private executionId: ID;
   private workflowId: ID | null = null;
@@ -236,6 +236,22 @@ export class TriggerState implements LifecycleCapable<Map<ID, TriggerRuntimeStat
    */
   size(): number {
     return this.states.size;
+  }
+
+  /**
+   * Check if the trigger state is empty (no triggers registered)
+   * @returns true if no trigger states exist
+   */
+  isEmpty(): boolean {
+    return this.states.size === 0;
+  }
+
+  /**
+   * Reset to initial state
+   * Clears all trigger states
+   */
+  reset(): void {
+    this.cleanup();
   }
 
   /**

@@ -59,6 +59,8 @@ import {
   type AgentLoopStateSnapshot,
 } from "@wf-agent/types";
 import type { LLMMessage } from "@wf-agent/types";
+import { RuntimeValidationError } from "@wf-agent/types";
+import type { StateManager } from "../../core/types/state-manager.js";
 
 /**
  * AgentLoopState - Agent Loop Execution Status Manager
@@ -75,7 +77,7 @@ import type { LLMMessage } from "@wf-agent/types";
  * - Pure state management, without including business logic
  * - Snapshot functionality is provided by AgentLoopSnapshotManager
  */
-export class AgentLoopState {
+export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
   /** Current Status */
   private _status: AgentLoopStatus = AgentLoopStatus.CREATED;
 
@@ -245,6 +247,14 @@ export class AgentLoopState {
    * Start execution
    */
   start(): void {
+    // Validate state transition
+    if (this._status !== AgentLoopStatus.CREATED && this._status !== AgentLoopStatus.PAUSED) {
+      throw new RuntimeValidationError(
+        `Can only start from CREATED or PAUSED status, current status: ${this._status}`,
+        { operation: "start", field: "status", value: this._status }
+      );
+    }
+
     this._status = AgentLoopStatus.RUNNING;
     this._startTime = now();
   }
@@ -402,6 +412,14 @@ export class AgentLoopState {
    * Pause execution
    */
   pause(): void {
+    // Validate state transition
+    if (this._status !== AgentLoopStatus.RUNNING) {
+      throw new RuntimeValidationError(
+        `Can only pause RUNNING execution, current status: ${this._status}`,
+        { operation: "pause", field: "status", value: this._status }
+      );
+    }
+
     this._status = AgentLoopStatus.PAUSED;
     this._shouldPause = false;
   }
@@ -410,6 +428,14 @@ export class AgentLoopState {
    * Resume execution
    */
   resume(): void {
+    // Validate state transition
+    if (this._status !== AgentLoopStatus.PAUSED) {
+      throw new RuntimeValidationError(
+        `Can only resume PAUSED execution, current status: ${this._status}`,
+        { operation: "resume", field: "status", value: this._status }
+      );
+    }
+
     this._status = AgentLoopStatus.RUNNING;
     this._shouldPause = false;
   }
@@ -418,6 +444,14 @@ export class AgentLoopState {
    * Complete the execution.
    */
   complete(): void {
+    // Validate state transition
+    if (this._status !== AgentLoopStatus.RUNNING) {
+      throw new RuntimeValidationError(
+        `Can only complete RUNNING execution, current status: ${this._status}`,
+        { operation: "complete", field: "status", value: this._status }
+      );
+    }
+
     this._status = AgentLoopStatus.COMPLETED;
     this._endTime = now();
     this._isStreaming = false;
@@ -429,6 +463,22 @@ export class AgentLoopState {
    * @param error Error message
    */
   fail(error: unknown): void {
+    // Validate error parameter
+    if (error === null || error === undefined) {
+      throw new RuntimeValidationError("Error cannot be null or undefined", {
+        operation: "fail",
+        field: "error",
+      });
+    }
+
+    // Validate state transition
+    if (this._status === AgentLoopStatus.COMPLETED) {
+      throw new RuntimeValidationError(
+        `Cannot fail completed execution, current status: ${this._status}`,
+        { operation: "fail", field: "status", value: this._status }
+      );
+    }
+
     this._status = AgentLoopStatus.FAILED;
     this._error = error;
     this._endTime = now();
@@ -440,6 +490,14 @@ export class AgentLoopState {
    * Cancel execution
    */
   cancel(): void {
+    // Validate state transition
+    if (this._status === AgentLoopStatus.COMPLETED || this._status === AgentLoopStatus.CANCELLED) {
+      throw new RuntimeValidationError(
+        `Cannot cancel completed or cancelled execution, current status: ${this._status}`,
+        { operation: "cancel", field: "status", value: this._status }
+      );
+    }
+
     this._status = AgentLoopStatus.CANCELLED;
     this._endTime = now();
     this._isStreaming = false;
@@ -476,6 +534,43 @@ export class AgentLoopState {
     this._streamMessage = null;
     this._pendingToolCalls.clear();
     this._isStreaming = false;
+  }
+
+  /**
+   * Get the number of state items managed
+   * Returns count of iteration records (primary state metric)
+   * @returns Count of iteration records
+   */
+  size(): number {
+    return this._iterationHistory.length;
+  }
+
+  /**
+   * Check if the state is empty (no iterations recorded)
+   * @returns true if no iterations exist
+   */
+  isEmpty(): boolean {
+    return this._iterationHistory.length === 0;
+  }
+
+  /**
+   * Reset to initial state
+   * Clears all state except status (keeps CREATED)
+   */
+  reset(): void {
+    this._currentIteration = 0;
+    this._toolCallCount = 0;
+    this._iterationHistory = [];
+    this._currentIterationRecord = null;
+    this._startTime = null;
+    this._endTime = null;
+    this._error = null;
+    this._shouldPause = false;
+    this._shouldStop = false;
+    this._streamMessage = null;
+    this._pendingToolCalls.clear();
+    this._isStreaming = false;
+    this._status = AgentLoopStatus.CREATED;
   }
 
   /**

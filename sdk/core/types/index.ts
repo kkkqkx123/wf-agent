@@ -31,3 +31,7 @@ export {
   type ExecutorWrapper,
   type ExecutionPoolConfig,
 } from "./pool.js";
+
+// Lifecycle types - State Manager Interfaces
+export { type LifecycleCapable } from "./lifecycle-capable.js";
+export { type StateManager, type StateManagerMetadata } from "./state-manager.js";

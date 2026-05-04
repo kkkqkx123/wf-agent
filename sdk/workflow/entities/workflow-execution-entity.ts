@@ -21,7 +21,7 @@ import type {
 import type { SubgraphContext } from "../state-managers/execution-state.js";
 import { ExecutionState } from "../state-managers/execution-state.js";
 import { WorkflowExecutionState } from "../state-managers/workflow-execution-state.js";
-import { MessageHistory } from "../../agent/message/message-history.js";
+import { MessageHistory } from "../../agent/state-managers/message-history.js";
 import { VariableState } from "../state-managers/variable-state.js";
 import { ExecutionHierarchyManager } from "../../core/execution/execution-hierarchy-manager.js";
 import type { ExecutionHierarchyRegistry } from "../../core/registry/execution-hierarchy-registry.js";

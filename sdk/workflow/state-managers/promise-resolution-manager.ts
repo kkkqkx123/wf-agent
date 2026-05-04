@@ -1,51 +1,62 @@
 /**
- * PromiseResolutionManager - Promise Resolution State Manager
+ * AsyncCompletionManager - Asynchronous Task Completion Manager
  *
  * Responsibilities:
- * - Manages Promise resolve/reject callbacks for asynchronous workflow execution
- * - Supports generic type parameters for different result types
- * - Provides functions for registering, triggering, and cleaning up callbacks
+ * - Manages completion callbacks for asynchronously executed tasks
+ * - Provides notification handlers when async tasks complete or fail
+ * - Supports cleanup during shutdown scenarios
  * - Emits events for callback lifecycle stages (when EventRegistry is provided)
  *
  * Design Principles:
- * - Stateful with multiple instances, held by the State Holder
+ * - Simple callback registry without Promise semantics
  * - Execution-safe callback management
  * - Integrated with event system for observability
+ *
+ * Note:
+ * - This is NOT for Promise resolution (that's handled by TaskQueue for sync execution)
+ * - This is purely for async task completion notifications
  */
 
 import { now, getErrorOrNew } from "@wf-agent/common-utils";
 import { SDKError } from "@wf-agent/types";
 import type { EventRegistry } from "../../core/registry/event-registry.js";
 import { emit } from "../../core/utils/event/event-emitter.js";
+import {
+  buildPromiseCallbackRegisteredEvent,
+  buildPromiseCallbackResolvedEvent,
+  buildPromiseCallbackRejectedEvent,
+  buildPromiseCallbackFailedEvent,
+  buildPromiseCallbackCleanedUpEvent,
+} from "../../core/utils/event/builders/promise-callback-events.js";
 import { logError } from "../../core/utils/error-utils.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
-import { generateId } from "../../utils/index.js";
+import type { StateManager } from "../../core/types/state-manager.js";
 
 const logger = createContextualLogger({ component: "PromiseResolutionManager" });
 
 /**
- * Callback Information Interface (Generic Version)
+ * Completion Handler Interface
  */
-export interface GenericCallbackInfo<T> {
+export interface CompletionHandler<T> {
   /** Execution ID */
   executionId: string;
-  /** Promise resolve function */
-  resolve: (value: T) => void;
-  /** Promise reject function */
-  reject: (error: Error) => void;
+  /** Success callback */
+  onComplete: (value: T) => void;
+  /** Error callback */
+  onError: (error: Error) => void;
   /** Registration time */
   registeredAt: number;
 }
 
 /**
- * PromiseResolutionManager - Promise Resolution State Manager (Generic Version)
- * @typeparam T Result Type of the Execution
+ * AsyncCompletionManager - Asynchronous Task Completion Manager
+ * @typeparam T Result Type of the Task
  */
-export class PromiseResolutionManager<T = unknown> {
+export class AsyncCompletionManager<T = unknown> implements StateManager<Map<string, CompletionHandler<T>>> {
   /**
-   * Callback Mapping
+   * Completion Handler Mapping
    */
-  private callbacks: Map<string, GenericCallbackInfo<T>> = new Map();
+  private handlers: Map<string, CompletionHandler<T>> = new Map();
 
   /**
    * Optional EventRegistry for emitting lifecycle events
@@ -57,41 +68,37 @@ export class PromiseResolutionManager<T = unknown> {
   }
 
   /**
-   * Register callback
+   * Register completion handler
    * @param executionId Execution ID
-   * @param resolve Promise resolve function
-   * @param reject Promise reject function
+   * @param onComplete Success callback
+   * @param onError Error callback
    * @returns Whether the registration was successful
    */
-  async registerCallback(
+  async registerHandler(
     executionId: string,
-    resolve: (value: T) => void,
-    reject: (error: Error) => void,
+    onComplete: (value: T) => void,
+    onError: (error: Error) => void,
   ): Promise<boolean> {
-    if (this.callbacks.has(executionId)) {
+    if (this.handlers.has(executionId)) {
       return false;
     }
 
-    const callbackInfo: GenericCallbackInfo<T> = {
+    const handler: CompletionHandler<T> = {
       executionId,
-      resolve,
-      reject,
+      onComplete,
+      onError,
       registeredAt: now(),
     };
 
-    this.callbacks.set(executionId, callbackInfo);
+    this.handlers.set(executionId, handler);
 
     // Emit event for observability (non-critical)
     if (this.eventManager) {
       try {
-        await emit(this.eventManager, {
-          id: generateId(),
-          type: "PROMISE_CALLBACK_REGISTERED",
-          executionId,
-          timestamp: now(),
-        });
+        const event = buildPromiseCallbackRegisteredEvent({ executionId });
+        await emit(this.eventManager, event);
       } catch (error) {
-        logger.warn("Failed to emit PROMISE_CALLBACK_REGISTERED event", { 
+        logger.warn("Failed to emit ASYNC_COMPLETION_REGISTERED event", { 
           error: getErrorOrNew(error).message, 
           executionId 
         });
@@ -102,35 +109,31 @@ export class PromiseResolutionManager<T = unknown> {
   }
 
   /**
-   * Trigger a successful callback
+   * Trigger completion handler
    * @param executionId: Execution ID
-   * @param result: Execution result
+   * @param result: Task result
    * @returns: Whether the trigger was successful
    */
-  async triggerCallback(executionId: string, result: T): Promise<boolean> {
-    const callbackInfo = this.callbacks.get(executionId);
-    if (!callbackInfo) {
+  async triggerCompletion(executionId: string, result: T): Promise<boolean> {
+    const handler = this.handlers.get(executionId);
+    if (!handler) {
       return false;
     }
 
     try {
-      // Call the resolve function.
-      callbackInfo.resolve(result);
+      // Call the completion callback.
+      handler.onComplete(result);
 
-      // Remove from the callback mapping.
-      this.callbacks.delete(executionId);
+      // Remove from the handler mapping.
+      this.handlers.delete(executionId);
 
       // Emit event for observability (non-critical)
       if (this.eventManager) {
         try {
-          await emit(this.eventManager, {
-            id: generateId(),
-            type: "PROMISE_CALLBACK_RESOLVED",
-            executionId,
-            timestamp: now(),
-          });
+          const event = buildPromiseCallbackResolvedEvent({ executionId });
+          await emit(this.eventManager, event);
         } catch (error) {
-          logger.warn("Failed to emit PROMISE_CALLBACK_RESOLVED event", { 
+          logger.warn("Failed to emit ASYNC_COMPLETION_TRIGGERED event", { 
             error: getErrorOrNew(error).message, 
             executionId 
           });
@@ -141,26 +144,21 @@ export class PromiseResolutionManager<T = unknown> {
     } catch (error) {
       const errorObj = getErrorOrNew(error);
       const sdkError = new SDKError(
-        `Error triggering callback for workflow execution ${executionId}`,
+        `Error triggering completion handler for execution ${executionId}`,
         "warning",
         { executionId },
         errorObj,
       );
       logError(sdkError, { executionId });
-      this.callbacks.delete(executionId);
+      this.handlers.delete(executionId);
 
       // Emit failure event (non-critical)
       if (this.eventManager) {
         try {
-          await emit(this.eventManager, {
-            id: generateId(),
-            type: "PROMISE_CALLBACK_FAILED",
-            executionId,
-            error: sdkError.message,
-            timestamp: now(),
-          });
+          const event = buildPromiseCallbackFailedEvent({ executionId, error: sdkError });
+          await emit(this.eventManager, event);
         } catch (error) {
-          logger.warn("Failed to emit PROMISE_CALLBACK_FAILED event", { 
+          logger.warn("Failed to emit ASYNC_COMPLETION_FAILED event", { 
             error: getErrorOrNew(error).message, 
             executionId 
           });
@@ -172,36 +170,31 @@ export class PromiseResolutionManager<T = unknown> {
   }
 
   /**
-   * Trigger a failure callback
+   * Trigger error handler
    * @param executionId: Execution ID
    * @param error: Error message
    * @returns: Whether the trigger was successful
    */
-  async triggerErrorCallback(executionId: string, error: Error): Promise<boolean> {
-    const callbackInfo = this.callbacks.get(executionId);
-    if (!callbackInfo) {
+  async triggerError(executionId: string, error: Error): Promise<boolean> {
+    const handler = this.handlers.get(executionId);
+    if (!handler) {
       return false;
     }
 
     try {
-      // Call the reject function
-      callbackInfo.reject(error);
+      // Call the error callback
+      handler.onError(error);
 
-      // Remove from the callback map.
-      this.callbacks.delete(executionId);
+      // Remove from the handler map.
+      this.handlers.delete(executionId);
 
       // Emit event for observability (non-critical)
       if (this.eventManager) {
         try {
-          await emit(this.eventManager, {
-            id: generateId(),
-            type: "PROMISE_CALLBACK_REJECTED",
-            executionId,
-            errorMessage: error.message,
-            timestamp: now(),
-          });
+          const event = buildPromiseCallbackRejectedEvent({ executionId, error });
+          await emit(this.eventManager, event);
         } catch (error) {
-          logger.warn("Failed to emit PROMISE_CALLBACK_REJECTED event", { 
+          logger.warn("Failed to emit ASYNC_ERROR_TRIGGERED event", { 
             error: getErrorOrNew(error).message, 
             executionId 
           });
@@ -210,24 +203,22 @@ export class PromiseResolutionManager<T = unknown> {
 
       return true;
     } catch (err) {
-      logger.error(`Error triggering error callback for workflow execution ${executionId}`, {
+      logger.error(`Error triggering error handler for execution ${executionId}`, {
         err,
         executionId,
       });
-      this.callbacks.delete(executionId);
+      this.handlers.delete(executionId);
 
       // Emit failure event (non-critical)
       if (this.eventManager) {
         try {
-          await emit(this.eventManager, {
-            id: generateId(),
-            type: "PROMISE_CALLBACK_FAILED",
-            executionId,
-            error: err instanceof Error ? err.message : String(err),
-            timestamp: now(),
+          const event = buildPromiseCallbackFailedEvent({ 
+            executionId, 
+            error: err instanceof Error ? err : new Error(String(err))
           });
+          await emit(this.eventManager, event);
         } catch (error) {
-          logger.warn("Failed to emit PROMISE_CALLBACK_FAILED event", { 
+          logger.warn("Failed to emit ASYNC_COMPLETION_FAILED event", { 
             error: getErrorOrNew(error).message, 
             executionId 
           });
@@ -239,116 +230,151 @@ export class PromiseResolutionManager<T = unknown> {
   }
 
   /**
-   * Check if the callback exists
+   * Check if the handler exists
    * @param executionId Execution ID
    * @returns Whether it exists
    */
-  hasCallback(executionId: string): boolean {
-    return this.callbacks.has(executionId);
+  hasHandler(executionId: string): boolean {
+    return this.handlers.has(executionId);
   }
 
   /**
-   * Retrieve callback information
+   * Retrieve handler information
    * @param executionId: Execution ID
-   * @returns: Callback information
+   * @returns: Handler information
    */
-  getCallback(executionId: string): GenericCallbackInfo<T> | undefined {
-    return this.callbacks.get(executionId);
+  getHandler(executionId: string): CompletionHandler<T> | undefined {
+    return this.handlers.get(executionId);
   }
 
   /**
-   * Clean up all callbacks
+   * Clean up all handlers
    */
   async cleanup(): Promise<void> {
-    const executionIds = Array.from(this.callbacks.keys());
+    const executionIds = Array.from(this.handlers.keys());
 
-    // Loop through all callbacks and call the reject function.
+    // Loop through all handlers and call the error callback.
     for (const executionId of executionIds) {
-      const callbackInfo = this.callbacks.get(executionId);
-      if (!callbackInfo) continue;
+      const handler = this.handlers.get(executionId);
+      if (!handler) continue;
 
       try {
-        const error = new Error(`Callback cleanup for workflow execution ${executionId}`);
-        callbackInfo.reject(error);
+        const error = new Error(`Handler cleanup for execution ${executionId}`);
+        handler.onError(error);
 
         // Emit cleanup event (non-critical)
         if (this.eventManager) {
           try {
-            await emit(this.eventManager, {
-              id: generateId(),
-              type: "PROMISE_CALLBACK_CLEANED_UP",
+            const event = buildPromiseCallbackCleanedUpEvent({ 
               executionId,
-              reason: "global_cleanup",
-              timestamp: now(),
+              reason: "global_cleanup"
             });
+            await emit(this.eventManager, event);
           } catch (error) {
-            logger.warn("Failed to emit PROMISE_CALLBACK_CLEANED_UP event", { 
+            logger.warn("Failed to emit ASYNC_COMPLETION_CLEANED_UP event", { 
               error: getErrorOrNew(error).message, 
               executionId 
             });
           }
         }
       } catch (error) {
-        logger.error(`Error cleaning up callback for workflow execution ${executionId}`, {
+        logger.error(`Error cleaning up handler for execution ${executionId}`, {
           error,
           executionId,
         });
       }
     }
 
-    // Clear the callback mapping
-    this.callbacks.clear();
+    // Clear the handler mapping
+    this.handlers.clear();
   }
 
   /**
-   * Clean up the callbacks for the specified workflow execution
+   * Clean up the handler for the specified execution
    * @param executionId Execution ID
    * @returns Whether the cleanup was successful
    */
-  async cleanupCallback(executionId: string): Promise<boolean> {
-    const callbackInfo = this.callbacks.get(executionId);
-    if (!callbackInfo) {
+  async cleanupHandler(executionId: string): Promise<boolean> {
+    const handler = this.handlers.get(executionId);
+    if (!handler) {
       return false;
     }
 
     try {
-      const error = new Error(`Callback cleanup for workflow execution ${executionId}`);
-      callbackInfo.reject(error);
+      const error = new Error(`Handler cleanup for execution ${executionId}`);
+      handler.onError(error);
 
       // Emit cleanup event (non-critical)
       if (this.eventManager) {
         try {
-          await emit(this.eventManager, {
-            id: generateId(),
-            type: "PROMISE_CALLBACK_CLEANED_UP",
+          const event = buildPromiseCallbackCleanedUpEvent({ 
             executionId,
-            reason: "individual_cleanup",
-            timestamp: now(),
+            reason: "individual_cleanup"
           });
+          await emit(this.eventManager, event);
         } catch (error) {
-          logger.warn("Failed to emit PROMISE_CALLBACK_CLEANED_UP event", { 
+          logger.warn("Failed to emit ASYNC_COMPLETION_CLEANED_UP event", { 
             error: getErrorOrNew(error).message, 
             executionId 
           });
         }
       }
     } catch (error) {
-      logger.error(`Error cleaning up callback for workflow execution ${executionId}`, {
+      logger.error(`Error cleaning up handler for execution ${executionId}`, {
         error,
         executionId,
       });
     }
 
-    this.callbacks.delete(executionId);
+    this.handlers.delete(executionId);
     return true;
   }
 
   /**
-   * Get the number of callbacks
-   * @returns The number of callbacks
+   * Get the number of handlers
+   * @returns The number of handlers
    */
   size(): number {
-    return this.callbacks.size;
+    return this.handlers.size;
+  }
+
+  /**
+   * Check if there are no handlers registered
+   * @returns true if no handlers exist
+   */
+  isEmpty(): boolean {
+    return this.handlers.size === 0;
+  }
+
+  /**
+   * Create a snapshot of all completion handlers
+   * @returns Snapshot containing all handler data
+   */
+  createSnapshot(): Map<string, CompletionHandler<T>> {
+    const snapshot = new Map<string, CompletionHandler<T>>();
+    for (const [executionId, handler] of this.handlers.entries()) {
+      snapshot.set(executionId, { ...handler });
+    }
+    return snapshot;
+  }
+
+  /**
+   * Restore completion handlers from snapshot
+   * @param snapshot The handler snapshot
+   */
+  restoreFromSnapshot(snapshot: Map<string, CompletionHandler<T>>): void {
+    this.handlers.clear();
+    for (const [executionId, handler] of snapshot.entries()) {
+      this.handlers.set(executionId, { ...handler });
+    }
+  }
+
+  /**
+   * Reset to initial state
+   * Clears all completion handlers
+   */
+  reset(): void {
+    this.cleanup();
   }
 
   /**
@@ -356,7 +382,11 @@ export class PromiseResolutionManager<T = unknown> {
    * @returns Array of execution IDs
    */
   getExecutionIds(): string[] {
-    return Array.from(this.callbacks.keys());
+    return Array.from(this.handlers.keys());
   }
 }
+
+// Backward compatibility alias (deprecated)
+/** @deprecated Use AsyncCompletionManager instead */
+export const PromiseResolutionManager = AsyncCompletionManager;
 

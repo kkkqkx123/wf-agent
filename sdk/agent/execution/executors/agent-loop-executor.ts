@@ -32,6 +32,7 @@ import { emit } from "../../../core/utils/event/event-emitter.js";
 import { AgentExecutionCoordinator, type AgentLoopStreamEvent } from "../coordinators/agent-execution-coordinator.js";
 import { prepareToolSchemas } from "../../../core/utils/tools/tool-schema-helper.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
+import { buildAgentHookTriggeredCoreEvent } from "../../../core/utils/event/builders/agent-events.js";
 
 const logger = createContextualLogger({ component: "AgentLoopExecutor" });
 
@@ -168,9 +169,8 @@ export class AgentLoopExecutor {
   private async emitAgentEvent(event: AgentHookTriggeredEvent): Promise<void> {
     if (this.eventManager) {
       try {
-        const coreEvent: AgentHookTriggeredCoreEvent = {
+        const coreEvent = buildAgentHookTriggeredCoreEvent({
           id: event.id,
-          type: "AGENT_HOOK_TRIGGERED",
           timestamp: event.timestamp,
           agentLoopId: event.agentLoopId,
           hookType: event.hookType,
@@ -180,7 +180,7 @@ export class AgentLoopExecutor {
           parentWorkflowExecutionId: event.parentWorkflowExecutionId,
           nodeId: event.nodeId,
           metadata: event.metadata,
-        };
+        });
         await emit(this.eventManager, coreEvent);
       } catch (error) {
         logger.debug("Failed to emit agent event", { eventType: event.type, error });

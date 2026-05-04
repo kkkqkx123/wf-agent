@@ -15,7 +15,8 @@
  * - Atomic operations to ensure state consistency
  */
 
-import type { LifecycleCapable } from "../../core/types/lifecycle-capable.js";
+import type { StateManager } from "../../core/types/state-manager.js";
+import { RuntimeValidationError } from "@wf-agent/types";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "VariableState" });
@@ -42,7 +43,7 @@ export interface VariableStateSnapshot {
  * - Instance isolation: Each AgentLoopEntity has a separate instance of state.
  * - Atomic Operations: Ensure state consistency
  */
-export class VariableState implements LifecycleCapable<VariableStateSnapshot> {
+export class VariableState implements StateManager<VariableStateSnapshot> {
   private variables: Map<string, unknown> = new Map();
 
   constructor(private agentLoopId: string) {
@@ -63,6 +64,13 @@ export class VariableState implements LifecycleCapable<VariableStateSnapshot> {
    * @returns Variable value
    */
   getVariable(name: string): unknown {
+    // Validate input
+    if (!name || name.trim() === "") {
+      throw new RuntimeValidationError("Variable name cannot be empty", {
+        operation: "getVariable",
+        field: "name",
+      });
+    }
     return this.variables.get(name);
   }
 
@@ -72,6 +80,14 @@ export class VariableState implements LifecycleCapable<VariableStateSnapshot> {
    * @param value Variable value
    */
   setVariable(name: string, value: unknown): void {
+    // Validate input
+    if (!name || name.trim() === "") {
+      throw new RuntimeValidationError("Variable name cannot be empty", {
+        operation: "setVariable",
+        field: "name",
+      });
+    }
+
     logger.debug("Setting variable", {
       agentLoopId: this.agentLoopId,
       variableName: name,
@@ -93,6 +109,14 @@ export class VariableState implements LifecycleCapable<VariableStateSnapshot> {
    * @returns Whether the deletion was successful or not
    */
   deleteVariable(name: string): boolean {
+    // Validate input
+    if (!name || name.trim() === "") {
+      throw new RuntimeValidationError("Variable name cannot be empty", {
+        operation: "deleteVariable",
+        field: "name",
+      });
+    }
+
     logger.debug("Deleting variable", {
       agentLoopId: this.agentLoopId,
       variableName: name,
@@ -106,6 +130,13 @@ export class VariableState implements LifecycleCapable<VariableStateSnapshot> {
    * @returns if the variable exists
    */
   hasVariable(name: string): boolean {
+    // Validate input
+    if (!name || name.trim() === "") {
+      throw new RuntimeValidationError("Variable name cannot be empty", {
+        operation: "hasVariable",
+        field: "name",
+      });
+    }
     return this.variables.has(name);
   }
 
@@ -146,5 +177,29 @@ export class VariableState implements LifecycleCapable<VariableStateSnapshot> {
       variableCount,
     });
     this.variables.clear();
+  }
+
+  /**
+   * Get the number of variables managed
+   * @returns Count of variables
+   */
+  size(): number {
+    return this.variables.size;
+  }
+
+  /**
+   * Check if the variable state is empty (no variables defined)
+   * @returns true if no variables exist
+   */
+  isEmpty(): boolean {
+    return this.variables.size === 0;
+  }
+
+  /**
+   * Reset to initial state
+   * Clears all variables
+   */
+  reset(): void {
+    this.cleanup();
   }
 }

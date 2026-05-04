@@ -19,7 +19,7 @@ import type { WorkflowExecutionVariable } from "@wf-agent/types";
 import type { VariableScope, VariableScopes } from "@wf-agent/types";
 import type { WorkflowVariable } from "@wf-agent/types";
 import { RuntimeValidationError } from "@wf-agent/types";
-import type { LifecycleCapable } from "../../core/types/lifecycle-capable.js";
+import type { StateManager } from "../../core/types/state-manager.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "variable-state-manager" });
@@ -39,7 +39,7 @@ const logger = createContextualLogger({ component: "variable-state-manager" });
  * - WorkflowExecution isolation: Each workflow execution has its own independent state instance
  * - Atomic operations: Ensure state consistency
  */
-export class VariableState implements LifecycleCapable<{
+export class VariableState implements StateManager<{
   variables: WorkflowExecutionVariable[];
   variableScopes: VariableScopes;
 }> {
@@ -188,6 +188,31 @@ export class VariableState implements LifecycleCapable<{
    * @param scope Scope
    */
   setVariableValue(name: string, value: unknown, scope: VariableScope): void {
+    // Validate input parameters
+    if (!name || name.trim() === "") {
+      throw new RuntimeValidationError("Variable name cannot be empty", {
+        operation: "setVariableValue",
+        field: "name",
+      });
+    }
+
+    if (!scope) {
+      throw new RuntimeValidationError("Variable scope is required", {
+        operation: "setVariableValue",
+        field: "scope",
+      });
+    }
+
+    // Validate scope is valid
+    const validScopes: VariableScope[] = ["global", "workflowExecution", "local", "loop"];
+    if (!validScopes.includes(scope)) {
+      throw new RuntimeValidationError(`Invalid variable scope: ${scope}`, {
+        operation: "setVariableValue",
+        field: "scope",
+        value: scope,
+      });
+    }
+
     logger.debug("Setting variable value", { name, scope });
 
     switch (scope) {
@@ -549,5 +574,29 @@ export class VariableState implements LifecycleCapable<{
       local: [],
       loop: [],
     };
+  }
+
+  /**
+   * Get the number of variables managed
+   * @returns Count of variables
+   */
+  size(): number {
+    return this.variables.length;
+  }
+
+  /**
+   * Check if the variable state is empty (no variables defined)
+   * @returns true if no variables exist
+   */
+  isEmpty(): boolean {
+    return this.variables.length === 0;
+  }
+
+  /**
+   * Reset to initial state
+   * Clears all variables and scopes
+   */
+  reset(): void {
+    this.cleanup();
   }
 }

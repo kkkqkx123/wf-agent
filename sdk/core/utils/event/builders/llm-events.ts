@@ -1,28 +1,17 @@
 /**
  * LLM Event Builders
- * Provides builders for LLM-related events
+ * Provides builders for LLM-specific events (tokens, streaming, context compression)
  */
 
 import { createBuilder } from "./common.js";
 import type {
-  MessageAddedEvent,
   TokenUsageWarningEvent,
-  ConversationStateChangedEvent,
   TokenLimitExceededEvent,
   ContextCompressionRequestedEvent,
   ContextCompressionCompletedEvent,
   LLMStreamAbortedEvent,
   LLMStreamErrorEvent,
 } from "@wf-agent/types";
-
-// =============================================================================
-// Message Events
-// =============================================================================
-
-/**
- * Build message added event
- */
-export const buildMessageAddedEvent = createBuilder<MessageAddedEvent>("MESSAGE_ADDED");
 
 // =============================================================================
 // Token Events
@@ -39,17 +28,6 @@ export const buildTokenUsageWarningEvent =
  */
 export const buildTokenLimitExceededEvent =
   createBuilder<TokenLimitExceededEvent>("TOKEN_LIMIT_EXCEEDED");
-
-// =============================================================================
-// Conversation Events
-// =============================================================================
-
-/**
- * Build conversation state changed event
- */
-export const buildConversationStateChangedEvent = createBuilder<ConversationStateChangedEvent>(
-  "CONVERSATION_STATE_CHANGED",
-);
 
 // =============================================================================
 // Context Compression Events

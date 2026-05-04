@@ -14,17 +14,8 @@ export interface MessageAddedEvent extends BaseEvent {
   nodeId?: ID;
   /** message role */
   role: string;
-  /** Message */
+  /** Message content */
   content: string;
-  /** Tool calls (if any) */
-  toolCalls?: Array<{
-    id: string;
-    type: string;
-    function: {
-      name: string;
-      arguments: string;
-    };
-  }>;
 }
 
 /**

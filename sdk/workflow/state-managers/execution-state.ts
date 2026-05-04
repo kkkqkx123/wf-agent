@@ -6,6 +6,8 @@
 
 import type { ID } from "@wf-agent/types";
 import { now } from "@wf-agent/common-utils";
+import { RuntimeValidationError } from "@wf-agent/types";
+import type { StateManager } from "../../core/types/state-manager.js";
 
 /**
  * Subgraph execution context
@@ -39,7 +41,7 @@ export interface SubgraphContext {
  * Note:
  * - It does not manage the execution status of triggered sub-workflows (which are handled by TaskRegistry and WorkflowExecution)
  */
-export class ExecutionState {
+export class ExecutionState implements StateManager<SubgraphContext[]> {
   /**
    * Subgraph execution stack
    */
@@ -59,6 +61,19 @@ export class ExecutionState {
    * @param input Input data
    */
   enterSubgraph(workflowId: ID, parentWorkflowId: ID, input: unknown): void {
+    if (!workflowId) {
+      throw new RuntimeValidationError("workflowId is required", {
+        operation: "enterSubgraph",
+        field: "workflowId",
+      });
+    }
+    if (!parentWorkflowId) {
+      throw new RuntimeValidationError("parentWorkflowId is required", {
+        operation: "enterSubgraph",
+        field: "parentWorkflowId",
+      });
+    }
+
     this.subgraphStack.push({
       workflowId,
       parentWorkflowId,
@@ -72,6 +87,12 @@ export class ExecutionState {
    * Exit the subgraph
    */
   exitSubgraph(): void {
+    if (this.subgraphStack.length === 0) {
+      throw new RuntimeValidationError(
+        "Cannot exit subgraph: no active subgraph context",
+        { operation: "exitSubgraph" },
+      );
+    }
     this.subgraphStack.pop();
   }
 
@@ -125,6 +146,46 @@ export class ExecutionState {
    */
   cleanup(): void {
     this.subgraphStack = [];
+  }
+
+  /**
+   * Create a snapshot of the execution state
+   * @returns A copy of the subgraph execution stack
+   */
+  createSnapshot(): SubgraphContext[] {
+    return this.subgraphStack.map(context => ({ ...context }));
+  }
+
+  /**
+   * Restore execution state from snapshot
+   * @param snapshot The subgraph execution stack snapshot
+   */
+  restoreFromSnapshot(snapshot: SubgraphContext[]): void {
+    this.subgraphStack = snapshot.map(context => ({ ...context }));
+  }
+
+  /**
+   * Get the number of subgraph contexts in the stack
+   * @returns Count of subgraph contexts
+   */
+  size(): number {
+    return this.subgraphStack.length;
+  }
+
+  /**
+   * Check if the execution state is empty (no active subgraph context)
+   * @returns true if no subgraph context exists
+   */
+  isEmpty(): boolean {
+    return this.subgraphStack.length === 0;
+  }
+
+  /**
+   * Reset to initial state
+   * Clears all subgraph contexts
+   */
+  reset(): void {
+    this.cleanup();
   }
 
   /**

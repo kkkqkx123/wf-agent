@@ -6,19 +6,18 @@
  * - Manages the export of all components at the Agent layer
  *
  * Architectural Hierarchy:
- * - entities/     Entity layer: Pure data entities, encapsulating execution status
- * - managers/     Manager layer: Manages message history and variable state
- * - execution/    Execution layer: Factory and lifecycle management
- * - coordinators/    Coordinator layer: Manages the lifecycle
- * - executors/    Executor layer: Core execution logic
- * - checkpoint/   Checkpoint layer: Creation and restoration of incremental snapshots
- * - services/     Service layer: Registry, etc.
+ * - entities/         Entity layer: Pure data entities, encapsulating execution status
+ * - state-managers/   State Manager layer: Centralized state management (AgentLoopState, VariableState, MessageHistory)
+ * - execution/        Execution layer: Factory and lifecycle management
+ * - coordinators/     Coordinator layer: Manages the lifecycle
+ * - executors/        Executor layer: Core execution logic
+ * - checkpoint/       Checkpoint layer: Creation and restoration of incremental snapshots
+ * - stores/           Service layer: Registry, etc.
  */
 
 // Entity Layer
 export {
   AgentLoopEntity,
-  AgentLoopState,
   AgentLoopStatus,
   type ToolCallRecord,
   type IterationRecord,
@@ -26,9 +25,14 @@ export {
 // `AgentLoopStateSnapshot` is exported from the `types` package.
 export { type AgentLoopStateSnapshot } from "@wf-agent/types";
 
-// Manager Layer
-export { MessageHistory, type MessageHistoryState } from "./message/index.js";
-export { VariableState, type VariableStateSnapshot } from "./variable/index.js";
+// State Manager Layer (NEW)
+export {
+  AgentLoopState,
+  MessageHistory,
+  VariableState,
+  type MessageHistoryState,
+  type VariableStateSnapshot,
+} from "./state-managers/index.js";
 
 // Execution Layer (Factories and Lifecycle)
 export {

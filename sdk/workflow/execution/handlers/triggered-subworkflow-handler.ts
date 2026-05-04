@@ -22,7 +22,7 @@ import { getErrorOrNew, now } from "@wf-agent/common-utils";
 import { TaskRegistry, type TaskManager } from "../../stores/task/task-registry.js";
 import type { WorkflowExecutionPool } from "../workflow-execution-pool.js";
 import { TaskQueue } from "../../stores/task/task-queue.js";
-import { PromiseResolutionManager } from "../../state-managers/promise-resolution-manager.js";
+import { AsyncCompletionManager } from "../../state-managers/promise-resolution-manager.js";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import {
   type TriggeredSubgraphTask,
@@ -90,9 +90,9 @@ export class TriggeredSubworkflowHandler implements TaskManager {
   };
 
   /**
-   * Callback State
+   * Completion Handler State
    */
-  private callbackState: PromiseResolutionManager<ExecutedSubgraphResult>;
+  private callbackState: AsyncCompletionManager<ExecutedSubgraphResult>;
 
   /**
    * Active Task Mapping
@@ -135,8 +135,8 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     // Get the global task registry
     this.taskRegistry = TaskRegistry.getInstance();
 
-    // Create a promise resolution manager with event integration
-    this.callbackState = new PromiseResolutionManager<ExecutedSubgraphResult>(eventManager);
+    // Create an async completion manager with event integration
+    this.callbackState = new AsyncCompletionManager<ExecutedSubgraphResult>(eventManager);
   }
 
   /**
@@ -273,9 +273,9 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     // Submit to the task queue
     const submissionResult = this.taskQueueManager.submitAsync(taskId, subgraphEntity, timeout);
 
-    // Register the callback directly without creating a Promise.
+    // Register the completion handler directly without creating a Promise.
     // This can prevent memory leaks caused by uncleaned Promise references.
-    await this.callbackState.registerCallback(
+    await this.callbackState.registerHandler(
       executionId,
       (result: ExecutedSubgraphResult) => this.handleSubgraphCompleted(executionId, result),
       (error: Error) => this.handleSubgraphFailed(executionId, error),
@@ -326,9 +326,9 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     // Clean up active task information
     this.activeTasks.delete(executionId);
 
-    // Finally trigger the callback (the callback will be cleaned up internally).
-    // The `triggerCallback` function already cleans up the callbacks internally, so there is no need to call the `cleanupCallback` function as well.
-    await this.callbackState.triggerCallback(executionId, result);
+    // Finally trigger the completion handler (the handler will be cleaned up internally).
+    // The `triggerCompletion` function already cleans up the handlers internally, so there is no need to call the `cleanupHandler` function as well.
+    await this.callbackState.triggerCompletion(executionId, result);
   }
 
   /**
@@ -357,9 +357,9 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     // Clean up active task information
     this.activeTasks.delete(executionId);
 
-    // The final error callback is triggered (the callback will be cleaned up internally).
-    // The `triggerErrorCallback` function already cleans up the callback internally, so there is no need to call the `cleanupCallback` function again.
-    await this.callbackState.triggerErrorCallback(executionId, error);
+    // The final error handler is triggered (the handler will be cleaned up internally).
+    // The `triggerError` function already cleans up the handler internally, so there is no need to call the `cleanupHandler` function again.
+    await this.callbackState.triggerError(executionId, error);
   }
 
   /**

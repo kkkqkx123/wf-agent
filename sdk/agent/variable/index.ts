@@ -1,2 +1,2 @@
-// Variable exports
-export { VariableState, type VariableStateSnapshot } from "./variable-state.js";
+// Variable exports - re-export from state-managers
+export { VariableState, type VariableStateSnapshot } from "../state-managers/variable-state.js";

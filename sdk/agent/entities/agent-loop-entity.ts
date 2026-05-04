@@ -57,11 +57,12 @@ import type {
   ExecutionHierarchyMetadata,
 } from "@wf-agent/types";
 import { AgentLoopStatus } from "@wf-agent/types";
-import { AgentLoopState } from "./agent-loop-state.js";
+import { AgentLoopState } from "../state-managers/agent-loop-state.js";
 import {
   ConversationSession,
   type ConversationSessionConfig,
 } from "../../core/messaging/conversation-session.js";
+// Note: Using workflow's VariableState which has scope-based variable management
 import { VariableState } from "../../workflow/state-managers/variable-state.js";
 import { buildInitialMessages, type InitialMessagesConfig } from "../../core/prompt/index.js";
 import { ExecutionHierarchyManager } from "../../core/execution/execution-hierarchy-manager.js";

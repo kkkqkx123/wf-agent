@@ -34,6 +34,13 @@ import {
   handleAgentInterruption as handleAgentInterruptionHandler,
 } from "../handlers/agent-error-handler.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
+import {
+  buildAgentStartedEvent,
+  buildAgentCompletedEvent,
+  buildAgentIterationCompletedEvent,
+  buildAgentToolExecutionStartedEvent,
+  buildAgentToolExecutionCompletedEvent,
+} from "../../../core/utils/event/builders/agent-events.js";
 
 const logger = createContextualLogger({ component: "AgentExecutionCoordinator" });
 
@@ -1096,47 +1103,43 @@ export class AgentExecutionCoordinator {
 
     switch (event.type) {
       case AgentStreamEventType.AGENT_START:
-        return {
+        return buildAgentStartedEvent({
           ...baseData,
-          type: "AGENT_STARTED",
           maxIterations: event.maxIterations,
           initialMessageCount: event.initialMessageCount,
-        };
+        });
       case AgentStreamEventType.AGENT_END:
-        return {
+        return buildAgentCompletedEvent({
           ...baseData,
-          type: "AGENT_COMPLETED",
           iterations: event.iterations,
           toolCallCount: event.toolCallCount,
           success: event.success,
-        };
+          error: event.success ? undefined : event.error,
+        });
       case AgentStreamEventType.ITERATION_COMPLETE:
-        return {
+        return buildAgentIterationCompletedEvent({
           ...baseData,
-          type: "AGENT_ITERATION_COMPLETED",
           iteration: event.iteration,
           toolCallCount: 0,
           shouldContinue: event.shouldContinue,
-        };
+        });
       case AgentStreamEventType.TOOL_EXECUTION_START:
-        return {
+        return buildAgentToolExecutionStartedEvent({
           ...baseData,
-          type: "AGENT_TOOL_EXECUTION_STARTED",
           toolCallId: event.toolCallId,
           toolName: event.toolName,
           iteration: event.iteration,
-        };
+        });
       case AgentStreamEventType.TOOL_EXECUTION_END:
-        return {
+        return buildAgentToolExecutionCompletedEvent({
           ...baseData,
-          type: "AGENT_TOOL_EXECUTION_COMPLETED",
           toolCallId: event.toolCallId,
           toolName: event.toolName,
           success: event.result.success,
           duration: event.duration,
           error: event.result.success ? undefined : event.result.error,
           iteration: entity.state.currentIteration,
-        };
+        });
       case AgentStreamEventType.ERROR:
         return null;
       default:

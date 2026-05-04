@@ -7,6 +7,5 @@
  */
 
 export { AgentLoopEntity, type SteeringMode, type FollowUpMode } from "./agent-loop-entity.js";
-export { AgentLoopState } from "./agent-loop-state.js";
 // Re-exporting types from the types package
 export { AgentLoopStatus, type ToolCallRecord, type IterationRecord } from "@wf-agent/types";

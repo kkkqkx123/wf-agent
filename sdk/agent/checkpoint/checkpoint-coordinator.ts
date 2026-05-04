@@ -6,7 +6,7 @@
  */
 
 import { AgentLoopEntity } from "../entities/agent-loop-entity.js";
-import { AgentLoopState } from "../entities/agent-loop-state.js";
+import { AgentLoopState } from "../state-managers/agent-loop-state.js";
 import type {
   CheckpointMetadata,
   DeltaStorageConfig,

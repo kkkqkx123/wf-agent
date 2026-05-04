@@ -18,6 +18,9 @@ export * from "./common.js";
 // LLM events
 export * from "./llm-events.js";
 
+// Conversation events
+export * from "./conversation-events.js";
+
 // Error events
 export * from "./error-events.js";
 
@@ -45,8 +48,14 @@ export * from "./system-events.js";
 // Skill events
 export * from "./skill-events.js";
 
+// Agent events
+export * from "./agent-events.js";
+
 // Hook events
 export * from "./hook-events.js";
+
+// Promise Callback events
+export * from "./promise-callback-events.js";
 
 // Custom events
 export * from "./custom-events.js";

@@ -43,7 +43,8 @@ export class AgentLoopCheckpointResolver extends CheckpointConfigResolver {
     const shouldCreate = this.evaluateTrigger(mergedConfig, context);
 
     // 3. Identify the source of the configuration that is actually taking effect.
-    const effectiveSource = shouldCreate ? this.findEffectiveSource(layers) : "default";
+    // Always find the effective source, regardless of whether checkpoint should be created
+    const effectiveSource = this.findEffectiveSource(layers);
 
     return {
       shouldCreate,
@@ -55,21 +56,23 @@ export class AgentLoopCheckpointResolver extends CheckpointConfigResolver {
 
   /**
    * Merge the configuration layers
+   * Higher priority layers (earlier in array) take precedence
    */
   private mergeConfigs(layers: AgentLoopCheckpointConfigLayer[]): AgentLoopCheckpointConfig {
     const result: AgentLoopCheckpointConfig = {};
 
     for (const layer of layers) {
-      if (layer.config.enabled !== undefined) {
+      // Only set if not already defined (first/higher priority wins)
+      if (layer.config.enabled !== undefined && result.enabled === undefined) {
         result.enabled = layer.config.enabled;
       }
-      if (layer.config.interval !== undefined) {
+      if (layer.config.interval !== undefined && result.interval === undefined) {
         result.interval = layer.config.interval;
       }
-      if (layer.config.onErrorOnly !== undefined) {
+      if (layer.config.onErrorOnly !== undefined && result.onErrorOnly === undefined) {
         result.onErrorOnly = layer.config.onErrorOnly;
       }
-      if (layer.config.deltaStorage !== undefined) {
+      if (layer.config.deltaStorage !== undefined && result.deltaStorage === undefined) {
         result.deltaStorage = layer.config.deltaStorage;
       }
     }

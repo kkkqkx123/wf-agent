@@ -136,6 +136,8 @@ export type EventType =
   | "AGENT_TOOL_EXECUTION_STARTED"
   /** Agent tool execution completed */
   | "AGENT_TOOL_EXECUTION_COMPLETED"
+  /** Agent iteration started */
+  | "AGENT_ITERATION_STARTED"
   /** Agent iteration completed */
   | "AGENT_ITERATION_COMPLETED"
   /** Agent hook triggered */

@@ -168,6 +168,22 @@ export interface AgentToolExecutionCompletedEvent extends BaseEvent {
 }
 
 /**
+ * Agent Iteration Started Event
+ * Emitted when a new iteration begins
+ */
+export interface AgentIterationStartedEvent extends BaseEvent {
+  type: "AGENT_ITERATION_STARTED";
+  /** Agent Loop ID */
+  agentLoopId: ID;
+  /** Iteration number */
+  iteration: number;
+  /** Parent Workflow Execution ID (if executed as a Graph node) */
+  parentWorkflowExecutionId?: ID;
+  /** Node ID (if executed as a Graph node) */
+  nodeId?: ID;
+}
+
+/**
  * Agent Iteration Completed Event
  * Emitted when all tool executions in an iteration complete
  */
@@ -227,5 +243,6 @@ export type AgentEvent =
   | AgentMessageCompletedEvent
   | AgentToolExecutionStartedEvent
   | AgentToolExecutionCompletedEvent
+  | AgentIterationStartedEvent
   | AgentIterationCompletedEvent
   | AgentHookTriggeredCoreEvent;

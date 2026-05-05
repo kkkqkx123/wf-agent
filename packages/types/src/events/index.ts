@@ -124,6 +124,7 @@ import type {
   AgentMessageCompletedEvent,
   AgentToolExecutionStartedEvent,
   AgentToolExecutionCompletedEvent,
+  AgentIterationStartedEvent,
   AgentIterationCompletedEvent,
   AgentHookTriggeredCoreEvent,
 } from "./agent-events.js";
@@ -201,6 +202,7 @@ export type Event =
   | AgentMessageCompletedEvent
   | AgentToolExecutionStartedEvent
   | AgentToolExecutionCompletedEvent
+  | AgentIterationStartedEvent
   | AgentIterationCompletedEvent
   | AgentHookTriggeredCoreEvent
   | SkillLoadStartedEvent

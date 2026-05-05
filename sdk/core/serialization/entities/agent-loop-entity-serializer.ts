@@ -115,9 +115,9 @@ export class AgentLoopEntitySerializer extends Serializer<AgentLoopEntitySnapsho
       messages: entity.getMessages(),
       variables: entity.getAllVariables(),
       config: entity.config,
-      iterationHistory: [], // TODO: Add iteration history tracking to AgentLoopEntity
-      isStreaming: false, // Not persisted, runtime only
-      pendingToolCalls: [], // Not persisted, runtime only
+      iterationHistory: entity.state.iterationHistory,
+      // Note: isStreaming, pendingToolCalls, and streamMessage are runtime-only fields
+      // and are not included in the snapshot
     };
   }
 }

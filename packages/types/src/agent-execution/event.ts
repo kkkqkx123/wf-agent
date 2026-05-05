@@ -60,6 +60,8 @@ export enum AgentStreamEventType {
   TOOL_EXECUTION_END = "tool_execution_end",
 
   // ========== Iteration ==========
+  /** Iteration started */
+  ITERATION_START = "iteration_start",
   /** Iteration completed */
   ITERATION_COMPLETE = "iteration_complete",
 
@@ -233,6 +235,18 @@ export interface ToolExecutionEndEvent {
 }
 
 /**
+ * Iteration Start Event
+ */
+export interface IterationStartEvent {
+  type: AgentStreamEventType.ITERATION_START;
+  timestamp: number;
+  /** Agent loop ID */
+  agentLoopId: string;
+  /** Iteration number */
+  iteration: number;
+}
+
+/**
  * Iteration Complete Event
  */
 export interface IterationCompleteEvent {
@@ -388,6 +402,7 @@ export type AgentStreamEvent =
   | ToolExecutionStartEvent
   | ToolExecutionUpdateEvent
   | ToolExecutionEndEvent
+  | IterationStartEvent
   | IterationCompleteEvent
   | AgentErrorEvent
   | SteeringInjectedEvent

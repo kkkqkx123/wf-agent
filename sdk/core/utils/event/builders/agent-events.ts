@@ -13,6 +13,7 @@ import type {
   AgentMessageCompletedEvent,
   AgentToolExecutionStartedEvent,
   AgentToolExecutionCompletedEvent,
+  AgentIterationStartedEvent,
   AgentIterationCompletedEvent,
   AgentHookTriggeredCoreEvent,
   AgentHookType,
@@ -83,6 +84,12 @@ export const buildAgentToolExecutionCompletedEvent =
 // =============================================================================
 // Agent Iteration Events
 // =============================================================================
+
+/**
+ * Build AGENT_ITERATION_STARTED event
+ */
+export const buildAgentIterationStartedEvent =
+  createBuilder<AgentIterationStartedEvent>("AGENT_ITERATION_STARTED");
 
 /**
  * Build AGENT_ITERATION_COMPLETED event

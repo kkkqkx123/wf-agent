@@ -82,6 +82,7 @@ export type {
   ToolExecutionStartEvent,
   ToolExecutionUpdateEvent,
   ToolExecutionEndEvent,
+  IterationStartEvent,
   IterationCompleteEvent,
   AgentErrorEvent,
   SteeringInjectedEvent,

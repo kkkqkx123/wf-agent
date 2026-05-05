@@ -364,6 +364,11 @@ export class AgentExecutionCoordinator {
 
     await executeAgentHook(entity, "BEFORE_ITERATION", this.emitAgentEvent);
     entity.state.startIteration();
+    
+    // Emit ITERATION_START event
+    const iterationStartEvent = this.createIterationStartEvent(agentLoopId, entity.state.currentIteration);
+    await this.emitToRegistry(iterationStartEvent, entity);
+    
     await executeAgentHook(entity, "BEFORE_LLM_CALL", this.emitAgentEvent);
 
     // Check interruption before LLM call
@@ -461,6 +466,14 @@ export class AgentExecutionCoordinator {
 
     await executeAgentHook(entity, "BEFORE_ITERATION", this.emitAgentEvent);
     entity.state.startIteration();
+    
+    // Emit ITERATION_START event
+    yield this.createIterationStartEvent(agentLoopId, entity.state.currentIteration);
+    await this.emitToRegistry(
+      this.createIterationStartEvent(agentLoopId, entity.state.currentIteration),
+      entity,
+    );
+    
     await executeAgentHook(entity, "BEFORE_LLM_CALL", this.emitAgentEvent);
 
     logger.debug("Calling LLM for stream", {
@@ -1036,6 +1049,15 @@ export class AgentExecutionCoordinator {
       agentLoopId,
       iteration,
       shouldContinue,
+    };
+  }
+
+  private createIterationStartEvent(agentLoopId: string, iteration: number): AgentStreamEvent {
+    return {
+      type: AgentStreamEventType.ITERATION_START,
+      timestamp: Date.now(),
+      agentLoopId,
+      iteration,
     };
   }
 

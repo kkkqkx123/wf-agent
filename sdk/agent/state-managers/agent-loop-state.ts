@@ -590,9 +590,7 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
       ...record,
       toolCalls: record.toolCalls.map(tc => ({ ...tc })),
     }));
-    cloned._streamMessage = this._streamMessage;
-    cloned._pendingToolCalls = new Set(this._pendingToolCalls);
-    cloned._isStreaming = this._isStreaming;
+    // Note: Runtime-only fields are not cloned (isStreaming, pendingToolCalls, streamMessage)
     return cloned;
   }
 
@@ -614,9 +612,14 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
         ...record,
         toolCalls: record.toolCalls.map(tc => ({ ...tc })),
       })),
-      isStreaming: this._isStreaming,
-      pendingToolCalls: Array.from(this._pendingToolCalls),
-      streamMessage: this._streamMessage, // Preserve partial streaming message
+      currentIterationRecord: this._currentIterationRecord
+        ? {
+            ...this._currentIterationRecord,
+            toolCalls: this._currentIterationRecord.toolCalls.map(tc => ({ ...tc })),
+          }
+        : undefined,
+      // Note: isStreaming, pendingToolCalls, and streamMessage are runtime-only fields
+      // and should not be persisted in checkpoints
     };
   }
 
@@ -641,20 +644,26 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
       this._iterationHistory = [];
     }
 
-    if (snapshot.pendingToolCalls) {
-      this._pendingToolCalls = new Set(snapshot.pendingToolCalls);
-    } else {
-      this._pendingToolCalls.clear();
-    }
+    // Reset runtime-only fields (not restored from snapshot)
+    this._pendingToolCalls.clear();
+    this._isStreaming = false;
+    this._streamMessage = null;
 
-    if (snapshot.isStreaming !== undefined) {
-      this._isStreaming = snapshot.isStreaming;
+    // Restore current iteration record if present
+    const currentIterationRecord = snapshot['currentIterationRecord'] as IterationRecord | undefined;
+    if (currentIterationRecord) {
+      this._currentIterationRecord = {
+        iteration: currentIterationRecord.iteration,
+        startTime: currentIterationRecord.startTime,
+        endTime: currentIterationRecord.endTime,
+        toolCalls: currentIterationRecord.toolCalls.map(tc => ({ ...tc })),
+        responseContent: currentIterationRecord.responseContent,
+      };
     } else {
-      this._isStreaming = false;
+      this._currentIterationRecord = null;
     }
 
     // Reset runtime state that cannot be restored
-    this._currentIterationRecord = null;
     this._shouldPause = false;
     this._shouldStop = false;
   }

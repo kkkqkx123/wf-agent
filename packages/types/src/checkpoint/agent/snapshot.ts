@@ -31,12 +31,8 @@ export interface AgentLoopStateSnapshot {
 
   /** Iteration history records */
   iterationHistory?: IterationRecord[];
-  /** Streaming flag */
-  isStreaming?: boolean;
-  /** Pending tool call IDs */
-  pendingToolCalls?: string[];
-  /** Partial streaming message (preserved across pause/resume) */
-  streamMessage?: Message | null;
+  /** Current iteration record (if in progress) */
+  currentIterationRecord?: IterationRecord;
 
   /** Allow additional properties for extensibility */
   [key: string]: unknown;

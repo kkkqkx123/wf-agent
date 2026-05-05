@@ -33,6 +33,7 @@ import type {
   AgentMessageCompletedEvent,
   AgentToolExecutionStartedEvent,
   AgentToolExecutionCompletedEvent,
+  AgentIterationStartedEvent,
   AgentIterationCompletedEvent,
   AgentHookTriggeredCoreEvent,
 } from "./agent-events.js";
@@ -194,6 +195,7 @@ export function isAgentEvent(
   | AgentMessageCompletedEvent
   | AgentToolExecutionStartedEvent
   | AgentToolExecutionCompletedEvent
+  | AgentIterationStartedEvent
   | AgentIterationCompletedEvent
   | AgentHookTriggeredCoreEvent {
   return (
@@ -205,6 +207,7 @@ export function isAgentEvent(
     event.type === 'AGENT_MESSAGE_COMPLETED' ||
     event.type === 'AGENT_TOOL_EXECUTION_STARTED' ||
     event.type === 'AGENT_TOOL_EXECUTION_COMPLETED' ||
+    event.type === 'AGENT_ITERATION_STARTED' ||
     event.type === 'AGENT_ITERATION_COMPLETED' ||
     event.type === 'AGENT_HOOK_TRIGGERED'
   );

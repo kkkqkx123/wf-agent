@@ -142,22 +142,21 @@ export interface AgentEndData {
 
 /**
  * Agent Iteration Data
+ *
+ * Used for iteration-related component messages.
+ * Note: Iteration status is conveyed via message type (ITERATION_START vs ITERATION_END),
+ * not via a status field. This follows the event-driven pattern where event types
+ * indicate state transitions.
  */
 export interface AgentIterationData {
   /** Current iteration number (1-based) */
   iteration: number;
 
-  /** Maximum iterations */
-  maxIterations: number;
-
   /** Tool call count in this iteration */
-  toolCallCount: number;
+  toolCallCount?: number;
 
-  /** Message count in history */
-  messageCount: number;
-
-  /** Iteration status */
-  status: "running" | "waiting" | "error";
+  /** Iteration duration in milliseconds (only available when completed) */
+  duration?: number;
 }
 
 /**

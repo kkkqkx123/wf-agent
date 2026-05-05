@@ -31,7 +31,6 @@ describe("checkpoint-utils", () => {
       },
       config: {},
       getMessages: vi.fn().mockReturnValue([]),
-      getAllVariables: vi.fn().mockReturnValue({}),
     } as unknown as AgentLoopEntity;
   });
 
@@ -110,7 +109,6 @@ describe("checkpoint-utils", () => {
           endTime: null,
           error: undefined,
           messages: [],
-          variables: {},
           config: {},
         },
       };

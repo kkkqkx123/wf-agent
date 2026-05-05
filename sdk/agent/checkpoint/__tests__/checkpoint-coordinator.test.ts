@@ -36,7 +36,6 @@ describe("AgentLoopCheckpointCoordinator", () => {
       },
       config: {},
       getMessages: vi.fn().mockReturnValue([]),
-      getAllVariables: vi.fn().mockReturnValue({}),
       ...overrides,
     } as unknown as AgentLoopEntity;
     return entity;
@@ -55,7 +54,6 @@ describe("AgentLoopCheckpointCoordinator", () => {
       endTime: null,
       error: undefined,
       messages: [],
-      variables: {},
       config: {},
     },
   });
@@ -123,7 +121,6 @@ describe("AgentLoopCheckpointCoordinator", () => {
           error: new Error("Test"),
         },
         getMessages: vi.fn().mockReturnValue([{ role: "user", content: "Test" } as Message]),
-        getAllVariables: vi.fn().mockReturnValue({ key: "value" }),
       } as any);
       dependencies.listCheckpoints = vi.fn().mockResolvedValue([]);
       dependencies.saveCheckpoint = vi.fn().mockResolvedValue("cp-1");

@@ -32,8 +32,6 @@ const logger = createContextualLogger({ component: "AgentLoopFactory" });
 export interface AgentLoopEntityOptions {
   /** Initial message */
   initialMessages?: LLMMessage[];
-  /** Initial variables */
-  initialVariables?: Record<string, unknown>;
   /** Dialogue Manager */
   conversationManager?: ConversationSession;
   /** Parent Execution ID */
@@ -62,7 +60,6 @@ export interface AgentLoopEntityOptions {
  *   config: AgentLoopRuntimeConfig  ← Injected here
  *   state: AgentLoopState         ← Created fresh or restored
  *   conversationManager           ← Created fresh
- *   variableStateManager          ← Created fresh
  * }
  * ```
  *
@@ -137,18 +134,6 @@ export class AgentLoopFactory {
       logger.debug("Agent Loop initialized with initial messages", {
         agentLoopId: id,
         messageCount: options.initialMessages.length,
-      });
-    }
-
-    // Initialize variables
-    if (options.initialVariables) {
-      const variableCount = Object.keys(options.initialVariables).length;
-      for (const [key, value] of Object.entries(options.initialVariables)) {
-        entity.variableStateManager.setVariableValue(key, value, "workflowExecution");
-      }
-      logger.debug("Agent Loop initialized with variables", {
-        agentLoopId: id,
-        variableCount,
       });
     }
 

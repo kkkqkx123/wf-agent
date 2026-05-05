@@ -22,8 +22,6 @@ export interface AgentHookEvaluationContext {
   status: string;
   /** The last error (if any) */
   error?: unknown;
-  /** Current variable state */
-  variables: Record<string, unknown>;
   /** Configuration information */
   config: {
     profileId?: string;
@@ -65,7 +63,6 @@ export function buildAgentHookEvaluationContext(
     toolCallCount: state.toolCallCount,
     status: state.status,
     error: state.error,
-    variables: entity.getAllVariables(),
     config: {
       profileId: config.profileId,
       systemPrompt: config.systemPrompt,
@@ -94,6 +91,6 @@ export function convertToEvaluationContext(
       status: hookContext.status,
       error: hookContext.error,
     },
-    variables: hookContext.variables,
+    variables: {},
   };
 }

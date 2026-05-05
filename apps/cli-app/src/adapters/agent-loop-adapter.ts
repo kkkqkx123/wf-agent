@@ -361,35 +361,4 @@ export class AgentLoopAdapter extends BaseAdapter {
 
     return entity.getMessages();
   }
-
-  /**
-   * Get Agent Loop variables
-   * @param id Instance ID
-   */
-  getAgentLoopVariables(id: ID): Record<string, any> {
-    const entity = this.registry.get(id);
-    if (!entity) {
-      throw new CLINotFoundError(`Agent Loop not found: ${id}`, "AgentLoop", id);
-    }
-
-    return entity.getAllVariables();
-  }
-
-  /**
-   * Set Agent Loop variable
-   * @param id Instance ID
-   * @param name Variable name
-   * @param value Variable value
-   */
-  setAgentLoopVariable(id: ID, name: string, value: any): Promise<void> {
-    return this.executeWithErrorHandling(async () => {
-      const entity = this.registry.get(id);
-      if (!entity) {
-        throw new CLINotFoundError(`Agent Loop not found: ${id}`, "AgentLoop", id);
-      }
-
-      entity.setVariable(name, value);
-      this.output.infoLog(`Variable set: ${name}`);
-    }, "Set variables");
-  }
 }

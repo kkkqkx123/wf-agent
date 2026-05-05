@@ -9,7 +9,7 @@
  * This entity wraps three key components:
  * 1. **Config** (immutable): `AgentLoopRuntimeConfig` - defines behavior and callbacks
  * 2. **State** (mutable): `AgentLoopState` - tracks execution progress (serializable)
- * 3. **Managers** (runtime): `ConversationSession`, `VariableState` - runtime state managers
+ * 3. **Managers** (runtime): `ConversationSession` - runtime state manager
  *
  * ## Why Not Separate Data Object?
  *
@@ -62,8 +62,6 @@ import {
   ConversationSession,
   type ConversationSessionConfig,
 } from "../../core/messaging/conversation-session.js";
-// Note: Using workflow's VariableState which has scope-based variable management
-import { VariableState } from "../../workflow/state-managers/variable-state.js";
 import { buildInitialMessages, type InitialMessagesConfig } from "../../core/prompt/index.js";
 import { ExecutionHierarchyManager } from "../../core/execution/execution-hierarchy-manager.js";
 import type { ExecutionHierarchyRegistry } from "../../core/registry/execution-hierarchy-registry.js";
@@ -114,9 +112,6 @@ export class AgentLoopEntity {
   /** Dialogue Manager (unified message management) */
   conversationManager: ConversationSession;
 
-  /** Variable Status Manager */
-  readonly variableStateManager: VariableState;
-
   /** Abort Controller */
   abortController?: AbortController;
 
@@ -161,7 +156,6 @@ export class AgentLoopEntity {
     this.id = id;
     this.config = config;
     this.state = state ?? new AgentLoopState();
-    this.variableStateManager = new VariableState();
 
     // Initialize hierarchy manager as root node (Agent loops are typically root executions)
     this.hierarchyManager = new ExecutionHierarchyManager(id, 'AGENT_LOOP', undefined, registry);
@@ -288,40 +282,6 @@ export class AgentLoopEntity {
   normalizeHistory(): void {
     // The ConversationSession does not provide a normalizeHistory method.
     // If this feature is needed, it can be added to the ConversationSession.
-  }
-
-  // Variable Management ============
-
-  /**
-   * Getting variables
-   * @param name Variable name
-   */
-  getVariable(name: string): unknown {
-    return this.variableStateManager.getVariableValue(name, "workflowExecution");
-  }
-
-  /**
-   * Setting variables
-   * @param name Variable name
-   * @param value Variable value
-   */
-  setVariable(name: string, value: unknown): void {
-    this.variableStateManager.setVariableValue(name, value, "workflowExecution");
-  }
-
-  /**
-   * Get all variables
-   */
-  getAllVariables(): Record<string, unknown> {
-    return this.variableStateManager.getVariablesByScope("workflowExecution");
-  }
-
-  /**
-   * Deleting variables
-   * @param name Variable name
-   */
-  deleteVariable(name: string): boolean {
-    return this.variableStateManager.deleteVariable(name);
   }
 
   // Stop control ============
@@ -717,9 +677,6 @@ export class AgentLoopEntity {
     // Cleanup conversation manager
     this.conversationManager.cleanup();
 
-    // Cleanup variable state manager
-    this.variableStateManager.cleanup();
-
     // Clear abort controller
     this.abortController = undefined;
 
@@ -745,11 +702,6 @@ export class AgentLoopEntity {
 
     // Restore messages
     entity.setMessages(snapshot.messages as LLMMessage[]);
-
-    // Restore variables
-    for (const [key, value] of Object.entries(snapshot.variables)) {
-      entity.setVariable(key, value);
-    }
 
     return entity;
   }

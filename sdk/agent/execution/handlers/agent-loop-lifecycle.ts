@@ -84,7 +84,6 @@ export function cleanupAgentLoop(entity: AgentLoopEntity): void {
 
   entity.state.cleanup();
   entity.conversationManager.cleanup();
-  entity.variableStateManager.cleanup();
   entity.abortController = undefined;
 
   logger.info("Agent Loop resources cleaned up", {
@@ -110,10 +109,6 @@ export function cloneAgentLoop(entity: AgentLoopEntity): AgentLoopEntity {
   // Cloning News History
   const messageSnapshot = entity.conversationManager.createSnapshot();
   cloned.conversationManager.restoreFromSnapshot(messageSnapshot);
-
-  // clone variable state
-  const variableSnapshot = entity.variableStateManager.createSnapshot();
-  cloned.variableStateManager.restoreFromSnapshot(variableSnapshot);
 
   // Clone parent context using unified hierarchy API
   const parentContext = entity.getParentContext();

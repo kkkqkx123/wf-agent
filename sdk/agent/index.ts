@@ -7,7 +7,7 @@
  *
  * Architectural Hierarchy:
  * - entities/         Entity layer: Pure data entities, encapsulating execution status
- * - state-managers/   State Manager layer: Centralized state management (AgentLoopState, VariableState, MessageHistory)
+ * - state-managers/   State Manager layer: Centralized state management (AgentLoopState, MessageHistory)
  * - execution/        Execution layer: Factory and lifecycle management
  * - coordinators/     Coordinator layer: Manages the lifecycle
  * - executors/        Executor layer: Core execution logic
@@ -29,9 +29,7 @@ export { type AgentLoopStateSnapshot } from "@wf-agent/types";
 export {
   AgentLoopState,
   MessageHistory,
-  VariableState,
   type MessageHistoryState,
-  type VariableStateSnapshot,
 } from "./state-managers/index.js";
 
 // Execution Layer (Factories and Lifecycle)

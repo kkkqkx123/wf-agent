@@ -22,7 +22,6 @@ describe("AgentLoopDiffCalculator", () => {
     endTime: null,
     error: undefined,
     messages: [],
-    variables: {},
     config: {},
     ...overrides,
   });

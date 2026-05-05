@@ -24,8 +24,6 @@ export interface AgentLoopStateSnapshot {
   error: unknown;
   /** Message History */
   messages: Message[];
-  /** variable set */
-  variables: Record<string, unknown>;
   /** deployment */
   config?: unknown;
 

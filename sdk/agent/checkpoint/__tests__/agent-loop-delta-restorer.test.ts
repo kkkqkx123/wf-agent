@@ -34,7 +34,6 @@ describe("AgentLoopDeltaRestorer", () => {
       endTime: null,
       error: undefined,
       messages: [{ role: "user", content: "Hello" } as Message],
-      variables: { key: "value" },
       config: {},
     },
   });
@@ -65,7 +64,6 @@ describe("AgentLoopDeltaRestorer", () => {
 
       expect(result.snapshot).toEqual(checkpoint.snapshot);
       expect(result.metadata.messages).toEqual(checkpoint.snapshot?.messages);
-      expect(result.metadata.variables).toEqual(checkpoint.snapshot?.variables);
     });
 
     it("should throw error when checkpoint has no snapshot", async () => {
@@ -110,7 +108,6 @@ describe("AgentLoopDeltaRestorer", () => {
             { role: "assistant", content: "Response" } as Message,
             { role: "user", content: "Follow-up" } as Message,
           ],
-          modifiedVariables: new Map([["newKey", "newValue"]]),
         },
       };
 
@@ -123,7 +120,6 @@ describe("AgentLoopDeltaRestorer", () => {
       const result = await restorer.restore("delta-1");
 
       expect(result.snapshot.messages.length).toBe(3);
-      expect(result.snapshot.variables.newKey).toBe("newValue");
     });
 
     it("should handle complex delta with otherChanges", async () => {
@@ -221,7 +217,6 @@ describe("AgentLoopDeltaRestorer", () => {
         endTime: Date.now(),
         error: undefined,
         messages: [{ role: "user", content: "Test" } as Message],
-        variables: { test: "value" },
         config: {},
       };
 
@@ -229,7 +224,6 @@ describe("AgentLoopDeltaRestorer", () => {
 
       expect(result.snapshot).toEqual(snapshot);
       expect(result.metadata.messages).toEqual(snapshot.messages);
-      expect(result.metadata.variables).toEqual(snapshot.variables);
       expect(result.metadata.config).toEqual(snapshot.config);
     });
   });

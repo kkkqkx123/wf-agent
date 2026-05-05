@@ -39,7 +39,6 @@ describe("AgentLoopCheckpointStateManager", () => {
       endTime: null,
       error: undefined,
       messages: [],
-      variables: {},
       config: {},
     },
   });

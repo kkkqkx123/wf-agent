@@ -277,7 +277,6 @@ export class AgentLoopCheckpointCoordinator {
       endTime: entity.state.endTime,
       error: entity.state.error,
       messages: entity.getMessages(),
-      variables: entity.getAllVariables(),
       config: entity.config,
     };
   }

@@ -5,7 +5,6 @@
 import type { ToolDescriptionData } from "@wf-agent/prompt-templates";
 
 export const RUN_SLASH_COMMAND_TOOL_DESCRIPTION: ToolDescriptionData = {
-  name: "run_slash_command",
   id: "run_slash_command",
   type: "STATELESS",
   category: "code",

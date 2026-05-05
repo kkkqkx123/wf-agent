@@ -85,7 +85,7 @@ class ToolRegistry {
     }
 
     this.tools.set(tool.id, tool);
-    logger.info("Tool registered", { toolId: tool.id, toolType: tool.type, toolName: tool.name });
+    logger.info("Tool registered", { toolId: tool.id, toolType: tool.type });
   }
 
   /**
@@ -115,7 +115,7 @@ class ToolRegistry {
 
   /**
    * Get Tool Definition
-   * @param toolId Tool ID
+   * @param toolId Tool ID (human-readable identifier)
    * @returns Tool Definition
    * @throws ToolNotFoundError If the tool does not exist
    */
@@ -126,6 +126,8 @@ class ToolRegistry {
     }
     return tool;
   }
+
+
 
   /**
    * Check if the tool exists

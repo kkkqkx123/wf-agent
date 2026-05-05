@@ -12,6 +12,7 @@ import type { WorkflowVariable } from "./variables.js";
 import type { WorkflowConfig } from "./config.js";
 import type { WorkflowMetadata } from "./metadata.js";
 import type { TriggeredSubworkflowConfig } from "./config.js";
+import type { AvailableTools } from "../available-tools.js";
 
 /**
  * Workflow Template Type
@@ -68,9 +69,11 @@ export interface WorkflowTemplate {
   /** Last update timestamp (ISO 8601 format) */
   updatedAt: Timestamp;
 
-  /** Available tool configurations for LLM nodes */
-  availableTools?: {
-    /** Initial set of available tools (tool IDs). Array format for JSON/TOML serialization compatibility */
-    initial: string[];
-  };
+  /**
+   * Available tool configurations for LLM nodes
+   * 
+   * Unified interface for specifying which tools are available during workflow execution.
+   * Supports static initial tools and dynamic additions during execution.
+   */
+  availableTools?: AvailableTools;
 }

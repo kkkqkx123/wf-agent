@@ -56,10 +56,10 @@ export class StatefulExecutor extends BaseExecutor {
   ): Promise<unknown> {
     if (!executionId) {
       throw new ToolError(
-        `ExecutionId is required for stateful tool '${tool.name}'`,
+        `ExecutionId is required for stateful tool '${tool.id}'`,
         tool.id,
         "STATEFUL",
-        { toolName: tool.name, executionIdRequired: true },
+        { executionIdRequired: true },
       );
     }
 
@@ -67,10 +67,10 @@ export class StatefulExecutor extends BaseExecutor {
     const toolConfig = tool.config as StatefulToolConfig;
     if (!toolConfig || !toolConfig.factory) {
       throw new ToolError(
-        `Tool '${tool.name}' does not have a factory function`,
+        `Tool '${tool.id}' does not have a factory function`,
         tool.id,
         "STATEFUL",
-        { toolName: tool.name, hasConfig: !!toolConfig, hasFactory: !!toolConfig?.factory },
+        { hasConfig: !!toolConfig, hasFactory: !!toolConfig?.factory },
       );
     }
 

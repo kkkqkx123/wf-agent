@@ -5,7 +5,6 @@
 import type { ToolDescriptionData } from "@wf-agent/prompt-templates";
 
 export const ASK_FOLLOWUP_QUESTION_TOOL_DESCRIPTION: ToolDescriptionData = {
-  name: "ask_followup_question",
   id: "ask_followup_question",
   type: "STATELESS",
   category: "code",
@@ -20,7 +19,7 @@ This tool enables interactive problem-solving by allowing direct communication w
       description: "A clear, specific question addressing the information needed",
     },
     {
-      name: "follow_up",
+      name: "suggestions",
       type: "array",
       required: true,
       description:

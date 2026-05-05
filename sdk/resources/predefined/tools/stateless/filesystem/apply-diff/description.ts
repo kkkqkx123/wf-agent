@@ -5,7 +5,6 @@
 import type { ToolDescriptionData } from "@wf-agent/prompt-templates";
 
 export const APPLY_DIFF_TOOL_DESCRIPTION: ToolDescriptionData = {
-  name: "apply_diff",
   id: "apply_diff",
   type: "STATELESS",
   category: "filesystem",

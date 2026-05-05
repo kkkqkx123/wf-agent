@@ -73,7 +73,6 @@ export function convertToolToDescriptionData(tool: Tool): ToolDescriptionData {
   const parameters = tool.parameters ? convertToolParameters(tool.parameters) : [];
 
   return {
-    name: tool.name,
     id: tool.id,
     type: tool.type === "STATEFUL" ? "STATEFUL" : "STATELESS",
     category: (tool.metadata?.category as ToolDescriptionData["category"]) || undefined,
@@ -123,7 +122,7 @@ export function generateToolDescription(
  */
 function generateDefaultDescription(data: ToolDescriptionData): string {
   const parts: string[] = [
-    `${data.name}: ${data.description}`,
+    `${data.id}: ${data.description}`,
     "",
     "Parameters:",
     renderParameters(data.parameters),
@@ -137,7 +136,7 @@ function generateDefaultDescription(data: ToolDescriptionData): string {
  */
 function generateCompactDescription(data: ToolDescriptionData): string {
   const paramSummary = data.parameters.length > 0 ? ` (${data.parameters.length} params)` : "";
-  return `${data.name}${paramSummary}: ${data.description}`;
+  return `${data.id}${paramSummary}: ${data.description}`;
 }
 
 /**

@@ -121,7 +121,6 @@ export const RestToolConfigSchema = z.object({
  * Built-in Tool Config Schema
  */
 export const BuiltinToolConfigSchema = z.object({
-  name: z.string().min(1, "Built-in tool name is required"),
   execute: z.function(),
 });
 
@@ -155,8 +154,9 @@ export const ToolTypeSchema = z.custom<ToolType>((val): val is ToolType =>
  */
 export const ToolDefinitionSchema = z
   .object({
-    id: z.string().min(1, "Tool ID is required"),
-    name: z.string().min(1, "Tool name is required"),
+    id: z.string().min(1, "Tool ID is required").regex(/^[a-z][a-z0-9_]*$/, {
+      message: "Tool ID must be lowercase with underscores (e.g., 'read_file')",
+    }),
     type: ToolTypeSchema,
     description: z.string().min(1, "Tool description is required"),
     parameters: ToolParametersSchema,

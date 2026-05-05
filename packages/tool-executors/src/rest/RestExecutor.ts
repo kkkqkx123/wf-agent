@@ -88,7 +88,7 @@ export class RestExecutor extends BaseExecutor {
         operation: "execute",
         field: "url",
         value: url,
-        context: { toolId: tool.id, toolName: tool.name, parameters },
+        context: { toolId: tool.id, parameters },
       });
     }
 

@@ -5,7 +5,6 @@
 import type { ToolDescriptionData } from "@wf-agent/prompt-templates";
 
 export const RUN_SHELL_TOOL_DESCRIPTION: ToolDescriptionData = {
-  name: "run_shell",
   id: "run_shell",
   type: "STATELESS",
   category: "shell",

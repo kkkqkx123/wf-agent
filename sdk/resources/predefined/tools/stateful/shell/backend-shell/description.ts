@@ -5,7 +5,6 @@
 import type { ToolDescriptionData } from "@wf-agent/prompt-templates";
 
 export const BACKEND_SHELL_TOOL_DESCRIPTION: ToolDescriptionData = {
-  name: "backend_shell",
   id: "backend_shell",
   type: "STATEFUL",
   category: "shell",
@@ -28,7 +27,6 @@ export const BACKEND_SHELL_TOOL_DESCRIPTION: ToolDescriptionData = {
 };
 
 export const SHELL_OUTPUT_TOOL_DESCRIPTION: ToolDescriptionData = {
-  name: "shell_output",
   id: "shell_output",
   type: "STATEFUL",
   category: "shell",
@@ -56,7 +54,6 @@ export const SHELL_OUTPUT_TOOL_DESCRIPTION: ToolDescriptionData = {
 };
 
 export const SHELL_KILL_TOOL_DESCRIPTION: ToolDescriptionData = {
-  name: "shell_kill",
   id: "shell_kill",
   type: "STATEFUL",
   category: "shell",

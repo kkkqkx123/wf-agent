@@ -5,7 +5,6 @@
 import type { ToolDescriptionData } from "@wf-agent/prompt-templates";
 
 export const APPLY_PATCH_TOOL_DESCRIPTION: ToolDescriptionData = {
-  name: "apply_patch",
   id: "apply_patch",
   type: "STATELESS",
   category: "filesystem",

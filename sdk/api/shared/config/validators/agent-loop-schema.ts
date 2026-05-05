@@ -56,6 +56,16 @@ export const AgentLoopCheckpointConfigSchema = z.object({
 export const AgentLoopMetadataSchema = z.record(z.string(), z.unknown());
 
 /**
+ * Available Tools Configuration Schema (Unified)
+ */
+export const AvailableToolsSchema = z.object({
+  initial: z.array(z.string()),
+  filterMode: z.enum(['none', 'allowlist', 'blocklist']).optional(),
+  allowList: z.array(z.string()).optional(),
+  blockList: z.array(z.string()).optional(),
+});
+
+/**
  * Agent Loop Config File Schema
  * Validates the entire Agent Loop configuration file structure
  */
@@ -69,7 +79,13 @@ export const AgentLoopConfigFileSchema = z.object({
   systemPromptTemplate: z.string().optional(),
   maxIterations: z.number().int().optional(),
   initialMessages: z.array(z.any()).optional(), // Message[] - using z.any() as Message schema not yet available
+  
+  // New unified format (preferred)
+  availableTools: AvailableToolsSchema.optional(),
+  
+  // Legacy format (deprecated, for backward compatibility)
   tools: z.array(z.string()).optional(),
+  
   stream: z.boolean().optional(),
   checkpoint: AgentLoopCheckpointConfigSchema.optional(),
   hooks: z.array(AgentHookConfigFileSchema).optional(),

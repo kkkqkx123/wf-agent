@@ -14,6 +14,7 @@ import type {
   Tool,
   MessageOperationConfig,
   MessageOperationResult,
+  AvailableTools,
 } from "@wf-agent/types";
 import {
   ConversationSession,
@@ -25,14 +26,6 @@ import { createContextualLogger } from "../../utils/contextual-logger.js";
 import { generateToolDescriptionMessage } from "../../resources/dynamic/prompts/fragments/available-tools.js";
 
 const logger = createContextualLogger({ component: "WorkflowConversationSession" });
-
-/**
- * Tool Availability Set
- */
-export interface AvailableTools {
-  initial: string[];
-  dynamic: Set<string>;
-}
 
 /**
  * WorkflowConversationSession Configuration
@@ -97,7 +90,7 @@ export class WorkflowConversationSession extends ConversationSession {
 
     // Get the list of tool objects.
     const tools = initialToolIds
-      .map(id => {
+      .map((id: string) => {
         try {
           return this.toolService!.getTool(id);
         } catch (e) {
@@ -109,7 +102,7 @@ export class WorkflowConversationSession extends ConversationSession {
           return null;
         }
       })
-      .filter((t): t is Tool => !!t);
+      .filter((t: Tool | null): t is Tool => !!t);
 
     // Use the available-tools fragment generator to create tool description message
     return generateToolDescriptionMessage(tools);

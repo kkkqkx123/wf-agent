@@ -88,7 +88,7 @@ export class ToolApprovalCoordinator {
       const decision = this.checkAutoApproval(tool, toolCall, options);
 
       if (decision.decision === "approve") {
-        logger.debug("Tool auto-approved", { toolId: tool.id, toolName: tool.name });
+        logger.debug("Tool auto-approved", { toolId: tool.id });
         return {
           approved: true,
           toolCallId: toolCall.id,

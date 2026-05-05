@@ -113,7 +113,7 @@ export class AgentLoopFactory {
     logger.info("Creating new Agent Loop entity", {
       agentLoopId: id,
       maxIterations: config.maxIterations,
-      toolsCount: config.tools?.length || 0,
+      toolsCount: config.availableTools?.initial.length || config.tools?.length || 0,
       profileId: config.profileId || "DEFAULT",
     });
 

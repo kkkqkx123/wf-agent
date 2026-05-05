@@ -134,7 +134,6 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
   if (!isDisabled("read_file", options)) {
     tools.push({
       id: "read_file",
-      name: "read_file",
       type: "STATELESS",
       description: renderToolDescription(READ_FILE_TOOL_DESCRIPTION),
       parameters: readFileSchema,
@@ -146,7 +145,6 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
   if (!isDisabled("write_file", options)) {
     tools.push({
       id: "write_file",
-      name: "write_file",
       type: "STATELESS",
       description: renderToolDescription(WRITE_FILE_TOOL_DESCRIPTION),
       parameters: writeFileSchema,
@@ -158,7 +156,6 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
   if (!isDisabled("run_shell", options)) {
     tools.push({
       id: "run_shell",
-      name: "run_shell",
       type: "STATELESS",
       description: renderToolDescription(RUN_SHELL_TOOL_DESCRIPTION),
       parameters: runShellSchema,
@@ -170,7 +167,6 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
   if (!isDisabled("record_note", options)) {
     tools.push({
       id: "record_note",
-      name: "record_note",
       type: "STATEFUL",
       description: renderToolDescription(RECORD_NOTE_TOOL_DESCRIPTION),
       parameters: recordNoteSchema,
@@ -184,7 +180,6 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
   if (!isDisabled("recall_notes", options)) {
     tools.push({
       id: "recall_notes",
-      name: "recall_notes",
       type: "STATEFUL",
       description: renderToolDescription(RECALL_NOTES_TOOL_DESCRIPTION),
       parameters: recallNotesSchema,
@@ -198,7 +193,6 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
   if (!isDisabled("backend_shell", options)) {
     tools.push({
       id: "backend_shell",
-      name: "backend_shell",
       type: "STATEFUL",
       description: renderToolDescription(BACKEND_SHELL_TOOL_DESCRIPTION),
       parameters: backendShellSchema,
@@ -210,7 +204,6 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
   if (!isDisabled("shell_output", options)) {
     tools.push({
       id: "shell_output",
-      name: "shell_output",
       type: "STATEFUL",
       description: renderToolDescription(SHELL_OUTPUT_TOOL_DESCRIPTION),
       parameters: shellOutputSchema,
@@ -222,7 +215,6 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
   if (!isDisabled("shell_kill", options)) {
     tools.push({
       id: "shell_kill",
-      name: "shell_kill",
       type: "STATEFUL",
       description: renderToolDescription(SHELL_KILL_TOOL_DESCRIPTION),
       parameters: shellKillSchema,
@@ -234,7 +226,6 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
   if (!isDisabled("apply_patch", options)) {
     tools.push({
       id: "apply_patch",
-      name: "apply_patch",
       type: "STATELESS",
       description: renderToolDescription(APPLY_PATCH_TOOL_DESCRIPTION),
       parameters: applyPatchSchema,
@@ -246,7 +237,6 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
   if (!isDisabled("apply_diff", options)) {
     tools.push({
       id: "apply_diff",
-      name: "apply_diff",
       type: "STATELESS",
       description: renderToolDescription(APPLY_DIFF_TOOL_DESCRIPTION),
       parameters: applyDiffSchema,
@@ -258,7 +248,6 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
   if (!isDisabled("edit", options)) {
     tools.push({
       id: "edit",
-      name: "edit",
       type: "STATELESS",
       description: renderToolDescription(EDIT_TOOL_DESCRIPTION),
       parameters: editSchema,
@@ -270,7 +259,6 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
   if (!isDisabled("list_files", options)) {
     tools.push({
       id: "list_files",
-      name: "list_files",
       type: "STATELESS",
       description: renderToolDescription(LIST_FILES_TOOL_DESCRIPTION),
       parameters: listFilesSchema,
@@ -282,7 +270,6 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
   if (!isDisabled("grep", options)) {
     tools.push({
       id: "grep",
-      name: "grep",
       type: "STATELESS",
       description: renderToolDescription(GREP_TOOL_DESCRIPTION),
       parameters: grepSchema,
@@ -294,7 +281,6 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
   if (!isDisabled("ask_followup_question", options)) {
     tools.push({
       id: "ask_followup_question",
-      name: "ask_followup_question",
       type: "STATELESS",
       description: renderToolDescription(ASK_FOLLOWUP_QUESTION_TOOL_DESCRIPTION),
       parameters: askFollowupQuestionSchema,
@@ -306,7 +292,6 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
   if (!isDisabled("run_slash_command", options)) {
     tools.push({
       id: "run_slash_command",
-      name: "run_slash_command",
       type: "STATELESS",
       description: renderToolDescription(RUN_SLASH_COMMAND_TOOL_DESCRIPTION),
       parameters: runSlashCommandSchema,
@@ -318,7 +303,6 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
   if (!isDisabled("skill", options)) {
     tools.push({
       id: "skill",
-      name: "skill",
       type: "STATELESS",
       description: renderToolDescription(SKILL_TOOL_DESCRIPTION),
       parameters: skillSchema,
@@ -330,7 +314,6 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
   if (!isDisabled("update_todo_list", options)) {
     tools.push({
       id: "update_todo_list",
-      name: "update_todo_list",
       type: "STATELESS",
       description: renderToolDescription(UPDATE_TODO_LIST_TOOL_DESCRIPTION),
       parameters: updateTodoListSchema,
@@ -342,7 +325,6 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
   if (!isDisabled("use_mcp", options)) {
     tools.push({
       id: "use_mcp",
-      name: "use_mcp",
       type: "STATELESS",
       description: renderToolDescription(USE_MCP_TOOL_DESCRIPTION),
       parameters: useMcpSchema,

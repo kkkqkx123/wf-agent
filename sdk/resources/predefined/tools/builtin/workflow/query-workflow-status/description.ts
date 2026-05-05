@@ -8,7 +8,6 @@ import type { ToolDescriptionData } from "@wf-agent/prompt-templates";
  * Query workflow status tool description
  */
 export const QUERY_WORKFLOW_STATUS_TOOL_DESCRIPTION: ToolDescriptionData = {
-  name: "query_workflow_status",
   id: "builtin_query_workflow_status",
   type: "STATELESS",
   category: "workflow",

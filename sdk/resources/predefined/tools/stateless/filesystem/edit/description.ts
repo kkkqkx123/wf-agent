@@ -5,7 +5,6 @@
 import type { ToolDescriptionData } from "@wf-agent/prompt-templates";
 
 export const EDIT_TOOL_DESCRIPTION: ToolDescriptionData = {
-  name: "edit",
   id: "edit",
   type: "STATELESS",
   category: "filesystem",

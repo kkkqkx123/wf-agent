@@ -69,8 +69,6 @@ export interface RestToolConfig {
  * Built-in Tool Configuration
  */
 export interface BuiltinToolConfig {
-  /** Built-in tool name */
-  name: string;
   /** Execute function with context */
   execute: (
     parameters: ToolParameterSchema,

@@ -40,7 +40,6 @@ class TestExecutor extends BaseExecutor {
 // Create an auxiliary function for the testing tool
 const createTool = (params: { properties: Record<string, any>; required?: string[] }): Tool => ({
   id: "test-tool",
-  name: "Test Tool",
   type: "STATELESS",
   description: "A test tool",
   parameters: {

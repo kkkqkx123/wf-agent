@@ -71,21 +71,21 @@ export function renderToolDescription(data: ToolDescriptionData): string {
  * Renders the tool description into a single line format
  */
 export function renderToolDescriptionSingleLine(data: ToolDescriptionData): string {
-  return `${data.name}: ${data.description}`;
+  return `${data.id}: ${data.description}`;
 }
 
 /**
  * Renders the tool description into a list item format
  */
 export function renderToolDescriptionListItem(data: ToolDescriptionData): string {
-  return `- ${data.name}: ${data.description}`;
+  return `- ${data.id}: ${data.description}`;
 }
 
 /**
  * Rendering tool descriptions into table row format
  */
 export function renderToolDescriptionTableRow(data: ToolDescriptionData): string {
-  return `| ${data.name} | ${data.id} | ${data.description} |`;
+  return `| ${data.id} | ${data.description} |`;
 }
 
 /**

@@ -29,6 +29,7 @@
 import type { ID, Version, Timestamp } from "../common.js";
 import type { Message } from "../message/index.js";
 import type { AgentHookStatic, AgentTriggerStatic, AgentCheckpointConfig, AgentLoopMetadata } from "./static-config.js";
+import type { AvailableTools } from "../available-tools.js";
 
 /**
  * Agent Loop Definition
@@ -71,7 +72,18 @@ export interface AgentLoopDefinition {
   /** Initial message list */
   initialMessages?: Message[];
 
-  /** List of allowed tools (array of tool IDs) */
+  /**
+   * Available tools configuration (unified format)
+   * 
+   * Specifies which tools are available during agent loop execution.
+   * Supports static initial tools and dynamic additions during execution.
+   */
+  availableTools?: AvailableTools;
+
+  /**
+   * List of allowed tools (array of tool IDs)
+   * @deprecated Use availableTools.initial instead. This field is kept for backward compatibility.
+   */
   tools?: string[];
 
   /** Streaming output or not */

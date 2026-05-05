@@ -26,9 +26,11 @@ export interface ToolParameterDescription {
  * SDK-side tool implementations should provide data constants for this structure
  */
 export interface ToolDescriptionData {
-  /** Tool name */
-  name: string;
-  /** Tool ID */
+  /** 
+   * Tool Identifier
+   * Must be human-readable and follow naming conventions (lowercase_with_underscores)
+   * Examples: "read_file", "write_file", "run_shell"
+   */
   id: string;
   /** Tool type */
   type: "STATELESS" | "STATEFUL";

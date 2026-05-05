@@ -5,7 +5,6 @@
 import type { ToolDescriptionData } from "@wf-agent/prompt-templates";
 
 export const READ_FILE_TOOL_DESCRIPTION: ToolDescriptionData = {
-  name: "read_file",
   id: "read_file",
   type: "STATELESS",
   category: "filesystem",

@@ -66,7 +66,7 @@ export function buildAgentHookEvaluationContext(
     config: {
       profileId: config.profileId,
       systemPrompt: config.systemPrompt,
-      tools: config.tools,
+      tools: config.availableTools?.initial || config.tools,
     },
     toolCall: toolCallInfo,
   };

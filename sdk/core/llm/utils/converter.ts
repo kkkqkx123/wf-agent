@@ -39,6 +39,7 @@ export interface GeminiTool {
 
 /**
  * Convert to OpenAI format tool definitions
+ * Uses tool.id for LLM communication (human-readable identifier)
  */
 export function convertToolsToOpenAIFormat(tools: ToolSchema[]): OpenAITool[] {
   if (!tools || tools.length === 0) {
@@ -57,6 +58,7 @@ export function convertToolsToOpenAIFormat(tools: ToolSchema[]): OpenAITool[] {
 
 /**
  * Convert to Anthropic format tool definitions
+ * Uses tool.id for LLM communication (human-readable identifier)
  */
 export function convertToolsToAnthropicFormat(tools: ToolSchema[]): AnthropicTool[] {
   if (!tools || tools.length === 0) {
@@ -72,6 +74,7 @@ export function convertToolsToAnthropicFormat(tools: ToolSchema[]): AnthropicToo
 
 /**
  * Convert to Gemini format tool definitions
+ * Uses tool.id for LLM communication (human-readable identifier)
  */
 export function convertToolsToGeminiFormat(tools: ToolSchema[]): GeminiTool[] {
   if (!tools || tools.length === 0) {

@@ -8,7 +8,6 @@ import type { ToolDescriptionData } from "@wf-agent/prompt-templates";
  * Execute workflow tool description
  */
 export const EXECUTE_WORKFLOW_TOOL_DESCRIPTION: ToolDescriptionData = {
-  name: "execute_workflow",
   id: "builtin_execute_workflow",
   type: "STATELESS",
   category: "workflow",

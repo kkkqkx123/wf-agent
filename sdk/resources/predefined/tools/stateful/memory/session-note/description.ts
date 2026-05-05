@@ -5,7 +5,6 @@
 import type { ToolDescriptionData } from "@wf-agent/prompt-templates";
 
 export const RECORD_NOTE_TOOL_DESCRIPTION: ToolDescriptionData = {
-  name: "record_note",
   id: "record_note",
   type: "STATEFUL",
   category: "memory",
@@ -34,7 +33,6 @@ export const RECORD_NOTE_TOOL_DESCRIPTION: ToolDescriptionData = {
 };
 
 export const RECALL_NOTES_TOOL_DESCRIPTION: ToolDescriptionData = {
-  name: "recall_notes",
   id: "recall_notes",
   type: "STATEFUL",
   category: "memory",

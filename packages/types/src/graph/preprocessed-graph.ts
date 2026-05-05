@@ -10,6 +10,7 @@ import type { WorkflowGraphAnalysis } from "./analysis.js";
 import type { PreprocessValidationResult, SubgraphMergeLog } from "../workflow/preprocess.js";
 import type { WorkflowTrigger } from "../trigger/index.js";
 import type { WorkflowVariable } from "../workflow/variables.js";
+import type { AvailableTools } from "../available-tools.js";
 
 /**
  * Workflow Graph Interface
@@ -64,9 +65,10 @@ export interface WorkflowGraph extends WorkflowGraphStructure {
   /** A collection of sub-workflow IDs */
   subworkflowIds: Set<ID>;
 
-  /** Available tool configurations */
-  availableTools?: {
-    /** Initial set of available tools (tool IDs). Array format for JSON/TOML serialization compatibility */
-    initial: string[];
-  };
+  /**
+   * Available tool configurations
+   * 
+   * Unified interface for specifying which tools are available during workflow execution.
+   */
+  availableTools?: AvailableTools;
 }

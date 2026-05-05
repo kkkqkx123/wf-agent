@@ -13,7 +13,6 @@ describe("ParameterValidator", () => {
   // Create auxiliary functions defined by the testing tool
   const createTool = (params: { properties: Record<string, any>; required?: string[] }): Tool => ({
     id: "test-tool",
-    name: "Test Tool",
     type: "STATELESS",
     description: "A test tool",
     parameters: {

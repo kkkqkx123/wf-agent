@@ -132,7 +132,7 @@ export function generateToolParametersDescription(tool: Tool): string {
   );
 
   const variables = {
-    toolName: tool.name,
+    toolName: tool.id,
     toolId: tool.id,
     toolDescription: tool.description || "No description",
     parametersSchema,

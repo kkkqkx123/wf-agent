@@ -104,7 +104,18 @@ export interface AgentLoopRuntimeConfig {
   /** Initial message list */
   initialMessages?: Message[];
 
-  /** List of allowed tools (array of tool IDs) */
+  /**
+   * Available tools configuration (unified format)
+   * 
+   * Specifies which tools are available during agent loop execution.
+   * Supports static initial tools and dynamic additions during execution.
+   */
+  availableTools?: import("../available-tools.js").AvailableTools;
+
+  /**
+   * List of allowed tools (array of tool IDs)
+   * @deprecated Use availableTools.initial instead. This field is kept for backward compatibility.
+   */
   tools?: string[];
 
   /** Streaming output or not */

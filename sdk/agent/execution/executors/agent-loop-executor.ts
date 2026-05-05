@@ -99,12 +99,14 @@ export class AgentLoopExecutor {
     logger.info("Agent Loop execution started", {
       agentLoopId,
       maxIterations,
-      toolsCount: config.tools?.length || 0,
+      toolsCount: config.availableTools?.initial.length || config.tools?.length || 0,
       profileId: config.profileId || "DEFAULT",
       initialMessageCount: entity.conversationManager.getMessageCount(),
     });
 
-    const toolSchemas = prepareToolSchemas(config.tools, this.toolService);
+    // Get tool IDs from availableTools (preferred) or fallback to deprecated tools field
+    const toolIds = config.availableTools?.initial || config.tools;
+    const toolSchemas = prepareToolSchemas(toolIds, this.toolService);
 
     if (toolSchemas) {
       logger.debug("Tool schemas prepared", { agentLoopId, toolsCount: toolSchemas.length });
@@ -133,12 +135,14 @@ export class AgentLoopExecutor {
     logger.info("Agent Loop stream execution started", {
       agentLoopId: entity.id,
       maxIterations,
-      toolsCount: config.tools?.length || 0,
+      toolsCount: config.availableTools?.initial.length || config.tools?.length || 0,
       profileId: config.profileId || "DEFAULT",
       initialMessageCount: entity.conversationManager.getMessageCount(),
     });
 
-    const toolSchemas = prepareToolSchemas(config.tools, this.toolService);
+    // Get tool IDs from availableTools (preferred) or fallback to deprecated tools field
+    const toolIds = config.availableTools?.initial || config.tools;
+    const toolSchemas = prepareToolSchemas(toolIds, this.toolService);
 
     const coordinator = this.createCoordinator();
     yield* coordinator.executeStream(

@@ -84,7 +84,7 @@ export class AgentLoopCoordinator {
     logger.info("Agent Loop entity created", {
       agentLoopId: entity.id,
       maxIterations: config.maxIterations,
-      toolsCount: config.tools?.length || 0,
+      toolsCount: config.availableTools?.initial.length || config.tools?.length || 0,
     });
 
     // 2. Registering entities
@@ -153,7 +153,7 @@ export class AgentLoopCoordinator {
     logger.info("Agent Loop entity created for stream execution", {
       agentLoopId: entity.id,
       maxIterations: config.maxIterations,
-      toolsCount: config.tools?.length || 0,
+      toolsCount: config.availableTools?.initial.length || config.tools?.length || 0,
     });
 
     // 2. Registering entities
@@ -212,7 +212,7 @@ export class AgentLoopCoordinator {
     logger.info("Agent Loop entity created for async execution", {
       agentLoopId: entity.id,
       maxIterations: config.maxIterations,
-      toolsCount: config.tools?.length || 0,
+      toolsCount: config.availableTools?.initial.length || config.tools?.length || 0,
     });
 
     // 2. Registering entities

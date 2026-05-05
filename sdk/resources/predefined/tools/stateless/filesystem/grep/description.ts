@@ -5,7 +5,6 @@
 import type { ToolDescriptionData } from "@wf-agent/prompt-templates";
 
 export const GREP_TOOL_DESCRIPTION: ToolDescriptionData = {
-  name: "grep",
   id: "grep",
   type: "STATELESS",
   category: "filesystem",

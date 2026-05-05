@@ -60,7 +60,7 @@ export class BuiltinExecutor extends BaseExecutor {
 
       return {
         result,
-        toolName: config.name,
+        toolName: tool.id,
       };
     } catch (error) {
       if (error instanceof ToolError) {

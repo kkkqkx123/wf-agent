@@ -8,7 +8,6 @@ import type { ToolDescriptionData } from "@wf-agent/prompt-templates";
  * Call agent tool description
  */
 export const CALL_AGENT_TOOL_DESCRIPTION: ToolDescriptionData = {
-  name: "call_agent",
   id: "builtin_call_agent",
   type: "STATELESS",
   category: "agent",

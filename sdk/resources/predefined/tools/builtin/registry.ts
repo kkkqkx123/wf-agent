@@ -61,12 +61,10 @@ export function createBuiltinTools(options?: BuiltinToolsOptions): Tool[] {
   if (!isDisabled("execute_workflow", options)) {
     tools.push({
       id: "builtin_execute_workflow",
-      name: "execute_workflow",
       type: "BUILTIN",
       description: renderToolDescription(EXECUTE_WORKFLOW_TOOL_DESCRIPTION),
       parameters: executeWorkflowSchema,
       config: {
-        name: "execute_workflow",
         execute: createExecuteWorkflowHandler(),
       },
     });
@@ -76,12 +74,10 @@ export function createBuiltinTools(options?: BuiltinToolsOptions): Tool[] {
   if (!isDisabled("query_workflow_status", options)) {
     tools.push({
       id: "builtin_query_workflow_status",
-      name: "query_workflow_status",
       type: "BUILTIN",
       description: renderToolDescription(QUERY_WORKFLOW_STATUS_TOOL_DESCRIPTION),
       parameters: queryWorkflowStatusSchema,
       config: {
-        name: "query_workflow_status",
         execute: createQueryWorkflowStatusHandler(),
       },
     });
@@ -91,12 +87,10 @@ export function createBuiltinTools(options?: BuiltinToolsOptions): Tool[] {
   if (!isDisabled("cancel_workflow", options)) {
     tools.push({
       id: "builtin_cancel_workflow",
-      name: "cancel_workflow",
       type: "BUILTIN",
       description: renderToolDescription(CANCEL_WORKFLOW_TOOL_DESCRIPTION),
       parameters: cancelWorkflowSchema,
       config: {
-        name: "cancel_workflow",
         execute: createCancelWorkflowHandler(),
       },
     });
@@ -106,12 +100,10 @@ export function createBuiltinTools(options?: BuiltinToolsOptions): Tool[] {
   if (!isDisabled("call_agent", options)) {
     tools.push({
       id: "builtin_call_agent",
-      name: "call_agent",
       type: "BUILTIN",
       description: renderToolDescription(CALL_AGENT_TOOL_DESCRIPTION),
       parameters: callAgentSchema,
       config: {
-        name: "call_agent",
         execute: createCallAgentHandler(),
       },
     });

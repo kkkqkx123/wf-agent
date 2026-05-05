@@ -15,10 +15,12 @@ import type {
  * Used for converting tool definitions from the app layer format to the SDK Tool format.
  */
 export interface ToolDefinitionLike {
-  /** Unique Tool Identifier */
+  /** 
+   * Unique Tool Identifier
+   * Must be human-readable and follow naming conventions (lowercase_with_underscores)
+   * Examples: "read_file", "write_file", "run_shell"
+   */
   id: string;
-  /** Tool Name */
-  name: string;
   /** Tool Description */
   description: string;
   /** Parameter schema (in JSON Schema format) */
@@ -43,7 +45,6 @@ export interface ToolDefinitionLike {
 export function toSdkTool(toolDef: ToolDefinitionLike): Tool {
   const tool: Tool = {
     id: toolDef.id,
-    name: toolDef.name,
     type: toolDef.type,
     description: toolDef.description,
     parameters: toolDef.parameters,

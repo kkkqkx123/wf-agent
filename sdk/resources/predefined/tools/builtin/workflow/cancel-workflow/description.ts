@@ -8,7 +8,6 @@ import type { ToolDescriptionData } from "@wf-agent/prompt-templates";
  * Cancel workflow tool description
  */
 export const CANCEL_WORKFLOW_TOOL_DESCRIPTION: ToolDescriptionData = {
-  name: "cancel_workflow",
   id: "builtin_cancel_workflow",
   type: "STATELESS",
   category: "workflow",

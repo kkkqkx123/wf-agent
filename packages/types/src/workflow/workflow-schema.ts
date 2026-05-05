@@ -146,7 +146,11 @@ export const WorkflowTemplateSchema = z.object({
   updatedAt: z.number(),
   availableTools: z
     .object({
-      initial: z.set(z.string()),
+      initial: z.array(z.string()),
+      dynamic: z.set(z.string()).optional(),
+      filterMode: z.enum(['none', 'allowlist', 'blocklist']).optional(),
+      allowList: z.array(z.string()).optional(),
+      blockList: z.array(z.string()).optional(),
     })
     .optional(),
 });

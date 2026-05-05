@@ -14,13 +14,17 @@ maxIterations = 20
 stream = true
 
 # 工具配置
-tools = [
+[agent.availableTools]
+initial = [
   "read_file",
   "write_file", 
   "edit_file",
   "shell_execute",
   "calculator"
 ]
+# 可选：使用过滤模式
+# filterMode = "allowlist"
+# allowList = ["read_file", "write_file"]
 
 # 检查点配置
 [agent.checkpoint]

@@ -170,7 +170,8 @@ export class ToolRegistryAPI extends CrudResourceAPI<Tool, string, ToolFilter> {
       if (filter.ids && !filter.ids.some(id => tool.id.includes(id))) {
         return false;
       }
-      if (filter.name && !tool.name.includes(filter.name)) {
+      // Use id for name-based filtering since id is now the human-readable identifier
+      if (filter.name && !tool.id.includes(filter.name)) {
         return false;
       }
       if (filter.type && tool.type !== filter.type) {

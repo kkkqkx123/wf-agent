@@ -5,7 +5,6 @@
 import type { ToolDescriptionData } from "@wf-agent/prompt-templates";
 
 export const WRITE_FILE_TOOL_DESCRIPTION: ToolDescriptionData = {
-  name: "write_file",
   id: "write_file",
   type: "STATELESS",
   category: "filesystem",

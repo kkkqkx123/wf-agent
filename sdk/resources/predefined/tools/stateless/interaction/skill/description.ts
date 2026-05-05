@@ -5,7 +5,6 @@
 import type { ToolDescriptionData } from "@wf-agent/prompt-templates";
 
 export const SKILL_TOOL_DESCRIPTION: ToolDescriptionData = {
-  name: "skill",
   id: "skill",
   type: "STATELESS",
   category: "code",

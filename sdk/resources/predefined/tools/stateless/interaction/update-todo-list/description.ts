@@ -5,7 +5,6 @@
 import type { ToolDescriptionData } from "@wf-agent/prompt-templates";
 
 export const UPDATE_TODO_LIST_TOOL_DESCRIPTION: ToolDescriptionData = {
-  name: "update_todo_list",
   id: "update_todo_list",
   type: "STATELESS",
   category: "code",

@@ -67,7 +67,7 @@ export function toFunctionCallSchema(tool: Tool): LLMToolSchema {
   return {
     type: "function",
     function: {
-      name: tool.name,
+      name: tool.id,
       description: tool.description,
       parameters: tool.parameters,
     },
@@ -140,7 +140,7 @@ function generateXMLParametersDescription(tool: Tool): string {
  */
 export function toXMLFormat(tool: Tool): string {
   const variables = {
-    toolName: tool.name,
+    toolName: tool.id,
     toolDescription: tool.description,
     parametersDescription: generateXMLParametersDescription(tool),
   };
@@ -220,7 +220,7 @@ function generateJSONParametersDescription(tool: Tool): string {
  */
 export function toJSONFormat(tool: Tool): string {
   const variables = {
-    toolName: tool.name,
+    toolName: tool.id,
     toolDescription: tool.description,
     parametersDescription: generateJSONParametersDescription(tool),
   };

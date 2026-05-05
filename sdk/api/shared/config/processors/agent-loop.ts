@@ -120,11 +120,23 @@ export function transformToAgentLoopConfig(configFile: AgentLoopConfigFile): Age
     systemPromptTemplateVariables: configFile.systemPromptTemplateVariables,
     maxIterations: configFile.maxIterations,
     initialMessages: configFile.initialMessages,
-    tools: configFile.tools,
     stream: configFile.stream,
     createCheckpointOnEnd: configFile.checkpoint?.createOnEnd,
     createCheckpointOnError: configFile.checkpoint?.createOnError,
   };
+
+  // Handle availableTools (new unified format) with backward compatibility for tools field
+  if (configFile.availableTools) {
+    // New format takes precedence
+    config.availableTools = configFile.availableTools;
+  } else if (configFile.tools) {
+    // Fallback to deprecated tools field for backward compatibility
+    config.availableTools = {
+      initial: configFile.tools,
+    };
+    // Also set deprecated field for compatibility during transition
+    config.tools = configFile.tools;
+  }
 
   if (configFile.hooks && configFile.hooks.length > 0) {
     config.hooks = configFile.hooks.map(hook => transformHook(hook));

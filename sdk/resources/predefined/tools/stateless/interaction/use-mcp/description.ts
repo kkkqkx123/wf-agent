@@ -5,7 +5,6 @@
 import type { ToolDescriptionData } from "@wf-agent/prompt-templates";
 
 export const USE_MCP_TOOL_DESCRIPTION: ToolDescriptionData = {
-  name: "use_mcp",
   id: "use_mcp",
   type: "STATELESS",
   category: "code",

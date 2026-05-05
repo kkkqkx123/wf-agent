@@ -19,9 +19,6 @@ export interface AgentLoopDelta {
   /** New iteration record */
   addedIterations?: IterationRecord[];
 
-  /** Modified variable */
-  modifiedVariables?: Map<string, unknown>;
-
   /** Status change */
   statusChange?: {
     from: AgentLoopStatus;

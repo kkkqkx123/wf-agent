@@ -20,7 +20,6 @@ export interface AgentLoopRestoreResult extends RestoreResult<AgentLoopStateSnap
   snapshot: AgentLoopStateSnapshot;
   metadata: {
     messages: unknown[];
-    variables: Record<string, unknown>;
     config: unknown;
   };
 }
@@ -56,7 +55,6 @@ export class AgentLoopDeltaRestorer extends DeltaRestorer<
       snapshot,
       metadata: {
         messages: snapshot.messages,
-        variables: snapshot.variables,
         config: snapshot.config,
       },
     };
@@ -101,7 +99,6 @@ export class AgentLoopDeltaRestorer extends DeltaRestorer<
     const result: AgentLoopStateSnapshot = {
       ...snapshot,
       messages: [...snapshot.messages],
-      variables: { ...snapshot.variables },
     };
 
     // Apply added messages
@@ -112,13 +109,6 @@ export class AgentLoopDeltaRestorer extends DeltaRestorer<
     // Apply status change
     if (delta.statusChange) {
       result.status = delta.statusChange.to;
-    }
-
-    // Apply modified variables
-    if (delta.modifiedVariables) {
-      for (const [key, value] of delta.modifiedVariables) {
-        result.variables[key] = value;
-      }
     }
 
     // Apply other changes

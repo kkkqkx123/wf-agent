@@ -113,19 +113,6 @@ export class AgentLoopCheckpointDeltaCalculator extends DeltaCalculator<AgentLoo
         }
       }
 
-      // Calculate variable changes
-      if (currentSnapshot.variables && previousSnapshot.variables) {
-        const modifiedVariables = new Map<string, unknown>();
-        for (const [key, value] of Object.entries(currentSnapshot.variables)) {
-          if (JSON.stringify(previousSnapshot.variables[key]) !== JSON.stringify(value)) {
-            modifiedVariables.set(key, value);
-          }
-        }
-        if (modifiedVariables.size > 0) {
-          delta.modifiedVariables = modifiedVariables;
-        }
-      }
-
       // Calculate iteration history changes
       if (
         currentSnapshot.iterationHistory &&

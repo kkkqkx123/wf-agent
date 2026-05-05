@@ -609,7 +609,6 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
       endTime: this._endTime,
       error: this._error,
       messages: [], // Messages are managed separately by AgentLoopEntity
-      variables: {}, // Variables are managed separately by AgentLoopEntity
       // Extended fields for complete state capture
       iterationHistory: this._iterationHistory.map(record => ({
         ...record,
@@ -652,14 +651,6 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
       this._isStreaming = snapshot.isStreaming;
     } else {
       this._isStreaming = false;
-    }
-
-    // Restore streaming message if present (for pause/resume support)
-    const streamMsg = snapshot["streamMessage"] as LLMMessage | null | undefined;
-    if (streamMsg !== undefined) {
-      this._streamMessage = streamMsg;
-    } else {
-      this._streamMessage = null;
     }
 
     // Reset runtime state that cannot be restored

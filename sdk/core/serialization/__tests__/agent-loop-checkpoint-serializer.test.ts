@@ -32,7 +32,6 @@ describe("AgentLoopCheckpointSerializer", () => {
           { role: "user", content: "Hello" },
           { role: "assistant", content: "Hi there!" },
         ],
-        variables: { count: 42, name: "test" },
         iterationHistory: [],
       };
       return {
@@ -174,7 +173,6 @@ describe("AgentLoopCheckpointDeltaCalculator", () => {
         endTime: null,
         error: null,
         messages: [],
-        variables: {},
       },
     };
 
@@ -197,7 +195,6 @@ describe("AgentLoopCheckpointDeltaCalculator", () => {
         endTime: null,
         error: null,
         messages: [{ role: "user", content: "Hello" }],
-        variables: { count: 1 },
       },
     };
 
@@ -217,7 +214,6 @@ describe("AgentLoopCheckpointDeltaCalculator", () => {
           { role: "user", content: "Hello" },
           { role: "assistant", content: "Hi!" },
         ],
-        variables: { count: 2 },
       },
     };
 
@@ -227,7 +223,6 @@ describe("AgentLoopCheckpointDeltaCalculator", () => {
 
     if (result.type === "DELTA" && result.delta) {
       expect(result.delta.addedMessages).toBeDefined();
-      expect(result.delta.modifiedVariables).toBeDefined();
     }
   });
 });

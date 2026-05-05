@@ -91,6 +91,6 @@ export function convertToEvaluationContext(
       status: hookContext.status,
       error: hookContext.error,
     },
-    variables: {},
+    variables: {}, // Agent Loop does not use scoped variables
   };
 }

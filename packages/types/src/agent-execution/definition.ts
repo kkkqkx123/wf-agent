@@ -67,9 +67,6 @@ export interface AgentLoopExecution {
   /** Conversation messages */
   messages: Message[];
 
-  /** Variables (simple key-value store) */
-  variables: Record<string, unknown>;
-
   // ========== Timestamps ==========
 
   /** Execution start timestamp */
@@ -150,8 +147,6 @@ export interface AgentLoopExecutionSnapshot {
   iterationHistory: IterationRecord[];
   /** Messages */
   messages: Message[];
-  /** Variables */
-  variables: Record<string, unknown>;
   /** Start time */
   startTime: Timestamp;
   /** End time */

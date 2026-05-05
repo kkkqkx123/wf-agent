@@ -55,7 +55,8 @@ describe("AgentLoopCheckpointSerializer", () => {
         previousCheckpointId: "prev-checkpoint-1",
         delta: {
           addedMessages: [{ role: "user", content: "New message" }],
-          modifiedVariables: new Map([["count", 43]]),
+          // Note: AgentLoopDelta doesn't have modifiedVariables field
+          // Variable management is a Workflow feature, not an Agent Loop feature
         },
         metadata: {
           description: "Test checkpoint",

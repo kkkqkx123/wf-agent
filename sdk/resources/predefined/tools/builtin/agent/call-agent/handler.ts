@@ -3,10 +3,16 @@
  */
 
 import type { BuiltinToolExecutionContext } from "@wf-agent/types";
+import type { AgentLoopRuntimeConfig } from "@wf-agent/types";
 import { getContainer } from "../../../../../../core/di/index.js";
 import * as Identifiers from "../../../../../../core/di/service-identifiers.js";
-import { RuntimeValidationError } from "@wf-agent/types";
+import { RuntimeValidationError, ConfigurationError } from "@wf-agent/types";
 import type { AgentLoopCoordinator } from "../../../../../../agent/execution/coordinators/agent-loop-coordinator.js";
+import type { ToolRegistry } from "../../../../../../core/registry/tool-registry.js";
+import { resolveSystemPrompt } from "../../../../../../core/prompt/system-prompt-resolver.js";
+import { transformToAgentLoopConfig } from "../../../../../../api/shared/config/processors/agent-loop.js";
+import { existsSync } from "fs";
+import { loadAgentLoopConfig } from "../../../../../../api/shared/config/config-utils.js";
 
 export interface CallAgentParams {
   agentProfileId: string;
@@ -57,19 +63,83 @@ export function createCallAgentHandler() {
     const agentCoordinator = coordinator.create();
 
     try {
-      // In a real implementation, we would fetch the profile configuration using agentProfileId.
-      // For now, we use a basic config.
+      // Load agent profile configuration
+      let runtimeConfig: AgentLoopRuntimeConfig;
+      
+      // Check if agentProfileId is a file path
+      if (existsSync(agentProfileId)) {
+        // Load from configuration file
+        try {
+          const parsedConfig = await loadAgentLoopConfig(agentProfileId);
+          runtimeConfig = transformToAgentLoopConfig(parsedConfig.config);
+        } catch (error) {
+          throw new ConfigurationError(
+            `Failed to load agent profile configuration from ${agentProfileId}`,
+            undefined,
+            { originalError: error instanceof Error ? error.message : String(error) },
+          );
+        }
+      } else {
+        // Treat as inline configuration or profile ID
+        // Construct a minimal config with the provided parameters
+        runtimeConfig = {
+          profileId: agentProfileId,
+          systemPrompt: prompt,
+          initialMessages: [],
+          tools: [],
+          maxIterations: 10,
+        };
+      }
+
+      // Resolve system prompt (supports template rendering)
+      const resolvedSystemPrompt = resolveSystemPrompt({
+        systemPrompt: runtimeConfig.systemPrompt,
+        systemPromptTemplateId: runtimeConfig.systemPromptTemplateId,
+        systemPromptTemplateVariables: {
+          ...runtimeConfig.systemPromptTemplateVariables,
+          input,
+        },
+      });
+
+      // Validate and filter tools from ToolRegistry
+      const toolService = container.get(Identifiers.ToolRegistry) as ToolRegistry | undefined;
+      let validTools: string[] = [];
+      
+      if (runtimeConfig.tools && runtimeConfig.tools.length > 0) {
+        if (!toolService) {
+          throw new ConfigurationError("ToolRegistry not available for tool validation");
+        }
+        
+        // Filter out invalid tool IDs/names
+        // Note: getTool() now supports both ID and name lookup for LLM compatibility
+        validTools = runtimeConfig.tools.filter(toolId => {
+          try {
+            toolService.getTool(toolId);
+            return true;
+          } catch (error) {
+            // Tool not found, skip it
+            return false;
+          }
+        });
+        
+        if (validTools.length === 0 && runtimeConfig.tools.length > 0) {
+          // All tools were invalid, use empty array
+          validTools = [];
+        }
+      }
+
       const result = await agentCoordinator.execute(
         {
-          profileId: agentProfileId,
-          systemPrompt: `You are a specialized subagent with ID: ${agentProfileId}.`,
+          profileId: runtimeConfig.profileId || agentProfileId,
+          systemPrompt: resolvedSystemPrompt,
+          systemPromptTemplateId: runtimeConfig.systemPromptTemplateId,
+          systemPromptTemplateVariables: runtimeConfig.systemPromptTemplateVariables,
           initialMessages: [{ role: "user" as const, content: prompt }],
-          tools: [], // Tools would be determined by the profile
-          maxIterations: 10,
+          tools: validTools,
+          maxIterations: runtimeConfig.maxIterations || 10,
         },
         {
           parentExecutionId: context.executionId,
-          initialVariables: input,
         },
       );
 

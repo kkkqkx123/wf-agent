@@ -309,11 +309,6 @@ export {
   type AgentLoopMessageStats,
 } from "./agent/resources/message-resource-api.js";
 
-export {
-  AgentLoopVariableResourceAPI,
-  type AgentLoopVariableFilter,
-} from "./agent/resources/variable-resource-api.js";
-
 // ============================================================================
 // Shared - Types
 // ============================================================================

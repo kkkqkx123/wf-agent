@@ -280,8 +280,7 @@ export class AgentLoopEntity {
    * Note: ConversationSession does not have this method and leaves it empty for compatibility.
    */
   normalizeHistory(): void {
-    // The ConversationSession does not provide a normalizeHistory method.
-    // If this feature is needed, it can be added to the ConversationSession.
+    // No-op for compatibility
   }
 
   // Stop control ============

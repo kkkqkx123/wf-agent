@@ -85,8 +85,3 @@ export {
   type AgentLoopMessageFilter,
   type AgentLoopMessageStats,
 } from "./resources/message-resource-api.js";
-export {
-  AgentLoopVariableResourceAPI,
-  type AgentLoopVariableFilter,
-  type VariableDefinition,
-} from "./resources/variable-resource-api.js";

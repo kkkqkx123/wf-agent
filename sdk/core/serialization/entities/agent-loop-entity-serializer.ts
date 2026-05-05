@@ -57,7 +57,8 @@ export class AgentLoopEntitySerializer extends Serializer<AgentLoopEntitySnapsho
       config: entity.config,
       state: this.createStateSnapshot(entity),
       messages: entity.getMessages(),
-      variables: entity.getAllVariables(),
+      // Note: AgentLoop doesn't manage variables (that's a Workflow feature)
+      variables: {},
       parentContext: parentContext ? {
         parentType: parentContext.parentType,
         parentId: parentContext.parentId,
@@ -89,10 +90,8 @@ export class AgentLoopEntitySerializer extends Serializer<AgentLoopEntitySnapsho
     // Restore messages
     entity.setMessages(snapshot.messages);
     
-    // Restore variables
-    for (const [key, value] of Object.entries(snapshot.variables)) {
-      entity.setVariable(key, value);
-    }
+    // Note: AgentLoop doesn't manage variables (that's a Workflow feature)
+    // Variables field is preserved for compatibility but not restored
 
     // TODO: Restore additional state properties when AgentLoopState supports it
     // For now, the entity starts with default state values
@@ -113,7 +112,8 @@ export class AgentLoopEntitySerializer extends Serializer<AgentLoopEntitySnapsho
       endTime: entity.state.endTime,
       error: entity.state.error,
       messages: entity.getMessages(),
-      variables: entity.getAllVariables(),
+      // Note: AgentLoop doesn't manage variables (that's a Workflow feature)
+      variables: {},
       config: entity.config,
       iterationHistory: entity.state.iterationHistory,
       // Note: isStreaming, pendingToolCalls, and streamMessage are runtime-only fields

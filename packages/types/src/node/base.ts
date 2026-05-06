@@ -60,7 +60,7 @@ export type NodeType =
   | "USER_INTERACTION"
   /** Routing Node. Used to route to the next node based on conditions. */
   | "ROUTE"
-  /** 上下文处理器节点。用于对提示词上下文(消息数组)进行处理。 */
+  /** Context processor node. Used for processing prompt word context (message array). */
   | "CONTEXT_PROCESSOR"
   /** Loop start node. Marks the start of the loop and sets the loop variables. Loop variables can be modified by VARIABLE nodes. Doesn't care about exit conditions other than the condition */
   | "LOOP_START"

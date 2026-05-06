@@ -23,6 +23,7 @@
  */
 
 import type { AgentLoopResult, AgentHookTriggeredEvent, AgentHookTriggeredCoreEvent } from "@wf-agent/types";
+import type { ToolApprovalHandler } from "@wf-agent/types";
 import type { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import type { ToolRegistry } from "../../../core/registry/tool-registry.js";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
@@ -48,6 +49,8 @@ export interface AgentLoopExecutorDependencies {
   eventManager?: EventRegistry;
   /** Custom event emitter (optional) */
   emitEvent?: (event: AgentHookTriggeredEvent) => Promise<void>;
+  /** Tool Approval Handler (optional) */
+  toolApprovalHandler?: ToolApprovalHandler;
 }
 
 /**
@@ -62,12 +65,14 @@ export class AgentLoopExecutor {
   private readonly toolCallExecutor: ToolCallExecutor;
   private eventManager?: EventRegistry;
   private emitEvent?: (event: AgentHookTriggeredEvent) => Promise<void>;
+  private toolApprovalHandler?: ToolApprovalHandler;
 
   constructor(deps: AgentLoopExecutorDependencies) {
     this.llmExecutor = deps.llmExecutor;
     this.toolService = deps.toolService;
     this.eventManager = deps.eventManager;
     this.emitEvent = deps.emitEvent;
+    this.toolApprovalHandler = deps.toolApprovalHandler;
     this.toolCallExecutor = new ToolCallExecutor(deps.toolService);
   }
 
@@ -164,6 +169,7 @@ export class AgentLoopExecutor {
       emitAgentEvent: this.emitAgentEvent.bind(this),
       eventManager: this.eventManager,
       toolService: this.toolService,
+      toolApprovalHandler: this.toolApprovalHandler,
     });
   }
 

@@ -21,6 +21,8 @@ import type {
   LLMMessage,
   Event as RegistryEvent,
   ToolApprovalOptions,
+  ToolApprovalHandler,
+  LLMToolCall,
 } from "@wf-agent/types";
 import { AgentStreamEventType } from "@wf-agent/types";
 import type { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
@@ -66,6 +68,8 @@ export interface AgentExecutionCoordinatorDependencies {
   eventManager?: EventRegistry;
   /** Tool Registry (for getting tool definitions) */
   toolService?: ToolRegistry;
+  /** Tool Approval Handler (optional) */
+  toolApprovalHandler?: ToolApprovalHandler;
 }
 
 /**
@@ -84,6 +88,7 @@ export class AgentExecutionCoordinator {
   private readonly eventManager?: EventRegistry;
   private readonly approvalCoordinator: ToolApprovalCoordinator;
   private readonly toolService?: ToolRegistry;
+  private readonly toolApprovalHandler?: ToolApprovalHandler;
 
   constructor(deps: AgentExecutionCoordinatorDependencies) {
     this.llmExecutor = deps.llmExecutor;
@@ -91,6 +96,7 @@ export class AgentExecutionCoordinator {
     this.emitAgentEvent = deps.emitAgentEvent;
     this.eventManager = deps.eventManager;
     this.toolService = deps.toolService;
+    this.toolApprovalHandler = deps.toolApprovalHandler;
     
     // Initialize approval coordinator
     this.approvalCoordinator = new ToolApprovalCoordinator(deps.eventManager);
@@ -847,84 +853,100 @@ export class AgentExecutionCoordinator {
       return;
     }
 
-    // NEW: Process each tool call through approval coordinator
-    const approvedToolCalls: Array<{ id: string; name: string; arguments: string }> = [];
-    
-    for (const toolCall of toolCalls) {
-      const tool = this.toolService?.getTool(toolCall.name);
-      
-      // Get approval config from agent configuration
-      const approvalOptions = this.getApprovalOptions(entity);
-      
-      const approvalResult = await this.approvalCoordinator.processToolApproval({
-        toolCall: {
-          id: toolCall.id,
-          type: "function",
-          function: {
-            name: toolCall.name,
-            arguments: toolCall.arguments,
-          },
-        },
-        tool,
-        options: approvalOptions,
-        contextId: entity.id,
-        nodeId: entity.nodeId,
-        approvalHandler: {
-          requestApproval: async (request) => {
-            return this.requestAgentApproval(request, entity);
-          },
-        },
-      });
+    // Convert to LLMToolCall format for batch processing
+    const llmToolCalls = toolCalls.map(tc => ({
+      id: tc.id,
+      type: "function" as const,
+      function: {
+        name: tc.name,
+        arguments: tc.arguments,
+      },
+    }));
 
-      if (!approvalResult.approved) {
-        logger.warn("Tool call rejected by approval", {
-          agentLoopId,
-          toolCallId: toolCall.id,
-          toolName: toolCall.name,
-          reason: approvalResult.rejectionReason,
-        });
-        
-        // Record rejection
-        entity.state.recordToolCallEnd(
-          toolCall.id,
-          undefined,
-          approvalResult.rejectionReason || "Rejected by user"
-        );
-        continue;
-      }
+    // Get approval config from agent configuration
+    const approvalOptions = this.getApprovalOptions(entity);
 
-      // Apply edited parameters if provided
-      if (approvalResult.editedParameters) {
-        toolCall.arguments = JSON.stringify(approvalResult.editedParameters);
-      }
-
-      // Add user instruction if provided
-      if (approvalResult.userInstruction) {
-        conversationManager.addMessage({
-          role: "user",
-          content: approvalResult.userInstruction,
-        });
-      }
-
-      approvedToolCalls.push(toolCall);
-    }
-
-    // Execute only approved tool calls
-    if (approvedToolCalls.length === 0) {
-      logger.debug("No tool calls approved, skipping execution", {
-        agentLoopId,
-        iteration,
-      });
-      return;
-    }
-
-    const toolResults = await this.toolCallExecutor.executeToolCalls(
-      approvedToolCalls.map(tc => ({ id: tc.id, name: tc.name, arguments: tc.arguments })),
-      conversationManager,
+    // Process batch through approval coordinator
+    const batchResult = await this.approvalCoordinator.processToolBatch(
+      llmToolCalls,
+      approvalOptions,
       entity.id,
-      entity.nodeId,
-      { abortSignal: entity.getAbortSignal() },
+      entity.nodeId || "unknown",
+      {
+        requestApproval: async (request) => {
+          return this.requestAgentApproval(request, entity);
+        },
+      },
+      this.eventManager,
     );
+
+    // Execute auto-approved tools
+    for (let i = 0; i < batchResult.autoExecuted.length; i++) {
+      const autoResult = batchResult.autoExecuted[i];
+      // Auto-executed tools correspond to the first N tools in the batch
+      if (i < toolCalls.length && autoResult) {
+        const originalToolCall = toolCalls[i]!;
+        await this.executeSingleApprovedTool(
+          entity,
+          conversationManager,
+          originalToolCall,
+          autoResult,
+        );
+      }
+    }
+
+    // Handle confirmation-required tool
+    if (batchResult.confirmationRequired && batchResult.confirmationResult?.approved) {
+      const confirmedToolCall = toolCalls.find(
+        tc => tc.id === batchResult.confirmationRequired?.id,
+      );
+      if (confirmedToolCall) {
+        // Apply edited parameters if provided
+        if (batchResult.confirmationResult.editedParameters) {
+          confirmedToolCall.arguments = JSON.stringify(
+            batchResult.confirmationResult.editedParameters,
+          );
+        }
+
+        // Add user instruction if provided
+        if (batchResult.confirmationResult.userInstruction) {
+          conversationManager.addMessage({
+            role: "user",
+            content: batchResult.confirmationResult.userInstruction,
+          });
+        }
+
+        // Create placeholder result for execution
+        const placeholderResult = {
+          success: true,
+          result: {},
+          executionTime: 0,
+          retryCount: 0,
+        };
+
+        await this.executeSingleApprovedTool(
+          entity,
+          conversationManager,
+          confirmedToolCall,
+          placeholderResult,
+        );
+      }
+
+      // Continue with remaining queue if flag is set
+      if (
+        batchResult.confirmationResult.continueBatch !== false &&
+        batchResult.remainingQueue.length > 0
+      ) {
+        const remainingToolCalls = batchResult.remainingQueue.map(tc => ({
+          id: tc.id,
+          name: tc.function?.name || "unknown",
+          arguments: tc.function?.arguments || "{}",
+        }));
+
+        // Recursively process remaining tools
+        await this.executeToolCalls(entity, conversationManager, remainingToolCalls);
+      }
+    }
 
     // Check interruption after tool execution
     const postToolInterruption = checkInterruption(entity.getAbortSignal());
@@ -940,44 +962,80 @@ export class AgentExecutionCoordinator {
     logger.debug("Tool calls execution completed", {
       agentLoopId,
       iteration,
-      successCount: toolResults.filter(r => r.success).length,
-      failureCount: toolResults.filter(r => !r.success).length,
+      autoExecutedCount: batchResult.autoExecuted.length,
+      hasConfirmation: !!batchResult.confirmationRequired,
     });
+  }
 
-    for (const result of toolResults) {
-      const originalToolCall = approvedToolCalls.find(tc => tc.id === result.toolCallId);
-      const toolCallInfo = {
-        id: result.toolCallId,
-        name: originalToolCall?.name || "",
-        arguments: originalToolCall?.arguments ? JSON.parse(originalToolCall.arguments) : {},
-      };
+  /**
+   * Execute a single approved tool call
+   */
+  private async executeSingleApprovedTool(
+    entity: AgentLoopEntity,
+    conversationManager: ConversationSession,
+    toolCall: { id: string; name: string; arguments: string },
+    executionResult: { success: boolean; result?: unknown; error?: string },
+  ): Promise<void> {
+    const agentLoopId = entity.id;
 
-      await executeAgentHook(entity, "BEFORE_TOOL_CALL", this.emitAgentEvent, toolCallInfo);
+    const toolCallInfo = {
+      id: toolCall.id,
+      name: toolCall.name,
+      arguments: toolCall.arguments ? JSON.parse(toolCall.arguments) : {},
+    };
 
-      if (result.success) {
-        logger.debug("Tool call succeeded", {
-          agentLoopId,
-          toolCallId: result.toolCallId,
-          toolName: toolCallInfo.name,
-        });
-        entity.state.recordToolCallEnd(result.toolCallId, result.result);
+    await executeAgentHook(entity, "BEFORE_TOOL_CALL", this.emitAgentEvent, toolCallInfo);
+
+    if (executionResult.success) {
+      logger.debug("Tool call succeeded", {
+        agentLoopId,
+        toolCallId: toolCall.id,
+        toolName: toolCallInfo.name,
+      });
+
+      // Execute actual tool call
+      const toolResults = await this.toolCallExecutor.executeToolCalls(
+        [toolCall],
+        conversationManager,
+        entity.id,
+        entity.nodeId,
+        { abortSignal: entity.getAbortSignal() },
+      );
+
+      const result = toolResults[0];
+      if (result?.success) {
+        entity.state.recordToolCallEnd(toolCall.id, result.result);
         await executeAgentHook(entity, "AFTER_TOOL_CALL", this.emitAgentEvent, {
           ...toolCallInfo,
           result: result.result,
         });
       } else {
-        logger.warn("Tool call failed", {
-          agentLoopId,
-          toolCallId: result.toolCallId,
-          toolName: toolCallInfo.name,
-          error: result.error,
-        });
-        entity.state.recordToolCallEnd(result.toolCallId, undefined, result.error);
+        entity.state.recordToolCallEnd(
+          toolCall.id,
+          undefined,
+          result?.error || "Tool execution failed",
+        );
         await executeAgentHook(entity, "AFTER_TOOL_CALL", this.emitAgentEvent, {
           ...toolCallInfo,
-          error: result.error,
+          error: result?.error,
         });
       }
+    } else {
+      logger.warn("Tool call rejected or failed", {
+        agentLoopId,
+        toolCallId: toolCall.id,
+        toolName: toolCallInfo.name,
+        error: executionResult.error,
+      });
+      entity.state.recordToolCallEnd(
+        toolCall.id,
+        undefined,
+        executionResult.error || "Rejected by user",
+      );
+      await executeAgentHook(entity, "AFTER_TOOL_CALL", this.emitAgentEvent, {
+        ...toolCallInfo,
+        error: executionResult.error,
+      });
     }
   }
 
@@ -1010,20 +1068,65 @@ export class AgentExecutionCoordinator {
     request: { toolCall: { id: string; function?: { name?: string; arguments?: string } } },
     entity: AgentLoopEntity,
   ): Promise<{ approved: boolean; toolCallId: string; editedParameters?: Record<string, unknown>; userInstruction?: string; rejectionReason?: string }> {
+    // Use registered handler if available
+    if (this.toolApprovalHandler) {
+      try {
+        // Construct full LLMToolCall object
+        const llmToolCall: LLMToolCall = {
+          id: request.toolCall.id,
+          type: "function",
+          function: {
+            name: request.toolCall.function?.name || "unknown",
+            arguments: request.toolCall.function?.arguments || "{}",
+          },
+        };
+
+        const result = await this.toolApprovalHandler.requestApproval({
+          toolCall: llmToolCall,
+          batchId: undefined, // Will be set by processToolBatch context
+          toolIndex: 0,
+          totalTools: 1,
+          pendingQueue: [],
+          contextId: entity.id,
+          nodeId: entity.nodeId || "unknown",
+          interactionId: `approval-${Date.now()}-${request.toolCall.id}`,
+        });
+
+        return {
+          approved: result.approved,
+          toolCallId: result.toolCallId,
+          editedParameters: result.editedParameters,
+          userInstruction: result.userInstruction,
+          rejectionReason: result.rejectionReason,
+        };
+      } catch (error) {
+        logger.error("Tool approval handler failed", {
+          agentLoopId: entity.id,
+          toolCallId: request.toolCall.id,
+          error,
+        });
+
+        return {
+          approved: false,
+          toolCallId: request.toolCall.id,
+          rejectionReason: `Handler error: ${error instanceof Error ? error.message : String(error)}`,
+        };
+      }
+    }
+
+    // Fallback to current behavior when no handler configured
     const toolName = request.toolCall.function?.name || "unknown";
     
-    logger.warn("Interactive approval not yet implemented for agent mode", {
+    logger.warn("No tool approval handler configured, rejecting by default", {
       agentLoopId: entity.id,
       toolCallId: request.toolCall.id,
       toolName,
     });
 
-    // For now, reject as safe default
-    // TODO: Implement interactive approval UI
     return {
       approved: false,
       toolCallId: request.toolCall.id,
-      rejectionReason: `Interactive approval not yet implemented. Tool "${toolName}" requires manual approval but no UI handler is configured.`,
+      rejectionReason: `No approval handler configured. Tool "${toolName}" requires manual approval but no handler is registered.`,
     };
   }
 

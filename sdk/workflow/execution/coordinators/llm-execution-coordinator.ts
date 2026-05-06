@@ -475,66 +475,98 @@ export class LLMExecutionCoordinator {
     toolCallExecutor: ToolCallExecutor,
     options?: { abortSignal?: AbortSignal },
   ): Promise<void> {
-    for (const toolCall of toolCalls) {
-      // Get tool definition for risk assessment
-      const tool = this.contextFactory.getToolService().getTool(toolCall.name);
+    // Convert to LLMToolCall format for batch processing
+    const llmToolCalls = toolCalls.map(tc => ({
+      id: tc.id,
+      type: "function" as const,
+      function: {
+        name: tc.name,
+        arguments: tc.arguments,
+      },
+    }));
 
-      // Use ToolApprovalCoordinator for approval check
-      const approvalResult = await this.approvalCoordinator.processToolApproval({
-        toolCall: {
-          id: toolCall.id,
-          type: "function",
-          function: {
-            name: toolCall.name,
-            arguments: toolCall.arguments,
-          },
+    // Process batch through approval coordinator
+    const batchResult = await this.approvalCoordinator.processToolBatch(
+      llmToolCalls,
+      workflowConfig?.toolApproval || {},
+      executionId,
+      nodeId,
+      {
+        requestApproval: async (request) => {
+          return this.requestToolApprovalInternal(request, executionId, nodeId);
         },
-        tool,
-        options: workflowConfig?.toolApproval,
-        contextId: executionId,
-        nodeId,
-        approvalHandler: {
-          requestApproval: async (request) => {
-            return this.requestToolApprovalInternal(request, executionId, nodeId);
-          },
-        },
-      });
+      },
+      this.contextFactory.getEventManager(),
+    );
 
-      if (!approvalResult.approved) {
-        // User refused; skip this tool call
-        const toolMessage = {
-          role: "tool" as MessageRole,
-          content: JSON.stringify({
-            error: approvalResult.rejectionReason || "Tool call was rejected",
-            rejected: true,
-          }),
-          toolCallId: toolCall.id,
-        };
-        conversationState.addMessage(toolMessage);
-        continue;
+    // Execute auto-approved tools
+    for (let i = 0; i < batchResult.autoExecuted.length; i++) {
+      const autoResult = batchResult.autoExecuted[i];
+      // Auto-executed tools correspond to the first N tools in the original list
+      if (i < toolCalls.length && autoResult) {
+        const originalToolCall = toolCalls[i]!;
+        await toolCallExecutor.executeToolCalls(
+          [originalToolCall],
+          conversationState,
+          executionId,
+          nodeId,
+          options,
+        );
       }
+    }
 
-      // If user provides edited parameters
-      if (approvalResult.editedParameters) {
-        toolCall.arguments = JSON.stringify(approvalResult.editedParameters);
-      }
-
-      // If user provides additional instructions
-      if (approvalResult.userInstruction) {
-        conversationState.addMessage({
-          role: "user" as MessageRole,
-          content: approvalResult.userInstruction,
-        });
-      }
-
-      // Execute tool invocation
-      await toolCallExecutor.executeToolCalls(
-        [toolCall],
-        conversationState,
-        executionId,
-        nodeId,
-        options,
+    // Handle confirmation-required tool
+    if (batchResult.confirmationRequired && batchResult.confirmationResult?.approved) {
+      const confirmedToolCall = toolCalls.find(
+        tc => tc.id === batchResult.confirmationRequired?.id,
       );
+      if (confirmedToolCall) {
+        // Apply edited parameters if provided
+        if (batchResult.confirmationResult.editedParameters) {
+          confirmedToolCall.arguments = JSON.stringify(
+            batchResult.confirmationResult.editedParameters,
+          );
+        }
+
+        // Add user instruction if provided
+        if (batchResult.confirmationResult.userInstruction) {
+          conversationState.addMessage({
+            role: "user" as const,
+            content: batchResult.confirmationResult.userInstruction,
+          });
+        }
+
+        await toolCallExecutor.executeToolCalls(
+          [confirmedToolCall],
+          conversationState,
+          executionId,
+          nodeId,
+          options,
+        );
+      }
+
+      // Continue with remaining queue if flag is set
+      if (
+        batchResult.confirmationResult.continueBatch !== false &&
+        batchResult.remainingQueue.length > 0
+      ) {
+        const remainingToolCalls = batchResult.remainingQueue.map(tc => ({
+          id: tc.id,
+          name: tc.function?.name || "unknown",
+          arguments: tc.function?.arguments || "{}",
+        }));
+
+        // Recursively process remaining tools
+        await this.executeToolCallsWithApproval(
+          remainingToolCalls,
+          conversationState,
+          executionId,
+          nodeId,
+          workflowConfig,
+          toolCallExecutor,
+          options,
+        );
+      }
     }
   }
 

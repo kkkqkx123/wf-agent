@@ -9,7 +9,9 @@ import type {
   ToolApprovalOptions, 
   LLMToolCall,
   Tool,
+  ToolApprovalHandler,
 } from '@wf-agent/types';
+import { EventRegistry } from '../../registry/event-registry.js';
 
 describe('ToolApprovalCoordinator', () => {
   let coordinator: ToolApprovalCoordinator;
@@ -433,6 +435,140 @@ describe('ToolApprovalCoordinator', () => {
 
       expect(writeResult.approved).toBe(true);
       expect(mockApprovalHandler.requestApproval).toHaveBeenCalled();
+    });
+  });
+
+  describe('Batch Processing - processToolBatch', () => {
+    let eventManager: EventRegistry;
+    let mockBatchHandler: ToolApprovalHandler;
+
+    beforeEach(() => {
+      eventManager = new EventRegistry();
+      mockBatchHandler = {
+        requestApproval: vi.fn().mockResolvedValue({
+          approved: true,
+          toolCallId: 'call_2',
+          continueBatch: true,
+        }),
+      };
+    });
+
+    const createToolCall = (name: string, id?: string): LLMToolCall => ({
+      id: id || `call_${name}`,
+      type: 'function',
+      function: {
+        name,
+        arguments: '{}',
+      },
+    });
+
+    it('should handle empty tool list', async () => {
+      const result = await coordinator.processToolBatch(
+        [],
+        {},
+        'test-context',
+        'test-node',
+        mockBatchHandler,
+        eventManager,
+      );
+
+      expect(result.allCompleted).toBe(true);
+      expect(result.autoExecuted.length).toBe(0);
+      expect(result.confirmationRequired).toBeNull();
+    });
+
+    it('should generate unique batchId for each call', async () => {
+      const toolCalls = [createToolCall('tool_1')];
+
+      const result1 = await coordinator.processToolBatch(
+        toolCalls,
+        {},
+        'test-context',
+        'test-node',
+        mockBatchHandler,
+        eventManager,
+      );
+
+      const result2 = await coordinator.processToolBatch(
+        toolCalls,
+        {},
+        'test-context',
+        'test-node',
+        mockBatchHandler,
+        eventManager,
+      );
+
+      expect(result1.batchId).not.toBe(result2.batchId);
+    });
+
+    it('should require approval when no auto-approval enabled', async () => {
+      const toolCalls = [
+        createToolCall('tool_1'),
+        createToolCall('tool_2'),
+      ];
+
+      const result = await coordinator.processToolBatch(
+        toolCalls,
+        { autoApprovalEnabled: false },
+        'test-context',
+        'test-node',
+        mockBatchHandler,
+        eventManager,
+      );
+
+      expect(result.allCompleted).toBe(false);
+      expect(result.confirmationRequired).toBeDefined();
+      expect(result.confirmationRequired?.function?.name).toBe('tool_1');
+      expect(result.autoExecuted.length).toBe(0);
+    });
+
+    it('should include batch context in approval request', async () => {
+      const toolCalls = [
+        createToolCall('tool_1'),
+        createToolCall('tool_2'),
+      ];
+
+      await coordinator.processToolBatch(
+        toolCalls,
+        { autoApprovalEnabled: false },
+        'test-context',
+        'test-node',
+        mockBatchHandler,
+        eventManager,
+      );
+
+      expect(mockBatchHandler.requestApproval).toHaveBeenCalledWith(
+        expect.objectContaining({
+          batchId: expect.any(String),
+          toolIndex: 0,
+          totalTools: 2,
+          pendingQueue: expect.arrayContaining([expect.any(Object)]),
+        }),
+      );
+    });
+
+    it('should respect continueBatch flag', async () => {
+      const toolCalls = [
+        createToolCall('tool_1'),
+        createToolCall('tool_2'),
+      ];
+
+      mockBatchHandler.requestApproval = vi.fn().mockResolvedValue({
+        approved: true,
+        toolCallId: 'tool_1',
+        continueBatch: false,
+      });
+
+      const result = await coordinator.processToolBatch(
+        toolCalls,
+        {},
+        'test-context',
+        'test-node',
+        mockBatchHandler,
+        eventManager,
+      );
+
+      expect(result.remainingQueue.length).toBe(0);
     });
   });
 });

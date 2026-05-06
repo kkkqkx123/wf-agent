@@ -19,6 +19,7 @@ import {
 import type { AgentLoopRuntimeConfig, AgentLoopResult, ID } from "@wf-agent/types";
 import { LLMExecutor, LLMWrapper, ToolRegistry, EventRegistry } from "@wf-agent/sdk/core";
 import { CLINotFoundError } from "../types/cli-types.js";
+import { CLIToolApprovalHandler } from "../handlers/cli-tool-approval-handler.js";
 
 /**
  * Agent Loop Adapter
@@ -37,10 +38,13 @@ export class AgentLoopAdapter extends BaseAdapter {
     const llmWrapper = new LLMWrapper(this.eventRegistry);
     const llmExecutor = new LLMExecutor(llmWrapper);
     const toolRegistry = new ToolRegistry();
+    const toolApprovalHandler = new CLIToolApprovalHandler();
+    
     const executor = new AgentLoopExecutor({
       llmExecutor,
       toolService: toolRegistry,
       eventManager: this.eventRegistry,
+      toolApprovalHandler,
     });
     this.coordinator = new AgentLoopCoordinator(this.registry, executor);
   }
@@ -202,7 +206,6 @@ export class AgentLoopAdapter extends BaseAdapter {
       status: entity.getStatus(),
       currentIteration: entity.state.currentIteration,
       toolCallCount: entity.state.toolCallCount,
-      variables: entity.getAllVariables(),
       messageCount: entity.getMessages().length,
     };
   }

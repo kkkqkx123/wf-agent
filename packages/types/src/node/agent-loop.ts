@@ -6,6 +6,7 @@
  */
 
 import type { ID } from "../common.js";
+import type { AvailableTools } from "../available-tools.js";
 
 /**
  * Agent Loop Node Configuration
@@ -28,10 +29,11 @@ export interface AgentLoopNodeConfig {
   maxIterations?: number;
 
   /**
-   * List of available tools
-   * @description If not specified, uses all available tools in the context
+   * Available tools configuration
+   * @description Specifies which tools are available during agent loop execution.
+   * If not specified, uses all available tools in the context.
    */
-  tools?: string[];
+  availableTools?: AvailableTools;
 
   /**
    * systemPromptTemplateId (specified directly, lower priority than systemPromptTemplateId)

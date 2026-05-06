@@ -137,7 +137,7 @@ export async function agentLoopHandler(
         profileId: config.profileId,
         systemPrompt: resolveSystemPrompt(config),
         initialMessages,
-        tools: config.tools,
+        availableTools: config.availableTools,
         maxIterations: config.maxIterations,
       },
       {
@@ -245,7 +245,7 @@ export async function* agentLoopStreamHandler(
         profileId: config.profileId,
         systemPrompt: resolveSystemPrompt(config),
         initialMessages,
-        tools: config.tools,
+        availableTools: config.availableTools,
         maxIterations: config.maxIterations,
       },
       {

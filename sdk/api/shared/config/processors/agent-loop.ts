@@ -125,17 +125,9 @@ export function transformToAgentLoopConfig(configFile: AgentLoopConfigFile): Age
     createCheckpointOnError: configFile.checkpoint?.createOnError,
   };
 
-  // Handle availableTools (new unified format) with backward compatibility for tools field
+  // Handle availableTools configuration
   if (configFile.availableTools) {
-    // New format takes precedence
     config.availableTools = configFile.availableTools;
-  } else if (configFile.tools) {
-    // Fallback to deprecated tools field for backward compatibility
-    config.availableTools = {
-      initial: configFile.tools,
-    };
-    // Also set deprecated field for compatibility during transition
-    config.tools = configFile.tools;
   }
 
   if (configFile.hooks && configFile.hooks.length > 0) {

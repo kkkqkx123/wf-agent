@@ -80,11 +80,8 @@ export const AgentLoopConfigFileSchema = z.object({
   maxIterations: z.number().int().optional(),
   initialMessages: z.array(z.any()).optional(), // Message[] - using z.any() as Message schema not yet available
   
-  // New unified format (preferred)
+  // Available tools configuration (unified format)
   availableTools: AvailableToolsSchema.optional(),
-  
-  // Legacy format (deprecated, for backward compatibility)
-  tools: z.array(z.string()).optional(),
   
   stream: z.boolean().optional(),
   checkpoint: AgentLoopCheckpointConfigSchema.optional(),

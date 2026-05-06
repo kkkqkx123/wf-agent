@@ -26,6 +26,7 @@ import type { ID } from "../common.js";
 import type { Message, LLMMessage } from "../message/index.js";
 import type { AgentHook } from "./hooks.js";
 import type { AgentLoopStatus, AgentLoopResult } from "./types.js";
+import type { AvailableTools } from "../available-tools.js";
 
 // =============================================================================
 // Message Transformation Pipeline
@@ -110,13 +111,7 @@ export interface AgentLoopRuntimeConfig {
    * Specifies which tools are available during agent loop execution.
    * Supports static initial tools and dynamic additions during execution.
    */
-  availableTools?: import("../available-tools.js").AvailableTools;
-
-  /**
-   * List of allowed tools (array of tool IDs)
-   * @deprecated Use availableTools.initial instead. This field is kept for backward compatibility.
-   */
-  tools?: string[];
+  availableTools?: AvailableTools;
 
   /** Streaming output or not */
   stream?: boolean;

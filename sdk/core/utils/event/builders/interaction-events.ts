@@ -14,6 +14,10 @@ import type {
   HumanRelayRespondedEvent,
   HumanRelayProcessedEvent,
   HumanRelayFailedEvent,
+  ProgressiveToolExecutionStartEvent,
+  ProgressiveToolExecutionEndEvent,
+  ToolQueueUpdateEvent,
+  ToolApprovalAnnotatedEvent,
 } from "@wf-agent/types";
 
 // =============================================================================
@@ -88,3 +92,40 @@ export const buildHumanRelayFailedEvent = (
   params: BuildParams<HumanRelayFailedEvent>,
 ): HumanRelayFailedEvent =>
   ({ type: "HUMAN_RELAY_FAILED", timestamp: now(), ...params }) as HumanRelayFailedEvent;
+
+// =============================================================================
+// Progressive Tool Execution Events
+// =============================================================================
+
+/**
+ * Build progressive tool execution start event
+ */
+export const buildProgressiveToolExecutionStartEvent = createBuilder<ProgressiveToolExecutionStartEvent>(
+  "PROGRESSIVE_TOOL_EXECUTION_START",
+);
+
+/**
+ * Build progressive tool execution end event
+ */
+export const buildProgressiveToolExecutionEndEvent = createBuilder<ProgressiveToolExecutionEndEvent>(
+  "PROGRESSIVE_TOOL_EXECUTION_END",
+);
+
+/**
+ * Build tool queue update event
+ */
+export const buildToolQueueUpdateEvent = createBuilder<ToolQueueUpdateEvent>(
+  "TOOL_QUEUE_UPDATE",
+);
+
+/**
+ * Build tool approval annotated event
+ */
+export const buildToolApprovalAnnotatedEvent = (
+  params: BuildParams<ToolApprovalAnnotatedEvent>,
+): ToolApprovalAnnotatedEvent =>
+  ({
+    type: "TOOL_APPROVAL_ANNOTATED",
+    timestamp: now(),
+    ...params,
+  }) as ToolApprovalAnnotatedEvent;

@@ -102,6 +102,10 @@ import type {
   HumanRelayRespondedEvent,
   HumanRelayProcessedEvent,
   HumanRelayFailedEvent,
+  ProgressiveToolExecutionStartEvent,
+  ProgressiveToolExecutionEndEvent,
+  ToolQueueUpdateEvent,
+  ToolApprovalAnnotatedEvent,
 } from "./interaction-events.js";
 
 import type {
@@ -212,4 +216,8 @@ export type Event =
   | PromiseCallbackResolvedEvent
   | PromiseCallbackRejectedEvent
   | PromiseCallbackFailedEvent
-  | PromiseCallbackCleanedUpEvent;
+  | PromiseCallbackCleanedUpEvent
+  | ProgressiveToolExecutionStartEvent
+  | ProgressiveToolExecutionEndEvent
+  | ToolQueueUpdateEvent
+  | ToolApprovalAnnotatedEvent;

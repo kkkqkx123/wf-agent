@@ -7,6 +7,7 @@ import type { LLMToolCall } from "../message/index.js";
 import type { AutoApprovalCategory } from "./risk-level.js";
 import type { FilePermissionSettings } from "./file-permission.js";
 import type { McpApprovalSettings, McpRequest } from "./mcp-approval.js";
+import type { ToolExecutionResult } from "./execution.js";
 
 /**
  * Security Preset
@@ -115,6 +116,18 @@ export interface ToolApprovalRequest {
   nodeId?: string;
   /** Interaction ID for tracking */
   interactionId: string;
+  
+  // Batch execution metadata
+  /** Unique ID for this batch */
+  batchId?: string;
+  /** Position in batch (0-based) */
+  toolIndex?: number;
+  /** Total tools in batch */
+  totalTools?: number;
+  /** Tools remaining after this one */
+  pendingQueue?: LLMToolCall[];
+  /** Results from auto-executed prefix */
+  autoExecutedResults?: ToolExecutionResult[];
 }
 
 /**
@@ -130,8 +143,14 @@ export interface ToolApprovalResult {
   editedParameters?: Record<string, unknown>;
   /** User instruction (optional additional context) */
   userInstruction?: string;
+  /** User's comment explaining decision */
+  annotation?: string;
   /** Rejection reason (if not approved) */
   rejectionReason?: string;
+  
+  // Batch control
+  /** Should continue with remaining tools? */
+  continueBatch?: boolean;
 }
 
 /**
@@ -145,6 +164,40 @@ export interface ToolApprovalHandler {
    * @returns Approval result
    */
   requestApproval(request: ToolApprovalRequest): Promise<ToolApprovalResult>;
+}
+
+/**
+ * Tool Batch Result
+ * Result of processing a batch of tools
+ */
+export interface ToolBatchResult {
+  /** Unique ID for this batch */
+  batchId: string;
+  /** Auto-executed tools */
+  autoExecuted: ToolExecutionResult[];
+  /** First tool needing approval */
+  confirmationRequired: LLMToolCall | null;
+  /** User's decision */
+  confirmationResult?: ToolApprovalResult;
+  /** Tools not yet processed */
+  remainingQueue: LLMToolCall[];
+  /** True if all tools done */
+  allCompleted: boolean;
+}
+
+/**
+ * Pending Tool Call
+ * Information about a pending tool call for UI display
+ */
+export interface PendingToolCall {
+  /** Tool call ID */
+  id: string;
+  /** Tool name */
+  name: string;
+  /** Tool arguments */
+  arguments?: string;
+  /** Risk level */
+  riskLevel?: import("./risk-level.js").ToolRiskLevel;
 }
 
 /**

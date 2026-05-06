@@ -22,6 +22,10 @@ import type {
   ToolApprovalRequest,
   Tool,
   ToolRiskLevel,
+  LLMToolCall,
+  ToolBatchResult,
+  PendingToolCall,
+  ToolExecutionResult,
 } from "@wf-agent/types";
 import { generateId } from "@wf-agent/common-utils";
 import type { EventRegistry } from "../registry/event-registry.js";
@@ -35,6 +39,12 @@ import {
   extractContextFromParameters,
   type AutoApprovalDecision,
 } from "../../services/auto-approval/index.js";
+import {
+  buildProgressiveToolExecutionStartEvent,
+  buildProgressiveToolExecutionEndEvent,
+  buildToolQueueUpdateEvent,
+  buildToolApprovalAnnotatedEvent,
+} from "../utils/event/builders/interaction-events.js";
 
 const logger = createContextualLogger();
 
@@ -48,6 +58,10 @@ interface ApprovalState {
   lastResetIndex: number;
   /** Timestamp of last activity for cleanup */
   lastActivityAt: number;
+  /** Total cumulative cost of auto-approved tools (optional, for future use) */
+  totalAutoApprovedCost?: number;
+  /** Timestamp of last approval time (for time-based resets) */
+  lastApprovalTime?: number;
 }
 
 /**
@@ -333,6 +347,170 @@ export class ToolApprovalCoordinator {
   }
 
   /**
+   * Process a batch of tool calls with sequential execution
+   *
+   * This method implements the auto-approval prefix pattern:
+   * 1. Auto-execute safe tools at the beginning of the batch
+   * 2. Pause at first tool requiring approval
+   * 3. Request user approval with full batch context
+   * 4. Continue based on user's continueBatch flag
+   *
+   * @param toolCalls Array of tool calls to process
+   * @param options Approval options
+   * @param contextId Execution context ID
+   * @param nodeId Node ID (optional)
+   * @param approvalHandler Handler for requesting user approval
+   * @param eventManager Event manager for emitting progressive events
+   * @returns Batch result with auto-executed tools and approval status
+   */
+  async processToolBatch(
+    toolCalls: LLMToolCall[],
+    options: ToolApprovalOptions,
+    contextId: string,
+    nodeId: string,
+    approvalHandler: import("@wf-agent/types").ToolApprovalHandler,
+    eventManager?: EventRegistry,
+  ): Promise<ToolBatchResult> {
+    const batchId = generateId();
+    logger.info("Starting batch tool approval", {
+      batchId,
+      contextId,
+      nodeId,
+      totalTools: toolCalls.length,
+    });
+
+    // Step 1: Split into auto-execute prefix and first confirmation tool
+    const { autoPrefix, firstConfirmTool, remainingAfterConfirm } =
+      this.splitToolBatch(toolCalls, options, contextId);
+
+    logger.debug("Tool batch split", {
+      batchId,
+      autoCount: autoPrefix.length,
+      hasConfirmation: !!firstConfirmTool,
+      remainingCount: remainingAfterConfirm.length,
+    });
+
+    // Step 2: Execute auto-approved prefix with progress events
+    const autoResults: ToolExecutionResult[] = [];
+    for (let i = 0; i < autoPrefix.length; i++) {
+      const call = autoPrefix[i]!;
+
+      // Emit start event
+      if (eventManager) {
+        await this.safeEmit(
+          eventManager,
+          buildProgressiveToolExecutionStartEvent({
+            executionId: contextId,
+            nodeId,
+            toolCallId: call.id,
+            toolName: call.function?.name || "unknown",
+            batchId,
+            toolIndex: i,
+            totalTools: toolCalls.length,
+            pendingQueue: this.buildPendingQueue(
+              autoPrefix.slice(i + 1),
+              firstConfirmTool,
+              remainingAfterConfirm,
+            ),
+          }),
+        );
+      }
+
+      // Execute tool (placeholder - actual execution happens in coordinators)
+      const startTime = Date.now();
+      const result = await this.executeAutoTool(call, options, contextId);
+      const executionTime = Date.now() - startTime;
+
+      autoResults.push({ ...result, executionTime });
+
+      // Emit end event
+      if (eventManager) {
+        await this.safeEmit(
+          eventManager,
+          buildProgressiveToolExecutionEndEvent({
+            executionId: contextId,
+            nodeId,
+            toolCallId: call.id,
+            toolName: call.function?.name || "unknown",
+            batchId,
+            status: result.success ? "success" : "error",
+            result: { ...result, executionTime },
+            executionTime,
+          }),
+        );
+
+        // Emit queue update
+        await this.safeEmit(
+          eventManager,
+          buildToolQueueUpdateEvent({
+            executionId: contextId,
+            nodeId,
+            batchId,
+            completedCount: i + 1,
+            totalCount: toolCalls.length,
+            pendingQueue: this.buildPendingQueue(
+              autoPrefix.slice(i + 1),
+              firstConfirmTool,
+              remainingAfterConfirm,
+            ),
+          }),
+        );
+      }
+    }
+
+    // Step 3: If confirmation needed, pause and request approval
+    if (firstConfirmTool) {
+      const approvalResult = await this.requestUserApprovalForBatch(
+        firstConfirmTool,
+        options,
+        contextId,
+        nodeId,
+        approvalHandler,
+        batchId,
+        autoPrefix.length,
+        toolCalls.length,
+        remainingAfterConfirm,
+        autoResults,
+        eventManager,
+      );
+
+      logger.info("User approval received", {
+        batchId,
+        approved: approvalResult.approved,
+        continueBatch: approvalResult.continueBatch,
+      });
+
+      // Determine remaining queue based on approval decision
+      const finalRemaining =
+        approvalResult.continueBatch !== false ? remainingAfterConfirm : [];
+
+      return {
+        batchId,
+        autoExecuted: autoResults,
+        confirmationRequired: firstConfirmTool,
+        confirmationResult: approvalResult,
+        remainingQueue: finalRemaining,
+        allCompleted:
+          !approvalResult.continueBatch || remainingAfterConfirm.length === 0,
+      };
+    }
+
+    // All tools auto-executed
+    logger.info("All tools auto-executed", {
+      batchId,
+      count: autoResults.length,
+    });
+
+    return {
+      batchId,
+      autoExecuted: autoResults,
+      confirmationRequired: null,
+      remainingQueue: [],
+      allCompleted: true,
+    };
+  }
+
+  /**
    * Request user approval
    *
    * @param params Approval parameters
@@ -436,6 +614,238 @@ export class ToolApprovalCoordinator {
   }
 
   // ============================================================================
+  // Batch Processing Helper Methods
+  // ============================================================================
+
+  /**
+   * Split a batch of tools into auto-executable prefix and first confirmation tool
+   */
+  private splitToolBatch(
+    toolCalls: LLMToolCall[],
+    options: ToolApprovalOptions,
+    contextId: string,
+  ): {
+    autoPrefix: LLMToolCall[];
+    firstConfirmTool: LLMToolCall | null;
+    remainingAfterConfirm: LLMToolCall[];
+  } {
+    const autoPrefix: LLMToolCall[] = [];
+    let firstConfirmTool: LLMToolCall | null = null;
+    let firstConfirmIndex = -1;
+
+    for (let i = 0; i < toolCalls.length; i++) {
+      const call = toolCalls[i]!;
+      const tool = this.getToolByName(call.function?.name || "");
+
+      if (this.requiresConfirmation(tool, options, contextId)) {
+        if (!firstConfirmTool) {
+          firstConfirmTool = call;
+          firstConfirmIndex = i;
+          break; // Stop at first confirmation-required tool
+        }
+      } else {
+        autoPrefix.push(call);
+      }
+    }
+
+    const remainingAfterConfirm =
+      firstConfirmIndex >= 0 ? toolCalls.slice(firstConfirmIndex + 1) : [];
+
+    return { autoPrefix, firstConfirmTool, remainingAfterConfirm };
+  }
+
+  /**
+   * Check if a tool requires user confirmation
+   */
+  private requiresConfirmation(
+    tool: Tool | undefined,
+    options: ToolApprovalOptions,
+    contextId: string,
+  ): boolean {
+    if (!options.autoApprovalEnabled) {
+      return true; // All tools require approval if disabled
+    }
+
+    // Use existing auto-approval logic
+    try {
+      const decision = checkAutoApproval({
+        tool:
+          tool ||
+          ({
+            id: "unknown",
+            type: "STATELESS" as const,
+            description: "Unknown tool",
+            parameters: { type: "object" as const, properties: {} },
+            metadata: { riskLevel: "WRITE" },
+          } as Tool),
+        options,
+        context: this.extractAutoApprovalContext(tool, contextId),
+      });
+
+      return decision.decision !== "approve";
+    } catch (error) {
+      // On error, require manual approval for safety
+      logger.warn("Auto-approval check failed, requiring manual approval", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return true;
+    }
+  }
+
+  /**
+   * Execute an auto-approved tool (placeholder implementation)
+   * Actual execution happens in coordinators
+   */
+  private async executeAutoTool(
+    call: LLMToolCall,
+    _options: ToolApprovalOptions,
+    _contextId: string,
+  ): Promise<ToolExecutionResult> {
+    // TODO: Integrate with ToolCallExecutor
+    // For now, return placeholder - actual execution happens in coordinators
+    return {
+      success: true,
+      result: {},
+      executionTime: 0,
+      retryCount: 0,
+    };
+  }
+
+  /**
+   * Request user approval with batch context
+   */
+  private async requestUserApprovalForBatch(
+    toolCall: LLMToolCall,
+    options: ToolApprovalOptions,
+    contextId: string,
+    nodeId: string,
+    approvalHandler: import("@wf-agent/types").ToolApprovalHandler,
+    batchId: string,
+    toolIndex: number,
+    totalTools: number,
+    pendingQueue: LLMToolCall[],
+    autoExecutedResults: ToolExecutionResult[],
+    eventManager?: EventRegistry,
+  ): Promise<ToolApprovalResult> {
+    const interactionId = generateId();
+
+    // Create approval request with batch context
+    const request: ToolApprovalRequest = {
+      toolCall,
+      toolDescription: this.getToolDescription(toolCall),
+      contextId,
+      nodeId,
+      interactionId,
+      batchId,
+      toolIndex,
+      totalTools,
+      pendingQueue,
+      autoExecutedResults,
+    };
+
+    // Delegate to handler
+    const result = await approvalHandler.requestApproval(request);
+
+    // Emit annotation event if provided
+    if (result.annotation && eventManager) {
+      await this.safeEmit(
+        eventManager,
+        buildToolApprovalAnnotatedEvent({
+          executionId: contextId,
+          nodeId,
+          interactionId,
+          toolCallId: toolCall.id,
+          toolName: toolCall.function?.name || "unknown",
+          annotation: result.annotation,
+          approved: result.approved,
+        }),
+      );
+    }
+
+    return result;
+  }
+
+  /**
+   * Build pending queue for events
+   */
+  private buildPendingQueue(
+    remainingAuto: LLMToolCall[],
+    confirmTool: LLMToolCall | null,
+    remainingAfterConfirm: LLMToolCall[],
+  ): PendingToolCall[] {
+    const queue: PendingToolCall[] = [];
+
+    if (confirmTool) {
+      queue.push({
+        id: confirmTool.id,
+        name: confirmTool.function?.name || "unknown",
+        arguments: confirmTool.function?.arguments,
+      });
+    }
+
+    queue.push(
+      ...remainingAfterConfirm.map((call) => ({
+        id: call.id,
+        name: call.function?.name || "unknown",
+        arguments: call.function?.arguments,
+      })),
+    );
+
+    return queue;
+  }
+
+  /**
+   * Extract context for auto-approval check
+   */
+  private extractAutoApprovalContext(
+    _tool: Tool | undefined,
+    _contextId: string,
+  ): import("../../services/auto-approval/index.js").AutoApprovalContext {
+    // TODO: Extract workspace boundary, file paths, domains, etc.
+    // For now, return minimal context
+    return {
+      isOutsideWorkspace: false,
+      isProtected: false,
+      domain: undefined,
+    };
+  }
+
+  /**
+   * Get tool description
+   */
+  private getToolDescription(toolCall: LLMToolCall): string | undefined {
+    const tool = this.getToolByName(toolCall.function?.name || "");
+    return tool?.description;
+  }
+
+  /**
+   * Get tool by name from registry (placeholder)
+   * TODO: Inject tool service or registry
+   */
+  private getToolByName(_name: string): Tool | undefined {
+    // TODO: Implement tool lookup
+    // For now, return undefined - tool info comes from params
+    return undefined;
+  }
+
+  /**
+   * Safe event emission with error handling
+   */
+  private async safeEmit(
+    eventManager: EventRegistry,
+    event: import("@wf-agent/types").BaseEvent,
+  ): Promise<void> {
+    try {
+      await eventManager.emit(event);
+    } catch (error) {
+      logger.warn("Failed to emit event", {
+        eventType: event.type,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  // ============================================================================
   // State Management Methods
   // ============================================================================
 
@@ -444,22 +854,24 @@ export class ToolApprovalCoordinator {
    */
   private getOrCreateState(contextId: string): ApprovalState {
     let state = this.approvalStates.get(contextId);
-    
+  
     if (!state) {
       state = {
         consecutiveAutoApprovedCount: 0,
         lastResetIndex: 0,
         lastActivityAt: Date.now(),
+        totalAutoApprovedCost: 0,
+        lastApprovalTime: undefined,
       };
       this.approvalStates.set(contextId, state);
     } else {
       // Update activity timestamp
       state.lastActivityAt = Date.now();
     }
-    
+  
     // Periodic cleanup of stale states
     this.cleanupStaleStates();
-    
+  
     return state;
   }
 
@@ -481,6 +893,26 @@ export class ToolApprovalCoordinator {
       }
     }
 
+    // TODO: Add cost-based limits
+    // if (options.maxAutoApprovedCost && state.totalAutoApprovedCost) {
+    //   if (state.totalAutoApprovedCost >= options.maxAutoApprovedCost) {
+    //     return {
+    //       allowed: false,
+    //       reason: `Exceeded maximum auto-approval cost (${options.maxAutoApprovedCost})`,
+    //     };
+    //   }
+    // }
+
+    // TODO: Add time-window-based resets
+    // if (options.autoApprovalTimeWindow && state.lastApprovalTime) {
+    //   const now = Date.now();
+    //   if (now - state.lastApprovalTime > options.autoApprovalTimeWindow) {
+    //     // Reset counter after time window expires
+    //     state.consecutiveAutoApprovedCount = 0;
+    //     state.totalAutoApprovedCost = 0;
+    //   }
+    // }
+
     return { allowed: true };
   }
 
@@ -492,7 +924,8 @@ export class ToolApprovalCoordinator {
     if (state) {
       state.consecutiveAutoApprovedCount += 1;
       state.lastActivityAt = Date.now();
-      
+      state.lastApprovalTime = Date.now();
+  
       logger.debug("Updated approval state", {
         contextId,
         consecutiveCount: state.consecutiveAutoApprovedCount,
@@ -509,7 +942,8 @@ export class ToolApprovalCoordinator {
       state.consecutiveAutoApprovedCount = 0;
       state.lastResetIndex += 1;
       state.lastActivityAt = Date.now();
-      
+      state.totalAutoApprovedCost = 0;
+  
       logger.debug("Reset approval state", {
         contextId,
         resetIndex: state.lastResetIndex,

@@ -40,6 +40,67 @@ export interface MessageConfig {
 }
 
 /**
+ * Pending Tool Call Info
+ * Information about a pending tool call for UI display
+ */
+export interface PendingToolCallInfo {
+  /** Tool call ID */
+  id: string;
+  /** Tool name */
+  name: string;
+  /** Tool arguments */
+  arguments?: string;
+  /** Risk level */
+  riskLevel?: import("./tool/risk-level.js").ToolRiskLevel;
+}
+
+/**
+ * Structured Tool Approval Request Data
+ * Rich context for tool approval requests
+ */
+export interface ToolApprovalRequestData {
+  /** Tool call ID */
+  toolCallId: string;
+  /** Tool name */
+  toolName: string;
+  /** Tool description */
+  toolDescription?: string;
+  /** Tool parameters */
+  parameters: Record<string, unknown>;
+  /** Risk level */
+  riskLevel?: import("./tool/risk-level.js").ToolRiskLevel;
+  /** Pending tools in queue */
+  pendingQueue?: PendingToolCallInfo[];
+  /** Auto-executed tools results */
+  autoExecutedTools?: import("./tool/execution.js").ToolExecutionResult[];
+  /** Batch ID */
+  batchId?: string;
+  /** Tool index in batch */
+  toolIndex?: number;
+  /** Total tools in batch */
+  totalTools?: number;
+}
+
+/**
+ * Structured Tool Approval Response Data
+ * User's response to tool approval request
+ */
+export interface ToolApprovalResponseData {
+  /** Whether approved */
+  approved: boolean;
+  /** Edited parameters */
+  editedParameters?: Record<string, unknown>;
+  /** User instruction */
+  userInstruction?: string;
+  /** User annotation/comment */
+  annotation?: string;
+  /** Rejection reason */
+  rejectionReason?: string;
+  /** Continue with remaining tools in batch */
+  continueBatch?: boolean;
+}
+
+/**
  * User Interaction Requests
  */
 export interface UserInteractionRequest {
@@ -56,7 +117,10 @@ export interface UserInteractionRequest {
   /** Interaction timeout (milliseconds) */
   timeout: number;
   /** Additional operational information */
-  metadata?: Metadata;
+  metadata?: Metadata & {
+    // Structured tool approval data
+    toolData?: ToolApprovalRequestData;
+  };
 }
 
 /**
@@ -109,6 +173,12 @@ export interface UserInteractionContext {
     cancelled: boolean;
     cancel(): void;
   };
+  
+  // Context cache access (optional)
+  /** Get cached dynamic context for a turn */
+  getTurnDynamicContext?(turnStartIndex: number): string | undefined;
+  /** Set cached dynamic context for a turn */
+  setTurnDynamicContext?(turnStartIndex: number, context: string): void;
 }
 
 /**

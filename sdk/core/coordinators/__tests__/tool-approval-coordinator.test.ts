@@ -32,6 +32,7 @@ describe('ToolApprovalCoordinator', () => {
       properties: {
         path: { type: 'string' },
       },
+      required: ['path'],
     },
     metadata: {
       riskLevel: 'READ_ONLY',
@@ -311,7 +312,7 @@ describe('ToolApprovalCoordinator', () => {
         id: 'run_shell',
         type: 'STATELESS',
         description: 'Run shell command',
-        parameters: { type: 'object', properties: {} },
+        parameters: { type: 'object', properties: {}, required: [] },
         metadata: { riskLevel: 'EXECUTE' },
       };
 
@@ -413,7 +414,7 @@ describe('ToolApprovalCoordinator', () => {
         id: 'write_file',
         type: 'STATELESS',
         description: 'Write a file',
-        parameters: { type: 'object', properties: {} },
+        parameters: { type: 'object', properties: {}, required: [] },
         metadata: { riskLevel: 'WRITE' },
       };
 

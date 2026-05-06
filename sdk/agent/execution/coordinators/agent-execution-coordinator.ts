@@ -20,6 +20,7 @@ import type {
   ToolSchema,
   LLMMessage,
   Event as RegistryEvent,
+  ToolApprovalOptions,
 } from "@wf-agent/types";
 import { AgentStreamEventType } from "@wf-agent/types";
 import type { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
@@ -27,6 +28,7 @@ import type { ConversationSession } from "../../../core/messaging/conversation-s
 import type { LLMExecutor } from "../../../core/executors/llm-executor.js";
 import type { ToolCallExecutor } from "../../../core/executors/tool-call-executor.js";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
+import type { ToolRegistry } from "../../../core/registry/tool-registry.js";
 import { isAbortError, checkInterruption } from "@wf-agent/common-utils";
 import { executeAgentHook } from "../handlers/hook-handlers/index.js";
 import {
@@ -41,6 +43,7 @@ import {
   buildAgentToolExecutionStartedEvent,
   buildAgentToolExecutionCompletedEvent,
 } from "../../../core/utils/event/builders/agent-events.js";
+import { ToolApprovalCoordinator } from "../../../core/coordinators/tool-approval-coordinator.js";
 
 const logger = createContextualLogger({ component: "AgentExecutionCoordinator" });
 
@@ -61,6 +64,8 @@ export interface AgentExecutionCoordinatorDependencies {
   emitAgentEvent: (event: AgentHookTriggeredEvent) => Promise<void>;
   /** Event Registry (optional) */
   eventManager?: EventRegistry;
+  /** Tool Registry (for getting tool definitions) */
+  toolService?: ToolRegistry;
 }
 
 /**
@@ -77,12 +82,18 @@ export class AgentExecutionCoordinator {
   private readonly toolCallExecutor: ToolCallExecutor;
   private readonly emitAgentEvent: (event: AgentHookTriggeredEvent) => Promise<void>;
   private readonly eventManager?: EventRegistry;
+  private readonly approvalCoordinator: ToolApprovalCoordinator;
+  private readonly toolService?: ToolRegistry;
 
   constructor(deps: AgentExecutionCoordinatorDependencies) {
     this.llmExecutor = deps.llmExecutor;
     this.toolCallExecutor = deps.toolCallExecutor;
     this.emitAgentEvent = deps.emitAgentEvent;
     this.eventManager = deps.eventManager;
+    this.toolService = deps.toolService;
+    
+    // Initialize approval coordinator
+    this.approvalCoordinator = new ToolApprovalCoordinator(deps.eventManager);
   }
 
   /**
@@ -836,8 +847,79 @@ export class AgentExecutionCoordinator {
       return;
     }
 
+    // NEW: Process each tool call through approval coordinator
+    const approvedToolCalls: Array<{ id: string; name: string; arguments: string }> = [];
+    
+    for (const toolCall of toolCalls) {
+      const tool = this.toolService?.getTool(toolCall.name);
+      
+      // Get approval config from agent configuration
+      const approvalOptions = this.getApprovalOptions(entity);
+      
+      const approvalResult = await this.approvalCoordinator.processToolApproval({
+        toolCall: {
+          id: toolCall.id,
+          type: "function",
+          function: {
+            name: toolCall.name,
+            arguments: toolCall.arguments,
+          },
+        },
+        tool,
+        options: approvalOptions,
+        contextId: entity.id,
+        nodeId: entity.nodeId,
+        approvalHandler: {
+          requestApproval: async (request) => {
+            return this.requestAgentApproval(request, entity);
+          },
+        },
+      });
+
+      if (!approvalResult.approved) {
+        logger.warn("Tool call rejected by approval", {
+          agentLoopId,
+          toolCallId: toolCall.id,
+          toolName: toolCall.name,
+          reason: approvalResult.rejectionReason,
+        });
+        
+        // Record rejection
+        entity.state.recordToolCallEnd(
+          toolCall.id,
+          undefined,
+          approvalResult.rejectionReason || "Rejected by user"
+        );
+        continue;
+      }
+
+      // Apply edited parameters if provided
+      if (approvalResult.editedParameters) {
+        toolCall.arguments = JSON.stringify(approvalResult.editedParameters);
+      }
+
+      // Add user instruction if provided
+      if (approvalResult.userInstruction) {
+        conversationManager.addMessage({
+          role: "user",
+          content: approvalResult.userInstruction,
+        });
+      }
+
+      approvedToolCalls.push(toolCall);
+    }
+
+    // Execute only approved tool calls
+    if (approvedToolCalls.length === 0) {
+      logger.debug("No tool calls approved, skipping execution", {
+        agentLoopId,
+        iteration,
+      });
+      return;
+    }
+
     const toolResults = await this.toolCallExecutor.executeToolCalls(
-      toolCalls.map(tc => ({ id: tc.id, name: tc.name, arguments: tc.arguments })),
+      approvedToolCalls.map(tc => ({ id: tc.id, name: tc.name, arguments: tc.arguments })),
       conversationManager,
       entity.id,
       entity.nodeId,
@@ -863,7 +945,7 @@ export class AgentExecutionCoordinator {
     });
 
     for (const result of toolResults) {
-      const originalToolCall = toolCalls.find(tc => tc.id === result.toolCallId);
+      const originalToolCall = approvedToolCalls.find(tc => tc.id === result.toolCallId);
       const toolCallInfo = {
         id: result.toolCallId,
         name: originalToolCall?.name || "",
@@ -897,6 +979,52 @@ export class AgentExecutionCoordinator {
         });
       }
     }
+  }
+
+  /**
+   * Get approval options from agent configuration
+   *
+   * @param entity - Agent loop entity
+   * @returns ToolApprovalOptions
+   */
+  private getApprovalOptions(entity: AgentLoopEntity): ToolApprovalOptions {
+    // Get from agent configuration or use defaults
+    // For now, return safe defaults
+    // In future, this could read from entity.config.approvalOptions
+    return {
+      autoApprovalEnabled: false,  // Safe default: require approval for all tools
+    };
+  }
+
+  /**
+   * Request tool approval for agent mode
+   *
+   * This is a placeholder implementation. In production, this should integrate
+   * with the application's UI (CLI prompt, TUI interaction, web interface, etc.)
+   *
+   * @param request - Approval request
+   * @param entity - Agent loop entity
+   * @returns Approval result
+   */
+  private async requestAgentApproval(
+    request: { toolCall: { id: string; function?: { name?: string; arguments?: string } } },
+    entity: AgentLoopEntity,
+  ): Promise<{ approved: boolean; toolCallId: string; editedParameters?: Record<string, unknown>; userInstruction?: string; rejectionReason?: string }> {
+    const toolName = request.toolCall.function?.name || "unknown";
+    
+    logger.warn("Interactive approval not yet implemented for agent mode", {
+      agentLoopId: entity.id,
+      toolCallId: request.toolCall.id,
+      toolName,
+    });
+
+    // For now, reject as safe default
+    // TODO: Implement interactive approval UI
+    return {
+      approved: false,
+      toolCallId: request.toolCall.id,
+      rejectionReason: `Interactive approval not yet implemented. Tool "${toolName}" requires manual approval but no UI handler is configured.`,
+    };
   }
 
   /**

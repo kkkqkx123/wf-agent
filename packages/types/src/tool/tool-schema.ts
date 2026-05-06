@@ -5,6 +5,9 @@
 
 import { z } from "zod";
 import type { ToolType } from "./state.js";
+import type { AutoApprovalCategory } from "./risk-level.js";
+import type { FilePermissionLevel } from "./file-permission.js";
+import type { McpDefaultBehavior } from "./mcp-approval.js";
 
 // ============================================================================
 // Tool Parameter Property Schema (JSON Schema Draft 2020-12)
@@ -270,4 +273,133 @@ export const isBuiltinToolConfig = (
  */
 export const isTool = (config: unknown): config is z.infer<typeof ToolDefinitionSchema> => {
   return ToolDefinitionSchema.safeParse(config).success;
+};
+
+// ============================================================================
+// Tool Approval Options Schema
+// ============================================================================
+
+/**
+ * Workspace Boundary Settings Schema
+ */
+export const WorkspaceBoundarySettingsSchema = z.object({
+  allowReadOnlyOutsideWorkspace: z.boolean().optional(),
+  allowWriteOutsideWorkspace: z.boolean().optional(),
+});
+
+/**
+ * Command Execution Settings Schema
+ */
+export const CommandExecutionSettingsSchema = z.object({
+  allowedCommands: z.array(z.string()).optional(),
+  deniedCommands: z.array(z.string()).optional(),
+});
+
+/**
+ * Network Settings Schema
+ */
+export const NetworkSettingsSchema = z.object({
+  allowedDomains: z.array(z.string()).optional(),
+  deniedDomains: z.array(z.string()).optional(),
+});
+
+/**
+ * Interaction Settings Schema
+ */
+export const InteractionSettingsSchema = z.object({
+  followupAutoApproveTimeoutMs: z.number().optional(),
+});
+
+/**
+ * File Permission Rule Schema
+ */
+export const FilePermissionRuleSchema = z.object({
+  pattern: z.string(),
+  permission: z.enum(["none", "read", "write", "full", "denied"]),
+  description: z.string().optional(),
+});
+
+/**
+ * File Permission Settings Schema
+ */
+export const FilePermissionSettingsSchema = z.object({
+  rules: z.array(FilePermissionRuleSchema),
+  defaultPermission: z.enum(["none", "read", "write", "full", "denied"]).optional(),
+});
+
+/**
+ * MCP Tool Config Schema
+ */
+export const McpToolConfigSchema = z.object({
+  name: z.string(),
+  description: z.string().optional(),
+  alwaysAllow: z.boolean().optional(),
+  riskLevel: z.enum(["READ_ONLY", "WRITE", "EXECUTE", "MCP", "NETWORK", "SYSTEM", "INTERACTION"]).optional(),
+});
+
+/**
+ * MCP Resource Config Schema
+ */
+export const McpResourceConfigSchema = z.object({
+  uriPattern: z.string(),
+  alwaysAllow: z.boolean().optional(),
+  description: z.string().optional(),
+});
+
+/**
+ * MCP Server Config Schema
+ */
+export const McpServerConfigSchema = z.object({
+  name: z.string(),
+  description: z.string().optional(),
+  tools: z.array(McpToolConfigSchema).optional(),
+  resources: z.array(McpResourceConfigSchema).optional(),
+  defaultToolBehavior: z.enum(["always_approve", "always_ask", "always_deny"]).optional(),
+  defaultResourceBehavior: z.enum(["always_approve", "always_ask", "always_deny"]).optional(),
+});
+
+/**
+ * MCP Approval Settings Schema
+ */
+export const McpApprovalSettingsSchema = z.object({
+  servers: z.array(McpServerConfigSchema),
+  defaultServerBehavior: z.enum(["always_ask", "always_deny"]).optional(),
+});
+
+/**
+ * Categories Settings Schema
+ */
+export const CategoriesSettingsSchema = z.object({
+  alwaysAllowReadOnly: z.boolean().optional(),
+  alwaysAllowWrite: z.boolean().optional(),
+  alwaysAllowExecute: z.boolean().optional(),
+  alwaysAllowMcp: z.boolean().optional(),
+  alwaysAllowNetwork: z.boolean().optional(),
+  alwaysAllowInteraction: z.boolean().optional(),
+});
+
+/**
+ * Tool Approval Options Schema
+ */
+export const ToolApprovalOptionsSchema = z.object({
+  autoApprovalEnabled: z.boolean().optional(),
+  filePermissions: FilePermissionSettingsSchema.optional(),
+  categories: CategoriesSettingsSchema.optional(),
+  workspaceBoundary: WorkspaceBoundarySettingsSchema.optional(),
+  allowWriteProtected: z.boolean().optional(),
+  command: CommandExecutionSettingsSchema.optional(),
+  network: NetworkSettingsSchema.optional(),
+  mcp: McpApprovalSettingsSchema.optional(),
+  interaction: InteractionSettingsSchema.optional(),
+  autoApprovedTools: z.array(z.string()).optional(),
+  approvalTimeout: z.number().optional(),
+});
+
+/**
+ * Type guard for ToolApprovalOptions
+ */
+export const isToolApprovalOptions = (
+  config: unknown,
+): config is z.infer<typeof ToolApprovalOptionsSchema> => {
+  return ToolApprovalOptionsSchema.safeParse(config).success;
 };

@@ -45,6 +45,7 @@ import {
 } from "../factories/llm-context-factory.js";
 import { ToolCallExecutor } from "../../../core/executors/tool-call-executor.js";
 import { prepareToolSchemasFromTools } from "../../../core/utils/tools/tool-schema-helper.js";
+import { ToolApprovalCoordinator } from "../../../core/coordinators/tool-approval-coordinator.js";
 
 const logger = createContextualLogger();
 
@@ -104,6 +105,9 @@ export class LLMExecutionCoordinator {
   /** Interrupt Detector (Delayed Initialization) */
   private interruptionDetector?: InterruptionDetector;
 
+  /** Tool Approval Coordinator */
+  private approvalCoordinator: ToolApprovalCoordinator;
+
   /**
    * Constructor (using factory configuration)
    *
@@ -119,6 +123,9 @@ export class LLMExecutionCoordinator {
     } else if (config.executionRegistry) {
       this.interruptionDetector = new InterruptionDetectorImpl(config.executionRegistry);
     }
+
+    // Initialize approval coordinator
+    this.approvalCoordinator = new ToolApprovalCoordinator(config.eventManager);
   }
 
   /**
@@ -469,44 +476,58 @@ export class LLMExecutionCoordinator {
     options?: { abortSignal?: AbortSignal },
   ): Promise<void> {
     for (const toolCall of toolCalls) {
-      // Check if manual approval is required.
-      if (this.requiresHumanApproval(toolCall.name, workflowConfig)) {
-        const approvalResult = await this.requestToolApproval(
-          toolCall,
-          undefined,
-          executionId,
-          nodeId,
-        );
+      // Get tool definition for risk assessment
+      const tool = this.contextFactory.getToolService().getTool(toolCall.name);
 
-        if (!approvalResult.approved) {
-          // User refused; skip this tool call.
-          const toolMessage = {
-            role: "tool" as MessageRole,
-            content: JSON.stringify({
-              error: "Tool call was rejected by user approval",
-              rejected: true,
-            }),
-            toolCallId: toolCall.id,
-          };
-          conversationState.addMessage(toolMessage);
-          continue;
-        }
+      // Use ToolApprovalCoordinator for approval check
+      const approvalResult = await this.approvalCoordinator.processToolApproval({
+        toolCall: {
+          id: toolCall.id,
+          type: "function",
+          function: {
+            name: toolCall.name,
+            arguments: toolCall.arguments,
+          },
+        },
+        tool,
+        options: workflowConfig?.toolApproval,
+        contextId: executionId,
+        nodeId,
+        approvalHandler: {
+          requestApproval: async (request) => {
+            return this.requestToolApprovalInternal(request, executionId, nodeId);
+          },
+        },
+      });
 
-        // If the user provides the edited parameters
-        if (approvalResult.editedParameters) {
-          toolCall.arguments = JSON.stringify(approvalResult.editedParameters);
-        }
-
-        // If the user provides additional instructions, add them to the conversation history.
-        if (approvalResult.userInstruction) {
-          conversationState.addMessage({
-            role: "user" as MessageRole,
-            content: approvalResult.userInstruction,
-          });
-        }
+      if (!approvalResult.approved) {
+        // User refused; skip this tool call
+        const toolMessage = {
+          role: "tool" as MessageRole,
+          content: JSON.stringify({
+            error: approvalResult.rejectionReason || "Tool call was rejected",
+            rejected: true,
+          }),
+          toolCallId: toolCall.id,
+        };
+        conversationState.addMessage(toolMessage);
+        continue;
       }
 
-      // Execute tool invocation (passing the AbortSignal)
+      // If user provides edited parameters
+      if (approvalResult.editedParameters) {
+        toolCall.arguments = JSON.stringify(approvalResult.editedParameters);
+      }
+
+      // If user provides additional instructions
+      if (approvalResult.userInstruction) {
+        conversationState.addMessage({
+          role: "user" as MessageRole,
+          content: approvalResult.userInstruction,
+        });
+      }
+
+      // Execute tool invocation
       await toolCallExecutor.executeToolCalls(
         [toolCall],
         conversationState,
@@ -515,23 +536,6 @@ export class LLMExecutionCoordinator {
         options,
       );
     }
-  }
-
-  /**
-   * Check if the tool requires manual approval
-   *
-   * @param toolId Tool ID
-   * @param workflowConfig Workflow configuration
-   * @returns Whether approval is required
-   */
-  private requiresHumanApproval(toolId: ID, workflowConfig: WorkflowConfig | undefined): boolean {
-    // If no approval is configured, then no approval is required.
-    if (!workflowConfig?.toolApproval) {
-      return false;
-    }
-
-    const autoApproved = workflowConfig.toolApproval.autoApprovedTools || [];
-    return !autoApproved.includes(toolId);
   }
 
   /**
@@ -657,6 +661,45 @@ export class LLMExecutionCoordinator {
         }
       }
     }
+  }
+
+  /**
+   * Internal method to request tool approval (adapts ToolApprovalCoordinator interface)
+   *
+   * @param request - Approval request from ToolApprovalCoordinator
+   * @param executionId - Execution ID
+   * @param nodeId - Node ID
+   * @returns Approval result
+   */
+  private async requestToolApprovalInternal(
+    request: { toolCall: { id: string; function?: { name?: string; arguments?: string } } },
+    executionId: string,
+    nodeId: string,
+  ): Promise<{ approved: boolean; toolCallId: string; editedParameters?: Record<string, unknown>; userInstruction?: string; rejectionReason?: string }> {
+    // Convert to legacy format for backward compatibility
+    const toolCallName = request.toolCall.function?.name || "";
+    const toolCallArgs = request.toolCall.function?.arguments || "{}";
+
+    // Use existing requestToolApproval method
+    const legacyResult = await this.requestToolApproval(
+      {
+        id: request.toolCall.id,
+        name: toolCallName,
+        arguments: toolCallArgs,
+      },
+      undefined,
+      executionId,
+      nodeId,
+    );
+
+    // Convert legacy ToolApprovalData to new ToolApprovalResult format
+    return {
+      approved: legacyResult.approved,
+      toolCallId: request.toolCall.id,
+      editedParameters: legacyResult.editedParameters,
+      userInstruction: legacyResult.userInstruction,
+      rejectionReason: !legacyResult.approved ? "Tool call was rejected by user" : undefined,
+    };
   }
 
   /**

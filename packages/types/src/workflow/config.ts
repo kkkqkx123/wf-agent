@@ -2,17 +2,7 @@
  * Workflow Configuration Type Definitions
  */
 
-/**
- * Tool Approval Configuration
- * Define approval policies for tool invocations in a workflow
- */
-export interface ToolApprovalConfig {
-  /**
-   * List of automatically approved tools (whitelist)
-   * Array of tool IDs or names, these tool calls do not require manual approval
-   */
-  autoApprovedTools: string[];
-}
+import type { ToolApprovalOptions } from "../tool/approval.js";
 
 /**
  * Checkpoint Configuration Types
@@ -61,6 +51,6 @@ export interface WorkflowConfig {
     retryDelay?: number;
     backoffMultiplier?: number;
   };
-  /** Tool Approval Configuration */
-  toolApproval?: ToolApprovalConfig;
+  /** Tool Approval Configuration (uses ToolApprovalOptions for advanced features) */
+  toolApproval?: ToolApprovalOptions;
 }

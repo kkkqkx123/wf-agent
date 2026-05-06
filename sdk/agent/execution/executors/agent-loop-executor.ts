@@ -163,6 +163,7 @@ export class AgentLoopExecutor {
       toolCallExecutor: this.toolCallExecutor,
       emitAgentEvent: this.emitAgentEvent.bind(this),
       eventManager: this.eventManager,
+      toolService: this.toolService,
     });
   }
 

@@ -13,12 +13,12 @@ import type { VariableValueType } from "../workflow-execution/variables.js";
 // Import the types to ensure schema stays in sync
 import type {
   WorkflowVariable,
-  ToolApprovalConfig,
   CheckpointConfig,
   TriggeredSubworkflowConfig,
   WorkflowConfig,
   WorkflowMetadata,
 } from "./index.js";
+import { ToolApprovalOptionsSchema } from "../tool/tool-schema.js";
 
 /**
  * Variable Scope Schema
@@ -52,13 +52,6 @@ export const WorkflowVariableSchema: z.ZodType<WorkflowVariable> = z.object({
   required: z.boolean().optional(),
   readonly: z.boolean().optional(),
   scope: variableScopeSchema.optional(),
-});
-
-/**
- * Tool Approval Configuration Schema
- */
-export const ToolApprovalConfigSchema: z.ZodType<ToolApprovalConfig> = z.object({
-  autoApprovedTools: z.array(z.string()),
 });
 
 /**
@@ -98,7 +91,7 @@ export const WorkflowConfigSchema: z.ZodType<WorkflowConfig> = z.object({
   enableCheckpoints: z.boolean().optional(),
   checkpointConfig: CheckpointConfigSchema.optional(),
   retryPolicy: RetryPolicySchema.optional(),
-  toolApproval: ToolApprovalConfigSchema.optional(),
+  toolApproval: ToolApprovalOptionsSchema.optional(),
 });
 
 /**
@@ -165,18 +158,6 @@ export const WorkflowTemplateSchema = z.object({
 export function isWorkflowVariable(value: unknown): value is WorkflowVariable {
   try {
     WorkflowVariableSchema.parse(value);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Check if a value is a valid ToolApprovalConfig
- */
-export function isToolApprovalConfig(value: unknown): value is ToolApprovalConfig {
-  try {
-    ToolApprovalConfigSchema.parse(value);
     return true;
   } catch {
     return false;

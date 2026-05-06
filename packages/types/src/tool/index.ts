@@ -70,3 +70,20 @@ export {
   isBuiltinToolConfig,
   isTool,
 } from "./tool-schema.js";
+
+// Export Tool Approval Options Schema
+export {
+  ToolApprovalOptionsSchema,
+  WorkspaceBoundarySettingsSchema,
+  CommandExecutionSettingsSchema,
+  NetworkSettingsSchema,
+  InteractionSettingsSchema,
+  FilePermissionRuleSchema,
+  FilePermissionSettingsSchema,
+  McpToolConfigSchema,
+  McpResourceConfigSchema,
+  McpServerConfigSchema,
+  McpApprovalSettingsSchema,
+  CategoriesSettingsSchema,
+  isToolApprovalOptions,
+} from "./tool-schema.js";

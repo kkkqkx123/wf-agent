@@ -3,7 +3,7 @@
  * Defines risk levels for all predefined tools
  */
 
-import type { ToolRiskLevel } from "@wf-agent/types";
+import type { ToolRiskLevel, SecurityPreset, ToolApprovalOptions } from "@wf-agent/types";
 
 /**
  * Predefined tool risk classification
@@ -55,6 +55,58 @@ export const TOOL_RISK_CLASSIFICATION: Record<string, ToolRiskLevel> = {
   execute_workflow: "SYSTEM",
   cancel_workflow: "SYSTEM",
   query_workflow_status: "READ_ONLY",
+};
+
+/**
+ * Default security presets
+ * These presets provide common configurations for different security levels
+ */
+export const SECURITY_PRESETS: Record<SecurityPreset, Partial<ToolApprovalOptions>> = {
+  SAFE: {
+    categories: {
+      alwaysAllowReadOnly: true,
+      alwaysAllowWrite: false,
+      alwaysAllowExecute: false,
+      alwaysAllowMcp: false,
+      alwaysAllowNetwork: false,
+      alwaysAllowInteraction: false,
+    },
+    workspaceBoundary: {
+      allowReadOnlyOutsideWorkspace: false,
+      allowWriteOutsideWorkspace: false,
+    },
+    allowWriteProtected: false,
+  },
+  BALANCED: {
+    categories: {
+      alwaysAllowReadOnly: true,
+      alwaysAllowWrite: true,
+      alwaysAllowExecute: false,
+      alwaysAllowMcp: false,
+      alwaysAllowNetwork: false,
+      alwaysAllowInteraction: true,
+    },
+    workspaceBoundary: {
+      allowReadOnlyOutsideWorkspace: true,
+      allowWriteOutsideWorkspace: false,
+    },
+    allowWriteProtected: false,
+  },
+  PERMISSIVE: {
+    categories: {
+      alwaysAllowReadOnly: true,
+      alwaysAllowWrite: true,
+      alwaysAllowExecute: true,
+      alwaysAllowMcp: true,
+      alwaysAllowNetwork: true,
+      alwaysAllowInteraction: true,
+    },
+    workspaceBoundary: {
+      allowReadOnlyOutsideWorkspace: true,
+      allowWriteOutsideWorkspace: true,
+    },
+    allowWriteProtected: true,
+  },
 };
 
 /**

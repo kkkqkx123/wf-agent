@@ -9,11 +9,30 @@ import type {
   ToolRiskLevel,
   McpRequest,
   FileOperationType,
+  SecurityPreset,
 } from "@wf-agent/types";
-import { getApprovalCategory, canAutoApprove } from "@wf-agent/types";
+import { SECURITY_PRESETS } from "../../resources/predefined/tools/risk-classification.js";
 import { checkFilePermission } from "./file-permission-checker.js";
 import { getCommandDecision } from "./command-safety-checker.js";
 import { checkMcpApproval } from "./mcp-approval-checker.js";
+
+/**
+ * Apply security preset to options
+ */
+function applyPreset(options: ToolApprovalOptions): ToolApprovalOptions {
+  if (!options.securityPreset) return options;
+
+  const preset = SECURITY_PRESETS[options.securityPreset as SecurityPreset];
+  if (!preset) return options;
+
+  // Merge preset into options (preset values take precedence over existing manual settings)
+  return {
+    ...options,
+    categories: { ...preset.categories, ...options.categories },
+    workspaceBoundary: { ...preset.workspaceBoundary, ...options.workspaceBoundary },
+    allowWriteProtected: options.allowWriteProtected ?? preset.allowWriteProtected,
+  };
+}
 
 /**
  * Auto-approval decision types
@@ -72,12 +91,15 @@ export interface CheckAutoApprovalParams {
  * @returns Approval decision
  */
 export function checkAutoApproval(params: CheckAutoApprovalParams): AutoApprovalDecision {
-  const { options, tool, context } = params;
+  let { options, tool, context } = params;
 
   // 0. Check if auto-approval is enabled
   if (!options.autoApprovalEnabled) {
     return { decision: "ask" };
   }
+
+  // Apply security preset if provided
+  options = applyPreset(options);
 
   // 1. File permission check (HIGHEST PRIORITY)
   if (options.filePermissions && context.filePath) {
@@ -105,11 +127,6 @@ export function checkAutoApproval(params: CheckAutoApprovalParams): AutoApproval
     return { decision: "ask" };
   }
   if (tool.metadata?.autoApprovable === true) {
-    return { decision: "approve" };
-  }
-
-  // 5. Check legacy autoApprovedTools list
-  if (options.autoApprovedTools?.includes(tool.id)) {
     return { decision: "approve" };
   }
 
@@ -309,7 +326,7 @@ function handleInteractionApproval(
 }
 
 /**
- * Extract context from tool call parameters
+ * Extract context from tool call parameters with safety checks
  *
  * @param toolId - Tool ID
  * @param parameters - Tool call parameters
@@ -323,22 +340,36 @@ export function extractContextFromParameters(
 
   // Extract file path for file tools
   if (["read_file", "write_file", "edit", "apply_diff", "apply_patch"].includes(toolId)) {
-    context.filePath = parameters["path"] as string;
+    const path = parameters["path"];
+    if (typeof path !== "string" || !path) {
+      // Fail-safe: if path is missing or invalid for a file tool, we can't safely approve it
+      throw new Error(`Invalid or missing 'path' parameter for tool ${toolId}`);
+    }
+    context.filePath = path;
     context.fileOperation = toolId === "read_file" ? "read" : "write";
   }
 
   // Extract command for shell tools
   if (["run_shell", "backend_shell", "run_slash_command"].includes(toolId)) {
-    context.command = parameters["command"] as string;
+    const command = parameters["command"];
+    if (typeof command !== "string" || !command) {
+      throw new Error(`Invalid or missing 'command' parameter for tool ${toolId}`);
+    }
+    context.command = command;
   }
 
   // Extract MCP request for MCP tools
   if (toolId === "use_mcp") {
+    const serverName = parameters["server_name"];
+    const toolName = parameters["tool_name"];
+    if (typeof serverName !== "string" || typeof toolName !== "string") {
+      throw new Error(`Invalid parameters for MCP tool ${toolId}`);
+    }
     context.mcpRequest = {
       type: "use_mcp",
-      serverName: parameters["server_name"] as string,
-      toolName: parameters["tool_name"] as string,
-      arguments: parameters["arguments"] as Record<string, unknown>,
+      serverName,
+      toolName,
+      arguments: (parameters["arguments"] as Record<string, unknown>) ?? {},
     };
   }
 

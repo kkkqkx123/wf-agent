@@ -9,6 +9,12 @@ import type { FilePermissionSettings } from "./file-permission.js";
 import type { McpApprovalSettings, McpRequest } from "./mcp-approval.js";
 
 /**
+ * Security Preset
+ * Predefined security configurations for tool approval
+ */
+export type SecurityPreset = "SAFE" | "BALANCED" | "PERMISSIVE";
+
+/**
  * Workspace boundary control settings
  */
 export interface WorkspaceBoundarySettings {
@@ -57,6 +63,10 @@ export interface ToolApprovalOptions {
   /** Enable auto-approval system (default: false) */
   autoApprovalEnabled?: boolean;
 
+  // === Presets ===
+  /** Security preset to apply (overrides manual category settings if provided) */
+  securityPreset?: SecurityPreset;
+
   // === File permission (HIGHEST PRIORITY) ===
   /** File permission settings - evaluated first before any other checks */
   filePermissions?: FilePermissionSettings;
@@ -81,9 +91,9 @@ export interface ToolApprovalOptions {
   /** Interaction settings */
   interaction?: InteractionSettings;
 
-  // === Legacy support ===
-  /** Legacy: List of auto-approved tool IDs/names */
-  autoApprovedTools?: string[];
+  // === Usage Limits ===
+  /** Maximum number of consecutive auto-approved requests before requiring manual approval */
+  maxAutoApprovedRequests?: number;
 
   // === General settings ===
   /** Approval timeout in milliseconds (0 = no timeout) */

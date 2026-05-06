@@ -13,6 +13,7 @@ import { AgentLoopFactory, type AgentLoopEntityOptions } from "../../execution/f
 import { AgentLoopRegistry } from "../../stores/agent-loop-registry.js";
 import { AgentLoopExecutor, type AgentLoopStreamEvent } from "../executors/agent-loop-executor.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
+import { AgentLoopStateTransitor } from "./agent-loop-state-transitor.js";
 
 const logger = createContextualLogger({ component: "AgentLoopCoordinator" });
 
@@ -42,10 +43,15 @@ export interface AgentLoopExecuteOptions extends AgentLoopEntityOptions {
  * - Process orchestration: Handles complex multi-step operations.
  */
 export class AgentLoopCoordinator {
+  private readonly stateTransitor: AgentLoopStateTransitor;
+
   constructor(
     private readonly registry: AgentLoopRegistry,
     private readonly executor: AgentLoopExecutor,
-  ) {}
+    eventManager?: any, // EventRegistry type imported dynamically
+  ) {
+    this.stateTransitor = new AgentLoopStateTransitor(eventManager);
+  }
 
   /**
    * Build Entity (Internal Method)
@@ -92,42 +98,23 @@ export class AgentLoopCoordinator {
 
     logger.debug("Agent Loop registered", { agentLoopId: entity.id });
 
-    // 3. Start execution
-    entity.state.start();
-
-    logger.info("Agent Loop execution started", {
-      agentLoopId: entity.id,
-      parentContext: entity.getParentContext(),
-    });
+    // 3. Start execution using state transitor
+    await this.stateTransitor.startAgentLoop(entity);
 
     try {
       // 4. Execute the loop
       const result = await this.executor.execute(entity);
 
-      // 5. Update the status
+      // 5. Update the status using state transitor
       if (result.success) {
-        entity.state.complete();
-        logger.info("Agent Loop execution completed successfully", {
-          agentLoopId: entity.id,
-          iterations: result.iterations,
-          toolCallCount: result.toolCallCount,
-        });
+        await this.stateTransitor.completeAgentLoop(entity, result);
       } else {
-        entity.state.fail(result.error);
-        logger.warn("Agent Loop execution failed", {
-          agentLoopId: entity.id,
-          iterations: result.iterations,
-          error: result.error,
-        });
+        await this.stateTransitor.failAgentLoop(entity, result.error);
       }
 
       return result;
     } catch (error) {
-      entity.state.fail(error);
-      logger.warn("Agent Loop execution unexpected error", {
-        agentLoopId: entity.id,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      await this.stateTransitor.failAgentLoop(entity, error);
       return {
         success: false,
         iterations: entity.state.currentIteration,
@@ -161,13 +148,8 @@ export class AgentLoopCoordinator {
 
     logger.debug("Agent Loop registered for stream execution", { agentLoopId: entity.id });
 
-    // 3. Start execution
-    entity.state.start();
-
-    logger.info("Agent Loop stream execution started", {
-      agentLoopId: entity.id,
-      parentContext: entity.getParentContext(),
-    });
+    // 3. Start execution using state transitor
+    await this.stateTransitor.startAgentLoop(entity);
 
     try {
       // 4. Stream Execution Loop
@@ -176,25 +158,23 @@ export class AgentLoopCoordinator {
 
         // Check the interrupt signal.
         if (entity.shouldPause()) {
-          entity.state.pause();
-          logger.info("Agent Loop stream execution paused", { agentLoopId: entity.id });
+          await this.stateTransitor.pauseAgentLoop(entity);
           return;
         }
         if (entity.shouldStop()) {
-          entity.state.cancel();
-          logger.info("Agent Loop stream execution stopped", { agentLoopId: entity.id });
+          await this.stateTransitor.cancelAgentLoop(entity, "User requested stop");
           return;
         }
       }
 
-      // 5. Completion Status
-      entity.state.complete();
-      logger.info("Agent Loop stream execution completed", {
-        agentLoopId: entity.id,
+      // 5. Completion Status using state transitor
+      await this.stateTransitor.completeAgentLoop(entity, {
+        success: true,
         iterations: entity.state.currentIteration,
+        toolCallCount: entity.state.toolCallCount,
       });
     } catch (error) {
-      entity.state.fail(error);
+      await this.stateTransitor.failAgentLoop(entity, error);
       throw error;
     }
   }
@@ -220,40 +200,21 @@ export class AgentLoopCoordinator {
 
     logger.debug("Agent Loop registered for async execution", { agentLoopId: entity.id });
 
-    // 3. Start execution
-    entity.state.start();
-
-    logger.info("Agent Loop async execution started", {
-      agentLoopId: entity.id,
-      parentContext: entity.getParentContext(),
-    });
+    // 3. Start execution using state transitor
+    await this.stateTransitor.startAgentLoop(entity);
 
     // 4. Asynchronous execution (without waiting for results)
     this.executor
       .execute(entity)
-      .then(result => {
+      .then(async result => {
         if (result.success) {
-          entity.state.complete();
-          logger.info("Agent Loop async execution completed", {
-            agentLoopId: entity.id,
-            iterations: result.iterations,
-            toolCallCount: result.toolCallCount,
-          });
+          await this.stateTransitor.completeAgentLoop(entity, result);
         } else {
-          entity.state.fail(result.error);
-          logger.warn("Agent Loop async execution failed", {
-            agentLoopId: entity.id,
-            iterations: result.iterations,
-            error: result.error,
-          });
+          await this.stateTransitor.failAgentLoop(entity, result.error);
         }
       })
-      .catch(error => {
-        entity.state.fail(error);
-        logger.warn("Agent Loop async execution unexpected error", {
-          agentLoopId: entity.id,
-          error: error instanceof Error ? error.message : String(error),
-        });
+      .catch(async error => {
+        await this.stateTransitor.failAgentLoop(entity, error);
       });
 
     return entity.id;
@@ -310,40 +271,21 @@ export class AgentLoopCoordinator {
     // Reset the interrupt flag
     entity.resetInterrupt();
 
-    // Resume execution
-    entity.state.resume();
-
-    logger.info("Agent Loop resumed", {
-      agentLoopId: id,
-      currentIteration: entity.state.currentIteration,
-    });
+    // Resume execution using state transitor
+    await this.stateTransitor.resumeAgentLoop(entity);
 
     try {
       const result = await this.executor.execute(entity);
 
       if (result.success) {
-        entity.state.complete();
-        logger.info("Agent Loop resumed execution completed successfully", {
-          agentLoopId: id,
-          iterations: result.iterations,
-          toolCallCount: result.toolCallCount,
-        });
+        await this.stateTransitor.completeAgentLoop(entity, result);
       } else {
-        entity.state.fail(result.error);
-        logger.warn("Agent Loop resumed execution failed", {
-          agentLoopId: id,
-          iterations: result.iterations,
-          error: result.error,
-        });
+        await this.stateTransitor.failAgentLoop(entity, result.error);
       }
 
       return result;
     } catch (error) {
-      entity.state.fail(error);
-      logger.warn("Agent Loop resumed execution unexpected error", {
-        agentLoopId: entity.id,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      await this.stateTransitor.failAgentLoop(entity, error);
       return {
         success: false,
         iterations: entity.state.currentIteration,
@@ -406,42 +348,21 @@ export class AgentLoopCoordinator {
       );
     }
 
-    // Reset state for continuation
-    entity.state.status = AgentLoopStatus.RUNNING;
-    entity.resetInterrupt();
-
-    logger.info("Agent Loop continuing from current state", {
-      agentLoopId: id,
-      currentIteration: entity.state.currentIteration,
-      lastMessageRole: lastMessage.role,
-    });
+    // Reset state for continuation using state transitor
+    await this.stateTransitor.resumeAgentLoop(entity);
 
     try {
       const result = await this.executor.execute(entity);
 
       if (result.success) {
-        entity.state.complete();
-        logger.info("Agent Loop continue execution completed successfully", {
-          agentLoopId: id,
-          iterations: result.iterations,
-          toolCallCount: result.toolCallCount,
-        });
+        await this.stateTransitor.completeAgentLoop(entity, result);
       } else {
-        entity.state.fail(result.error);
-        logger.warn("Agent Loop continue execution failed", {
-          agentLoopId: id,
-          iterations: result.iterations,
-          error: result.error,
-        });
+        await this.stateTransitor.failAgentLoop(entity, result.error);
       }
 
       return result;
     } catch (error) {
-      entity.state.fail(error);
-      logger.warn("Agent Loop continue execution unexpected error", {
-        agentLoopId: entity.id,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      await this.stateTransitor.failAgentLoop(entity, error);
       return {
         success: false,
         iterations: entity.state.currentIteration,
@@ -464,15 +385,9 @@ export class AgentLoopCoordinator {
       throw new Error(`AgentLoop not found: ${id}`);
     }
 
-    // Set a stop flag and abort the process.
+    // Set a stop flag and abort the process using state transitor
     entity.interrupt("STOP");
-    entity.state.cancel();
-
-    logger.info("Agent Loop stopped", {
-      agentLoopId: id,
-      iterations: entity.state.currentIteration,
-      toolCallCount: entity.state.toolCallCount,
-    });
+    await this.stateTransitor.cancelAgentLoop(entity, "User requested stop");
   }
 
   /**

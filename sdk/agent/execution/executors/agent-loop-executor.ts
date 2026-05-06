@@ -31,6 +31,7 @@ import { LLMExecutor } from "../../../core/executors/llm-executor.js";
 import { ToolCallExecutor } from "../../../core/executors/tool-call-executor.js";
 import { emit } from "../../../core/utils/event/event-emitter.js";
 import { AgentExecutionCoordinator, type AgentLoopStreamEvent } from "../coordinators/agent-execution-coordinator.js";
+import { ToolExecutionCoordinator } from "../coordinators/tool-execution-coordinator.js";
 import { prepareToolSchemas } from "../../../core/utils/tools/tool-schema-helper.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import { buildAgentHookTriggeredCoreEvent } from "../../../core/utils/event/builders/agent-events.js";
@@ -163,13 +164,19 @@ export class AgentLoopExecutor {
    * Create AgentExecutionCoordinator
    */
   private createCoordinator(): AgentExecutionCoordinator {
+    // Create ToolExecutionCoordinator first
+    const toolExecutionCoordinator = new ToolExecutionCoordinator({
+      toolCallExecutor: this.toolCallExecutor,
+      eventManager: this.eventManager,
+      toolApprovalHandler: this.toolApprovalHandler,
+    });
+
+    // Then create AgentExecutionCoordinator with ToolExecutionCoordinator
     return new AgentExecutionCoordinator({
       llmExecutor: this.llmExecutor,
-      toolCallExecutor: this.toolCallExecutor,
+      toolExecutionCoordinator,
       emitAgentEvent: this.emitAgentEvent.bind(this),
       eventManager: this.eventManager,
-      toolService: this.toolService,
-      toolApprovalHandler: this.toolApprovalHandler,
     });
   }
 

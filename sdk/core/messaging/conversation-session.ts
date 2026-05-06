@@ -61,6 +61,8 @@ export interface ConversationState extends MessageHistoryState {
   tokenUsage?: TokenUsageStats | null;
   /** Usage of the Token for the current request */
   currentRequestUsage?: TokenUsageStats | null;
+  /** Turn-based execution states (Persistent) */
+  turnStates?: Record<number, Record<string, unknown>>;
 }
 
 /**
@@ -73,8 +75,8 @@ export class ConversationSession extends MessageHistory implements LifecycleCapa
   protected workflowId?: string;
   protected checkpointStorage?: CheckpointStorageAdapter;
 
-  /** Turn-based context cache for reducing redundant dynamic context generation */
-  private turnContextCache: Map<number, string> = new Map();
+  /** Turn-based execution state storage. Part of the persistent conversation state. */
+  private turnStates: Map<number, Record<string, unknown>> = new Map();
 
   /**
    * Constructor
@@ -331,8 +333,8 @@ export class ConversationSession extends MessageHistory implements LifecycleCapa
   override addMessage(message: LLMMessage): number {
     const newIndex = super.addMessage(message);
     
-    // Clear cache from this point forward
-    this.clearTurnContextFromIndex(newIndex - 1);
+    // Clear state from this point forward
+    this.clearStateFromIndex(newIndex - 1);
     
     return newIndex;
   }
@@ -380,53 +382,63 @@ export class ConversationSession extends MessageHistory implements LifecycleCapa
     this.tokenUsageTracker = new TokenUsageTracker({
       tokenLimit: this.tokenUsageTracker["tokenLimit"],
     });
-    // Clear all cached contexts
-    this.clearAllTurnContexts();
+    // Clear all turn states
+    this.clearAllStates();
   }
 
   // ============================================================
-  // Turn-Based Context Caching Methods
+  // Turn-Based Execution State Methods (Persistent)
   // ============================================================
 
   /**
-   * Get cached dynamic context for a specific turn
+   * Get execution state for a specific turn.
+   * This is part of the persistent state, not a transient cache.
    * @param turnStartIndex Index of the turn-start user message
-   * @returns Cached context text or undefined if not cached
+   * @param key The state key (e.g., 'dynamicContext')
+   * @returns State value or undefined if not found
    */
-  getTurnDynamicContext(turnStartIndex: number): string | undefined {
-    return this.turnContextCache.get(turnStartIndex);
+  getTurnState<T = unknown>(turnStartIndex: number, key: string): T | undefined {
+    const turnState = this.turnStates.get(turnStartIndex);
+    return turnState ? (turnState[key] as T) : undefined;
   }
 
   /**
-   * Cache dynamic context for a specific turn
+   * Set execution state for a specific turn.
+   * This state is persisted as part of the conversation history.
    * @param turnStartIndex Index of the turn-start user message
-   * @param context Generated dynamic context text
+   * @param key The state key
+   * @param value The state value
    */
-  setTurnDynamicContext(turnStartIndex: number, context: string): void {
-    this.turnContextCache.set(turnStartIndex, context);
-    logger.debug("Cached turn dynamic context", {
+  setTurnState(turnStartIndex: number, key: string, value: unknown): void {
+    if (!this.turnStates.has(turnStartIndex)) {
+      this.turnStates.set(turnStartIndex, {});
+    }
+    const turnState = this.turnStates.get(turnStartIndex)!;
+    turnState[key] = value;
+    
+    logger.debug("Turn state updated", {
       turnStartIndex,
-      contextLength: context.length,
+      key,
     });
   }
 
   /**
-   * Clear cached context from a specific index onwards
-   * Used when editing or deleting messages
+   * Clear state from a specific index onwards.
+   * Used when editing or deleting messages to maintain consistency.
    * @param index Message index to clear from
    */
-  clearTurnContextFromIndex(index: number): void {
+  clearStateFromIndex(index: number): void {
     const clearedKeys: number[] = [];
 
-    for (const [key] of this.turnContextCache) {
+    for (const [key] of this.turnStates) {
       if (key >= index) {
-        this.turnContextCache.delete(key);
+        this.turnStates.delete(key);
         clearedKeys.push(key);
       }
     }
 
     if (clearedKeys.length > 0) {
-      logger.debug("Cleared turn context cache", {
+      logger.debug("Cleared turn states", {
         fromIndex: index,
         clearedCount: clearedKeys.length,
         clearedIndices: clearedKeys,
@@ -435,15 +447,92 @@ export class ConversationSession extends MessageHistory implements LifecycleCapa
   }
 
   /**
-   * Clear all cached turn contexts
+   * Clear all turn states.
+   * Used when resetting conversation.
+   */
+  clearAllStates(): void {
+    const clearedCount = this.turnStates.size;
+    this.turnStates.clear();
+
+    if (clearedCount > 0) {
+      logger.debug("Cleared all turn states", { clearedCount });
+    }
+  }
+
+  /**
+   * Get dynamic context for a specific turn (Legacy alias for getTurnState)
+   * @param turnStartIndex Index of the turn-start user message
+   * @returns Context text or undefined if not found
+   */
+  getTurnDynamicContext(turnStartIndex: number): string | undefined {
+    return this.getTurnState<string>(turnStartIndex, 'dynamicContext');
+  }
+
+  /**
+   * Set dynamic context for a specific turn (Legacy alias for setTurnState)
+   * @param turnStartIndex Index of the turn-start user message
+   * @param context Generated dynamic context text
+   */
+  setTurnDynamicContext(turnStartIndex: number, context: string): void {
+    this.setTurnState(turnStartIndex, 'dynamicContext', context);
+  }
+
+  /**
+   * Clear cached context from a specific index onwards (Legacy alias for clearStateFromIndex)
+   * Used when editing or deleting messages
+   * @param index Message index to clear from
+   */
+  clearTurnContextFromIndex(index: number): void {
+    this.clearStateFromIndex(index);
+  }
+
+  /**
+   * Clear all cached turn contexts (Legacy alias for clearAllStates)
    * Used when resetting conversation
    */
   clearAllTurnContexts(): void {
-    const clearedCount = this.turnContextCache.size;
-    this.turnContextCache.clear();
+    this.clearAllStates();
+  }
 
-    if (clearedCount > 0) {
-      logger.debug("Cleared all turn context cache", { clearedCount });
+  /**
+   * Get conversation state for checkpointing
+   * @returns Current conversation state
+   */
+  getState(): ConversationState {
+    const baseState = this.createSnapshot();
+    
+    // Convert Map to plain object for serialization
+    const serializedTurnStates: Record<number, Record<string, unknown>> = {};
+    this.turnStates.forEach((value, key) => {
+      serializedTurnStates[key] = value;
+    });
+
+    return {
+      ...baseState,
+      tokenUsage: this.tokenUsageTracker.getCumulativeUsage(),
+      currentRequestUsage: this.tokenUsageTracker.getCurrentRequestUsage(),
+      turnStates: serializedTurnStates,
+    };
+  }
+
+  /**
+   * Restore conversation state from checkpoint
+   * @param state State to restore
+   */
+  restoreState(state: ConversationState): void {
+    this.restoreFromSnapshot(state);
+    
+    if (state.tokenUsage) {
+      this.tokenUsageTracker.setState(state.tokenUsage, state.currentRequestUsage);
+    }
+
+    // Restore turn states
+    if (state.turnStates) {
+      this.turnStates.clear();
+      Object.entries(state.turnStates).forEach(([key, value]) => {
+        this.turnStates.set(Number(key), value as Record<string, unknown>);
+      });
+      logger.debug("Restored turn states", { count: this.turnStates.size });
     }
   }
 }

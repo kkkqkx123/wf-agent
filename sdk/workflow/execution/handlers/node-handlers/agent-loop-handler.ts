@@ -82,7 +82,7 @@ function createCoordinator(context: AgentLoopHandlerContext): AgentLoopCoordinat
     eventManager: context.eventManager,
   });
 
-  return new AgentLoopCoordinator(registry, executor);
+  return new AgentLoopCoordinator(registry, executor, context.eventManager);
 }
 
 /**

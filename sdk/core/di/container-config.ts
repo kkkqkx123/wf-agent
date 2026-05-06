@@ -725,6 +725,7 @@ export function initializeContainerWithAdapters(adapters: StorageAdapterConfig =
           return new AgentLoopCoordinator(
             c.get(Identifiers.AgentLoopRegistry) as AgentLoopRegistry,
             (c.get(Identifiers.AgentLoopExecutor) as { create: () => AgentLoopExecutor }).create(),
+            c.get(Identifiers.EventRegistry), // EventRegistry for state transitor
           );
         },
       };

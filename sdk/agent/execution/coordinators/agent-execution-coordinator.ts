@@ -7,7 +7,7 @@
  * Design Principles:
  * - Coordinator pattern: orchestrates execution flow
  * - Stateless design, all state managed through AgentLoopEntity
- * - Reuses AgentIterationExecutor for single iteration execution
+ * - Delegates to specialized coordinators (ToolExecutionCoordinator)
  * - Supports both sync and streaming execution modes
  * - Integrates with Hook mechanism
  */
@@ -20,17 +20,12 @@ import type {
   ToolSchema,
   LLMMessage,
   Event as RegistryEvent,
-  ToolApprovalOptions,
-  ToolApprovalHandler,
-  LLMToolCall,
 } from "@wf-agent/types";
 import { AgentStreamEventType } from "@wf-agent/types";
 import type { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import type { ConversationSession } from "../../../core/messaging/conversation-session.js";
 import type { LLMExecutor } from "../../../core/executors/llm-executor.js";
-import type { ToolCallExecutor } from "../../../core/executors/tool-call-executor.js";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
-import type { ToolRegistry } from "../../../core/registry/tool-registry.js";
 import { isAbortError, checkInterruption } from "@wf-agent/common-utils";
 import { executeAgentHook } from "../handlers/hook-handlers/index.js";
 import {
@@ -45,7 +40,7 @@ import {
   buildAgentToolExecutionStartedEvent,
   buildAgentToolExecutionCompletedEvent,
 } from "../../../core/utils/event/builders/agent-events.js";
-import { ToolApprovalCoordinator } from "../../../core/coordinators/tool-approval-coordinator.js";
+import { ToolExecutionCoordinator } from "./tool-execution-coordinator.js";
 
 const logger = createContextualLogger({ component: "AgentExecutionCoordinator" });
 
@@ -60,16 +55,12 @@ export type AgentLoopStreamEvent = MessageStreamEvent | AgentStreamEvent;
 export interface AgentExecutionCoordinatorDependencies {
   /** LLM Executor */
   llmExecutor: LLMExecutor;
-  /** Tool Call Executor */
-  toolCallExecutor: ToolCallExecutor;
+  /** Tool Execution Coordinator */
+  toolExecutionCoordinator: ToolExecutionCoordinator;
   /** Event emitter for agent events */
   emitAgentEvent: (event: AgentHookTriggeredEvent) => Promise<void>;
   /** Event Registry (optional) */
   eventManager?: EventRegistry;
-  /** Tool Registry (for getting tool definitions) */
-  toolService?: ToolRegistry;
-  /** Tool Approval Handler (optional) */
-  toolApprovalHandler?: ToolApprovalHandler;
 }
 
 /**
@@ -78,28 +69,20 @@ export interface AgentExecutionCoordinatorDependencies {
  * Coordinates the execution flow of agent loop:
  * - Manages iteration loop control
  * - Handles interruption signals (pause/stop/abort)
- * - Delegates to AgentIterationExecutor for single iteration
+ * - Delegates to ToolExecutionCoordinator for tool execution
  * - Supports streaming with real-time event forwarding
  */
 export class AgentExecutionCoordinator {
   private readonly llmExecutor: LLMExecutor;
-  private readonly toolCallExecutor: ToolCallExecutor;
+  private readonly toolExecutionCoordinator: ToolExecutionCoordinator;
   private readonly emitAgentEvent: (event: AgentHookTriggeredEvent) => Promise<void>;
   private readonly eventManager?: EventRegistry;
-  private readonly approvalCoordinator: ToolApprovalCoordinator;
-  private readonly toolService?: ToolRegistry;
-  private readonly toolApprovalHandler?: ToolApprovalHandler;
 
   constructor(deps: AgentExecutionCoordinatorDependencies) {
     this.llmExecutor = deps.llmExecutor;
-    this.toolCallExecutor = deps.toolCallExecutor;
+    this.toolExecutionCoordinator = deps.toolExecutionCoordinator;
     this.emitAgentEvent = deps.emitAgentEvent;
     this.eventManager = deps.eventManager;
-    this.toolService = deps.toolService;
-    this.toolApprovalHandler = deps.toolApprovalHandler;
-    
-    // Initialize approval coordinator
-    this.approvalCoordinator = new ToolApprovalCoordinator(deps.eventManager);
   }
 
   /**
@@ -463,7 +446,16 @@ export class AgentExecutionCoordinator {
       return { success: true, shouldContinue: false, content: response.content };
     }
 
-    await this.executeToolCalls(entity, conversationManager, response.toolCalls);
+    // Execute tool calls using ToolExecutionCoordinator
+    await this.toolExecutionCoordinator.executeToolCalls(
+      entity,
+      conversationManager,
+      response.toolCalls.map(tc => ({
+        id: tc.id,
+        name: tc.name,
+        arguments: tc.arguments,
+      })),
+    );
     entity.state.endIteration(response.content);
     await executeAgentHook(entity, "AFTER_ITERATION", this.emitAgentEvent);
 
@@ -580,7 +572,16 @@ export class AgentExecutionCoordinator {
       return false;
     }
 
-    yield* this.executeToolCallsStream(entity, conversationManager, finalResult.toolCalls);
+    // Execute tool calls using ToolExecutionCoordinator (stream mode)
+    yield* this.toolExecutionCoordinator.executeToolCallsStream(
+      entity,
+      conversationManager,
+      finalResult.toolCalls.map((tc: { id: string; name: string; arguments: string }) => ({
+        id: tc.id,
+        name: tc.name,
+        arguments: tc.arguments,
+      })),
+    );
 
     yield this.createIterationCompleteEvent(agentLoopId, entity.state.currentIteration, true);
     await this.emitToRegistry(
@@ -818,421 +819,6 @@ export class AgentExecutionCoordinator {
       entity,
     );
     return { success: false };
-  }
-
-  /**
-   * Execute tool calls (sync mode)
-   */
-  private async executeToolCalls(
-    entity: AgentLoopEntity,
-    conversationManager: ConversationSession,
-    toolCalls: Array<{ id: string; name: string; arguments: string }>,
-  ): Promise<void> {
-    const agentLoopId = entity.id;
-    const iteration = entity.state.currentIteration;
-
-    logger.debug("Executing tool calls", {
-      agentLoopId,
-      iteration,
-      toolCallCount: toolCalls.length,
-    });
-
-    // Check interruption before tool execution
-    const preToolInterruption = checkInterruption(entity.getAbortSignal());
-    if (preToolInterruption.type === "paused" || preToolInterruption.type === "stopped") {
-      logger.info("Interrupted before tool execution", {
-        agentLoopId,
-        iteration,
-        interruptionType: preToolInterruption.type,
-        pendingToolCalls: toolCalls.length,
-      });
-      // Cancel all pending tool calls
-      for (const tc of toolCalls) {
-        entity.state.recordToolCallEnd(tc.id, undefined, "Cancelled due to interruption");
-      }
-      return;
-    }
-
-    // Convert to LLMToolCall format for batch processing
-    const llmToolCalls = toolCalls.map(tc => ({
-      id: tc.id,
-      type: "function" as const,
-      function: {
-        name: tc.name,
-        arguments: tc.arguments,
-      },
-    }));
-
-    // Get approval config from agent configuration
-    const approvalOptions = this.getApprovalOptions(entity);
-
-    // Process batch through approval coordinator
-    const batchResult = await this.approvalCoordinator.processToolBatch(
-      llmToolCalls,
-      approvalOptions,
-      entity.id,
-      entity.nodeId || "unknown",
-      {
-        requestApproval: async (request) => {
-          return this.requestAgentApproval(request, entity);
-        },
-      },
-      this.eventManager,
-    );
-
-    // Execute auto-approved tools
-    for (let i = 0; i < batchResult.autoExecuted.length; i++) {
-      const autoResult = batchResult.autoExecuted[i];
-      // Auto-executed tools correspond to the first N tools in the batch
-      if (i < toolCalls.length && autoResult) {
-        const originalToolCall = toolCalls[i]!;
-        await this.executeSingleApprovedTool(
-          entity,
-          conversationManager,
-          originalToolCall,
-          autoResult,
-        );
-      }
-    }
-
-    // Handle confirmation-required tool
-    if (batchResult.confirmationRequired && batchResult.confirmationResult?.approved) {
-      const confirmedToolCall = toolCalls.find(
-        tc => tc.id === batchResult.confirmationRequired?.id,
-      );
-      if (confirmedToolCall) {
-        // Apply edited parameters if provided
-        if (batchResult.confirmationResult.editedParameters) {
-          confirmedToolCall.arguments = JSON.stringify(
-            batchResult.confirmationResult.editedParameters,
-          );
-        }
-
-        // Add user instruction if provided
-        if (batchResult.confirmationResult.userInstruction) {
-          conversationManager.addMessage({
-            role: "user",
-            content: batchResult.confirmationResult.userInstruction,
-          });
-        }
-
-        // Create placeholder result for execution
-        const placeholderResult = {
-          success: true,
-          result: {},
-          executionTime: 0,
-          retryCount: 0,
-        };
-
-        await this.executeSingleApprovedTool(
-          entity,
-          conversationManager,
-          confirmedToolCall,
-          placeholderResult,
-        );
-      }
-
-      // Continue with remaining queue if flag is set
-      if (
-        batchResult.confirmationResult.continueBatch !== false &&
-        batchResult.remainingQueue.length > 0
-      ) {
-        const remainingToolCalls = batchResult.remainingQueue.map(tc => ({
-          id: tc.id,
-          name: tc.function?.name || "unknown",
-          arguments: tc.function?.arguments || "{}",
-        }));
-
-        // Recursively process remaining tools
-        await this.executeToolCalls(entity, conversationManager, remainingToolCalls);
-      }
-    }
-
-    // Check interruption after tool execution
-    const postToolInterruption = checkInterruption(entity.getAbortSignal());
-    if (postToolInterruption.type === "paused" || postToolInterruption.type === "stopped") {
-      logger.info("Interrupted after tool execution", {
-        agentLoopId,
-        iteration,
-        interruptionType: postToolInterruption.type,
-      });
-      // Still record results but will be handled by main loop
-    }
-
-    logger.debug("Tool calls execution completed", {
-      agentLoopId,
-      iteration,
-      autoExecutedCount: batchResult.autoExecuted.length,
-      hasConfirmation: !!batchResult.confirmationRequired,
-    });
-  }
-
-  /**
-   * Execute a single approved tool call
-   */
-  private async executeSingleApprovedTool(
-    entity: AgentLoopEntity,
-    conversationManager: ConversationSession,
-    toolCall: { id: string; name: string; arguments: string },
-    executionResult: { success: boolean; result?: unknown; error?: string },
-  ): Promise<void> {
-    const agentLoopId = entity.id;
-
-    const toolCallInfo = {
-      id: toolCall.id,
-      name: toolCall.name,
-      arguments: toolCall.arguments ? JSON.parse(toolCall.arguments) : {},
-    };
-
-    await executeAgentHook(entity, "BEFORE_TOOL_CALL", this.emitAgentEvent, toolCallInfo);
-
-    if (executionResult.success) {
-      logger.debug("Tool call succeeded", {
-        agentLoopId,
-        toolCallId: toolCall.id,
-        toolName: toolCallInfo.name,
-      });
-
-      // Execute actual tool call
-      const toolResults = await this.toolCallExecutor.executeToolCalls(
-        [toolCall],
-        conversationManager,
-        entity.id,
-        entity.nodeId,
-        { abortSignal: entity.getAbortSignal() },
-      );
-
-      const result = toolResults[0];
-      if (result?.success) {
-        entity.state.recordToolCallEnd(toolCall.id, result.result);
-        await executeAgentHook(entity, "AFTER_TOOL_CALL", this.emitAgentEvent, {
-          ...toolCallInfo,
-          result: result.result,
-        });
-      } else {
-        entity.state.recordToolCallEnd(
-          toolCall.id,
-          undefined,
-          result?.error || "Tool execution failed",
-        );
-        await executeAgentHook(entity, "AFTER_TOOL_CALL", this.emitAgentEvent, {
-          ...toolCallInfo,
-          error: result?.error,
-        });
-      }
-    } else {
-      logger.warn("Tool call rejected or failed", {
-        agentLoopId,
-        toolCallId: toolCall.id,
-        toolName: toolCallInfo.name,
-        error: executionResult.error,
-      });
-      entity.state.recordToolCallEnd(
-        toolCall.id,
-        undefined,
-        executionResult.error || "Rejected by user",
-      );
-      await executeAgentHook(entity, "AFTER_TOOL_CALL", this.emitAgentEvent, {
-        ...toolCallInfo,
-        error: executionResult.error,
-      });
-    }
-  }
-
-  /**
-   * Get approval options from agent configuration
-   *
-   * @param entity - Agent loop entity
-   * @returns ToolApprovalOptions
-   */
-  private getApprovalOptions(entity: AgentLoopEntity): ToolApprovalOptions {
-    // Get from agent configuration or use defaults
-    // For now, return safe defaults
-    // In future, this could read from entity.config.approvalOptions
-    return {
-      autoApprovalEnabled: false,  // Safe default: require approval for all tools
-    };
-  }
-
-  /**
-   * Request tool approval for agent mode
-   *
-   * This is a placeholder implementation. In production, this should integrate
-   * with the application's UI (CLI prompt, TUI interaction, web interface, etc.)
-   *
-   * @param request - Approval request
-   * @param entity - Agent loop entity
-   * @returns Approval result
-   */
-  private async requestAgentApproval(
-    request: { toolCall: { id: string; function?: { name?: string; arguments?: string } } },
-    entity: AgentLoopEntity,
-  ): Promise<{ approved: boolean; toolCallId: string; editedParameters?: Record<string, unknown>; userInstruction?: string; rejectionReason?: string }> {
-    // Use registered handler if available
-    if (this.toolApprovalHandler) {
-      try {
-        // Construct full LLMToolCall object
-        const llmToolCall: LLMToolCall = {
-          id: request.toolCall.id,
-          type: "function",
-          function: {
-            name: request.toolCall.function?.name || "unknown",
-            arguments: request.toolCall.function?.arguments || "{}",
-          },
-        };
-
-        const result = await this.toolApprovalHandler.requestApproval({
-          toolCall: llmToolCall,
-          batchId: undefined, // Will be set by processToolBatch context
-          toolIndex: 0,
-          totalTools: 1,
-          pendingQueue: [],
-          contextId: entity.id,
-          nodeId: entity.nodeId || "unknown",
-          interactionId: `approval-${Date.now()}-${request.toolCall.id}`,
-        });
-
-        return {
-          approved: result.approved,
-          toolCallId: result.toolCallId,
-          editedParameters: result.editedParameters,
-          userInstruction: result.userInstruction,
-          rejectionReason: result.rejectionReason,
-        };
-      } catch (error) {
-        logger.error("Tool approval handler failed", {
-          agentLoopId: entity.id,
-          toolCallId: request.toolCall.id,
-          error,
-        });
-
-        return {
-          approved: false,
-          toolCallId: request.toolCall.id,
-          rejectionReason: `Handler error: ${error instanceof Error ? error.message : String(error)}`,
-        };
-      }
-    }
-
-    // Fallback to current behavior when no handler configured
-    const toolName = request.toolCall.function?.name || "unknown";
-    
-    logger.warn("No tool approval handler configured, rejecting by default", {
-      agentLoopId: entity.id,
-      toolCallId: request.toolCall.id,
-      toolName,
-    });
-
-    return {
-      approved: false,
-      toolCallId: request.toolCall.id,
-      rejectionReason: `No approval handler configured. Tool "${toolName}" requires manual approval but no handler is registered.`,
-    };
-  }
-
-  /**
-   * Execute tool calls (stream mode)
-   */
-  private async *executeToolCallsStream(
-    entity: AgentLoopEntity,
-    conversationManager: ConversationSession,
-    toolCalls: Array<{ id: string; function: { name: string; arguments: string } }>,
-  ): AsyncGenerator<AgentLoopStreamEvent> {
-    const agentLoopId = entity.id;
-
-    logger.debug("Executing tool calls in stream", {
-      agentLoopId,
-      iteration: entity.state.currentIteration,
-      toolCallCount: toolCalls.length,
-    });
-
-    const executorToolCalls = toolCalls.map(tc => ({
-      id: tc.id,
-      name: tc.function.name,
-      arguments: tc.function.arguments,
-    }));
-
-    const toolResults = await this.toolCallExecutor.executeToolCalls(
-      executorToolCalls,
-      conversationManager,
-      entity.id,
-      entity.nodeId,
-      { abortSignal: entity.getAbortSignal() },
-    );
-
-    for (const result of toolResults) {
-      const toolCall = toolCalls.find(tc => tc.id === result.toolCallId);
-      const args = toolCall ? JSON.parse(toolCall.function.arguments) : {};
-      const toolCallInfo = {
-        id: result.toolCallId,
-        name: toolCall?.function.name || "",
-        arguments: args,
-      };
-
-      await executeAgentHook(entity, "BEFORE_TOOL_CALL", this.emitAgentEvent, toolCallInfo);
-
-      const startEvent: AgentStreamEvent = {
-        type: AgentStreamEventType.TOOL_EXECUTION_START,
-        timestamp: Date.now(),
-        agentLoopId,
-        toolCallId: result.toolCallId,
-        toolName: toolCallInfo.name,
-        args,
-        iteration: entity.state.currentIteration,
-      };
-      yield startEvent;
-      await this.emitToRegistry(startEvent, entity);
-
-      entity.state.recordToolCallStart(result.toolCallId, toolCallInfo.name, args);
-
-      if (result.success) {
-        entity.state.recordToolCallEnd(result.toolCallId, result.result);
-        await executeAgentHook(entity, "AFTER_TOOL_CALL", this.emitAgentEvent, {
-          ...toolCallInfo,
-          result: result.result,
-        });
-
-        const endEvent: AgentStreamEvent = {
-          type: AgentStreamEventType.TOOL_EXECUTION_END,
-          timestamp: Date.now(),
-          agentLoopId,
-          toolCallId: result.toolCallId,
-          toolName: toolCallInfo.name,
-          result: {
-            success: true,
-            result: result.result,
-            executionTime: result.executionTime,
-            retryCount: 0,
-          },
-          duration: result.executionTime,
-        };
-        yield endEvent;
-        await this.emitToRegistry(endEvent, entity);
-      } else {
-        entity.state.recordToolCallEnd(result.toolCallId, undefined, result.error);
-        await executeAgentHook(entity, "AFTER_TOOL_CALL", this.emitAgentEvent, {
-          ...toolCallInfo,
-          error: result.error,
-        });
-
-        const endEvent: AgentStreamEvent = {
-          type: AgentStreamEventType.TOOL_EXECUTION_END,
-          timestamp: Date.now(),
-          agentLoopId,
-          toolCallId: result.toolCallId,
-          toolName: toolCallInfo.name,
-          result: {
-            success: false,
-            error: result.error,
-            executionTime: result.executionTime,
-            retryCount: 0,
-          },
-          duration: result.executionTime,
-        };
-        yield endEvent;
-        await this.emitToRegistry(endEvent, entity);
-      }
-    }
   }
 
   // ============ Event Factory Methods ============

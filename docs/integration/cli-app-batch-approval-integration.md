@@ -16,9 +16,9 @@ This document analyzes how the CLI app should correctly integrate the new batch 
    - ✅ Comprehensive unit tests (19 test cases)
 
 2. **ConversationSession** (`sdk/core/messaging/conversation-session.ts`)
-   - ✅ Turn-based context caching (`setTurnDynamicContext`, `getTurnDynamicContext`)
-   - ✅ Automatic cache invalidation on message operations
-   - ✅ Cache cleanup utilities (`clearTurnContextFromIndex`, `clearAllTurnContexts`)
+   - ✅ Turn-based state persistence (`setTurnState`, `getTurnState`)
+   - ✅ Automatic state invalidation on message operations
+   - ✅ State cleanup utilities (`clearStateFromIndex`, `clearAllStates`)
    - ✅ Comprehensive unit tests (19 test cases)
 
 3. **AgentExecutionCoordinator** (`sdk/agent/execution/coordinators/agent-execution-coordinator.ts`)
@@ -401,32 +401,30 @@ constructor() {
 }
 ```
 
-### 5. Integrate Context Caching
+### 5. Integrate Context Persistence
 
-**Location**: Already integrated! The `AgentLoopEntity` uses `ConversationSession` which already has context caching.
+**Location**: Already integrated! The `AgentLoopEntity` uses `ConversationSession` which now treats turn contexts as persistent state.
 
-**Verification**: Check that context caching is being used properly:
+**Verification**: Check that state persistence is being used properly:
 
 ```typescript
 // In agent execution loop, after each iteration:
 
-// Get cached context for current turn
 const turnIndex = entity.state.currentIteration;
-const cachedContext = conversationManager.getTurnDynamicContext(turnIndex);
 
-if (cachedContext) {
-  logger.debug("Using cached dynamic context", { turnIndex });
-  // Use cached context instead of regenerating
-} else {
-  // Generate new context
-  const dynamicContext = await this.buildDynamicContext(...);
+// Retrieve persisted state for the current turn
+const dynamicContext = conversationManager.getTurnState<string>(turnIndex, 'dynamicContext');
+
+if (!dynamicContext) {
+  // Generate new context only if it doesn't exist in persistent state
+  const newContext = await this.buildDynamicContext(...);
   
-  // Cache it for future turns
-  conversationManager.setTurnDynamicContext(turnIndex, dynamicContext);
+  // Persist it as part of the conversation state
+  conversationManager.setTurnState(turnIndex, 'dynamicContext', newContext);
 }
 ```
 
-**Current Status**: The caching infrastructure is in place, but the agent execution loop needs to actually use it. This is a separate optimization task.
+**Current Status**: The persistence infrastructure is in place. The agent execution loop should now treat these contexts as part of the core state rather than transient caches.
 
 ## Integration Checklist
 
@@ -447,18 +445,18 @@ if (cachedContext) {
 - [ ] Test with simple agent loop execution
 - [ ] Verify progressive events are emitted
 
-### Phase 4: Context Caching Usage
+### Phase 4: Context Persistence Usage
 - [ ] Identify where dynamic context is generated in agent loop
-- [ ] Add cache lookup before generation
-- [ ] Add cache storage after generation
-- [ ] Verify cache invalidation works correctly
+- [ ] Add state lookup before generation
+- [ ] Add state storage after generation
+- [ ] Verify state consistency during history edits
 
 ### Phase 5: Testing
 - [ ] Manual test: Run agent with tools requiring approval
 - [ ] Test batch scenario: Multiple tools in one iteration
 - [ ] Test edit scenario: Modify tool parameters
 - [ ] Test skip scenario: Skip tool, continue batch
-- [ ] Verify context caching improves performance
+- [ ] Verify context persistence improves performance and state consistency
 
 ## Potential Issues & Solutions
 

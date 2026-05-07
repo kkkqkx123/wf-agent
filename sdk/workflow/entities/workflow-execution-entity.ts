@@ -74,7 +74,7 @@ export class WorkflowExecutionEntity {
   toolVisibilityCoordinator?: unknown;
 
   /** Execution Hierarchy Manager (unified parent-child relationship management) */
-  private readonly hierarchyManager: ExecutionHierarchyManager;
+  private hierarchyManager: ExecutionHierarchyManager;
 
   /**
    * Constructor
@@ -686,8 +686,8 @@ export class WorkflowExecutionEntity {
       'WORKFLOW',
       metadata
     );
-    // Replace the manager (using reflection since it's readonly)
-    (this as any).hierarchyManager = newManager;
+    // Replace the manager
+    this.hierarchyManager = newManager;
     
     // Also update the data object
     this.workflowExecution.hierarchy = metadata;
@@ -705,7 +705,7 @@ export class WorkflowExecutionEntity {
     builder: (params: { executionId: string; workflowId: string } & Record<string, unknown>) => T,
     params?: Omit<Parameters<typeof builder>[0], "executionId" | "workflowId">,
   ): T {
-    const fullParams = {
+    const fullParams: { executionId: string; workflowId: string } & Record<string, unknown> = {
       executionId: this.id,
       workflowId: this.workflowExecution.workflowId,
       ...params,

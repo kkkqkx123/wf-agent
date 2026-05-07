@@ -10,7 +10,7 @@
  * List of directories that should be ignored when listing files recursively
  * or scanning for code indexing.
  */
-export const BUILTIN_IGNORE_DIRS = [
+export const BUILTIN_IGNORE_DIRS: readonly string[] = [
   // OS
   ".DS_Store",
   ".DS_Store",

@@ -7,6 +7,7 @@
 
 import type { ID } from "@wf-agent/types";
 import type { AgentLoopRuntimeConfig, AgentLoopResult } from "@wf-agent/types";
+import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import { AgentLoopStatus } from "@wf-agent/types";
 import { AgentLoopFactory, type AgentLoopEntityOptions } from "../../execution/factories/index.js";
@@ -48,7 +49,7 @@ export class AgentLoopCoordinator {
   constructor(
     private readonly registry: AgentLoopRegistry,
     private readonly executor: AgentLoopExecutor,
-    eventManager?: any, // EventRegistry type imported dynamically
+    eventManager?: EventRegistry, // EventRegistry type imported dynamically
   ) {
     this.stateTransitor = new AgentLoopStateTransitor(eventManager);
   }

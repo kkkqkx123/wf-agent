@@ -458,7 +458,10 @@ export class NodeExecutionCoordinator {
           executionTime: nodeResult.executionTime,
         });
       } else if (nodeResult.status === "FAILED") {
-        const nodeFailedEvent = workflowExecutionEntity.buildEvent(buildNodeFailedEvent as any, {
+        const nodeFailedEvent = buildNodeFailedEvent({
+          executionId: workflowExecutionEntity.id,
+          workflowId: workflowExecutionEntity.getWorkflowId(),
+          nodeId,
           error: getErrorOrNew(nodeResult.error),
         });
         await emit(this.eventManager, nodeFailedEvent as Event);
@@ -493,7 +496,10 @@ export class NodeExecutionCoordinator {
 
       workflowExecutionEntity.addNodeResult(errorResult);
 
-      const nodeFailedEvent = workflowExecutionEntity.buildEvent(buildNodeFailedEvent as any, {
+      const nodeFailedEvent = buildNodeFailedEvent({
+        executionId: workflowExecutionEntity.id,
+        workflowId: workflowExecutionEntity.getWorkflowId(),
+        nodeId,
         error: enhancedError,
       });
       await emit(this.eventManager, nodeFailedEvent as Event);

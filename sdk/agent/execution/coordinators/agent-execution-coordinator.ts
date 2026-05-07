@@ -21,6 +21,7 @@ import type {
   ToolSchema,
   LLMMessage,
   Event as RegistryEvent,
+  LLMResult,
 } from "@wf-agent/types";
 import { AgentStreamEventType } from "@wf-agent/types";
 import type { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
@@ -579,11 +580,7 @@ export class AgentExecutionCoordinator {
     yield* this.toolExecutionCoordinator.executeToolCallsStream(
       entity,
       conversationManager,
-      finalResult.toolCalls.map((tc: { id: string; name: string; arguments: string }) => ({
-        id: tc.id,
-        name: tc.name,
-        arguments: tc.arguments,
-      })),
+      finalResult.toolCalls,
     );
 
     yield this.createIterationCompleteEvent(agentLoopId, entity.state.currentIteration, true);
@@ -610,7 +607,7 @@ export class AgentExecutionCoordinator {
     entity: AgentLoopEntity,
     agentLoopId: string,
     messageStream: MessageStream,
-  ): AsyncGenerator<AgentLoopStreamEvent, { success: boolean; finalResult?: any }> {
+  ): AsyncGenerator<AgentLoopStreamEvent, { success: boolean; finalResult?: LLMResult }> {
     const eventQueue: MessageStreamEvent[] = [];
     let streamDone = false;
     let streamError: Error | null = null;

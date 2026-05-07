@@ -5,6 +5,7 @@
 
 import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-registry.js";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
+import type { BaseEvent } from "@wf-agent/types";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import { buildWorkflowExecutionCancelledEvent } from "../../../core/utils/event/builders/workflow-execution-events.js";
 import { emit } from "../../../core/utils/event/event-emitter.js";
@@ -152,7 +153,7 @@ export class PauseTimeoutManager {
 
     // Emit warning event
     try {
-      await this.eventManager.emit({
+      const warningEvent = {
         id: crypto.randomUUID(),
         type: "WORKFLOW_EXECUTION_PAUSE_TIMEOUT_WARNING",
         timestamp: Date.now(),
@@ -162,7 +163,8 @@ export class PauseTimeoutManager {
         remainingTime,
         maxPauseDuration: this.config.maxPauseDuration,
         message: `Workflow execution will be automatically cancelled in ${Math.round(remainingTime / 1000)} seconds if not resumed`,
-      } as any);
+      } as unknown as BaseEvent;
+      await this.eventManager.emit(warningEvent);
     } catch (error) {
       logger.error("Failed to emit pause timeout warning", {
         executionId,

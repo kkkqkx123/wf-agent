@@ -161,11 +161,23 @@ export class WorkflowExecutionRegistryAPI extends CrudResourceAPI<
    * @returns array of workflow execution summaries
    */
   async getExecutionSummaries(
-    _filter?: WorkflowExecutionFilter,
+    filter?: WorkflowExecutionFilter,
   ): Promise<WorkflowExecutionSummary[]> {
     const executionEntities = this.dependencies.getWorkflowExecutionRegistry().getAll();
+    
+    // Apply filtering if filter is provided
+    let filteredEntities = executionEntities;
+    if (filter) {
+      const executions = executionEntities.map(entity => entity.getWorkflowExecutionData());
+      const filteredExecutions = this.applyFilter(executions, filter);
+      
+      // Map back to entities
+      filteredEntities = executionEntities.filter(entity => 
+        filteredExecutions.some(exec => exec.id === entity.getExecutionId())
+      );
+    }
 
-    return executionEntities.map(executionEntity => {
+    return filteredEntities.map(executionEntity => {
       const execution = executionEntity.getWorkflowExecutionData();
       const startTime = executionEntity.getStartTime();
       const endTime = executionEntity.getEndTime();

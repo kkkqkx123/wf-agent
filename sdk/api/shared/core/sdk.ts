@@ -371,13 +371,14 @@ class SDK {
         { name: 'agentLoopCheckpoint', identifier: Identifiers.AgentLoopCheckpointStorageAdapter },
       ];
 
-      const results = [];
+      const results: Array<{ adapter: string; healthy: boolean; message?: string; details?: unknown }> = [];
       for (const { name, identifier } of adapterTypes) {
-        const adapter = container.get(identifier) as any;
+        const adapter = container.get(identifier);
         if (adapter) {
-          if (typeof adapter.healthCheck === 'function') {
+          const adapterObj = adapter as Record<string, unknown>;
+          if (typeof adapterObj['healthCheck'] === 'function') {
             try {
-              const result = await adapter.healthCheck();
+              const result = await adapterObj['healthCheck']() as { healthy: boolean; message?: string; details?: unknown };
               results.push({
                 adapter: name,
                 healthy: result.healthy,
@@ -401,7 +402,7 @@ class SDK {
         }
       }
 
-      const overallHealthy = results.every((r: any) => r.healthy);
+      const overallHealthy = results.every((r) => r.healthy);
       details["storageAdapters"] = {
         healthy: overallHealthy,
         results,

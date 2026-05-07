@@ -53,10 +53,10 @@ async function getLatestCheckpoint(
       return null;
     }
 
-    logger.info("Found latest checkpoint", {
+    logger.info("Restoring from checkpoint", {
       executionId,
-      checkpointId: latestCheckpointId,
-      nodeId: (checkpoint as any)["nodeId"] || checkpoint.metadata?.customFields?.["nodeId"],
+      checkpointId: checkpoint.id,
+      nodeId: checkpoint.metadata?.customFields?.["nodeId"] as string | undefined,
       timestamp: checkpoint.timestamp,
     });
 
@@ -100,11 +100,11 @@ export async function restoreWorkflowFromCheckpoint(
     logger.info("Restoring from checkpoint", {
       executionId,
       checkpointId: checkpoint.id,
-      nodeId: (checkpoint as any)["nodeId"] || checkpoint.metadata?.customFields?.["nodeId"],
+      nodeId: checkpoint.metadata?.customFields?.["nodeId"] as string | undefined,
     });
 
     // Restore node position
-    const nodeId = (checkpoint as any)["nodeId"] || checkpoint.metadata?.customFields?.["nodeId"];
+    const nodeId = checkpoint.metadata?.customFields?.["nodeId"] as string | undefined;
     if (nodeId) {
       workflowExecutionEntity.setCurrentNodeId(nodeId);
     }

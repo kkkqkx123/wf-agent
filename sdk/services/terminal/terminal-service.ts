@@ -306,7 +306,7 @@ export class TerminalService extends EventEmitter<TerminalServiceEvents> {
    */
   async cleanup(): Promise<void> {
     // Terminate all processes
-    for (const [, process] of this.processes) {
+    for (const process of this.processes.values()) {
       try {
         process.kill("SIGTERM");
       } catch {

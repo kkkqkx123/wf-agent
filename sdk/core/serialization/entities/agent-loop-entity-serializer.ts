@@ -6,6 +6,7 @@
 
 import { Serializer } from "../serializer.js";
 import { SerializationRegistry } from "../serialization-registry.js";
+import { DeltaCalculator } from "../delta-calculator.js";
 import type { SnapshotBase, AgentLoopRuntimeConfig, Message } from "@wf-agent/types";
 import type { AgentLoopStateSnapshot } from "@wf-agent/types";
 import type { AgentLoopEntity } from "../../../agent/entities/agent-loop-entity.js";
@@ -128,11 +129,12 @@ export class AgentLoopEntitySerializer extends Serializer<AgentLoopEntitySnapsho
 export function registerAgentLoopEntitySerializer(): void {
   const registry = SerializationRegistry.getInstance();
 
-  // Note: Entity snapshots don't use delta calculation, so we pass undefined
-  // The registry type should allow null/undefined for deltaCalculator
+  // Note: Entity snapshots don't use delta calculation, so we provide a no-op calculator
+  const noOpCalculator = new DeltaCalculator({ deepCompare: false });
+  
   registry.register({
     entityType: "agentLoop",
     serializer: new AgentLoopEntitySerializer(),
-    deltaCalculator: undefined as any, // Entity snapshots don't use delta calculation
+    deltaCalculator: noOpCalculator,
   });
 }

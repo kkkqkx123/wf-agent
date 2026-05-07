@@ -185,9 +185,11 @@ export abstract class ReadonlyResourceAPI<T, ID extends string | number, Filter 
    * @param filter Filter criteria
    * @returns Array of resources after filtering
    */
-  protected applyFilter(resources: T[], _filter: Filter): T[] {
+  protected applyFilter(resources: T[], filter: Filter): T[] {
     // Default implementation: return all resources without filtering
     // Subclasses can override this method to implement specific filtering logic
+    // The filter parameter is intentionally unused in the base class
+    void filter; // Explicitly acknowledge the parameter for linting purposes
     return resources;
   }
 

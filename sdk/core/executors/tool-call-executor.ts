@@ -303,7 +303,7 @@ export class ToolCallExecutor {
     const startTime = taskInfo.startTime;
 
     // Track operation state for mid-node resume (if execution registry is available)
-    const executionRegistry = (this as any).executionRegistry;
+    const executionRegistry = this.checkpointDependencies?.workflowExecutionRegistry;
     let hasOperationState = false;
     
     if (executionRegistry && executionId) {

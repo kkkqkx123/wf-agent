@@ -25,6 +25,7 @@ import { WorkflowExecutionBuilder } from "../factories/workflow-execution-builde
 import { WorkflowExecutor } from "../executors/workflow-executor.js";
 import { WorkflowStateTransitor } from "./workflow-state-transitor.js";
 import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-registry.js";
+import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import { getContainer } from "../../../core/di/index.js";
 import * as Identifiers from "../../../core/di/service-identifiers.js";
 import type { ExecutionHierarchyRegistry } from "../../../core/registry/execution-hierarchy-registry.js";
@@ -58,11 +59,11 @@ export class WorkflowLifecycleCoordinator {
     warningThreshold?: number;
   }): void {
     const container = getContainer();
-    const eventManager = container.get(Identifiers.EventRegistry);
+    const eventManager = container.get(Identifiers.EventRegistry) as EventRegistry;
     
     this.pauseTimeoutManager = new PauseTimeoutManager(
       this.workflowExecutionRegistry,
-      eventManager as any,
+      eventManager,
       config,
     );
     

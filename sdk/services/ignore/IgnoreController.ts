@@ -72,12 +72,12 @@ function isSpecialDirectory(dirPath: string): boolean {
  */
 function isBuiltinIgnored(dirName: string): boolean {
   // Check exact matches
-  if (BUILTIN_IGNORE_DIRS.includes(dirName as any)) {
+  if (BUILTIN_IGNORE_DIRS.includes(dirName)) {
     return true;
   }
 
   // Check hidden directory pattern
-  if (BUILTIN_IGNORE_DIRS.includes(".*" as any) && dirName.startsWith(".") && dirName !== ".") {
+  if (BUILTIN_IGNORE_DIRS.includes(".*") && dirName.startsWith(".") && dirName !== ".") {
     return true;
   }
 

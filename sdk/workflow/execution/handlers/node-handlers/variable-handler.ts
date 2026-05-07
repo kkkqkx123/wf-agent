@@ -198,7 +198,7 @@ export async function variableHandler(
   const typedResult = convertType(result, config.variableType);
 
   // Update the variable
-  const variable = workflowExecution.variables.find((v: any) => v.name === config.variableName);
+  const variable = workflowExecution.variables.find((v) => v.name === config.variableName);
   const variableScope = config.scope || "workflowExecution";
 
   if (variable) {

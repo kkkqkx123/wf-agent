@@ -21,6 +21,7 @@ import type {
   LLMToolCall,
   ToolApprovalOptions,
   ToolApprovalHandler,
+  AgentHookTriggeredEvent,
 } from "@wf-agent/types";
 import { AgentStreamEventType } from "@wf-agent/types";
 import type { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
@@ -461,7 +462,7 @@ export class ToolExecutionCoordinator {
   /**
    * Placeholder method for emitAgentEvent - will be injected from parent
    */
-  private async emitAgentEvent(event: any): Promise<void> {
+  private async emitAgentEvent(event: AgentHookTriggeredEvent): Promise<void> {
     // This will be overridden by the parent coordinator
     logger.debug("emitAgentEvent called (placeholder)", { eventType: event?.type });
   }

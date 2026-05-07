@@ -52,12 +52,15 @@ export class VariableState implements StateManager<{
   };
 
   /**
-   * Constructor
-   * @param executionId Execution ID (optional, for logging/debugging purposes)
+   * Constructor - Creates an empty VariableState instance
+   *
+   * Note: Variables must be initialized via initializeFromWorkflow() or
+   * initializeFromWorkflowExecutionVariables() before use.
+   * The state is initialized with default empty values (lines 46-52).
    */
-  constructor(executionId?: string) {
-    // executionId is stored for potential future use (logging, debugging)
-    // Currently not used but kept for API compatibility
+  constructor() {
+    // State is initialized with default empty values at declaration
+    // Actual variable definitions are loaded via deferred initialization methods
   }
 
   /**
@@ -473,25 +476,13 @@ export class VariableState implements StateManager<{
   }
 
   /**
-   * Get variable value by name (searches all scopes)
+   * Get variable value by name (searches all scopes by priority)
+   * Search order follows scope priority: loop > local > workflowExecution > global
    * @param name Variable name
    * @returns Variable value or undefined if not found
    */
   getVariable(name: string): unknown {
-    // Check workflowExecution scope first
-    if (name in this.variableScopes.workflowExecution) {
-      return this.variableScopes.workflowExecution[name];
-    }
-
-    // Check local scope (current level)
-    if (this.variableScopes.local.length > 0) {
-      const localScope = this.variableScopes.local[this.variableScopes.local.length - 1];
-      if (localScope && name in localScope) {
-        return localScope[name];
-      }
-    }
-
-    // Check loop scope (current level)
+    // Check loop scope first (highest priority)
     if (this.variableScopes.loop.length > 0) {
       const loopScope = this.variableScopes.loop[this.variableScopes.loop.length - 1];
       if (loopScope && name in loopScope) {
@@ -499,7 +490,20 @@ export class VariableState implements StateManager<{
       }
     }
 
-    // Check global scope
+    // Check local scope (second highest priority)
+    if (this.variableScopes.local.length > 0) {
+      const localScope = this.variableScopes.local[this.variableScopes.local.length - 1];
+      if (localScope && name in localScope) {
+        return localScope[name];
+      }
+    }
+
+    // Check workflowExecution scope (third priority)
+    if (name in this.variableScopes.workflowExecution) {
+      return this.variableScopes.workflowExecution[name];
+    }
+
+    // Check global scope (lowest priority)
     if (name in this.variableScopes.global) {
       return this.variableScopes.global[name];
     }
@@ -511,10 +515,23 @@ export class VariableState implements StateManager<{
    * Set variable value by name (uses variable's defined scope)
    * @param name Variable name
    * @param value Variable value
+   * @throws RuntimeValidationError if variable is readonly
+   * @note Type validation should be performed by callers (e.g., VariableCoordinator)
    */
   setVariable(name: string, value: unknown): void {
     const variableDef = this.variables.find(v => v.name === name);
     if (variableDef) {
+      // Check readonly flag
+      if (variableDef.readonly) {
+        throw new RuntimeValidationError(
+          `Variable '${name}' is readonly and cannot be modified`,
+          {
+            operation: "setVariable",
+            field: "variableName",
+            value: name,
+          }
+        );
+      }
       this.setVariableValue(name, value, variableDef.scope);
     } else {
       // If variable doesn't exist, default to workflowExecution scope

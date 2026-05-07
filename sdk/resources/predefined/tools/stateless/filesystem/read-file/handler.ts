@@ -130,6 +130,15 @@ export function createReadFileHandler(config: ReadFileConfig = {}) {
         };
       }
 
+      // Check file size against maxFileSize limit
+      if (stats.size > maxFileSize) {
+        return {
+          success: false,
+          content: "",
+          error: `File too large: ${filePath} (${formatFileSize(stats.size)}). Maximum allowed size is ${formatFileSize(maxFileSize)}.`,
+        };
+      }
+
       // Quick check: reject obvious non-text files by extension
       if (!isLikelyTextFile(filePath)) {
         return {

@@ -431,7 +431,7 @@ export function initializeContainerWithAdapters(adapters: StorageAdapterConfig =
     .bind(Identifiers.VariableState)
     .toDynamicValue(() => {
       return {
-        create: (executionId: string) => new VariableState(executionId),
+        create: () => new VariableState(),
       };
     })
     .inSingletonScope();

@@ -94,7 +94,7 @@ export class WorkflowExecutionEntity {
     this.executionState = executionState;
     this.state = state ?? new WorkflowExecutionState();
     this.messageHistoryManager = new MessageHistory(workflowExecution.id);
-    this.variableStateManager = new VariableState(workflowExecution.id);
+    this.variableStateManager = new VariableState();
 
     // Initialize hierarchy manager with existing hierarchy metadata or as root node
     this.hierarchyManager = new ExecutionHierarchyManager(

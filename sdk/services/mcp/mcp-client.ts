@@ -151,9 +151,7 @@ export class McpClient {
   async callTool(
     toolName: string,
     args?: Record<string, unknown>,
-    timeout?: number
   ): Promise<McpToolCallResult> {
-    // Note: timeout handling would need to be implemented at transport level
     return this.request<McpToolCallResult>("tools/call", {
       name: toolName,
       arguments: args,

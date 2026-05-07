@@ -27,7 +27,6 @@ import { WorkflowStateTransitor } from "./workflow-state-transitor.js";
 import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-registry.js";
 import { getContainer } from "../../../core/di/index.js";
 import * as Identifiers from "../../../core/di/service-identifiers.js";
-import type { AgentLoopRegistry } from "../../../agent/stores/agent-loop-registry.js";
 import type { ExecutionHierarchyRegistry } from "../../../core/registry/execution-hierarchy-registry.js";
 import { restoreWorkflowFromCheckpoint } from "../utils/checkpoint-restoration.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";

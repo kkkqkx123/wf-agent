@@ -160,9 +160,8 @@ export class LLMExecutor {
       signal: options?.abortSignal, // Pass the AbortSignal
     };
 
-    let finalResult: LLMResult | null = null;
-
     // Perform an LLM call.
+    let finalResult: LLMResult;
     if (llmRequest.stream) {
       // Stream-based invocation - Returns Result<MessageStream, LLMError>
       const streamResult = await this.llmWrapper.generateStream(llmRequest);
@@ -196,13 +195,6 @@ export class LLMExecutor {
       }
 
       finalResult = result.value;
-    }
-
-    // Check results
-    if (!finalResult) {
-      throw new ExecutionError("No LLM result generated", undefined, undefined, {
-        profileId: requestData.profileId,
-      });
     }
 
     logger.debug("LLM call completed", {

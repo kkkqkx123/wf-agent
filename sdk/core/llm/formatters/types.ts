@@ -9,7 +9,6 @@ import type {
   LLMProfile,
   LLMUsage,
   LLMToolCall,
-  ToolCallFormat,
   ToolCallFormatConfig,
 } from "@wf-agent/types";
 import type { ToolSchema } from "@wf-agent/types";

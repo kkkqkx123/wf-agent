@@ -9,7 +9,6 @@ import {
   WorkflowNotFoundError,
   WorkflowCheckpointError,
 } from "@wf-agent/types";
-import { CheckpointType } from "@wf-agent/types";
 import { DEFAULT_DELTA_STORAGE_CONFIG } from "../../core/utils/checkpoint/constants.js";
 import type { WorkflowExecution } from "@wf-agent/types";
 import type {

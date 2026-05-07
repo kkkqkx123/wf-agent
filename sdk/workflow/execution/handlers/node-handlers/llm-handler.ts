@@ -113,17 +113,7 @@ export async function llmHandler(
       return await executeHumanRelayLLMNode(workflowExecution, node, executionData, context, startTime);
     }
 
-    // 3. Create execution configuration
-    const executionConfig: GraphLLMExecutionConfig = {
-      profileId: executionData.profileId,
-      parameters: executionData.parameters,
-      maxToolCallsPerRequest: executionData.maxToolCallsPerRequest,
-      workflowId: workflowExecution.workflowId,
-      nodeId: node.id,
-      executionId: workflowExecution.id,
-    };
-
-    // 4. Call LLMExecutionCoordinator
+    // 3. Call LLMExecutionCoordinator
     const result = await context.llmCoordinator.executeLLM(
       {
         executionId: workflowExecution.id,

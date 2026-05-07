@@ -10,8 +10,6 @@ import { sdkLogger as logger } from "../../../utils/logger.js";
 import { getErrorOrNew } from "@wf-agent/common-utils";
 import type { ToolSchema } from "@wf-agent/types";
 import type { FormatterConfig, BuildRequestResult, ParseStreamChunkResult } from "./types.js";
-import { ToolCallParser } from "./tool-call-parser.js";
-import type { ToolCallParseOptions } from "./types.js";
 
 /**
  * Format Converter Abstract Base Class

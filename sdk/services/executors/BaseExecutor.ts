@@ -10,7 +10,6 @@ import * as fs from "fs/promises";
 import type {
   ExecutorConfig,
   ExecutorInfo,
-  ExecutorStatus,
   ExecutionOptions,
   ExecutionResult,
 } from "./types.js";

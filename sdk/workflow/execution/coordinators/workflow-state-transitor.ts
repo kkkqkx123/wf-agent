@@ -33,11 +33,10 @@ import {
   buildWorkflowExecutionCancelledEvent,
 } from "../utils/event/index.js";
 import { emit } from "../../../core/utils/event/event-emitter.js";
-import { now, getErrorOrNew } from "@wf-agent/common-utils";
+import { getErrorOrNew } from "@wf-agent/common-utils";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import { getContainer } from "../../../core/di/index.js";
 import * as Identifiers from "../../../core/di/service-identifiers.js";
-import type { AgentLoopRegistry } from "../../../agent/stores/agent-loop-registry.js";
 import type { ExecutionHierarchyRegistry } from "../../../core/registry/execution-hierarchy-registry.js";
 
 const logger = createContextualLogger({ component: "WorkflowStateTransitor" });

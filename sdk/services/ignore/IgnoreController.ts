@@ -9,8 +9,10 @@ import * as path from "path";
 import * as fs from "fs/promises";
 import * as fsSync from "fs";
 import fastIgnore from "fast-ignore";
-import type { Options as FastIgnoreOptions } from "fast-ignore";
 import { BUILTIN_IGNORE_DIRS, CRITICAL_IGNORE_DIRS } from "./constants.js";
+import { createContextualLogger } from "../../utils/contextual-logger.js";
+
+const logger = createContextualLogger({ component: "IgnoreController" });
 
 /**
  * Ignore mode options
@@ -216,7 +218,7 @@ export class IgnoreController {
         this.gitignoreChecker = null;
       }
     } catch (error) {
-      console.error("Error loading .gitignore:", error);
+      logger.error("Error loading .gitignore", { error });
       this.gitignoreContent = undefined;
       this.gitignoreChecker = null;
     }
@@ -246,7 +248,7 @@ export class IgnoreController {
         }
       }
     } catch (error) {
-      console.error(`Error loading ${this.customIgnoreFile}:`, error);
+      logger.error(`Error loading ${this.customIgnoreFile}`, { error });
       this.customIgnoreContent = undefined;
       // Still create checker from custom patterns if any
       if (this.customPatterns.length > 0) {
@@ -319,7 +321,7 @@ export class IgnoreController {
       return true;
     } catch (error) {
       // Allow access on errors (fail open for usability)
-      console.error("Error validating access:", error);
+      logger.error("Error validating access", { error });
       return true;
     }
   }

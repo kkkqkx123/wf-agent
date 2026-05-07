@@ -16,7 +16,6 @@
 
 import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
 import { now, checkInterruption, shouldContinue, getInterruptionDescription } from "@wf-agent/common-utils";
-import type { InterruptionCheckResult } from "@wf-agent/common-utils";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "subgraph-handler" });

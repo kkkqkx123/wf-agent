@@ -22,7 +22,7 @@
  * - Consistent architecture with WorkflowExecutor
  */
 
-import type { AgentLoopResult, AgentHookTriggeredEvent, AgentHookTriggeredCoreEvent } from "@wf-agent/types";
+import type { AgentLoopResult, AgentHookTriggeredEvent } from "@wf-agent/types";
 import type { ToolApprovalHandler } from "@wf-agent/types";
 import type { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import type { ToolRegistry } from "../../../core/registry/tool-registry.js";

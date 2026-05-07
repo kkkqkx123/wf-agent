@@ -25,7 +25,7 @@ export async function readConfigFile(filePath: string): Promise<string> {
     return await fs.readFile(filePath, "utf-8");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      throw new Error(`Configuration file not found: ${filePath}`);
+      throw new Error(`Configuration file not found: ${filePath}`, { cause: error });
     }
     throw error;
   }

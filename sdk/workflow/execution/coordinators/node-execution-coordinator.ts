@@ -23,14 +23,12 @@ import type {
   CheckpointConfig,
   UserInteractionHandler,
   HumanRelayHandler,
-  NodeFailedEvent,
 } from "@wf-agent/types";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import type { ConversationSession } from "../../../core/messaging/conversation-session.js";
 import type { InterruptionState } from "../../../core/types/interruption-state.js";
 import type { WorkflowNavigator } from "../../builder/workflow-navigator.js";
 import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-registry.js";
-import type { WorkflowStateCoordinator } from "../../state-managers/workflow-state-coordinator.js";
 import { LLMExecutionCoordinator } from "./llm-execution-coordinator.js";
 import { SDKError } from "@wf-agent/types";
 import {

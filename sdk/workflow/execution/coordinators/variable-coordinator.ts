@@ -19,12 +19,11 @@ import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-
 import type { VariableScope, WorkflowVariable } from "@wf-agent/types";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import { getErrorOrNew } from "@wf-agent/common-utils";
-import { RuntimeValidationError, EventSystemError } from "@wf-agent/types";
+import { RuntimeValidationError } from "@wf-agent/types";
 import { VariableState } from "../../state-managers/variable-state.js";
 import { VariableAccessor } from "../utils/variable-accessor.js";
 import { emit } from "../../../core/utils/event/event-emitter.js";
 import { buildVariableChangedEvent } from "../utils/event/index.js";
-import { logError, emitErrorEvent } from "../../../core/utils/error-utils.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "VariableCoordinator" });

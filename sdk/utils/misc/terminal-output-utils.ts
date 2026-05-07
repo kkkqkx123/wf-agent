@@ -37,7 +37,7 @@ export function processCarriageReturns(input: string): string {
     if (lineEnd === -1) lineEnd = len;
 
     // Check if current line contains carriage returns
-    let crPos = input.indexOf("\r", i);
+    const crPos = input.indexOf("\r", i);
     if (crPos === -1 || crPos >= lineEnd) {
       // No carriage returns in this line, copy entire line
       output += input.substring(i, lineEnd);
@@ -83,7 +83,7 @@ function processLineWithCarriageReturns(
     if (nextCrPos === -1 || nextCrPos >= lineEnd) nextCrPos = lineEnd;
 
     // Extract segment after carriage return
-    let segment = input.substring(crPos + 1, nextCrPos);
+    const segment = input.substring(crPos + 1, nextCrPos);
 
     // Skip empty segments
     if (segment !== "") {

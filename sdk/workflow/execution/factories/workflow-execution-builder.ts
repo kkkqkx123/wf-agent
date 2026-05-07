@@ -14,7 +14,7 @@
  */
 
 import type { WorkflowGraph } from "@wf-agent/types";
-import type { WorkflowExecution, WorkflowExecutionOptions, WorkflowExecutionStatus } from "@wf-agent/types";
+import type { WorkflowExecution, WorkflowExecutionOptions } from "@wf-agent/types";
 import { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
 import { WorkflowExecutionState } from "../../state-managers/workflow-execution-state.js";
 import { ExecutionState } from "../../state-managers/execution-state.js";
@@ -181,7 +181,6 @@ export class WorkflowExecutionBuilder {
 
     // Step 3: Create WorkflowExecution instance
     const executionId = generateId();
-    const now = getCurrentTimestamp();
 
     const workflowExecution: WorkflowExecution = {
       id: executionId,
@@ -280,8 +279,6 @@ export class WorkflowExecutionBuilder {
       copiedExecutionId,
     });
 
-    const now = getCurrentTimestamp();
-
     const copiedWorkflowExecution: WorkflowExecution = {
       id: copiedExecutionId,
       workflowId: sourceWorkflowExecution.workflowId,
@@ -370,8 +367,6 @@ export class WorkflowExecutionBuilder {
       forkId: forkConfig.forkId,
       forkPathId: forkConfig.forkPathId,
     });
-
-    const now = getCurrentTimestamp();
 
     // Separate workflow execution variables from global variables
     const workflowExecutionVariables = [];

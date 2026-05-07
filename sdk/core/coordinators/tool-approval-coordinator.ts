@@ -37,7 +37,6 @@ import {
 import {
   checkAutoApproval,
   extractContextFromParameters,
-  type AutoApprovalDecision,
 } from "../../services/auto-approval/index.js";
 import {
   buildProgressiveToolExecutionStartEvent,
@@ -134,7 +133,7 @@ export class ToolApprovalCoordinator {
   async processToolApproval(
     params: ExtendedToolApprovalCoordinatorParams,
   ): Promise<ToolApprovalResult> {
-    const { toolCall, options, contextId, nodeId, toolDescription, approvalHandler, tool, riskLevel } = params;
+    const { toolCall, options, contextId, toolDescription, tool, riskLevel } = params;
 
     // Validate tool or riskLevel is provided
     if (!tool && !riskLevel) {
@@ -301,14 +300,14 @@ export class ToolApprovalCoordinator {
       });
       
       // Provide actionable error message to user
-      let userMessage = "Auto-approval system encountered an error. ";
+      const userMessage = "Auto-approval system encountered an error. ";
       
       if (errorMessage.includes("Invalid or missing")) {
-        userMessage += "Tool parameters are invalid. Please review the tool call and try again.";
+        console.log(userMessage + "Tool parameters are invalid. Please review the tool call and try again.");
       } else if (errorMessage.includes("path") || errorMessage.includes("command")) {
-        userMessage += "Required parameter is missing or invalid. Check the tool configuration.";
+        console.log(userMessage + "Required parameter is missing or invalid. Check the tool configuration.");
       } else {
-        userMessage += "Manual approval required due to system error. Please review this tool call carefully.";
+        console.log(userMessage + "Manual approval required due to system error. Please review this tool call carefully.");
       }
       
       // Log audit trail for error case
@@ -697,7 +696,7 @@ export class ToolApprovalCoordinator {
    * Actual execution happens in coordinators
    */
   private async executeAutoTool(
-    call: LLMToolCall,
+    _call: LLMToolCall,
     _options: ToolApprovalOptions,
     _contextId: string,
   ): Promise<ToolExecutionResult> {

@@ -393,7 +393,7 @@ function findParentBlock(
     
     if (info.indentLevel < currentLevel) {
       // Found parent level, find its extent
-      let parentStart = i;
+      const parentStart = i;
       let parentEnd = i;
       
       for (let j = i + 1; j < indents.length; j++) {

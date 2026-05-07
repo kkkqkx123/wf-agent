@@ -163,7 +163,8 @@ export function validateServerConfig(
       throw new Error(
         serverName
           ? `Invalid configuration for server "${serverName}": ${errorMessages}`
-          : `Invalid server configuration: ${errorMessages}`
+          : `Invalid server configuration: ${errorMessages}`,
+        { cause: validationError }
       );
     }
     throw validationError;

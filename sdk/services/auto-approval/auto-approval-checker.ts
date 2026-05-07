@@ -6,7 +6,6 @@
 import type {
   Tool,
   ToolApprovalOptions,
-  ToolRiskLevel,
   McpRequest,
   FileOperationType,
   SecurityPreset,
@@ -91,7 +90,8 @@ export interface CheckAutoApprovalParams {
  * @returns Approval decision
  */
 export function checkAutoApproval(params: CheckAutoApprovalParams): AutoApprovalDecision {
-  let { options, tool, context } = params;
+  const { tool, context } = params;
+  let { options } = params;
 
   // 0. Check if auto-approval is enabled
   if (!options.autoApprovalEnabled) {

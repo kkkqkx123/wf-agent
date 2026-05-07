@@ -27,6 +27,7 @@ import type { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import type { ConversationSession } from "../../../core/messaging/conversation-session.js";
 import type { LLMExecutor } from "../../../core/executors/llm-executor.js";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
+import type { MessageStream } from "../../../core/llm/message-stream.js";
 import { isAbortError, checkInterruption } from "@wf-agent/common-utils";
 import { executeAgentHook } from "../handlers/hook-handlers/index.js";
 import {
@@ -608,7 +609,7 @@ export class AgentExecutionCoordinator {
   private async *processMessageStream(
     entity: AgentLoopEntity,
     agentLoopId: string,
-    messageStream: { on: Function; done: () => Promise<void>; getFinalResult: () => Promise<any> },
+    messageStream: MessageStream,
   ): AsyncGenerator<AgentLoopStreamEvent, { success: boolean; finalResult?: any }> {
     const eventQueue: MessageStreamEvent[] = [];
     let streamDone = false;

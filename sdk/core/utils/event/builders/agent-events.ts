@@ -3,7 +3,7 @@
  * Provides builders for agent lifecycle events
  */
 
-import { createBuilder, createErrorBuilder } from "./common.js";
+import { createBuilder } from "./common.js";
 import type {
   AgentStartedEvent,
   AgentCompletedEvent,

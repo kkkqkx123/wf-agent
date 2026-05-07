@@ -17,7 +17,7 @@
 import type { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import type { ErrorContext, SDKError } from "@wf-agent/types";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
-import { SDKError as SDKErrorClass, AgentStreamEventType } from "@wf-agent/types";
+import { SDKError as SDKErrorClass } from "@wf-agent/types";
 import { isAbortError, checkInterruption } from "@wf-agent/common-utils";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import { handleError } from "../../../core/utils/error-utils.js";

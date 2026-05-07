@@ -321,7 +321,6 @@ export function initializeContainerWithAdapters(adapters: StorageAdapterConfig =
         create: (executionId: string) => WorkflowConversationSession;
       };
       const workflowExecutionRegistry = c.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry;
-      const taskRegistry = c.get(Identifiers.TaskRegistry) as TaskRegistry;
       return {
         create: (executionId: string) => {
           const workflowConversationSession = workflowConversationSessionFactory.create(executionId);
@@ -644,7 +643,6 @@ export function initializeContainerWithAdapters(adapters: StorageAdapterConfig =
     .toDynamicValue(
       (c: IContainer): { create: (executionEntity: WorkflowExecutionEntity) => WorkflowExecutionCoordinator } => {
         const variableCoordinator = c.get(Identifiers.VariableCoordinator) as VariableCoordinator;
-        const workflowGraphRegistry = c.get(Identifiers.WorkflowGraphRegistry) as WorkflowGraphRegistry;
         const toolService = c.get(Identifiers.ToolRegistry) as ToolRegistry;
         const toolVisibilityStore = c.get(Identifiers.ToolVisibilityStore) as ToolVisibilityStore;
         const toolVisibilityCoordinator = new ToolVisibilityCoordinator(

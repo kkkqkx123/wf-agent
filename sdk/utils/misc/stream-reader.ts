@@ -38,7 +38,7 @@ export async function readLinesWithStream(
     const stream = createReadStream(filePath, { encoding: "utf-8" });
     
     let currentLine = 1;
-    let collectedLines: string[] = [];
+    const collectedLines: string[] = [];
     let buffer = "";
     let totalLinesRead = 0;
     let isInTargetRange = false;

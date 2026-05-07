@@ -10,7 +10,7 @@
  * - Each method receives only the parameters it actually needs
  */
 
-import type { Trigger, TriggerAction } from "@wf-agent/types";
+import type { Trigger } from "@wf-agent/types";
 import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-registry.js";
 import type { WorkflowRegistry } from "../../stores/workflow-registry.js";
 import type { WorkflowGraphRegistry } from "../../stores/workflow-graph-registry.js";

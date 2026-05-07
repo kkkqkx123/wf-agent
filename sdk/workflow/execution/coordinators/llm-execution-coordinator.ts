@@ -501,7 +501,6 @@ export class LLMExecutionCoordinator {
     nodeId: string,
   ): Promise<ToolApprovalResult> {
     const interactionId = generateId();
-    const tool = this.contextFactory.getToolService().getTool(toolCall.id);
 
     // If there is an execution context, create checkpoints to support long-term approval processes.
     let checkpointId: string | undefined;

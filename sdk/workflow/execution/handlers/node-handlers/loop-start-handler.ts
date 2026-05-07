@@ -30,7 +30,6 @@ function canExecute(executionEntity: WorkflowExecutionEntity, node: Node): boole
   }
 
   const workflowExecution = executionEntity.getExecution();
-  const config = node.config as LoopStartNodeConfig;
   const loopState = getLoopState(workflowExecution);
 
   // If the loop state does not exist, it can be executed (for the first time).

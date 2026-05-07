@@ -6,7 +6,6 @@
  */
 
 import { AgentLoopEntity } from "../entities/agent-loop-entity.js";
-import { AgentLoopState } from "../state-managers/agent-loop-state.js";
 import type {
   CheckpointMetadata,
   DeltaStorageConfig,
@@ -14,7 +13,7 @@ import type {
   AgentLoopCheckpoint,
   AgentLoopStateSnapshot,
 } from "@wf-agent/types";
-import { CheckpointType, AgentCheckpointError } from "@wf-agent/types";
+import { AgentCheckpointError } from "@wf-agent/types";
 import { AgentLoopDiffCalculator } from "./agent-loop-diff-calculator.js";
 import { AgentLoopDeltaRestorer } from "./agent-loop-delta-restorer.js";
 import { DEFAULT_DELTA_STORAGE_CONFIG } from "../../core/utils/checkpoint/constants.js";

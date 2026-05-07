@@ -6,7 +6,6 @@
 import type {
   McpApprovalSettings,
   McpServerConfig,
-  McpToolConfig,
   McpRequest,
   McpToolCallRequest,
   McpResourceReadRequest,

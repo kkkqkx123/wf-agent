@@ -17,12 +17,14 @@ import type {
 } from "./types.js";
 import { createTransport } from "./transport/index.js";
 import { McpClient } from "./mcp-client.js";
+import { createContextualLogger } from "../../utils/contextual-logger.js";
+
+const logger = createContextualLogger({ component: "MCPConnectionManager" });
 import {
   createInitialServerState,
   updateServerStatus,
   addErrorToHistory,
   clearErrorState,
-  isConnectable,
 } from "./connection-state.js";
 
 /**
@@ -81,7 +83,7 @@ export class McpConnectionManager {
       try {
         handler(type);
       } catch (error) {
-        console.error("Error in event handler:", error);
+        logger.error("Error in event handler", { error });
       }
     }
   }
@@ -137,7 +139,7 @@ export class McpConnectionManager {
 
     try {
       // Create transport
-      const transport = createTransport(config as any);
+      const transport = createTransport(config);
       const client = new McpClient(transport);
 
       // Store connecting state
@@ -195,7 +197,7 @@ export class McpConnectionManager {
       try {
         await entry.client.close();
       } catch (error) {
-        console.error(`Error closing connection for "${name}":`, error);
+        logger.error(`Error closing connection for "${name}"`, { error });
       }
     }
 
@@ -295,7 +297,7 @@ export class McpConnectionManager {
         enabledForPrompt: !disabledTools.includes(tool.name),
       }));
     } catch (error) {
-      console.error(`Failed to fetch tools for ${serverName}:`, error);
+      logger.error(`Failed to fetch tools for ${serverName}`, { error });
       return [];
     }
   }

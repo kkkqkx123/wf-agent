@@ -68,7 +68,7 @@ export class RipgrepExecutor extends BaseExecutor {
    * Perform content search using ripgrep
    */
   async searchContent(options: RipgrepSearchOptions): Promise<string> {
-    const bin = await this.ensureInitialized();
+    await this.ensureInitialized();
 
     const {
       cwd,
@@ -160,7 +160,7 @@ export class RipgrepExecutor extends BaseExecutor {
   ): string {
     const groupedResults: { [key: string]: SearchResult[] } = {};
 
-    let totalResults = fileResults.reduce(
+    const totalResults = fileResults.reduce(
       (sum, file) => sum + file.searchResults.length,
       0,
     );

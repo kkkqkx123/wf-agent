@@ -374,7 +374,7 @@ export class ToolExecutionCoordinator {
   /**
    * Get approval options from agent configuration
    */
-  private getApprovalOptions(entity: AgentLoopEntity): ToolApprovalOptions {
+  private getApprovalOptions(_entity: AgentLoopEntity): ToolApprovalOptions {
     // Get from agent configuration or use defaults
     // For now, return safe defaults
     // In future, this could read from entity.config.approvalOptions
@@ -469,7 +469,7 @@ export class ToolExecutionCoordinator {
   /**
    * Emit event to registry
    */
-  private async emitToRegistry(event: AgentStreamEvent, entity: AgentLoopEntity): Promise<void> {
+  private async emitToRegistry(event: AgentStreamEvent, _entity: AgentLoopEntity): Promise<void> {
     if (!this.eventManager) return;
 
     try {

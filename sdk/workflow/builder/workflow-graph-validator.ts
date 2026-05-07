@@ -9,13 +9,12 @@
  * - Verify the pairing relationships and business logic of FORK/JOIN nodes.
  */
 
-import type { ID, NodeType, GraphValidationOptions, WorkflowGraphAnalysis } from "@wf-agent/types";
+import type { ID, NodeType, GraphValidationOptions } from "@wf-agent/types";
 import { ConfigurationValidationError } from "@wf-agent/types";
 import type { Result } from "@wf-agent/types";
 import { ok, err } from "@wf-agent/common-utils";
 import type { WorkflowGraphData } from "../entities/workflow-graph-data.js";
 import { SUBGRAPH_METADATA_KEYS } from "@wf-agent/types";
-import { analyzeWorkflowGraph } from "./utils/workflow-graph-analyzer.js";
 import { detectCycles } from "./utils/workflow-cycle-detector.js";
 import { analyzeReachability } from "./utils/workflow-reachability-analyzer.js";
 

@@ -32,7 +32,6 @@ function canExecute(workflowExecutionEntity: WorkflowExecutionEntity, node: Node
   }
 
   const workflowExecution = workflowExecutionEntity.getExecution();
-  const config = node.config as LoopEndNodeConfig;
   const loopState = getLoopState(workflowExecution);
 
   // Check if the loop status exists.

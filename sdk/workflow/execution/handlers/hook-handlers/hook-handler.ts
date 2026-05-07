@@ -17,7 +17,6 @@ import {
   type HookHandler,
 } from "../../../../core/hooks/index.js";
 import { getErrorOrNew, checkInterruption, shouldContinue, getInterruptionDescription } from "@wf-agent/common-utils";
-import type { InterruptionCheckResult } from "@wf-agent/common-utils";
 import { createContextualLogger } from "../../../../utils/contextual-logger.js";
 import { buildHookEvaluationContext, convertToEvaluationContext } from "./context-builder.js";
 import { emitHookEvent } from "./event-emitter.js";

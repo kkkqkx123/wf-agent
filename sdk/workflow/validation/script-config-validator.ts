@@ -7,12 +7,8 @@
 import type { Script, ScriptExecutionOptions, SandboxConfig } from "@wf-agent/types";
 import { ScriptSchema, SandboxConfigSchema, ScriptExecutionOptionsSchema } from "@wf-agent/types";
 import { ConfigurationValidationError } from "@wf-agent/types";
-import { ok, err } from "@wf-agent/common-utils";
 import type { Result } from "@wf-agent/types";
 import { validateConfig } from "../../core/validation/utils.js";
-import { createContextualLogger } from "../../utils/contextual-logger.js";
-
-const logger = createContextualLogger();
 
 /**
  * Code Configuration Validator Class

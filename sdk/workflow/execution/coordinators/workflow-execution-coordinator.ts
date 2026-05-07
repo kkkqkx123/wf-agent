@@ -14,7 +14,6 @@ import type { WorkflowNavigator } from "../../builder/workflow-navigator.js";
 import {
   checkInterruption,
   shouldContinue,
-  getInterruptionDescription,
 } from "@wf-agent/common-utils";
 import type { InterruptionCheckResult } from "@wf-agent/common-utils";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
@@ -52,7 +51,6 @@ export class WorkflowExecutionCoordinator {
    */
   async execute(): Promise<WorkflowExecutionResult> {
     const executionId = this.workflowExecutionEntity.id;
-    const startTime = this.workflowExecutionEntity.getStartTime();
 
     // Execution process orchestration
     while (true) {

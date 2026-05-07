@@ -16,7 +16,6 @@ import {
 import { CrudResourceAPI } from "../generic-resource-api.js";
 import { isSuccess, getData } from "../../types/execution-result.js";
 import { getErrorMessage } from "@wf-agent/common-utils";
-import type { APIDependencyManager } from "../../core/sdk-dependencies.js";
 
 /**
  * Profile template type

@@ -33,7 +33,8 @@ export async function loadMcpSettings(filePath: string): Promise<McpSettings> {
     config = JSON.parse(content);
   } catch (parseError) {
     throw new Error(
-      `Failed to parse MCP settings file: ${filePath}. Invalid JSON syntax.`
+      `Failed to parse MCP settings file: ${filePath}. Invalid JSON syntax.`,
+      { cause: parseError }
     );
   }
 

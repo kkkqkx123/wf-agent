@@ -7,6 +7,10 @@
 
 import * as path from "path";
 import fastIgnore from "fast-ignore";
+import { createContextualLogger } from "../../utils/contextual-logger.js";
+import { getErrorOrNew } from "@wf-agent/common-utils";
+
+const logger = createContextualLogger({ component: "ProtectController" });
 
 /**
  * Shield symbol for display
@@ -102,7 +106,7 @@ export class ProtectController {
       return this.ignoreChecker(relativePath);
     } catch (error) {
       // If there's an error processing the path, err on the side of caution
-      console.error(`Error checking protection for ${filePath}:`, error);
+      logger.error(`Error checking protection for ${filePath}`, { error: getErrorOrNew(error) });
       return false;
     }
   }

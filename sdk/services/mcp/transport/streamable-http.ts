@@ -48,7 +48,7 @@ export class StreamableHttpTransport implements IMcpTransport {
       // Validate the endpoint is reachable using HEAD request
       await this.httpClient.get("", { method: "HEAD" });
       this._isConnected = true;
-    } catch (error) {
+    } catch {
       // Even if HEAD fails, we might still be able to communicate
       // So we mark as connected and let actual requests fail if needed
       this._isConnected = true;

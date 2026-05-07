@@ -303,11 +303,11 @@ export class ToolApprovalCoordinator {
       const userMessage = "Auto-approval system encountered an error. ";
       
       if (errorMessage.includes("Invalid or missing")) {
-        console.log(userMessage + "Tool parameters are invalid. Please review the tool call and try again.");
+        logger.warn(userMessage + "Tool parameters are invalid. Please review the tool call and try again.");
       } else if (errorMessage.includes("path") || errorMessage.includes("command")) {
-        console.log(userMessage + "Required parameter is missing or invalid. Check the tool configuration.");
+        logger.warn(userMessage + "Required parameter is missing or invalid. Check the tool configuration.");
       } else {
-        console.log(userMessage + "Manual approval required due to system error. Please review this tool call carefully.");
+        logger.warn(userMessage + "Manual approval required due to system error. Please review this tool call carefully.");
       }
       
       // Log audit trail for error case

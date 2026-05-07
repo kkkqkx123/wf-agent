@@ -16,6 +16,10 @@ import type { WorkflowExecutionEntity } from '../../workflow/entities/workflow-e
 import type { AgentLoopEntity } from '../../agent/entities/agent-loop-entity.js';
 import type { ChildExecutionReference, ExecutionHierarchyMetadata } from '@wf-agent/types';
 import { HierarchyIntegrityService, type HierarchyValidationResult, type IHierarchyRegistry } from '../execution/hierarchy-integrity-service.js';
+import { createContextualLogger } from '../../utils/contextual-logger.js';
+import { getErrorOrNew } from '@wf-agent/common-utils';
+
+const logger = createContextualLogger({ component: 'ExecutionHierarchyRegistry' });
 
 /**
  * Union type for any execution entity
@@ -235,7 +239,7 @@ export class ExecutionHierarchyRegistry implements IHierarchyRegistry {
           descendant.stop();
         } catch (error) {
           // Log error but continue cleanup
-          console.warn(`Failed to stop execution ${descendant.id}:`, error);
+          logger.warn(`Failed to stop execution ${descendant.id}`, { error: getErrorOrNew(error) });
         }
       }
 
@@ -245,7 +249,7 @@ export class ExecutionHierarchyRegistry implements IHierarchyRegistry {
           descendant.cleanup();
         } catch (error) {
           // Log error but continue cleanup
-          console.warn(`Failed to cleanup execution ${descendant.id}:`, error);
+          logger.warn(`Failed to cleanup execution ${descendant.id}`, { error: getErrorOrNew(error) });
         }
       }
 

@@ -67,7 +67,7 @@ export function createGrepHandler(config: ReadFileConfig = {}) {
 
       try {
         await searchService.initialize();
-      } catch (error) {
+      } catch {
         // If ripgrep is not available, fall back to a helpful error message
         return {
           success: false,

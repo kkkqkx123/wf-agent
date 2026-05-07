@@ -40,6 +40,7 @@ interface ListenerMetrics {
   averageDuration: number;
   lastExecutionTime: number;
   slowExecutionCount: number;
+  failureCount: number;
 }
 
 /**
@@ -170,6 +171,7 @@ class EventRegistry {
       averageDuration: 0,
       lastExecutionTime: 0,
       slowExecutionCount: 0,
+      failureCount: 0,
     });
 
     // Return unregister function
@@ -310,6 +312,10 @@ class EventRegistry {
     metrics.totalDuration += duration;
     metrics.averageDuration = metrics.totalDuration / metrics.totalExecutions;
     metrics.lastExecutionTime = now();
+    
+    if (failed) {
+      metrics.failureCount++;
+    }
     
     if (duration > this.config.slowListenerThreshold) {
       metrics.slowExecutionCount++;

@@ -96,7 +96,6 @@ export function getSubgraphOutput(executionEntity: WorkflowExecutionEntity): Rec
     const graphNode = graph.getNode(endNodeId);
     if (graphNode?.workflowId === subgraphContext.workflowId) {
       // Find the END node of the subgraph and obtain its output.
-      const nodeResult = executionEntity.getNodeResults().find(r => r.nodeId === endNodeId);
       // Note: NodeExecutionResult doesn't have a 'data' property, so we return an empty object
       // This may need to be updated based on the actual implementation
       return {};

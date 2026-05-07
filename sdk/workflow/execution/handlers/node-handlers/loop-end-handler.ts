@@ -31,6 +31,11 @@ function canExecute(workflowExecutionEntity: WorkflowExecutionEntity, node: Node
     return false;
   }
 
+  // Check if this node has already been executed
+  if (workflowExecutionEntity.getNodeResults().some(result => result.nodeId === node.id)) {
+    return false;
+  }
+
   const workflowExecution = workflowExecutionEntity.getExecution();
   const loopState = getLoopState(workflowExecution);
 

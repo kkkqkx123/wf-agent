@@ -122,7 +122,7 @@ export class AgentLoopEntity {
   nodeId?: ID;
 
   /** Execution Hierarchy Manager (NEW - unified parent-child relationship management) */
-  private readonly hierarchyManager: ExecutionHierarchyManager;
+  private hierarchyManager: ExecutionHierarchyManager;
 
   // ========== Steering & Follow-up (NEW) ==========
 
@@ -659,8 +659,8 @@ export class AgentLoopEntity {
       'AGENT_LOOP',
       metadata
     );
-    // Replace the manager (using reflection since it's readonly)
-    (this as any).hierarchyManager = newManager;
+    // Replace the manager
+    this.hierarchyManager = newManager;
   }
 
   // ========== Resource Cleanup ==========

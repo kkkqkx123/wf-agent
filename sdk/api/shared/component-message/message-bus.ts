@@ -13,6 +13,10 @@ import type {
   RoutingRule,
 } from "@wf-agent/types";
 import { matchesRoutingRule } from "./routing-utils.js";
+import { createContextualLogger } from "../../../utils/contextual-logger.js";
+import { getErrorOrNew } from "@wf-agent/common-utils";
+
+const logger = createContextualLogger({ component: "MessageBus" });
 
 /**
  * Message Filter
@@ -151,7 +155,7 @@ export class MessageBus {
           const result = handler.handle(message);
           if (result instanceof Promise) {
             result.catch((err: unknown) => {
-              console.error(`Handler ${handler.name} failed:`, err);
+              logger.error(`Handler ${handler.name} failed`, { error: getErrorOrNew(err) });
             });
           }
         } else {
@@ -386,11 +390,11 @@ export class MessageBus {
           const result = entry.handler(message);
           if (result instanceof Promise) {
             result.catch(err => {
-              console.error("Subscriber handler failed:", err);
+              logger.error("Subscriber handler failed", { error: getErrorOrNew(err) });
             });
           }
         } catch (err) {
-          console.error("Subscriber handler failed:", err);
+          logger.error("Subscriber handler failed", { error: getErrorOrNew(err) });
         }
       }
     }

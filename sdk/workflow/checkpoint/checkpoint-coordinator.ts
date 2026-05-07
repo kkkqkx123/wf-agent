@@ -28,6 +28,9 @@ import type { WorkflowRegistry } from "../stores/workflow-registry.js";
 import type { WorkflowGraphRegistry } from "../stores/workflow-graph-registry.js";
 import { CheckpointState } from "./checkpoint-state-manager.js";
 import { ConversationSession } from "../../core/messaging/conversation-session.js";
+import { createContextualLogger } from "../../utils/contextual-logger.js";
+
+const logger = createContextualLogger({ component: "CheckpointCoordinator" });
 import { VariableState } from "../state-managers/variable-state.js";
 import { WorkflowExecutionEntity } from "../entities/workflow-execution-entity.js";
 import { ExecutionState } from "../state-managers/execution-state.js";
@@ -442,7 +445,7 @@ export class CheckpointCoordinator {
     // Step 15: Restore operation state for mid-node resume
     if (workflowExecutionState.currentOperation) {
       workflowExecutionEntity.state.restoreOperationState(workflowExecutionState.currentOperation);
-      console.info("Restored operation state from checkpoint", {
+      logger.info("Restored operation state from checkpoint", {
         executionId: workflowExecutionEntity.id,
         operationType: workflowExecutionState.currentOperation.type,
         operationId: workflowExecutionState.currentOperation.operationId,
@@ -468,7 +471,7 @@ export class CheckpointCoordinator {
         const validation = HierarchyIntegrityService.validateIntegrity(hierarchyMetadata, hierarchyRegistry);
         
         if (!validation.valid) {
-          console.warn('Hierarchy integrity issues detected after checkpoint restore', {
+          logger.warn('Hierarchy integrity issues detected after checkpoint restore', {
             executionId: workflowExecutionEntity.id,
             issues: validation.issues,
           });

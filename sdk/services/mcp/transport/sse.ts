@@ -5,6 +5,9 @@
 
 import type { IMcpTransport, TransportEventHandlers, SseTransportConfig } from "./types.js";
 import { readSSEStream } from "@wf-agent/common-utils";
+import { createContextualLogger } from "../../../utils/contextual-logger.js";
+
+const logger = createContextualLogger({ component: "MCPSSETransport" });
 
 /**
  * SSE Transport
@@ -77,8 +80,8 @@ export class SseTransport implements IMcpTransport {
 
       if (this.reconnectAttempts < this.maxReconnectAttempts) {
         this.reconnectAttempts++;
-        console.log(
-          `SSE connection error, attempting reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})`,
+        logger.warn(
+          `SSE connection error (type: ${event.type}), attempting reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})`,
         );
         // EventSource will auto-reconnect
       } else {

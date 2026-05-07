@@ -7,6 +7,10 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import type { McpSettings, McpServerConfig } from "../types.js";
 import { validateMcpSettings, validateServerConfig } from "./schema.js";
+import { createContextualLogger } from "../../../utils/contextual-logger.js";
+import { getErrorOrNew } from "@wf-agent/common-utils";
+
+const logger = createContextualLogger({ component: "MCPConfigLoader" });
 
 /**
  * Default MCP settings file name
@@ -57,7 +61,7 @@ export function loadServerConfigs(
       const validatedConfig = validateServerConfig(config, name);
       configs.set(name, validatedConfig);
     } catch (error) {
-      console.error(`Failed to validate config for server "${name}":`, error);
+      logger.error(`Failed to validate config for server "${name}"`, { error: getErrorOrNew(error) });
       // Skip invalid servers
     }
   }

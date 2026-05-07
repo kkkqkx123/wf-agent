@@ -10,6 +10,9 @@ import { isSuccess, getData } from "../../../shared/types/execution-result.js";
 import type { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
 import type { Timestamp, UnregisterOptions } from "@wf-agent/types";
 import { ConfigurationValidationError } from "@wf-agent/types";
+import { createContextualLogger } from "../../../../utils/contextual-logger.js";
+
+const logger = createContextualLogger({ component: "TriggerTemplateRegistryAPI" });
 
 /**
  * Trigger Template Filter
@@ -145,7 +148,7 @@ export class TriggerTemplateRegistryAPI extends CrudResourceAPI<
 
       if (options?.force && referencingWorkflows.length > 0) {
         // Log warning but proceed with deletion
-        console.warn(
+        logger.warn(
           `Force deleting trigger template '${id}' with ${referencingWorkflows.length} active references: ${referencingWorkflows.join(", ")}`,
         );
       }

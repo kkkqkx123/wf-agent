@@ -147,7 +147,7 @@ export abstract class BaseExecutor {
         binaryPath,
         status: "available",
       };
-    } catch (error) {
+    } catch {
       return {
         name: this.config.name,
         binaryPath: "",

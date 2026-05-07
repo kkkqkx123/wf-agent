@@ -214,7 +214,7 @@ export function createApplyPatchHandler(config: ReadFileConfig = {}) {
               let originalContent: string;
               try {
                 originalContent = await readFile(filePath, "utf-8");
-              } catch (_error) {
+              } catch {
                 throw PatchErrors.fileNotFound(filePath);
               }
 

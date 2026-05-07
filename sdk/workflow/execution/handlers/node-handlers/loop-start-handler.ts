@@ -29,12 +29,13 @@ function canExecute(executionEntity: WorkflowExecutionEntity, node: Node): boole
     return false;
   }
 
+  // Check if this node has already been executed in the current iteration
   const workflowExecution = executionEntity.getExecution();
   const loopState = getLoopState(workflowExecution);
 
-  // If the loop state does not exist, it can be executed (for the first time).
+  // If the loop state does not exist, check if node was executed before (first time)
   if (!loopState) {
-    return true;
+    return !executionEntity.getNodeResults().some(result => result.nodeId === node.id);
   }
 
   // If loop state exists, execution is always allowed

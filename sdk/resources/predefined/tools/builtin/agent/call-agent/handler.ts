@@ -116,7 +116,7 @@ export function createCallAgentHandler() {
           try {
             toolService.getTool(toolId);
             return true;
-          } catch (error) {
+          } catch {
             // Tool not found, skip it
             return false;
           }

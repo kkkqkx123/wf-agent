@@ -59,6 +59,8 @@ export interface LLMExecutionParams {
   eventManager?: EventRegistry;
   /** Node ID (optional, for error tracking) */
   nodeId?: string;
+  /** Whether to execute tool calls automatically (default: true) */
+  executeTools?: boolean;
 }
 
 /**
@@ -160,7 +162,7 @@ export class LLMExecutionCoordinator {
     params: LLMExecutionParams,
     conversationState: ConversationSession,
   ): Promise<string | InterruptionCheckResult> {
-    const { contextId, prompt, config, tools, abortSignal, eventManager, nodeId } = params;
+    const { contextId, prompt, config, tools, abortSignal, eventManager, nodeId, executeTools = true } = params;
 
     const {
       profileId,
@@ -278,8 +280,8 @@ export class LLMExecutionCoordinator {
       await this.triggerMessageAddedEvent(eventManager, contextId, assistantMessage, nodeId);
     }
 
-    // Check if there are tool calls
-    if (result.toolCalls && result.toolCalls.length > 0) {
+    // Check if there are tool calls and should execute them
+    if (result.toolCalls && result.toolCalls.length > 0 && executeTools) {
       // Validate single response tool call count
       const maxToolsPerResponse = maxToolCallsPerRequest ?? 3;
       if (result.toolCalls.length > maxToolsPerResponse) {

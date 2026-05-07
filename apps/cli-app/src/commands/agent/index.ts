@@ -69,7 +69,7 @@ export function createAgentCommands(): Command {
               profileId: options.profile || "DEFAULT",
               systemPrompt: options.systemPrompt,
               maxIterations: parseInt(options.maxIterations || "10", 10),
-              tools: options.tools ? options.tools.split(",").map(t => t.trim()) : [],
+              availableTools: options.tools ? { initial: options.tools.split(",").map(t => t.trim()) } : undefined,
             };
           }
 
@@ -77,7 +77,7 @@ export function createAgentCommands(): Command {
           if (options.profile) config.profileId = options.profile;
           if (options.systemPrompt) config.systemPrompt = options.systemPrompt;
           if (options.maxIterations) config.maxIterations = parseInt(options.maxIterations, 10);
-          if (options.tools) config.tools = options.tools.split(",").map(t => t.trim());
+          if (options.tools) config.availableTools = { initial: options.tools.split(",").map(t => t.trim()) };
           if (options.stream !== undefined) config.stream = options.stream;
 
           // Parse initial input
@@ -172,7 +172,7 @@ export function createAgentCommands(): Command {
             profileId: options.profile || "DEFAULT",
             systemPrompt: options.systemPrompt,
             maxIterations: parseInt(options.maxIterations || "10", 10),
-            tools: options.tools ? options.tools.split(",").map(t => t.trim()) : [],
+            availableTools: options.tools ? { initial: options.tools.split(",").map(t => t.trim()) } : undefined,
           };
 
           let initialMessages: any[] = [];

@@ -47,7 +47,13 @@ export {
 export {
   AgentLoopCoordinator,
   ConversationCoordinator,
+  AgentExecutionCoordinator,
+  AgentLoopStateTransitor,
+  ToolExecutionCoordinator,
   type AgentLoopExecuteOptions,
+  type AgentExecutionCoordinatorDependencies,
+  type AgentLoopStreamEvent,
+  type ToolExecutionCoordinatorDependencies,
 } from "./execution/coordinators/index.js";
 
 // Executor Layer

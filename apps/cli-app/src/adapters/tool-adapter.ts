@@ -37,7 +37,7 @@ export class ToolAdapter extends BaseAdapter {
       const api = this.sdk.tools;
       await api.create(tool);
 
-      this.output.infoLog(`Tool registered: ${tool.name}`);
+      this.output.infoLog(`Tool registered: ${tool.id}`);
       return tool;
     }, "Register tool");
   }
@@ -92,7 +92,7 @@ export class ToolAdapter extends BaseAdapter {
             : parseJson(content)) as unknown as Tool;
           await api.create(tool);
           success.push(tool);
-          this.output.infoLog(`Tool registered: ${tool.name}`);
+          this.output.infoLog(`Tool registered: ${tool.id}`);
         } catch (error) {
           failures.push({
             filePath: file,
@@ -245,13 +245,13 @@ export class ToolAdapter extends BaseAdapter {
         try {
           await api.create(tool);
           success.push(tool);
-          this.output.infoLog(`Built-in tool registered: ${tool.name}`);
+          this.output.infoLog(`Built-in tool registered: ${tool.id}`);
         } catch (error) {
           failures.push({
             toolId: tool.id,
             error: error instanceof Error ? error.message : String(error),
           });
-          this.output.errorLog(`Failed to register built-in tool: ${tool.name}`);
+          this.output.errorLog(`Failed to register built-in tool: ${tool.id}`);
         }
       }
 

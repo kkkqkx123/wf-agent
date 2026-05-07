@@ -1,16 +1,16 @@
 /**
- * LLM Execution Coordinator
- * Responsible for coordinating the entire process of LLM calls and tool calls
+ * LLM Execution Coordinator (Workflow-Specific)
+ * Coordinates LLM execution with workflow-specific features
  *
  * Key Responsibilities:
- * 1. Serve as the high-level coordination entry point
- * 2. Delegate specific logic to dedicated components
- * 3. Return the final execution results
+ * 1. Compose core LLMExecutionCoordinator for shared LLM logic
+ * 2. Add workflow-specific features: tool approval, checkpoint tracking, operation state
+ * 3. Manage workflow context through LLMContextFactory
  *
  * Design Principles:
- * - Simplified coordination logic
+ * - Composition over inheritance: delegates core LLM logic to shared coordinator
+ * - Separation of concerns: workflow-specific logic isolated from core coordination
  * - Dependency injection: Manage dependencies through LLMContextFactory
- * - Separation of responsibilities: Delegate specific execution logic to specialized components
  */
 
 import type { LLMMessage, ID, Tool, BaseEvent, ToolSchema, LLMUsage } from "@wf-agent/types";
@@ -46,6 +46,7 @@ import {
 import { ToolCallExecutor } from "../../../core/executors/tool-call-executor.js";
 import { prepareToolSchemasFromTools } from "../../../core/utils/tools/tool-schema-helper.js";
 import { ToolApprovalCoordinator } from "../../../core/coordinators/tool-approval-coordinator.js";
+import { LLMExecutionCoordinator as CoreLLMExecutionCoordinator } from "../../../core/coordinators/llm-execution-coordinator.js";
 
 const logger = createContextualLogger();
 
@@ -86,16 +87,16 @@ export interface LLMExecutionResponse {
 }
 
 /**
- * LLM Execution Coordinator Class
+ * LLM Execution Coordinator Class (Workflow-Specific)
  *
  * Responsibilities:
- * - Serve as the high-level coordination entry point
- * - Directly coordinate LLM calls, tool calls, and dialogue state management
+ * - Compose core LLMExecutionCoordinator for shared LLM + tool execution logic
+ * - Add workflow-specific features: tool approval, checkpoint management, operation tracking
  * - Return the final execution results
  *
  * Design Principles:
- * - Simplified coordination logic
- * - Separation of responsibilities: Each component is responsible only for its own tasks
+ * - Composition pattern: delegates core LLM logic to shared coordinator
+ * - Workflow extensions: adds approval, checkpoints, and operation state on top
  * - Use LLMContextFactory to manage dependencies
  */
 export class LLMExecutionCoordinator {
@@ -108,6 +109,9 @@ export class LLMExecutionCoordinator {
   /** Tool Approval Coordinator */
   private approvalCoordinator: ToolApprovalCoordinator;
 
+  /** Core LLM Coordinator (composed for shared LLM logic) */
+  private coreCoordinator: CoreLLMExecutionCoordinator;
+
   /**
    * Constructor (using factory configuration)
    *
@@ -116,6 +120,12 @@ export class LLMExecutionCoordinator {
   constructor(config: LLMContextFactoryConfig) {
     // Create a context factory
     this.contextFactory = new LLMContextFactory(config);
+
+    // Initialize core coordinator with shared LLM logic
+    this.coreCoordinator = new CoreLLMExecutionCoordinator(
+      config.llmExecutor,
+      config.toolCallExecutor,
+    );
 
     // Delayed initialization of the interrupt detector
     if (config.interruptionDetector) {
@@ -202,10 +212,9 @@ export class LLMExecutionCoordinator {
    * Execute the complete LLM tool invocation cycle
    *
    * Key responsibilities:
-   * 1. Execute the complete LLM tool invocation cycle.
-   * 2. Control the number of iterations in the cycle.
-   * 3. Manage the monitoring of Token usage.
-   * 4. Handle the conversation state.
+   * 1. Delegate LLM call to shared coordinator (message management, token tracking)
+   * 2. Add workflow-specific tool approval before executing tools
+   * 3. Handle operation state tracking for checkpoint/resume
    *
    * @param params Execution parameters
    * @param conversationState Conversation manager
@@ -223,7 +232,7 @@ export class LLMExecutionCoordinator {
     const executionEntity = executionRegistry?.get(executionId);
     const abortSignal = executionEntity?.getAbortSignal();
 
-    // Use the return value tagging system to check for interrupts.
+    // Check interruption before starting
     if (abortSignal) {
       const interruption = checkInterruption(abortSignal);
       if (!shouldContinue(interruption)) {
@@ -231,88 +240,7 @@ export class LLMExecutionCoordinator {
       }
     }
 
-    // Step 1: Add user messages
-    const userMessage = {
-      role: "user" as MessageRole,
-      content: prompt,
-    };
-    conversationState.addMessage(userMessage);
-
-    // Trigger message addition event
-    const userMessageEvent = buildMessageAddedEvent({
-      executionId: executionId || "",
-      role: userMessage.role,
-      content: userMessage.content,
-      nodeId,
-    });
-    
-    try {
-      await emit(this.contextFactory.getEventManager(), userMessageEvent);
-    } catch (error) {
-      logger.debug("Failed to emit MESSAGE_ADDED event", { eventType: userMessageEvent.type, error });
-    }
-
-    // Check the usage of Tokens.
-    await conversationState.checkTokenUsage();
-
-    // Check for warnings regarding the use of tokens.
-    const tokenUsage = conversationState.getTokenUsage();
-    if (tokenUsage) {
-      const tokenLimit = 100000; // Use fixed limits or obtain them from the configuration.
-      const usagePercentage = (tokenUsage.totalTokens / tokenLimit) * 100;
-
-      // A warning is triggered when the usage exceeds 80%.
-      if (usagePercentage > 80) {
-        const warningEvent = buildTokenUsageWarningEvent({
-          executionId: executionId || "",
-          tokensUsed: tokenUsage.totalTokens,
-          tokenLimit,
-          usagePercentage,
-        });
-        
-        try {
-          await emit(this.contextFactory.getEventManager(), warningEvent);
-        } catch (error) {
-          logger.debug("Failed to emit TOKEN_USAGE_WARNING event", { eventType: warningEvent.type, error });
-        }
-      }
-    }
-
-    // Get available tools from the tool context manager.
-    let availableToolSchemas = tools;
-    const toolContextStore = this.contextFactory.getToolContextStore() as
-      | ToolContextStore
-      | undefined;
-    if (toolContextStore) {
-      const availableToolIds = toolContextStore.getTools(executionId);
-
-      if (availableToolIds.size > 0) {
-        const toolService = this.contextFactory.getToolService();
-        const availableTools = Array.from(availableToolIds as Set<string>)
-          .map(id => {
-            try {
-              return toolService.getTool(id);
-            } catch {
-              return null;
-            }
-          })
-          .filter(Boolean);
-
-        // Use shared helper to convert to ToolSchema format
-        availableToolSchemas = prepareToolSchemasFromTools(availableTools as Tool[]);
-      }
-    }
-
-    // Check for interrupts again before executing the LLM call.
-    if (abortSignal) {
-      const interruption = checkInterruption(abortSignal);
-      if (!shouldContinue(interruption)) {
-        return interruption;
-      }
-    }
-
-    // Execute an LLM call (passing the AbortSignal)
-    // Track operation state for mid-node resume
+    // Workflow-specific: Track operation state for mid-node resume
     if (executionEntity) {
       const operationId = generateId();
       executionEntity.state.setCurrentOperation({
@@ -330,19 +258,58 @@ export class LLMExecutionCoordinator {
     }
 
     try {
-      const llmResult = await this.contextFactory.getLLMExecutor().executeLLMCall(
-        conversationState.getMessages(),
-        {
-          prompt,
-          profileId: profileId || "DEFAULT",
-          parameters: parameters || {},
-          tools: availableToolSchemas as ToolSchema[],
-        },
-        { abortSignal },
-      );
+      // Workflow-specific: Prepare tools from tool context store
+      let availableTools = tools;
+      const toolContextStore = this.contextFactory.getToolContextStore() as
+        | ToolContextStore
+        | undefined;
+      if (toolContextStore) {
+        const availableToolIds = toolContextStore.getTools(executionId);
 
-      // Check if it is in an interrupted state.
-      if (!llmResult.success) {
+        if (availableToolIds.size > 0) {
+          const toolService = this.contextFactory.getToolService();
+          const resolvedTools = Array.from(availableToolIds as Set<string>)
+            .map(id => {
+              try {
+                return toolService.getTool(id);
+              } catch {
+                return null;
+              }
+            })
+            .filter(Boolean);
+
+          availableTools = resolvedTools;
+        }
+      }
+
+      // Build config for core coordinator
+      const llmConfig = {
+        profileId: profileId || "DEFAULT",
+        parameters: parameters || {},
+        maxToolCallsPerRequest,
+        enableTokenTracking: true,
+        tokenWarningThreshold: 80,
+        tokenLimit: 100000,
+      };
+
+      // Call core coordinator to execute LLM (without tool execution)
+      // Core handles: message management, token tracking, events, LLM call
+      const coreResult = await this.coreCoordinator.executeLLM(
+        {
+          contextId: executionId,
+          prompt,
+          config: llmConfig,
+          tools: availableTools,
+          abortSignal,
+          eventManager: this.contextFactory.getEventManager(),
+          nodeId,
+          executeTools: false,  // Don't execute tools, we'll handle them with approval
+        },
+        conversationState,
+      );;
+
+      // Check if core execution succeeded
+      if (!coreResult.success) {
         // If interrupted, preserve operation state for resume
         if (executionEntity && abortSignal?.aborted) {
           logger.info("LLM call interrupted, preserving operation state for resume", {
@@ -353,58 +320,26 @@ export class LLMExecutionCoordinator {
           // On other errors, clear operation state
           executionEntity?.state.clearOperation();
         }
-        return (llmResult as { success: false; interruption: InterruptionCheckResult }).interruption;
+        
+        // Convert error to interruption result
+        const isPaused = coreResult.error?.message?.includes("paused") || false;
+        return {
+          type: isPaused ? "paused" : "stopped",
+          nodeId,
+          executionId,
+        };
       }
 
-      const result = llmResult.result;
-
-      // Clear operation state on success
-      executionEntity?.state.clearOperation();
-
-      // Update Token usage statistics
-      if (result.usage) {
-        conversationState.updateTokenUsage(result.usage as LLMUsage);
-      }
-
-      // Complete the Token statistics for the current request.
-      conversationState.finalizeCurrentRequest();
-
-      // Add the LLM response to the conversation history.
-      const assistantMessage = {
-        role: "assistant" as MessageRole,
-        content: result.content,
-        toolCalls: result.toolCalls?.map((tc: { id: string; name: string; arguments: string }) => ({
-          id: tc.id,
-          type: "function" as const,
-          function: {
-            name: tc.name,
-            arguments: tc.arguments,
-          },
-        })),
-      };
-      conversationState.addMessage(assistantMessage);
-
-      // Trigger message addition event
-      const assistantMessageEvent = buildMessageAddedEvent({
-        executionId: executionId || "",
-        role: assistantMessage.role,
-        content: assistantMessage.content,
-        nodeId,
-      });
+      // Get the latest assistant message to check for tool calls
+      const messages = conversationState.getMessages();
+      const lastMessage = messages[messages.length - 1];
       
-      try {
-        await emit(this.contextFactory.getEventManager(), assistantMessageEvent);
-      } catch (error) {
-        logger.debug("Failed to emit MESSAGE_ADDED event", { eventType: assistantMessageEvent.type, error });
-      }
-
-      // Check if there are any tool calls.
-      if (result.toolCalls && result.toolCalls.length > 0) {
-        // Verify the number of tool calls returned in a single instance.
+      if (lastMessage && lastMessage.toolCalls && lastMessage.toolCalls.length > 0) {
+        // Validate single response tool call count
         const maxToolsPerResponse = maxToolCallsPerRequest ?? 3;
-        if (result.toolCalls.length > maxToolsPerResponse) {
+        if (lastMessage.toolCalls.length > maxToolsPerResponse) {
           throw new ExecutionError(
-            `LLM returned ${result.toolCalls.length} tool calls, ` +
+            `LLM returned ${lastMessage.toolCalls.length} tool calls, ` +
               `exceeds limit of ${maxToolsPerResponse}. ` +
               `Configure maxToolCallsPerRequest to adjust this limit.`,
             nodeId,
@@ -419,9 +354,13 @@ export class LLMExecutionCoordinator {
           }
         }
 
-        // Use the injection tool to call the executor to perform the tool call (passing the AbortSignal).
+        // Execute tool calls with approval
         await this.executeToolCallsWithApproval(
-          result.toolCalls,
+          lastMessage.toolCalls.map(tc => ({
+            id: tc.id,
+            name: tc.function.name,
+            arguments: tc.function.arguments,
+          })),
           conversationState,
           executionId,
           nodeId,
@@ -431,23 +370,11 @@ export class LLMExecutionCoordinator {
         );
       }
 
-      // Trigger a dialog state change event
-      const finalTokenUsage = conversationState.getTokenUsage();
-      const stateChangedEvent = buildConversationStateChangedEvent({
-        executionId: executionId || "",
-        messageCount: conversationState.getMessages().length,
-        tokenUsage: finalTokenUsage?.totalTokens || 0,
-        nodeId,
-      });
-      
-      try {
-        await emit(this.contextFactory.getEventManager(), stateChangedEvent);
-      } catch (error) {
-        logger.debug("Failed to emit CONVERSATION_STATE_CHANGED event", { eventType: stateChangedEvent.type, error });
-      }
+      // Clear operation state on success
+      executionEntity?.state.clearOperation();
 
-      // Return the final content
-      return result.content;
+      // Return final content
+      return coreResult.content || "";
     } catch (error) {
       // On exception, clear operation state
       executionEntity?.state.clearOperation();

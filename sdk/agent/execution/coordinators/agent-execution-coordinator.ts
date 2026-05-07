@@ -8,6 +8,7 @@
  * - Coordinator pattern: orchestrates execution flow
  * - Stateless design, all state managed through AgentLoopEntity
  * - Delegates to specialized coordinators (ToolExecutionCoordinator)
+ * - Directly uses LLMExecutor for LLM calls (agent-specific message management via hooks)
  * - Supports both sync and streaming execution modes
  * - Integrates with Hook mechanism
  */
@@ -69,6 +70,7 @@ export interface AgentExecutionCoordinatorDependencies {
  * Coordinates the execution flow of agent loop:
  * - Manages iteration loop control
  * - Handles interruption signals (pause/stop/abort)
+ * - Uses LLMExecutor directly for LLM calls
  * - Delegates to ToolExecutionCoordinator for tool execution
  * - Supports streaming with real-time event forwarding
  */

@@ -11,7 +11,7 @@ import type { CommandOptions } from "../../types/cli-types.js";
 import type { AgentLoopRuntimeConfig } from "@wf-agent/types";
 import { handleError } from "../../utils/error-handler.js";
 import { CLIValidationError } from "../../types/cli-types.js";
-import { loadAgentLoopConfig, parseAndValidateAgentLoopConfig } from "@wf-agent/sdk";
+import { loadAgentLoopConfig, parseAndValidateAgentLoopConfig, transformToAgentLoopConfig } from "@wf-agent/sdk";
 import { readFileSync, existsSync } from "fs";
 
 const output = getOutput();
@@ -62,7 +62,8 @@ export function createAgentCommands(): Command {
             }
 
             output.infoLog(`Loading config from: ${options.config}`);
-            config = await loadAgentLoopConfig(options.config);
+            const parsedConfig = await loadAgentLoopConfig(options.config);
+            config = transformToAgentLoopConfig(parsedConfig.config);
           } else {
             // Building a Configuration with Command Line Parameters
             config = {

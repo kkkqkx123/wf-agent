@@ -701,15 +701,15 @@ export class WorkflowExecutionEntity {
    * @param params Additional parameters for the event builder
    * @returns Built event object
    */
-  buildEvent<T extends BaseEvent>(
-    builder: (params: { executionId: string; workflowId: string } & Record<string, unknown>) => T,
-    params?: Omit<Parameters<typeof builder>[0], "executionId" | "workflowId">,
+  buildEvent<T extends BaseEvent, P extends Record<string, unknown>>(
+    builder: (params: P) => T,
+    params?: Omit<P, "executionId" | "workflowId">,
   ): T {
-    const fullParams: { executionId: string; workflowId: string } & Record<string, unknown> = {
+    const fullParams = {
       executionId: this.id,
       workflowId: this.workflowExecution.workflowId,
       ...params,
-    };
-    return builder(fullParams as Parameters<typeof builder>[0]);
+    } as unknown as P;
+    return builder(fullParams);
   }
 }

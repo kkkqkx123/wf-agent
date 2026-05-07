@@ -8,7 +8,6 @@ import type { WorkflowExecutionEntity } from "../../../entities/workflow-executi
 import type { Condition, EvaluationContext } from "@wf-agent/types";
 import { ExecutionError } from "@wf-agent/types";
 import { conditionEvaluator } from "@wf-agent/common-utils";
-import { now, getErrorMessage } from "@wf-agent/common-utils";
 
 /**
  * Check if the node can be executed.

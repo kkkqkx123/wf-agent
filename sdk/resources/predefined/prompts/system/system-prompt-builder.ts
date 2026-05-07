@@ -84,8 +84,6 @@ export function buildSystemPrompt(options: SystemPromptBuildOptions): string {
     type,
     tools,
     toolFormat = "detailed",
-    prefix,
-    suffix,
     additionalFragments = [],
     excludeFragments = [],
   } = options;

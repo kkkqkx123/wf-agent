@@ -61,7 +61,7 @@ export class OpenAIResponseFormatter extends BaseFormatter {
   /**
    * Parse response in native function-calling mode
    */
-  protected parseNativeResponse(data: unknown, config: FormatterConfig): LLMResult {
+  protected parseNativeResponse(data: unknown, _config: FormatterConfig): LLMResult {
     const dataRecord = data as Record<string, unknown>;
     const output = (dataRecord["output"] as Array<Record<string, unknown>>) || [];
     const lastOutput = output[output.length - 1] || {};

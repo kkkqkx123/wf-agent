@@ -11,7 +11,6 @@
  */
 
 import type { Node, LLMNodeConfig } from "@wf-agent/types";
-import type { GraphLLMExecutionConfig } from "@wf-agent/types";
 import type { WorkflowExecution, LLMMessage } from "@wf-agent/types";
 import type { HumanRelayHandler } from "@wf-agent/types";
 import { ExecutionError } from "@wf-agent/types";

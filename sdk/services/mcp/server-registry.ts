@@ -3,7 +3,7 @@
  * Singleton manager for MCP server instances
  */
 
-import type { McpManagerOptions, McpServerState } from "./types.js";
+import type { McpManagerOptions } from "./types.js";
 import { McpConnectionManager } from "./connection-manager.js";
 
 /**

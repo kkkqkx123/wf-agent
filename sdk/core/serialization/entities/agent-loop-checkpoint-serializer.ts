@@ -11,7 +11,6 @@ import type {
   SnapshotBase,
   AgentLoopCheckpoint,
   AgentLoopDelta,
-  AgentLoopStateSnapshot,
 } from "@wf-agent/types";
 
 /**

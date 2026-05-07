@@ -26,7 +26,7 @@ export class OpenAIChatFormatter extends BaseFormatter {
   /**
    * Parse response in native function-calling mode
    */
-  protected parseNativeResponse(data: unknown, config: FormatterConfig): LLMResult {
+  protected parseNativeResponse(data: unknown, _config: FormatterConfig): LLMResult {
     const dataRecord = data as Record<string, unknown>;
     const choices = dataRecord["choices"] as Array<Record<string, unknown>> | undefined;
     const choice = choices?.[0];

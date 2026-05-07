@@ -2,7 +2,7 @@
  * The logic executed by the apply_patch tool
  */
 
-import { readFile, writeFile, mkdir, unlink, rename } from "fs/promises";
+import { readFile, writeFile, mkdir, unlink } from "fs/promises";
 import { existsSync, statSync } from "fs";
 import { dirname } from "path";
 import type { ToolOutput } from "@wf-agent/types";
@@ -214,8 +214,7 @@ export function createApplyPatchHandler(config: ReadFileConfig = {}) {
               let originalContent: string;
               try {
                 originalContent = await readFile(filePath, "utf-8");
-              } catch (error) {
-                const err = error instanceof Error ? error : new Error(String(error));
+              } catch (_error) {
                 throw PatchErrors.fileNotFound(filePath);
               }
 

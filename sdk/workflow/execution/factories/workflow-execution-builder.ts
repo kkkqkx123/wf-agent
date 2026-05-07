@@ -19,7 +19,7 @@ import { WorkflowExecutionEntity } from "../../entities/workflow-execution-entit
 import { WorkflowExecutionState } from "../../state-managers/workflow-execution-state.js";
 import { ExecutionState } from "../../state-managers/execution-state.js";
 import { WorkflowStateCoordinator } from "../../state-managers/workflow-state-coordinator.js";
-import { generateId, now as getCurrentTimestamp } from "@wf-agent/common-utils";
+import { generateId } from "@wf-agent/common-utils";
 import { ExecutionError, RuntimeValidationError } from "@wf-agent/types";
 import type { WorkflowGraphRegistry } from "../../stores/workflow-graph-registry.js";
 import { getContainer } from "../../../core/di/index.js";

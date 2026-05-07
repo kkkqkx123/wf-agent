@@ -135,7 +135,7 @@ export class GeminiNativeFormatter extends BaseFormatter {
    *
    * The Gemini Native API returns JSON directly, without the `data:` prefix.
    */
-  override parseStreamLine(line: string, config: FormatterConfig): ParseStreamChunkResult {
+  override parseStreamLine(line: string, _config: FormatterConfig): ParseStreamChunkResult {
     // Skip blank lines
     if (!line) {
       return { chunk: { done: false }, valid: false };

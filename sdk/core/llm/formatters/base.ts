@@ -505,6 +505,14 @@ export abstract class BaseFormatter {
   /**
    * Parse response in native function-calling mode
    * Subclasses must implement this method
+   * 
+   * Note: Some providers (e.g., Gemini) need config to get model name
+   * as their API response doesn't include it. Others (OpenAI, Anthropic)
+   * can extract all info from the response data alone.
+   * 
+   * @param data - Raw response data from the provider
+   * @param config - Formatter configuration
+   * @returns Parsed LLM result
    */
   protected abstract parseNativeResponse(
     data: unknown,

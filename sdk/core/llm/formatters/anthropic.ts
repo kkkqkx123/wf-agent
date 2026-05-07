@@ -154,7 +154,7 @@ export class AnthropicFormatter extends BaseFormatter {
   /**
    * Parse response in native function-calling mode
    */
-  protected parseNativeResponse(data: unknown, config: FormatterConfig): LLMResult {
+  protected parseNativeResponse(data: unknown, _config: FormatterConfig): LLMResult {
     const dataRecord = data as Record<string, unknown>;
     const content = this.extractContent(dataRecord["content"]);
     const toolCalls = this.extractToolCalls(dataRecord["content"]);
@@ -197,7 +197,6 @@ export class AnthropicFormatter extends BaseFormatter {
   protected override parseTextModeResponse(data: unknown, config: FormatterConfig): LLMResult {
     const dataRecord = data as Record<string, unknown>;
     const content = this.extractContent(dataRecord["content"]);
-    const format = this.getToolCallFormat(config);
 
     // Parse tool calls from content using ToolCallParser
     const toolCalls = config.toolCallFormat

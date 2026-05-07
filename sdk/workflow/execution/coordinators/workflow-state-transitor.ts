@@ -326,8 +326,8 @@ export class WorkflowStateTransitor {
     try {
       const container = getContainer();
       
-      // Try to use unified hierarchy registry first (Phase 4 - preferred)
-      const hierarchyRegistry = container.get(Identifiers.ExecutionHierarchyRegistry) as ExecutionHierarchyRegistry | undefined;
+      // Use unified hierarchy registry for cleanup
+      const hierarchyRegistry = container.get(Identifiers.ExecutionHierarchyRegistry) as ExecutionHierarchyRegistry;
       
       if (hierarchyRegistry) {
         // Use unified cleanup that handles mixed hierarchies (Workflow → Agent, Agent → Agent, etc.)
@@ -337,19 +337,6 @@ export class WorkflowStateTransitor {
             executionId,
             cleanedCount,
           });
-        }
-      } else {
-        // Fallback to legacy cleanup (backward compatibility)
-        const agentLoopRegistry = container.get(Identifiers.AgentLoopRegistry) as AgentLoopRegistry;
-
-        if (agentLoopRegistry) {
-          const cleanedCount = agentLoopRegistry.cleanupByParentWorkflowExecutionId(executionId);
-          if (cleanedCount > 0) {
-            logger.info("Cleaned up child AgentLoops (legacy method)", {
-              executionId,
-              cleanedCount,
-            });
-          }
         }
       }
     } catch (error) {

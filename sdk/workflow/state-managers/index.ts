@@ -8,8 +8,6 @@ export { ExecutionState, type SubgraphContext } from "./execution-state.js";
 export {
   AsyncCompletionManager,
   type CompletionHandler,
-  // Backward compatibility (deprecated)
-  PromiseResolutionManager,
 } from "./promise-resolution-manager.js";
 export { TriggerState, type TriggerRuntimeState } from "./trigger-state.js";
 export {

@@ -36,7 +36,8 @@ export * from "./script/index.js";
 export * from "./checkpoint/index.js";
 export * from "./storage/index.js";
 
-export * from "./interaction.js";
+// User Interaction Module
+export * from "./interaction/index.js";
 export * from "./human-relay.js";
 export * from "./result.js";
 export * from "./http.js";

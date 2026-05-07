@@ -32,7 +32,7 @@ import { logError } from "../../core/utils/error-utils.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 import type { StateManager } from "../../core/types/state-manager.js";
 
-const logger = createContextualLogger({ component: "PromiseResolutionManager" });
+const logger = createContextualLogger({ component: "AsyncCompletionManager" });
 
 /**
  * Completion Handler Interface
@@ -385,8 +385,3 @@ export class AsyncCompletionManager<T = unknown> implements StateManager<Map<str
     return Array.from(this.handlers.keys());
   }
 }
-
-// Backward compatibility alias (deprecated)
-/** @deprecated Use AsyncCompletionManager instead */
-export const PromiseResolutionManager = AsyncCompletionManager;
-

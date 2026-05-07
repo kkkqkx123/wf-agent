@@ -13,13 +13,12 @@
  * - Dependency injection: Manage dependencies through LLMContextFactory
  */
 
-import type { LLMMessage, ID, Tool, BaseEvent, ToolSchema, LLMUsage } from "@wf-agent/types";
-import { MessageRole } from "@wf-agent/types";
+import type { LLMMessage, BaseEvent } from "@wf-agent/types";
 import type { WorkflowConfig } from "@wf-agent/types";
 import { ConversationSession } from "../../../core/messaging/conversation-session.js";
 import type { ToolContextStore } from "../../stores/tool-context-store.js";
 import { emit } from "../utils/index.js";
-import type { ToolApprovalData } from "@wf-agent/types";
+import type { ToolApprovalResult } from "@wf-agent/types";
 import { generateId } from "../../../utils/index.js";
 import { getErrorOrNew, now } from "@wf-agent/common-utils";
 import { ExecutionError } from "@wf-agent/types";
@@ -33,9 +32,6 @@ import {
 import type { InterruptionCheckResult } from "@wf-agent/common-utils";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import {
-  buildMessageAddedEvent,
-  buildTokenUsageWarningEvent,
-  buildConversationStateChangedEvent,
   buildUserInteractionRequestedEvent,
   buildUserInteractionProcessedEvent,
 } from "../utils/event/index.js";
@@ -44,7 +40,6 @@ import {
   type LLMContextFactoryConfig,
 } from "../factories/llm-context-factory.js";
 import { ToolCallExecutor } from "../../../core/executors/tool-call-executor.js";
-import { prepareToolSchemasFromTools } from "../../../core/utils/tools/tool-schema-helper.js";
 import { ToolApprovalCoordinator } from "../../../core/coordinators/tool-approval-coordinator.js";
 import { LLMExecutionCoordinator as CoreLLMExecutionCoordinator } from "../../../core/coordinators/llm-execution-coordinator.js";
 
@@ -152,22 +147,14 @@ export class LLMExecutionCoordinator {
    * @returns Whether it has been aborted
    */
   isAborted(executionId: string): boolean {
-    if (this.interruptionDetector) {
-      return this.interruptionDetector.isAborted(executionId);
-    }
-
-    // Backward compatibility: If the interruptionDetector is not provided, use the old method.
-    const executionRegistry = this.contextFactory.getWorkflowExecutionRegistry();
-    if (!executionRegistry) {
+    if (!this.interruptionDetector) {
+      logger.warn("InterruptionDetector not initialized, cannot check abort status", {
+        executionId,
+      });
       return false;
     }
 
-    const executionEntity = executionRegistry.get(executionId);
-    if (!executionEntity) {
-      return false;
-    }
-
-    return executionEntity.getAbortSignal().aborted;
+    return this.interruptionDetector.isAborted(executionId);
   }
 
   /**
@@ -512,7 +499,7 @@ export class LLMExecutionCoordinator {
     approvalConfig: { approvalTimeout?: number } | undefined,
     executionId: string,
     nodeId: string,
-  ): Promise<ToolApprovalData> {
+  ): Promise<ToolApprovalResult> {
     const interactionId = generateId();
     const tool = this.contextFactory.getToolService().getTool(toolCall.id);
 
@@ -579,7 +566,7 @@ export class LLMExecutionCoordinator {
       );
 
       // Parse approval results
-      const approvalResult = response.inputData as ToolApprovalData;
+      const approvalResult = response.inputData as ToolApprovalResult;
 
       // Trigger the USER_INTERACTION_PROCESSED event
       const processedEvent = buildUserInteractionProcessedEvent({
@@ -628,19 +615,18 @@ export class LLMExecutionCoordinator {
    * @param request - Approval request from ToolApprovalCoordinator
    * @param executionId - Execution ID
    * @param nodeId - Node ID
-   * @returns Approval result
+   * @returns Approval result in new ToolApprovalResult format
    */
   private async requestToolApprovalInternal(
     request: { toolCall: { id: string; function?: { name?: string; arguments?: string } } },
     executionId: string,
     nodeId: string,
   ): Promise<{ approved: boolean; toolCallId: string; editedParameters?: Record<string, unknown>; userInstruction?: string; rejectionReason?: string }> {
-    // Convert to legacy format for backward compatibility
     const toolCallName = request.toolCall.function?.name || "";
     const toolCallArgs = request.toolCall.function?.arguments || "{}";
 
-    // Use existing requestToolApproval method
-    const legacyResult = await this.requestToolApproval(
+    // Call the approval flow which returns ToolApprovalResult
+    const result = await this.requestToolApproval(
       {
         id: request.toolCall.id,
         name: toolCallName,
@@ -651,13 +637,13 @@ export class LLMExecutionCoordinator {
       nodeId,
     );
 
-    // Convert legacy ToolApprovalData to new ToolApprovalResult format
+    // Return in the format expected by ToolApprovalCoordinator
     return {
-      approved: legacyResult.approved,
+      approved: result.approved,
       toolCallId: request.toolCall.id,
-      editedParameters: legacyResult.editedParameters,
-      userInstruction: legacyResult.userInstruction,
-      rejectionReason: !legacyResult.approved ? "Tool call was rejected by user" : undefined,
+      editedParameters: result.editedParameters,
+      userInstruction: result.userInstruction,
+      rejectionReason: !result.approved ? "Tool call was rejected by user" : undefined,
     };
   }
 
@@ -671,7 +657,7 @@ export class LLMExecutionCoordinator {
   private waitForUserInteractionResponse(
     interactionId: string,
     timeoutMs: number = 0,
-  ): Promise<{ interactionId: string; inputData: ToolApprovalData }> {
+  ): Promise<{ interactionId: string; inputData: ToolApprovalResult }> {
     return new Promise((resolve, reject) => {
       let timeoutId: NodeJS.Timeout | null = null;
       const eventManager = this.contextFactory.getEventManager();
@@ -679,7 +665,7 @@ export class LLMExecutionCoordinator {
       const handler = (event: BaseEvent) => {
         const typedEvent = event as unknown as {
           interactionId: string;
-          inputData: ToolApprovalData;
+          inputData: ToolApprovalResult;
         };
         if (typedEvent.interactionId === interactionId) {
           if (timeoutId) {

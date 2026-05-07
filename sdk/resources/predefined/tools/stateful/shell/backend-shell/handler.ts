@@ -13,10 +13,10 @@ import { getTerminalService } from "@wf-agent/sdk/services";
 import type { BackendShell, ShellOutputResult } from "./types.js";
 
 /**
- * Backend Shell Manager (Legacy compatibility layer)
+ * Backend Shell Manager
  *
- * This class provides backward compatibility with the existing BackendShell interface
- * while using the new TerminalService internally.
+ * Manages backend shell instances
+ * with the existing BackendShell interface while using TerminalService internally.
  */
 class BackendShellManager {
   private shells: Map<string, BackendShell> = new Map();

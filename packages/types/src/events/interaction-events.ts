@@ -4,7 +4,7 @@
 
 import type { ID } from "../common.js";
 import type { BaseEvent } from "./base.js";
-import type { UserInteractionOperationType, PendingToolCallInfo } from "../interaction.js";
+import type { UserInteractionOperationType, PendingToolCallInfo } from "../interaction/index.js";
 import type { ToolExecutionResult } from "../tool/execution.js";
 
 /**

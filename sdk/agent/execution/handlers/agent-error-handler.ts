@@ -208,12 +208,12 @@ export async function handleAgentInterruption(
       streamMessagePreserved: !!entity.state.streamMessage,
     });
 
-    // Emit pause event (TODO: Add proper type after rebuilding types package)
+    // Emit pause event
     if (eventManager) {
       try {
         await emit(eventManager, {
           id: generateId(),
-          type: "AGENT_PAUSED" as any,
+          type: "AGENT_PAUSED",
           timestamp: now(),
           agentLoopId: entity.id,
           iteration: entity.state.currentIteration,
@@ -221,7 +221,7 @@ export async function handleAgentInterruption(
           isStreaming: entity.state.isStreaming,
           pendingToolCalls: entity.state.pendingToolCalls.size,
           streamMessagePreserved: !!entity.state.streamMessage,
-        } as any);
+        });
       } catch (error) {
         logger.debug("Failed to emit AGENT_PAUSED event", { error });
       }
@@ -238,19 +238,19 @@ export async function handleAgentInterruption(
       toolCallCount: entity.state.toolCallCount,
     });
 
-    // Emit cancel event (TODO: Add proper type after rebuilding types package)
+    // Emit cancel event
     if (eventManager) {
       try {
         await emit(eventManager, {
           id: generateId(),
-          type: "AGENT_CANCELLED" as any,
+          type: "AGENT_CANCELLED",
           timestamp: now(),
           agentLoopId: entity.id,
           iteration: entity.state.currentIteration,
           toolCallCount: entity.state.toolCallCount,
           isStreaming: entity.state.isStreaming,
           pendingToolCalls: entity.state.pendingToolCalls.size,
-        } as any);
+        });
       } catch (error) {
         logger.debug("Failed to emit AGENT_CANCELLED event", { error });
       }

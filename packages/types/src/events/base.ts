@@ -142,6 +142,10 @@ export type EventType =
   | "AGENT_ITERATION_COMPLETED"
   /** Agent hook triggered */
   | "AGENT_HOOK_TRIGGERED"
+  /** Agent paused */
+  | "AGENT_PAUSED"
+  /** Agent cancelled */
+  | "AGENT_CANCELLED"
   /** Progressive tool execution start (batch) */
   | "PROGRESSIVE_TOOL_EXECUTION_START"
   /** Progressive tool execution end (batch) */

@@ -232,6 +232,50 @@ export interface AgentHookTriggeredCoreEvent extends BaseEvent {
 }
 
 /**
+ * Agent Paused Event
+ *
+ * Emitted when agent execution is paused by user request.
+ */
+export interface AgentPausedEvent extends BaseEvent {
+  type: "AGENT_PAUSED";
+  /** Agent Loop ID */
+  agentLoopId: ID;
+  /** Current iteration when paused */
+  iteration: number;
+  /** Total tool calls made */
+  toolCallCount: number;
+  /** Whether was streaming when paused */
+  isStreaming: boolean;
+  /** Number of pending tool calls */
+  pendingToolCalls: number;
+  /** Whether streaming message was preserved */
+  streamMessagePreserved: boolean;
+  /** Reason for pause (optional) */
+  reason?: string;
+}
+
+/**
+ * Agent Cancelled Event
+ *
+ * Emitted when agent execution is cancelled/stopped by user request.
+ */
+export interface AgentCancelledEvent extends BaseEvent {
+  type: "AGENT_CANCELLED";
+  /** Agent Loop ID */
+  agentLoopId: ID;
+  /** Current iteration when cancelled */
+  iteration: number;
+  /** Total tool calls made */
+  toolCallCount: number;
+  /** Whether was streaming when cancelled */
+  isStreaming: boolean;
+  /** Number of pending tool calls */
+  pendingToolCalls: number;
+  /** Reason for cancellation (optional) */
+  reason?: string;
+}
+
+/**
  * Union type of all agent events
  */
 export type AgentEvent =
@@ -245,4 +289,6 @@ export type AgentEvent =
   | AgentToolExecutionCompletedEvent
   | AgentIterationStartedEvent
   | AgentIterationCompletedEvent
-  | AgentHookTriggeredCoreEvent;
+  | AgentHookTriggeredCoreEvent
+  | AgentPausedEvent
+  | AgentCancelledEvent;

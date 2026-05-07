@@ -344,15 +344,15 @@ export function getErrorHandler(): UnifiedErrorHandler {
 /**
  * Create a wrapped function with automatic error handling
  */
-export function wrapWithErrorHandling<T extends (...args: any[]) => any>(
-  fn: T,
+export function wrapWithErrorHandling<TArgs extends unknown[], TReturn>(
+  fn: (...args: TArgs) => TReturn | Promise<TReturn>,
   context: Omit<ErrorHandlingContext, "error">,
-): T {
-  return (async (...args: Parameters<T>): Promise<ReturnType<T>> => {
+): (...args: TArgs) => Promise<TReturn> {
+  return async (...args: TArgs): Promise<TReturn> => {
     const errorHandler = getErrorHandler();
     return errorHandler.handleWithRetry(
-      () => fn(...args),
+      () => Promise.resolve(fn(...args)),
       context,
-    ) as Promise<ReturnType<T>>;
-  }) as unknown as T;
+    );
+  };
 }

@@ -7,8 +7,8 @@
  * Note: File I/O operations have been moved to config-file-loader.ts
  */
 
-import type { ConfigFormat } from "./types.js";
 import { parseAndValidateAgentLoopConfig } from "./processors/agent-loop.js";
+import type { ParsedAgentLoopConfig } from "./types.js";
 import { loadConfigFile } from "./config-file-loader.js";
 
 /**
@@ -17,7 +17,7 @@ import { loadConfigFile } from "./config-file-loader.js";
  * @returns Parsed Agent Loop configuration
  * @throws {Error} Throws an error if file cannot be read, parsed, or validated
  */
-export async function loadAgentLoopConfig(filePath: string): Promise<any> {
+export async function loadAgentLoopConfig(filePath: string): Promise<ParsedAgentLoopConfig> {
   const { content, format } = await loadConfigFile(filePath);
   return parseAndValidateAgentLoopConfig(content, format);
 }

@@ -14,6 +14,9 @@ import type {
   ListAllFilesOptions,
   FileSearchResult,
 } from "./types.js";
+import { createContextualLogger } from "../../utils/contextual-logger.js";
+
+const logger = createContextualLogger({ component: "SearchService" });
 
 /**
  * Search Service class
@@ -50,7 +53,7 @@ export class SearchService {
         label: file.label,
       }));
     } catch (error) {
-      console.error("Error listing files:", error);
+      logger.error("Error listing files", { error });
       return [];
     }
   }
@@ -101,7 +104,7 @@ export class SearchService {
 
       return verifiedResults;
     } catch (error) {
-      console.error("Error in searchFiles:", error);
+      logger.error("Error in searchFiles", { error });
       return [];
     }
   }

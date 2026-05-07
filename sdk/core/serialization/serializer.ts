@@ -12,6 +12,9 @@ import type {
   SerializedError,
 } from "@wf-agent/types";
 import { compressBlob, decompressBlob } from "@wf-agent/storage";
+import { createContextualLogger } from "../../utils/contextual-logger.js";
+
+const logger = createContextualLogger({ component: "Serializer" });
 
 /**
  * Default serialization options
@@ -94,7 +97,7 @@ export class Serializer<TSnapshot extends SnapshotBase> {
           bytes = await decompressBlob(data, "gzip");
         } catch (error) {
           // If decompression fails, assume data is not compressed
-          console.warn("Failed to decompress data, treating as uncompressed:", error);
+          logger.warn("Failed to decompress data, treating as uncompressed", { error });
         }
       }
 

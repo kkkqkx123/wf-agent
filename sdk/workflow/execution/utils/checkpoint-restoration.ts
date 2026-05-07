@@ -6,6 +6,7 @@
 import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
 import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-registry.js";
 import type { CheckpointDependencies } from "../../checkpoint/utils/checkpoint-utils.js";
+import type { Checkpoint, WorkflowExecutionVariable, LLMMessage, VariableValueType, VariableScope } from "@wf-agent/types";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "checkpoint-restoration" });
@@ -23,15 +24,13 @@ export interface RestorationResult {
 async function getLatestCheckpoint(
   executionId: string,
   dependencies: CheckpointDependencies,
-): Promise<any | null> {
+): Promise<Checkpoint | null> {
   try {
     const { checkpointStateManager } = dependencies;
 
     // List checkpoints for this execution, sorted by timestamp descending
-    const checkpointIds = await (checkpointStateManager as any).storageAdapter.list({
-      executionId,
-      sortBy: "timestamp",
-      sortOrder: "desc",
+    const checkpointIds = await checkpointStateManager.list({
+      parentId: executionId,
       limit: 1,
     });
 
@@ -42,20 +41,22 @@ async function getLatestCheckpoint(
 
     // Load the latest checkpoint
     const latestCheckpointId = checkpointIds[0];
-    const data = await (checkpointStateManager as any).storageAdapter.load(latestCheckpointId);
-
-    if (!data) {
-      logger.warn("Failed to load latest checkpoint data", { checkpointId: latestCheckpointId });
+    if (!latestCheckpointId) {
+      logger.debug("No checkpoint ID found", { executionId });
       return null;
     }
+    
+    const checkpoint = await checkpointStateManager.get(latestCheckpointId);
 
-    // Deserialize the checkpoint
-    const checkpoint = await (checkpointStateManager as any).checkpointSerializer.deserializeCheckpoint(data);
+    if (!checkpoint) {
+      logger.warn("Failed to load latest checkpoint", { checkpointId: latestCheckpointId });
+      return null;
+    }
 
     logger.info("Found latest checkpoint", {
       executionId,
       checkpointId: latestCheckpointId,
-      nodeId: checkpoint.nodeId || checkpoint.metadata?.customFields?.nodeId,
+      nodeId: (checkpoint as any)["nodeId"] || checkpoint.metadata?.customFields?.["nodeId"],
       timestamp: checkpoint.timestamp,
     });
 
@@ -99,26 +100,26 @@ export async function restoreWorkflowFromCheckpoint(
     logger.info("Restoring from checkpoint", {
       executionId,
       checkpointId: checkpoint.id,
-      nodeId: checkpoint.nodeId || checkpoint.metadata?.customFields?.nodeId,
+      nodeId: (checkpoint as any)["nodeId"] || checkpoint.metadata?.customFields?.["nodeId"],
     });
 
     // Restore node position
-    const nodeId = checkpoint.nodeId || checkpoint.metadata?.customFields?.nodeId;
+    const nodeId = (checkpoint as any)["nodeId"] || checkpoint.metadata?.customFields?.["nodeId"];
     if (nodeId) {
       workflowExecutionEntity.setCurrentNodeId(nodeId);
     }
 
     // Restore variable state if available
-    if (checkpoint.metadata?.customFields?.variables) {
-      const variables = checkpoint.metadata.customFields.variables as Record<string, unknown>;
+    if (checkpoint.metadata?.customFields?.["variables"]) {
+      const variables = checkpoint.metadata.customFields["variables"] as Record<string, unknown>;
       // Convert object to array format expected by restoreFromSnapshot
       const variableArray = Object.entries(variables).map(([name, value]) => ({
         name,
         value,
-        type: "any" as any,
-        scope: "WORKFLOW" as any,
+        type: "string" as VariableValueType,
+        scope: "workflowExecution" as VariableScope,
         readonly: false,
-      }));
+      })) as WorkflowExecutionVariable[];
       workflowExecutionEntity.variableStateManager.restoreFromSnapshot({
         variables: variableArray,
         variableScopes: {
@@ -132,8 +133,8 @@ export async function restoreWorkflowFromCheckpoint(
     }
 
     // Restore message history if available
-    if (checkpoint.metadata?.customFields?.messages) {
-      const messages = checkpoint.metadata.customFields.messages as any[];
+    if (checkpoint.metadata?.customFields?.["messages"]) {
+      const messages = checkpoint.metadata.customFields["messages"] as LLMMessage[];
       workflowExecutionEntity.messageHistoryManager.restoreFromSnapshot({ messages });
       logger.debug("Message history restored from checkpoint");
     }

@@ -13,7 +13,7 @@ import type { WorkflowTemplate } from "@wf-agent/types";
 import type { NodeTemplate } from "@wf-agent/types";
 import type { TriggerTemplate } from "@wf-agent/types";
 import type { Script } from "@wf-agent/types";
-import type { ConfigFile } from "../types.js";
+import type { ConfigFile, ParsedConfig } from "../types.js";
 import { allWithErrors } from "@wf-agent/common-utils";
 import type { Result } from "@wf-agent/types";
 import { ValidationError } from "@wf-agent/types";
@@ -32,10 +32,10 @@ export function validateBatchWorkflows(
   configs: ConfigFile[],
 ): Result<WorkflowTemplate[], ValidationError[][]> {
   const results: Result<WorkflowTemplate, ValidationError[]>[] = configs.map(config => {
-    const parsed: any = {
+    const parsed: ParsedConfig<"workflow"> = {
       configType: "workflow",
       format: "json",
-      config,
+      config: config as WorkflowTemplate,
       rawContent: "",
     };
     const res = validateWorkflow(parsed);
@@ -55,10 +55,10 @@ export function validateBatchNodeTemplates(
   configs: ConfigFile[],
 ): Result<NodeTemplate[], ValidationError[][]> {
   const results: Result<NodeTemplate, ValidationError[]>[] = configs.map(config => {
-    const parsed: any = {
+    const parsed: ParsedConfig<"node_template"> = {
       configType: "node_template",
       format: "json",
-      config,
+      config: config as NodeTemplate,
       rawContent: "",
     };
     const res = validateNodeTemplate(parsed);
@@ -78,10 +78,10 @@ export function validateBatchTriggerTemplates(
   configs: ConfigFile[],
 ): Result<TriggerTemplate[], ValidationError[][]> {
   const results: Result<TriggerTemplate, ValidationError[]>[] = configs.map(config => {
-    const parsed: any = {
+    const parsed: ParsedConfig<"trigger_template"> = {
       configType: "trigger_template",
       format: "json",
-      config,
+      config: config as TriggerTemplate,
       rawContent: "",
     };
     const res = validateTriggerTemplate(parsed);
@@ -99,10 +99,10 @@ export function validateBatchTriggerTemplates(
  */
 export function validateBatchScripts(configs: ConfigFile[]): Result<Script[], ValidationError[][]> {
   const results: Result<Script, ValidationError[]>[] = configs.map(config => {
-    const parsed: any = {
+    const parsed: ParsedConfig<"script"> = {
       configType: "script",
       format: "json",
-      config,
+      config: config as Script,
       rawContent: "",
     };
     const res = validateScript(parsed);

@@ -5,6 +5,9 @@
 
 import { spawn, ChildProcess } from "child_process";
 import type { IMcpTransport, TransportEventHandlers, StdioTransportConfig } from "./types.js";
+import { createContextualLogger } from "../../../utils/contextual-logger.js";
+
+const logger = createContextualLogger({ component: "MCPStdioTransport" });
 
 /**
  * Default environment variables for stdio transport
@@ -92,9 +95,9 @@ export class StdioTransport implements IMcpTransport {
         const isInfoLog = /INFO/i.test(output);
 
         if (isInfoLog) {
-          console.log(`[MCP Server] ${output}`);
+          logger.info(`[MCP Server] ${output}`);
         } else {
-          console.error(`[MCP Server stderr] ${output}`);
+          logger.error(`[MCP Server stderr] ${output}`);
           this.handlers.onError?.(new Error(output));
         }
       });
@@ -108,7 +111,7 @@ export class StdioTransport implements IMcpTransport {
           this.handlers.onData?.(message);
         } catch {
           // Non-JSON data, ignore or log
-          console.log(`[MCP Server stdout] ${data.toString()}`);
+          logger.debug(`[MCP Server stdout] ${data.toString()}`);
         }
       });
     }

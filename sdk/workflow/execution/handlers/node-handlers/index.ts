@@ -5,20 +5,20 @@
 import type { Node } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import { addToolHandler, type AddToolHandlerContext } from "./add-tool-handler.js";
-import { agentLoopHandler } from "./agent-loop-handler.js";
-import { contextProcessorHandler } from "./context-processor-handler.js";
+import { agentLoopHandler, type AgentLoopHandlerContext } from "./agent-loop-handler.js";
+import { contextProcessorHandler, type ContextProcessorHandlerContext } from "./context-processor-handler.js";
 import { continueFromTriggerHandler } from "./continue-from-trigger-handler.js";
 import { endHandler } from "./end-handler.js";
 import { forkHandler } from "./fork-handler.js";
 import { joinHandler } from "./join-handler.js";
-import { llmHandler } from "./llm-handler.js";
+import { llmHandler, type LLMHandlerContext } from "./llm-handler.js";
 import { loopEndHandler } from "./loop-end-handler.js";
 import { loopStartHandler } from "./loop-start-handler.js";
 import { routeHandler } from "./route-handler.js";
 import { scriptHandler } from "./script-handler.js";
 import { startFromTriggerHandler } from "./start-from-trigger-handler.js";
 import { startHandler } from "./start-handler.js";
-import { userInteractionHandler } from "./user-interaction-handler.js";
+import { userInteractionHandler, type UserInteractionHandlerContext } from "./user-interaction-handler.js";
 import { variableHandler } from "./variable-handler.js";
 
 export type NodeHandlerFn = (
@@ -32,15 +32,15 @@ export function getNodeHandler(nodeType: string): NodeHandlerFn {
     ADD_TOOL: (workflowExecutionEntity, node, context) =>
       addToolHandler(workflowExecutionEntity.getExecution(), node, context as AddToolHandlerContext),
     AGENT_LOOP: (workflowExecutionEntity, node, context) =>
-      agentLoopHandler(workflowExecutionEntity.getExecution(), node, context as any),
+      agentLoopHandler(workflowExecutionEntity.getExecution(), node, context as AgentLoopHandlerContext),
     CONTEXT_PROCESSOR: (workflowExecutionEntity, node, context) =>
-      contextProcessorHandler(workflowExecutionEntity.getExecution(), node, context as any),
+      contextProcessorHandler(workflowExecutionEntity.getExecution(), node, context as ContextProcessorHandlerContext),
     CONTINUE_FROM_TRIGGER: continueFromTriggerHandler as NodeHandlerFn,
     END: endHandler as NodeHandlerFn,
     FORK: forkHandler as NodeHandlerFn,
     JOIN: joinHandler as NodeHandlerFn,
     LLM: (workflowExecutionEntity, node, context) =>
-      llmHandler(workflowExecutionEntity.getExecution(), node, context as any),
+      llmHandler(workflowExecutionEntity.getExecution(), node, context as LLMHandlerContext),
     LOOP_END: loopEndHandler as NodeHandlerFn,
     LOOP_START: loopStartHandler as NodeHandlerFn,
     ROUTE: routeHandler as NodeHandlerFn,
@@ -48,7 +48,7 @@ export function getNodeHandler(nodeType: string): NodeHandlerFn {
     START_FROM_TRIGGER: startFromTriggerHandler as NodeHandlerFn,
     START: startHandler as NodeHandlerFn,
     USER_INTERACTION: (workflowExecutionEntity, node, context) =>
-      userInteractionHandler(workflowExecutionEntity.getExecution(), node, context as any),
+      userInteractionHandler(workflowExecutionEntity.getExecution(), node, context as UserInteractionHandlerContext),
     VARIABLE: variableHandler as NodeHandlerFn,
   };
 

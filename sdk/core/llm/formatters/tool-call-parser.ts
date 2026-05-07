@@ -223,7 +223,7 @@ export class ToolCallParser {
       return array
         .map(item => this.convertToStandardToolCall(item))
         .filter(Boolean) as LLMToolCall[];
-    } catch (e) {
+    } catch {
       return [];
     }
   }

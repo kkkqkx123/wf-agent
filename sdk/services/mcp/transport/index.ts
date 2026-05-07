@@ -30,8 +30,11 @@ export function createTransport(config: TransportConfig): IMcpTransport {
     case "streamable-http":
       return new StreamableHttpTransport(config);
 
-    default:
-      throw new Error(`Unknown transport type: ${(config as any).type}`);
+    default: {
+      // This should never happen due to TypeScript's exhaustiveness checking
+      const _exhaustiveCheck: never = config;
+      throw new Error(`Unknown transport type: ${(_exhaustiveCheck as TransportConfig).type}`);
+    }
   }
 }
 

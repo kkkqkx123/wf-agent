@@ -172,7 +172,7 @@ export function initializeContainerWithAdapters(adapters: StorageAdapterConfig =
   container.bind(Identifiers.WorkflowExecutionRegistry).to(WorkflowExecutionRegistry).inSingletonScope();
 
   // LLMWrapper - An LLM wrapper that relies on EventRegistry for event publishing.
-  (container as any)
+  container
     .bind(Identifiers.LLMWrapper)
     .toDynamicValue(
       (c: IContainer) => new LLMWrapper(c.get(Identifiers.EventRegistry) as EventRegistry),
@@ -850,13 +850,14 @@ export async function shutdownStorageAdapters(): Promise<void> {
 
   for (const { name, identifier } of adapterTypes) {
     try {
-      const adapter = container.get(identifier) as any;
+      const adapter = container.get(identifier);
       if (adapter) {
         // Check if adapter has a close or shutdown method
-        if (typeof adapter.close === 'function') {
-          await adapter.close();
-        } else if (typeof adapter.shutdown === 'function') {
-          await adapter.shutdown();
+        const closableAdapter = adapter as { close?: () => Promise<void>; shutdown?: () => Promise<void> };
+        if (typeof closableAdapter.close === 'function') {
+          await closableAdapter.close();
+        } else if (typeof closableAdapter.shutdown === 'function') {
+          await closableAdapter.shutdown();
         }
       }
     } catch (error) {

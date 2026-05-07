@@ -23,6 +23,7 @@ import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import { handleError } from "../../../core/utils/error-utils.js";
 import { emit } from "../../../core/utils/event/event-emitter.js";
 import { generateId, now } from "@wf-agent/common-utils";
+import type { AgentPausedEvent, AgentCancelledEvent } from "@wf-agent/types";
 
 const logger = createContextualLogger({ component: "AgentErrorHandler" });
 
@@ -211,7 +212,7 @@ export async function handleAgentInterruption(
     // Emit pause event
     if (eventManager) {
       try {
-        await emit(eventManager, {
+        const pauseEvent: AgentPausedEvent = {
           id: generateId(),
           type: "AGENT_PAUSED",
           timestamp: now(),
@@ -221,7 +222,8 @@ export async function handleAgentInterruption(
           isStreaming: entity.state.isStreaming,
           pendingToolCalls: entity.state.pendingToolCalls.size,
           streamMessagePreserved: !!entity.state.streamMessage,
-        });
+        };
+        await emit(eventManager, pauseEvent);
       } catch (error) {
         logger.debug("Failed to emit AGENT_PAUSED event", { error });
       }
@@ -241,7 +243,7 @@ export async function handleAgentInterruption(
     // Emit cancel event
     if (eventManager) {
       try {
-        await emit(eventManager, {
+        const cancelEvent: AgentCancelledEvent = {
           id: generateId(),
           type: "AGENT_CANCELLED",
           timestamp: now(),
@@ -250,7 +252,8 @@ export async function handleAgentInterruption(
           toolCallCount: entity.state.toolCallCount,
           isStreaming: entity.state.isStreaming,
           pendingToolCalls: entity.state.pendingToolCalls.size,
-        });
+        };
+        await emit(eventManager, cancelEvent);
       } catch (error) {
         logger.debug("Failed to emit AGENT_CANCELLED event", { error });
       }

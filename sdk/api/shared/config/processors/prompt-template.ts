@@ -29,7 +29,7 @@ export function validatePromptTemplate(
   const result = PromptTemplateSchema.safeParse(cfg);
   
   if (!result.success) {
-    const errors = result.error.issues.map((e: any) => new SchemaValidationError(e.message));
+    const errors = result.error.issues.map((e) => new SchemaValidationError(e.message));
     return err(errors);
   }
   

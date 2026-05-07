@@ -17,7 +17,7 @@ import {
   validateObjectField,
 } from "../validators/validation-helpers.js";
 import { ok, err } from "@wf-agent/common-utils";
-import type { NodeTemplate } from "@wf-agent/types";
+import type { NodeTemplate, Node } from "@wf-agent/types";
 import { stringifyJson } from "../json-parser.js";
 import { substituteParameters } from "../config-utils.js";
 
@@ -123,7 +123,7 @@ export function validateNodeTemplate(
       incomingEdgeIds: [],
     } as unknown as Node;
 
-    const configResult = nodeValidator.validateNode(tempNode as any);
+    const configResult = nodeValidator.validateNode(tempNode);
     if (configResult.isErr()) {
       errors.push(...configResult.error);
     }

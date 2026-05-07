@@ -20,22 +20,35 @@ export function validateAgentLoopConfig(
   const result = AgentLoopConfigFileSchema.safeParse(config);
 
   if (!result.success) {
-    const errors = result.error.issues.map((issue: any) => {
+    const errors = result.error.issues.map((issue) => {
       const fieldPath = issue.path.join(".");
+      
+      // Build base issue details (all ZodIssue variants have these properties)
+      const zodIssueDetails: Record<string, unknown> = {
+        code: issue.code,
+        path: issue.path,
+        message: issue.message,
+      };
+      
+      // Type narrowing using Zod's discriminated union
+      // Using string literal (ZodIssueCode enum is deprecated in Zod v4)
+      if (issue.code === "invalid_type") {
+        zodIssueDetails["expected"] = issue.expected;
+      }
+      
       return new SchemaValidationError(issue.message, {
         field: fieldPath || "unknown",
+        value: issue.input, // $ZodIssueBase includes input property
         context: {
-          code: "SCHEMA_VALIDATION_ERROR",
-          expected: issue.expected,
-          received: issue.received,
+          zodIssue: zodIssueDetails,
         },
       });
     });
     return err(errors);
   }
 
-  // Return original config (not result.data) to preserve exact type
-  return ok(config);
+  // Return validated data from Zod (preserves type safety and applies any schema defaults/transforms)
+  return ok(result.data);
 }
 
 /**

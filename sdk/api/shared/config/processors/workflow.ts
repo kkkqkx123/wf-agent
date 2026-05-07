@@ -32,7 +32,7 @@ export function validateWorkflow(
   // Phase 1: Lightweight Schema validation
   const schemaResult = WorkflowTemplateSchema.safeParse(workflow);
   if (!schemaResult.success) {
-    const errors = schemaResult.error.issues.map((e: any) => new SchemaValidationError(e.message));
+    const errors = schemaResult.error.issues.map((e) => new SchemaValidationError(e.message));
     return err(errors);
   }
   

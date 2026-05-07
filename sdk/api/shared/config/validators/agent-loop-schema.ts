@@ -11,7 +11,14 @@ import { z } from "zod";
  * Agent Hook Configuration File Schema
  */
 export const AgentHookConfigFileSchema = z.object({
-  hookType: z.string(), // AgentHookType - using z.string() as enum validation happens at runtime
+  hookType: z.enum([
+    "BEFORE_ITERATION",
+    "AFTER_ITERATION",
+    "BEFORE_TOOL_CALL",
+    "AFTER_TOOL_CALL",
+    "BEFORE_LLM_CALL",
+    "AFTER_LLM_CALL",
+  ]),
   condition: z.string().optional(),
   eventName: z.string(),
   eventPayload: z.record(z.string(), z.unknown()).optional(),

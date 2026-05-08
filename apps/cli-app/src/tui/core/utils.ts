@@ -523,3 +523,138 @@ export function applyBackgroundToLine(
 export function isWhitespaceChar(char: string): boolean {
   return /\s/.test(char);
 }
+
+/**
+ * Check if a character is punctuation.
+ */
+export function isPunctuationChar(char: string): boolean {
+  // Common punctuation ranges and characters
+  const cp = char.codePointAt(0);
+  if (cp === undefined) return false;
+  
+  return (
+    (cp >= 0x21 && cp <= 0x2f) || // !"#$%&'()*+,-./
+    (cp >= 0x3a && cp <= 0x40) || // :;<=>?@
+    (cp >= 0x5b && cp <= 0x60) || // [\]^_`
+    (cp >= 0x7b && cp <= 0x7e) || // {|}~
+    (cp >= 0x3000 && cp <= 0x303f) || // CJK punctuation
+    (cp >= 0xff01 && cp <= 0xff0f) || // Fullwidth punctuation
+    (cp >= 0xff1a && cp <= 0xff20) ||
+    (cp >= 0xff3b && cp <= 0xff40) ||
+    (cp >= 0xff5b && cp <= 0xff65)
+  );
+}
+
+/**
+ * Represents a chunk of text for word-wrap layout.
+ * Tracks both the text content and its position in the original line.
+ */
+export interface TextChunk {
+  text: string;
+  startIndex: number;
+  endIndex: number;
+}
+
+/**
+ * Split a line into word-wrapped chunks.
+ * Wraps at word boundaries when possible, falling back to character-level
+ * wrapping for words longer than the available width.
+ *
+ * @param line - The text line to wrap
+ * @param maxWidth - Maximum visible width per chunk
+ * @param preSegmented - Optional pre-segmented graphemes
+ * @returns Array of chunks with text and position information
+ */
+export function wordWrapLine(
+  line: string,
+  maxWidth: number,
+  preSegmented?: Intl.SegmentData[]
+): TextChunk[] {
+  if (!line || maxWidth <= 0) {
+    return [{ text: "", startIndex: 0, endIndex: 0 }];
+  }
+
+  const lineWidth = visibleWidth(line);
+  if (lineWidth <= maxWidth) {
+    return [{ text: line, startIndex: 0, endIndex: line.length }];
+  }
+
+  const chunks: TextChunk[] = [];
+  const segments = preSegmented ?? [...segmenter.segment(line)];
+
+  let currentWidth = 0;
+  let chunkStart = 0;
+
+  // Wrap opportunity: the position after the last whitespace before a non-whitespace
+  let wrapOppIndex = -1;
+  let wrapOppWidth = 0;
+
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i]!;
+    const grapheme = seg.segment;
+    const gWidth = visibleWidth(grapheme);
+    const charIndex = seg.index;
+    const isWs = isWhitespaceChar(grapheme);
+
+    // Overflow check before advancing
+    if (currentWidth + gWidth > maxWidth) {
+      if (wrapOppIndex >= 0 && currentWidth - wrapOppWidth + gWidth <= maxWidth) {
+        // Backtrack to last wrap opportunity
+        chunks.push({
+          text: line.slice(chunkStart, wrapOppIndex),
+          startIndex: chunkStart,
+          endIndex: wrapOppIndex,
+        });
+        chunkStart = wrapOppIndex;
+        currentWidth -= wrapOppWidth;
+      } else if (chunkStart < charIndex) {
+        // No viable wrap opportunity: force-break at current position
+        chunks.push({
+          text: line.slice(chunkStart, charIndex),
+          startIndex: chunkStart,
+          endIndex: charIndex,
+        });
+        chunkStart = charIndex;
+        currentWidth = 0;
+      }
+      wrapOppIndex = -1;
+    }
+
+    if (gWidth > maxWidth) {
+      // Single grapheme wider than maxWidth - re-wrap it
+      const subChunks = wordWrapLine(grapheme, maxWidth);
+      for (let j = 0; j < subChunks.length - 1; j++) {
+        const sc = subChunks[j]!;
+        chunks.push({
+          text: sc.text,
+          startIndex: charIndex + sc.startIndex,
+          endIndex: charIndex + sc.endIndex,
+        });
+      }
+      const last = subChunks[subChunks.length - 1]!;
+      chunkStart = charIndex + last.startIndex;
+      currentWidth = visibleWidth(last.text);
+      wrapOppIndex = -1;
+      continue;
+    }
+
+    // Advance
+    currentWidth += gWidth;
+
+    // Record wrap opportunity: whitespace followed by non-whitespace
+    const next = segments[i + 1];
+    if (isWs && next && !isWhitespaceChar(next.segment)) {
+      wrapOppIndex = next.index;
+      wrapOppWidth = currentWidth;
+    }
+  }
+
+  // Push final chunk
+  chunks.push({
+    text: line.slice(chunkStart),
+    startIndex: chunkStart,
+    endIndex: line.length,
+  });
+
+  return chunks;
+}

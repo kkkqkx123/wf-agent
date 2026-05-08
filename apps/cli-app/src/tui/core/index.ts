@@ -2,6 +2,7 @@
 
 // Components
 export { Box } from "../components/box.js";
+export { Editor, type EditorOptions, type EditorTheme } from "../components/editor.js";
 export { Input } from "../components/input.js";
 export {
   type LoaderIndicatorOptions,
@@ -86,4 +87,12 @@ export {
 } from "./tui.js";
 
 // Utilities
-export { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "./utils.js";
+export {
+  isPunctuationChar,
+  isWhitespaceChar,
+  truncateToWidth,
+  type TextChunk,
+  visibleWidth,
+  wordWrapLine,
+  wrapTextWithAnsi,
+} from "./utils.js";

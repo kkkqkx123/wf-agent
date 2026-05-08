@@ -222,10 +222,28 @@ function mapKittyCodeToKey(code: number, shift: boolean, alt: boolean, ctrl: boo
  * Parse legacy terminal key sequences.
  */
 function parseLegacyKey(data: string): ParsedKey | null {
-  // Single printable character
-  if (data.length === 1 && data.charCodeAt(0) >= 32) {
+  // Backspace (DEL character) - must check before printable characters
+  if (data === "\x7f") {
+    return {
+      key: "backspace",
+      eventType: "press",
+      modifiers: { shift: false, alt: false, ctrl: false, super: false },
+    };
+  }
+
+  // Single printable character (excluding DEL)
+  if (data.length === 1 && data.charCodeAt(0) >= 32 && data.charCodeAt(0) !== 127) {
     return {
       key: data.toLowerCase() as KeyId,
+      eventType: "press",
+      modifiers: { shift: false, alt: false, ctrl: false, super: false },
+    };
+  }
+
+  // Enter/Return (Carriage Return or Line Feed)
+  if (data === "\r" || data === "\n") {
+    return {
+      key: "enter",
       eventType: "press",
       modifiers: { shift: false, alt: false, ctrl: false, super: false },
     };
@@ -375,9 +393,10 @@ export function decodePrintableKey(data: string): string | null {
   const parsed = parseKey(data);
   if (!parsed) return null;
 
-  // Only return printable characters
+  // Only return printable characters (no modifiers)
   if (parsed.key.length === 1 && !parsed.modifiers.ctrl && !parsed.modifiers.alt && !parsed.modifiers.super) {
-    return parsed.key;
+    // Return the original data to preserve case
+    return data;
   }
 
   return null;

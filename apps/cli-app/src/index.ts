@@ -31,8 +31,6 @@ import { createEventCommands } from "./commands/event/index.js";
 import { createHumanRelayCommands } from "./commands/human-relay/index.js";
 import { createAgentCommands } from "./commands/agent/index.js";
 import { createSkillCommands } from "./commands/skill/index.js";
-import { CLIHumanRelayHandler } from "./handlers/cli-human-relay-handler.js";
-import { setAllLoggersLevel } from "@wf-agent/common-utils";
 
 // Create an instance of the main program.
 const program = new Command();
@@ -146,9 +144,8 @@ program
       await ExitManager.exit(1);
     }
 
-    // 8. Register Human Relay Handler
-    const humanRelayHandler = new CLIHumanRelayHandler();
-    sdk.humanRelay.registerHandler(humanRelayHandler);
+    // 8. Human Relay Handler registration is handled by TUI app or command-specific handlers
+    // No global registration needed here
   });
 
 // Add workflow command groups
@@ -243,13 +240,20 @@ async function startTUI() {
     const { CLIAppTUI } = await import("./tui/index.js");
     const app = new CLIAppTUI();
     
+    // Register TUI Human Relay Handler with SDK
+    const humanRelayHandler = app.getHumanRelayHandler();
+    const sdk = getSDK();
+    sdk.humanRelay.registerHandler(humanRelayHandler);
+    
     // Setup cleanup handlers for TUI mode
     const cleanupAndExit = async () => {
       output.infoLog("Cleaning up resources...");
       
       try {
+        // Close file IO service
+        await app.getFileIO().close();
+        
         // Destroy SDK (triggers onDestroy hook which closes storage manager)
-        const sdk = getSDK();
         await sdk.destroy();
 
         // Dynamically import terminal modules (to avoid circular dependencies)

@@ -7,6 +7,17 @@ import { Box, Container, Text, Input } from "../core/index.js";
 import type { Screen } from "./screen.js";
 import { AgentLoopAdapter } from "../../adapters/agent-loop-adapter.js";
 import type { AgentLoopRuntimeConfig } from "@wf-agent/types";
+import type { MessageBus, MessageSubscription } from "@wf-agent/sdk";
+import { MessageCategory, AgentMessageType } from "@wf-agent/types";
+import type {
+  AgentStartData,
+  AgentEndData,
+  AgentIterationData,
+  AgentLLMStreamData,
+  AgentToolCallData,
+  AgentToolEndData,
+  BaseComponentMessage,
+} from "@wf-agent/types";
 
 interface LogEntry {
   timestamp: Date;
@@ -20,12 +31,15 @@ export class AgentScreen implements Screen {
   private logPanel: Box;
   private messageInput!: Input;
   private adapter: AgentLoopAdapter;
+  private messageBus?: MessageBus;
   private currentAgentId?: string;
   private isRunning: boolean = false;
   private logEntries: LogEntry[] = [];
   private onBack?: () => void;
+  private subscriptions: MessageSubscription[] = [];
 
-  constructor(onBack?: () => void) {
+  constructor(messageBus?: MessageBus, onBack?: () => void) {
+    this.messageBus = messageBus;
     this.onBack = onBack;
     this.adapter = new AgentLoopAdapter();
     this.container = new Container();
@@ -33,6 +47,147 @@ export class AgentScreen implements Screen {
     this.logPanel = new Box();
     
     this.setupLayout();
+    this.setupMessageSubscriptions();
+  }
+
+  /**
+   * Setup message subscriptions for real-time agent event updates
+   */
+  private setupMessageSubscriptions() {
+    if (!this.messageBus) return;
+
+    // Subscribe to agent lifecycle events
+    const lifecycleSubscription = this.messageBus.subscribe(
+      {
+        categories: [MessageCategory.AGENT],
+        types: [
+          AgentMessageType.START,
+          AgentMessageType.END,
+          AgentMessageType.PAUSE,
+          AgentMessageType.RESUME,
+          AgentMessageType.CANCEL,
+        ],
+      },
+      (message) => this.handleAgentLifecycleMessage(message)
+    );
+    this.subscriptions.push(lifecycleSubscription);
+
+    // Subscribe to iteration events
+    const iterationSubscription = this.messageBus.subscribe(
+      {
+        categories: [MessageCategory.AGENT],
+        types: [
+          AgentMessageType.ITERATION_START,
+          AgentMessageType.ITERATION_END,
+        ],
+      },
+      (message) => this.handleIterationMessage(message)
+    );
+    this.subscriptions.push(iterationSubscription);
+
+    // Subscribe to LLM streaming events
+    const llmSubscription = this.messageBus.subscribe(
+      {
+        categories: [MessageCategory.AGENT],
+        types: [AgentMessageType.LLM_STREAM],
+      },
+      (message) => this.handleLLMStreamMessage(message)
+    );
+    this.subscriptions.push(llmSubscription);
+
+    // Subscribe to tool execution events
+    const toolSubscription = this.messageBus.subscribe(
+      {
+        categories: [MessageCategory.AGENT],
+        types: [
+          AgentMessageType.TOOL_CALL_START,
+          AgentMessageType.TOOL_CALL_END,
+        ],
+      },
+      (message) => this.handleToolMessage(message)
+    );
+    this.subscriptions.push(toolSubscription);
+  }
+
+  /**
+   * Handle agent lifecycle messages
+   */
+  private handleAgentLifecycleMessage(message: BaseComponentMessage) {
+    switch (message.type) {
+      case AgentMessageType.START:
+        const startData = message.data as AgentStartData;
+        this.currentAgentId = startData.loopId;
+        this.isRunning = true;
+        this.updateStatus("running");
+        this.appendLog(`Agent started: ${startData.agentId}`, "system");
+        break;
+
+      case AgentMessageType.END:
+        const endData = message.data as AgentEndData;
+        this.isRunning = false;
+        this.updateStatus(endData.status === "completed" ? "completed" : "error");
+        this.appendLog(
+          `Agent ended: ${endData.status} (${endData.totalIterations} iterations, ${endData.duration}ms)`,
+          "system"
+        );
+        break;
+
+      case AgentMessageType.PAUSE:
+        this.updateStatus("paused");
+        this.appendLog("Agent paused", "system");
+        break;
+
+      case AgentMessageType.RESUME:
+        this.updateStatus("running");
+        this.appendLog("Agent resumed", "system");
+        break;
+
+      case AgentMessageType.CANCEL:
+        this.isRunning = false;
+        this.updateStatus("idle");
+        this.appendLog("Agent cancelled", "system");
+        break;
+    }
+  }
+
+  /**
+   * Handle iteration messages
+   */
+  private handleIterationMessage(message: BaseComponentMessage) {
+    const data = message.data as AgentIterationData;
+    
+    if (message.type === AgentMessageType.ITERATION_START) {
+      this.appendLog(`Iteration ${data.iteration} started`, "system");
+    } else if (message.type === AgentMessageType.ITERATION_END) {
+      this.appendLog(
+        `Iteration ${data.iteration} completed${data.duration ? ` (${data.duration}ms)` : ""}`,
+        "system"
+      );
+    }
+  }
+
+  /**
+   * Handle LLM stream messages
+   */
+  private handleLLMStreamMessage(message: BaseComponentMessage) {
+    const data = message.data as AgentLLMStreamData;
+    if (data.chunk) {
+      this.appendLog(data.chunk, "assistant");
+    }
+  }
+
+  /**
+   * Handle tool execution messages
+   */
+  private handleToolMessage(message: BaseComponentMessage) {
+    if (message.type === AgentMessageType.TOOL_CALL_START) {
+      const data = message.data as AgentToolCallData;
+      this.appendLog(`Calling tool: ${data.toolName}`, "tool");
+    } else if (message.type === AgentMessageType.TOOL_CALL_END) {
+      const data = message.data as AgentToolEndData;
+      const success = data.success ? "✓" : "✗";
+      this.appendLog(`${success} Tool ${data.toolName} completed (${data.duration}ms)`, "tool");
+    }
   }
 
   private setupLayout() {
@@ -236,6 +391,10 @@ export class AgentScreen implements Screen {
   }
 
   destroy(): void {
+    // Cleanup subscriptions
+    this.subscriptions.forEach(subscription => subscription.unsubscribe());
+    this.subscriptions = [];
+    
     // Cleanup running agent if needed
     if (this.isRunning) {
       this.isRunning = false;

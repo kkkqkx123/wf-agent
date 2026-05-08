@@ -8,6 +8,11 @@ import type { Screen } from "./screens/screen.js";
 import { DashboardScreen } from "./screens/dashboard-screen.js";
 import { WorkflowScreen } from "./screens/workflow-screen.js";
 import { AgentScreen } from "./screens/agent-screen.js";
+import { MessageBus } from "@wf-agent/sdk";
+import { FileIOService } from "../io/file-io-service.js";
+import { TUIHumanRelayHandler } from "./handlers/tui-human-relay-handler.js";
+import { TUIHandler, FunctionalFileHandler, DisplayFileHandler } from "../messaging/handlers/index.js";
+import { CLI_ROUTING_RULES } from "../config/routing-rules.js";
 
 export class CLIAppTUI {
   private tui: TUI;
@@ -16,11 +21,32 @@ export class CLIAppTUI {
   private currentScreenId: string = "dashboard";
   private screens: Map<string, Screen> = new Map();
   private isRunning: boolean = false;
+  
+  // Message bus and file IO
+  private messageBus: MessageBus;
+  private fileIO: FileIOService;
+  private humanRelayHandler: TUIHumanRelayHandler;
 
   constructor() {
     this.terminal = new ProcessTerminal();
     this.tui = new TUI(this.terminal);
     this.mainContainer = new Container();
+
+    // Initialize message bus with routing rules
+    this.messageBus = new MessageBus(CLI_ROUTING_RULES, {
+      maxHistorySize: 1000,
+      enableHistory: true,
+      asyncHandlers: true,
+    });
+
+    // Initialize file IO service
+    this.fileIO = new FileIOService({ baseDir: ".wf-agent" });
+
+    // Initialize human relay handler with file IO
+    this.humanRelayHandler = new TUIHumanRelayHandler(this.tui, this.fileIO);
+
+    // Register message handlers
+    this.initializeMessageHandlers();
 
     this.initializeScreens();
     this.setupGlobalKeybindings();
@@ -30,28 +56,43 @@ export class CLIAppTUI {
    * Initialize all available screens
    */
   private initializeScreens() {
-    // Register dashboard screen
-    const dashboardScreen = new DashboardScreen(screenId => {
+    // Register dashboard screen - pass messageBus for real-time updates
+    const dashboardScreen = new DashboardScreen(this.messageBus, (screenId) => {
       this.showScreen(screenId);
     });
     this.screens.set("dashboard", dashboardScreen);
 
-    // Register workflow screen
-    const workflowScreen = new WorkflowScreen(() => {
+    // Register workflow screen - pass messageBus for node execution events
+    const workflowScreen = new WorkflowScreen(this.messageBus, () => {
       this.showScreen("dashboard");
     });
     this.screens.set("workflow", workflowScreen);
 
-    // Register agent screen
-    const agentScreen = new AgentScreen(() => {
+    // Register agent screen - pass messageBus for agent lifecycle events
+    const agentScreen = new AgentScreen(this.messageBus, () => {
       this.showScreen("dashboard");
     });
     this.screens.set("agent", agentScreen);
 
     // TODO: Register other screens in future phases
+    // Note: Screens will be updated to accept messageBus in Phase 2
     // this.screens.set("thread", new ThreadScreen());
     // this.screens.set("checkpoint", new CheckpointScreen());
     // this.screens.set("settings", new SettingsScreen());
+  }
+  
+  /**
+   * Initialize message handlers
+   */
+  private initializeMessageHandlers() {
+    // Register TUI handler
+    this.messageBus.registerHandler(new TUIHandler(this.tui));
+  
+    // Register functional file handler
+    this.messageBus.registerHandler(new FunctionalFileHandler(this.fileIO));
+  
+    // Register display file handler
+    this.messageBus.registerHandler(new DisplayFileHandler(this.fileIO));
   }
 
   /**
@@ -176,5 +217,26 @@ export class CLIAppTUI {
   public quit(): void {
     this.stop();
     setTimeout(() => process.exit(0), 100);
+  }
+
+  /**
+   * Get message bus instance
+   */
+  public getMessageBus(): MessageBus {
+    return this.messageBus;
+  }
+
+  /**
+   * Get file IO service
+   */
+  public getFileIO(): FileIOService {
+    return this.fileIO;
+  }
+
+  /**
+   * Get human relay handler
+   */
+  public getHumanRelayHandler(): TUIHumanRelayHandler {
+    return this.humanRelayHandler;
   }
 }

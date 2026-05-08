@@ -4,16 +4,26 @@
 
 import { Box, Container, Text, SelectList } from "../core/index.js";
 import type { Screen } from "./screen.js";
+import type { MessageBus, MessageSubscription } from "@wf-agent/sdk";
+import { MessageCategory, AgentMessageType, WorkflowExecutionMessageType } from "@wf-agent/types";
+import type { BaseComponentMessage } from "@wf-agent/types";
 
 export class DashboardScreen implements Screen {
   private container: Container;
   private menuList!: SelectList;
+  private statusPanel!: Box;
+  private messageBus?: MessageBus;
   private onNavigate?: (screenId: string) => void;
+  private subscriptions: MessageSubscription[] = [];
+  private activeAgents: number = 0;
+  private runningThreads: number = 0;
 
-  constructor(onNavigate?: (screenId: string) => void) {
+  constructor(messageBus?: MessageBus, onNavigate?: (screenId: string) => void) {
+    this.messageBus = messageBus;
     this.onNavigate = onNavigate;
     this.container = new Container();
     this.setupLayout();
+    this.setupLiveUpdates();
   }
 
   private setupLayout() {
@@ -59,10 +69,8 @@ export class DashboardScreen implements Screen {
     };
 
     // Quick status panel
-    const statusPanel = new Box();
-    statusPanel.addChild(new Text("Active Agents: 0"));
-    statusPanel.addChild(new Text("Running Threads: 0"));
-    statusPanel.addChild(new Text("Last Updated: --"));
+    this.statusPanel = new Box();
+    this.updateStatusPanel();
 
     // Keyboard shortcuts help
     const helpBox = new Box();
@@ -73,8 +81,75 @@ export class DashboardScreen implements Screen {
 
     this.container.addChild(header);
     this.container.addChild(this.menuList);
-    this.container.addChild(statusPanel);
+    this.container.addChild(this.statusPanel);
     this.container.addChild(helpBox);
+  }
+
+  /**
+   * Setup live status updates via message subscriptions
+   */
+  private setupLiveUpdates() {
+    if (!this.messageBus) return;
+
+    // Subscribe to agent lifecycle events
+    const agentSubscription = this.messageBus.subscribe(
+      {
+        categories: [MessageCategory.AGENT],
+        types: [
+          AgentMessageType.START,
+          AgentMessageType.END,
+        ],
+      },
+      (message) => this.handleAgentMessage(message)
+    );
+    this.subscriptions.push(agentSubscription);
+
+    // Subscribe to workflow execution lifecycle events
+    const workflowSubscription = this.messageBus.subscribe(
+      {
+        categories: [MessageCategory.WORKFLOW_EXECUTION],
+        types: [
+          WorkflowExecutionMessageType.START,
+          WorkflowExecutionMessageType.END,
+        ],
+      },
+      (message) => this.handleWorkflowMessage(message)
+    );
+    this.subscriptions.push(workflowSubscription);
+  }
+
+  /**
+   * Handle agent lifecycle messages
+   */
+  private handleAgentMessage(message: BaseComponentMessage) {
+    if (message.type === AgentMessageType.START) {
+      this.activeAgents++;
+    } else if (message.type === AgentMessageType.END) {
+      this.activeAgents--;
+    }
+    this.updateStatusPanel();
+  }
+
+  /**
+   * Handle workflow execution messages
+   */
+  private handleWorkflowMessage(message: BaseComponentMessage) {
+    if (message.type === WorkflowExecutionMessageType.START) {
+      this.runningThreads++;
+    } else if (message.type === WorkflowExecutionMessageType.END) {
+      this.runningThreads--;
+    }
+    this.updateStatusPanel();
+  }
+
+  /**
+   * Update status panel with current counts
+   */
+  private updateStatusPanel() {
+    this.statusPanel.clear();
+    this.statusPanel.addChild(new Text(`Active Agents: ${this.activeAgents}`));
+    this.statusPanel.addChild(new Text(`Running Threads: ${this.runningThreads}`));
+    this.statusPanel.addChild(new Text(`Last Updated: ${new Date().toLocaleTimeString()}`));
   }
 
   render(): Container {
@@ -88,5 +163,11 @@ export class DashboardScreen implements Screen {
       return true;
     }
     return false;
+  }
+
+  destroy(): void {
+    // Cleanup subscriptions
+    this.subscriptions.forEach(subscription => subscription.unsubscribe());
+    this.subscriptions = [];
   }
 }

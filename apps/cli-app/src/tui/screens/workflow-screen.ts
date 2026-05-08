@@ -6,16 +6,25 @@
 import { Box, Container, Text, SelectList } from "../core/index.js";
 import type { Screen } from "./screen.js";
 import { WorkflowAdapter } from "../../adapters/workflow-adapter.js";
+import type { MessageBus, MessageSubscription } from "@wf-agent/sdk";
+import { MessageCategory, WorkflowExecutionMessageType } from "@wf-agent/types";
+import type {
+  BaseComponentMessage,
+  WorkflowExecutionNodeData,
+} from "@wf-agent/types";
 
 export class WorkflowScreen implements Screen {
   private container: Container;
   private workflowList: SelectList;
   private detailPanel: Box;
   private adapter: WorkflowAdapter;
+  private messageBus?: MessageBus;
   private currentWorkflowId?: string;
   private onBack?: () => void;
+  private subscriptions: MessageSubscription[] = [];
 
-  constructor(onBack?: () => void) {
+  constructor(messageBus?: MessageBus, onBack?: () => void) {
+    this.messageBus = messageBus;
     this.onBack = onBack;
     this.adapter = new WorkflowAdapter();
     this.container = new Container();
@@ -24,6 +33,7 @@ export class WorkflowScreen implements Screen {
     
     this.setupLayout();
     this.loadWorkflows();
+    this.setupMessageSubscriptions();
   }
 
   private setupLayout() {
@@ -49,6 +59,94 @@ export class WorkflowScreen implements Screen {
 
     this.container.addChild(toolbar);
     this.container.addChild(splitContainer);
+  }
+
+  /**
+   * Setup message subscriptions for real-time workflow execution updates
+   */
+  private setupMessageSubscriptions() {
+    if (!this.messageBus) return;
+
+    // Subscribe to node execution events
+    const nodeSubscription = this.messageBus.subscribe(
+      {
+        categories: [MessageCategory.WORKFLOW_EXECUTION],
+        types: [
+          WorkflowExecutionMessageType.NODE_START,
+          WorkflowExecutionMessageType.NODE_END,
+          WorkflowExecutionMessageType.NODE_ERROR,
+          WorkflowExecutionMessageType.NODE_SKIP,
+        ],
+      },
+      (message) => this.handleNodeMessage(message)
+    );
+    this.subscriptions.push(nodeSubscription);
+
+    // Subscribe to workflow lifecycle events
+    const workflowSubscription = this.messageBus.subscribe(
+      {
+        categories: [MessageCategory.WORKFLOW_EXECUTION],
+        types: [
+          WorkflowExecutionMessageType.START,
+          WorkflowExecutionMessageType.END,
+        ],
+      },
+      (message) => this.handleWorkflowMessage(message)
+    );
+    this.subscriptions.push(workflowSubscription);
+  }
+
+  /**
+   * Handle node execution messages
+   */
+  private handleNodeMessage(message: BaseComponentMessage) {
+    const data = message.data as WorkflowExecutionNodeData;
+    
+    switch (message.type) {
+      case WorkflowExecutionMessageType.NODE_START:
+        this.appendLog(`Node started: ${data.nodeId} (${data.nodeType})`, "system");
+        break;
+
+      case WorkflowExecutionMessageType.NODE_END:
+        this.appendLog(
+          `Node completed: ${data.nodeId} (${data.duration}ms)`,
+          "system"
+        );
+        break;
+
+      case WorkflowExecutionMessageType.NODE_ERROR:
+        this.appendLog(
+          `Node error: ${data.nodeId} - ${data.error}`,
+          "error"
+        );
+        break;
+
+      case WorkflowExecutionMessageType.NODE_SKIP:
+        this.appendLog(`Node skipped: ${data.nodeId}`, "system");
+        break;
+    }
+  }
+
+  /**
+   * Handle workflow lifecycle messages
+   */
+  private handleWorkflowMessage(message: BaseComponentMessage) {
+    if (message.type === WorkflowExecutionMessageType.START) {
+      this.appendLog("Workflow execution started", "system");
+    } else if (message.type === WorkflowExecutionMessageType.END) {
+      this.appendLog("Workflow execution ended", "system");
+    }
+  }
+
+  /**
+   * Append log entry to detail panel
+   */
+  private appendLog(message: string, type: "system" | "error" = "system") {
+    const timestamp = new Date().toLocaleTimeString();
+    const icon = type === "error" ? "❌" : "ℹ️";
+    const logEntry = `[${timestamp}] ${icon} ${message}`;
+    
+    this.detailPanel.addChild(new Text(logEntry, 1, 0));
   }
 
   private async loadWorkflows() {
@@ -143,6 +241,8 @@ export class WorkflowScreen implements Screen {
   }
 
   destroy(): void {
-    // Cleanup if needed
+    // Cleanup subscriptions
+    this.subscriptions.forEach(subscription => subscription.unsubscribe());
+    this.subscriptions = [];
   }
 }

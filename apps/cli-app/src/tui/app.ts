@@ -9,7 +9,7 @@ import { DashboardScreen } from "./screens/dashboard-screen.js";
 import { WorkflowScreen } from "./screens/workflow-screen.js";
 import { AgentScreen } from "./screens/agent-screen.js";
 import { MessageBus } from "@wf-agent/sdk";
-import { FileIOService } from "../services/io/file-io-service.js";
+import { HumanRelayService, DisplayOutputService } from "../services/io/index.js";
 import { TUIHumanRelayHandler } from "./handlers/tui-human-relay-handler.js";
 import { TUIHandler, FunctionalFileHandler, DisplayFileHandler } from "../services/messaging/handlers/index.js";
 import { CLI_ROUTING_RULES } from "../config/routing-rules.js";
@@ -22,9 +22,10 @@ export class CLIAppTUI {
   private screens: Map<string, Screen> = new Map();
   private isRunning: boolean = false;
   
-  // Message bus and file IO
+  // Message bus and file IO services
   private messageBus: MessageBus;
-  private fileIO: FileIOService;
+  private humanRelayService: HumanRelayService;
+  private displayOutputService: DisplayOutputService;
   private humanRelayHandler: TUIHumanRelayHandler;
 
   constructor() {
@@ -39,11 +40,12 @@ export class CLIAppTUI {
       asyncHandlers: true,
     });
 
-    // Initialize file IO service
-    this.fileIO = new FileIOService({ baseDir: ".wf-agent" });
+    // Initialize file IO services
+    this.humanRelayService = new HumanRelayService({ baseDir: ".wf-agent/function" });
+    this.displayOutputService = new DisplayOutputService({ baseDir: ".wf-agent/display" });
 
-    // Initialize human relay handler with file IO
-    this.humanRelayHandler = new TUIHumanRelayHandler(this.tui, this.fileIO);
+    // Initialize human relay handler with services
+    this.humanRelayHandler = new TUIHumanRelayHandler(this.tui, this.humanRelayService);
 
     // Register message handlers
     this.initializeMessageHandlers();
@@ -89,10 +91,10 @@ export class CLIAppTUI {
     this.messageBus.registerHandler(new TUIHandler(this.tui));
   
     // Register functional file handler
-    this.messageBus.registerHandler(new FunctionalFileHandler(this.fileIO));
+    this.messageBus.registerHandler(new FunctionalFileHandler(this.humanRelayService));
   
     // Register display file handler
-    this.messageBus.registerHandler(new DisplayFileHandler(this.fileIO));
+    this.messageBus.registerHandler(new DisplayFileHandler(this.displayOutputService));
   }
 
   /**
@@ -227,10 +229,17 @@ export class CLIAppTUI {
   }
 
   /**
-   * Get file IO service
+   * Get human relay service
    */
-  public getFileIO(): FileIOService {
-    return this.fileIO;
+  public getHumanRelayService(): HumanRelayService {
+    return this.humanRelayService;
+  }
+
+  /**
+   * Get display output service
+   */
+  public getDisplayOutputService(): DisplayOutputService {
+    return this.displayOutputService;
   }
 
   /**

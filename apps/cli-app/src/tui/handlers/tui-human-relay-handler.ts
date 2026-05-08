@@ -2,11 +2,11 @@
  * TUI Human Relay Handler
  * 
  * Handles Human Relay requests in TUI mode using file-based workflow.
- * Integrates with FileIOService for functional file operations.
+ * Integrates with HumanRelayService for functional file operations.
  */
 
 import type { HumanRelayHandler, HumanRelayRequest, HumanRelayResponse } from "@wf-agent/types";
-import type { FileIOService } from "../../services/io/file-io-service.js";
+import type { HumanRelayService } from "../../services/io/index.js";
 import type { TUI } from "../core/tui.js";
 import { Box, Text, Spacer } from "../core/index.js";
 
@@ -21,11 +21,11 @@ import { Box, Text, Spacer } from "../core/index.js";
  */
 export class TUIHumanRelayHandler implements HumanRelayHandler {
   private tui: TUI;
-  private fileIO: FileIOService;
+  private humanRelayService: HumanRelayService;
 
-  constructor(tui: TUI, fileIO: FileIOService) {
+  constructor(tui: TUI, humanRelayService: HumanRelayService) {
     this.tui = tui;
-    this.fileIO = fileIO;
+    this.humanRelayService = humanRelayService;
   }
 
   /**
@@ -38,13 +38,13 @@ export class TUIHumanRelayHandler implements HumanRelayHandler {
     const sessionId = context.sessionId || request.requestId;
 
     // Step 1: Write prompt to functional file (pure text)
-    await this.fileIO.writeHumanRelayOutput({
+    await this.humanRelayService.writeOutput({
       sessionId,
       content: request.prompt,
     });
 
     // Step 2: Get file paths for display
-    const paths = this.fileIO.getSessionPaths(sessionId);
+    const paths = this.humanRelayService.getSessionPaths(sessionId);
 
     return new Promise((resolve, reject) => {
       // Create instruction overlay
@@ -72,9 +72,9 @@ export class TUIHumanRelayHandler implements HumanRelayHandler {
       overlay.addChild(new Text("Instructions:", 0, 0));
       overlay.addChild(
         new Text(
-          `1. View full prompt:\n   ${paths.functional.humanRelayOutput}\n\n` +
+          `1. View full prompt:\n   ${paths.output}\n\n` +
             `2. Copy to web LLM and get response\n\n` +
-            `3. Paste response to:\n   ${paths.functional.humanRelayInput}\n\n` +
+            `3. Paste response to:\n   ${paths.input}\n\n` +
             `4. Save file - execution continues automatically`,
           0,
           0,
@@ -91,10 +91,10 @@ export class TUIHumanRelayHandler implements HumanRelayHandler {
       });
 
       // Step 3: Start file watcher
-      this.fileIO.watchHumanRelayInput({
+      this.humanRelayService.watchInput({
         sessionId,
         timeout: request.timeout,
-        onResponse: (content) => {
+        onResponse: (content: string) => {
           handle.hide();
           resolve({
             requestId: request.requestId,

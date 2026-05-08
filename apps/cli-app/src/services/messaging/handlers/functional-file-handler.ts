@@ -7,7 +7,7 @@
 
 import type { OutputHandler, BaseComponentMessage } from "@wf-agent/types";
 import { OutputTarget } from "@wf-agent/types";
-import type { FileIOService } from "../../io/file-io-service.js";
+import type { HumanRelayService } from "../../io/index.js";
 
 /**
  * Functional File Handler
@@ -19,7 +19,7 @@ export class FunctionalFileHandler implements OutputHandler {
   readonly target = OutputTarget.FILE_FUNCTIONAL;
   readonly name = "file_functional";
 
-  constructor(private fileIO: FileIOService) {}
+  constructor(private humanRelayService: HumanRelayService) {}
 
   /**
    * Check if this handler supports the given message
@@ -42,7 +42,7 @@ export class FunctionalFileHandler implements OutputHandler {
       const sessionId = message.entity?.id || this.generateSessionId();
 
       // Write prompt to functional file (pure text)
-      await this.fileIO.writeHumanRelayOutput({
+      await this.humanRelayService.writeOutput({
         sessionId,
         content: prompt,
       });

@@ -2,6 +2,9 @@
 
 This document provides essential information for AI agents working with the Modular Agent Framework.
 
+**No-backward-compatible**
+At present, the project is in the development stage and there is no need to specifically consider backward compatibility. It is important to maintain a concise architecture as much as possible.
+
 ## Project Overview
 
 The Modular Agent Framework is a monorepo containing:

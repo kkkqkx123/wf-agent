@@ -7,7 +7,7 @@
 
 import type { OutputHandler, BaseComponentMessage } from "@wf-agent/types";
 import { OutputTarget } from "@wf-agent/types";
-import type { FileIOService, DisplaySection } from "../../io/file-io-service.js";
+import type { DisplayOutputService, DisplaySection } from "../../io/index.js";
 
 /**
  * Display File Handler
@@ -24,7 +24,7 @@ export class DisplayFileHandler implements OutputHandler {
   private flushTimer: NodeJS.Timeout | null = null;
   private readonly FLUSH_INTERVAL = 2000; // Flush every 2 seconds
 
-  constructor(private fileIO: FileIOService) {}
+  constructor(private displayOutputService: DisplayOutputService) {}
 
   /**
    * Check if this handler supports the given message
@@ -207,7 +207,7 @@ export class DisplayFileHandler implements OutputHandler {
     for (const [sessionId, sections] of this.buffer.entries()) {
       if (sections.length > 0) {
         try {
-          await this.fileIO.updateDisplayOutput({
+          await this.displayOutputService.updateOutput({
             sessionId,
             sections,
             append: true,

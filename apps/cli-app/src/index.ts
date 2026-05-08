@@ -11,7 +11,7 @@ import { initializeFormatter } from "./utils/formatter.js";
 import { initLogger, initSDKLogger } from "./utils/logger.js";
 import { loadConfigWithEnvOverride } from "./config/index.js";
 import { getSDK } from "@wf-agent/sdk";
-import { ExitManager, isHeadlessMode } from "./utils/exit-manager.js";
+import { ExitManager, isHeadlessMode, detectExecutionMode } from "./utils/exit-manager.js";
 import {
   initializeStorageManager,
   closeStorageManager,
@@ -211,18 +211,90 @@ program.hook("postAction", async thisCommand => {
 // Parse command-line arguments
 program.parse(process.argv);
 
+// Check if TUI mode is requested
+const hasTuiFlag = process.argv.includes("--tui") || process.argv.includes("-t");
+const executionMode = detectExecutionMode();
+
 // Display help information if no command is provided.
 if (!process.argv.slice(2).length) {
-  program.outputHelp();
-  // In headless mode, exit immediately if no commands are executed.
-  if (isHeadlessMode()) {
-    setTimeout(() => {
-      ExitManager.exit(0);
-    }, 100);
+  // If TUI mode is requested or in interactive mode, start TUI
+  if (hasTuiFlag || executionMode === "interactive") {
+    startTUI();
+  } else {
+    program.outputHelp();
+    // In headless mode, exit immediately if no commands are executed.
+    if (isHeadlessMode()) {
+      setTimeout(() => {
+        ExitManager.exit(0);
+      }, 100);
+    }
   }
 }
 
-// Graceful exit handling
+/**
+ * Start the TUI application
+ */
+async function startTUI() {
+  try {
+    const output = getOutput();
+    output.infoLog("Starting TUI mode...");
+    
+    // Dynamically import TUI module
+    const { CLIAppTUI } = await import("./tui/index.js");
+    const app = new CLIAppTUI();
+    
+    // Setup cleanup handlers for TUI mode
+    const cleanupAndExit = async () => {
+      output.infoLog("Cleaning up resources...");
+      
+      try {
+        // Destroy SDK (triggers onDestroy hook which closes storage manager)
+        const sdk = getSDK();
+        await sdk.destroy();
+
+        // Dynamically import terminal modules (to avoid circular dependencies)
+        const { TerminalManager } = await import("./terminal/terminal-manager.js");
+        const { CommunicationBridge } = await import("./terminal/communication-bridge.js");
+
+        const terminalManager = new TerminalManager();
+        const communicationBridge = new CommunicationBridge();
+
+        // Clean up all terminal sessions.
+        await terminalManager.cleanupAll();
+
+        // Clean up all communication bridges.
+        communicationBridge.cleanupAll();
+
+        output.infoLog("Resource cleanup is complete.");
+
+        // Close the output stream.
+        await output.close();
+        process.exit(0);
+      } catch (error) {
+        output.errorLog(
+          `Error cleaning up resources: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        await output.close();
+        process.exit(1);
+      }
+    };
+
+    // Listen for exit signals
+    process.on("SIGINT", cleanupAndExit);
+    process.on("SIGTERM", cleanupAndExit);
+    
+    // Start the TUI application
+    app.start();
+  } catch (error) {
+    const output = getOutput();
+    output.errorLog(
+      `Failed to start TUI: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    await ExitManager.exit(1);
+  }
+}
+
+// Graceful exit handling (for CLI mode only)
 const shutdown = async () => {
   const output = getOutput();
   output.infoLog("Cleaning up resources...");
@@ -259,6 +331,8 @@ const shutdown = async () => {
   }
 };
 
-// Listen for the exit signal.
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);
+// Only add signal listeners if not in TUI mode
+if (!hasTuiFlag && executionMode !== "interactive") {
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
+}

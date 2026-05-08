@@ -7,7 +7,7 @@ import type { EvaluationContext } from "@wf-agent/types";
 import { RuntimeValidationError } from "@wf-agent/types";
 import { validatePath } from "./security-validator.js";
 import { resolvePath } from "./path-resolver.js";
-import { getGlobalLogger } from "../logger/logger.js";
+import { getGlobalLogger } from "../logger/index.js";
 import type { ASTNode } from "./ast-types.js";
 import {
   BooleanLiteralNode,

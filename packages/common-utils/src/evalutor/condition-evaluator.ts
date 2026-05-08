@@ -6,7 +6,7 @@
 import type { Condition, EvaluationContext } from "@wf-agent/types";
 import { RuntimeValidationError } from "@wf-agent/types";
 import { expressionEvaluator } from "./expression-evaluator.js";
-import { getGlobalLogger } from "../logger/logger.js";
+import { getGlobalLogger } from "../logger/index.js";
 
 /**
  * Conditional Evaluator Implementation

@@ -63,7 +63,7 @@ export {
   flushAllLoggers,
   flushAllLoggersSync,
   setupExitHandlers,
-} from "./logger/logger.js";
+} from "./logger/index.js";
 
 export {
   ConsoleStream,

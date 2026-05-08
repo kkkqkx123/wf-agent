@@ -19,113 +19,174 @@
 import { createPackageLogger, registerLogger, getLogLevelFromEnv } from "@wf-agent/common-utils";
 import type { Logger, LogStream, LogLevel } from "@wf-agent/common-utils";
 
-// Global logger instances - initialized lazily on first access
-let sdkLoggerInstance: Logger | null = null;
-let graphLoggerInstance: Logger | null = null;
-let agentLoggerInstance: Logger | null = null;
+// ============================================
+// Type Definitions
+// ============================================
 
-// Flags to track if loggers have been initialized
-let isSDKInitialized = false;
-let isGraphInitialized = false;
-let isAgentInitialized = false;
-
-// Pending configuration to be applied when loggers are created
-let pendingSDKConfig: {
+interface LoggerConfig {
   level?: LogLevel;
   stream?: LogStream;
-} | null = null;
+}
 
-let pendingGraphConfig: {
-  level?: LogLevel;
-  stream?: LogStream;
-} | null = null;
-
-let pendingAgentConfig: {
-  level?: LogLevel;
-  stream?: LogStream;
-} | null = null;
-
-// Track if configuration has been applied
-let isSDKConfigured = false;
+interface LoggerState {
+  instance: Logger | null;
+  isInitialized: boolean;
+  pendingConfig: LoggerConfig | null;
+}
 
 // ============================================
-// Environment Variable Names (Layered Architecture)
+// Environment Variable Names
 // ============================================
 
 const ENV_VARS = {
-  // Global settings
   GLOBAL_LOG_LEVEL: "GLOBAL_LOG_LEVEL",
-
-  // SDK module specific
   SDK_LOG_LEVEL: "SDK_LOG_LEVEL",
   SDK_LOG_LEVEL_GRAPH: "SDK_LOG_LEVEL_GRAPH",
   SDK_LOG_LEVEL_AGENT: "SDK_LOG_LEVEL_AGENT",
 } as const;
 
 // ============================================
+// Logger State Management
+// ============================================
+
+const loggerStates: {
+  sdk: LoggerState;
+  graph: LoggerState;
+  agent: LoggerState;
+} = {
+  sdk: { instance: null, isInitialized: false, pendingConfig: null },
+  graph: { instance: null, isInitialized: false, pendingConfig: null },
+  agent: { instance: null, isInitialized: false, pendingConfig: null },
+};
+
+let isSDKConfigured = false;
+
+// ============================================
 // Helper Functions
 // ============================================
 
 /**
- * Get log level for graph module from environment variables
- * Priority: SDK_LOG_LEVEL_GRAPH > SDK_LOG_LEVEL > GLOBAL_LOG_LEVEL > info
+ * Get log level from environment variables with fallback chain
  */
-function getGraphLogLevel(): LogLevel {
-  return getLogLevelFromEnv(ENV_VARS.SDK_LOG_LEVEL_GRAPH, ENV_VARS.GLOBAL_LOG_LEVEL, "info");
+function getLogLevelFromEnvChain(
+  primaryKey: string,
+  globalKey: string = ENV_VARS.GLOBAL_LOG_LEVEL,
+  defaultLevel: LogLevel = "info"
+): LogLevel {
+  return getLogLevelFromEnv(primaryKey, globalKey, defaultLevel);
 }
 
 /**
- * Get log level for agent module from environment variables
- * Priority: SDK_LOG_LEVEL_AGENT > SDK_LOG_LEVEL > GLOBAL_LOG_LEVEL > info
+ * Create a logger instance and register it
  */
-function getAgentLogLevel(): LogLevel {
-  return getLogLevelFromEnv(ENV_VARS.SDK_LOG_LEVEL_AGENT, ENV_VARS.GLOBAL_LOG_LEVEL, "info");
-}
-
-/**
- * Get log level for SDK core module from environment variables
- * Priority: SDK_LOG_LEVEL > GLOBAL_LOG_LEVEL > info
- */
-function getSDKLogLevel(): LogLevel {
-  return getLogLevelFromEnv(ENV_VARS.SDK_LOG_LEVEL, ENV_VARS.GLOBAL_LOG_LEVEL, "info");
-}
-
-// ============================================
-// Logger Creation Functions
-// ============================================
-
-/**
- * Create the graph logger instance
- * Internal function to actually create the logger
- */
-function createGraphLoggerInstance(level: LogLevel, stream?: LogStream): Logger {
-  const instance = createPackageLogger("sdk.graph", {
+function createAndRegisterLogger(name: string, level: LogLevel, stream?: LogStream): Logger {
+  const instance = createPackageLogger(name, {
     level,
     stream,
     timestamp: true,
   });
-
-  // Register with the global registry
-  registerLogger("sdk.graph", instance);
-
+  registerLogger(name, instance);
   return instance;
 }
 
 /**
- * Create the agent logger instance
- * Internal function to actually create the logger
+ * Apply configuration to a logger (before or after initialization)
  */
-function createAgentLoggerInstance(level: LogLevel, stream?: LogStream): Logger {
-  const instance = createPackageLogger("sdk.agent", {
-    level,
-    stream,
-    timestamp: true,
+function applyLoggerConfig(state: LoggerState, config: LoggerConfig): void {
+  state.pendingConfig = config;
+
+  if (state.instance) {
+    state.instance.setLevel(config.level ?? "info");
+    if (config.stream && state.instance.setStream) {
+      state.instance.setStream(config.stream);
+    }
+  }
+}
+
+/**
+ * Initialize a logger with lazy loading support
+ */
+function initializeLogger(
+  key: keyof typeof loggerStates,
+  loggerName: string,
+  envVarKey: string,
+  showWarning = false
+): Logger {
+  const state = loggerStates[key];
+
+  if (state.isInitialized && state.instance) {
+    return state.instance;
+  }
+
+  // Show warning for SDK logger if accessed before configuration
+  if (showWarning && !isSDKConfigured && process.env['NODE_ENV'] !== 'test') {
+    process.stderr.write(
+      '[SDK Logger] Warning: SDK logger accessed before configureSDKLogger() was called. '
+      + 'Using environment variables or defaults. Call configureSDKLogger() before SDK initialization.\n'
+    );
+  }
+
+  const level = state.pendingConfig?.level ?? getLogLevelFromEnvChain(envVarKey);
+  const stream = state.pendingConfig?.stream;
+
+  state.instance = createAndRegisterLogger(loggerName, level, stream);
+  state.isInitialized = true;
+
+  return state.instance;
+}
+
+/**
+ * Get or create a logger instance (lazy initialization)
+ */
+function getLoggerInstance(
+  key: keyof typeof loggerStates,
+  loggerName: string,
+  envVarKey: string,
+  showWarning = false
+): Logger {
+  const state = loggerStates[key];
+
+  if (!state.instance) {
+    state.instance = initializeLogger(key, loggerName, envVarKey, showWarning);
+  }
+
+  return state.instance;
+}
+
+/**
+ * Create a Proxy-based lazy logger
+ */
+function createLazyLogger(
+  key: keyof typeof loggerStates,
+  loggerName: string,
+  envVarKey: string,
+  showWarning = false
+): Logger {
+  return new Proxy({} as Logger, {
+    get(_, prop: string | symbol) {
+      const instance = getLoggerInstance(key, loggerName, envVarKey, showWarning);
+      const value = (instance as unknown as Record<string | symbol, unknown>)[prop];
+
+      if (typeof value === "function") {
+        return (value as (...args: unknown[]) => unknown).bind(instance);
+      }
+
+      return value;
+    },
   });
+}
 
-  // Register with the global registry
-  registerLogger("sdk.agent", instance);
+// ============================================
+// Public API - Initialization Functions
+// ============================================
 
-  return instance;
+/**
+ * Initialize the SDK logger explicitly
+ * @param config Optional configuration, uses environment variables if not provided
+ */
+export function initializeSDKLogger(config?: LoggerConfig): Logger {
+  applyLoggerConfig(loggerStates.sdk, config ?? {});
+  return initializeLogger('sdk', 'sdk', ENV_VARS.SDK_LOG_LEVEL, true);
 }
 
 /**
@@ -133,18 +194,9 @@ function createAgentLoggerInstance(level: LogLevel, stream?: LogStream): Logger 
  * Call this before using any graph logger methods to ensure proper configuration
  * @param config Optional configuration, uses environment variables if not provided
  */
-export function initializeGraphLogger(config?: { level?: LogLevel; stream?: LogStream }): Logger {
-  if (isGraphInitialized && graphLoggerInstance) {
-    return graphLoggerInstance;
-  }
-
-  const level = config?.level ?? pendingGraphConfig?.level ?? getGraphLogLevel();
-  const stream = config?.stream ?? pendingGraphConfig?.stream;
-
-  graphLoggerInstance = createGraphLoggerInstance(level, stream);
-  isGraphInitialized = true;
-
-  return graphLoggerInstance;
+export function initializeGraphLogger(config?: LoggerConfig): Logger {
+  applyLoggerConfig(loggerStates.graph, config ?? {});
+  return initializeLogger('graph', 'sdk.graph', ENV_VARS.SDK_LOG_LEVEL_GRAPH);
 }
 
 /**
@@ -152,97 +204,14 @@ export function initializeGraphLogger(config?: { level?: LogLevel; stream?: LogS
  * Call this before using any agent logger methods to ensure proper configuration
  * @param config Optional configuration, uses environment variables if not provided
  */
-export function initializeAgentLogger(config?: { level?: LogLevel; stream?: LogStream }): Logger {
-  if (isAgentInitialized && agentLoggerInstance) {
-    return agentLoggerInstance;
-  }
-
-  const level = config?.level ?? pendingAgentConfig?.level ?? getAgentLogLevel();
-  const stream = config?.stream ?? pendingAgentConfig?.stream;
-
-  agentLoggerInstance = createAgentLoggerInstance(level, stream);
-  isAgentInitialized = true;
-
-  return agentLoggerInstance;
-}
-
-/**
- * Get or create the graph logger instance
- * Uses lazy initialization - only creates logger on first access
- */
-function getGraphLoggerInstance(): Logger {
-  if (!graphLoggerInstance) {
-    graphLoggerInstance = initializeGraphLogger();
-  }
-  return graphLoggerInstance;
-}
-
-/**
- * Get or create the agent logger instance
- * Uses lazy initialization - only creates logger on first access
- */
-function getAgentLoggerInstance(): Logger {
-  if (!agentLoggerInstance) {
-    agentLoggerInstance = initializeAgentLogger();
-  }
-  return agentLoggerInstance;
+export function initializeAgentLogger(config?: LoggerConfig): Logger {
+  applyLoggerConfig(loggerStates.agent, config ?? {});
+  return initializeLogger('agent', 'sdk.agent', ENV_VARS.SDK_LOG_LEVEL_AGENT);
 }
 
 // ============================================
-// SDK Logger Creation Functions
+// Public API - Module Logger Factories
 // ============================================
-
-/**
- * Create the SDK logger instance
- * Internal function to actually create the logger
- */
-function createSDKLoggerInstance(level: LogLevel, stream?: LogStream): Logger {
-  const instance = createPackageLogger("sdk", {
-    level,
-    stream,
-    timestamp: true,
-  });
-
-  registerLogger("sdk", instance);
-
-  return instance;
-}
-
-/**
- * Initialize the SDK logger explicitly
- * @param config Optional configuration, uses environment variables if not provided
- */
-export function initializeSDKLogger(config?: { level?: LogLevel; stream?: LogStream }): Logger {
-  if (isSDKInitialized && sdkLoggerInstance) {
-    return sdkLoggerInstance;
-  }
-
-  const level = config?.level ?? pendingSDKConfig?.level ?? getSDKLogLevel();
-  const stream = config?.stream ?? pendingSDKConfig?.stream;
-
-  sdkLoggerInstance = createSDKLoggerInstance(level, stream);
-  isSDKInitialized = true;
-
-  return sdkLoggerInstance;
-}
-
-/**
- * Get or create the SDK logger instance
- * Uses lazy initialization - only creates logger on first access
- */
-function getSDKLoggerInstance(): Logger {
-  if (!sdkLoggerInstance) {
-    // Warn if logger is accessed before configuration
-    if (!isSDKConfigured && process.env['NODE_ENV'] !== 'test') {
-      process.stderr.write(
-        '[SDK Logger] Warning: SDK logger accessed before configureSDKLogger() was called. '
-        + 'Using environment variables or defaults. Call configureSDKLogger() before SDK initialization.\n'
-      );
-    }
-    sdkLoggerInstance = initializeSDKLogger();
-  }
-  return sdkLoggerInstance;
-}
 
 /**
  * Create a module-level logger for SDK core module
@@ -250,26 +219,30 @@ function getSDKLoggerInstance(): Logger {
  * @returns An instance of the module-level Logger
  */
 export function createSDKModuleLogger(moduleName: string): Logger {
-  return getSDKLoggerInstance().child(moduleName);
+  return getLoggerInstance('sdk', 'sdk', ENV_VARS.SDK_LOG_LEVEL, true).child(moduleName);
 }
 
 /**
- * SDK core module package-level logger
- * Uses Proxy for lazy initialization - no side effects on module load
- * First access triggers initialization, subsequent accesses use cached instance
+ * Create a module-level logger for graph module
+ * @param moduleName Module name
+ * @returns An instance of the module-level Logger
  */
-export const sdkLogger: Logger = new Proxy({} as Logger, {
-  get(_, prop: string | symbol) {
-    const instance = getSDKLoggerInstance();
-    const value = (instance as unknown as Record<string | symbol, unknown>)[prop];
+export function createGraphModuleLogger(moduleName: string): Logger {
+  return getLoggerInstance('graph', 'sdk.graph', ENV_VARS.SDK_LOG_LEVEL_GRAPH).child(moduleName);
+}
 
-    if (typeof value === "function") {
-      return (value as (...args: unknown[]) => unknown).bind(instance);
-    }
+/**
+ * Create a module-level logger for agent module
+ * @param moduleName Module name
+ * @returns An instance of the module-level Logger
+ */
+export function createAgentModuleLogger(moduleName: string): Logger {
+  return getLoggerInstance('agent', 'sdk.agent', ENV_VARS.SDK_LOG_LEVEL_AGENT).child(moduleName);
+}
 
-    return value;
-  },
-});
+// ============================================
+// Public API - Configuration
+// ============================================
 
 /**
  * Configure the SDK loggers
@@ -284,93 +257,44 @@ export function configureSDKLogger(config: {
   stream?: LogStream;
 }): void {
   isSDKConfigured = true;
-  
-  pendingSDKConfig = {
+
+  applyLoggerConfig(loggerStates.sdk, {
     level: config.sdkLevel ?? config.level,
     stream: config.stream,
-  };
-  pendingGraphConfig = {
+  });
+
+  applyLoggerConfig(loggerStates.graph, {
     level: config.graphLevel ?? config.level,
     stream: config.stream,
-  };
-  pendingAgentConfig = {
+  });
+
+  applyLoggerConfig(loggerStates.agent, {
     level: config.agentLevel ?? config.level,
     stream: config.stream,
-  };
-
-  // If loggers already exist, update them
-  if (sdkLoggerInstance) {
-    sdkLoggerInstance.setLevel(config.sdkLevel ?? config.level ?? "info");
-    if (config.stream && sdkLoggerInstance.setStream) {
-      sdkLoggerInstance.setStream(config.stream);
-    }
-  }
-
-  if (graphLoggerInstance) {
-    graphLoggerInstance.setLevel(config.graphLevel ?? config.level ?? "info");
-    if (config.stream && graphLoggerInstance.setStream) {
-      graphLoggerInstance.setStream(config.stream);
-    }
-  }
-
-  if (agentLoggerInstance) {
-    agentLoggerInstance.setLevel(config.agentLevel ?? config.level ?? "info");
-    if (config.stream && agentLoggerInstance.setStream) {
-      agentLoggerInstance.setStream(config.stream);
-    }
-  }
+  });
 }
+
+// ============================================
+// Public API - Lazy Logger Instances (Proxy-based)
+// ============================================
 
 /**
- * Create a module-level logger for graph module
- * @param moduleName Module name
- * @returns An instance of the module-level Logger
+ * SDK core module package-level logger
+ * Uses Proxy for lazy initialization - no side effects on module load
+ * First access triggers initialization, subsequent accesses use cached instance
  */
-export function createGraphModuleLogger(moduleName: string): Logger {
-  return getGraphLoggerInstance().child(moduleName);
-}
-
-/**
- * Create a module-level logger for agent module
- * @param moduleName Module name
- * @returns An instance of the module-level Logger
- */
-export function createAgentModuleLogger(moduleName: string): Logger {
-  return getAgentLoggerInstance().child(moduleName);
-}
+export const sdkLogger: Logger = createLazyLogger('sdk', 'sdk', ENV_VARS.SDK_LOG_LEVEL, true);
 
 /**
  * Graph module package-level logger
  * Uses Proxy for lazy initialization - no side effects on module load
  * First access triggers initialization, subsequent accesses use cached instance
  */
-export const graphLogger: Logger = new Proxy({} as Logger, {
-  get(_, prop: string | symbol) {
-    const instance = getGraphLoggerInstance();
-    const value = (instance as unknown as Record<string | symbol, unknown>)[prop];
-
-    if (typeof value === "function") {
-      return (value as (...args: unknown[]) => unknown).bind(instance);
-    }
-
-    return value;
-  },
-});
+export const graphLogger: Logger = createLazyLogger('graph', 'sdk.graph', ENV_VARS.SDK_LOG_LEVEL_GRAPH);
 
 /**
  * Agent module package-level logger
  * Uses Proxy for lazy initialization - no side effects on module load
  * First access triggers initialization, subsequent accesses use cached instance
  */
-export const agentLogger: Logger = new Proxy({} as Logger, {
-  get(_, prop: string | symbol) {
-    const instance = getAgentLoggerInstance();
-    const value = (instance as unknown as Record<string | symbol, unknown>)[prop];
-
-    if (typeof value === "function") {
-      return (value as (...args: unknown[]) => unknown).bind(instance);
-    }
-
-    return value;
-  },
-});
+export const agentLogger: Logger = createLazyLogger('agent', 'sdk.agent', ENV_VARS.SDK_LOG_LEVEL_AGENT);

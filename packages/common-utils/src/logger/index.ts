@@ -4,7 +4,7 @@
  * Unified export of all public APIs of the logging system.
  */
 
-// type definition
+// Type definitions
 export type {
   Logger,
   LogLevel,
@@ -18,38 +18,61 @@ export type {
   MultistreamOptions,
   StreamEntry,
 } from "./types.js";
-export { LOG_LEVEL_PRIORITY } from "./types.js";
+export { LOG_LEVEL_PRIORITY, LOG_SCHEMA_VERSION } from "./types.js";
 
-// Core Realization
+// Environment Configuration
+export {
+  ENV_VARS,
+  getLogLevelFromEnv,
+  getDefaultLogLevel,
+  getGraphLogLevel,
+  getAgentLogLevel,
+} from "./env-config.js";
+
+// Core Logger Classes
+export { BaseLogger } from "./base-logger.js";
+
+// Rate Limiter
+export { LogRateLimiter } from "./rate-limiter.js";
+
+// Lazy Logger System
+export {
+  createLazyLogger,
+  configureLazyLogger,
+  isLazyLoggerInitialized,
+  getLazyLoggerInstance,
+  type LoggerFactory,
+} from "./lazy-logger.js";
+
+// Factory Functions
 export {
   createLogger,
   createPackageLogger,
   createConsoleLogger,
   createNoopLogger,
+} from "./logger-factory.js";
+
+// Global Logger Management
+export {
   setGlobalLogger,
   getGlobalLogger,
   setGlobalLogLevel,
   getGlobalLogLevel,
-  // Global Logging Registry API
+} from "./global-logger.js";
+
+// Logger Registry & Process Management
+export {
+  loggerRegistry,
   registerLogger,
   unregisterLogger,
   getRegisteredLogger,
   getRegisteredLoggerNames,
   setLoggerLevel,
   setAllLoggersLevel,
-  // Lazy logger API
-  createLazyLogger,
-  configureLazyLogger,
-  isLazyLoggerInitialized,
-  getLazyLoggerInstance,
-  type LoggerFactory,
-  // Environment variable utility
-  getLogLevelFromEnv,
-  // Process exit handlers
-  flushAllLoggers,
   flushAllLoggersSync,
+  flushAllLoggers,
   setupExitHandlers,
-} from "./logger.js";
+} from "./logger-registry.js";
 
 // Stream Implementation
 export {

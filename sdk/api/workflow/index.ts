@@ -19,7 +19,7 @@ export {
   WorkflowExecutionRegistryAPI,
   type WorkflowExecutionFilter,
   type WorkflowExecutionSummary,
-} from "./resources/executions/index.js";
+} from "./resources/executions/workflow-execution-registry-api.js";
 
 export { WorkflowRegistryAPI, type WorkflowFilter, type WorkflowSummary } from "./resources/workflows/workflow-registry-api.js";
 

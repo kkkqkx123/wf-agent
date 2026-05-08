@@ -40,6 +40,8 @@ export class CLIRunner {
       DISABLE_LOG_TERMINAL: "true",
       DISABLE_SDK_LOGS: "true",
       SDK_LOG_LEVEL: "silent",
+      GLOBAL_LOG_LEVEL: "silent",
+      STORAGE_LOG_LEVEL: "silent",
     };
     this.outputFileCounter = 0;
   }

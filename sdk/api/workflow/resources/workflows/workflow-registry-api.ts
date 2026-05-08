@@ -16,6 +16,7 @@ import type { WorkflowTemplate } from "@wf-agent/types";
 import { WorkflowNotFoundError } from "@wf-agent/types";
 import type { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
 import type { Timestamp } from "@wf-agent/types";
+import { WorkflowValidator } from "../../../../workflow/validation/workflow-validator.js";
 
 /**
  * Workflow filters
@@ -314,6 +315,16 @@ export class WorkflowRegistryAPI extends CrudResourceAPI<
             err.map((error: unknown) => String(error)),
           ),
         );
+      }
+    }
+
+    // Deep structural validation using WorkflowValidator (only if basic checks pass)
+    if (errors.length === 0) {
+      const validator = new WorkflowValidator();
+      const deepValidation = validator.validate(workflow);
+
+      if (deepValidation.isErr()) {
+        errors.push(...deepValidation.error.map(e => e.message));
       }
     }
 

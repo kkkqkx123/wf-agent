@@ -1,5 +1,5 @@
 /**
- * SqliteCheckpointStorage 测试
+ * SqliteCheckpointStorage test
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";

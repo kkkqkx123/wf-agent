@@ -347,22 +347,23 @@ describe("Workflow Registration Tests", () => {
       logger.endTest("passed");
     });
 
-    it("should fail to register workflow with multiple END nodes", async () => {
+    it("should allow workflows with multiple END nodes (valid graph structure)", async () => {
       logger.startTest("WorkflowRegistration", "Register Workflow - Multiple END Nodes");
 
       // Use static fixture file
       const workflowFile = workflowHelper.copyWorkflowFixtureToTemp("multiple-end.toml");
 
-      // Try to register workflow
+      // Register workflow - multiple END nodes are allowed in the system
       const result = await runner.run(["workflow", "register", workflowFile], {
         outputSubdir: "workflow-registration",
       });
 
       logger.recordCommand(["workflow", "register", workflowFile], result);
 
-      // Verify error
-      expect(result.exitCode).not.toBe(0);
-      expect(result.stderr).toContain("register-workflow");
+      // Verify registration succeeds (multiple END nodes are valid)
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("Workflow is registered");
+      expect(result.stdout).toContain("multiple-end-wf");
 
       logger.endTest("passed");
     });

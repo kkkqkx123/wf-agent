@@ -15,3 +15,15 @@ type = "END"
 [[nodes]]
 id = "end2"
 type = "END"
+
+[[edges]]
+id = "e1"
+sourceNodeId = "start"
+targetNodeId = "end1"
+type = "NORMAL"
+
+[[edges]]
+id = "e2"
+sourceNodeId = "start"
+targetNodeId = "end2"
+type = "NORMAL"

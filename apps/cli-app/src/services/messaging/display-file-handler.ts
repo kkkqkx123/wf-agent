@@ -103,11 +103,11 @@ export class DisplayFileHandler implements OutputHandler {
   private createToolResultSection(message: BaseComponentMessage): DisplaySection {
     const data = message.data as any;
     const toolName = data.toolName || "unknown";
-    const timestamp = new Date(message.timestamp).toLocaleTimeString("zh-CN");
+    const timestamp = new Date(message.timestamp).toLocaleTimeString();
 
     return {
-      title: `工具调用结果: ${toolName}`,
-      content: `[${timestamp}] 工具 "${toolName}" 执行完成\n结果已保存`,
+      title: `Tool Call Result: ${toolName}`,
+      content: `[${timestamp}] Tool "${toolName}" execution completed\nResult saved`,
     };
   }
 
@@ -118,11 +118,11 @@ export class DisplayFileHandler implements OutputHandler {
     const data = message.data as any;
     const nodeId = data.nodeId || "unknown";
     const nodeType = data.nodeType || "unknown";
-    const timestamp = new Date(message.timestamp).toLocaleTimeString("zh-CN");
+    const timestamp = new Date(message.timestamp).toLocaleTimeString();
 
     return {
-      title: `节点开始: ${nodeId}`,
-      content: `[${timestamp}] 节点 "${nodeId}" (${nodeType}) 开始执行`,
+      title: `Node Started: ${nodeId}`,
+      content: `[${timestamp}] Node "${nodeId}" (${nodeType}) started execution`,
     };
   }
 
@@ -133,11 +133,11 @@ export class DisplayFileHandler implements OutputHandler {
     const data = message.data as any;
     const nodeId = data.nodeId || "unknown";
     const duration = data.duration ? `${data.duration}ms` : "N/A";
-    const timestamp = new Date(message.timestamp).toLocaleTimeString("zh-CN");
+    const timestamp = new Date(message.timestamp).toLocaleTimeString();
 
     return {
-      title: `节点完成: ${nodeId}`,
-      content: `[${timestamp}] 节点 "${nodeId}" 执行完成\n耗时: ${duration}`,
+      title: `Node Completed: ${nodeId}`,
+      content: `[${timestamp}] Node "${nodeId}" execution completed\nDuration: ${duration}`,
     };
   }
 
@@ -147,11 +147,11 @@ export class DisplayFileHandler implements OutputHandler {
   private createCheckpointSection(message: BaseComponentMessage): DisplaySection {
     const data = message.data as any;
     const checkpointId = data.checkpointId || "unknown";
-    const timestamp = new Date(message.timestamp).toLocaleTimeString("zh-CN");
+    const timestamp = new Date(message.timestamp).toLocaleTimeString();
 
     return {
-      title: `检查点创建: ${checkpointId}`,
-      content: `[${timestamp}] 检查点 "${checkpointId}" 已创建`,
+      title: `Checkpoint Created: ${checkpointId}`,
+      content: `[${timestamp}] Checkpoint "${checkpointId}" created`,
     };
   }
 
@@ -162,11 +162,11 @@ export class DisplayFileHandler implements OutputHandler {
     const data = message.data as any;
     const iteration = data.iteration || 0;
     const maxIterations = data.maxIterations || "∞";
-    const timestamp = new Date(message.timestamp).toLocaleTimeString("zh-CN");
+    const timestamp = new Date(message.timestamp).toLocaleTimeString();
 
     return {
-      title: `迭代开始: ${iteration}/${maxIterations}`,
-      content: `[${timestamp}] 第 ${iteration} 次迭代开始（最大 ${maxIterations} 次）`,
+      title: `Iteration Started: ${iteration}/${maxIterations}`,
+      content: `[${timestamp}] Iteration ${iteration} started (max ${maxIterations} iterations)`,
     };
   }
 
@@ -176,11 +176,11 @@ export class DisplayFileHandler implements OutputHandler {
   private createErrorSection(message: BaseComponentMessage): DisplaySection {
     const data = message.data as any;
     const errorMessage = data.message || "Unknown error";
-    const timestamp = new Date(message.timestamp).toLocaleTimeString("zh-CN");
+    const timestamp = new Date(message.timestamp).toLocaleTimeString();
 
     return {
-      title: "错误",
-      content: `[${timestamp}] ❌ 发生错误: ${errorMessage}`,
+      title: "Error",
+      content: `[${timestamp}] ❌ Error occurred: ${errorMessage}`,
     };
   }
 

@@ -5,7 +5,6 @@
 
 import { Box, Container, Text, Input } from "../core/index.js";
 import type { Screen } from "./screen.js";
-import { AgentLoopAdapter } from "../../adapters/agent-loop-adapter.js";
 import type { AgentLoopRuntimeConfig } from "@wf-agent/types";
 import type { MessageBus, MessageSubscription } from "@wf-agent/sdk";
 import { MessageCategory, AgentMessageType } from "@wf-agent/types";
@@ -34,7 +33,6 @@ export class AgentScreen implements Screen {
   private iterationPanel: IterationPanel;
   private toolCallPanel: ToolCallIndicator;
   private messageInput!: Input;
-  private adapter: AgentLoopAdapter;
   private messageBus?: MessageBus;
   private currentAgentId?: string;
   private isRunning: boolean = false;
@@ -47,7 +45,6 @@ export class AgentScreen implements Screen {
   constructor(messageBus?: MessageBus, onBack?: () => void) {
     this.messageBus = messageBus;
     this.onBack = onBack;
-    this.adapter = new AgentLoopAdapter();
     this.container = new Container();
     this.statusPanel = new Box();
     this.logPanel = new Box();
@@ -371,7 +368,7 @@ export class AgentScreen implements Screen {
       return;
     }
 
-    // Generate agent ID if not present
+    // Generate agent ID
     this.currentAgentId = `agent-${Date.now()}-${Math.random().toString(36).substring(7)}`;
     
     // Clear old subscriptions and setup new ones with entity filtering
@@ -383,62 +380,11 @@ export class AgentScreen implements Screen {
     this.updateStatus("running");
     this.appendLog(`Starting agent loop (${this.currentAgentId})...`, "system");
 
-    try {
-      const result = await this.adapter.executeAgentLoopStream(
-        config,
-        {},
-        (event) => this.handleEvent(event)
-      );
-
-      this.isRunning = false;
-      this.updateStatus(result.success ? "completed" : "error");
-      
-      if (result.success) {
-        this.appendLog("Agent loop completed successfully", "system");
-      } else {
-        this.appendLog(`Agent loop failed: ${result.error}`, "system");
-      }
-    } catch (error) {
-      this.isRunning = false;
-      this.updateStatus("error");
-      this.appendLog(
-        `Error: ${error instanceof Error ? error.message : String(error)}`,
-        "system"
-      );
-    }
+    // Note: Agent execution is handled by SDK via message bus
+    // This screen subscribes to messages and displays updates in real-time
+    // The actual agent loop should be started by publishing an AGENT_START message
   }
 
-  private handleEvent(event: any) {
-    switch (event.type) {
-      case "text":
-        if (event.delta) {
-          this.appendLog(event.delta, "assistant");
-        }
-        break;
-        
-      case "tool_call_start":
-        const toolName = event.data?.toolCall?.function?.name || "unknown";
-        this.appendLog(`Calling tool: ${toolName}`, "tool");
-        break;
-        
-      case "tool_call_end":
-        const success = event.data?.success ? "✓" : "✗";
-        this.appendLog(`${success} Tool call completed`, "tool");
-        break;
-        
-      case "iteration_complete":
-        const iteration = event.data?.iteration || 0;
-        this.appendLog(`Iteration ${iteration} complete`, "system");
-        break;
-        
-      case "user_message":
-        this.appendLog(event.data?.content || "", "user");
-        break;
-        
-      default:
-        this.appendLog(`Event: ${event.type}`, "system");
-    }
-  }
 
   private async sendMessage(text: string) {
     if (!this.isRunning) {

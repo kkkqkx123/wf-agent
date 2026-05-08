@@ -127,7 +127,7 @@ export class DisplayOutputService {
 
     // Add basic info section
     sections.unshift({
-      title: "基本信息",
+      title: "Basic Information",
       content: this.buildBasicInfoContent(params.metadata),
     });
 
@@ -152,7 +152,7 @@ export class DisplayOutputService {
     message: string;
     duration?: number;
   }): Promise<void> {
-    const timeStr = new Date(params.timestamp).toLocaleTimeString("zh-CN");
+    const timeStr = new Date(params.timestamp).toLocaleTimeString();
     const statusIcon = this.getStatusIcon(params.status);
     
     let content = `### [${timeStr}]`;
@@ -163,10 +163,10 @@ export class DisplayOutputService {
       }
     }
     content += `\n`;
-    content += `状态: ${statusIcon} ${this.getStatusText(params.status)}\n`;
+    content += `Status: ${statusIcon} ${this.getStatusText(params.status)}\n`;
     
     if (params.duration) {
-      content += `耗时: ${params.duration}ms\n`;
+      content += `Duration: ${params.duration}ms\n`;
     }
     
     content += `${params.message}\n`;
@@ -174,7 +174,7 @@ export class DisplayOutputService {
     await this.updateOutput({
       sessionId: params.sessionId,
       sections: [{
-        title: "执行日志",
+        title: "Execution Log",
         content,
       }],
       append: true,
@@ -228,16 +228,16 @@ export class DisplayOutputService {
    * @returns Formatted basic info string
    */
   private buildBasicInfoContent(metadata: SessionMetadata): string {
-    const startTime = new Date(metadata.startedAt).toLocaleString("zh-CN");
+    const startTime = new Date(metadata.startedAt).toLocaleString();
     
-    let content = `- **实例名称**: ${metadata.name ?? metadata.instanceId}\n`;
-    content += `- **实例 ID**: ${metadata.instanceId}\n`;
-    content += `- **类型**: ${metadata.type}\n`;
-    content += `- **开始时间**: ${startTime}\n`;
-    content += `- **状态**: 运行中\n`;
+    let content = `- **Instance Name**: ${metadata.name ?? metadata.instanceId}\n`;
+    content += `- **Instance ID**: ${metadata.instanceId}\n`;
+    content += `- **Type**: ${metadata.type}\n`;
+    content += `- **Start Time**: ${startTime}\n`;
+    content += `- **Status**: Running\n`;
 
     if (metadata.parentId) {
-      content += `- **父实例**: ${metadata.parentId}\n`;
+      content += `- **Parent Instance**: ${metadata.parentId}\n`;
     }
 
     return content;
@@ -264,20 +264,20 @@ export class DisplayOutputService {
   }
 
   /**
-   * Get status text in Chinese
+   * Get status text
    * @param status Status string
    * @returns Status text
    */
   private getStatusText(status: string): string {
     switch (status) {
       case "start":
-        return "开始";
+        return "Started";
       case "end":
-        return "完成";
+        return "Completed";
       case "error":
-        return "错误";
+        return "Error";
       case "waiting":
-        return "等待中";
+        return "Waiting";
       default:
         return status;
     }

@@ -3,7 +3,7 @@
  * Implement the core logic for managing message arrays, supporting batch processing and rollback features.
  */
 
-import { now } from "../utils/timestamp-utils.js";
+import { now } from "@wf-agent/common-utils";
 import type {
   Message,
   MessageArrayState,

@@ -8,7 +8,7 @@ import { spawn } from "child_process";
 import { randomUUID } from "crypto";
 import * as fs from "fs";
 import * as path from "path";
-import { getOutput } from "../utils/output.js";
+import { getOutput } from "../../utils/output.js";
 import type { TerminalOptions, TerminalSession, TerminalEvent } from "./types.js";
 
 const output = getOutput();

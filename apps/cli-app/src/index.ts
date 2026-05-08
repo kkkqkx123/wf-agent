@@ -257,8 +257,8 @@ async function startTUI() {
         await sdk.destroy();
 
         // Dynamically import terminal modules (to avoid circular dependencies)
-        const { TerminalManager } = await import("./terminal/terminal-manager.js");
-        const { CommunicationBridge } = await import("./terminal/communication-bridge.js");
+        const { TerminalManager } = await import("./services/terminal/terminal-manager.js");
+        const { CommunicationBridge } = await import("./services/terminal/communication-bridge.js");
 
         const terminalManager = new TerminalManager();
         const communicationBridge = new CommunicationBridge();
@@ -309,8 +309,8 @@ const shutdown = async () => {
     await sdk.destroy();
 
     // Dynamically import terminal modules (to avoid circular dependencies)
-    const { TerminalManager } = await import("./terminal/terminal-manager.js");
-    const { CommunicationBridge } = await import("./terminal/communication-bridge.js");
+    const { TerminalManager } = await import("./services/terminal/terminal-manager.js");
+    const { CommunicationBridge } = await import("./services/terminal/communication-bridge.js");
 
     const terminalManager = new TerminalManager();
     const communicationBridge = new CommunicationBridge();

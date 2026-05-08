@@ -11,9 +11,9 @@ import { handleError } from "../../utils/error-handler.js";
 import { CLIValidationError } from "../../types/cli-types.js";
 
 // Add import statements
-import { TerminalManager } from "../../terminal/terminal-manager.js";
-import { TaskExecutor } from "../../terminal/task-executor.js";
-import { CommunicationBridge } from "../../terminal/communication-bridge.js";
+import { TerminalManager } from "../../services/terminal/terminal-manager.js";
+import { TaskExecutor } from "../../services/terminal/task-executor.js";
+import { CommunicationBridge } from "../../services/terminal/communication-bridge.js";
 
 const output = getOutput();
 

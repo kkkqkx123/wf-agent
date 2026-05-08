@@ -6,7 +6,7 @@
  */
 
 import type { HumanRelayHandler, HumanRelayRequest, HumanRelayResponse } from "@wf-agent/types";
-import type { FileIOService } from "../../io/file-io-service.js";
+import type { FileIOService } from "../../services/io/file-io-service.js";
 import type { TUI } from "../core/tui.js";
 import { Box, Text, Spacer } from "../core/index.js";
 

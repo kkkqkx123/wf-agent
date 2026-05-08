@@ -19,7 +19,7 @@ import {
 import type { AgentLoopRuntimeConfig, AgentLoopResult, ID } from "@wf-agent/types";
 import { LLMExecutor, LLMWrapper, ToolRegistry, EventRegistry } from "@wf-agent/sdk/core";
 import { CLINotFoundError } from "../types/cli-types.js";
-import { CLIToolApprovalHandler } from "../handlers/cli-tool-approval-handler.js";
+import { CLIToolApprovalHandler } from "../services/tool-approval/cli-tool-approval-handler.js";
 
 /**
  * Agent Loop Adapter

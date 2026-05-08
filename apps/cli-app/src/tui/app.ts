@@ -9,9 +9,9 @@ import { DashboardScreen } from "./screens/dashboard-screen.js";
 import { WorkflowScreen } from "./screens/workflow-screen.js";
 import { AgentScreen } from "./screens/agent-screen.js";
 import { MessageBus } from "@wf-agent/sdk";
-import { FileIOService } from "../io/file-io-service.js";
+import { FileIOService } from "../services/io/file-io-service.js";
 import { TUIHumanRelayHandler } from "./handlers/tui-human-relay-handler.js";
-import { TUIHandler, FunctionalFileHandler, DisplayFileHandler } from "../messaging/handlers/index.js";
+import { TUIHandler, FunctionalFileHandler, DisplayFileHandler } from "../services/messaging/handlers/index.js";
 import { CLI_ROUTING_RULES } from "../config/routing-rules.js";
 
 export class CLIAppTUI {

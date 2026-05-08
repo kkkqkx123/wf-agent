@@ -4,13 +4,13 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { TUIHandler } from "../../src/messaging/handlers/tui-handler.js";
-import { FunctionalFileHandler } from "../../src/messaging/handlers/functional-file-handler.js";
-import { DisplayFileHandler } from "../../src/messaging/handlers/display-file-handler.js";
+import { TUIHandler } from "../../src/services/messaging/handlers/tui-handler.js";
+import { FunctionalFileHandler } from "../../src/services/messaging/handlers/functional-file-handler.js";
+import { DisplayFileHandler } from "../../src/services/messaging/handlers/display-file-handler.js";
 import { OutputTarget, MessageCategory } from "@wf-agent/types";
 import type { BaseComponentMessage } from "@wf-agent/types";
 import type { TUI } from "../../src/tui/core/tui.js";
-import type { FileIOService } from "../../src/io/file-io-service.js";
+import type { FileIOService } from "../../src/services/io/file-io-service.js";
 
 // Helper function to create test messages with proper entity structure
 function createTestMessage(overrides: Partial<BaseComponentMessage>): BaseComponentMessage {

@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { FileIOService } from "../../src/io/file-io-service.js";
+import { FileIOService } from "../../src/services/io/file-io-service.js";
 import * as fs from "fs/promises";
 import * as path from "path";
 

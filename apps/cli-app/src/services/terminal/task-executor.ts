@@ -5,7 +5,7 @@
 
 import { getSDK } from "@wf-agent/sdk";
 import { randomUUID } from "crypto";
-import { getOutput } from "../utils/output.js";
+import { getOutput } from "../../utils/output.js";
 import type { TerminalSession, TaskExecutionResult, TaskStatus } from "./types.js";
 
 const output = getOutput();

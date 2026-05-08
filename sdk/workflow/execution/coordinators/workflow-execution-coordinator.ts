@@ -12,10 +12,10 @@ import type { ToolVisibilityCoordinator } from "./tool-visibility-coordinator.js
 import type { NodeExecutionCoordinator } from "./node-execution-coordinator.js";
 import type { WorkflowNavigator } from "../../builder/workflow-navigator.js";
 import {
-  checkInterruption,
+  checkWorkflowInterruption,
   shouldContinue,
-} from "@wf-agent/common-utils";
-import type { InterruptionCheckResult } from "@wf-agent/common-utils";
+} from "../../../core/utils/interruption/index.js";
+import type { WorkflowInterruptionCheckResult } from "../../../core/utils/interruption/index.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "workflow-execution-coordinator" });
@@ -55,7 +55,7 @@ export class WorkflowExecutionCoordinator {
     // Execution process orchestration
     while (true) {
       // ✅ Use return-value pattern instead of throwing exceptions
-      const interruption = checkInterruption(this.interruptionManager.getAbortSignal());
+      const interruption = checkWorkflowInterruption(this.interruptionManager.getAbortSignal());
 
       if (!shouldContinue(interruption)) {
         logger.info("Workflow execution interrupted", {
@@ -124,7 +124,7 @@ export class WorkflowExecutionCoordinator {
    * @returns Workflow execution result with interruption status
    */
   private async handleInterruptionGracefully(
-    interruption: InterruptionCheckResult,
+    interruption: WorkflowInterruptionCheckResult,
   ): Promise<WorkflowExecutionResult> {
     const type = interruption.type === "paused" ? "PAUSE" : "STOP";
     const currentNodeId = this.workflowExecutionEntity.getCurrentNodeId();

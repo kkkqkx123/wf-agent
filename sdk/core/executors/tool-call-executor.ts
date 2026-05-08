@@ -22,7 +22,8 @@
  * - Graph-specific features are available through optional dependency injection
  */
 
-import { isAbortError, checkInterruption, getErrorOrNew } from "@wf-agent/common-utils";
+import { isAbortError, getErrorOrNew } from "@wf-agent/common-utils";
+import { checkWorkflowInterruption } from "../utils/interruption/index.js";
 import type { ToolRegistry } from "../registry/tool-registry.js";
 import type { EventRegistry } from "../registry/event-registry.js";
 import type { Tool, ID, Event } from "@wf-agent/types";
@@ -154,7 +155,7 @@ export class ToolCallExecutor {
 
     // Check the interrupt signal.
     if (options?.abortSignal && options.abortSignal.aborted) {
-      const result = checkInterruption(options.abortSignal);
+      const result = checkWorkflowInterruption(options.abortSignal);
       if (result.type === "paused" || result.type === "stopped") {
         throw new WorkflowExecutionInterruptedException(
           "Tool execution interrupted",
@@ -490,7 +491,7 @@ export class ToolCallExecutor {
 
         // Handle AbortError
         if (isAbortError(error)) {
-          const interruptionResult = checkInterruption(options?.abortSignal);
+          const interruptionResult = checkWorkflowInterruption(options?.abortSignal);
           // Only PAUSE or STOP will convert to WorkflowExecutionInterruptedException.
           if (interruptionResult.type === "paused" || interruptionResult.type === "stopped") {
             throw new WorkflowExecutionInterruptedException(

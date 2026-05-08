@@ -15,7 +15,12 @@
  */
 
 import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
-import { now, checkInterruption, shouldContinue, getInterruptionDescription } from "@wf-agent/common-utils";
+import { now } from "@wf-agent/common-utils";
+import {
+  checkWorkflowInterruption,
+  shouldContinue,
+  getWorkflowInterruptionDescription,
+} from "../../../core/utils/interruption/index.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "subgraph-handler" });
@@ -35,7 +40,7 @@ export async function enterSubgraph(
 ): Promise<void> {
   // Check for interruption before entering subgraph
   const abortSignal = executionEntity.getAbortSignal();
-  const interruption = checkInterruption(abortSignal);
+  const interruption = checkWorkflowInterruption(abortSignal);
   
   if (!shouldContinue(interruption)) {
     logger.info("Subgraph entry interrupted", {
@@ -43,7 +48,7 @@ export async function enterSubgraph(
       workflowId,
       interruptionType: interruption.type,
     });
-    throw new Error(`Subgraph entry interrupted: ${getInterruptionDescription(interruption)}`);
+    throw new Error(`Subgraph entry interrupted: ${getWorkflowInterruptionDescription(interruption)}`);
   }
 
   await executionEntity.enterSubgraph(workflowId, parentWorkflowId, input);
@@ -56,14 +61,14 @@ export async function enterSubgraph(
 export async function exitSubgraph(executionEntity: WorkflowExecutionEntity): Promise<void> {
   // Check for interruption before exiting subgraph
   const abortSignal = executionEntity.getAbortSignal();
-  const interruption = checkInterruption(abortSignal);
+  const interruption = checkWorkflowInterruption(abortSignal);
   
   if (!shouldContinue(interruption)) {
     logger.info("Subgraph exit interrupted", {
       executionId: executionEntity.id,
       interruptionType: interruption.type,
     });
-    throw new Error(`Subgraph exit interrupted: ${getInterruptionDescription(interruption)}`);
+    throw new Error(`Subgraph exit interrupted: ${getWorkflowInterruptionDescription(interruption)}`);
   }
 
   await executionEntity.exitSubgraph();

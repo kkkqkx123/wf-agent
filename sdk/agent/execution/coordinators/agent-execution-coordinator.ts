@@ -29,7 +29,8 @@ import type { ConversationSession } from "../../../core/messaging/conversation-s
 import type { LLMExecutor } from "../../../core/executors/llm-executor.js";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import type { MessageStream } from "../../../core/llm/message-stream.js";
-import { isAbortError, checkInterruption } from "@wf-agent/common-utils";
+import { isAbortError } from "@wf-agent/common-utils";
+import { checkWorkflowInterruption } from "../../../core/utils/interruption/index.js";
 import { executeAgentHook } from "../handlers/hook-handlers/index.js";
 import {
   handleAgentError,
@@ -376,7 +377,7 @@ export class AgentExecutionCoordinator {
     await executeAgentHook(entity, "BEFORE_LLM_CALL", this.emitAgentEvent);
 
     // Check interruption before LLM call
-    const preLLMInterruption = checkInterruption(entity.getAbortSignal());
+    const preLLMInterruption = checkWorkflowInterruption(entity.getAbortSignal());
     if (preLLMInterruption.type === "paused" || preLLMInterruption.type === "stopped") {
       logger.info("Interrupted before LLM call", {
         agentLoopId,
@@ -399,7 +400,7 @@ export class AgentExecutionCoordinator {
     );
 
     // Check interruption after LLM call
-    const postLLMInterruption = checkInterruption(entity.getAbortSignal());
+    const postLLMInterruption = checkWorkflowInterruption(entity.getAbortSignal());
     if (postLLMInterruption.type === "paused" || postLLMInterruption.type === "stopped") {
       logger.info("Interrupted after LLM call", {
         agentLoopId,
@@ -638,7 +639,7 @@ export class AgentExecutionCoordinator {
 
     while (!streamDone || eventQueue.length > 0) {
       if (entity.isAborted() || entity.shouldStop()) {
-        const result = checkInterruption(entity.getAbortSignal());
+        const result = checkWorkflowInterruption(entity.getAbortSignal());
         entity.state.cancel();
         yield this.createErrorEvent(
           agentLoopId,

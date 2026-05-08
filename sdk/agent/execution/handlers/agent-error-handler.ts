@@ -18,7 +18,8 @@ import type { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import type { ErrorContext, SDKError } from "@wf-agent/types";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import { SDKError as SDKErrorClass } from "@wf-agent/types";
-import { isAbortError, checkInterruption } from "@wf-agent/common-utils";
+import { isAbortError } from "@wf-agent/common-utils";
+import { checkWorkflowInterruption } from "../../../core/utils/interruption/index.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import { handleError } from "../../../core/utils/error-utils.js";
 import { emit } from "../../../core/utils/event/event-emitter.js";
@@ -161,7 +162,7 @@ export async function handleAgentInterruption(
     return false;
   }
 
-  const result = checkInterruption(entity.getAbortSignal());
+  const result = checkWorkflowInterruption(entity.getAbortSignal());
 
   logger.info("Agent Loop interruption detected", {
     agentLoopId: entity.id,

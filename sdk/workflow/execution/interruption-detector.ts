@@ -16,7 +16,11 @@
 
 import type { WorkflowExecutionRegistry } from "../stores/workflow-execution-registry.js";
 import type { InterruptionType } from "@wf-agent/types";
-import { isAborted, checkInterruption, getInterruptionType } from "@wf-agent/common-utils";
+import { isAborted } from "@wf-agent/common-utils";
+import {
+  checkWorkflowInterruption,
+  getWorkflowInterruptionType,
+} from "../../core/utils/interruption/index.js";
 
 /**
  * Interrupt Detector Interface
@@ -88,7 +92,7 @@ export class InterruptionDetectorImpl implements InterruptionDetector {
    */
   getInterruptionType(executionId: string): InterruptionType {
     const signal = this.getAbortSignal(executionId);
-    const result = checkInterruption(signal);
-    return getInterruptionType(result);
+    const result = checkWorkflowInterruption(signal);
+    return getWorkflowInterruptionType(result);
   }
 }

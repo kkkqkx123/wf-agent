@@ -30,3 +30,6 @@ export * from "./error-utils.js";
 
 // Task serialization tools
 export * from "./task/index.js";
+
+// Interruption utilities
+export * from "./interruption/index.js";

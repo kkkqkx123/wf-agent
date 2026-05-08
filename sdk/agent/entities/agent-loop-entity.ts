@@ -65,6 +65,7 @@ import {
 import { buildInitialMessages, type InitialMessagesConfig } from "../../core/prompt/index.js";
 import { ExecutionHierarchyManager } from "../../core/execution/execution-hierarchy-manager.js";
 import type { ExecutionHierarchyRegistry } from "../../core/registry/execution-hierarchy-registry.js";
+import { createInterruptionAbortReason } from "../../core/utils/interruption/index.js";
 
 /**
  * Steering Mode
@@ -352,13 +353,14 @@ export class AgentLoopEntity {
 
   /**
    * Interrupt execution
-   * @param type Interrupt type
+   * @param type Interrupt type (PAUSE or STOP)
    */
   interrupt(type: "PAUSE" | "STOP"): void {
     this.state.interrupt(type);
-    if (type === "STOP") {
-      this.abort();
-    }
+    
+    // Create proper abort reason with interruption context
+    const abortReason = createInterruptionAbortReason(type, this.id);
+    this.abortController?.abort(abortReason);
   }
 
   /**

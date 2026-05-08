@@ -5,8 +5,8 @@
 // Abort: Advanced Utility Function
 export * from "./abort-utils.js";
 
-// Workflow Execution Interrupt Utility Function
-export * from "./workflow-execution-interruption-utils.js";
+// Generic AbortSignal interruption utilities (domain-agnostic)
+export * from "./abort-signal-utils.js";
 
 // Interrupt type definitions
 export * from "./interruption-types.js";

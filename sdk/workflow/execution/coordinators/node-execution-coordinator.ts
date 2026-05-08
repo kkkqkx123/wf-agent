@@ -61,10 +61,10 @@ import {
 } from "../utils/event/index.js";
 import type { InterruptionDetector } from "../interruption-detector.js";
 import {
-  checkInterruption,
+  checkWorkflowInterruption,
   shouldContinue,
-  getInterruptionDescription,
-} from "@wf-agent/common-utils";
+  getWorkflowInterruptionDescription,
+} from "../../../core/utils/interruption/index.js";
 import { NodeHandlerContextFactory } from "../factories/node-handler-context-factory.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 
@@ -285,7 +285,7 @@ export class NodeExecutionCoordinator {
     logger.debug("Starting node execution", { executionId, nodeId, nodeType, nodeName: node.name });
 
     // Use the return value tagging system to check for interruptions.
-    const interruption = checkInterruption(abortSignal);
+    const interruption = checkWorkflowInterruption(abortSignal);
 
     if (!shouldContinue(interruption)) {
       logger.info("Node execution interrupted", {
@@ -303,7 +303,7 @@ export class NodeExecutionCoordinator {
         nodeType,
         status: "CANCELLED",
         step: workflowExecutionEntity.getNodeResults().length + 1,
-        error: getInterruptionDescription(interruption),
+        error: getWorkflowInterruptionDescription(interruption),
         startTime: now(),
         endTime: now(),
         executionTime: 0,

@@ -6,15 +6,6 @@
 import type { InterruptionType } from "@wf-agent/types";
 
 /**
- * Interruption check results
- */
-export type InterruptionCheckResult =
-  | { type: "continue" }
-  | { type: "paused"; nodeId: string; executionId?: string }
-  | { type: "stopped"; nodeId: string; executionId?: string }
-  | { type: "aborted"; reason?: unknown };
-
-/**
  * interrupt message
  */
 export interface InterruptionInfo {
@@ -31,5 +22,5 @@ export interface InterruptibleOptions {
   /** Check interval (milliseconds), default 0 (checked on every call) */
   checkInterval?: number;
   /** Customized Check Functions */
-  customCheck?: () => InterruptionCheckResult;
+  customCheck?: () => import("./abort-signal-utils.js").InterruptionCheckResult;
 }

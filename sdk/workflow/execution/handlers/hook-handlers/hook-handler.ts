@@ -16,7 +16,12 @@ import {
   type BaseHookContext,
   type HookHandler,
 } from "../../../../core/hooks/index.js";
-import { getErrorOrNew, checkInterruption, shouldContinue, getInterruptionDescription } from "@wf-agent/common-utils";
+import { getErrorOrNew } from "@wf-agent/common-utils";
+import {
+  checkWorkflowInterruption,
+  shouldContinue,
+  getWorkflowInterruptionDescription,
+} from "../../../../core/utils/interruption/index.js";
 import { createContextualLogger } from "../../../../utils/contextual-logger.js";
 import { buildHookEvaluationContext, convertToEvaluationContext } from "./context-builder.js";
 import { emitHookEvent } from "./event-emitter.js";
@@ -147,7 +152,7 @@ export async function executeHook(
 
   // Check for interruption before executing hooks
   const abortSignal = workflowExecutionEntity.getAbortSignal();
-  const interruption = checkInterruption(abortSignal);
+  const interruption = checkWorkflowInterruption(abortSignal);
   
   if (!shouldContinue(interruption)) {
     logger.info("Hook execution interrupted", {
@@ -156,7 +161,7 @@ export async function executeHook(
       hookType,
       interruptionType: interruption.type,
     });
-    throw new Error(`Hook execution interrupted: ${getInterruptionDescription(interruption)}`);
+    throw new Error(`Hook execution interrupted: ${getWorkflowInterruptionDescription(interruption)}`);
   }
 
   // Check if the node has a Hook configuration.

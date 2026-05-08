@@ -25,11 +25,11 @@ import { ExecutionError } from "@wf-agent/types";
 import { CheckpointCoordinator } from "../../checkpoint/checkpoint-coordinator.js";
 import { InterruptionDetectorImpl, type InterruptionDetector } from "../interruption-detector.js";
 import {
-  checkInterruption,
+  checkWorkflowInterruption,
   shouldContinue,
-  getInterruptionDescription,
-} from "@wf-agent/common-utils";
-import type { InterruptionCheckResult } from "@wf-agent/common-utils";
+  getWorkflowInterruptionDescription,
+} from "../../../core/utils/interruption/index.js";
+import type { WorkflowInterruptionCheckResult } from "../../../core/utils/interruption/index.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import {
   buildUserInteractionRequestedEvent,
@@ -183,7 +183,7 @@ export class LLMExecutionCoordinator {
       // It is in an interrupted state.
       return {
         success: false,
-        error: new Error(getInterruptionDescription(result)),
+        error: new Error(getWorkflowInterruptionDescription(result)),
       };
     }
 
@@ -210,7 +210,7 @@ export class LLMExecutionCoordinator {
   private async executeLLMLoop(
     params: LLMExecutionParams,
     conversationState: ConversationSession,
-  ): Promise<string | InterruptionCheckResult> {
+  ): Promise<string | WorkflowInterruptionCheckResult> {
     const { prompt, profileId, parameters, tools, maxToolCallsPerRequest, executionId, nodeId } =
       params;
 
@@ -221,7 +221,7 @@ export class LLMExecutionCoordinator {
 
     // Check interruption before starting
     if (abortSignal) {
-      const interruption = checkInterruption(abortSignal);
+      const interruption = checkWorkflowInterruption(abortSignal);
       if (!shouldContinue(interruption)) {
         return interruption;
       }
@@ -335,7 +335,7 @@ export class LLMExecutionCoordinator {
 
         // Check for interruptions before executing the tool call.
         if (abortSignal) {
-          const interruption = checkInterruption(abortSignal);
+          const interruption = checkWorkflowInterruption(abortSignal);
           if (!shouldContinue(interruption)) {
             return interruption;
           }

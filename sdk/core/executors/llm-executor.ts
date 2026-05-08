@@ -19,8 +19,9 @@
  * - Does not depend on the implementation of any specific module
  */
 
-import { isAbortError, checkInterruption } from "@wf-agent/common-utils";
-import type { InterruptionCheckResult } from "@wf-agent/common-utils";
+import { isAbortError } from "@wf-agent/common-utils";
+import { checkWorkflowInterruption } from "../utils/interruption/index.js";
+import type { WorkflowInterruptionCheckResult } from "../utils/interruption/index.js";
 import type { LLMMessage, LLMResult, ToolSchema } from "@wf-agent/types";
 import { LLMWrapper } from "../llm/wrapper.js";
 import { ExecutionError, LLMError } from "@wf-agent/types";
@@ -67,7 +68,7 @@ export interface LLMExecutionResult {
  */
 export type LLMExecutionResultWithInterruption =
   | { success: true; result: LLMExecutionResult }
-  | { success: false; interruption: InterruptionCheckResult };
+  | { success: false; interruption: WorkflowInterruptionCheckResult };
 
 /**
  * LLM Executor Class (Stateless)
@@ -96,7 +97,7 @@ export class LLMExecutor {
   ): LLMExecutionResultWithInterruption {
     // Check if it is an AbortError.
     if (isAbortError(error)) {
-      const result = checkInterruption(options?.abortSignal);
+      const result = checkWorkflowInterruption(options?.abortSignal);
       // PAUSE/STOP returns the interrupted state.
       if (result.type === "paused" || result.type === "stopped") {
         return {

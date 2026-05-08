@@ -18,6 +18,8 @@ import type {
   AgentToolEndData,
   BaseComponentMessage,
 } from "@wf-agent/types";
+import { IterationPanel } from "../components/iteration-panel.js";
+import { ToolCallIndicator } from "../components/tool-call-indicator.js";
 
 interface LogEntry {
   timestamp: Date;
@@ -29,6 +31,8 @@ export class AgentScreen implements Screen {
   private container: Container;
   private statusPanel: Box;
   private logPanel: Box;
+  private iterationPanel: IterationPanel;
+  private toolCallPanel: ToolCallIndicator;
   private messageInput!: Input;
   private adapter: AgentLoopAdapter;
   private messageBus?: MessageBus;
@@ -37,6 +41,8 @@ export class AgentScreen implements Screen {
   private logEntries: LogEntry[] = [];
   private onBack?: () => void;
   private subscriptions: MessageSubscription[] = [];
+  private streamingBuffer: string = "";
+  private lastRenderTime: number = 0;
 
   constructor(messageBus?: MessageBus, onBack?: () => void) {
     this.messageBus = messageBus;
@@ -45,6 +51,8 @@ export class AgentScreen implements Screen {
     this.container = new Container();
     this.statusPanel = new Box();
     this.logPanel = new Box();
+    this.iterationPanel = new IterationPanel({ maxHeight: 8 });
+    this.toolCallPanel = new ToolCallIndicator({ maxDisplayCalls: 5, showArguments: false });
     
     this.setupLayout();
     this.setupMessageSubscriptions();
@@ -56,57 +64,97 @@ export class AgentScreen implements Screen {
   private setupMessageSubscriptions() {
     if (!this.messageBus) return;
 
-    // Subscribe to agent lifecycle events
-    const lifecycleSubscription = this.messageBus.subscribe(
-      {
-        categories: [MessageCategory.AGENT],
-        types: [
-          AgentMessageType.START,
-          AgentMessageType.END,
-          AgentMessageType.PAUSE,
-          AgentMessageType.RESUME,
-          AgentMessageType.CANCEL,
-        ],
-      },
-      (message) => this.handleAgentLifecycleMessage(message)
-    );
-    this.subscriptions.push(lifecycleSubscription);
+    // Subscribe to all agent messages for this instance (granular filtering)
+    if (this.currentAgentId) {
+      const agentSubscription = this.messageBus.subscribe(
+        {
+          categories: [MessageCategory.AGENT],
+          entityIds: [this.currentAgentId],
+        },
+        (message) => this.handleAgentMessage(message)
+      );
+      this.subscriptions.push(agentSubscription);
+    } else {
+      // Fallback: subscribe to all agent messages if no specific agent ID
+      const lifecycleSubscription = this.messageBus.subscribe(
+        {
+          categories: [MessageCategory.AGENT],
+          types: [
+            AgentMessageType.START,
+            AgentMessageType.END,
+            AgentMessageType.PAUSE,
+            AgentMessageType.RESUME,
+            AgentMessageType.CANCEL,
+          ],
+        },
+        (message) => this.handleAgentLifecycleMessage(message)
+      );
+      this.subscriptions.push(lifecycleSubscription);
 
-    // Subscribe to iteration events
-    const iterationSubscription = this.messageBus.subscribe(
-      {
-        categories: [MessageCategory.AGENT],
-        types: [
-          AgentMessageType.ITERATION_START,
-          AgentMessageType.ITERATION_END,
-        ],
-      },
-      (message) => this.handleIterationMessage(message)
-    );
-    this.subscriptions.push(iterationSubscription);
+      // Subscribe to iteration events
+      const iterationSubscription = this.messageBus.subscribe(
+        {
+          categories: [MessageCategory.AGENT],
+          types: [
+            AgentMessageType.ITERATION_START,
+            AgentMessageType.ITERATION_END,
+          ],
+        },
+        (message) => this.handleIterationMessage(message)
+      );
+      this.subscriptions.push(iterationSubscription);
 
-    // Subscribe to LLM streaming events
-    const llmSubscription = this.messageBus.subscribe(
-      {
-        categories: [MessageCategory.AGENT],
-        types: [AgentMessageType.LLM_STREAM],
-      },
-      (message) => this.handleLLMStreamMessage(message)
-    );
-    this.subscriptions.push(llmSubscription);
+      // Subscribe to LLM streaming events
+      const llmSubscription = this.messageBus.subscribe(
+        {
+          categories: [MessageCategory.AGENT],
+          types: [AgentMessageType.LLM_STREAM],
+        },
+        (message) => this.handleLLMStreamMessage(message)
+      );
+      this.subscriptions.push(llmSubscription);
 
-    // Subscribe to tool execution events
-    const toolSubscription = this.messageBus.subscribe(
-      {
-        categories: [MessageCategory.AGENT],
-        types: [
-          AgentMessageType.TOOL_CALL_START,
-          AgentMessageType.TOOL_CALL_END,
-        ],
-      },
-      (message) => this.handleToolMessage(message)
-    );
-    this.subscriptions.push(toolSubscription);
+      // Subscribe to tool execution events
+      const toolSubscription = this.messageBus.subscribe(
+        {
+          categories: [MessageCategory.AGENT],
+          types: [
+            AgentMessageType.TOOL_CALL_START,
+            AgentMessageType.TOOL_CALL_END,
+          ],
+        },
+        (message) => this.handleToolMessage(message)
+      );
+      this.subscriptions.push(toolSubscription);
+    }
+  }
+
+  /**
+   * Unified agent message handler (for entity-filtered subscriptions)
+   */
+  private handleAgentMessage(message: BaseComponentMessage) {
+    switch (message.type) {
+      case AgentMessageType.START:
+        this.handleAgentLifecycleMessage(message);
+        break;
+      case AgentMessageType.END:
+      case AgentMessageType.PAUSE:
+      case AgentMessageType.RESUME:
+      case AgentMessageType.CANCEL:
+        this.handleAgentLifecycleMessage(message);
+        break;
+      case AgentMessageType.ITERATION_START:
+      case AgentMessageType.ITERATION_END:
+        this.handleIterationMessage(message);
+        break;
+      case AgentMessageType.LLM_STREAM:
+        this.handleLLMStreamMessage(message);
+        break;
+      case AgentMessageType.TOOL_CALL_START:
+      case AgentMessageType.TOOL_CALL_END:
+        this.handleToolMessage(message);
+        break;
+    }
   }
 
   /**
@@ -157,8 +205,10 @@ export class AgentScreen implements Screen {
     const data = message.data as AgentIterationData;
     
     if (message.type === AgentMessageType.ITERATION_START) {
+      this.iterationPanel.updateIteration(data);
       this.appendLog(`Iteration ${data.iteration} started`, "system");
     } else if (message.type === AgentMessageType.ITERATION_END) {
+      this.iterationPanel.completeIteration(data.iteration, data.duration);
       this.appendLog(
         `Iteration ${data.iteration} completed${data.duration ? ` (${data.duration}ms)` : ""}`,
         "system"
@@ -167,12 +217,21 @@ export class AgentScreen implements Screen {
   }
 
   /**
-   * Handle LLM stream messages
+   * Handle LLM stream messages with optimized streaming performance
    */
   private handleLLMStreamMessage(message: BaseComponentMessage) {
     const data = message.data as AgentLLMStreamData;
     if (data.chunk) {
-      this.appendLog(data.chunk, "assistant");
+      // Buffer streaming chunks for performance
+      this.streamingBuffer += data.chunk;
+      
+      const now = Date.now();
+      // Render every 100ms or when buffer is large enough
+      if (now - this.lastRenderTime > 100 || this.streamingBuffer.length > 200) {
+        this.appendLog(this.streamingBuffer, "assistant", { stream: true });
+        this.streamingBuffer = "";
+        this.lastRenderTime = now;
+      }
     }
   }
 
@@ -182,9 +241,11 @@ export class AgentScreen implements Screen {
   private handleToolMessage(message: BaseComponentMessage) {
     if (message.type === AgentMessageType.TOOL_CALL_START) {
       const data = message.data as AgentToolCallData;
+      this.toolCallPanel.handleToolCallStart(data);
       this.appendLog(`Calling tool: ${data.toolName}`, "tool");
     } else if (message.type === AgentMessageType.TOOL_CALL_END) {
       const data = message.data as AgentToolEndData;
+      this.toolCallPanel.handleToolCallEnd(data);
       const success = data.success ? "✓" : "✗";
       this.appendLog(`${success} Tool ${data.toolName} completed (${data.duration}ms)`, "tool");
     }
@@ -200,6 +261,16 @@ export class AgentScreen implements Screen {
     statusBox.addChild(new Text("Agent Status:", 1, 0));
     statusBox.addChild(this.statusPanel);
     this.updateStatus("idle");
+
+    // Iteration panel (new)
+    const iterationBox = new Box();
+    iterationBox.addChild(new Text("Iterations:", 1, 0));
+    iterationBox.addChild(this.iterationPanel as any);
+
+    // Tool call panel (new)
+    const toolCallBox = new Box();
+    toolCallBox.addChild(new Text("Tool Calls:", 1, 0));
+    toolCallBox.addChild(this.toolCallPanel as any);
 
     // Log panel (scrollable area)
     const logBox = new Box();
@@ -219,6 +290,8 @@ export class AgentScreen implements Screen {
 
     this.container.addChild(toolbar);
     this.container.addChild(statusBox);
+    this.container.addChild(iterationBox);
+    this.container.addChild(toolCallBox);
     this.container.addChild(logBox);
     this.container.addChild(inputBox);
   }
@@ -239,39 +312,57 @@ export class AgentScreen implements Screen {
     this.statusPanel.addChild(new Text(`Messages: ${this.logEntries.length}`, 1, 0));
   }
 
-  private appendLog(message: string, type: LogEntry["type"] = "system") {
+  private appendLog(message: string, type: LogEntry["type"] = "system", options?: { stream?: boolean }) {
     const entry: LogEntry = {
       timestamp: new Date(),
       type,
       message,
     };
     
-    this.logEntries.push(entry);
-    
-    // Format log entry
-    const timeStr = entry.timestamp.toLocaleTimeString();
-    const typeIcon = {
-      user: "👤",
-      assistant: "🤖",
-      system: "ℹ️",
-      tool: "🔧",
-    }[type];
-    
-    const formatted = `[${timeStr}] ${typeIcon} ${message}`;
-    
-    // Clear and rebuild log panel (simplified - in production would use virtual scrolling)
-    this.logPanel.clear();
-    this.logEntries.slice(-50).forEach(entry => {
+    if (options?.stream) {
+      // For streaming, append without full re-render (performance optimization)
+      // In a real implementation, this would use virtual scrolling or append-only updates
+      this.logEntries.push(entry);
+      
+      // Only keep last 100 entries for performance
+      if (this.logEntries.length > 100) {
+        this.logEntries.shift();
+      }
+      
+      // Append to log panel without full rebuild
       const timeStr = entry.timestamp.toLocaleTimeString();
       const typeIcon = {
         user: "👤",
         assistant: "🤖",
         system: "ℹ️",
         tool: "🔧",
-      }[entry.type];
+      }[type];
       
-      this.logPanel.addChild(new Text(`[${timeStr}] ${typeIcon} ${entry.message}`, 1, 0));
-    });
+      const formatted = `[${timeStr}] ${typeIcon} ${message}`;
+      this.logPanel.addChild(new Text(formatted, 1, 0));
+    } else {
+      // For non-streaming, add as new entry and rebuild
+      this.logEntries.push(entry);
+      
+      // Keep only last 50 entries for performance
+      if (this.logEntries.length > 50) {
+        this.logEntries.shift();
+      }
+      
+      // Clear and rebuild log panel
+      this.logPanel.clear();
+      this.logEntries.forEach(entry => {
+        const timeStr = entry.timestamp.toLocaleTimeString();
+        const typeIcon = {
+          user: "👤",
+          assistant: "🤖",
+          system: "ℹ️",
+          tool: "🔧",
+        }[entry.type];
+        
+        this.logPanel.addChild(new Text(`[${timeStr}] ${typeIcon} ${entry.message}`, 1, 0));
+      });
+    }
   }
 
   public async startAgent(config: AgentLoopRuntimeConfig) {
@@ -280,9 +371,17 @@ export class AgentScreen implements Screen {
       return;
     }
 
+    // Generate agent ID if not present
+    this.currentAgentId = `agent-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+    
+    // Clear old subscriptions and setup new ones with entity filtering
+    this.subscriptions.forEach(sub => sub.unsubscribe());
+    this.subscriptions = [];
+    this.setupMessageSubscriptions();
+
     this.isRunning = true;
     this.updateStatus("running");
-    this.appendLog("Starting agent loop...", "system");
+    this.appendLog(`Starting agent loop (${this.currentAgentId})...`, "system");
 
     try {
       const result = await this.adapter.executeAgentLoopStream(

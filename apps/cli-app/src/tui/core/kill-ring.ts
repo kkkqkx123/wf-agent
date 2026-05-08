@@ -40,6 +40,16 @@ export class KillRing {
     }
   }
 
+  /** Convenience method for killing text (backward compatible with reference implementation). */
+  kill(text: string): void {
+    this.push(text, { prepend: false });
+  }
+
+  /** Convenience method for yanking text (returns most recent entry). */
+  yank(): string | undefined {
+    return this.peek();
+  }
+
   get length(): number {
     return this.ring.length;
   }

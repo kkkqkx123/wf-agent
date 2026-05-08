@@ -17,6 +17,11 @@ export class UndoStack<S> {
     return this.stack.pop();
   }
 
+  /** Alias for pop() - backward compatible with reference implementation. */
+  undo(): S | undefined {
+    return this.pop();
+  }
+
   /** Remove all snapshots. */
   clear(): void {
     this.stack.length = 0;

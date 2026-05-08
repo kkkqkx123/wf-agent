@@ -493,3 +493,33 @@ export function sliceWithWidth(text: string, startCol: number, maxWidth: number,
 
   return { text: result, width: extractedWidth };
 }
+
+/**
+ * Apply background color to a line, padding it to the specified width.
+ *
+ * @param line - The line content (may contain ANSI codes)
+ * @param width - Target width for padding
+ * @param bgFn - Function to apply background color
+ * @returns Line with background applied and padded to width
+ */
+export function applyBackgroundToLine(
+  line: string,
+  width: number,
+  bgFn: (text: string) => string
+): string {
+  // Calculate padding needed
+  const visibleLen = visibleWidth(line);
+  const paddingNeeded = Math.max(0, width - visibleLen);
+  const padding = " ".repeat(paddingNeeded);
+
+  // Apply background to content + padding
+  const withPadding = line + padding;
+  return bgFn(withPadding);
+}
+
+/**
+ * Check if a character is whitespace.
+ */
+export function isWhitespaceChar(char: string): boolean {
+  return /\s/.test(char);
+}

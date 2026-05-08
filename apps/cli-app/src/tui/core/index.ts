@@ -1,5 +1,23 @@
 // Core TUI interfaces and classes
 
+// Components
+export { Box } from "../components/box.js";
+export { Input } from "../components/input.js";
+export {
+  type LoaderIndicatorOptions,
+  Loader,
+} from "../components/loader.js";
+export {
+  defaultSelectListTheme,
+  type SelectItem,
+  SelectList,
+  type SelectListLayoutOptions,
+  type SelectListTheme,
+  type SelectListTruncatePrimaryContext,
+} from "../components/select-list.js";
+export { Spacer } from "../components/spacer.js";
+export { Text } from "../components/text.js";
+
 // Autocomplete support
 export {
   type AutocompleteItem,

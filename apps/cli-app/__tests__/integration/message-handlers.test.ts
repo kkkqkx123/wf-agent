@@ -4,13 +4,14 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { TUIHandler } from "../../src/services/messaging/handlers/tui-handler.js";
-import { FunctionalFileHandler } from "../../src/services/messaging/handlers/functional-file-handler.js";
-import { DisplayFileHandler } from "../../src/services/messaging/handlers/display-file-handler.js";
+import { TUIHandler } from "../../src/handlers/tui/tui-handler.js";
+import { FunctionalFileHandler } from "../../src/handlers/file/functional-file-handler.js";
+import { DisplayFileHandler } from "../../src/handlers/file/display-file-handler.js";
 import { OutputTarget, MessageCategory } from "@wf-agent/types";
 import type { BaseComponentMessage } from "@wf-agent/types";
 import type { TUI } from "../../src/tui/core/tui.js";
-import type { FileIOService } from "../../src/services/io/file-io-service.js";
+import type { HumanRelayService } from "../../src/services/io/human-relay-service.js";
+import type { DisplayOutputService } from "../../src/services/io/display-output-service.js";
 
 // Helper function to create test messages with proper entity structure
 function createTestMessage(overrides: Partial<BaseComponentMessage>): BaseComponentMessage {
@@ -121,14 +122,14 @@ describe("TUI Handler", () => {
 
 describe("Functional File Handler", () => {
   let handler: FunctionalFileHandler;
-  let mockFileIO: any;
+  let mockHumanRelayService: any;
 
   beforeEach(() => {
-    mockFileIO = {
-      writeHumanRelayOutput: vi.fn(),
+    mockHumanRelayService = {
+      writeOutput: vi.fn(),
       getSessionPaths: vi.fn(),
     };
-    handler = new FunctionalFileHandler(mockFileIO as unknown as FileIOService);
+    handler = new FunctionalFileHandler(mockHumanRelayService as unknown as HumanRelayService);
   });
 
   describe("target and name", () => {
@@ -174,7 +175,7 @@ describe("Functional File Handler", () => {
 
       await handler.handle(message);
 
-      expect(mockFileIO.writeHumanRelayOutput).toHaveBeenCalledWith({
+      expect(mockHumanRelayService.writeOutput).toHaveBeenCalledWith({
         sessionId: "session-123",
         content: "Please respond...",
       });
@@ -190,8 +191,8 @@ describe("Functional File Handler", () => {
 
       await handler.handle(message);
 
-      expect(mockFileIO.writeHumanRelayOutput).toHaveBeenCalled();
-      const callArgs = mockFileIO.writeHumanRelayOutput.mock.calls[0][0];
+      expect(mockHumanRelayService.writeOutput).toHaveBeenCalled();
+      const callArgs = mockHumanRelayService.writeOutput.mock.calls[0][0];
       expect(callArgs.sessionId).toMatch(/^session-\d+$/);
     });
   });
@@ -199,13 +200,13 @@ describe("Functional File Handler", () => {
 
 describe("Display File Handler", () => {
   let handler: DisplayFileHandler;
-  let mockFileIO: any;
+  let mockDisplayOutputService: any;
 
   beforeEach(() => {
-    mockFileIO = {
-      updateDisplayOutput: vi.fn(),
+    mockDisplayOutputService = {
+      updateOutput: vi.fn(),
     };
-    handler = new DisplayFileHandler(mockFileIO as unknown as FileIOService);
+    handler = new DisplayFileHandler(mockDisplayOutputService as unknown as DisplayOutputService);
   });
 
   afterEach(async () => {
@@ -297,7 +298,7 @@ describe("Display File Handler", () => {
       await handler.handle(message);
 
       // Should not flush immediately
-      expect(mockFileIO.updateDisplayOutput).not.toHaveBeenCalled();
+      expect(mockDisplayOutputService.updateOutput).not.toHaveBeenCalled();
     });
 
     it("should flush buffered messages after interval", async () => {
@@ -315,7 +316,7 @@ describe("Display File Handler", () => {
       // Advance timer by flush interval
       vi.advanceTimersByTime(2000);
 
-      expect(mockFileIO.updateDisplayOutput).toHaveBeenCalled();
+      expect(mockDisplayOutputService.updateOutput).toHaveBeenCalled();
 
       vi.useRealTimers();
     });
@@ -331,7 +332,7 @@ describe("Display File Handler", () => {
       await handler.handle(message);
       await handler.flush();
 
-      expect(mockFileIO.updateDisplayOutput).toHaveBeenCalledWith(
+      expect(mockDisplayOutputService.updateOutput).toHaveBeenCalledWith(
         expect.objectContaining({
           sessionId: "session-1",
           sections: expect.arrayContaining([
@@ -355,7 +356,7 @@ describe("Display File Handler", () => {
       await handler.handle(message);
       await handler.flush();
 
-      expect(mockFileIO.updateDisplayOutput).toHaveBeenCalled();
+      expect(mockDisplayOutputService.updateOutput).toHaveBeenCalled();
     });
 
     it("should clear buffer after flush", async () => {
@@ -369,12 +370,12 @@ describe("Display File Handler", () => {
       await handler.flush();
 
       // Reset mock to check for additional calls
-      mockFileIO.updateDisplayOutput.mockClear();
+      mockDisplayOutputService.updateOutput.mockClear();
 
       // Flush again - should not write again since buffer is cleared
       await handler.flush();
 
-      expect(mockFileIO.updateDisplayOutput).not.toHaveBeenCalled();
+      expect(mockDisplayOutputService.updateOutput).not.toHaveBeenCalled();
     });
   });
 
@@ -389,7 +390,7 @@ describe("Display File Handler", () => {
       await handler.handle(message);
       await handler.close();
 
-      expect(mockFileIO.updateDisplayOutput).toHaveBeenCalled();
+      expect(mockDisplayOutputService.updateOutput).toHaveBeenCalled();
     });
   });
 });

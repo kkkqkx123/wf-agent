@@ -7,7 +7,7 @@
 
 import type { OutputHandler, BaseComponentMessage } from "@wf-agent/types";
 import { OutputTarget } from "@wf-agent/types";
-import type { DisplayOutputService, DisplaySection } from "../io/index.js";
+import type { DisplayOutputService, DisplaySection } from "../../services/io/index.js";
 
 /**
  * Display File Handler

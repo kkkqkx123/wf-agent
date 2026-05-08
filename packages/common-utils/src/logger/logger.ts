@@ -110,10 +110,9 @@ class LogRateLimiter {
     if (now - this.lastResetTime >= 1000) {
       // Reset counter every second
       if (this.droppedCount > 0) {
-        // Log how many were dropped (once per second)
-        // eslint-disable-next-line no-console
-        console.warn(
-          `[Logger] Rate limit exceeded, dropped ${this.droppedCount} logs in last second`,
+        // Log how many were dropped (once per second) using stderr directly to avoid recursion
+        process.stderr.write(
+          `[Logger] Rate limit exceeded, dropped ${this.droppedCount} logs in last second\n`,
         );
         this.droppedCount = 0;
       }

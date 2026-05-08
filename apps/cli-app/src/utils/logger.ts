@@ -17,6 +17,7 @@ import {
   setAllLoggersLevel,
   createRotatingFileStream,
   setupExitHandlers,
+  getLogLevelFromEnv,
 } from "@wf-agent/common-utils";
 import type { LogLevel } from "@wf-agent/common-utils";
 import { getOutput } from "./output.js";
@@ -76,22 +77,6 @@ const ENV_VARS = {
 // ============================================
 // Helper Functions
 // ============================================
-
-/**
- * Get log level from environment variable with fallback chain
- * Priority: primaryKey > globalKey > defaultLevel
- */
-function getLogLevelFromEnv(
-  primaryKey: string,
-  globalKey: string = ENV_VARS.GLOBAL_LOG_LEVEL,
-  defaultLevel: LogLevel = "info",
-): LogLevel {
-  const value = process.env[primaryKey] as LogLevel | undefined;
-  if (value) return value;
-  const globalValue = process.env[globalKey] as LogLevel | undefined;
-  if (globalValue) return globalValue;
-  return defaultLevel;
-}
 
 /**
  * Get numeric value from environment variable

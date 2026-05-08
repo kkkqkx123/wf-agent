@@ -16,7 +16,7 @@
  * - SDK_*_AGENT: SDK Agent submodule settings
  */
 
-import { createPackageLogger, registerLogger } from "@wf-agent/common-utils";
+import { createPackageLogger, registerLogger, getLogLevelFromEnv } from "@wf-agent/common-utils";
 import type { Logger, LogStream, LogLevel } from "@wf-agent/common-utils";
 
 // Global logger instances - initialized lazily on first access
@@ -45,6 +45,9 @@ let pendingAgentConfig: {
   stream?: LogStream;
 } | null = null;
 
+// Track if configuration has been applied
+let isSDKConfigured = false;
+
 // ============================================
 // Environment Variable Names (Layered Architecture)
 // ============================================
@@ -62,22 +65,6 @@ const ENV_VARS = {
 // ============================================
 // Helper Functions
 // ============================================
-
-/**
- * Get log level from environment variable with fallback chain
- * Priority: primaryKey > globalKey > defaultLevel
- */
-function getLogLevelFromEnv(
-  primaryKey: string,
-  globalKey: string = ENV_VARS.GLOBAL_LOG_LEVEL,
-  defaultLevel: LogLevel = "info",
-): LogLevel {
-  const value = process.env[primaryKey] as LogLevel | undefined;
-  if (value) return value;
-  const globalValue = process.env[globalKey] as LogLevel | undefined;
-  if (globalValue) return globalValue;
-  return defaultLevel;
-}
 
 /**
  * Get log level for graph module from environment variables
@@ -245,6 +232,13 @@ export function initializeSDKLogger(config?: { level?: LogLevel; stream?: LogStr
  */
 function getSDKLoggerInstance(): Logger {
   if (!sdkLoggerInstance) {
+    // Warn if logger is accessed before configuration
+    if (!isSDKConfigured && process.env['NODE_ENV'] !== 'test') {
+      process.stderr.write(
+        '[SDK Logger] Warning: SDK logger accessed before configureSDKLogger() was called. '
+        + 'Using environment variables or defaults. Call configureSDKLogger() before SDK initialization.\n'
+      );
+    }
     sdkLoggerInstance = initializeSDKLogger();
   }
   return sdkLoggerInstance;
@@ -289,6 +283,8 @@ export function configureSDKLogger(config: {
   agentLevel?: LogLevel;
   stream?: LogStream;
 }): void {
+  isSDKConfigured = true;
+  
   pendingSDKConfig = {
     level: config.sdkLevel ?? config.level,
     stream: config.stream,

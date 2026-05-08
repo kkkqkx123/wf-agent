@@ -233,4 +233,34 @@ export abstract class BaseFileStream implements LogStream {
       });
     }
   }
+
+  /**
+   * Get stream health metrics
+   * @returns Object containing stream statistics
+   */
+  getMetrics(): {
+    filePath: string;
+    hasError: boolean;
+    droppedLogsCount: number;
+    bufferSize: number;
+    maxBufferSize: number;
+    bufferUtilization: number;
+  } {
+    return {
+      filePath: this.filePath,
+      hasError: this.hasError,
+      droppedLogsCount: this.droppedLogsCount,
+      bufferSize: this.bufferSize,
+      maxBufferSize: this.maxBufferSize,
+      bufferUtilization: this.maxBufferSize > 0 ? this.bufferSize / this.maxBufferSize : 0,
+    };
+  }
+
+  /**
+   * Reset error state (for recovery scenarios)
+   */
+  resetErrorState(): void {
+    this.hasError = false;
+    this.droppedLogsCount = 0;
+  }
 }

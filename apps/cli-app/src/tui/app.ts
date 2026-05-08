@@ -11,7 +11,7 @@ import { AgentScreen } from "./screens/agent-screen.js";
 import { MessageBus } from "@wf-agent/sdk";
 import { HumanRelayService, DisplayOutputService } from "../services/io/index.js";
 import { TUIHumanRelayHandler } from "./handlers/tui-human-relay-handler.js";
-import { TUIHandler, FunctionalFileHandler, DisplayFileHandler } from "../services/messaging/handlers/index.js";
+import { TUIHandler, FunctionalFileHandler, DisplayFileHandler } from "../services/messaging/index.js";
 import { CLI_ROUTING_RULES } from "../config/routing-rules.js";
 
 export class CLIAppTUI {

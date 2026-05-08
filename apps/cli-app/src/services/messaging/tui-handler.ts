@@ -7,7 +7,7 @@
 
 import type { OutputHandler, BaseComponentMessage } from "@wf-agent/types";
 import { OutputTarget } from "@wf-agent/types";
-import type { TUI } from "../../../tui/core/tui.js";
+import type { TUI } from "../../tui/core/tui.js";
 
 /**
  * TUI Handler

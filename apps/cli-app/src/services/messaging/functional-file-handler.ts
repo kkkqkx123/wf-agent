@@ -7,7 +7,7 @@
 
 import type { OutputHandler, BaseComponentMessage } from "@wf-agent/types";
 import { OutputTarget } from "@wf-agent/types";
-import type { HumanRelayService } from "../../io/index.js";
+import type { HumanRelayService } from "../io/index.js";
 
 /**
  * Functional File Handler

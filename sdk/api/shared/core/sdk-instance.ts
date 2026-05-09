@@ -203,9 +203,6 @@ export class SDKInstance {
     // Configure SDK logger with the determined settings
     configureSDKLogger({
       level: effectiveLogLevel,
-      sdkLevel: effectiveLogLevel,
-      graphLevel: effectiveLogLevel,
-      agentLevel: effectiveLogLevel,
       stream: finalStream,
     });
   }

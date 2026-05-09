@@ -113,7 +113,9 @@ program
     // 7. Initialize the SDK with storage adapters and lifecycle hooks
     sdkInstance = createSDK({
       debug: options.debug,
-      logLevel: options.debug ? "debug" : options.verbose ? "info" : "warn",
+      logging: {
+        level: options.debug ? "debug" : options.verbose ? "info" : "warn",
+      },
       presets: config.presets,
       checkpointStorageAdapter: storageManager?.getCheckpointStorage() ?? undefined,
       workflowStorageAdapter: storageManager?.getWorkflowStorage() ?? undefined,

@@ -36,10 +36,6 @@ export interface LoggerOptions {
   enableLogTerminal?: boolean;
   enableSDKLogs?: boolean;
   sdkLogLevel?: string;
-  /** Specific log level for graph module */
-  graphLogLevel?: string;
-  /** Specific log level for agent module */
-  agentLogLevel?: string;
   /** Maximum log file size in bytes (default: 100MB) */
   maxLogSize?: number;
   /** Maximum number of log files to keep (default: 10) */
@@ -145,7 +141,6 @@ export function initLogger(options: LoggerOptions = {}): void {
 
 /**
  * Initialize SDK Logger
- * Supports separate log levels for graph and agent modules
  * Should be called before SDK initialization
  */
 export function initSDKLogger(options: LoggerOptions = {}): void {
@@ -165,15 +160,6 @@ export function initSDKLogger(options: LoggerOptions = {}): void {
     baseLevel = getLogLevelFromEnv(ENV_VARS.SDK_LOG_LEVEL, ENV_VARS.GLOBAL_LOG_LEVEL, "off");
   }
 
-  // Determine module-specific log levels
-  const graphLevel = options.graphLogLevel
-    ? (options.graphLogLevel as LogLevel)
-    : getLogLevelFromEnv(ENV_VARS.SDK_LOG_LEVEL_GRAPH, ENV_VARS.GLOBAL_LOG_LEVEL, baseLevel);
-
-  const agentLevel = options.agentLogLevel
-    ? (options.agentLogLevel as LogLevel)
-    : getLogLevelFromEnv(ENV_VARS.SDK_LOG_LEVEL_AGENT, ENV_VARS.GLOBAL_LOG_LEVEL, baseLevel);
-
   // Get log rotation configuration
   const maxLogSize = options.maxLogSize ?? getNumericEnv(ENV_VARS.GLOBAL_LOG_MAX_SIZE, 104857600);
 
@@ -188,11 +174,9 @@ export function initSDKLogger(options: LoggerOptions = {}): void {
     timestamp: true,
   });
 
-  // Configure the SDK logger with separate levels for graph and agent
+  // Configure the SDK logger with the determined level
   configureSDKLogger({
     level: baseLevel,
-    graphLevel,
-    agentLevel,
     stream: fileStream,
   });
 

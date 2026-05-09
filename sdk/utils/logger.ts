@@ -251,25 +251,23 @@ export function createAgentModuleLogger(moduleName: string): Logger {
  */
 export function configureSDKLogger(config: {
   level?: LogLevel;
-  sdkLevel?: LogLevel;
-  graphLevel?: LogLevel;
-  agentLevel?: LogLevel;
   stream?: LogStream;
 }): void {
   isSDKConfigured = true;
 
+  // Apply the same level to all SDK loggers (sdk, graph, agent)
   applyLoggerConfig(loggerStates.sdk, {
-    level: config.sdkLevel ?? config.level,
+    level: config.level,
     stream: config.stream,
   });
 
   applyLoggerConfig(loggerStates.graph, {
-    level: config.graphLevel ?? config.level,
+    level: config.level,
     stream: config.stream,
   });
 
   applyLoggerConfig(loggerStates.agent, {
-    level: config.agentLevel ?? config.level,
+    level: config.level,
     stream: config.stream,
   });
 }

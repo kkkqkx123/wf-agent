@@ -41,6 +41,7 @@ export {
   configureLazyLogger,
   isLazyLoggerInitialized,
   getLazyLoggerInstance,
+  checkLoggerInitialization,
   type LoggerFactory,
 } from "./lazy-logger.js";
 
@@ -73,6 +74,15 @@ export {
   flushAllLoggers,
   setupExitHandlers,
 } from "./logger-registry.js";
+
+// Logger Cleanup Utilities (for testing)
+export {
+  clearLazyLoggerCache,
+  clearLoggerRegistry,
+  resetGlobalLogger,
+  resetLoggerSystem,
+  getLoggerSystemStats,
+} from "./logger-cleanup.js";
 
 // Stream Implementation
 export {

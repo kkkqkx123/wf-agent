@@ -26,9 +26,12 @@ import {
   type BaseSqliteStorageConfig,
 } from "@wf-agent/storage";
 import type { CLIConfig } from "../config/index.js";
-import { createPackageLogger, registerLogger } from "@wf-agent/common-utils";
+import { createPackageLogger, registerLogger, createLazyLogger } from "@wf-agent/common-utils";
 
-const logger = createPackageLogger("cli-app").child("storage-manager");
+// Use lazy logger to allow configuration before initialization
+const logger = createLazyLogger("cli-app:storage-manager", () =>
+  createPackageLogger("cli-app").child("storage-manager")
+);
 registerLogger("cli-app.storage-manager", logger);
 
 /**

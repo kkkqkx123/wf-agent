@@ -13,14 +13,16 @@ export type LoggerFactory = () => Logger;
 
 /**
  * Lazy logger instance cache
+ * @internal - Exported for cleanup utilities, not for public use
  */
-const lazyLoggerCache: Map<string, Logger> = new Map();
+export const lazyLoggerCache: Map<string, Logger> = new Map();
 
 /**
  * Pending configuration for lazy loggers
  * Stores config to be applied when logger is first accessed
+ * @internal - Exported for cleanup utilities, not for public use
  */
-const lazyLoggerPendingConfig: Map<string, { level?: LogLevel; stream?: LogStream }> = new Map();
+export const lazyLoggerPendingConfig: Map<string, { level?: LogLevel; stream?: LogStream }> = new Map();
 
 /**
  * Create a lazy logger using Proxy
@@ -72,7 +74,12 @@ export function configureLazyLogger(
 ): void {
   const instance = lazyLoggerCache.get(name);
   if (instance) {
-    // Logger already created, apply config directly
+    // Logger already created - this might indicate initialization order issue
+    // Use console.warn instead of logger to avoid circular dependency
+    console.warn(
+      `[LazyLogger] Warning: Logger "${name}" was already initialized before configuration. ` +
+        `Applying config to existing instance. This may indicate an initialization order issue.`,
+    );
     if (config.level) instance.setLevel(config.level);
     if (config.stream && instance.setStream) {
       instance.setStream(config.stream);
@@ -99,4 +106,25 @@ export function isLazyLoggerInitialized(name: string): boolean {
  */
 export function getLazyLoggerInstance(name: string): Logger | undefined {
   return lazyLoggerCache.get(name);
+}
+
+/**
+ * Check for potential logger initialization issues
+ * Returns a list of warnings about loggers that were initialized without prior configuration
+ * @returns Array of warning messages
+ */
+export function checkLoggerInitialization(): string[] {
+  const warnings: string[] = [];
+
+  // Check if any lazy loggers were initialized before configuration
+  const configuredLoggers = Array.from(lazyLoggerPendingConfig.keys());
+  const initializedLoggers = Array.from(lazyLoggerCache.keys());
+
+  for (const name of initializedLoggers) {
+    if (!configuredLoggers.includes(name)) {
+      warnings.push(`Logger "${name}" was initialized without prior configuration`);
+    }
+  }
+
+  return warnings;
 }

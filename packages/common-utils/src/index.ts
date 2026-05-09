@@ -52,12 +52,19 @@ export {
   configureLazyLogger,
   isLazyLoggerInitialized,
   getLazyLoggerInstance,
+  checkLoggerInitialization,
   // Environment variable utility
   getLogLevelFromEnv,
   // Process exit handlers
   flushAllLoggers,
   flushAllLoggersSync,
   setupExitHandlers,
+  // Logger cleanup utilities (for testing)
+  clearLazyLoggerCache,
+  clearLoggerRegistry,
+  resetGlobalLogger,
+  resetLoggerSystem,
+  getLoggerSystemStats,
 } from "./logger/index.js";
 
 export {

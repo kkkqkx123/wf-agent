@@ -18,6 +18,7 @@ import {
   createRotatingFileStream,
   setupExitHandlers,
   getLogLevelFromEnv,
+  configureLazyLogger,
 } from "@wf-agent/common-utils";
 import type { LogLevel } from "@wf-agent/common-utils";
 import { getOutput } from "./output.js";
@@ -174,18 +175,39 @@ export function initSDKLogger(options: LoggerOptions = {}): void {
     timestamp: true,
   });
 
+  // Configure lazy loggers BEFORE they are initialized
+  // This ensures they use the correct configuration when first accessed
+  configureLazyLogger("storage", { level: baseLevel, stream: fileStream });
+  configureLazyLogger("tool-executors", { level: baseLevel, stream: fileStream });
+
   // Configure the SDK logger with the determined level
   configureSDKLogger({
     level: baseLevel,
     stream: fileStream,
   });
 
-  // Also set all other registered loggers to the base level
+  // Set all other registered loggers to the base level
+  // Note: This only affects already-registered loggers (e.g., cli-app)
+  // Lazy loggers that haven't been initialized yet will use their pending config
   setAllLoggersLevel(baseLevel);
 }
 
 /**
  * Initialize all Loggers (CLI + SDK)
+ *
+ * IMPORTANT: Call this function BEFORE importing or using any SDK modules
+ * to ensure proper logger configuration.
+ *
+ * Correct order:
+ * 1. initAllLoggers() or initLogger() + initSDKLogger()
+ * 2. Import SDK modules
+ * 3. Use SDK functionality
+ *
+ * Wrong order (may cause configuration issues):
+ * 1. Import SDK modules (triggers lazy logger access)
+ * 2. initAllLoggers() (configuration applied too late)
+ *
+ * @param options Logger configuration options
  */
 export function initAllLoggers(options: LoggerOptions = {}): void {
   initLogger(options);

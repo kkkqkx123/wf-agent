@@ -437,6 +437,17 @@ export class SDKInstance {
     // Mark as bootstrapped
     this.isBootstrapped = true;
 
+    // Initialize workflow registry from storage if adapter is provided
+    if (this.config?.workflowStorageAdapter) {
+      try {
+        await this.globalContext.workflowRegistry.initializeFromStorage();
+        logger.info("Workflow registry initialized from storage");
+      } catch (error) {
+        logger.error(`Failed to initialize workflow registry from storage: ${getErrorMessage(error)}`);
+        // Don't fail bootstrap - allow SDK to work with empty registry
+      }
+    }
+
     // Call complete hook if provided
     await this.config?.hooks?.onBootstrapComplete?.();
   }

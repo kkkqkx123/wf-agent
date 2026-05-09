@@ -135,7 +135,7 @@ logger.error("Error in callback", { error });
 class SDK {
   constructor(options?: SDKOptions) {
     this.pendingOptions = options;
-    this.factory = APIFactory.getInstance();
+    this.factory = new APIFactory(globalContext);
     this.dependencies = new APIDependencyManager();
     
     // Async bootstrap starts immediately

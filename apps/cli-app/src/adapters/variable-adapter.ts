@@ -5,6 +5,7 @@
 
 import { BaseAdapter } from "./base-adapter.js";
 import { CLINotFoundError } from "../types/cli-types.js";
+import { getData, isFailure, getError } from "@wf-agent/sdk";
 
 /**
  * Variable Adapter
@@ -17,8 +18,12 @@ export class VariableAdapter extends BaseAdapter {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.variables;
       const result = await api.get(`${executionId}:${variableName}`);
-      const variable = (result as any).data || result;
-      return variable;
+      
+      if (isFailure(result)) {
+        throw getError(result);
+      }
+      
+      return getData(result);
     }, "Get variable");
   }
 
@@ -28,12 +33,12 @@ export class VariableAdapter extends BaseAdapter {
   async setVariable(executionId: string, variableName: string, value: any): Promise<void> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.variables;
-      const registry = api.getRegistry();
-      const executionContext = registry.get(executionId);
-      if (!executionContext) {
-        throw new CLINotFoundError(`WorkflowExecution not found: ${executionId}`, "WorkflowExecution", executionId);
+      const result = await api.setVariable(executionId, variableName, value);
+      
+      if (isFailure(result)) {
+        throw getError(result);
       }
-      await executionContext.setVariable(variableName, value);
+      
       this.output.infoLog(`Variable set: ${variableName}`);
     }, "Set variable");
   }
@@ -45,8 +50,12 @@ export class VariableAdapter extends BaseAdapter {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.variables;
       const result = await api.getAll({ executionId });
-      const variables = (result as any).data || result;
-      return variables as Record<string, any>;
+      
+      if (isFailure(result)) {
+        throw getError(result);
+      }
+      
+      return getData(result) as Record<string, any>;
     }, "List variables");
   }
 
@@ -56,12 +65,12 @@ export class VariableAdapter extends BaseAdapter {
   async deleteVariable(executionId: string, variableName: string): Promise<void> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.variables;
-      const registry = api.getRegistry();
-      const executionContext = registry.get(executionId);
-      if (!executionContext) {
-        throw new CLINotFoundError(`WorkflowExecution not found: ${executionId}`, "WorkflowExecution", executionId);
+      const result = await api.deleteVariable(executionId, variableName);
+      
+      if (isFailure(result)) {
+        throw getError(result);
       }
-      await executionContext.deleteVariable(variableName);
+      
       this.output.infoLog(`Variable deleted: ${variableName}`);
     }, "Delete variable");
   }

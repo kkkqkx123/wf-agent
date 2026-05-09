@@ -6,13 +6,6 @@
 import type { ID, Metadata } from "../common.js";
 
 /**
- * Script type - DEPRECATED
- * @deprecated Script types are no longer used. All scripts are treated as shell commands.
- * This type is kept for backward compatibility only and will be removed in a future version.
- */
-export type ScriptType = "SHELL";
-
-/**
  * Script execution options
  */
 export interface ScriptExecutionOptions {

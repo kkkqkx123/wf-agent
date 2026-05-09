@@ -5,6 +5,8 @@
 
 import { BaseAdapter } from "./base-adapter.js";
 import type { LLMMessage } from "@wf-agent/types";
+import { getData, isFailure, getError } from "@wf-agent/sdk";
+import { CLINotFoundError } from "../types/cli-types.js";
 
 /**
  * Message Filter
@@ -33,8 +35,12 @@ export class MessageAdapter extends BaseAdapter {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.messages;
       const result = await api.getAll(filter);
-      const messages = (result as any).data || result;
-      return messages as LLMMessage[];
+      
+      if (isFailure(result)) {
+        throw getError(result);
+      }
+      
+      return getData(result) as LLMMessage[];
     }, "List Messages");
   }
 
@@ -45,7 +51,16 @@ export class MessageAdapter extends BaseAdapter {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.messages;
       const result = await api.get(id);
-      const message = (result as any).data || result;
+      
+      if (isFailure(result)) {
+        throw getError(result);
+      }
+      
+      const message = getData(result);
+      if (!message) {
+        throw new CLINotFoundError(`Message not found: ${id}`, "Message", id);
+      }
+      
       return message as LLMMessage;
     }, "Get Message");
   }
@@ -57,13 +72,19 @@ export class MessageAdapter extends BaseAdapter {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.messages;
       const result = await api.getAll({ executionId });
-      const messages = (result as any).data || result;
-      return messages as LLMMessage[];
+      
+      if (isFailure(result)) {
+        throw getError(result);
+      }
+      
+      return getData(result) as LLMMessage[];
     }, "List Execution Messages");
   }
 
   /**
    * Get message statistics
+   * Note: This method currently only supports global statistics.
+   * For agent loop specific stats, use the Agent Loop API directly.
    */
   async getMessageStats(agentLoopId?: string): Promise<{
     total: number;
@@ -76,31 +97,28 @@ export class MessageAdapter extends BaseAdapter {
   }> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.messages;
-      if (agentLoopId) {
-        const result = await (api as any).getMessageStats(agentLoopId);
-        return {
-          total: result.total,
-          byRole: result.byRole,
-          totalTokenUsage: result.totalTokenUsage,
-        };
-      } else {
-        const result = await api.getGlobalMessageStats();
-        return {
-          total: result.total,
-          byRole: result.byRole,
-        };
-      }
+      
+      // Currently only global stats are supported in Workflow MessageResourceAPI
+      const result = await api.getGlobalMessageStats();
+      return {
+        total: result.total,
+        byRole: result.byRole,
+      };
     }, "Get message statistics");
   }
 
   /**
    * Normalize message history
+   * Note: This feature is specific to Agent Loops and not available for Workflow executions.
+   * To normalize agent loop messages, use the Agent Loop API directly.
+   * @deprecated This method will be removed in a future version
    */
   async normalizeMessages(agentLoopId: string): Promise<void> {
-    return this.executeWithErrorHandling(async () => {
-      const api = this.sdk.messages;
-      await (api as any).normalizeHistory(agentLoopId);
-      this.output.infoLog(`Message history normalized for Agent Loop: ${agentLoopId}`);
-    }, "Normalize Messages");
+    // This functionality is not available in Workflow MessageResourceAPI
+    // It's only available in AgentLoopMessageResourceAPI
+    throw new Error(
+      "normalizeMessages is not supported for workflow executions. " +
+      "This feature is only available for Agent Loops."
+    );
   }
 }

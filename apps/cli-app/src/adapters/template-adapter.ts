@@ -6,7 +6,7 @@
 import { BaseAdapter } from "./base-adapter.js";
 import { resolve, join, extname } from "path";
 import { CLINotFoundError } from "../types/cli-types.js";
-import { loadConfigContent, parseNodeTemplate, parseTriggerTemplate } from "@wf-agent/sdk";
+import { loadConfigContent, parseNodeTemplate, parseTriggerTemplate, getData, isFailure, getError } from "@wf-agent/sdk";
 
 /**
  * Template Adapter
@@ -193,10 +193,15 @@ export class TemplateAdapter extends BaseAdapter {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.nodeTemplates;
       const result = await api.getAll();
-      const templates = (result as any).data || result;
+      
+      if (isFailure(result)) {
+        throw getError(result);
+      }
+      
+      const templates = getData(result) as any[];
 
       // Transform templates into summary format.
-      const summaries = (templates as any[]).map((tmpl: any) => ({
+      const summaries = templates.map((tmpl: any) => ({
         id: tmpl.id,
         name: tmpl.name,
         type: tmpl.type,
@@ -217,10 +222,15 @@ export class TemplateAdapter extends BaseAdapter {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.triggerTemplates;
       const result = await api.getAll();
-      const templates = (result as any).data || result;
+      
+      if (isFailure(result)) {
+        throw getError(result);
+      }
+      
+      const templates = getData(result) as any[];
 
       // Transform the text into summary format.
-      const summaries = (templates as any[]).map((tmpl: any) => ({
+      const summaries = templates.map((tmpl: any) => ({
         id: tmpl.id,
         name: tmpl.name,
         type: tmpl.type,
@@ -240,7 +250,12 @@ export class TemplateAdapter extends BaseAdapter {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.nodeTemplates;
       const result = await api.get(id);
-      const template = (result as any).data || result;
+      
+      if (isFailure(result)) {
+        throw getError(result);
+      }
+      
+      const template = getData(result);
 
       if (!template) {
         throw new CLINotFoundError(`Node template not found: ${id}`, "NodeTemplate", id);
@@ -257,7 +272,12 @@ export class TemplateAdapter extends BaseAdapter {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.triggerTemplates;
       const result = await api.get(id);
-      const template = (result as any).data || result;
+      
+      if (isFailure(result)) {
+        throw getError(result);
+      }
+      
+      const template = getData(result);
 
       if (!template) {
         throw new CLINotFoundError(`Trigger template not found: ${id}`, "TriggerTemplate", id);

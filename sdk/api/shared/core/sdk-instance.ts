@@ -31,6 +31,9 @@ import { WorkflowBuilder } from "../../workflow/builders/workflow-builder.js";
 import { NodeBuilder } from "../../workflow/builders/node-builder.js";
 import { NodeTemplateBuilder } from "../../workflow/builders/node-template-builder.js";
 import { TriggerTemplateBuilder } from "../../workflow/builders/trigger-template-builder.js";
+import type { BaseCommand } from "../types/command.js";
+import type { ExecutionResult } from "../types/execution-result.js";
+import { failure } from "../types/execution-result.js";
 
 /**
  * SDK Instance Class
@@ -660,6 +663,48 @@ export class SDKInstance {
   get messages() {
     this.ensureReady();
     return this.apiFactory.createMessageAPI();
+  }
+
+  /**
+   * Execute a command
+   * 
+   * This method provides a unified interface for executing commands in the SDK.
+   * Commands are validated before execution and errors are properly handled.
+   * 
+   * @param command Command to execute (must extend BaseCommand)
+   * @returns Execution result with proper error handling
+   * 
+   * @example
+   * ```typescript
+   * const sdk = createSDK(options);
+   * await sdk.waitForReady();
+   * 
+   * // Execute a workflow
+   * const cmd = new ExecuteWorkflowCommand('my-workflow', sdk.getFactory().getDependencies());
+   * const result = await sdk.executeCommand(cmd);
+   * 
+   * // Pause a workflow execution
+   * const pauseCmd = new PauseWorkflowCommand('exec-id', sdk.getFactory().getDependencies());
+   * await sdk.executeCommand(pauseCmd);
+   * ```
+   */
+  async executeCommand<T>(command: BaseCommand<T>): Promise<ExecutionResult<T>> {
+    this.ensureReady();
+    
+    // Validate command before execution
+    const validation = command.validate();
+    if (!validation.valid) {
+      logger.warn('Command validation failed', { errors: validation.errors });
+      return failure(new Error(`Command validation failed: ${validation.errors.join(', ')}`) as any, 0);
+    }
+    
+    // Execute command with dependencies from API factory
+    try {
+      return await command.execute();
+    } catch (error) {
+      logger.error('Command execution failed', { error });
+      throw error;
+    }
   }
 
   /**

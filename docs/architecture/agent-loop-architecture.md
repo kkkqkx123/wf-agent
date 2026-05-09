@@ -227,7 +227,7 @@ export async function agentLoopHandler(
     profileId: config.profileId,
     systemPrompt: config.systemPrompt,
     maxIterations: config.maxIterations,
-    tools: config.tools,
+    availableTools: config.availableTools,
     initialMessages: buildMessagesFromThread(thread)
   });
 

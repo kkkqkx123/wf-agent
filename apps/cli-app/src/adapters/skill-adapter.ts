@@ -11,6 +11,7 @@
 import { BaseAdapter } from "./base-adapter.js";
 import type { SkillMetadata, SkillMatchResult, SkillResourceType } from "@wf-agent/types";
 import { CLINotFoundError } from "../types/cli-types.js";
+import { getData, isFailure, getError } from "@wf-agent/sdk";
 
 /**
  * Skill Adapter
@@ -24,11 +25,13 @@ export class SkillAdapter extends BaseAdapter {
    */
   async initialize(skillsDir: string): Promise<void> {
     return this.executeWithErrorHandling(async () => {
-      // Get SkillRegistry and reconfigure paths
-      const skillRegistry = this.sdk.skills["dependencies"].getSkillRegistry();
-
-      // Rescan the specified directory
-      await skillRegistry.scanSkills(skillsDir);
+      // Use the public scanSkills API method
+      const api = this.sdk.skills;
+      const result = await api.scanSkills(skillsDir);
+      
+      if (isFailure(result)) {
+        throw getError(result);
+      }
 
       const skills = await this.listSkills();
       this.output.infoLog(`Initialized ${skills.length} Skill(s)`);
@@ -48,7 +51,12 @@ export class SkillAdapter extends BaseAdapter {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.skills;
       const result = await api.getAll(filter);
-      return (result as any).data || result;
+      
+      if (isFailure(result)) {
+        throw getError(result);
+      }
+      
+      return getData(result) as SkillMetadata[];
     }, "List Skills");
   }
 
@@ -61,7 +69,12 @@ export class SkillAdapter extends BaseAdapter {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.skills;
       const result = await api.get(name);
-      return (result as any).data || result;
+      
+      if (isFailure(result)) {
+        throw getError(result);
+      }
+      
+      return getData(result) as SkillMetadata | null;
     }, "Get Skill");
   }
 
@@ -75,12 +88,12 @@ export class SkillAdapter extends BaseAdapter {
       const api = this.sdk.skills;
       const result = await api.loadContent(name);
 
-      if ((result as any).error) {
+      if (isFailure(result)) {
         throw new CLINotFoundError(`Skill not found: ${name}`, "Skill", name);
       }
 
       this.output.infoLog(`Skill content loaded: ${name}`);
-      return (result as any).data || result;
+      return getData(result) as string;
     }, "Load Skill Content");
   }
 
@@ -98,7 +111,7 @@ export class SkillAdapter extends BaseAdapter {
       const api = this.sdk.skills;
       const result = await api.loadResources(name, resourceType);
 
-      if ((result as any).error) {
+      if (isFailure(result)) {
         throw new CLINotFoundError(
           `Skill resource not found: ${name}, ${resourceType}`,
           "SkillResource",
@@ -107,7 +120,7 @@ export class SkillAdapter extends BaseAdapter {
       }
 
       this.output.infoLog(`Skill resources loaded: ${name}, ${resourceType}`);
-      return (result as any).data || result;
+      return getData(result) as Map<string, string | Buffer>;
     }, "Load Skill Resources");
   }
 
@@ -121,11 +134,11 @@ export class SkillAdapter extends BaseAdapter {
       const api = this.sdk.skills;
       const result = await api.toPrompt(name);
 
-      if ((result as any).error) {
+      if (isFailure(result)) {
         throw new CLINotFoundError(`Skill not found: ${name}`, "Skill", name);
       }
 
-      return (result as any).data || result;
+      return getData(result) as string;
     }, "Convert Skill to prompt");
   }
 
@@ -149,7 +162,12 @@ export class SkillAdapter extends BaseAdapter {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.skills;
       const result = await api.matchSkills(query);
-      return (result as any).data || result;
+      
+      if (isFailure(result)) {
+        throw getError(result);
+      }
+      
+      return getData(result) as SkillMatchResult[];
     }, "Match Skills");
   }
 
@@ -163,7 +181,12 @@ export class SkillAdapter extends BaseAdapter {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.skills;
       const result = await api.listResources(name, resourceType);
-      return (result as any).data || result;
+      
+      if (isFailure(result)) {
+        throw getError(result);
+      }
+      
+      return getData(result) as string[];
     }, "List Skill Resources");
   }
 

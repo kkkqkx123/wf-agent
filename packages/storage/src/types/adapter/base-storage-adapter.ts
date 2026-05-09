@@ -1,8 +1,6 @@
 /**
  * General Storage Adapter Interface Definition
  * Provides an abstract base class for storage operations to reduce duplicate code.
- * 
- * @deprecated Use BaseStorageAdapter instead. This alias will be removed in a future version.
  */
 
 import type { StorageMetrics } from "../metrics.js";

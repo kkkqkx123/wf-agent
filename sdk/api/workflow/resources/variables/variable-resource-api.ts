@@ -10,6 +10,8 @@ import type { WorkflowExecution } from "@wf-agent/types";
 import { NotFoundError, WorkflowExecutionNotFoundError } from "@wf-agent/types";
 import type { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
 import * as Identifiers from "../../../../core/di/service-identifiers.js";
+import type { ExecutionResult } from "../../../shared/types/execution-result.js";
+import { success, failure } from "../../../shared/types/execution-result.js";
 
 /**
  * Variable Filter
@@ -255,6 +257,64 @@ export class VariableResourceAPI extends ReadonlyResourceAPI<unknown, string, Va
         source: "current",
       },
     ];
+  }
+
+  /**
+   * Set variable value for an execution
+   * This is a convenience method that encapsulates direct registry access
+   * 
+   * @param executionId Execution ID
+   * @param variableName Variable name
+   * @param value Variable value
+   * @returns Execution result
+   */
+  async setVariable(
+    executionId: string,
+    variableName: string,
+    value: unknown
+  ): Promise<ExecutionResult<void>> {
+    try {
+      const executionContext = this.registry.get(executionId);
+      if (!executionContext) {
+        return failure(
+          new WorkflowExecutionNotFoundError(`Workflow execution not found: ${executionId}`, executionId),
+          0
+        );
+      }
+      
+      await executionContext.setVariable(variableName, value);
+      return success(undefined, 0);
+    } catch (error) {
+      return failure(error as any, 0);
+    }
+  }
+
+  /**
+   * Delete variable for an execution
+   * This is a convenience method that encapsulates direct registry access
+   * 
+   * @param executionId Execution ID
+   * @param variableName Variable name
+   * @returns Execution result
+   */
+  async deleteVariable(
+    executionId: string,
+    variableName: string
+  ): Promise<ExecutionResult<void>> {
+    try {
+      const executionContext = this.registry.get(executionId);
+      if (!executionContext) {
+        return failure(
+          new WorkflowExecutionNotFoundError(`Workflow execution not found: ${executionId}`, executionId),
+          0
+        );
+      }
+      
+      await executionContext.deleteVariable(variableName);
+      return success(undefined, 0);
+    } catch (error) {
+      return failure(error as any, 0);
+    }
   }
 
   // ============================================================================

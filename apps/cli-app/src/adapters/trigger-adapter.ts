@@ -5,6 +5,8 @@
 
 import { BaseAdapter } from "./base-adapter.js";
 import type { Trigger, TriggerTemplateFilter } from "@wf-agent/types";
+import { getData, isFailure, getError } from "@wf-agent/sdk";
+import { CLINotFoundError } from "../types/cli-types.js";
 
 /**
  * Trigger Adapter
@@ -17,8 +19,12 @@ export class TriggerAdapter extends BaseAdapter {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.triggers;
       const result = await api.getAll(filter);
-      const triggers = (result as any).data || result;
-      return triggers as Trigger[];
+      
+      if (isFailure(result)) {
+        throw getError(result);
+      }
+      
+      return getData(result) as Trigger[];
     }, "List triggers");
   }
 
@@ -29,7 +35,16 @@ export class TriggerAdapter extends BaseAdapter {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.triggers;
       const result = await api.get(id);
-      const trigger = (result as any).data || result;
+      
+      if (isFailure(result)) {
+        throw getError(result);
+      }
+      
+      const trigger = getData(result);
+      if (!trigger) {
+        throw new CLINotFoundError(`Trigger not found: ${id}`, "Trigger", id);
+      }
+      
       return trigger as Trigger;
     }, "Get trigger");
   }

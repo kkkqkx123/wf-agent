@@ -5,6 +5,13 @@
 
 import { BaseAdapter } from "./base-adapter.js";
 import { CLINotFoundError } from "../types/cli-types.js";
+import { getData, isFailure, getError } from "@wf-agent/sdk";
+import {
+  ExecuteWorkflowCommand,
+  PauseWorkflowCommand,
+  ResumeWorkflowCommand,
+  CancelWorkflowCommand,
+} from "@wf-agent/sdk";
 
 /**
  * Workflow Execution Adapter
@@ -15,11 +22,18 @@ export class WorkflowExecutionAdapter extends BaseAdapter {
    */
   async executeWorkflow(workflowId: string, input?: Record<string, unknown>): Promise<any> {
     return this.executeWithErrorHandling(async () => {
-      // Using the SDK's Execution Methods
-      const result = await (this.sdk as any).execute(workflowId, input || {});
+      // Create and execute the command using SDK's command execution interface
+      const dependencies = this.sdk.getFactory().getDependencies();
+      const command = new ExecuteWorkflowCommand({ workflowId, options: { input } }, dependencies);
+      const result = await this.sdk.executeCommand(command);
 
+      if (isFailure(result)) {
+        throw getError(result);
+      }
+
+      const executionResult = getData(result);
       this.output.infoLog(`Workflow execution started successfully`);
-      return result;
+      return executionResult;
     }, "Execute workflow");
   }
 
@@ -28,8 +42,15 @@ export class WorkflowExecutionAdapter extends BaseAdapter {
    */
   async pauseWorkflowExecution(executionId: string): Promise<void> {
     return this.executeWithErrorHandling(async () => {
-      // Using the SDK's pause method
-      await (this.sdk as any).pause(executionId);
+      // Create and execute pause command
+      const dependencies = this.sdk.getFactory().getDependencies();
+      const command = new PauseWorkflowCommand(executionId, dependencies);
+      const result = await this.sdk.executeCommand(command);
+      
+      if (isFailure(result)) {
+        throw getError(result);
+      }
+      
       this.output.infoLog(`Workflow execution paused: ${executionId}`);
     }, "Pause workflow execution");
   }
@@ -39,8 +60,15 @@ export class WorkflowExecutionAdapter extends BaseAdapter {
    */
   async resumeWorkflowExecution(executionId: string): Promise<void> {
     return this.executeWithErrorHandling(async () => {
-      // Resume methods using the SDK
-      await (this.sdk as any).resume(executionId);
+      // Create and execute resume command
+      const dependencies = this.sdk.getFactory().getDependencies();
+      const command = new ResumeWorkflowCommand(executionId, dependencies);
+      const result = await this.sdk.executeCommand(command);
+      
+      if (isFailure(result)) {
+        throw getError(result);
+      }
+      
       this.output.infoLog(`Workflow execution resumed: ${executionId}`);
     }, "Resume workflow execution");
   }
@@ -50,8 +78,15 @@ export class WorkflowExecutionAdapter extends BaseAdapter {
    */
   async stopWorkflowExecution(executionId: string): Promise<void> {
     return this.executeWithErrorHandling(async () => {
-      // Stop methods using the SDK
-      await (this.sdk as any).cancel(executionId);
+      // Create and execute cancel command
+      const dependencies = this.sdk.getFactory().getDependencies();
+      const command = new CancelWorkflowCommand(executionId, dependencies);
+      const result = await this.sdk.executeCommand(command);
+      
+      if (isFailure(result)) {
+        throw getError(result);
+      }
+      
       this.output.infoLog(`Workflow execution stopped: ${executionId}`);
     }, "Stop workflow execution");
   }
@@ -63,10 +98,15 @@ export class WorkflowExecutionAdapter extends BaseAdapter {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.executions;
       const result = await api.getAll();
-      const executions = (result as any).data || result;
+      
+      if (isFailure(result)) {
+        throw getError(result);
+      }
+      
+      const executions = getData(result) as any[];
 
       // Conversion to summary format
-      const summaries = (executions as any[]).map((execution: any) => ({
+      const summaries = executions.map((execution: any) => ({
         id: execution.id,
         workflowId: execution.workflowId,
         status: execution.status,
@@ -85,7 +125,12 @@ export class WorkflowExecutionAdapter extends BaseAdapter {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.executions;
       const result = await api.get(executionId);
-      const execution = (result as any).data || result;
+      
+      if (isFailure(result)) {
+        throw getError(result);
+      }
+      
+      const execution = getData(result);
 
       if (!execution) {
         throw new CLINotFoundError(`Workflow execution not found: ${executionId}`, "WorkflowExecution", executionId);

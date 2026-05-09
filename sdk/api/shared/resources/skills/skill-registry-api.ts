@@ -329,6 +329,23 @@ export class SkillRegistryAPI extends ReadonlyResourceAPI<SkillMetadata, string,
     return this.getSkillRegistry().getSkill(name) || null;
   }
 
+  /**
+   * Scan and load skills from directory
+   * This is a convenience method that encapsulates direct registry access
+   * 
+   * @param skillsDir Directory path to scan
+   * @returns Execution result
+   */
+  async scanSkills(skillsDir: string): Promise<ExecutionResult<void>> {
+    try {
+      const registry = this.getSkillRegistry();
+      await registry.scanSkills(skillsDir);
+      return success(undefined, 0);
+    } catch (error) {
+      return failure(error as any, 0);
+    }
+  }
+
   // ============================================================================
   // Private method
   // ============================================================================

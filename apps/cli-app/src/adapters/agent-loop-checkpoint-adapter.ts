@@ -11,7 +11,7 @@ import {
   type CreateCheckpointOptions,
   type AgentLoopEntity,
 } from "@wf-agent/sdk/agent";
-import { AgentLoopCheckpointResourceAPI } from "@wf-agent/sdk";
+import { AgentLoopCheckpointResourceAPI, getData, isFailure, getError } from "@wf-agent/sdk";
 import type { AgentLoopCheckpoint } from "@wf-agent/types";
 import { CLINotFoundError } from "../types/cli-types.js";
 
@@ -87,7 +87,14 @@ export class AgentLoopCheckpointAdapter extends BaseAdapter {
    */
   async getCheckpoint(checkpointId: string): Promise<any> {
     return this.executeWithErrorHandling(async () => {
-      const checkpoint = await this.checkpointAPI.get(checkpointId);
+      const result = await this.checkpointAPI.get(checkpointId);
+      
+      if (isFailure(result)) {
+        throw getError(result);
+      }
+      
+      const checkpoint = getData(result);
+      
       if (!checkpoint) {
         throw new CLINotFoundError(
           `Checkpoint not found: ${checkpointId}`,
@@ -118,6 +125,7 @@ export class AgentLoopCheckpointAdapter extends BaseAdapter {
   async getLatestCheckpoint(agentLoopId: string): Promise<any> {
     return this.executeWithErrorHandling(async () => {
       const checkpoint = await this.checkpointAPI.getLatestCheckpoint(agentLoopId);
+      
       if (!checkpoint) {
         throw new CLINotFoundError(
           `No checkpoint found for Agent Loop: ${agentLoopId}`,
@@ -171,6 +179,11 @@ export class AgentLoopCheckpointAdapter extends BaseAdapter {
     return this.executeWithErrorHandling(async () => {
       // Use the checkpointAPI's internal storage
       const result = await this.checkpointAPI.create(checkpoint);
+      
+      if (isFailure(result)) {
+        throw getError(result);
+      }
+      
       return checkpoint.id;
     }, "Save checkpoint to storage");
   }
@@ -182,7 +195,12 @@ export class AgentLoopCheckpointAdapter extends BaseAdapter {
   async getCheckpointFromStorage(checkpointId: string): Promise<any> {
     return this.executeWithErrorHandling(async () => {
       const result = await this.checkpointAPI.get(checkpointId);
-      return result || null;
+      
+      if (isFailure(result)) {
+        throw getError(result);
+      }
+      
+      return getData(result) || null;
     }, "Get checkpoint from storage");
   }
 
@@ -193,9 +211,14 @@ export class AgentLoopCheckpointAdapter extends BaseAdapter {
   async listCheckpointIdsFromStorage(agentLoopId: string): Promise<string[]> {
     return this.executeWithErrorHandling(async () => {
       // Get all checkpoints and filter by agentLoopId
-      const allCheckpoints = await this.checkpointAPI.getAll();
-      const checkpoints = (allCheckpoints as any).data || allCheckpoints;
-      return checkpoints
+      const result = await this.checkpointAPI.getAll();
+      
+      if (isFailure(result)) {
+        throw getError(result);
+      }
+      
+      const allCheckpoints = getData(result) as any[];
+      return allCheckpoints
         .filter((cp: any) => cp.agentLoopId === agentLoopId)
         .map((cp: any) => cp.id);
     }, "List checkpoint IDs from storage");

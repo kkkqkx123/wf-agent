@@ -62,8 +62,8 @@ export interface AllAPIs {
  *
  * Usage example:
  * ```typescript
- * // Get factory instance
- * const factory = APIFactory.getInstance();
+ * // Create factory instance with global context
+ * const factory = new APIFactory(globalContext);
  *
  * // Create a single API
  * const workflowAPI = factory.createWorkflowAPI();
@@ -83,20 +83,6 @@ export class APIFactory {
    */
   constructor(globalContext: import("../../../core/global-context.js").GlobalContext) {
     this.dependencies = new APIDependencyManager(globalContext);
-  }
-
-  /**
-   * Obtain a singleton instance of the factory (Legacy - Deprecated)
-   * @deprecated Use `new APIFactory(globalContext)` instead for proper isolation
-   */
-  public static getInstance(): APIFactory {
-    if (!APIFactory.instance) {
-      throw new Error(
-        "APIFactory.getInstance() is deprecated. Use `new APIFactory(globalContext)` instead. " +
-        "This ensures each SDK instance has its own isolated API factory."
-      );
-    }
-    return APIFactory.instance;
   }
 
   /**
@@ -259,12 +245,16 @@ export class APIFactory {
       skills: this.createSkillAPI(),
     };
   }
+
+  /**
+   * Get the dependency manager for command execution
+   * This method provides access to dependencies needed by commands
+   * 
+   * @returns APIDependencyManager instance
+   */
+  getDependencies(): APIDependencyManager {
+    return this.dependencies;
+  }
 }
 
-/**
- * Get an instance of the factory singleton.
- * Delay initialization to avoid initializing the DI container when the module is loaded.
- */
-export function getAPIFactory(): APIFactory {
-  return APIFactory.getInstance();
-}
+

@@ -5,6 +5,8 @@
 
 import { BaseAdapter } from "./base-adapter.js";
 import type { HumanRelayConfig, HumanRelayFilter } from "@wf-agent/sdk";
+import { getData, isFailure, getError } from "@wf-agent/sdk";
+import { CLINotFoundError } from "../types/cli-types.js";
 
 /**
  * Human Relay Adapter
@@ -17,8 +19,12 @@ export class HumanRelayAdapter extends BaseAdapter {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.humanRelay;
       const result = await api.getAll(filter);
-      const configs = (result as any).data || result;
-      return configs as HumanRelayConfig[];
+      
+      if (isFailure(result)) {
+        throw getError(result);
+      }
+      
+      return getData(result) as HumanRelayConfig[];
     }, "List Human Relay Configurations");
   }
 
@@ -29,7 +35,16 @@ export class HumanRelayAdapter extends BaseAdapter {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.humanRelay;
       const result = await api.get(id);
-      const config = (result as any).data || result;
+      
+      if (isFailure(result)) {
+        throw getError(result);
+      }
+      
+      const config = getData(result);
+      if (!config) {
+        throw new CLINotFoundError(`Human Relay configuration not found: ${id}`, "HumanRelay", id);
+      }
+      
       return config as HumanRelayConfig;
     }, "Get Human Relay Configuration");
   }
@@ -52,9 +67,23 @@ export class HumanRelayAdapter extends BaseAdapter {
   async updateConfig(id: string, updates: Partial<HumanRelayConfig>): Promise<HumanRelayConfig> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.humanRelay;
-      await api.update(id, updates);
-      const result = await api.get(id);
-      const config = (result as any).data || result;
+      const updateResult = await api.update(id, updates);
+      
+      if (isFailure(updateResult)) {
+        throw getError(updateResult);
+      }
+      
+      const getResult = await api.get(id);
+      
+      if (isFailure(getResult)) {
+        throw getError(getResult);
+      }
+      
+      const config = getData(getResult);
+      if (!config) {
+        throw new CLINotFoundError(`Human Relay configuration not found: ${id}`, "HumanRelay", id);
+      }
+      
       this.output.infoLog(`Human Relay configuration updated: ${id}`);
       return config as HumanRelayConfig;
     }, "Update Human Relay Configuration");

@@ -80,12 +80,6 @@ export interface AgentLoopDefinition {
    */
   availableTools?: AvailableTools;
 
-  /**
-   * List of allowed tools (array of tool IDs)
-   * @deprecated Use availableTools.initial instead. This field is kept for backward compatibility.
-   */
-  tools?: string[];
-
   /** Streaming output or not */
   stream?: boolean;
 

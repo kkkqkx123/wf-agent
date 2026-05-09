@@ -398,7 +398,7 @@ T0: initSDKLogger() executes
 
 T1: getSDK() executes
     ├─> globalSDK = new SDK(options)
-    │   ├─> this.factory = APIFactory.getInstance()
+    │   ├─> this.factory = new APIFactory(globalContext)
     │   ├─> this.dependencies = new APIDependencyManager()
     │   └─> this.bootstrapPromise = this.bootstrap(options)
     │       └─> Async operation queued in event loop

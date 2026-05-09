@@ -6,7 +6,8 @@
 import { BaseAdapter } from "./base-adapter.js";
 import type { BaseEvent } from "@wf-agent/types";
 import type { EventFilter } from "@wf-agent/sdk";
-import { CLINotFoundError, CLIAPIError } from "../types/cli-types.js";
+import { CLINotFoundError } from "../types/cli-types.js";
+import { getData, isFailure, getError } from "@wf-agent/sdk";
 
 /**
  * Event Adapter
@@ -19,8 +20,12 @@ export class EventAdapter extends BaseAdapter {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.events;
       const result = await api.getAll(filter);
-      const events = (result as any).data || result;
-      return events as BaseEvent[];
+      
+      if (isFailure(result)) {
+        throw getError(result);
+      }
+      
+      return getData(result) as BaseEvent[];
     }, "List events");
   }
 
@@ -31,7 +36,16 @@ export class EventAdapter extends BaseAdapter {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.events;
       const result = await api.get(id);
-      const event = (result as any).data || result;
+      
+      if (isFailure(result)) {
+        throw getError(result);
+      }
+      
+      const event = getData(result);
+      if (!event) {
+        throw new CLINotFoundError(`Event not found: ${id}`, "Event", id);
+      }
+      
       return event as BaseEvent;
     }, "Get the event");
   }
@@ -58,16 +72,14 @@ export class EventAdapter extends BaseAdapter {
   async dispatchEvent(event: BaseEvent): Promise<void> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.events as any;
-      if (typeof api.dispatch === "function") {
-        await api.dispatch(event);
-        this.output.infoLog(`Event dispatched: ${event.type}`);
-      } else {
-        throw new CLIAPIError(
-          "The current version of the SDK does not support event dispatch.",
-          501,
-          "events/dispatch",
-        );
+      
+      // Check if dispatch method exists
+      if (typeof api.dispatch !== "function") {
+        throw new Error("Event dispatch is not supported in the current SDK version");
       }
+      
+      await api.dispatch(event);
+      this.output.infoLog(`Event dispatched: ${event.type}`);
     }, "Dispatch event");
   }
 
@@ -77,17 +89,14 @@ export class EventAdapter extends BaseAdapter {
   async trimEventHistory(maxSize: number): Promise<number> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.events as any;
-      if (typeof api.trimEventHistory === "function") {
-        const removed = await api.trimEventHistory(maxSize);
-        this.output.infoLog(`Trimmed ${removed} event(s) from history`);
-        return removed;
-      } else {
-        throw new CLIAPIError(
-          "The current version of the SDK does not support trimming event history.",
-          501,
-          "events/trimEventHistory",
-        );
+      
+      if (typeof api.trimEventHistory !== "function") {
+        throw new Error("Trimming event history is not supported in the current SDK version");
       }
+      
+      const removed = await api.trimEventHistory(maxSize);
+      this.output.infoLog(`Trimmed ${removed} event(s) from history`);
+      return removed;
     }, "Trim event history");
   }
 }

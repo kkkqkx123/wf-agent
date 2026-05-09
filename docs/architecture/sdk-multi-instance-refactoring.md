@@ -55,7 +55,7 @@ export class GlobalContext {
 constructor(options: SDKOptions, globalContext?: GlobalContext) {
   // 使用共享的全局 GlobalContext
   this.globalContext = globalContext || getGlobalContext();
-  this.apiFactory = APIFactory.getInstance(); // 单例
+  this.apiFactory = new APIFactory(this.globalContext);
 }
 ```
 

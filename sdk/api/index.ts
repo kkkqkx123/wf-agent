@@ -74,7 +74,7 @@ export type { GlobalContext } from "../core/global-context.js";
 export type { SDKOptions, SDKLifecycleHooks } from "./shared/types/core-types.js";
 
 // API Factory
-export { APIFactory, getAPIFactory, type AllAPIs } from "./shared/core/api-factory.js";
+export { APIFactory, type AllAPIs } from "./shared/core/api-factory.js";
 
 // ============================================================================
 // Shared - Resource Management API (CRUD Operations) - Shared Resources

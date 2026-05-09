@@ -8,7 +8,6 @@ import { CheckpointState } from "../../../../workflow/checkpoint/checkpoint-stat
 import type { Checkpoint, CheckpointMetadata } from "@wf-agent/types";
 import { CheckpointCoordinator } from "../../../../workflow/checkpoint/checkpoint-coordinator.js";
 import type { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
-import * as Identifiers from "../../../../core/di/service-identifiers.js";
 import { getErrorMessage, isSuccess, getData } from "../../../shared/types/execution-result.js";
 import type { EventRegistry } from "../../../../core/registry/event-registry.js";
 import type { Timestamp } from "@wf-agent/types";

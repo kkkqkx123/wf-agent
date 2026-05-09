@@ -6,7 +6,8 @@
 import { BaseAdapter } from "./base-adapter.js";
 import { resolve, join, extname } from "path";
 import type { LLMProfile } from "@wf-agent/types";
-import { loadConfigContent, parseLLMProfile } from "@wf-agent/sdk";
+import { loadConfigContent, parseLLMProfile, getData, isFailure, getError } from "@wf-agent/sdk";
+import { CLINotFoundError } from "../types/cli-types.js";
 
 /**
  * LLM Profile Adapter
@@ -106,8 +107,12 @@ export class LLMProfileAdapter extends BaseAdapter {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.profiles;
       const result = await api.getAll(filter);
-      const profiles = (result as any).data || result;
-      return profiles as LLMProfile[];
+      
+      if (isFailure(result)) {
+        throw getError(result);
+      }
+      
+      return getData(result) as LLMProfile[];
     }, "List LLM Profiles");
   }
 
@@ -118,7 +123,16 @@ export class LLMProfileAdapter extends BaseAdapter {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.profiles;
       const result = await api.get(id);
-      const profile = (result as any).data || result;
+      
+      if (isFailure(result)) {
+        throw getError(result);
+      }
+      
+      const profile = getData(result);
+      if (!profile) {
+        throw new CLINotFoundError(`LLM Profile not found: ${id}`, "LLMProfile", id);
+      }
+      
       return profile as LLMProfile;
     }, "Get LLM Profile");
   }
@@ -140,9 +154,23 @@ export class LLMProfileAdapter extends BaseAdapter {
   async updateProfile(id: string, updates: Partial<LLMProfile>): Promise<LLMProfile> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.profiles;
-      await api.update(id, updates);
-      const result = await api.get(id);
-      const profile = (result as any).data || result;
+      const updateResult = await api.update(id, updates);
+      
+      if (isFailure(updateResult)) {
+        throw getError(updateResult);
+      }
+      
+      const getResult = await api.get(id);
+      
+      if (isFailure(getResult)) {
+        throw getError(getResult);
+      }
+      
+      const profile = getData(getResult);
+      if (!profile) {
+        throw new CLINotFoundError(`LLM Profile not found: ${id}`, "LLMProfile", id);
+      }
+      
       this.output.infoLog(`LLM Profile updated: ${id}`);
       return profile as LLMProfile;
     }, "Update LLM Profile");

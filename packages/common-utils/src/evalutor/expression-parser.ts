@@ -28,57 +28,6 @@ import {
 } from "./ast-types.js";
 
 /**
- * Parsing expression strings (backward compatible)
- * @param expression expression string
- * @returns parsing result { variablePath, operator, value }
- * @deprecated Use parseAST instead.
- */
-export function parseExpression(
-  expression: string,
-): { variablePath: string; operator: string; value: unknown } | null {
-  // Validating Expression Security
-  validateExpression(expression);
-
-  const trimmed = expression.trim();
-
-  // Handling pure boolean expressions (true or false)
-  if (trimmed === "true" || trimmed === "false") {
-    return {
-      variablePath: "",
-      operator: "==",
-      value: trimmed === "true",
-    };
-  }
-
-  // Trying to match various operators
-  const operators = [
-    { pattern: /(.+?)\s*===\s*(.+)/, op: "==" },
-    { pattern: /(.+?)\s*!==\s*(.+)/, op: "!=" },
-    { pattern: /(.+?)\s*==\s*(.+)/, op: "==" },
-    { pattern: /(.+?)\s*!=\s*(.+)/, op: "!=" },
-    { pattern: /(.+?)\s*>=\s*(.+)/, op: ">=" },
-    { pattern: /(.+?)\s*<=\s*(.+)/, op: "<=" },
-    { pattern: /(.+?)\s*>\s*(.+)/, op: ">" },
-    { pattern: /(.+?)\s*<\s*(.+)/, op: "<" },
-    { pattern: /(.+?)\s+contains\s+(.+)/i, op: "contains" },
-    { pattern: /(.+?)\s+in\s+(.+)/i, op: "in" },
-  ];
-
-  for (const { pattern, op } of operators) {
-    const match = trimmed.match(pattern);
-    if (match && match[1] && match[2]) {
-      const variablePath = match[1].trim();
-      const valueStr = match[2].trim();
-
-      const value = parseValue(valueStr);
-      return { variablePath, operator: op, value };
-    }
-  }
-
-  return null;
-}
-
-/**
  * Parsing value strings
  * @param valueStr Value string
  * @returns Parsed value
@@ -245,13 +194,13 @@ export function parseAST(expression: string): ASTNode {
   }
 
   // Parsing comparison expressions (priority over arithmetic operations)
-  const parsed = parseExpression(trimmed);
-  if (parsed && parsed.variablePath) {
+  const comparisonResult = parseComparisonExpression(trimmed);
+  if (comparisonResult) {
     return {
       type: "comparison",
-      variablePath: parsed.variablePath,
-      operator: parsed.operator as string,
-      value: parsed.value,
+      variablePath: comparisonResult.variablePath,
+      operator: comparisonResult.operator,
+      value: comparisonResult.value,
     } as ComparisonNode;
   }
 
@@ -356,4 +305,54 @@ function findColonInTernary(expression: string): number {
     }
   }
   return -1;
+}
+
+/**
+ * Parse comparison expression
+ * @param expression expression string
+ * @returns parsing result { variablePath, operator, value } or null if not a comparison
+ */
+function parseComparisonExpression(
+  expression: string,
+): { variablePath: string; operator: string; value: unknown } | null {
+  // Validating Expression Security
+  validateExpression(expression);
+
+  const trimmed = expression.trim();
+
+  // Handling pure boolean expressions (true or false)
+  if (trimmed === "true" || trimmed === "false") {
+    return {
+      variablePath: "",
+      operator: "==",
+      value: trimmed === "true",
+    };
+  }
+
+  // Trying to match various operators
+  const operators = [
+    { pattern: /(.+?)\s*===\s*(.+)/, op: "==" },
+    { pattern: /(.+?)\s*!==\s*(.+)/, op: "!=" },
+    { pattern: /(.+?)\s*==\s*(.+)/, op: "==" },
+    { pattern: /(.+?)\s*!=\s*(.+)/, op: "!=" },
+    { pattern: /(.+?)\s*>=\s*(.+)/, op: ">=" },
+    { pattern: /(.+?)\s*<=\s*(.+)/, op: "<=" },
+    { pattern: /(.+?)\s*>\s*(.+)/, op: ">" },
+    { pattern: /(.+?)\s*<\s*(.+)/, op: "<" },
+    { pattern: /(.+?)\s+contains\s+(.+)/i, op: "contains" },
+    { pattern: /(.+?)\s+in\s+(.+)/i, op: "in" },
+  ];
+
+  for (const { pattern, op } of operators) {
+    const match = trimmed.match(pattern);
+    if (match && match[1] && match[2]) {
+      const variablePath = match[1].trim();
+      const valueStr = match[2].trim();
+
+      const value = parseValue(valueStr);
+      return { variablePath, operator: op, value };
+    }
+  }
+
+  return null;
 }

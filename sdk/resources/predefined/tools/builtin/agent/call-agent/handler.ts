@@ -6,7 +6,6 @@ import type { BuiltinToolExecutionContext } from "@wf-agent/types";
 import type { AgentLoopRuntimeConfig } from "@wf-agent/types";
 import * as Identifiers from "../../../../../../core/di/service-identifiers.js";
 import { RuntimeValidationError, ConfigurationError } from "@wf-agent/types";
-import type { AgentLoopCoordinator } from "../../../../../../agent/execution/coordinators/agent-loop-coordinator.js";
 import type { ToolRegistry } from "../../../../../../core/registry/tool-registry.js";
 import { resolveSystemPrompt } from "../../../../../../core/prompt/system-prompt-resolver.js";
 import { transformToAgentLoopConfig } from "../../../../../../api/shared/config/processors/agent-loop.js";
@@ -50,7 +49,8 @@ export function createCallAgentHandler() {
     const startTime = Date.now();
     
     // Get GlobalContext from execution context
-    const globalContext = (context as any).globalContext;
+    // The context object may have a globalContext property or be the GlobalContext itself
+    const globalContext = (context as unknown as { globalContext?: import("../../../../../../core/global-context.js").GlobalContext }).globalContext;
     if (!globalContext) {
       throw new RuntimeValidationError("GlobalContext not available in execution context", {
         operation: "call_agent",
@@ -65,7 +65,7 @@ export function createCallAgentHandler() {
       });
     }
 
-    const agentLoopCoordinator = (coordinatorFactory as any).create();
+    const agentLoopCoordinator = (coordinatorFactory as unknown as import("../../../../../../core/di/factory-types.js").ServiceFactory<import("../../../../../../agent/execution/coordinators/agent-loop-coordinator.js").AgentLoopCoordinator, []>).create();
 
     try {
       // Load agent profile configuration

@@ -407,9 +407,13 @@ export function configureContainerBindings(
   container
     .bind(Identifiers.WorkflowExecutor)
     .toDynamicValue((c: IContainer): WorkflowExecutor => {
+      // The WorkflowExecutionCoordinator identifier is bound to a factory object with a create method
+      const coordinatorFactory = c.get(Identifiers.WorkflowExecutionCoordinator) as unknown as {
+        create(executionEntity: import("../../workflow/entities/workflow-execution-entity.js").WorkflowExecutionEntity): import("../../workflow/execution/coordinators/workflow-execution-coordinator.js").WorkflowExecutionCoordinator;
+      };
       return new WorkflowExecutor({
         workflowGraphRegistry: c.get(Identifiers.WorkflowGraphRegistry) as WorkflowGraphRegistry,
-        workflowExecutionCoordinatorFactory: c.get(Identifiers.WorkflowExecutionCoordinator) as any,
+        workflowExecutionCoordinatorFactory: coordinatorFactory,
       });
     })
     .inSingletonScope();

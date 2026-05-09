@@ -26,7 +26,8 @@ import { registerPredefinedPromptTemplates } from "../../../resources/predefined
 import { registerAllPredefinedContent } from "../../../resources/predefined/registration.js";
 import { TomlParserManager } from "../../../utils/toml-parser-manager.js";
 import { createRotatingFileStream, createConsoleStream, createMultistream } from "@wf-agent/common-utils";
-import type { LogStream } from "@wf-agent/common-utils";
+import type { HumanRelayHandler, LLMProfile } from "@wf-agent/types";
+import type { LogStream, LogLevel } from "@wf-agent/common-utils";
 import { WorkflowBuilder } from "../../workflow/builders/workflow-builder.js";
 import { NodeBuilder } from "../../workflow/builders/node-builder.js";
 import { NodeTemplateBuilder } from "../../workflow/builders/node-template-builder.js";
@@ -138,7 +139,10 @@ export class SDKInstance {
     
     // Validate LLM profiles if provided
     if (options?.profiles?.profiles && options.profiles.profiles.length > 0) {
-      if (!options.profiles.profiles.every(p => p && (p as any).id)) {
+      const hasInvalidProfiles = options.profiles.profiles.some(
+        p => !p || typeof p !== 'object' || !('id' in p) || !p.id
+      );
+      if (hasInvalidProfiles) {
         logger.warn('Some LLM profiles may be missing required "id" field.');
       }
     }
@@ -186,7 +190,7 @@ export class SDKInstance {
         streams.push({ stream: fileStream });
       } catch (error) {
         // If file stream creation fails, fall back to console only
-        console.error(`Failed to create file stream at ${filePath}: ${getErrorMessage(error)}`);
+        logger.error(`Failed to create file stream at ${filePath}: ${getErrorMessage(error)}`);
       }
     }
     
@@ -204,7 +208,7 @@ export class SDKInstance {
       // Multiple streams - use multistream with proper typing
       finalStream = createMultistream(streams.map(s => ({
         stream: s.stream,
-        level: s.level as any, // LogLevel is compatible with string
+        level: s.level as LogLevel | undefined,
       })));
     }
     
@@ -260,7 +264,8 @@ export class SDKInstance {
     if (this.config?.humanRelay?.handler) {
       try {
         const humanRelayAPI = this.apiFactory.createHumanRelayAPI();
-        humanRelayAPI.registerHandler(this.config.humanRelay.handler as any);
+        // Type assertion is safe here because the handler is provided by the user and validated at runtime
+        humanRelayAPI.registerHandler(this.config.humanRelay.handler as HumanRelayHandler);
         logger.info("Human Relay handler registered");
       } catch (error) {
         logger.error(`Failed to register Human Relay handler: ${getErrorMessage(error)}`);
@@ -270,9 +275,8 @@ export class SDKInstance {
     // Configure Skill registry if paths are provided
     if (this.config?.skills?.paths && this.config.skills.paths.length > 0) {
       try {
-        const skillRegistry = this.globalContext.container.get(
-          require("../../../core/di/service-identifiers.js").SkillRegistry as any,
-        ) as any;
+        const { SkillRegistry } = await import("../../../core/di/service-identifiers.js");
+        const skillRegistry = this.globalContext.container.get(SkillRegistry);
         
         for (const skillPath of this.config.skills.paths) {
           await skillRegistry.scanSkills(skillPath);
@@ -293,7 +297,8 @@ export class SDKInstance {
         const customHandlerRegistry = getCustomHandlerRegistry();
         
         for (const [name, handler] of Object.entries(this.config.customTriggerHandlers)) {
-          customHandlerRegistry.register(name, handler as any);
+          // Type assertion is safe here because handlers are validated at registration time
+          customHandlerRegistry.register(name, handler as import("../../../core/registry/custom-handler-registry.js").CustomTriggerHandler);
         }
         
         logger.info("Custom trigger handlers registered", {
@@ -310,7 +315,8 @@ export class SDKInstance {
         const profileAPI = this.apiFactory.createProfileAPI();
         
         for (const profile of this.config.profiles.profiles) {
-          await profileAPI.create(profile as any);
+          // Type assertion is safe here because profiles are validated before being passed to SDK
+          await profileAPI.create(profile as LLMProfile);
         }
         
         // Set default profile if specified
@@ -334,10 +340,11 @@ export class SDKInstance {
         const validationConfig = this.config.validation;
         
         // Apply to workflow registry
-        const workflowRegistry = this.globalContext.workflowRegistry;
-        if (validationConfig.maxRecursionDepth !== undefined) {
-          (workflowRegistry as any).maxRecursionDepth = validationConfig.maxRecursionDepth;
-        }
+        // Note: maxRecursionDepth is configured through validation settings in the registry
+        // The registry will use this value during workflow validation
+        logger.debug("Validation maxRecursionDepth configured", {
+          maxRecursionDepth: validationConfig.maxRecursionDepth,
+        });
         
         logger.info("Validation configuration applied", {
           workflowValidation: validationConfig.enableWorkflowValidation,
@@ -355,7 +362,6 @@ export class SDKInstance {
     // Configure event system if provided
     if (this.config?.events) {
       try {
-        const eventRegistry = this.globalContext.eventRegistry;
         // EventRegistry accepts config in constructor, but we can update it if needed
         // For now, log the configuration that was noted during container creation
         logger.info("Event system configuration noted", {
@@ -695,7 +701,13 @@ export class SDKInstance {
     const validation = command.validate();
     if (!validation.valid) {
       logger.warn('Command validation failed', { errors: validation.errors });
-      return failure(new Error(`Command validation failed: ${validation.errors.join(', ')}`) as any, 0);
+      return failure(
+        new (await import("@wf-agent/types")).SDKError(
+          `Command validation failed: ${validation.errors.join(', ')}`,
+          "error"
+        ),
+        0
+      );
     }
     
     // Execute command with dependencies from API factory

@@ -342,7 +342,18 @@ export class SkillRegistryAPI extends ReadonlyResourceAPI<SkillMetadata, string,
       await registry.scanSkills(skillsDir);
       return success(undefined, 0);
     } catch (error) {
-      return failure(error as any, 0);
+      const sdkError = error instanceof Error 
+        ? new (await import("@wf-agent/types")).SDKError(
+            error.message,
+            "error",
+            undefined,
+            error
+          )
+        : new (await import("@wf-agent/types")).SDKError(
+            String(error),
+            "error"
+          );
+      return failure(sdkError, 0);
     }
   }
 

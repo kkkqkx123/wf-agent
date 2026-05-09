@@ -54,7 +54,7 @@ export function getNodeHandler(nodeType: string): NodeHandlerFn {
     LOOP_START: (_gc, workflowExecutionEntity, node, _ctx) => loopStartHandler(workflowExecutionEntity, node),
     ROUTE: (_gc, workflowExecutionEntity, node, _ctx) => routeHandler(workflowExecutionEntity, node),
     START_FROM_TRIGGER: (_gc, workflowExecutionEntity, node, context) =>
-      startFromTriggerHandler(workflowExecutionEntity, context as any),
+      startFromTriggerHandler(workflowExecutionEntity, node, context as import("./start-from-trigger-handler.js").StartFromTriggerHandlerContext),
     START: (_gc, workflowExecutionEntity, node, _ctx) => startHandler(workflowExecutionEntity, node),
     USER_INTERACTION: (_gc, workflowExecutionEntity, node, context) =>
       userInteractionHandler(workflowExecutionEntity.getExecution(), node, context as UserInteractionHandlerContext),

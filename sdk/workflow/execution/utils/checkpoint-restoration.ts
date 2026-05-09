@@ -7,6 +7,7 @@ import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-
 import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-registry.js";
 import type { CheckpointDependencies } from "../../checkpoint/utils/checkpoint-utils.js";
 import type { Checkpoint, WorkflowExecutionVariable, LLMMessage, VariableValueType, VariableScope } from "@wf-agent/types";
+import type { GlobalContext } from "../../../core/global-context.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "checkpoint-restoration" });
@@ -77,7 +78,7 @@ export async function restoreWorkflowFromCheckpoint(
   executionId: string,
   workflowExecutionEntity: WorkflowExecutionEntity,
   registry: WorkflowExecutionRegistry,
-  globalContext: any, // GlobalContext type imported dynamically
+  globalContext: GlobalContext,
 ): Promise<RestorationResult> {
   try {
     // Get checkpoint dependencies from container

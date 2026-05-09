@@ -5,6 +5,8 @@
  * that require runtime arguments (like executionId, workflowId, etc.)
  */
 
+import type { WorkflowExecutionEntity } from "../../workflow/entities/workflow-execution-entity.js";
+
 /**
  * Generic factory interface for creating service instances
  * @template T The type of service to create
@@ -50,7 +52,7 @@ export interface OptionalParamsServiceFactory<T> {
  * @template T The type of service to create
  */
 export interface ExecutionEntityServiceFactory<T> {
-  create(executionEntity: any): T; // Using 'any' here because WorkflowExecutionEntity import would cause circular dependency
+  create(executionEntity: WorkflowExecutionEntity): T;
 }
 
 /**
@@ -58,7 +60,7 @@ export interface ExecutionEntityServiceFactory<T> {
  * @template T The type of service to create
  */
 export interface NodeExecutionCoordinatorFactory<T> {
-  create(executionId: string, nodeId: string, executionEntity: any): T;
+  create(executionId: string, nodeId: string, executionEntity: WorkflowExecutionEntity): T;
 }
 
 /**

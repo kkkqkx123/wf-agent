@@ -3,9 +3,7 @@
  * Provides a fluent chain-of-command API for creating and registering node templates.
  */
 
-import type { NodeTemplate } from "@wf-agent/types";
-import type { NodeType, NodeConfig } from "@wf-agent/types";
-import type { NodeTemplateRegistry } from "../../../core/registry/node-template-registry.js";
+import type { NodeTemplate, NodeType, NodeConfig } from "@wf-agent/types";
 import { TemplateBuilder } from "./template-builder.js";
 import type { GlobalContext } from "../../../core/global-context.js";
 

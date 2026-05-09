@@ -362,8 +362,7 @@ export class WorkflowRegistry {
 
     // Add workflowId to the graph before registering
     // WorkflowGraphData needs workflowId field to be compatible with WorkflowGraph interface
-    const graphWithWorkflowId = graph as any;
-    graphWithWorkflowId.workflowId = workflow.id;
+    const graphWithWorkflowId = { ...graph, workflowId: workflow.id };
     
     // Cache processing results
     graphRegistry.register(graphWithWorkflowId as unknown as import("@wf-agent/types").WorkflowGraph);
@@ -453,7 +452,7 @@ export class WorkflowRegistry {
    */
   get(workflowId: string): WorkflowTemplate | undefined {
     // Check memory cache first
-    let workflow = this.workflows.get(workflowId);
+    const workflow = this.workflows.get(workflowId);
     
     // If not in memory and storage adapter is available, try to load from storage
     // Note: This is a simplified approach - ideally we'd have an async get() method

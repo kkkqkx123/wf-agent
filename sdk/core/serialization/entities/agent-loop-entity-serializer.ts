@@ -10,6 +10,9 @@ import { DeltaCalculator } from "../delta-calculator.js";
 import type { SnapshotBase, AgentLoopRuntimeConfig, Message } from "@wf-agent/types";
 import type { AgentLoopStateSnapshot } from "@wf-agent/types";
 import type { AgentLoopEntity } from "../../../agent/entities/agent-loop-entity.js";
+import { createContextualLogger } from "../../../utils/contextual-logger.js";
+
+const logger = createContextualLogger({ component: "agent-loop-entity-serializer" });
 
 /**
  * Agent Loop Entity Snapshot
@@ -86,7 +89,7 @@ export class AgentLoopEntitySerializer extends Serializer<AgentLoopEntitySnapsho
     const { AgentLoopFactory } = await import("../../../agent/execution/factories/index.js");
     
     // Get GlobalContext from container manager
-    let globalContext: any;
+    let globalContext: import("../../global-context.js").GlobalContext | undefined;
     try {
       const { ContainerManager } = await import("../../di/container-manager.js");
       const Identifiers = await import("../../di/service-identifiers.js");
@@ -97,7 +100,7 @@ export class AgentLoopEntitySerializer extends Serializer<AgentLoopEntitySnapsho
         globalContext = container.get(Identifiers.GlobalContext);
       }
     } catch (error) {
-      console.warn('Failed to get GlobalContext for AgentLoopFactory:', error);
+      logger.warn('Failed to get GlobalContext for AgentLoopFactory', { error });
     }
 
     if (!globalContext) {

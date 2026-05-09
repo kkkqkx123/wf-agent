@@ -7,9 +7,8 @@ import { now } from "@wf-agent/common-utils";
 import { ReadonlyResourceAPI } from "../../../shared/resources/generic-resource-api.js";
 import type { WorkflowExecutionRegistry } from "../../../../workflow/stores/workflow-execution-registry.js";
 import type { WorkflowExecution } from "@wf-agent/types";
-import { NotFoundError, WorkflowExecutionNotFoundError } from "@wf-agent/types";
+import { NotFoundError, WorkflowExecutionNotFoundError, SDKError } from "@wf-agent/types";
 import type { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
-import * as Identifiers from "../../../../core/di/service-identifiers.js";
 import type { ExecutionResult } from "../../../shared/types/execution-result.js";
 import { success, failure } from "../../../shared/types/execution-result.js";
 
@@ -285,7 +284,12 @@ export class VariableResourceAPI extends ReadonlyResourceAPI<unknown, string, Va
       await executionContext.setVariable(variableName, value);
       return success(undefined, 0);
     } catch (error) {
-      return failure(error as any, 0);
+      const sdkError = error instanceof SDKError
+        ? error
+        : error instanceof Error
+          ? new SDKError(error.message, "error", undefined, error)
+          : new SDKError(String(error), "error");
+      return failure(sdkError, 0);
     }
   }
 
@@ -313,7 +317,12 @@ export class VariableResourceAPI extends ReadonlyResourceAPI<unknown, string, Va
       await executionContext.deleteVariable(variableName);
       return success(undefined, 0);
     } catch (error) {
-      return failure(error as any, 0);
+      const sdkError = error instanceof SDKError
+        ? error
+        : error instanceof Error
+          ? new SDKError(error.message, "error", undefined, error)
+          : new SDKError(String(error), "error");
+      return failure(sdkError, 0);
     }
   }
 

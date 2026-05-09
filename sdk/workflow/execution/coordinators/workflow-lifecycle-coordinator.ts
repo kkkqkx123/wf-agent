@@ -25,7 +25,6 @@ import { WorkflowExecutionBuilder } from "../factories/workflow-execution-builde
 import { WorkflowExecutor } from "../executors/workflow-executor.js";
 import { WorkflowStateTransitor } from "./workflow-state-transitor.js";
 import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-registry.js";
-import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import type { GlobalContext } from "../../../core/global-context.js";
 import * as Identifiers from "../../../core/di/service-identifiers.js";
 import type { ExecutionHierarchyRegistry } from "../../../core/registry/execution-hierarchy-registry.js";

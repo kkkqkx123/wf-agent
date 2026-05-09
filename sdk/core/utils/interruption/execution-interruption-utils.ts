@@ -13,10 +13,6 @@
 import type { InterruptionType } from "@wf-agent/types";
 import {
   checkInterruption as baseCheckInterruption,
-  shouldContinue as baseShouldContinue,
-  isInterrupted as baseIsInterrupted,
-  getInterruptionDescription as baseGetInterruptionDescription,
-  type InterruptionCheckResult as BaseInterruptionCheckResult,
 } from "@wf-agent/common-utils";
 
 /**
@@ -171,12 +167,16 @@ export function createInterruptionAbortReason(
   type: "PAUSE" | "STOP",
   executionId: string,
   nodeId?: string,
-): Error {
-  const error = new Error(type === "PAUSE" ? "Execution paused" : "Execution stopped");
-  (error as any).interruptionType = type;
-  (error as any).executionId = executionId;
+): Error & { interruptionType: "PAUSE" | "STOP"; executionId: string; nodeId?: string } {
+  const error = new Error(type === "PAUSE" ? "Execution paused" : "Execution stopped") as Error & {
+    interruptionType: "PAUSE" | "STOP";
+    executionId: string;
+    nodeId?: string;
+  };
+  error.interruptionType = type;
+  error.executionId = executionId;
   if (nodeId) {
-    (error as any).nodeId = nodeId;
+    error.nodeId = nodeId;
   }
   return error;
 }

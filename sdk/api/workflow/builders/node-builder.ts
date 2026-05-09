@@ -4,7 +4,6 @@
  */
 
 import type { Node, NodeConfig, NodeType } from "@wf-agent/types";
-import type { NodeTemplateRegistry } from "../../../core/registry/node-template-registry.js";
 import { NodeTemplateNotFoundError, ConfigurationValidationError } from "@wf-agent/types";
 import { generateId } from "../../../utils/id-utils.js";
 import { BaseBuilder } from "../../shared/base-builder.js";

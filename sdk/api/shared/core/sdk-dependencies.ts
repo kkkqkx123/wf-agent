@@ -30,30 +30,27 @@ import type { ServiceIdentifier } from "@wf-agent/common-utils";
 
 /**
  * API Dependency Management Class
- * Manages all dependency instances through the DI (Dependency Injection) container.
+ * Manages all dependency instances through a GlobalContext instance.
  */
 export class APIDependencyManager {
-  private container = getContainer();
-
   /**
    * Constructor
+   * @param globalContext The GlobalContext to get dependencies from
    */
-  constructor() {
-    // The container has been initialized externally.
-  }
+  constructor(private globalContext: import("../../../core/global-context.js").GlobalContext) {}
 
   /**
    * Obtain the workflow registry
    */
   getWorkflowRegistry(): WorkflowRegistry {
-    return this.container.get(Identifiers.WorkflowRegistry as ServiceIdentifier<WorkflowRegistry>);
+    return this.globalContext.workflowRegistry;
   }
 
   /**
    * Get the workflow execution registry
    */
   getWorkflowExecutionRegistry(): WorkflowExecutionRegistry {
-    return this.container.get(
+    return this.globalContext.container.get(
       Identifiers.WorkflowExecutionRegistry as ServiceIdentifier<WorkflowExecutionRegistry>,
     );
   }
@@ -62,60 +59,56 @@ export class APIDependencyManager {
    * Obtain the event manager
    */
   getEventManager(): EventRegistry {
-    return this.container.get(Identifiers.EventRegistry as ServiceIdentifier<EventRegistry>);
+    return this.globalContext.eventRegistry;
   }
 
   /**
    * Obtain the checkpoint status manager
    */
   getCheckpointStateManager(): CheckpointState {
-    return this.container.get(Identifiers.CheckpointState as ServiceIdentifier<CheckpointState>);
+    return this.globalContext.container.get(Identifiers.CheckpointState as ServiceIdentifier<CheckpointState>);
   }
 
   /**
    * Obtain tool services
    */
   getToolService(): ToolRegistry {
-    return this.container.get(Identifiers.ToolRegistry as ServiceIdentifier<ToolRegistry>);
+    return this.globalContext.toolRegistry;
   }
 
   /**
    * Obtaining the LLM executor
    */
   getLlmExecutor(): LLMExecutor {
-    return this.container.get(Identifiers.LLMExecutor as ServiceIdentifier<LLMExecutor>);
+    return this.globalContext.llmExecutor;
   }
 
   /**
    * Obtain code services
    */
   getScriptService(): ScriptRegistry {
-    return this.container.get(Identifiers.ScriptRegistry as ServiceIdentifier<ScriptRegistry>);
+    return this.globalContext.scriptRegistry;
   }
 
   /**
    * Obtain the node template registry
    */
   getNodeTemplateRegistry(): NodeTemplateRegistry {
-    return this.container.get(
-      Identifiers.NodeTemplateRegistry as ServiceIdentifier<NodeTemplateRegistry>,
-    );
+    return this.globalContext.nodeTemplateRegistry;
   }
 
   /**
    * Obtain trigger template registry
    */
   getTriggerTemplateRegistry(): TriggerTemplateRegistry {
-    return this.container.get(
-      Identifiers.TriggerTemplateRegistry as ServiceIdentifier<TriggerTemplateRegistry>,
-    );
+    return this.globalContext.triggerTemplateRegistry;
   }
 
   /**
    * Get the workflow graph registry
    */
   getWorkflowGraphRegistry(): WorkflowGraphRegistry {
-    return this.container.get(
+    return this.globalContext.container.get(
       Identifiers.WorkflowGraphRegistry as ServiceIdentifier<WorkflowGraphRegistry>,
     );
   }
@@ -124,7 +117,7 @@ export class APIDependencyManager {
    * Obtain the workflow lifecycle coordinator
    */
   getWorkflowLifecycleCoordinator(): import("../../../workflow/execution/coordinators/workflow-lifecycle-coordinator.js").WorkflowLifecycleCoordinator {
-    return this.container.get(
+    return this.globalContext.container.get(
       Identifiers.WorkflowLifecycleCoordinator as ServiceIdentifier<
         import("../../../workflow/execution/coordinators/workflow-lifecycle-coordinator.js").WorkflowLifecycleCoordinator
       >,
@@ -135,7 +128,7 @@ export class APIDependencyManager {
    * Obtain the LLM wrapper
    */
   getLLMWrapper(): import("../../../core/llm/wrapper.js").LLMWrapper {
-    return this.container.get(
+    return this.globalContext.container.get(
       Identifiers.LLMWrapper as ServiceIdentifier<
         import("../../../core/llm/wrapper.js").LLMWrapper
       >,
@@ -146,21 +139,21 @@ export class APIDependencyManager {
    * Get the Skill registry
    */
   getSkillRegistry(): SkillRegistry {
-    return this.container.get(Identifiers.SkillRegistry as ServiceIdentifier<SkillRegistry>);
+    return this.globalContext.container.get(Identifiers.SkillRegistry as ServiceIdentifier<SkillRegistry>);
   }
 
   /**
    * Obtain the Skill Loader
    */
   getSkillLoader(): SkillLoader {
-    return this.container.get(Identifiers.SkillLoader as ServiceIdentifier<SkillLoader>);
+    return this.globalContext.container.get(Identifiers.SkillLoader as ServiceIdentifier<SkillLoader>);
   }
 
   /**
    * Obtain the Agent Loop registry
    */
   getAgentLoopRegistry(): AgentLoopRegistry {
-    return this.container.get(
+    return this.globalContext.container.get(
       Identifiers.AgentLoopRegistry as ServiceIdentifier<AgentLoopRegistry>,
     );
   }
@@ -169,7 +162,7 @@ export class APIDependencyManager {
    * Obtain the Agent Loop coordinator
    */
   getAgentLoopCoordinator(): AgentLoopCoordinator {
-    return this.container.get(
+    return this.globalContext.container.get(
       Identifiers.AgentLoopCoordinator as ServiceIdentifier<AgentLoopCoordinator>,
     );
   }

@@ -59,8 +59,16 @@ export {
   mergeExecutionOptions,
 } from "./shared/types/execution-options.js";
 
-// Global SDK Example
-export { getSDK } from "./shared/core/sdk.js";
+// Two-Layer Architecture SDK Exports
+export {
+  createSDK,
+} from "./shared/core/sdk.js";
+
+// SDK Instance Type
+export type { SDKInstance } from "./shared/core/sdk-instance.js";
+
+// Global Context exports (for advanced use cases)
+export type { GlobalContext } from "../core/global-context.js";
 
 // SDK Types
 export type { SDKOptions, SDKLifecycleHooks } from "./shared/types/core-types.js";

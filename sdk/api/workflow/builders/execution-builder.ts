@@ -11,6 +11,7 @@ import { Observable, create, type Observer } from "../../shared/utils/observable
 import { ExecuteWorkflowCommand } from "../operations/execution/execute-workflow-command.js";
 import { ExecutionError as SDKExecutionError } from "@wf-agent/types";
 import { APIDependencyManager } from "../../shared/core/sdk-dependencies.js";
+import { GlobalContext } from "../../../core/global-context.js";
 
 /**
  * ExecutionBuilder - Fluid Execution Builder
@@ -23,9 +24,9 @@ export class ExecutionBuilder {
   private abortController?: AbortController;
   private readonly dependencies: APIDependencyManager;
 
-  constructor() {
+  constructor(globalContext: GlobalContext) {
     // Instead of relying on the WorkflowExecutorAPI, use the Command mode
-    this.dependencies = new APIDependencyManager();
+    this.dependencies = new APIDependencyManager(globalContext);
   }
 
   /**

@@ -75,16 +75,26 @@ export interface AllAPIs {
 export class APIFactory {
   private static instance: APIFactory;
   private apiInstances: Partial<AllAPIs> = {};
-  private dependencies: APIDependencyManager = new APIDependencyManager();
-
-  private constructor() {}
+  private dependencies: APIDependencyManager;
 
   /**
-   * Obtain a singleton instance of the factory.
+   * Create a new APIFactory instance
+   * @param globalContext The GlobalContext to get dependencies from
+   */
+  constructor(globalContext: import("../../../core/global-context.js").GlobalContext) {
+    this.dependencies = new APIDependencyManager(globalContext);
+  }
+
+  /**
+   * Obtain a singleton instance of the factory (Legacy - Deprecated)
+   * @deprecated Use `new APIFactory(globalContext)` instead for proper isolation
    */
   public static getInstance(): APIFactory {
     if (!APIFactory.instance) {
-      APIFactory.instance = new APIFactory();
+      throw new Error(
+        "APIFactory.getInstance() is deprecated. Use `new APIFactory(globalContext)` instead. " +
+        "This ensures each SDK instance has its own isolated API factory."
+      );
     }
     return APIFactory.instance;
   }

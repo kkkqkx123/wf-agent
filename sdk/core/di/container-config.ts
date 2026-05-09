@@ -112,20 +112,16 @@ interface StorageAdapterConfig {
 let pendingStorageConfig: StorageAdapterConfig | null = null;
 
 /**
- * Initialize the DI container with storage adapters
- * Configure all service bindings in the order of dependencies
+ * Configure container bindings with storage adapters
+ * This function configures all service bindings for a given container
  *
+ * @param container The container to configure
  * @param adapters All storage adapters (optional)
- * @returns The configured container instance
  */
-export function initializeContainerWithAdapters(adapters: StorageAdapterConfig = {}): Container {
-  if (container) {
-    return container;
-  }
-
-  container = new Container();
-  pendingStorageConfig = adapters;
-
+export function configureContainerBindings(
+  container: Container,
+  adapters: StorageAdapterConfig = {},
+): void {
   // ============================================================
   // Bind Storage Adapters in DI Container
   // ============================================================
@@ -133,35 +129,32 @@ export function initializeContainerWithAdapters(adapters: StorageAdapterConfig =
   // CheckpointStorageAdapter
   container
     .bind(Identifiers.CheckpointStorageAdapter)
-    .toDynamicValue(() => pendingStorageConfig?.checkpoint || null)
+    .toDynamicValue(() => adapters.checkpoint || null)
     .inSingletonScope();
 
   // WorkflowStorageAdapter
   container
     .bind(Identifiers.WorkflowStorageAdapter)
-    .toDynamicValue(() => pendingStorageConfig?.workflow || null)
+    .toDynamicValue(() => adapters.workflow || null)
     .inSingletonScope();
 
   // TaskStorageAdapter
   container
     .bind(Identifiers.TaskStorageAdapter)
-    .toDynamicValue(() => pendingStorageConfig?.task || null)
+    .toDynamicValue(() => adapters.task || null)
     .inSingletonScope();
 
   // WorkflowExecutionStorageAdapter
   container
     .bind(Identifiers.WorkflowExecutionStorageAdapter)
-    .toDynamicValue(() => pendingStorageConfig?.workflowExecution || null)
+    .toDynamicValue(() => adapters.workflowExecution || null)
     .inSingletonScope();
 
   // AgentLoopCheckpointStorageAdapter
   container
     .bind(Identifiers.AgentLoopCheckpointStorageAdapter)
-    .toDynamicValue(() => pendingStorageConfig?.agentLoopCheckpoint || null)
+    .toDynamicValue(() => adapters.agentLoopCheckpoint || null)
     .inSingletonScope();
-
-  // Clear pending config after binding (adapters are now in DI container)
-  pendingStorageConfig = null;
 
   // ============================================================
   // First Layer: A storage layer service with no dependencies
@@ -415,11 +408,17 @@ export function initializeContainerWithAdapters(adapters: StorageAdapterConfig =
     .inSingletonScope();
 
   // ============================================================
-  // Layer 9: WorkflowExecutionBuilder (no dependencies)
+  // Layer 9: WorkflowExecutionBuilder (depends on GlobalContext)
   // ============================================================
 
-  // WorkflowExecutionBuilder - A workflow execution builder with no dependencies
-  container.bind(Identifiers.WorkflowExecutionBuilder).to(WorkflowExecutionBuilder).inSingletonScope();
+  // WorkflowExecutionBuilder - A workflow execution builder that depends on GlobalContext
+  container
+    .bind(Identifiers.WorkflowExecutionBuilder)
+    .toDynamicValue(c => {
+      const globalContext = c.get(Identifiers.GlobalContext) as import("../global-context.js").GlobalContext;
+      return new WorkflowExecutionBuilder(globalContext);
+    })
+    .inSingletonScope();
 
   // ============================================================
   // Level 10: Basic Managers at the Execution Layer (without dependencies or factory patterns)
@@ -789,7 +788,24 @@ export function initializeContainerWithAdapters(adapters: StorageAdapterConfig =
       );
     })
     .inSingletonScope();
+}
 
+/**
+ * Initialize the DI container with storage adapters (Legacy - Deprecated)
+ * Configure all service bindings in the order of dependencies
+ *
+ * @deprecated Use createIsolatedContainer() from container-manager.ts instead
+ * @param adapters All storage adapters (optional)
+ * @returns The configured container instance
+ */
+export function initializeContainerWithAdapters(adapters: StorageAdapterConfig = {}): Container {
+  if (container) {
+    return container;
+  }
+
+  container = new Container();
+  configureContainerBindings(container, adapters);
+  
   return container;
 }
 
@@ -829,8 +845,10 @@ export function isContainerInitialized(): boolean {
 }
 
 /**
- * Shutdown all storage adapters gracefully
+ * Shutdown all storage adapters gracefully (Legacy - for backward compatibility)
  * Closes connections, flushes buffers, and releases resources
+ * 
+ * @deprecated Use ContainerManager.destroyContainer() instead
  */
 export async function shutdownStorageAdapters(): Promise<void> {
   if (!container) {

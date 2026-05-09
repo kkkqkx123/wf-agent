@@ -3,10 +3,11 @@
  * Responsible for executing workflow threads in isolated terminals.
  */
 
-import { getSDK } from "@wf-agent/sdk";
+import { type SDKInstance } from "@wf-agent/sdk";
 import { randomUUID } from "crypto";
 import { getOutput } from "../../utils/output.js";
 import type { TerminalSession, TaskExecutionResult, TaskStatus } from "./types.js";
+import { getSDKInstance } from "../../index.js";
 
 const output = getOutput();
 
@@ -20,10 +21,14 @@ export class TaskExecutor {
   /** Task-Terminal Mapping Table */
   private taskTerminalMap: Map<string, string> = new Map();
   /** SDK instance */
-  private sdk: ReturnType<typeof getSDK>;
+  private sdk: SDKInstance;
 
   constructor() {
-    this.sdk = getSDK();
+    const sdk = getSDKInstance();
+    if (!sdk) {
+      throw new Error("SDK instance not initialized. Make sure the CLI app has started.");
+    }
+    this.sdk = sdk;
   }
 
   /**

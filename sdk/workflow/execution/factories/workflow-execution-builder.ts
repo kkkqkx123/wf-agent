@@ -30,6 +30,7 @@ import type { ToolRegistry } from "../../../core/registry/tool-registry.js";
 import { ConversationSession } from "../../../core/messaging/conversation-session.js";
 import { logError, emitErrorEvent } from "../../../core/utils/error-utils.js";
 import type { ExecutionHierarchyRegistry } from "../../../core/registry/execution-hierarchy-registry.js";
+import type { GlobalContext } from "../../../core/global-context.js";
 
 const logger = createContextualLogger({ operation: "workflow-execution-builder" });
 
@@ -50,55 +51,70 @@ export interface WorkflowExecutionBuildResult {
  */
 export class WorkflowExecutionBuilder {
   private workflowExecutionTemplates: Map<string, WorkflowExecutionEntity> = new Map();
+  private globalContext?: GlobalContext;
 
-  constructor() {}
+  constructor(globalContext?: GlobalContext) {
+    this.globalContext = globalContext;
+  }
 
   /**
    * Get workflow graph registry (from DI container)
    */
   private getWorkflowGraphRegistry(): WorkflowGraphRegistry {
-    const container = getContainer();
-    return container.get(Identifiers.WorkflowRegistry) as WorkflowGraphRegistry;
+    if (!this.globalContext) {
+      throw new Error("GlobalContext not initialized. Use constructor with GlobalContext parameter.");
+    }
+    return this.globalContext.container.get(Identifiers.WorkflowRegistry) as WorkflowGraphRegistry;
   }
 
   /**
    * Get variable coordinator (from DI container)
    */
   private getVariableCoordinator(): unknown {
-    const container = getContainer();
-    return container.get(Identifiers.VariableCoordinator);
+    if (!this.globalContext) {
+      throw new Error("GlobalContext not initialized. Use constructor with GlobalContext parameter.");
+    }
+    return this.globalContext.container.get(Identifiers.VariableCoordinator);
   }
 
   /**
    * Get variable state manager (from DI container)
    */
   private getVariableStateManager(): unknown {
-    const container = getContainer();
-    return container.get(Identifiers.VariableState);
+    if (!this.globalContext) {
+      throw new Error("GlobalContext not initialized. Use constructor with GlobalContext parameter.");
+    }
+    return this.globalContext.container.get(Identifiers.VariableState);
   }
 
   /**
    * Get event manager (from DI container)
    */
   private getEventManager(): EventRegistry {
-    const container = getContainer();
-    return container.get(Identifiers.EventRegistry) as EventRegistry;
+    if (!this.globalContext) {
+      throw new Error("GlobalContext not initialized. Use constructor with GlobalContext parameter.");
+    }
+    return this.globalContext.eventRegistry;
   }
 
   /**
    * Get tool service (from DI container)
    */
   private getToolService(): ToolRegistry {
-    const container = getContainer();
-    return container.get(Identifiers.ToolRegistry) as ToolRegistry;
+    if (!this.globalContext) {
+      throw new Error("GlobalContext not initialized. Use constructor with GlobalContext parameter.");
+    }
+    return this.globalContext.toolRegistry;
   }
 
   /**
    * Get execution hierarchy registry (from DI container)
    */
   private getExecutionHierarchyRegistry(): ExecutionHierarchyRegistry {
-    const container = getContainer();
-    return container.get(Identifiers.ExecutionHierarchyRegistry) as ExecutionHierarchyRegistry;
+    if (!this.globalContext) {
+      throw new Error("GlobalContext not initialized. Use constructor with GlobalContext parameter.");
+    }
+    return this.globalContext.container.get(Identifiers.ExecutionHierarchyRegistry) as ExecutionHierarchyRegistry;
   }
 
   /**

@@ -87,6 +87,12 @@ export const TaskRegistry: ServiceIdentifier<unknown> = Symbol("TaskRegistry");
 // ============================================================
 
 /**
+ * GlobalContext - Global Context
+ * Provides access to registries and executors across the SDK instance
+ */
+export const GlobalContext: ServiceIdentifier<unknown> = Symbol("GlobalContext");
+
+/**
  * WorkflowExecutionBuilder - Workflow Execution Builder
  * Constructs WorkflowExecutionEntity instances from workflow definitions
  */

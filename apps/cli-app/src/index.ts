@@ -10,7 +10,7 @@ import { initializeOutput, getOutput } from "./utils/output.js";
 import { initializeFormatter } from "./utils/formatter.js";
 import { initLogger, initSDKLogger } from "./utils/logger.js";
 import { loadConfigWithEnvOverride } from "./config/index.js";
-import { getSDK } from "@wf-agent/sdk";
+import { createSDK } from "@wf-agent/sdk";
 import { ExitManager, isHeadlessMode, detectExecutionMode } from "./utils/exit-manager.js";
 import {
   initializeStorageManager,
@@ -34,6 +34,9 @@ import { createSkillCommands } from "./commands/skill/index.js";
 
 // Create an instance of the main program.
 const program = new Command();
+
+// Global SDK instance (initialized in preAction hook)
+let sdkInstance: import("@wf-agent/sdk").SDKInstance | null = null;
 
 // Configure basic program information
 program
@@ -108,7 +111,7 @@ program
     const storageManager = getStorageManager();
 
     // 7. Initialize the SDK with storage adapters and lifecycle hooks
-    const sdk = getSDK({
+    sdkInstance = createSDK({
       debug: options.debug,
       logLevel: options.debug ? "debug" : options.verbose ? "info" : "warn",
       presets: config.presets,
@@ -136,7 +139,7 @@ program
 
     // Wait for SDK bootstrap to complete
     try {
-      await sdk.waitForReady();
+      await sdkInstance.waitForReady();
     } catch (error) {
       output.errorLog(
         `SDK initialization failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -242,8 +245,9 @@ async function startTUI() {
     
     // Register TUI Human Relay Handler with SDK
     const humanRelayHandler = app.getHumanRelayHandler();
-    const sdk = getSDK();
-    sdk.humanRelay.registerHandler(humanRelayHandler);
+    if (sdkInstance) {
+      sdkInstance.humanRelay.registerHandler(humanRelayHandler);
+    }
     
     // Setup cleanup handlers for TUI mode
     const cleanupAndExit = async () => {
@@ -255,7 +259,10 @@ async function startTUI() {
         await app.getDisplayOutputService().dispose();
         
         // Destroy SDK (triggers onDestroy hook which closes storage manager)
-        await sdk.destroy();
+        if (sdkInstance) {
+          await sdkInstance.destroy();
+          sdkInstance = null;
+        }
 
         // Dynamically import terminal modules (to avoid circular dependencies)
         const { TerminalManager } = await import("./services/terminal/terminal-manager.js");
@@ -306,8 +313,10 @@ const shutdown = async () => {
 
   try {
     // Destroy SDK (triggers onDestroy hook which closes storage manager)
-    const sdk = getSDK();
-    await sdk.destroy();
+    if (sdkInstance) {
+      await sdkInstance.destroy();
+      sdkInstance = null;
+    }
 
     // Dynamically import terminal modules (to avoid circular dependencies)
     const { TerminalManager } = await import("./services/terminal/terminal-manager.js");
@@ -340,4 +349,9 @@ const shutdown = async () => {
 if (!hasTuiFlag && executionMode !== "interactive") {
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
+}
+
+// Export function to get SDK instance (for adapters and other modules)
+export function getSDKInstance(): import("@wf-agent/sdk").SDKInstance | null {
+  return sdkInstance;
 }

@@ -3,22 +3,27 @@
  * Provides common adapter functionality
  */
 
-import { getSDK } from "@wf-agent/sdk";
+import { type SDKInstance } from "@wf-agent/sdk";
 import { getOutput, type CLIOutput } from "../utils/output.js";
 import { handleError as handleCLIError, type ErrorContext } from "../utils/error-handler.js";
 import { CLIError } from "../types/cli-types.js";
 import { isHeadlessMode } from "../utils/exit-manager.js";
+import { getSDKInstance } from "../index.js";
 
 /**
  * Base Adapter Class
  */
 export class BaseAdapter {
   protected output: CLIOutput;
-  protected sdk: ReturnType<typeof getSDK>;
+  protected sdk: SDKInstance;
 
   constructor() {
     this.output = getOutput();
-    this.sdk = getSDK();
+    const sdk = getSDKInstance();
+    if (!sdk) {
+      throw new Error("SDK instance not initialized. Make sure the CLI app has started.");
+    }
+    this.sdk = sdk;
   }
 
   /**

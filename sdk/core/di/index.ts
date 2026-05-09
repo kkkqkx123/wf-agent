@@ -26,3 +26,10 @@ export {
   isContainerInitialized,
   shutdownStorageAdapters,
 } from "./container-config.js";
+
+// Export Container Manager for multi-instance support
+export {
+  ContainerManager,
+  createIsolatedContainer,
+  type ContainerStorageConfig,
+} from "./container-manager.js";

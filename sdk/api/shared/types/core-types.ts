@@ -28,13 +28,131 @@ export interface SDKLifecycleHooks {
 }
 
 /**
+ * MCP Configuration Options
+ */
+export interface McpConfig {
+  /** Whether MCP is enabled globally */
+  enabled?: boolean;
+  /** Maximum error history size */
+  maxErrorHistory?: number;
+  /** Connection timeout in milliseconds */
+  connectionTimeout?: number;
+  /** Debounce delay for config changes in milliseconds */
+  configDebounceDelay?: number;
+}
+
+/**
+ * Human Relay Configuration
+ */
+export interface HumanRelayConfig {
+  /** Default timeout for human relay requests (in milliseconds) */
+  defaultTimeout?: number;
+  /** Human Relay handler instance */
+  handler?: unknown; // Will be typed as HumanRelayHandler when imported
+}
+
+/**
+ * Logging Configuration
+ */
+export interface LoggingConfig {
+  /** Log level */
+  level?: "debug" | "info" | "warn" | "error";
+  /** Log format */
+  format?: "json" | "text";
+  /** Log output destination */
+  output?: "console" | "file" | "both";
+  /** Log file path (if file output is enabled) */
+  filePath?: string;
+}
+
+/**
+ * Skill Configuration
+ */
+export interface SkillConfig {
+  /** Skill directory paths to scan */
+  paths?: string[];
+  /** Whether to automatically scan skill directories */
+  autoScan?: boolean;
+  /** Enable caching for skills */
+  cacheEnabled?: boolean;
+  /** Cache TTL in milliseconds */
+  cacheTTL?: number;
+}
+
+/**
+ * Event System Configuration
+ */
+export interface EventSystemConfig {
+  /** Maximum listener queue size (prevent memory overflow) */
+  maxListenerQueueSize?: number;
+  /** Default listener timeout in milliseconds */
+  defaultListenerTimeout?: number;
+  /** Slow listener threshold in milliseconds (for warnings) */
+  slowListenerThreshold?: number;
+  /** Enable backpressure control */
+  enableBackpressure?: boolean;
+  /** Maximum event history size */
+  maxEventHistory?: number;
+}
+
+/**
+ * LLM Profile Configuration
+ */
+export interface LLMProfileConfig {
+  /** Default profile ID to use */
+  defaultProfileId?: string;
+  /** Pre-register profiles at initialization */
+  profiles?: unknown[]; // Will be typed as LLMProfile[] when imported
+}
+
+/**
+ * Validation Configuration
+ */
+export interface ValidationConfig {
+  /** Enable workflow validation */
+  enableWorkflowValidation?: boolean;
+  /** Enable node configuration validation */
+  enableNodeValidation?: boolean;
+  /** Enable graph structure validation */
+  enableGraphValidation?: boolean;
+  /** Check for cycles in workflow graphs */
+  checkCycles?: boolean;
+  /** Check reachability in workflow graphs */
+  checkReachability?: boolean;
+  /** Validate FORK/JOIN pairs */
+  checkForkJoin?: boolean;
+  /** Validate START/END nodes */
+  checkStartEnd?: boolean;
+  /** Check for isolated nodes */
+  checkIsolatedNodes?: boolean;
+  /** Maximum recursion depth for workflow references */
+  maxRecursionDepth?: number;
+}
+
+/**
+ * Workflow Execution Configuration
+ */
+export interface WorkflowExecutionConfig {
+  /** Default execution timeout (in milliseconds) */
+  defaultTimeout?: number;
+  /** Maximum concurrent workflow executions */
+  maxConcurrentExecutions?: number;
+  /** Enable execution retry on failure */
+  enableRetry?: boolean;
+  /** Maximum retry attempts */
+  maxRetryAttempts?: number;
+}
+
+/**
  * SDK Options
  */
 export interface SDKOptions {
   /** Whether to enable debug mode */
   debug?: boolean;
-  /** Log Level */
+  /** Log Level (deprecated, use logging.level instead) */
   logLevel?: "debug" | "info" | "warn" | "error";
+  /** Detailed logging configuration */
+  logging?: LoggingConfig;
   /** Default timeout period (in milliseconds) */
   defaultTimeout?: number;
   /** Whether to enable checkpoints */
@@ -51,10 +169,24 @@ export interface SDKOptions {
   agentLoopCheckpointStorageAdapter?: AgentLoopCheckpointStorageAdapter;
   /** Whether to enable verification */
   enableValidation?: boolean;
+  /** Detailed validation configuration */
+  validation?: ValidationConfig;
   /** Predefined feature options */
   presets?: PresetsConfig;
   /** Lifecycle hooks for SDK initialization */
   hooks?: SDKLifecycleHooks;
+  /** MCP configuration */
+  mcp?: McpConfig;
+  /** Human Relay configuration */
+  humanRelay?: HumanRelayConfig;
+  /** Skill registry configuration */
+  skills?: SkillConfig;
+  /** Event system configuration */
+  events?: EventSystemConfig;
+  /** LLM Profile configuration */
+  profiles?: LLMProfileConfig;
+  /** Workflow execution configuration */
+  workflowExecution?: WorkflowExecutionConfig;
 }
 
 /**

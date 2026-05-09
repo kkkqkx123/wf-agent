@@ -8,6 +8,12 @@
 import type { ID } from "@wf-agent/types";
 import type { AgentLoopEntity } from "../entities/agent-loop-entity.js";
 import { AgentLoopStatus } from "@wf-agent/types";
+import type { AgentLoopStorageAdapter } from "@wf-agent/storage";
+import type { AgentEntityMetadata } from "@wf-agent/types";
+import { createContextualLogger } from "../../utils/contextual-logger.js";
+import { getErrorMessage } from "@wf-agent/common-utils";
+
+const logger = createContextualLogger({ component: "AgentLoopRegistry" });
 
 /**
  * AgentLoopRegistry - Agent Loop Registry
@@ -25,6 +31,15 @@ import { AgentLoopStatus } from "@wf-agent/types";
 export class AgentLoopRegistry {
   /** Instance Storage */
   private entities: Map<ID, AgentLoopEntity> = new Map();
+  private storageAdapter?: AgentLoopStorageAdapter;
+
+  /**
+   * Constructor
+   * @param options Configuration options
+   */
+  constructor(options?: { storageAdapter?: AgentLoopStorageAdapter }) {
+    this.storageAdapter = options?.storageAdapter;
+  }
 
   /**
    * Register AgentLoopEntity
@@ -32,6 +47,14 @@ export class AgentLoopRegistry {
    */
   register(entity: AgentLoopEntity): void {
     this.entities.set(entity.id, entity);
+    
+    // Persist to storage (async, non-blocking)
+    this.persistToStorage(entity).catch(error => {
+      logger.error("Failed to persist agent loop to storage during register", {
+        agentLoopId: entity.id,
+        error: getErrorMessage(error),
+      });
+    });
   }
 
   /**
@@ -40,7 +63,19 @@ export class AgentLoopRegistry {
    * @returns Whether the logout was successful
    */
   unregister(id: ID): boolean {
-    return this.entities.delete(id);
+    const result = this.entities.delete(id);
+    
+    if (result) {
+      // Remove from storage (async, non-blocking)
+      this.removeFromStorage(id).catch(error => {
+        logger.error("Failed to remove agent loop from storage during unregister", {
+          agentLoopId: id,
+          error: getErrorMessage(error),
+        });
+      });
+    }
+    
+    return result;
   }
 
   /**
@@ -147,5 +182,143 @@ export class AgentLoopRegistry {
       }
     }
     this.entities.clear();
+  }
+
+  // ============================================================
+  // Storage Persistence Methods
+  // ============================================================
+
+  /**
+   * Persist agent loop to storage (if adapter is available)
+   * @param entity Agent loop entity to persist
+   */
+  private async persistToStorage(entity: AgentLoopEntity): Promise<void> {
+    if (!this.storageAdapter) {
+      logger.debug("No storage adapter configured, skipping agent loop persistence");
+      return;
+    }
+
+    try {
+      // Serialize agent loop state to bytes
+      const encoder = new TextEncoder();
+      const agentData = {
+        id: entity.id,
+        status: entity.getStatus(),
+        currentIteration: entity.state.currentIteration,
+        toolCallCount: entity.state.toolCallCount,
+        startTime: entity.state.startTime,
+        endTime: entity.state.endTime,
+        maxIterations: entity.config?.maxIterations,
+      };
+      const data = encoder.encode(JSON.stringify(agentData));
+
+      // Create metadata matching AgentEntityMetadata interface
+      const metadata: AgentEntityMetadata = {
+        agentLoopId: entity.id,
+        status: entity.getStatus(),
+        createdAt: entity.state.startTime || Date.now(),
+        updatedAt: entity.state.endTime || undefined,
+        completedAt: entity.state.endTime || undefined,
+        tags: [],
+        customFields: {
+          currentIteration: entity.state.currentIteration,
+          toolCallCount: entity.state.toolCallCount,
+          maxIterations: entity.config?.maxIterations,
+        },
+      };
+
+      await this.storageAdapter.save(entity.id, data, metadata);
+      logger.debug("Agent loop persisted to storage", {
+        agentLoopId: entity.id,
+        status: entity.getStatus(),
+      });
+    } catch (error) {
+      // Log error but don't throw - storage failure should not affect core functionality
+      logger.error("Failed to persist agent loop to storage", {
+        agentLoopId: entity.id,
+        error: getErrorMessage(error),
+      });
+    }
+  }
+
+  /**
+   * Remove agent loop from storage (if adapter is available)
+   * @param agentLoopId Agent loop ID to remove
+   */
+  private async removeFromStorage(agentLoopId: string): Promise<void> {
+    if (!this.storageAdapter) {
+      logger.debug("No storage adapter configured, skipping agent loop removal from storage");
+      return;
+    }
+
+    try {
+      await this.storageAdapter.delete(agentLoopId);
+      logger.debug("Agent loop removed from storage", { agentLoopId });
+    } catch (error) {
+      // Log error but don't throw - storage failure should not affect core functionality
+      logger.error("Failed to remove agent loop from storage", {
+        agentLoopId,
+        error: getErrorMessage(error),
+      });
+    }
+  }
+
+  /**
+   * Load agent loop from storage (if adapter is available)
+   * Note: This is a simplified implementation. Full deserialization would require
+   * reconstructing the complete entity with all dependencies.
+   * @param agentLoopId Agent loop ID to load
+   * @returns Loaded agent loop data or null
+   */
+  private async loadFromStorage(agentLoopId: string): Promise<unknown | null> {
+    if (!this.storageAdapter) {
+      logger.debug("No storage adapter configured, cannot load from storage");
+      return null;
+    }
+
+    try {
+      const data = await this.storageAdapter.load(agentLoopId);
+      if (!data) {
+        return null;
+      }
+
+      // Deserialize agent loop data
+      const decoder = new TextDecoder();
+      const agentData = JSON.parse(decoder.decode(data));
+      
+      logger.debug("Agent loop loaded from storage", { agentLoopId });
+      return agentData;
+    } catch (error) {
+      logger.error("Failed to load agent loop from storage", {
+        agentLoopId,
+        error: getErrorMessage(error),
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Initialize registry from storage (preload all agent loops)
+   * Note: This is typically not used for agent loops as they are created dynamically.
+   * This method is provided for completeness and potential future use cases.
+   */
+  async initializeFromStorage(): Promise<void> {
+    if (!this.storageAdapter) {
+      logger.debug("No storage adapter configured, skipping initialization from storage");
+      return;
+    }
+
+    try {
+      const agentLoopIds = await this.storageAdapter.list();
+      logger.info("Found agent loops in storage", { count: agentLoopIds.length });
+      
+      // Note: We don't automatically load all agent loops into memory
+      // Agent loops are typically loaded on-demand when needed
+      // This method can be extended to implement caching strategies if needed
+    } catch (error) {
+      logger.error("Failed to initialize agent loop registry from storage", {
+        error: getErrorMessage(error),
+      });
+    }
   }
 }

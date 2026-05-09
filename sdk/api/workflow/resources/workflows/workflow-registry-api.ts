@@ -96,7 +96,7 @@ export class WorkflowRegistryAPI extends CrudResourceAPI<
    * Get all workflows from the registry
    */
   protected async getAllResources(): Promise<WorkflowTemplate[]> {
-    const summaries = this.dependencies.getWorkflowRegistry().list();
+    const summaries = await this.dependencies.getWorkflowRegistry().list();
     const workflows: WorkflowTemplate[] = [];
     for (const summary of summaries) {
       const workflow = this.dependencies.getWorkflowRegistry().get(summary.id);
@@ -344,7 +344,7 @@ export class WorkflowRegistryAPI extends CrudResourceAPI<
    * @returns array of workflow summaries
    */
   async getWorkflowSummaries(filter?: WorkflowFilter): Promise<WorkflowSummary[]> {
-    const summaries = this.dependencies.getWorkflowRegistry().list();
+    const summaries = await this.dependencies.getWorkflowRegistry().list();
 
     if (!filter) {
       return summaries;

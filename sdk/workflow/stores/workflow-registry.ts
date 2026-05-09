@@ -26,6 +26,7 @@ import type {
 } from "@wf-agent/types";
 import type { WorkflowSummary } from "../../api/workflow/resources/workflows/workflow-registry-api.js";
 import type { WorkflowExecutionRegistry } from "./workflow-execution-registry.js";
+import type { WorkflowStorageAdapter } from "@wf-agent/storage";
 import {
   ExecutionError,
   ConfigurationValidationError,
@@ -60,16 +61,19 @@ export class WorkflowRegistry {
   private referenceRelations: Map<string, WorkflowReferenceRelation[]> = new Map();
   private maxRecursionDepth: number;
   private workflowExecutionRegistry: WorkflowExecutionRegistry | undefined;
+  private storageAdapter: WorkflowStorageAdapter | null = null;
 
   constructor(
     private readonly globalContext: GlobalContext,
     options: {
       maxRecursionDepth?: number;
+      storageAdapter?: WorkflowStorageAdapter;
     } = {},
     workflowExecutionRegistry?: WorkflowExecutionRegistry,
   ) {
     this.maxRecursionDepth = options.maxRecursionDepth ?? 10;
     this.workflowExecutionRegistry = workflowExecutionRegistry;
+    this.storageAdapter = options.storageAdapter || null;
   }
 
   /**
@@ -293,15 +297,29 @@ export class WorkflowRegistry {
       );
     }
 
-    // Save the workflow definition.
+    // Save the workflow definition to memory cache.
     this.workflows.set(workflow.id, workflow);
+
+    // Persist to storage (async, non-blocking)
+    this.persistToStorage(workflow).catch(error => {
+      logger.error("Failed to persist workflow during registration", {
+        workflowId: workflow.id,
+        error: getErrorMessage(error),
+      });
+    });
 
     // Preprocessing workflow asynchronously
     try {
       await this.preprocessWorkflow(workflow);
     } catch (error) {
-      // Remove the workflow if preprocessing fails
+      // Remove the workflow from both memory and storage if preprocessing fails
       this.workflows.delete(workflow.id);
+      this.removeFromStorage(workflow.id).catch(err => {
+        logger.error("Failed to remove workflow from storage after preprocessing failure", {
+          workflowId: workflow.id,
+          error: getErrorMessage(err),
+        });
+      });
       throw new ConfigurationValidationError(
         `Workflow preprocessing failed: ${getErrorMessage(error)}`,
         {
@@ -429,7 +447,14 @@ export class WorkflowRegistry {
    * @returns: Workflow definition; returns undefined if it does not exist
    */
   get(workflowId: string): WorkflowTemplate | undefined {
-    return this.workflows.get(workflowId);
+    // Check memory cache first
+    let workflow = this.workflows.get(workflowId);
+    
+    // If not in memory and storage adapter is available, try to load from storage
+    // Note: This is a simplified approach - ideally we'd have an async get() method
+    // For now, we rely on initializeFromStorage() to pre-populate the cache
+    
+    return workflow;
   }
 
   /**
@@ -496,23 +521,61 @@ export class WorkflowRegistry {
    * List all summary information for the workflows
    * @returns List of workflow summary information
    */
-  list(): WorkflowSummary[] {
-    const summaries: WorkflowSummary[] = [];
-    for (const workflow of this.workflows.values()) {
-      summaries.push({
-        id: workflow.id,
-        name: workflow.name,
-        description: workflow.description,
-        version: workflow.version,
-        nodeCount: workflow.nodes.length,
-        edgeCount: workflow.edges.length,
-        createdAt: workflow.createdAt,
-        updatedAt: workflow.updatedAt,
-        tags: workflow.metadata?.tags,
-        category: workflow.metadata?.category,
-      });
+  async list(): Promise<WorkflowSummary[]> {
+    const memoryWorkflows = Array.from(this.workflows.values());
+    
+    // If no storage adapter, return only memory workflows
+    if (!this.storageAdapter) {
+      return this.buildWorkflowSummaries(memoryWorkflows);
     }
-    return summaries;
+
+    try {
+      // Get all IDs from storage
+      const storageIds = await this.storageAdapter.list();
+      
+      // Load workflows that are not in memory cache
+      const loadedWorkflows: WorkflowTemplate[] = [];
+      for (const id of storageIds) {
+        if (!this.workflows.has(id)) {
+          const workflow = await this.loadFromStorage(id);
+          if (workflow) {
+            loadedWorkflows.push(workflow);
+            // Cache in memory for future access
+            this.workflows.set(id, workflow);
+          }
+        }
+      }
+
+      // Merge memory and storage workflows (memory takes precedence)
+      const allWorkflows = [...memoryWorkflows, ...loadedWorkflows];
+      return this.buildWorkflowSummaries(allWorkflows);
+    } catch (error) {
+      logger.error("Failed to list workflows from storage", {
+        error: getErrorMessage(error),
+      });
+      // Return only memory workflows as fallback
+      return this.buildWorkflowSummaries(memoryWorkflows);
+    }
+  }
+
+  /**
+   * Helper method to build workflow summaries
+   * @param workflows Array of workflow templates
+   * @returns Array of workflow summaries
+   */
+  private buildWorkflowSummaries(workflows: WorkflowTemplate[]): WorkflowSummary[] {
+    return workflows.map(workflow => ({
+      id: workflow.id,
+      name: workflow.name,
+      description: workflow.description,
+      version: workflow.version,
+      nodeCount: workflow.nodes.length,
+      edgeCount: workflow.edges.length,
+      createdAt: workflow.createdAt,
+      updatedAt: workflow.updatedAt,
+      tags: workflow.metadata?.tags,
+      category: workflow.metadata?.category,
+    }));
   }
 
   /**
@@ -520,9 +583,10 @@ export class WorkflowRegistry {
    * @param keyword Search keyword
    * @returns List of matching workflow summary information
    */
-  search(keyword: string): WorkflowSummary[] {
+  async search(keyword: string): Promise<WorkflowSummary[]> {
     const lowerKeyword = keyword.toLowerCase();
-    return this.list().filter(
+    const summaries = await this.list();
+    return summaries.filter(
       summary =>
         summary.name.toLowerCase().includes(lowerKeyword) ||
         summary.description?.toLowerCase().includes(lowerKeyword) ||
@@ -535,14 +599,14 @@ export class WorkflowRegistry {
    * @param workflowId Workflow ID
    * @returns Reference information
    */
-  checkWorkflowReferences(workflowId: string): WorkflowReferenceInfo {
+  async checkWorkflowReferences(workflowId: string): Promise<WorkflowReferenceInfo> {
     const workflowExecutionRegistry = this.getWorkflowExecutionRegistry();
     if (!workflowExecutionRegistry) {
       throw new ExecutionError("WorkflowExecutionRegistry not available", undefined, workflowId, {
         operation: "check_workflow_references",
       });
     }
-    return checkWorkflowReferences(this, workflowExecutionRegistry, workflowId);
+    return await checkWorkflowReferences(this, workflowExecutionRegistry, workflowId);
   }
 
   /**
@@ -569,21 +633,21 @@ export class WorkflowRegistry {
   }
 
   /**
-   * Check if the workflow can be safely deleted.
-   * @param workflowId: Workflow ID
+   * Check if the workflow can be safely deleted
+   * @param workflowId Workflow ID
    * @param options: Deletion options
    * @returns: Whether the workflow can be deleted and detailed information
    */
-  canSafelyDelete(
+  async canSafelyDelete(
     workflowId: string,
     options?: UnregisterOptions,
-  ): { canDelete: boolean; details: string } {
-    const referenceInfo = this.checkWorkflowReferences(workflowId);
-
+  ): Promise<{ canDelete: boolean; details: string }> {
+    const referenceInfo = await this.checkWorkflowReferences(workflowId);
+  
     if (!referenceInfo.hasReferences) {
       return { canDelete: true, details: "No references found" };
     }
-
+  
     if (options?.force) {
       if (referenceInfo.stats.runtimeReferences > 0) {
         const runtimeReferences = referenceInfo.references.filter(ref => ref.isRuntimeReference);
@@ -595,7 +659,7 @@ export class WorkflowRegistry {
       }
       return { canDelete: true, details: "Force delete enabled" };
     }
-
+  
     const referenceDetails = this.formatReferenceDetails(referenceInfo.references);
     return {
       canDelete: false,
@@ -627,11 +691,11 @@ export class WorkflowRegistry {
   }
 
   /**
-   * Remove workflow definition
-   * @param workflowId Workflow ID
+   * Unregister a workflow definition
+   * @param workflowId: Workflow ID
    * @param options Options for deletion
    */
-  unregister(workflowId: string, options?: UnregisterOptions): void {
+  async unregister(workflowId: string, options?: UnregisterOptions): Promise<void> {
     // Check if the workflow exists.
     if (!this.workflows.has(workflowId)) {
       throw new WorkflowNotFoundError(`Workflow '${workflowId}' not found`, workflowId);
@@ -640,7 +704,7 @@ export class WorkflowRegistry {
     const shouldCheck = options?.checkReferences !== false;
 
     if (shouldCheck) {
-      const checkResult = this.canSafelyDelete(workflowId, options);
+      const checkResult = await this.canSafelyDelete(workflowId, options);
       if (!checkResult.canDelete) {
         throw new ConfigurationValidationError(checkResult.details, {
           configType: "workflow",
@@ -658,6 +722,14 @@ export class WorkflowRegistry {
     }
 
     this.workflows.delete(workflowId);
+
+    // Remove from storage (async, non-blocking)
+    this.removeFromStorage(workflowId).catch(error => {
+      logger.error("Failed to remove workflow from storage during unregister", {
+        workflowId,
+        error: getErrorMessage(error),
+      });
+    });
 
     // Clean up reference relationships
     this.cleanupWorkflowReferences(workflowId);
@@ -901,5 +973,137 @@ export class WorkflowRegistry {
   private calculateDepth(workflowId: string): number {
     const relationship = this.workflowRelationships.get(workflowId);
     return relationship?.depth || 0;
+  }
+
+  // ============================================================
+  // Storage Persistence Methods
+  // ============================================================
+
+  /**
+   * Persist workflow to storage (if adapter is available)
+   * @param workflow Workflow template to persist
+   */
+  private async persistToStorage(workflow: WorkflowTemplate): Promise<void> {
+    if (!this.storageAdapter) {
+      logger.debug("No storage adapter configured, skipping workflow persistence");
+      return;
+    }
+
+    try {
+      // Serialize workflow to bytes
+      const encoder = new TextEncoder();
+      const data = encoder.encode(JSON.stringify(workflow));
+
+      // Create metadata matching WorkflowStorageMetadata interface
+      const metadata = {
+        workflowId: workflow.id,
+        name: workflow.name,
+        version: workflow.version,
+        description: workflow.description,
+        createdAt: workflow.createdAt,
+        updatedAt: workflow.updatedAt,
+        nodeCount: workflow.nodes.length,
+        edgeCount: workflow.edges.length,
+        enabled: true,
+        tags: workflow.metadata?.tags,
+        category: workflow.metadata?.category,
+        author: workflow.metadata?.author,
+      };
+
+      // Save to storage
+      await this.storageAdapter.save(workflow.id, data, metadata);
+      logger.debug("Workflow persisted to storage", { workflowId: workflow.id });
+    } catch (error) {
+      // Log error but don't fail the registration
+      logger.error("Failed to persist workflow to storage", {
+        workflowId: workflow.id,
+        error: getErrorMessage(error),
+      });
+    }
+  }
+
+  /**
+   * Remove workflow from storage (if adapter is available)
+   * @param workflowId Workflow ID to remove
+   */
+  private async removeFromStorage(workflowId: string): Promise<void> {
+    if (!this.storageAdapter) {
+      return;
+    }
+
+    try {
+      await this.storageAdapter.delete(workflowId);
+      logger.debug("Workflow removed from storage", { workflowId });
+    } catch (error) {
+      logger.error("Failed to remove workflow from storage", {
+        workflowId,
+        error: getErrorMessage(error),
+      });
+    }
+  }
+
+  /**
+   * Load workflow from storage (if adapter is available)
+   * @param workflowId Workflow ID to load
+   * @returns Workflow template or null if not found
+   */
+  private async loadFromStorage(workflowId: string): Promise<WorkflowTemplate | null> {
+    if (!this.storageAdapter) {
+      return null;
+    }
+
+    try {
+      const data = await this.storageAdapter.load(workflowId);
+      if (!data) {
+        return null;
+      }
+
+      const decoder = new TextDecoder();
+      const json = decoder.decode(data);
+      return JSON.parse(json) as WorkflowTemplate;
+    } catch (error) {
+      logger.error("Failed to load workflow from storage", {
+        workflowId,
+        error: getErrorMessage(error),
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Initialize registry by loading all workflows from storage
+   * Call this after construction if you want to pre-populate the cache
+   */
+  async initializeFromStorage(): Promise<void> {
+    if (!this.storageAdapter) {
+      logger.info("No storage adapter configured, skipping workflow initialization from storage");
+      return;
+    }
+
+    try {
+      const ids = await this.storageAdapter.list();
+      logger.info("Loading workflows from storage", { count: ids.length });
+
+      let loadedCount = 0;
+      for (const id of ids) {
+        if (!this.workflows.has(id)) {
+          const workflow = await this.loadFromStorage(id);
+          if (workflow) {
+            this.workflows.set(id, workflow);
+            loadedCount++;
+          }
+        }
+      }
+
+      logger.info("Successfully loaded workflows from storage", {
+        total: ids.length,
+        loaded: loadedCount,
+      });
+    } catch (error) {
+      logger.error("Failed to initialize workflows from storage", {
+        error: getErrorMessage(error),
+      });
+      // Don't throw - allow registry to work with empty cache
+    }
   }
 }

@@ -30,6 +30,7 @@ import type {
   WorkflowStorageAdapter,
   TaskStorageAdapter,
   WorkflowExecutionStorageAdapter,
+  AgentLoopStorageAdapter,
   AgentLoopCheckpointStorageAdapter,
 } from "@wf-agent/storage";
 import * as Identifiers from "./service-identifiers.js";
@@ -110,6 +111,7 @@ export interface ContainerStorageConfig {
   workflow?: WorkflowStorageAdapter;
   task?: TaskStorageAdapter;
   workflowExecution?: WorkflowExecutionStorageAdapter;
+  agentLoop?: AgentLoopStorageAdapter;
   agentLoopCheckpoint?: AgentLoopCheckpointStorageAdapter;
 }
 
@@ -152,6 +154,12 @@ export function configureContainerBindings(
     .toDynamicValue(() => adapters.workflowExecution || null)
     .inSingletonScope();
 
+  // AgentLoopStorageAdapter
+  container
+    .bind(Identifiers.AgentLoopStorageAdapter)
+    .toDynamicValue(() => adapters.agentLoop || null)
+    .inSingletonScope();
+
   // AgentLoopCheckpointStorageAdapter
   container
     .bind(Identifiers.AgentLoopCheckpointStorageAdapter)
@@ -164,7 +172,17 @@ export function configureContainerBindings(
 
   container.bind(Identifiers.WorkflowGraphRegistry).to(WorkflowGraphRegistry).inSingletonScope();
 
-  container.bind(Identifiers.WorkflowExecutionRegistry).to(WorkflowExecutionRegistry).inSingletonScope();
+  // WorkflowExecutionRegistry - Depends on WorkflowExecutionStorageAdapter for persistence
+  container
+    .bind(Identifiers.WorkflowExecutionRegistry)
+    .toDynamicValue((c: IContainer): WorkflowExecutionRegistry => {
+      const storageAdapter = c.get(Identifiers.WorkflowExecutionStorageAdapter) as WorkflowExecutionStorageAdapter | null;
+      
+      return new WorkflowExecutionRegistry({
+        storageAdapter: storageAdapter || undefined,
+      });
+    })
+    .inSingletonScope();
 
   // LLMWrapper - An LLM wrapper that relies on EventRegistry for event publishing.
   container
@@ -248,7 +266,16 @@ export function configureContainerBindings(
     .toDynamicValue((c: IContainer): WorkflowRegistry => {
       const globalContext = c.get(Identifiers.GlobalContext) as import("../global-context.js").GlobalContext;
       const workflowExecutionRegistry = c.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry;
-      return new WorkflowRegistry(globalContext, { maxRecursionDepth: 10 }, workflowExecutionRegistry);
+      const storageAdapter = c.get(Identifiers.WorkflowStorageAdapter) as WorkflowStorageAdapter | null;
+      
+      return new WorkflowRegistry(
+        globalContext, 
+        { 
+          maxRecursionDepth: 10,
+          storageAdapter: storageAdapter || undefined
+        }, 
+        workflowExecutionRegistry
+      );
     })
     .inSingletonScope();
 
@@ -708,7 +735,17 @@ export function configureContainerBindings(
     .inSingletonScope();
 
   // AgentLoopRegistry - The Agent Loop registry, a global singleton.
-  container.bind(Identifiers.AgentLoopRegistry).to(AgentLoopRegistry).inSingletonScope();
+  // Depends on AgentLoopStorageAdapter for persistence
+  container
+    .bind(Identifiers.AgentLoopRegistry)
+    .toDynamicValue((c: IContainer): AgentLoopRegistry => {
+      const storageAdapter = c.get(Identifiers.AgentLoopStorageAdapter) as AgentLoopStorageAdapter | null;
+      
+      return new AgentLoopRegistry({
+        storageAdapter: storageAdapter || undefined,
+      });
+    })
+    .inSingletonScope();
 
   // ExecutionHierarchyRegistry - Unified execution hierarchy registry (Phase 4)
   // Manages parent-child relationships across all execution types (Workflow, Agent)

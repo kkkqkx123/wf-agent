@@ -17,10 +17,31 @@ import { CommunicationBridge } from "../../services/terminal/communication-bridg
 
 const output = getOutput();
 
-// Create a global instance
-const terminalManager = new TerminalManager();
-const taskExecutor = new TaskExecutor();
-const communicationBridge = new CommunicationBridge();
+// Lazy initialization - create instances only when needed to avoid SDK initialization order issues
+let terminalManager: TerminalManager | null = null;
+let taskExecutor: TaskExecutor | null = null;
+let communicationBridge: CommunicationBridge | null = null;
+
+function getTerminalManager(): TerminalManager {
+  if (!terminalManager) {
+    terminalManager = new TerminalManager();
+  }
+  return terminalManager;
+}
+
+function getTaskExecutor(): TaskExecutor {
+  if (!taskExecutor) {
+    taskExecutor = new TaskExecutor();
+  }
+  return taskExecutor;
+}
+
+function getCommunicationBridge(): CommunicationBridge {
+  if (!communicationBridge) {
+    communicationBridge = new CommunicationBridge();
+  }
+  return communicationBridge;
+}
 
 /**
  * Create workflow execution command group
@@ -70,11 +91,11 @@ export function createWorkflowExecutionCommands(): Command {
             output.output(formatWorkflowExecution(execution, { verbose: options.verbose }));
           } else {
             // Run in an independent terminal (the default method).
-            const terminal = terminalManager.createTerminal({
+            const terminal = getTerminalManager().createTerminal({
               background: options.background,
               logFile: options.logFile,
             });
-            const result = await taskExecutor.executeInTerminal(workflowId, inputData, terminal);
+            const result = await getTaskExecutor().executeInTerminal(workflowId, inputData, terminal);
 
             if (options.background) {
               output.newLine();
@@ -115,7 +136,7 @@ export function createWorkflowExecutionCommands(): Command {
     .description("Check the task status.")
     .action(async taskId => {
       try {
-        const status = await taskExecutor.monitorTask(taskId);
+        const status = await getTaskExecutor().monitorTask(taskId);
         output.newLine();
         output.subsection("Task Status:");
         output.keyValue("Task ID", status.taskId);
@@ -137,7 +158,7 @@ export function createWorkflowExecutionCommands(): Command {
     .description("Cancel task execution")
     .action(async taskId => {
       try {
-        await taskExecutor.stopTask(taskId);
+        await getTaskExecutor().stopTask(taskId);
         output.info(`Task cancelled: ${taskId}`);
       } catch (error) {
         handleError(error, {
@@ -152,7 +173,7 @@ export function createWorkflowExecutionCommands(): Command {
     .command("terminals")
     .description("List all active terminals")
     .action(() => {
-      const terminals = terminalManager.getActiveTerminals();
+      const terminals = getTerminalManager().getActiveTerminals();
       if (terminals.length === 0) {
         output.newLine();
         output.output("There are no active terminals currently.");

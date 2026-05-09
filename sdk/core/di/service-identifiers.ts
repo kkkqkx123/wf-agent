@@ -58,6 +58,7 @@ import type {
   WorkflowStorageAdapter as WorkflowStorageAdapterType,
   TaskStorageAdapter as TaskStorageAdapterType,
   WorkflowExecutionStorageAdapter as WorkflowExecutionStorageAdapterType,
+  AgentLoopStorageAdapter as AgentLoopStorageAdapterType,
   AgentLoopCheckpointStorageAdapter as AgentLoopCheckpointStorageAdapterType,
 } from "@wf-agent/storage";
 
@@ -392,6 +393,12 @@ export const TaskStorageAdapter: ServiceIdentifier<TaskStorageAdapterType> = Sym
  * Provides workflow execution history persistence operations
  */
 export const WorkflowExecutionStorageAdapter: ServiceIdentifier<WorkflowExecutionStorageAdapterType> = Symbol("WorkflowExecutionStorageAdapter");
+
+/**
+ * AgentLoopStorageAdapter - Agent Loop Storage Adapter
+ * Provides agent loop lifecycle persistence operations
+ */
+export const AgentLoopStorageAdapter: ServiceIdentifier<AgentLoopStorageAdapterType> = Symbol("AgentLoopStorageAdapter");
 
 /**
  * AgentLoopCheckpointStorageAdapter - Agent Loop Checkpoint Storage Adapter

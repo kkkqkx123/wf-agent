@@ -17,11 +17,11 @@ import type { WorkflowReference, WorkflowReferenceInfo } from "@wf-agent/types";
  * @param workflowId: Workflow ID
  * @returns: Reference information
  */
-export function checkWorkflowReferences(
+export async function checkWorkflowReferences(
   workflowRegistry: WorkflowRegistry,
   workflowExecutionRegistry: WorkflowExecutionRegistry,
   workflowId: string,
-): WorkflowReferenceInfo {
+): Promise<WorkflowReferenceInfo> {
   const references: WorkflowReference[] = [];
 
   // Check sub-workflow references.
@@ -29,7 +29,7 @@ export function checkWorkflowReferences(
   references.push(...subgraphRefs);
 
   // Check trigger references.
-  const triggerRefs = checkTriggerReferences(workflowRegistry, workflowId);
+  const triggerRefs = await checkTriggerReferences(workflowRegistry, workflowId);
   references.push(...triggerRefs);
 
   // Check runtime execution references.
@@ -84,12 +84,12 @@ function checkSubgraphReferences(
 /**
  * Check the trigger reference.
  */
-function checkTriggerReferences(
+async function checkTriggerReferences(
   workflowRegistry: WorkflowRegistry,
   workflowId: string,
-): WorkflowReference[] {
+): Promise<WorkflowReference[]> {
   const references: WorkflowReference[] = [];
-  const allWorkflows = workflowRegistry.list();
+  const allWorkflows = await workflowRegistry.list();
 
   for (const summary of allWorkflows) {
     const workflow = workflowRegistry.get(summary.id);

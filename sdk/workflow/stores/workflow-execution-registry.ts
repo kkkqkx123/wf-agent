@@ -9,6 +9,12 @@
 
 import { WorkflowExecutionEntity } from "../entities/workflow-execution-entity.js";
 import type { WorkflowExecutionStatus } from "@wf-agent/types";
+import type { WorkflowExecutionStorageAdapter } from "@wf-agent/storage";
+import type { WorkflowExecutionStorageMetadata } from "@wf-agent/types";
+import { createContextualLogger } from "../../utils/contextual-logger.js";
+import { getErrorMessage } from "@wf-agent/common-utils";
+
+const logger = createContextualLogger({ component: "WorkflowExecutionRegistry" });
 
 /**
  * WorkflowExecutionRegistry - Workflow Execution Entity Registry
@@ -26,6 +32,15 @@ import type { WorkflowExecutionStatus } from "@wf-agent/types";
  */
 export class WorkflowExecutionRegistry {
   private workflowExecutionEntities: Map<string, WorkflowExecutionEntity> = new Map();
+  private storageAdapter?: WorkflowExecutionStorageAdapter;
+
+  /**
+   * Constructor
+   * @param options Configuration options
+   */
+  constructor(options?: { storageAdapter?: WorkflowExecutionStorageAdapter }) {
+    this.storageAdapter = options?.storageAdapter;
+  }
 
   /**
    * Register WorkflowExecutionEntity
@@ -33,6 +48,14 @@ export class WorkflowExecutionRegistry {
    */
   register(workflowExecutionEntity: WorkflowExecutionEntity): void {
     this.workflowExecutionEntities.set(workflowExecutionEntity.id, workflowExecutionEntity);
+    
+    // Persist to storage (async, non-blocking)
+    this.persistToStorage(workflowExecutionEntity).catch(error => {
+      logger.error("Failed to persist workflow execution to storage during register", {
+        executionId: workflowExecutionEntity.id,
+        error: getErrorMessage(error),
+      });
+    });
   }
 
   /**
@@ -50,6 +73,14 @@ export class WorkflowExecutionRegistry {
    */
   delete(executionId: string): void {
     this.workflowExecutionEntities.delete(executionId);
+    
+    // Remove from storage (async, non-blocking)
+    this.removeFromStorage(executionId).catch(error => {
+      logger.error("Failed to remove workflow execution from storage during delete", {
+        executionId,
+        error: getErrorMessage(error),
+      });
+    });
   }
 
   /**
@@ -153,5 +184,149 @@ export class WorkflowExecutionRegistry {
    */
   getChildIdsByParentExecutionId(parentExecutionId: string): string[] {
     return this.getChildrenByParentExecutionId(parentExecutionId).map(entity => entity.id);
+  }
+
+  // ============================================================
+  // Storage Persistence Methods
+  // ============================================================
+
+  /**
+   * Persist workflow execution to storage (if adapter is available)
+   * @param entity Workflow execution entity to persist
+   */
+  private async persistToStorage(entity: WorkflowExecutionEntity): Promise<void> {
+    if (!this.storageAdapter) {
+      logger.debug("No storage adapter configured, skipping workflow execution persistence");
+      return;
+    }
+
+    try {
+      // Serialize execution state to bytes
+      const encoder = new TextEncoder();
+      const executionData = {
+        id: entity.id,
+        workflowId: entity.getWorkflowId(),
+        status: entity.getStatus(),
+        executionType: entity.getExecutionType(),
+        currentNodeId: entity.getCurrentNodeId(),
+        input: entity.getInput(),
+        output: entity.getOutput(),
+        startTime: entity.state.startTime,
+        endTime: entity.state.endTime,
+        error: entity.state.error,
+        hierarchy: entity.getHierarchyMetadata(),
+      };
+      const data = encoder.encode(JSON.stringify(executionData));
+
+      // Create metadata matching WorkflowExecutionStorageMetadata interface
+      const metadata: WorkflowExecutionStorageMetadata = {
+        executionId: entity.id,
+        workflowId: entity.getWorkflowId(),
+        workflowVersion: "1.0", // TODO: Get from workflow definition
+        status: entity.getStatus(),
+        executionType: entity.getExecutionType(),
+        currentNodeId: entity.getCurrentNodeId(),
+        parentExecutionId: entity.getParentContext()?.parentId,
+        startTime: entity.state.startTime || Date.now(),
+        endTime: entity.state.endTime || undefined,
+        tags: [],
+        customFields: {
+          nodeResultsCount: entity.getNodeResults().length,
+        },
+      };
+
+      await this.storageAdapter.save(entity.id, data, metadata);
+      logger.debug("Workflow execution persisted to storage", {
+        executionId: entity.id,
+        status: entity.getStatus(),
+      });
+    } catch (error) {
+      // Log error but don't throw - storage failure should not affect core functionality
+      logger.error("Failed to persist workflow execution to storage", {
+        executionId: entity.id,
+        error: getErrorMessage(error),
+      });
+    }
+  }
+
+  /**
+   * Remove workflow execution from storage (if adapter is available)
+   * @param executionId Execution ID to remove
+   */
+  private async removeFromStorage(executionId: string): Promise<void> {
+    if (!this.storageAdapter) {
+      logger.debug("No storage adapter configured, skipping workflow execution removal from storage");
+      return;
+    }
+
+    try {
+      await this.storageAdapter.delete(executionId);
+      logger.debug("Workflow execution removed from storage", { executionId });
+    } catch (error) {
+      // Log error but don't throw - storage failure should not affect core functionality
+      logger.error("Failed to remove workflow execution from storage", {
+        executionId,
+        error: getErrorMessage(error),
+      });
+    }
+  }
+
+  /**
+   * Load workflow execution from storage (if adapter is available)
+   * Note: This is a simplified implementation. Full deserialization would require
+   * reconstructing the complete entity with all state managers.
+   * @param executionId Execution ID to load
+   * @returns Loaded execution data or null
+   */
+  private async loadFromStorage(executionId: string): Promise<unknown | null> {
+    if (!this.storageAdapter) {
+      logger.debug("No storage adapter configured, cannot load from storage");
+      return null;
+    }
+
+    try {
+      const data = await this.storageAdapter.load(executionId);
+      if (!data) {
+        return null;
+      }
+
+      // Deserialize execution data
+      const decoder = new TextDecoder();
+      const executionData = JSON.parse(decoder.decode(data));
+      
+      logger.debug("Workflow execution loaded from storage", { executionId });
+      return executionData;
+    } catch (error) {
+      logger.error("Failed to load workflow execution from storage", {
+        executionId,
+        error: getErrorMessage(error),
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Initialize registry from storage (preload all executions)
+   * Note: This is typically not used for executions as they are created dynamically.
+   * This method is provided for completeness and potential future use cases.
+   */
+  async initializeFromStorage(): Promise<void> {
+    if (!this.storageAdapter) {
+      logger.debug("No storage adapter configured, skipping initialization from storage");
+      return;
+    }
+
+    try {
+      const executionIds = await this.storageAdapter.list();
+      logger.info("Found workflow executions in storage", { count: executionIds.length });
+      
+      // Note: We don't automatically load all executions into memory
+      // Executions are typically loaded on-demand when needed
+      // This method can be extended to implement caching strategies if needed
+    } catch (error) {
+      logger.error("Failed to initialize workflow execution registry from storage", {
+        error: getErrorMessage(error),
+      });
+    }
   }
 }

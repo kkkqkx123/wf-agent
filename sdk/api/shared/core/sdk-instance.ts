@@ -236,18 +236,17 @@ export class SDKInstance {
     }
 
     // Configure MCP if enabled
-    if (this.config?.mcp?.enabled !== false) {
+    if (this.config?.mcp) {
       try {
         const { McpServerRegistry } = await import("../../../services/mcp/server-registry.js");
-        const mcpConfig = this.config.mcp!;
         McpServerRegistry.setOptions({
-          mcpEnabled: mcpConfig.enabled,
-          maxErrorHistory: mcpConfig.maxErrorHistory,
-          connectionTimeout: mcpConfig.connectionTimeout,
-          configDebounceDelay: mcpConfig.configDebounceDelay,
+          mcpEnabled: this.config.mcp.enabled ?? true,
+          maxErrorHistory: this.config.mcp.maxErrorHistory,
+          connectionTimeout: this.config.mcp.connectionTimeout,
+          configDebounceDelay: this.config.mcp.configDebounceDelay,
         });
         logger.info("MCP configuration applied", {
-          enabled: mcpConfig.enabled,
+          enabled: this.config.mcp.enabled ?? true,
         });
       } catch (error) {
         logger.error(`Failed to configure MCP: ${getErrorMessage(error)}`);

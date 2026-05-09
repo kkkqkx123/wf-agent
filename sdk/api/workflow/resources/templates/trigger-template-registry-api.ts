@@ -164,7 +164,7 @@ export class TriggerTemplateRegistryAPI extends CrudResourceAPI<
    */
   private async findReferencingWorkflows(templateName: string): Promise<string[]> {
     const workflowRegistry = this.dependencies.getWorkflowRegistry();
-    const allSummaries = workflowRegistry.list();
+    const allSummaries = await workflowRegistry.list();
 
     const referencingWorkflows: string[] = [];
 

@@ -26,7 +26,7 @@ import { WorkflowExecutor } from "../executors/workflow-executor.js";
 import { WorkflowStateTransitor } from "./workflow-state-transitor.js";
 import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-registry.js";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
-import { getContainer } from "../../../core/di/index.js";
+import type { GlobalContext } from "../../../core/global-context.js";
 import * as Identifiers from "../../../core/di/service-identifiers.js";
 import type { ExecutionHierarchyRegistry } from "../../../core/registry/execution-hierarchy-registry.js";
 import { restoreWorkflowFromCheckpoint } from "../utils/checkpoint-restoration.js";
@@ -48,6 +48,7 @@ export class WorkflowLifecycleCoordinator {
     private readonly workflowStateTransitor: WorkflowStateTransitor,
     private readonly workflowExecutionBuilder: WorkflowExecutionBuilder,
     private readonly workflowExecutor: WorkflowExecutor,
+    private readonly globalContext: GlobalContext,
   ) {}
 
   /**
@@ -58,8 +59,7 @@ export class WorkflowLifecycleCoordinator {
     maxPauseDuration?: number;
     warningThreshold?: number;
   }): void {
-    const container = getContainer();
-    const eventManager = container.get(Identifiers.EventRegistry) as EventRegistry;
+    const eventManager = this.globalContext.eventRegistry;
     
     this.pauseTimeoutManager = new PauseTimeoutManager(
       this.workflowExecutionRegistry,
@@ -88,8 +88,9 @@ export class WorkflowLifecycleCoordinator {
     this.workflowExecutionRegistry.register(workflowExecutionEntity);
     
     // Step 2.5: Register with ExecutionHierarchyRegistry for unified hierarchy management
-    const container = getContainer();
-    const hierarchyRegistry = container.get(Identifiers.ExecutionHierarchyRegistry) as ExecutionHierarchyRegistry;
+    const hierarchyRegistry = this.globalContext.container.get(
+      Identifiers.ExecutionHierarchyRegistry,
+    ) as ExecutionHierarchyRegistry;
     hierarchyRegistry.register(workflowExecutionEntity);
 
     // Step 3: Start the Workflow Execution
@@ -176,6 +177,7 @@ export class WorkflowLifecycleCoordinator {
       executionId,
       workflowExecutionEntity,
       this.workflowExecutionRegistry,
+      this.globalContext,
     );
 
     if (restored) {
@@ -240,10 +242,10 @@ export class WorkflowLifecycleCoordinator {
    */
   private async cleanupChildAgentLoops(executionId: string): Promise<void> {
     try {
-      const container = getContainer();
-      
       // Use unified hierarchy registry for cleanup
-      const hierarchyRegistry = container.get(Identifiers.ExecutionHierarchyRegistry) as ExecutionHierarchyRegistry;
+      const hierarchyRegistry = this.globalContext.container.get(
+        Identifiers.ExecutionHierarchyRegistry,
+      ) as ExecutionHierarchyRegistry;
       
       if (hierarchyRegistry) {
         // Use unified cleanup that handles mixed hierarchies (Workflow → Agent, Agent → Agent, etc.)

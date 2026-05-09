@@ -35,7 +35,7 @@ import {
 import { emit } from "../../../core/utils/event/event-emitter.js";
 import { getErrorOrNew } from "@wf-agent/common-utils";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
-import { getContainer } from "../../../core/di/index.js";
+import type { GlobalContext } from "../../../core/global-context.js";
 import * as Identifiers from "../../../core/di/service-identifiers.js";
 import type { ExecutionHierarchyRegistry } from "../../../core/registry/execution-hierarchy-registry.js";
 
@@ -51,6 +51,7 @@ export class WorkflowStateTransitor {
     private eventManager: EventRegistry,
     private workflowConversationSession: WorkflowConversationSession,
     private workflowExecutionRegistry: WorkflowExecutionRegistry,
+    private readonly globalContext: GlobalContext,
   ) {}
 
   /**
@@ -323,10 +324,8 @@ export class WorkflowStateTransitor {
    */
   async cleanupChildAgentLoops(executionId: string): Promise<void> {
     try {
-      const container = getContainer();
-      
       // Use unified hierarchy registry for cleanup
-      const hierarchyRegistry = container.get(Identifiers.ExecutionHierarchyRegistry) as ExecutionHierarchyRegistry;
+      const hierarchyRegistry = this.globalContext.container.get(Identifiers.ExecutionHierarchyRegistry) as ExecutionHierarchyRegistry;
       
       if (hierarchyRegistry) {
         // Use unified cleanup that handles mixed hierarchies (Workflow → Agent, Agent → Agent, etc.)

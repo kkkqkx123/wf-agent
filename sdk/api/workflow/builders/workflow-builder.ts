@@ -107,7 +107,7 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
    * @returns this
    */
   addNode(id: string, type: NodeType, config: NodeConfig, name?: string): this {
-    const nodeBuilder = NodeBuilder.create(id).type(type).config(config);
+    const nodeBuilder = NodeBuilder.create(this.globalContext, id).type(type).config(config);
     if (name) {
       nodeBuilder.name(name);
     }
@@ -464,12 +464,14 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
 
   /**
    * Creating a workflow from the contents of a configuration file
+   * @param globalContext The GlobalContext to access services
    * @param configFile Configuration file content
    * @param format Configuration format ('toml' | 'json')
    * @param parameters runtime parameters
    * @returns WorkflowBuilder instance
    */
   static async fromConfig(
+    globalContext: GlobalContext,
     configFile: string,
     format: ConfigFormat = "toml",
     parameters?: Record<string, unknown>,
@@ -477,7 +479,7 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
     const parser = new ConfigParser();
     const workflowDef = await parser.parseAndTransform(configFile, format, parameters);
 
-    const builder = new WorkflowBuilder(workflowDef.id);
+    const builder = new WorkflowBuilder(globalContext, workflowDef.id);
     // Populate the internal state of the builder
     builder._name = workflowDef.name;
     builder._version = workflowDef.version;
@@ -500,11 +502,13 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
 
   /**
    * Creating a workflow from a configuration file path
+   * @param globalContext The GlobalContext to access services
    * @param filePath Configuration file path
    * @param parameters Runtime parameters
    * @returns WorkflowBuilder instance
    */
   static async fromConfigFile(
+    globalContext: GlobalContext,
     filePath: string,
     parameters?: Record<string, unknown>,
   ): Promise<WorkflowBuilder> {
@@ -515,7 +519,7 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
     const format = getConfigFormatFromPath(filePath);
     const workflowDef = await parser.parseAndTransform(content, format, parameters);
 
-    const builder = new WorkflowBuilder(workflowDef.id);
+    const builder = new WorkflowBuilder(globalContext, workflowDef.id);
     // Populate the internal state of the builder
     builder._name = workflowDef.name;
     builder._version = workflowDef.version;

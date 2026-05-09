@@ -11,12 +11,13 @@
 import type { Node, ScriptNodeConfig } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import { now, getErrorMessage } from "@wf-agent/common-utils";
-import { getContainer } from "../../../../core/di/container-config.js";
 import * as Identifiers from "../../../../core/di/service-identifiers.js";
 import type { ScriptRegistry } from "../../../../core/registry/script-registry.js";
+import type { GlobalContext } from "../../../../core/global-context.js";
 
 /**
  * Script Node Processing Function
+ * @param globalContext Global context for accessing DI container
  * @param workflowExecutionEntity WorkflowExecutionEntity instance
  * @param node Node definition
  * @param context Processor context (optional)
@@ -28,6 +29,7 @@ import type { ScriptRegistry } from "../../../../core/registry/script-registry.j
  * - The application layer is responsible for script security verification (whitelist, sandbox configuration, etc.).
  */
 export async function scriptHandler(
+  globalContext: GlobalContext,
   workflowExecutionEntity: WorkflowExecutionEntity,
   node: Node,
   _context?: unknown,
@@ -36,8 +38,7 @@ export async function scriptHandler(
 
   try {
     // Use the script service to execute the script.
-    const container = getContainer();
-    const scriptService = container.get(Identifiers.ScriptRegistry) as ScriptRegistry;
+    const scriptService = globalContext.container.get(Identifiers.ScriptRegistry) as ScriptRegistry;
     const result = await scriptService.execute(config.scriptName);
 
     // Check the execution results.

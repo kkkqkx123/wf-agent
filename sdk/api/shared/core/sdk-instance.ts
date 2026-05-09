@@ -619,6 +619,32 @@ export class SDKInstance {
   }
 
   /**
+   * Get the GlobalContext for this SDK instance
+   * 
+   * This provides access to the instance-specific DI container and all registered services.
+   * Use this when you need direct access to services that are not exposed through the API layer.
+   * 
+   * @returns The GlobalContext instance associated with this SDK instance
+   * 
+   * @example
+   * ```typescript
+   * const sdk = createSDK(options);
+   * await sdk.waitForReady();
+   * 
+   * // Access the DI container
+   * const context = sdk.getGlobalContext();
+   * const container = context.getContainer();
+   * 
+   * // Or access specific services
+   * const eventRegistry = context.eventRegistry;
+   * ```
+   */
+  getGlobalContext(): GlobalContext {
+    this.ensureReady();
+    return this.globalContext;
+  }
+
+  /**
    * Get the message API
    */
   get messages() {

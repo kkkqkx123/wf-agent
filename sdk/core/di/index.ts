@@ -25,7 +25,17 @@ export {
 } from "./container-config.js";
 
 // Export Container Manager for multi-instance support
-export {
-  ContainerManager,
-  createIsolatedContainer,
-} from "./container-manager.js";
+export { ContainerManager, createIsolatedContainer } from "./container-manager.js";
+
+// Export Factory types for type-safe service creation
+export type {
+  ServiceFactory,
+  IdBasedServiceFactory,
+  NoArgServiceFactory,
+  OptionalParamsServiceFactory,
+  ExecutionEntityServiceFactory,
+  NodeExecutionCoordinatorFactory,
+  InterruptionStateFactory,
+} from "./factory-types.js";
+
+export { createFactory, createIdBasedFactory } from "./factory-types.js";

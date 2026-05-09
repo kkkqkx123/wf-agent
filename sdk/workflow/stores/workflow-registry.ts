@@ -33,8 +33,8 @@ import {
 } from "@wf-agent/types";
 import type { WorkflowGraphRegistry } from "./workflow-graph-registry.js";
 import { WorkflowGraphBuilder } from "../builder/workflow-graph-builder.js";
-import { getContainer } from "../../core/di/container-config.js";
 import * as Identifiers from "../../core/di/service-identifiers.js";
+import type { GlobalContext } from "../../core/global-context.js";
 import { getErrorMessage } from "@wf-agent/common-utils";
 import { checkWorkflowReferences } from "../execution/utils/workflow-reference-checker.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
@@ -62,6 +62,7 @@ export class WorkflowRegistry {
   private workflowExecutionRegistry: WorkflowExecutionRegistry | undefined;
 
   constructor(
+    private readonly globalContext: GlobalContext,
     options: {
       maxRecursionDepth?: number;
     } = {},
@@ -77,8 +78,7 @@ export class WorkflowRegistry {
    */
   private getWorkflowExecutionRegistry(): WorkflowExecutionRegistry | undefined {
     if (!this.workflowExecutionRegistry) {
-      const container = getContainer();
-      this.workflowExecutionRegistry = container.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry;
+      this.workflowExecutionRegistry = this.globalContext.container.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry;
     }
     return this.workflowExecutionRegistry;
   }
@@ -88,8 +88,7 @@ export class WorkflowRegistry {
    * @returns WorkflowGraphRegistry instance
    */
   private getWorkflowGraphRegistry(): WorkflowGraphRegistry {
-    const container = getContainer();
-    return container.get(Identifiers.WorkflowRegistry) as WorkflowGraphRegistry;
+    return this.globalContext.container.get(Identifiers.WorkflowGraphRegistry) as WorkflowGraphRegistry;
   }
 
   /**

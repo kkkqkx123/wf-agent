@@ -69,17 +69,13 @@ export class ExecuteWorkflowStreamCommand extends BaseCommand<AsyncGenerator<Bas
     const workflowExecutionRegistry = this.dependencies.getWorkflowExecutionRegistry();
     const eventManager = this.dependencies.getEventManager();
 
-    const workflowExecutionBuilder = (await this.getWorkflowExecutionBuilder()) as {
-      build: (
-        workflowId: string,
-        options: WorkflowExecutionOptions,
-      ) => Promise<import("../../../../workflow/entities/workflow-execution-entity.js").WorkflowExecutionEntity>;
-    };
+    const workflowExecutionBuilder = await this.getWorkflowExecutionBuilder();
 
-    const executionEntity = await workflowExecutionBuilder.build(
+    const buildResult = await (workflowExecutionBuilder as any).build(
       this.params.workflowId,
       this.params.options || {},
     );
+    const executionEntity = buildResult.executionEntity;
     const executionId = executionEntity.id;
 
     workflowExecutionRegistry.register(executionEntity);
@@ -167,9 +163,9 @@ export class ExecuteWorkflowStreamCommand extends BaseCommand<AsyncGenerator<Bas
    * Get WorkflowExecutionBuilder instance
    */
   private async getWorkflowExecutionBuilder() {
-    const container = await import("../../../../core/di/index.js").then(m => m.getContainer());
     const Identifiers = await import("../../../../core/di/service-identifiers.js");
-    return container.get(Identifiers.WorkflowExecutionBuilder);
+    const globalContext = this.dependencies.getGlobalContext();
+    return globalContext.container.get(Identifiers.WorkflowExecutionBuilder);
   }
 
   validate(): CommandValidationResult {

@@ -27,8 +27,8 @@ import type { WorkflowExecutionBuilder } from "../../factories/workflow-executio
 import type { TaskQueue } from "../../../stores/task/task-queue.js";
 import { getErrorMessage, now, diffTimestamp } from "@wf-agent/common-utils";
 import type { TriggeredSubgraphTask } from "../../types/triggered-subworkflow.types.js";
-import { getContainer } from "../../../../core/di/index.js";
 import * as Identifiers from "../../../../core/di/service-identifiers.js";
+import type { GlobalContext } from "../../../../core/global-context.js";
 import type { WorkflowGraphRegistry } from "../../../stores/workflow-graph-registry.js";
 import type { TriggeredSubworkflowHandler } from "../triggered-subworkflow-handler.js";
 
@@ -106,6 +106,7 @@ function createFailureResult(
 }
 
 export async function executeTriggeredSubgraphHandler(
+  globalContext: GlobalContext,
   action: TriggerAction,
   triggerId: string,
   workflowExecutionRegistry: WorkflowExecutionRegistry,
@@ -141,7 +142,7 @@ export async function executeTriggeredSubgraphHandler(
       throw new WorkflowExecutionNotFoundError(`Main workflow execution entity not found: ${executionId}`, executionId);
     }
 
-    const container = getContainer();
+    const container = globalContext.container;
     const graphRegistry = container.get(Identifiers.WorkflowGraphRegistry) as WorkflowGraphRegistry;
     const processedTriggeredWorkflow = graphRegistry.get(triggeredWorkflowId);
 

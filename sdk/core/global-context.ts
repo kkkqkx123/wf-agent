@@ -17,6 +17,10 @@
 import { Container } from "@wf-agent/common-utils";
 import * as Identifiers from "./di/service-identifiers.js";
 import type { ServiceIdentifier } from "@wf-agent/common-utils";
+import type {
+  ExecutionEntityServiceFactory,
+  IdBasedServiceFactory,
+} from "./di/factory-types.js";
 
 // Import types
 import type { WorkflowRegistry } from "../workflow/stores/workflow-registry.js";
@@ -133,20 +137,16 @@ export class GlobalContext {
    * Create a workflow execution coordinator for a specific execution entity
    */
   createWorkflowExecutionCoordinator(entity: WorkflowExecutionEntity): WorkflowExecutionCoordinator {
-    const factory = this.container.get(Identifiers.WorkflowExecutionCoordinator) as {
-      create: (executionEntity: WorkflowExecutionEntity) => WorkflowExecutionCoordinator;
-    };
-    return factory.create(entity);
+    const factory = this.container.get(Identifiers.WorkflowExecutionCoordinator);
+    return (factory as unknown as ExecutionEntityServiceFactory<WorkflowExecutionCoordinator>).create(entity);
   }
   
   /**
    * Create a state transitor for a specific execution
    */
   createStateTransitor(executionId: string): WorkflowStateTransitor {
-    const factory = this.container.get(Identifiers.WorkflowStateTransitor) as {
-      create: (executionId: string) => WorkflowStateTransitor;
-    };
-    return factory.create(executionId);
+    const factory = this.container.get(Identifiers.WorkflowStateTransitor);
+    return (factory as unknown as IdBasedServiceFactory<WorkflowStateTransitor>).create(executionId);
   }
   
   /**

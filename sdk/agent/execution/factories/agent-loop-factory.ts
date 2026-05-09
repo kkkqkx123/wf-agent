@@ -19,8 +19,8 @@ import type { WorkflowExecutionRegistry } from "../../../workflow/stores/workflo
 import { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import type { ConversationSession } from "../../../core/messaging/conversation-session.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
-import { getContainer } from "../../../core/di/index.js";
 import * as Identifiers from "../../../core/di/service-identifiers.js";
+import type { GlobalContext } from "../../../core/global-context.js";
 import { AgentLoopCheckpointCoordinator } from "../../checkpoint/index.js";
 import type { ExecutionHierarchyRegistry } from "../../../core/registry/execution-hierarchy-registry.js";
 
@@ -94,19 +94,20 @@ export interface AgentLoopEntityOptions {
 export class AgentLoopFactory {
   /**
    * Create a new AgentLoopEntity instance
+   * @param globalContext: Global context for accessing DI container
    * @param config: Loop configuration
    * @param options: Creation options
    * @returns: AgentLoopEntity instance
    */
   static async create(
+    globalContext: GlobalContext,
     config: AgentLoopRuntimeConfig,
     options: AgentLoopEntityOptions = {},
   ): Promise<AgentLoopEntity> {
     const id = `agent-loop-${randomUUID()}`;
     
     // Get execution hierarchy registry from DI container
-    const container = getContainer();
-    const registry = container.get(Identifiers.ExecutionHierarchyRegistry) as ExecutionHierarchyRegistry;
+    const registry = globalContext.container.get(Identifiers.ExecutionHierarchyRegistry) as ExecutionHierarchyRegistry;
     
     const entity = new AgentLoopEntity(id, config, undefined, undefined, registry);
 
@@ -154,7 +155,7 @@ export class AgentLoopFactory {
 
     // Register with parent Execution for lifecycle management
     if (options.parentExecutionId) {
-      await this.registerWithParentExecution(id, options.parentExecutionId);
+      await this.registerWithParentExecution(globalContext, id, options.parentExecutionId);
     }
 
     logger.info("Agent Loop entity created successfully", { agentLoopId: id });
@@ -163,16 +164,17 @@ export class AgentLoopFactory {
 
   /**
    * Register AgentLoop with parent Execution for lifecycle management
+   * @param globalContext Global context for accessing DI container
    * @param agentLoopId AgentLoop ID
    * @param parentExecutionId Parent Execution ID
    */
   private static async registerWithParentExecution(
+    globalContext: GlobalContext,
     agentLoopId: string,
     parentExecutionId: string,
   ): Promise<void> {
     try {
-      const container = getContainer();
-      const executionRegistry = container.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry;
+      const executionRegistry = globalContext.container.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry;
 
       if (executionRegistry) {
         const executionEntity = executionRegistry.get(parentExecutionId);

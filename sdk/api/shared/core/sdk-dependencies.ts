@@ -165,4 +165,11 @@ export class APIDependencyManager {
       Identifiers.AgentLoopCoordinator as ServiceIdentifier<AgentLoopCoordinator>,
     );
   }
+
+  /**
+   * Get the GlobalContext instance
+   */
+  getGlobalContext(): import("../../../core/global-context.js").GlobalContext {
+    return this.globalContext;
+  }
 }

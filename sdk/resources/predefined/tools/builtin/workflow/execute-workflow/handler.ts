@@ -13,7 +13,6 @@ import type {
   ExecutedSubgraphResult,
   TaskSubmissionResult,
 } from "../../../../../../workflow/execution/types/triggered-subworkflow.types.js";
-import { getContainer } from "../../../../../../core/di/index.js";
 import * as Identifiers from "../../../../../../core/di/service-identifiers.js";
 import { RuntimeValidationError } from "@wf-agent/types";
 import type { TriggeredSubworkflowHandler } from "../../../../../../workflow/execution/handlers/triggered-subworkflow-handler.js";
@@ -65,8 +64,21 @@ export function createExecuteWorkflowHandler() {
     }
 
     // Get TriggeredSubworkflowHandler from DI container
-    const container = getContainer();
-    const triggeredSubworkflowManager = container.get(
+    const globalContext = workflowContext.globalContext;
+    if (!globalContext) {
+      throw new RuntimeValidationError(
+        "GlobalContext not available in execution context",
+        {
+          operation: "execute_workflow",
+          context: {
+            workflowId,
+            executionId: context.executionId,
+          },
+        },
+      );
+    }
+    
+    const triggeredSubworkflowManager = globalContext.container.get(
       Identifiers.TriggeredSubworkflowHandler,
     ) as TriggeredSubworkflowHandler;
 

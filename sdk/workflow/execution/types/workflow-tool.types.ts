@@ -14,6 +14,7 @@ import type { WorkflowExecutionBuilder } from "../factories/workflow-execution-b
 import type { TaskQueue } from "../../stores/task/task-queue.js";
 import type { WorkflowRegistry } from "../../stores/workflow-registry.js";
 import type { WorkflowGraphRegistry } from "../../stores/workflow-graph-registry.js";
+import type { GlobalContext } from "../../../core/global-context.js";
 
 /**
  * Workflow Tool Execution Context
@@ -39,6 +40,8 @@ export interface WorkflowToolExecutionContext {
   workflowRegistry?: WorkflowRegistry;
   /** Graph registry */
   graphRegistry?: WorkflowGraphRegistry;
+  /** Global context for accessing DI container */
+  globalContext?: GlobalContext;
 }
 
 /**

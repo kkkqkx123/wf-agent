@@ -77,11 +77,12 @@ export async function restoreWorkflowFromCheckpoint(
   executionId: string,
   workflowExecutionEntity: WorkflowExecutionEntity,
   registry: WorkflowExecutionRegistry,
+  globalContext: any, // GlobalContext type imported dynamically
 ): Promise<RestorationResult> {
   try {
     // Get checkpoint dependencies from container
-    const container = await import("../../../core/di/index.js").then(m => m.getContainer());
     const Identifiers = await import("../../../core/di/service-identifiers.js");
+    const container = globalContext.container;
     const checkpointDeps = {
       workflowExecutionRegistry: registry,
       checkpointStateManager: container.get(Identifiers.CheckpointState),

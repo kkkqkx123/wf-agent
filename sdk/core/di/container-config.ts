@@ -33,6 +33,14 @@ import type {
   AgentLoopCheckpointStorageAdapter,
 } from "@wf-agent/storage";
 import * as Identifiers from "./service-identifiers.js";
+import type {
+  IdBasedServiceFactory,
+  NoArgServiceFactory,
+  OptionalParamsServiceFactory,
+  ExecutionEntityServiceFactory,
+  NodeExecutionCoordinatorFactory,
+  InterruptionStateFactory,
+} from "./factory-types.js";
 
 // Storage Layer Service
 import { WorkflowGraphRegistry } from "../../workflow/stores/workflow-graph-registry.js";
@@ -238,8 +246,9 @@ export function configureContainerBindings(
   container
     .bind(Identifiers.WorkflowRegistry)
     .toDynamicValue((c: IContainer): WorkflowRegistry => {
+      const globalContext = c.get(Identifiers.GlobalContext) as import("../global-context.js").GlobalContext;
       const workflowExecutionRegistry = c.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry;
-      return new WorkflowRegistry({ maxRecursionDepth: 10 }, workflowExecutionRegistry);
+      return new WorkflowRegistry(globalContext, { maxRecursionDepth: 10 }, workflowExecutionRegistry);
     })
     .inSingletonScope();
 
@@ -299,10 +308,11 @@ export function configureContainerBindings(
   // Create instances using the factory pattern to ensure data isolation between executions
   container
     .bind(Identifiers.GraphConversationSession)
-    .toDynamicValue(() => {
-      return {
+    .toDynamicValue((): IdBasedServiceFactory<WorkflowConversationSession> => {
+      const factory: IdBasedServiceFactory<WorkflowConversationSession> = {
         create: (executionId: string) => new WorkflowConversationSession({ executionId }),
       };
+      return factory;
     })
     .inSingletonScope();
 
@@ -310,22 +320,26 @@ export function configureContainerBindings(
   // Each workflow execution requires a separate instance of the state transitor
   container
     .bind(Identifiers.WorkflowStateTransitor)
-    .toDynamicValue((c: IContainer): { create: (executionId: string) => WorkflowStateTransitor } => {
+    .toDynamicValue((c: IContainer): IdBasedServiceFactory<WorkflowStateTransitor> => {
       const eventManager = c.get(Identifiers.EventRegistry) as EventRegistry;
-      const workflowConversationSessionFactory = c.get(Identifiers.GraphConversationSession) as {
-        create: (executionId: string) => WorkflowConversationSession;
-      };
+      const workflowConversationSessionFactory = c.get(Identifiers.GraphConversationSession);
       const workflowExecutionRegistry = c.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry;
-      return {
+      
+      const factory: IdBasedServiceFactory<WorkflowStateTransitor> = {
         create: (executionId: string) => {
-          const workflowConversationSession = workflowConversationSessionFactory.create(executionId);
+          const workflowConversationSession = (
+            workflowConversationSessionFactory as unknown as IdBasedServiceFactory<WorkflowConversationSession>
+          ).create(executionId);
+          const globalContext = c.get(Identifiers.GlobalContext) as import("../global-context.js").GlobalContext;
           return new WorkflowStateTransitor(
             eventManager,
             workflowConversationSession,
             workflowExecutionRegistry,
+            globalContext,
           );
         },
       };
+      return factory;
     })
     .inSingletonScope();
 
@@ -368,9 +382,7 @@ export function configureContainerBindings(
     .toDynamicValue((c: IContainer): WorkflowExecutor => {
       return new WorkflowExecutor({
         workflowGraphRegistry: c.get(Identifiers.WorkflowGraphRegistry) as WorkflowGraphRegistry,
-        workflowExecutionCoordinatorFactory: c.get(Identifiers.WorkflowExecutionCoordinator) as {
-          create: (executionEntity: WorkflowExecutionEntity) => WorkflowExecutionCoordinator;
-        },
+        workflowExecutionCoordinatorFactory: c.get(Identifiers.WorkflowExecutionCoordinator) as any,
       });
     })
     .inSingletonScope();
@@ -385,28 +397,29 @@ export function configureContainerBindings(
   // which depends on WorkflowStateTransitor, WorkflowExecutionBuilder, WorkflowExecutor
   container
     .bind(Identifiers.WorkflowLifecycleCoordinator)
-    .toDynamicValue(
-      (c: IContainer): { create: (executionId: string) => WorkflowLifecycleCoordinator } => {
-        const workflowExecutionRegistry = c.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry;
-        const workflowExecutionBuilder = c.get(Identifiers.WorkflowExecutionBuilder) as WorkflowExecutionBuilder;
-        const workflowExecutor = c.get(Identifiers.WorkflowExecutor) as WorkflowExecutor;
-        const stateTransitorFactory = c.get(Identifiers.WorkflowStateTransitor) as {
-          create: (executionId: string) => WorkflowStateTransitor;
-        };
+    .toDynamicValue((c: IContainer): IdBasedServiceFactory<WorkflowLifecycleCoordinator> => {
+      const workflowExecutionRegistry = c.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry;
+      const workflowExecutionBuilder = c.get(Identifiers.WorkflowExecutionBuilder) as WorkflowExecutionBuilder;
+      const workflowExecutor = c.get(Identifiers.WorkflowExecutor) as WorkflowExecutor;
+      const stateTransitorFactory = c.get(Identifiers.WorkflowStateTransitor);
 
-        return {
-          create: (executionId: string) => {
-            const stateTransitor = stateTransitorFactory.create(executionId);
-            return new WorkflowLifecycleCoordinator(
-              workflowExecutionRegistry,
-              stateTransitor,
-              workflowExecutionBuilder,
-              workflowExecutor,
-            );
-          },
-        };
-      },
-    )
+      const factory: IdBasedServiceFactory<WorkflowLifecycleCoordinator> = {
+        create: (executionId: string) => {
+          const stateTransitor = (
+            stateTransitorFactory as unknown as IdBasedServiceFactory<WorkflowStateTransitor>
+          ).create(executionId);
+          const globalContext = c.get(Identifiers.GlobalContext) as import("../global-context.js").GlobalContext;
+          return new WorkflowLifecycleCoordinator(
+            workflowExecutionRegistry,
+            stateTransitor,
+            workflowExecutionBuilder,
+            workflowExecutor,
+            globalContext,
+          );
+        },
+      };
+      return factory;
+    })
     .inSingletonScope();
 
   // ============================================================
@@ -441,10 +454,11 @@ export function configureContainerBindings(
   // TriggerState requires executionId, use factory pattern to create instance
   container
     .bind(Identifiers.TriggerState)
-    .toDynamicValue(() => {
-      return {
+    .toDynamicValue((): IdBasedServiceFactory<TriggerState> => {
+      const factory: IdBasedServiceFactory<TriggerState> = {
         create: (executionId: string) => new TriggerState(executionId),
       };
+      return factory;
     })
     .inSingletonScope();
 
@@ -452,10 +466,11 @@ export function configureContainerBindings(
   // InterruptionState requires executionId and nodeId, and uses the factory pattern to create instances.
   container
     .bind(Identifiers.InterruptionState)
-    .toDynamicValue(() => {
-      return {
+    .toDynamicValue((): InterruptionStateFactory<InterruptionState> => {
+      const factory: InterruptionStateFactory<InterruptionState> = {
         create: (executionId: string, nodeId: string) => new InterruptionState({ contextId: executionId, nodeId }),
       };
+      return factory;
     })
     .inSingletonScope();
 
@@ -496,23 +511,20 @@ export function configureContainerBindings(
   // Creating instances using the factory pattern ensures that the session data for each execution is independent of each other
   container
     .bind(Identifiers.ConversationSession)
-    .toDynamicValue(
-      (
-        c: IContainer,
-      ): { create: (executionId?: string, workflowId?: string) => ConversationSession } => {
-        const eventManager = c.get(Identifiers.EventRegistry) as EventRegistry;
+    .toDynamicValue((c: IContainer): OptionalParamsServiceFactory<ConversationSession> => {
+      const eventManager = c.get(Identifiers.EventRegistry) as EventRegistry;
 
-        return {
-          create: (executionId?: string, workflowId?: string) => {
-            return new ConversationSession({
-              eventManager,
-              executionId,
-              workflowId,
-            });
-          },
-        };
-      },
-    )
+      const factory: OptionalParamsServiceFactory<ConversationSession> = {
+        create: (executionId?: string, workflowId?: string) => {
+          return new ConversationSession({
+            eventManager,
+            executionId,
+            workflowId,
+          });
+        },
+      };
+      return factory;
+    })
     .inSingletonScope();
 
   // NodeExecutionCoordinator - dependency on multiple services and coordinators
@@ -520,51 +532,44 @@ export function configureContainerBindings(
   // Each workflow execution requires a separate node execution coordinator instance
   container
     .bind(Identifiers.NodeExecutionCoordinator)
-    .toDynamicValue(
-      (
-        c: IContainer,
-      ): {
-        create: (
-          executionId: string,
-          nodeId: string,
-          executionEntity: WorkflowExecutionEntity,
-        ) => NodeExecutionCoordinator;
-      } => {
-        const conversationManagerFactory = c.get(Identifiers.ConversationSession) as {
-          create: (executionId?: string, workflowId?: string) => ConversationSession;
-        };
-        const interruptionManagerFactory = c.get(Identifiers.InterruptionState) as {
-          create: (executionId: string, nodeId: string) => InterruptionState;
-        };
-        const agentLoopExecutorFactory = c.get(Identifiers.AgentLoopExecutor) as {
-          create: () => AgentLoopExecutor;
-        };
+    .toDynamicValue((c: IContainer) => {
+      const conversationManagerFactory = c.get(Identifiers.ConversationSession);
+      const interruptionManagerFactory = c.get(Identifiers.InterruptionState);
+      const agentLoopExecutorFactory = c.get(Identifiers.AgentLoopExecutor);
 
-        return {
-          create: (executionId: string, nodeId: string, executionEntity: WorkflowExecutionEntity) => {
-            const graph = executionEntity.getGraph();
-            const navigator = new WorkflowNavigator(graph);
-            const config = {
-              eventManager: c.get(Identifiers.EventRegistry) as EventRegistry,
-              llmCoordinator: c.get(Identifiers.LLMExecutionCoordinator) as LLMExecutionCoordinator,
-              conversationManager: conversationManagerFactory.create(executionId),
-              interruptionManager: interruptionManagerFactory.create(executionId, nodeId),
-              navigator,
-              toolService: c.get(Identifiers.ToolRegistry) as ToolRegistry,
-              toolContextStore: c.get(Identifiers.ToolContextStore) as ToolContextStore,
-              checkpointDependencies: {
-                workflowExecutionRegistry: c.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry,
-                checkpointStateManager: c.get(Identifiers.CheckpointState) as CheckpointState,
-                workflowRegistry: c.get(Identifiers.WorkflowRegistry) as WorkflowRegistry,
-                workflowGraphRegistry: c.get(Identifiers.WorkflowGraphRegistry) as WorkflowGraphRegistry,
-              },
-              agentLoopExecutorFactory: agentLoopExecutorFactory.create(),
-            };
-            return new NodeExecutionCoordinator(config);
-          },
-        };
-      },
-    )
+      const factory: NodeExecutionCoordinatorFactory<NodeExecutionCoordinator> = {
+        create: (executionId: string, nodeId: string, executionEntity: WorkflowExecutionEntity) => {
+          const graph = executionEntity.getGraph();
+          const navigator = new WorkflowNavigator(graph);
+          const globalContext = c.get(Identifiers.GlobalContext) as import("../global-context.js").GlobalContext;
+          const config = {
+            globalContext,
+            eventManager: c.get(Identifiers.EventRegistry) as EventRegistry,
+            llmCoordinator: c.get(Identifiers.LLMExecutionCoordinator) as LLMExecutionCoordinator,
+            conversationManager: (
+              conversationManagerFactory as unknown as OptionalParamsServiceFactory<ConversationSession>
+            ).create(executionId),
+            interruptionManager: (
+              interruptionManagerFactory as unknown as InterruptionStateFactory<InterruptionState>
+            ).create(executionId, nodeId),
+            navigator,
+            toolService: c.get(Identifiers.ToolRegistry) as ToolRegistry,
+            toolContextStore: c.get(Identifiers.ToolContextStore) as ToolContextStore,
+            checkpointDependencies: {
+              workflowExecutionRegistry: c.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry,
+              checkpointStateManager: c.get(Identifiers.CheckpointState) as CheckpointState,
+              workflowRegistry: c.get(Identifiers.WorkflowRegistry) as WorkflowRegistry,
+              workflowGraphRegistry: c.get(Identifiers.WorkflowGraphRegistry) as WorkflowGraphRegistry,
+            },
+            agentLoopExecutorFactory: (
+              agentLoopExecutorFactory as unknown as NoArgServiceFactory<AgentLoopExecutor>
+            ).create(),
+          };
+          return new NodeExecutionCoordinator(config);
+        },
+      };
+      return factory;
+    })
     .inSingletonScope();
 
   // TriggerCoordinator - Dependencies on multiple services and coordinators
@@ -572,7 +577,7 @@ export function configureContainerBindings(
   // Each workflow execution requires a separate instance of the trigger coordinator
   container
     .bind(Identifiers.TriggerCoordinator)
-    .toDynamicValue((c: IContainer): { create: (executionId: string) => TriggerCoordinator } => {
+    .toDynamicValue((c: IContainer): IdBasedServiceFactory<TriggerCoordinator> => {
       const workflowExecutionRegistry = c.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry;
       const workflowRegistry = c.get(Identifiers.WorkflowRegistry) as WorkflowRegistry;
       const workflowGraphRegistry = c.get(Identifiers.WorkflowGraphRegistry) as WorkflowGraphRegistry;
@@ -580,18 +585,18 @@ export function configureContainerBindings(
       const workflowExecutionBuilder = c.get(Identifiers.WorkflowExecutionBuilder) as WorkflowExecutionBuilder;
       const taskRegistry = c.get(Identifiers.TaskRegistry) as TaskRegistry;
       const workflowExecutionPool = c.get(Identifiers.WorkflowExecutionPool) as WorkflowExecutionPool;
-      const stateManagerFactory = c.get(Identifiers.TriggerState) as {
-        create: (executionId: string) => TriggerState;
-      };
+      const stateManagerFactory = c.get(Identifiers.TriggerState);
       const checkpointStateManager = c.get(Identifiers.CheckpointState) as CheckpointState;
-      const stateTransitorFactory = c.get(Identifiers.WorkflowStateTransitor) as {
-        create: (executionId: string) => WorkflowStateTransitor;
-      };
+      const stateTransitorFactory = c.get(Identifiers.WorkflowStateTransitor);
 
-      return {
+      const factory: IdBasedServiceFactory<TriggerCoordinator> = {
         create: (executionId: string) => {
-          const stateManager = stateManagerFactory.create(executionId);
-          const workflowStateTransitor = stateTransitorFactory.create(executionId);
+          const stateManager = (
+            stateManagerFactory as unknown as IdBasedServiceFactory<TriggerState>
+          ).create(executionId);
+          const workflowStateTransitor = (
+            stateTransitorFactory as unknown as IdBasedServiceFactory<WorkflowStateTransitor>
+          ).create(executionId);
           const taskQueueManager = new TaskQueue(taskRegistry, workflowExecutionPool, eventManager);
           return new TriggerCoordinator({
             workflowExecutionRegistry: workflowExecutionRegistry,
@@ -606,6 +611,7 @@ export function configureContainerBindings(
           });
         },
       };
+      return factory;
     })
     .inSingletonScope();
 
@@ -641,48 +647,41 @@ export function configureContainerBindings(
   // Note: VariableCoordinator、TriggerCoordinator、InterruptionState、ToolVisibilityCoordinator、NodeExecutionCoordinator all need to be created based on executionId
   container
     .bind(Identifiers.WorkflowExecutionCoordinator)
-    .toDynamicValue(
-      (c: IContainer): { create: (executionEntity: WorkflowExecutionEntity) => WorkflowExecutionCoordinator } => {
-        const variableCoordinator = c.get(Identifiers.VariableCoordinator) as VariableCoordinator;
-        const toolService = c.get(Identifiers.ToolRegistry) as ToolRegistry;
-        const toolVisibilityStore = c.get(Identifiers.ToolVisibilityStore) as ToolVisibilityStore;
-        const toolVisibilityCoordinator = new ToolVisibilityCoordinator(
-          toolService,
-          toolVisibilityStore,
-        );
-        const triggerCoordinatorFactory = c.get(Identifiers.TriggerCoordinator) as {
-          create: (executionId: string) => TriggerCoordinator;
-        };
-        const interruptionManagerFactory = c.get(Identifiers.InterruptionState) as {
-          create: (executionId: string, nodeId: string) => InterruptionState;
-        };
-        const nodeExecutionCoordinatorFactory = c.get(Identifiers.NodeExecutionCoordinator) as {
-          create: (
-            executionId: string,
-            nodeId: string,
-            executionEntity: WorkflowExecutionEntity,
-          ) => NodeExecutionCoordinator;
-        };
+    .toDynamicValue((c: IContainer) => {
+      const variableCoordinator = c.get(Identifiers.VariableCoordinator) as VariableCoordinator;
+      const toolService = c.get(Identifiers.ToolRegistry) as ToolRegistry;
+      const toolVisibilityStore = c.get(Identifiers.ToolVisibilityStore) as ToolVisibilityStore;
+      const toolVisibilityCoordinator = new ToolVisibilityCoordinator(
+        toolService,
+        toolVisibilityStore,
+      );
+      const triggerCoordinatorFactory = c.get(Identifiers.TriggerCoordinator);
+      const interruptionManagerFactory = c.get(Identifiers.InterruptionState);
+      const nodeExecutionCoordinatorFactory = c.get(Identifiers.NodeExecutionCoordinator);
 
-        return {
-          create: (executionEntity: WorkflowExecutionEntity) => {
-            const executionId = executionEntity.id;
-            const nodeId = executionEntity.getCurrentNodeId();
-            const graph = executionEntity.getGraph();
-            const navigator = new WorkflowNavigator(graph);
-            return new WorkflowExecutionCoordinator(
-              executionEntity,
-              variableCoordinator,
-              triggerCoordinatorFactory.create(executionId),
-              interruptionManagerFactory.create(executionId, nodeId),
-              toolVisibilityCoordinator,
-              nodeExecutionCoordinatorFactory.create(executionId, nodeId, executionEntity),
-              navigator,
-            );
-          },
-        };
-      },
-    )
+      const factory: ExecutionEntityServiceFactory<WorkflowExecutionCoordinator> = {
+        create: (executionEntity: WorkflowExecutionEntity) => {
+          const executionId = executionEntity.id;
+          const nodeId = executionEntity.getCurrentNodeId();
+          const graph = executionEntity.getGraph();
+          const navigator = new WorkflowNavigator(graph);
+          return new WorkflowExecutionCoordinator(
+            executionEntity,
+            variableCoordinator,
+            (triggerCoordinatorFactory as unknown as IdBasedServiceFactory<TriggerCoordinator>).create(executionId),
+            (
+              interruptionManagerFactory as unknown as InterruptionStateFactory<InterruptionState>
+            ).create(executionId, nodeId),
+            toolVisibilityCoordinator,
+            (
+              nodeExecutionCoordinatorFactory as unknown as NodeExecutionCoordinatorFactory<NodeExecutionCoordinator>
+            ).create(executionId, nodeId, executionEntity),
+            navigator,
+          );
+        },
+      };
+      return factory;
+    })
     .inSingletonScope();
 
   // ============================================================
@@ -693,8 +692,8 @@ export function configureContainerBindings(
   // Creates a new AgentLoopExecutor instance for each execution.
   container
     .bind(Identifiers.AgentLoopExecutor)
-    .toDynamicValue((c: IContainer): { create: () => AgentLoopExecutor } => {
-      return {
+    .toDynamicValue((c: IContainer): NoArgServiceFactory<AgentLoopExecutor> => {
+      const factory: NoArgServiceFactory<AgentLoopExecutor> = {
         create: () => {
           const llmExecutor = c.get(Identifiers.LLMExecutor) as LLMExecutor;
           const toolService = c.get(Identifiers.ToolRegistry) as ToolRegistry;
@@ -704,6 +703,7 @@ export function configureContainerBindings(
           });
         },
       };
+      return factory;
     })
     .inSingletonScope();
 
@@ -718,16 +718,21 @@ export function configureContainerBindings(
   // Each time a new AgentLoopCoordinator instance is created
   container
     .bind(Identifiers.AgentLoopCoordinator)
-    .toDynamicValue((c: IContainer): { create: () => AgentLoopCoordinator } => {
-      return {
+    .toDynamicValue((c: IContainer): NoArgServiceFactory<AgentLoopCoordinator> => {
+      const agentLoopExecutorFactory = c.get(Identifiers.AgentLoopExecutor);
+      
+      const factory: NoArgServiceFactory<AgentLoopCoordinator> = {
         create: () => {
+          const globalContext = c.get(Identifiers.GlobalContext) as import("../global-context.js").GlobalContext;
           return new AgentLoopCoordinator(
             c.get(Identifiers.AgentLoopRegistry) as AgentLoopRegistry,
-            (c.get(Identifiers.AgentLoopExecutor) as { create: () => AgentLoopExecutor }).create(),
+            (agentLoopExecutorFactory as unknown as NoArgServiceFactory<AgentLoopExecutor>).create(),
+            globalContext,
             c.get(Identifiers.EventRegistry) as EventRegistry | undefined, // EventRegistry for state transitor
           );
         },
       };
+      return factory;
     })
     .inSingletonScope();
 

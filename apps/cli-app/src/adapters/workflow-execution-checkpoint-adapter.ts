@@ -4,18 +4,21 @@
  */
 
 import { BaseAdapter } from "./base-adapter.js";
-import { CheckpointResourceAPI } from "@wf-agent/sdk";
 import { CLINotFoundError } from "../types/cli-types.js";
 
 /**
  * Workflow Execution Checkpoint Adapter
  */
 export class WorkflowExecutionCheckpointAdapter extends BaseAdapter {
-  private checkpointAPI: CheckpointResourceAPI;
-
   constructor() {
     super();
-    this.checkpointAPI = new CheckpointResourceAPI();
+  }
+
+  /**
+   * Get checkpoint API instance
+   */
+  private getCheckpointAPI() {
+    return (this.sdk as any).getWorkflowExecutionAPI().checkpoint;
   }
 
   /**
@@ -26,14 +29,14 @@ export class WorkflowExecutionCheckpointAdapter extends BaseAdapter {
   async createCheckpoint(executionId: string, name?: string): Promise<any> {
     return this.executeWithErrorHandling(async () => {
       // Use the proper API method to create a checkpoint
-      const checkpointId = await this.checkpointAPI.createWorkflowExecutionCheckpoint(executionId, {
+      const checkpointId = await this.getCheckpointAPI().createWorkflowExecutionCheckpoint(executionId, {
         description: name || `Checkpoint ${new Date().toISOString()}`,
       });
       
       this.output.infoLog(`Checkpoint created: ${checkpointId}`);
       
       // Return the created checkpoint details
-      const checkpoint = await this.checkpointAPI.get(checkpointId);
+      const checkpoint = await this.getCheckpointAPI().get(checkpointId);
       return checkpoint;
     }, "Create a workflow execution checkpoint");
   }
@@ -44,7 +47,7 @@ export class WorkflowExecutionCheckpointAdapter extends BaseAdapter {
    */
   async loadCheckpoint(checkpointId: string): Promise<void> {
     return this.executeWithErrorHandling(async () => {
-      const result = await this.checkpointAPI.get(checkpointId);
+      const result = await this.getCheckpointAPI().get(checkpointId);
       const checkpoint = (result as any).data || result;
 
       if (!checkpoint) {
@@ -56,7 +59,7 @@ export class WorkflowExecutionCheckpointAdapter extends BaseAdapter {
       }
 
       // Restore the checkpoint
-      await this.checkpointAPI.restoreFromCheckpoint(checkpointId);
+      await this.getCheckpointAPI().restoreFromCheckpoint(checkpointId);
       this.output.infoLog(`Workflow execution restored from checkpoint: ${checkpointId}`);
     }, "Load workflow execution checkpoint");
   }
@@ -67,7 +70,7 @@ export class WorkflowExecutionCheckpointAdapter extends BaseAdapter {
    */
   async listCheckpoints(filter?: any): Promise<any[]> {
     return this.executeWithErrorHandling(async () => {
-      const result = await this.checkpointAPI.getAll();
+      const result = await this.getCheckpointAPI().getAll();
       const checkpoints = (result as any).data || result;
 
       // **Summary Format**
@@ -88,7 +91,7 @@ export class WorkflowExecutionCheckpointAdapter extends BaseAdapter {
    */
   async getCheckpoint(checkpointId: string): Promise<any> {
     return this.executeWithErrorHandling(async () => {
-      const result = await this.checkpointAPI.get(checkpointId);
+      const result = await this.getCheckpointAPI().get(checkpointId);
       const checkpoint = (result as any).data || result;
 
       if (!checkpoint) {
@@ -109,7 +112,7 @@ export class WorkflowExecutionCheckpointAdapter extends BaseAdapter {
    */
   async deleteCheckpoint(checkpointId: string): Promise<void> {
     return this.executeWithErrorHandling(async () => {
-      await this.checkpointAPI.delete(checkpointId);
+      await this.getCheckpointAPI().delete(checkpointId);
 
       this.output.infoLog(`Checkpoint deleted: ${checkpointId}`);
     }, "Delete workflow execution checkpoint");
@@ -122,7 +125,7 @@ export class WorkflowExecutionCheckpointAdapter extends BaseAdapter {
    */
   async createWorkflowExecutionCheckpoint(executionId: string, metadata?: any): Promise<string> {
     return this.executeWithErrorHandling(async () => {
-      const checkpointId = await this.checkpointAPI.createWorkflowExecutionCheckpoint(executionId, metadata);
+      const checkpointId = await this.getCheckpointAPI().createWorkflowExecutionCheckpoint(executionId, metadata);
       this.output.infoLog(`Workflow execution checkpoint created: ${checkpointId}`);
       return checkpointId;
     }, "Create a workflow execution checkpoint");
@@ -134,7 +137,7 @@ export class WorkflowExecutionCheckpointAdapter extends BaseAdapter {
    */
   async restoreFromCheckpoint(checkpointId: string): Promise<string> {
     return this.executeWithErrorHandling(async () => {
-      const executionId = await this.checkpointAPI.restoreFromCheckpoint(checkpointId);
+      const executionId = await this.getCheckpointAPI().restoreFromCheckpoint(checkpointId);
       this.output.infoLog(`Workflow execution restored from checkpoint: ${checkpointId}`);
       return executionId;
     }, "Restore workflow execution from checkpoint");
@@ -147,7 +150,7 @@ export class WorkflowExecutionCheckpointAdapter extends BaseAdapter {
   async getWorkflowExecutionCheckpoints(executionId: string): Promise<any[]> {
     return this.executeWithErrorHandling(async () => {
       // Get all checkpoints and filter by executionId
-      const allCheckpoints = await this.checkpointAPI.getAll();
+      const allCheckpoints = await this.getCheckpointAPI().getAll();
       const checkpoints = (allCheckpoints as any).data || allCheckpoints;
       return checkpoints.filter((cp: any) => cp.executionId === executionId);
     }, "Get workflow execution checkpoint list");
@@ -159,7 +162,7 @@ export class WorkflowExecutionCheckpointAdapter extends BaseAdapter {
    */
   async getLatestCheckpoint(executionId: string): Promise<any> {
     return this.executeWithErrorHandling(async () => {
-      const checkpoint = await this.checkpointAPI.getLatestCheckpoint(executionId);
+      const checkpoint = await this.getCheckpointAPI().getLatestCheckpoint(executionId);
       if (!checkpoint) {
         throw new Error(`No checkpoint found for workflow execution: ${executionId}`);
       }
@@ -172,7 +175,7 @@ export class WorkflowExecutionCheckpointAdapter extends BaseAdapter {
    */
   async getStatistics(): Promise<any> {
     return this.executeWithErrorHandling(async () => {
-      const stats = await this.checkpointAPI.getCheckpointStatistics();
+      const stats = await this.getCheckpointAPI().getCheckpointStatistics();
       return stats;
     }, "Get workflow execution checkpoint statistics");
   }

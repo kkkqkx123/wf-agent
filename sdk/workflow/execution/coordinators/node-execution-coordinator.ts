@@ -26,6 +26,7 @@ import type {
 } from "@wf-agent/types";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import type { ConversationSession } from "../../../core/messaging/conversation-session.js";
+import type { GlobalContext } from "../../../core/global-context.js";
 import type { InterruptionState } from "../../../core/types/interruption-state.js";
 import type { WorkflowNavigator } from "../../builder/workflow-navigator.js";
 import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-registry.js";
@@ -75,6 +76,8 @@ const logger = createContextualLogger({ operation: "node-execution-coordinator" 
  */
 export interface NodeExecutionCoordinatorConfig {
   // Core Dependencies (Required)
+  /** Global Context */
+  globalContext: GlobalContext;
   /** Event Manager */
   eventManager: EventRegistry;
   /** LLM Execution Coordinator */
@@ -121,6 +124,7 @@ export interface NodeExecutionCoordinatorConfig {
  */
 export class NodeExecutionCoordinator {
   // Core Dependencies (Required)
+  private globalContext: GlobalContext;
   private eventManager: EventRegistry;
   private interruptionManager: InterruptionState;
   private navigator: WorkflowNavigator;
@@ -138,6 +142,7 @@ export class NodeExecutionCoordinator {
 
   constructor(config: NodeExecutionCoordinatorConfig) {
     // Core Dependencies
+    this.globalContext = config.globalContext;
     this.eventManager = config.eventManager;
     this.interruptionManager = config.interruptionManager;
     this.navigator = config.navigator;
@@ -587,7 +592,7 @@ export class NodeExecutionCoordinator {
     const handlerContext = this.handlerContextFactory.createHandlerContext(node, workflowExecutionEntity);
 
     // 3. Execute the processor
-    const output = await handler(workflowExecutionEntity, node, handlerContext);
+    const output = await handler(this.globalContext, workflowExecutionEntity, node, handlerContext);
 
     // 4. Constructing the execution results
     const endTime = now();

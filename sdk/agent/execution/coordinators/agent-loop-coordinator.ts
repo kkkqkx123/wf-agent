@@ -14,6 +14,7 @@ import { AgentLoopFactory, type AgentLoopEntityOptions } from "../../execution/f
 import { AgentLoopRegistry } from "../../stores/agent-loop-registry.js";
 import { AgentLoopExecutor, type AgentLoopStreamEvent } from "../executors/agent-loop-executor.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
+import type { GlobalContext } from "../../../core/global-context.js";
 import { AgentLoopStateTransitor } from "./agent-loop-state-transitor.js";
 
 const logger = createContextualLogger({ component: "AgentLoopCoordinator" });
@@ -49,6 +50,7 @@ export class AgentLoopCoordinator {
   constructor(
     private readonly registry: AgentLoopRegistry,
     private readonly executor: AgentLoopExecutor,
+    private readonly globalContext: GlobalContext,
     eventManager?: EventRegistry, // EventRegistry type imported dynamically
   ) {
     this.stateTransitor = new AgentLoopStateTransitor(eventManager);
@@ -72,7 +74,7 @@ export class AgentLoopCoordinator {
     }
 
     // Create a new instance using the factory method.
-    return AgentLoopFactory.create(config, options);
+    return AgentLoopFactory.create(this.globalContext, config, options);
   }
 
   /**

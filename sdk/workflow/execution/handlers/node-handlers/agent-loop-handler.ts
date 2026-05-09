@@ -21,8 +21,8 @@ import {
 } from "../../utils/event/index.js";
 import { LLMExecutor } from "../../../../core/executors/llm-executor.js";
 import { ToolRegistry } from "../../../../core/registry/tool-registry.js";
-import { getContainer } from "../../../../core/di/index.js";
 import * as Identifiers from "../../../../core/di/service-identifiers.js";
+import type { GlobalContext } from "../../../../core/global-context.js";
 import { createContextualLogger } from "../../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "AgentLoopHandler" });
@@ -70,25 +70,25 @@ export interface AgentLoopHandlerContext {
 /**
  * Create an AgentLoopCoordinator instance
  */
-function createCoordinator(context: AgentLoopHandlerContext): AgentLoopCoordinator {
+function createCoordinator(globalContext: GlobalContext, context: AgentLoopHandlerContext): AgentLoopCoordinator {
   // Get AgentLoopRegistry from DI container
-  const container = getContainer();
   const registry =
     context.agentLoopRegistry ??
-    (container.get(Identifiers.AgentLoopRegistry) as AgentLoopRegistry);
+    (globalContext.container.get(Identifiers.AgentLoopRegistry) as AgentLoopRegistry);
   const executor = new AgentLoopExecutor({
     llmExecutor: context.llmExecutor,
     toolService: context.toolService,
     eventManager: context.eventManager,
   });
 
-  return new AgentLoopCoordinator(registry, executor, context.eventManager);
+  return new AgentLoopCoordinator(registry, executor, globalContext, context.eventManager);
 }
 
 /**
  * Agent Loop Node Processor
  */
 export async function agentLoopHandler(
+  globalContext: GlobalContext,
   execution: WorkflowExecution,
   node: Node,
   context: AgentLoopHandlerContext,
@@ -130,7 +130,7 @@ export async function agentLoopHandler(
     }
 
     // 2. Create a Coordinator and execute it.
-    const coordinator = createCoordinator(context);
+    const coordinator = createCoordinator(globalContext, context);
 
     const result = await coordinator.execute(
       {
@@ -212,6 +212,7 @@ export async function agentLoopHandler(
  * Stream Agent Loop Node Processor
  */
 export async function* agentLoopStreamHandler(
+  globalContext: GlobalContext,
   execution: WorkflowExecution,
   node: Node,
   context: AgentLoopHandlerContext,
@@ -238,7 +239,7 @@ export async function* agentLoopStreamHandler(
     }
 
     // 2. Create a Coordinator to execute tasks in parallel.
-    const coordinator = createCoordinator(context);
+    const coordinator = createCoordinator(globalContext, context);
 
     for await (const event of coordinator.executeStream(
       {

@@ -22,7 +22,6 @@ import { WorkflowStateCoordinator } from "../../state-managers/workflow-state-co
 import { generateId } from "@wf-agent/common-utils";
 import { ExecutionError, RuntimeValidationError } from "@wf-agent/types";
 import type { WorkflowGraphRegistry } from "../../stores/workflow-graph-registry.js";
-import { getContainer } from "../../../core/di/index.js";
 import * as Identifiers from "../../../core/di/service-identifiers.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
@@ -64,7 +63,7 @@ export class WorkflowExecutionBuilder {
     if (!this.globalContext) {
       throw new Error("GlobalContext not initialized. Use constructor with GlobalContext parameter.");
     }
-    return this.globalContext.container.get(Identifiers.WorkflowRegistry) as WorkflowGraphRegistry;
+    return this.globalContext.container.get(Identifiers.WorkflowGraphRegistry) as WorkflowGraphRegistry;
   }
 
   /**

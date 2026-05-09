@@ -6,8 +6,8 @@ import type { BuiltinToolExecutionContext } from "@wf-agent/types";
 import type {
   QueryWorkflowStatusParams,
   QueryWorkflowStatusResult,
+  WorkflowToolExecutionContext,
 } from "../../../../../../workflow/execution/types/workflow-tool.types.js";
-import { getContainer } from "../../../../../../core/di/index.js";
 import * as Identifiers from "../../../../../../core/di/service-identifiers.js";
 import { RuntimeValidationError } from "@wf-agent/types";
 import type { TriggeredSubworkflowHandler } from "../../../../../../workflow/execution/handlers/triggered-subworkflow-handler.js";
@@ -22,6 +22,9 @@ export function createQueryWorkflowStatusHandler() {
     context: BuiltinToolExecutionContext,
   ): Promise<QueryWorkflowStatusResult> => {
     const { taskId } = params as unknown as QueryWorkflowStatusParams;
+
+    // Cast to WorkflowToolExecutionContext for type safety
+    const workflowContext = context as WorkflowToolExecutionContext;
 
     // Validate required parameters
     if (!taskId) {
@@ -48,8 +51,14 @@ export function createQueryWorkflowStatusHandler() {
     }
 
     // Get TriggeredSubworkflowHandler from DI container
-    const container = getContainer();
-    const triggeredSubworkflowManager = container.get(
+    const globalContext = workflowContext.globalContext;
+    if (!globalContext) {
+      throw new RuntimeValidationError("GlobalContext not available", {
+        operation: "query_workflow_status",
+      });
+    }
+    
+    const triggeredSubworkflowManager = globalContext.container.get(
       Identifiers.TriggeredSubworkflowHandler,
     ) as TriggeredSubworkflowHandler;
 

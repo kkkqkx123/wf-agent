@@ -84,9 +84,28 @@ export class AgentLoopEntitySerializer extends Serializer<AgentLoopEntitySnapsho
 
     // Import dynamically to avoid circular dependencies
     const { AgentLoopFactory } = await import("../../../agent/execution/factories/index.js");
+    
+    // Get GlobalContext from container manager
+    let globalContext: any;
+    try {
+      const { ContainerManager } = await import("../../di/container-manager.js");
+      const Identifiers = await import("../../di/service-identifiers.js");
+      const manager = ContainerManager.getInstance();
+      const containerIds = manager.getAllContainerIds();
+      if (containerIds.length > 0) {
+        const container = manager.getContainer(containerIds[0]!);
+        globalContext = container.get(Identifiers.GlobalContext);
+      }
+    } catch (error) {
+      console.warn('Failed to get GlobalContext for AgentLoopFactory:', error);
+    }
+
+    if (!globalContext) {
+      throw new Error('GlobalContext not available for AgentLoop entity restoration');
+    }
 
     // Create a new entity with the same config
-    const entity = await AgentLoopFactory.create(snapshot.config);
+    const entity = await AgentLoopFactory.create(globalContext, snapshot.config);
 
     // Restore messages
     entity.setMessages(snapshot.messages);

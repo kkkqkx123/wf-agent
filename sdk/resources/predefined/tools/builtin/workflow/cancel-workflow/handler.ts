@@ -6,8 +6,8 @@ import type { BuiltinToolExecutionContext } from "@wf-agent/types";
 import type {
   CancelWorkflowParams,
   CancelWorkflowResult,
+  WorkflowToolExecutionContext,
 } from "../../../../../../workflow/execution/types/workflow-tool.types.js";
-import { getContainer } from "../../../../../../core/di/index.js";
 import * as Identifiers from "../../../../../../core/di/service-identifiers.js";
 import { RuntimeValidationError } from "@wf-agent/types";
 import type { TriggeredSubworkflowHandler } from "../../../../../../workflow/execution/handlers/triggered-subworkflow-handler.js";
@@ -21,6 +21,9 @@ export function createCancelWorkflowHandler() {
     context: BuiltinToolExecutionContext,
   ): Promise<CancelWorkflowResult> => {
     const { taskId } = params as unknown as CancelWorkflowParams;
+
+    // Cast to WorkflowToolExecutionContext for type safety
+    const workflowContext = context as WorkflowToolExecutionContext;
 
     // Validate required parameters
     if (!taskId) {
@@ -47,8 +50,14 @@ export function createCancelWorkflowHandler() {
     }
 
     // Get TriggeredSubworkflowHandler from DI container
-    const container = getContainer();
-    const triggeredSubworkflowManager = container.get(
+    const globalContext = workflowContext.globalContext;
+    if (!globalContext) {
+      throw new RuntimeValidationError("GlobalContext not available", {
+        operation: "cancel_workflow",
+      });
+    }
+    
+    const triggeredSubworkflowManager = globalContext.container.get(
       Identifiers.TriggeredSubworkflowHandler,
     ) as TriggeredSubworkflowHandler;
 

@@ -4,6 +4,7 @@
 
 import type { Node } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
+import type { GlobalContext } from "../../../../core/global-context.js";
 import { addToolHandler, type AddToolHandlerContext } from "./add-tool-handler.js";
 import { agentLoopHandler, type AgentLoopHandlerContext } from "./agent-loop-handler.js";
 import { contextProcessorHandler, type ContextProcessorHandlerContext } from "./context-processor-handler.js";
@@ -21,7 +22,9 @@ import { startHandler } from "./start-handler.js";
 import { userInteractionHandler, type UserInteractionHandlerContext } from "./user-interaction-handler.js";
 import { variableHandler } from "./variable-handler.js";
 
+// NodeHandlerFn signature: all handlers receive globalContext as first parameter
 export type NodeHandlerFn = (
+  globalContext: GlobalContext,
   workflowExecutionEntity: WorkflowExecutionEntity,
   node: Node,
   context?: unknown,
@@ -29,27 +32,33 @@ export type NodeHandlerFn = (
 
 export function getNodeHandler(nodeType: string): NodeHandlerFn {
   const handlers: Record<string, NodeHandlerFn> = {
-    ADD_TOOL: (workflowExecutionEntity, node, context) =>
+    // Handlers that need globalContext as first param
+    AGENT_LOOP: (globalContext, workflowExecutionEntity, node, context) =>
+      agentLoopHandler(globalContext, workflowExecutionEntity.getExecution(), node, context as AgentLoopHandlerContext),
+    SCRIPT: (globalContext, workflowExecutionEntity, node, context) =>
+      scriptHandler(globalContext, workflowExecutionEntity, node, context),
+    
+    // Handlers that don't use globalContext (ignore it)
+    ADD_TOOL: (_gc, workflowExecutionEntity, node, context) =>
       addToolHandler(workflowExecutionEntity.getExecution(), node, context as AddToolHandlerContext),
-    AGENT_LOOP: (workflowExecutionEntity, node, context) =>
-      agentLoopHandler(workflowExecutionEntity.getExecution(), node, context as AgentLoopHandlerContext),
-    CONTEXT_PROCESSOR: (workflowExecutionEntity, node, context) =>
+    CONTEXT_PROCESSOR: (_gc, workflowExecutionEntity, node, context) =>
       contextProcessorHandler(workflowExecutionEntity.getExecution(), node, context as ContextProcessorHandlerContext),
-    CONTINUE_FROM_TRIGGER: continueFromTriggerHandler as NodeHandlerFn,
-    END: endHandler as NodeHandlerFn,
-    FORK: forkHandler as NodeHandlerFn,
-    JOIN: joinHandler as NodeHandlerFn,
-    LLM: (workflowExecutionEntity, node, context) =>
+    CONTINUE_FROM_TRIGGER: (_gc, workflowExecutionEntity, node, _ctx) =>
+      continueFromTriggerHandler(workflowExecutionEntity, node),
+    END: (_gc, workflowExecutionEntity, node, _ctx) => endHandler(workflowExecutionEntity, node),
+    FORK: (_gc, workflowExecutionEntity, node, _ctx) => forkHandler(workflowExecutionEntity, node),
+    JOIN: (_gc, workflowExecutionEntity, node, _ctx) => joinHandler(workflowExecutionEntity, node),
+    LLM: (_gc, workflowExecutionEntity, node, context) =>
       llmHandler(workflowExecutionEntity.getExecution(), node, context as LLMHandlerContext),
-    LOOP_END: loopEndHandler as NodeHandlerFn,
-    LOOP_START: loopStartHandler as NodeHandlerFn,
-    ROUTE: routeHandler as NodeHandlerFn,
-    SCRIPT: scriptHandler as NodeHandlerFn,
-    START_FROM_TRIGGER: startFromTriggerHandler as NodeHandlerFn,
-    START: startHandler as NodeHandlerFn,
-    USER_INTERACTION: (workflowExecutionEntity, node, context) =>
+    LOOP_END: (_gc, workflowExecutionEntity, node, _ctx) => loopEndHandler(workflowExecutionEntity, node),
+    LOOP_START: (_gc, workflowExecutionEntity, node, _ctx) => loopStartHandler(workflowExecutionEntity, node),
+    ROUTE: (_gc, workflowExecutionEntity, node, _ctx) => routeHandler(workflowExecutionEntity, node),
+    START_FROM_TRIGGER: (_gc, workflowExecutionEntity, node, context) =>
+      startFromTriggerHandler(workflowExecutionEntity, context as any),
+    START: (_gc, workflowExecutionEntity, node, _ctx) => startHandler(workflowExecutionEntity, node),
+    USER_INTERACTION: (_gc, workflowExecutionEntity, node, context) =>
       userInteractionHandler(workflowExecutionEntity.getExecution(), node, context as UserInteractionHandlerContext),
-    VARIABLE: variableHandler as NodeHandlerFn,
+    VARIABLE: (_gc, workflowExecutionEntity, node, _ctx) => variableHandler(workflowExecutionEntity, node),
   };
 
   const handler = handlers[nodeType];

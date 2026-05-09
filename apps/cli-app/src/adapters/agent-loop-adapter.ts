@@ -46,7 +46,10 @@ export class AgentLoopAdapter extends BaseAdapter {
       eventManager: this.eventRegistry,
       toolApprovalHandler,
     });
-    this.coordinator = new AgentLoopCoordinator(this.registry, executor);
+    
+    // Get globalContext from SDK instance
+    const globalContext = this.sdk.getGlobalContext();
+    this.coordinator = new AgentLoopCoordinator(this.registry, executor, globalContext);
   }
 
   /**
@@ -59,7 +62,8 @@ export class AgentLoopAdapter extends BaseAdapter {
     options: AgentLoopEntityOptions = {},
   ): Promise<{ id: ID }> {
     return this.executeWithErrorHandling(async () => {
-      const entity = await AgentLoopFactory.create(config, options);
+      const globalContext = this.sdk.getGlobalContext();
+      const entity = await AgentLoopFactory.create(globalContext, config, options);
       this.registry.register(entity);
 
       this.output.infoLog(`Agent Loop created successfully: ${entity.id}`);

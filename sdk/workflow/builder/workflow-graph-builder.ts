@@ -24,8 +24,8 @@ import {
   generateId,
 } from "../../utils/index.js";
 import { SUBGRAPH_METADATA_KEYS } from "@wf-agent/types";
-import { getContainer } from "../../core/di/index.js";
 import * as Identifiers from "../../core/di/service-identifiers.js";
+import type { GlobalContext } from "../../core/global-context.js";
 
 /**
  * Workflow Graph Builder Class
@@ -172,6 +172,7 @@ export class WorkflowGraphBuilder {
   /**
    * Process sub-workflow nodes
    * Recursively merge the sub-workflow graph into the main graph
+   * @param globalContext: Global context for accessing DI container
    * @param graph: The main graph
    * @param workflowRegistry: The workflow registry
    * @param maxRecursionDepth: The maximum recursion depth
@@ -179,6 +180,7 @@ export class WorkflowGraphBuilder {
    * @returns: The merged result
    */
   static async processSubgraphs(
+    globalContext: GlobalContext,
     graph: WorkflowGraphData,
     workflowRegistry: {
       get: (id: string) => unknown;
@@ -235,8 +237,7 @@ export class WorkflowGraphBuilder {
       const subworkflowId = subgraphConfig["subgraphId"] as ID;
 
       // Ensure that the sub-workflows have been fully preprocessed (including reference expansion and handling of nested sub-workflows).
-      const container = getContainer();
-      const workflowGraphRegistry = container.get(Identifiers.WorkflowGraphRegistry) as {
+      const workflowGraphRegistry = globalContext.container.get(Identifiers.WorkflowGraphRegistry) as {
         get: (id: string) => WorkflowGraphType | undefined;
       };
       let processedSubworkflow = workflowGraphRegistry.get(subworkflowId);

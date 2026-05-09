@@ -4,7 +4,6 @@
 
 import type { BuiltinToolExecutionContext } from "@wf-agent/types";
 import type { AgentLoopRuntimeConfig } from "@wf-agent/types";
-import { getContainer } from "../../../../../../core/di/index.js";
 import * as Identifiers from "../../../../../../core/di/service-identifiers.js";
 import { RuntimeValidationError, ConfigurationError } from "@wf-agent/types";
 import type { AgentLoopCoordinator } from "../../../../../../agent/execution/coordinators/agent-loop-coordinator.js";
@@ -49,18 +48,24 @@ export function createCallAgentHandler() {
     }
 
     const startTime = Date.now();
-    const container = getContainer();
-    const coordinator = container.get(Identifiers.AgentLoopCoordinator) as {
-      create: () => AgentLoopCoordinator;
-    };
+    
+    // Get GlobalContext from execution context
+    const globalContext = (context as any).globalContext;
+    if (!globalContext) {
+      throw new RuntimeValidationError("GlobalContext not available in execution context", {
+        operation: "call_agent",
+      });
+    }
+    
+    const coordinatorFactory = globalContext.container.get(Identifiers.AgentLoopCoordinator);
 
-    if (!coordinator) {
+    if (!coordinatorFactory) {
       throw new RuntimeValidationError("AgentLoopCoordinator not available in DI container", {
         operation: "call_agent",
       });
     }
 
-    const agentCoordinator = coordinator.create();
+    const agentLoopCoordinator = (coordinatorFactory as any).create();
 
     try {
       // Load agent profile configuration
@@ -102,7 +107,7 @@ export function createCallAgentHandler() {
       });
 
       // Validate and filter tools from ToolRegistry
-      const toolService = container.get(Identifiers.ToolRegistry) as ToolRegistry | undefined;
+      const toolService = globalContext.container.get(Identifiers.ToolRegistry) as ToolRegistry | undefined;
       let validTools: string[] = [];
       
       if (runtimeConfig.availableTools?.initial && runtimeConfig.availableTools.initial.length > 0) {
@@ -128,7 +133,7 @@ export function createCallAgentHandler() {
         }
       }
 
-      const result = await agentCoordinator.execute(
+      const result = await agentLoopCoordinator.execute(
         {
           profileId: runtimeConfig.profileId || agentProfileId,
           systemPrompt: resolvedSystemPrompt,

@@ -40,9 +40,14 @@ export class WorkflowGraphValidator {
       ...options,
     };
 
+    // Check if it is a triggered subworkflow.
+    const isTriggeredSubgraph = this.isTriggeredSubgraph(graph);
+
     // Check the START/END nodes.
     if (opts.checkStartEnd) {
-      const startEndErrors = this.validateStartEndNodes(graph);
+      const startEndErrors = isTriggeredSubgraph
+        ? this.validateTriggeredSubgraphNodes(graph)
+        : this.validateStartEndNodes(graph);
       errorList.push(...startEndErrors);
     }
 
@@ -71,32 +76,39 @@ export class WorkflowGraphValidator {
 
     // Reachability Analysis
     if (opts.checkReachability) {
-      const reachabilityResult = analyzeReachability(graph);
+      if (isTriggeredSubgraph) {
+        // Triggered subworkflow only verifies internal connectivity.
+        const connectivityErrors = this.validateTriggeredSubgraphConnectivity(graph);
+        errorList.push(...connectivityErrors);
+      } else {
+        // Verify the reachability from START to END in normal workflows.
+        const reachabilityResult = analyzeReachability(graph);
 
-      // Unreachable nodes
-      for (const nodeId of reachabilityResult.unreachableNodes) {
-        errorList.push(
-          new ConfigurationValidationError(`Node(${nodeId}) is unreachable from START node`, {
-            configType: "workflow",
-            context: {
-              code: "UNREACHABLE_NODE",
-              nodeId,
-            },
-          }),
-        );
-      }
+        // Unreachable nodes
+        for (const nodeId of reachabilityResult.unreachableNodes) {
+          errorList.push(
+            new ConfigurationValidationError(`Node(${nodeId}) is unreachable from START node`, {
+              configType: "workflow",
+              context: {
+                code: "UNREACHABLE_NODE",
+                nodeId,
+              },
+            }),
+          );
+        }
 
-      // Dead nodes
-      for (const nodeId of reachabilityResult.deadEndNodes) {
-        errorList.push(
-          new ConfigurationValidationError(`Node(${nodeId}) cannot reach END node`, {
-            configType: "workflow",
-            context: {
-              code: "DEAD_END_NODE",
-              nodeId,
-            },
-          }),
-        );
+        // Dead nodes
+        for (const nodeId of reachabilityResult.deadEndNodes) {
+          errorList.push(
+            new ConfigurationValidationError(`Node(${nodeId}) cannot reach END node`, {
+              configType: "workflow",
+              context: {
+                code: "DEAD_END_NODE",
+                nodeId,
+              },
+            }),
+          );
+        }
       }
     }
 
@@ -404,6 +416,237 @@ export class WorkflowGraphValidator {
                 code: "UNPAIRED_JOIN",
                 nodeId: joinNode.nodeId,
                 pairId,
+              },
+            },
+          ),
+        );
+      }
+    }
+
+    return errors;
+  }
+
+  /**
+   * Check if the graph is a triggered subworkflow.
+   */
+  private static isTriggeredSubgraph(graph: WorkflowGraphData): boolean {
+    for (const node of graph.nodes.values()) {
+      if (node.type === ("START_FROM_TRIGGER" as NodeType)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Verify the START_FROM_TRIGGER and CONTINUE_FROM_TRIGGER nodes for triggered subworkflows.
+   */
+  private static validateTriggeredSubgraphNodes(
+    graph: WorkflowGraphData,
+  ): ConfigurationValidationError[] {
+    const errors: ConfigurationValidationError[] = [];
+
+    // Check START_FROM_TRIGGER node.
+    let startFromTriggerCount = 0;
+    let startFromTriggerNodeId: ID | undefined;
+
+    for (const node of graph.nodes.values()) {
+      if (node.type === ("START_FROM_TRIGGER" as NodeType)) {
+        startFromTriggerCount++;
+        startFromTriggerNodeId = node.id;
+      }
+    }
+
+    if (startFromTriggerCount === 0) {
+      errors.push(
+        new ConfigurationValidationError("The workflow must contain a START_FROM_TRIGGER node", {
+          configType: "workflow",
+          context: {
+            code: "MISSING_START_FROM_TRIGGER_NODE",
+          },
+        }),
+      );
+    } else if (startFromTriggerCount > 1) {
+      errors.push(
+        new ConfigurationValidationError(
+          "A triggered subworkflow can only contain one START_FROM_TRIGGER node",
+          {
+            configType: "workflow",
+            context: {
+              code: "MULTIPLE_START_FROM_TRIGGER_NODES",
+            },
+          },
+        ),
+      );
+    } else if (startFromTriggerNodeId) {
+      // Check the in-degree of START_FROM_TRIGGER node.
+      const incomingEdges = graph.getIncomingEdges(startFromTriggerNodeId);
+      if (incomingEdges.length > 0) {
+        errors.push(
+          new ConfigurationValidationError(
+            "START_FROM_TRIGGER node cannot have incoming edges",
+            {
+              configType: "workflow",
+              context: {
+                code: "START_FROM_TRIGGER_HAS_INCOMING_EDGES",
+                nodeId: startFromTriggerNodeId,
+              },
+            },
+          ),
+        );
+      }
+    }
+
+    // Check CONTINUE_FROM_TRIGGER nodes.
+    let continueFromTriggerCount = 0;
+    for (const node of graph.nodes.values()) {
+      if (node.type === ("CONTINUE_FROM_TRIGGER" as NodeType)) {
+        continueFromTriggerCount++;
+      }
+    }
+
+    if (continueFromTriggerCount === 0) {
+      errors.push(
+        new ConfigurationValidationError(
+          "The workflow must contain at least one CONTINUE_FROM_TRIGGER node",
+          {
+            configType: "workflow",
+            context: {
+              code: "MISSING_CONTINUE_FROM_TRIGGER_NODE",
+            },
+          },
+        ),
+      );
+    }
+
+    // Triggered subworkflows should not contain regular START or END nodes.
+    for (const node of graph.nodes.values()) {
+      if (node.type === ("START" as NodeType)) {
+        errors.push(
+          new ConfigurationValidationError(
+            "Triggered subworkflow cannot contain a regular START node",
+            {
+              configType: "workflow",
+              context: {
+                code: "TRIGGERED_SUBGRAPH_CONTAINS_START_NODE",
+                nodeId: node.id,
+              },
+            },
+          ),
+        );
+      }
+      if (node.type === ("END" as NodeType)) {
+        errors.push(
+          new ConfigurationValidationError(
+            "Triggered subworkflow cannot contain a regular END node",
+            {
+              configType: "workflow",
+              context: {
+                code: "TRIGGERED_SUBGRAPH_CONTAINS_END_NODE",
+                nodeId: node.id,
+              },
+            },
+          ),
+        );
+      }
+    }
+
+    return errors;
+  }
+
+  /**
+   * Verify connectivity for triggered subworkflows.
+   * Checks that all nodes are reachable from START_FROM_TRIGGER and can reach CONTINUE_FROM_TRIGGER.
+   */
+  private static validateTriggeredSubgraphConnectivity(
+    graph: WorkflowGraphData,
+  ): ConfigurationValidationError[] {
+    const errors: ConfigurationValidationError[] = [];
+
+    // Find START_FROM_TRIGGER node.
+    let startFromTriggerNodeId: ID | undefined;
+    for (const node of graph.nodes.values()) {
+      if (node.type === ("START_FROM_TRIGGER" as NodeType)) {
+        startFromTriggerNodeId = node.id;
+        break;
+      }
+    }
+
+    if (!startFromTriggerNodeId) {
+      return errors; // Already reported in validateTriggeredSubgraphNodes
+    }
+
+    // Find all CONTINUE_FROM_TRIGGER nodes.
+    const continueFromTriggerNodeIds: ID[] = [];
+    for (const node of graph.nodes.values()) {
+      if (node.type === ("CONTINUE_FROM_TRIGGER" as NodeType)) {
+        continueFromTriggerNodeIds.push(node.id);
+      }
+    }
+
+    // Check reachability from START_FROM_TRIGGER.
+    const visited = new Set<ID>();
+    const queue: ID[] = [startFromTriggerNodeId];
+    visited.add(startFromTriggerNodeId);
+
+    while (queue.length > 0) {
+      const currentId = queue.shift()!;
+      const neighbors = graph.getOutgoingNeighbors(currentId);
+      for (const neighborId of neighbors) {
+        if (!visited.has(neighborId)) {
+          visited.add(neighborId);
+          queue.push(neighborId);
+        }
+      }
+    }
+
+    // Check if all nodes are reachable.
+    for (const node of graph.nodes.values()) {
+      if (!visited.has(node.id)) {
+        errors.push(
+          new ConfigurationValidationError(
+            `Node(${node.id}) is unreachable from START_FROM_TRIGGER node`,
+            {
+              configType: "workflow",
+              context: {
+                code: "UNREACHABLE_NODE_IN_TRIGGERED_SUBGRAPH",
+                nodeId: node.id,
+              },
+            },
+          ),
+        );
+      }
+    }
+
+    // Check if all nodes can reach at least one CONTINUE_FROM_TRIGGER.
+    // For simplicity, we'll check reverse reachability from CONTINUE_FROM_TRIGGER nodes.
+    const canReachEnd = new Set<ID>();
+    const endQueue: ID[] = [...continueFromTriggerNodeIds];
+    for (const id of continueFromTriggerNodeIds) {
+      canReachEnd.add(id);
+    }
+
+    while (endQueue.length > 0) {
+      const currentId = endQueue.shift()!;
+      const predecessors = graph.getIncomingNeighbors(currentId);
+      for (const predId of predecessors) {
+        if (!canReachEnd.has(predId)) {
+          canReachEnd.add(predId);
+          endQueue.push(predId);
+        }
+      }
+    }
+
+    for (const node of graph.nodes.values()) {
+      if (!canReachEnd.has(node.id)) {
+        errors.push(
+          new ConfigurationValidationError(
+            `Node(${node.id}) cannot reach any CONTINUE_FROM_TRIGGER node`,
+            {
+              configType: "workflow",
+              context: {
+                code: "DEAD_END_NODE_IN_TRIGGERED_SUBGRAPH",
+                nodeId: node.id,
               },
             },
           ),

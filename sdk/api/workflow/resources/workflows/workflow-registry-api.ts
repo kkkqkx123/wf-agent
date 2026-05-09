@@ -50,6 +50,8 @@ export interface WorkflowSummary {
   name: string;
   /** Workflow description */
   description?: string;
+  /** Workflow type (STANDALONE, DEPENDENT, TRIGGERED_SUBWORKFLOW) */
+  type?: string;
   /** releases */
   version: string;
   /** Number of nodes */

@@ -211,15 +211,29 @@ export class Formatter {
   /**
    * Format workflow
    */
-  workflow(workflow: { id?: string; name?: string; status?: string }): string {
+  workflow(workflow: { id?: string; name?: string; status?: string; type?: string; triggers?: Array<{ id: string; name?: string }> }): string {
     const name = workflow.name || "Unnamed";
     const id = workflow.id || "N/A";
+    const type = workflow.type || "unknown";
     const status = this.status(workflow.status || "unknown");
 
+    let result = "";
     if (!this._colorEnabled) {
-      return `${name} (${id}) - ${workflow.status || "unknown"}`;
+      result = `${name} (${id}) - ${type}`;
+    } else {
+      result = `\x1b[36m${name}\x1b[0m (\x1b[90m${id}\x1b[0m) - ${type}`;
     }
-    return `\x1b[36m${name}\x1b[0m (\x1b[90m${id}\x1b[0m) - ${status}`;
+
+    // Add trigger information if available
+    if (workflow.triggers && workflow.triggers.length > 0) {
+      result += "\nTriggers:";
+      for (const trigger of workflow.triggers) {
+        const triggerName = trigger.name ? ` (${trigger.name})` : "";
+        result += `\n  - ${trigger.id}${triggerName}`;
+      }
+    }
+
+    return result;
   }
 
   /**

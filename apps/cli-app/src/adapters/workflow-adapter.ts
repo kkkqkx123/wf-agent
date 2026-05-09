@@ -128,6 +128,7 @@ export class WorkflowAdapter extends BaseAdapter {
       const summaries = workflows.map((wf: any) => ({
         id: wf.id,
         name: wf.name,
+        type: wf.type || "unknown",
         version: wf.version,
         description: wf.description,
         status: "active",
@@ -152,7 +153,11 @@ export class WorkflowAdapter extends BaseAdapter {
         throw new CLINotFoundError(`Workflow not found: ${id}`, "Workflow", id);
       }
 
-      return workflow;
+      // Ensure type field is included
+      return {
+        ...workflow,
+        type: workflow.type || "unknown",
+      };
     }, "Obtain workflow details");
   }
 

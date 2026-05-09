@@ -360,8 +360,13 @@ export class WorkflowRegistry {
       );
     }
 
-    // Cache processing results - WorkflowGraphData is already compatible with WorkflowGraph
-    graphRegistry.register(graph as unknown as import("@wf-agent/types").WorkflowGraph);
+    // Add workflowId to the graph before registering
+    // WorkflowGraphData needs workflowId field to be compatible with WorkflowGraph interface
+    const graphWithWorkflowId = graph as any;
+    graphWithWorkflowId.workflowId = workflow.id;
+    
+    // Cache processing results
+    graphRegistry.register(graphWithWorkflowId as unknown as import("@wf-agent/types").WorkflowGraph);
   }
 
   /**
@@ -568,6 +573,7 @@ export class WorkflowRegistry {
       id: workflow.id,
       name: workflow.name,
       description: workflow.description,
+      type: workflow.type,
       version: workflow.version,
       nodeCount: workflow.nodes.length,
       edgeCount: workflow.edges.length,
@@ -998,6 +1004,7 @@ export class WorkflowRegistry {
       const metadata = {
         workflowId: workflow.id,
         name: workflow.name,
+        type: workflow.type,
         version: workflow.version,
         description: workflow.description,
         createdAt: workflow.createdAt,

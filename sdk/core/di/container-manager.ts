@@ -1,14 +1,29 @@
 /**
- * Container Manager - Multi-Instance DI Container Support
+ * Container Manager - Global DI Container Registry
  * 
  * Manages multiple DI container instances for isolated SDK instances.
- * Each SDK instance gets its own container with independent storage adapters.
+ * Each SDK instance gets its own container with independent service bindings.
  * 
  * Design Principles:
+ * - ContainerManager is a GLOBAL SINGLETON (process-level) acting as a registry
  * - Each container is fully isolated with its own service bindings
  * - Containers can be created and destroyed independently
- * - Shared services (registries, executors) are bound per-container
- * - No global singleton state
+ * - No shared business state between containers
+ * - Similar to database connection pool managers or Express app registries
+ * 
+ * Architecture:
+ * ```
+ * Process Level:
+ *   ContainerManager (singleton) -> manages all containers
+ *     ├─ Container 1 (SDK Instance 1)
+ *     │   ├─ WorkflowRegistry (container singleton)
+ *     │   ├─ ToolRegistry (container singleton)
+ *     │   └─ ...
+ *     ├─ Container 2 (SDK Instance 2)
+ *     │   ├─ WorkflowRegistry (container singleton, independent)
+ *     │   ├─ ToolRegistry (container singleton, independent)
+ *     │   └─ ...
+ * ```
  */
 
 import { Container } from "@wf-agent/common-utils";
@@ -19,18 +34,9 @@ import type {
   WorkflowExecutionStorageAdapter,
   AgentLoopCheckpointStorageAdapter,
 } from "@wf-agent/storage";
-import { configureContainerBindings } from "./container-config.js";
-
-/**
- * Storage adapter configuration for a container instance
- */
-export interface ContainerStorageConfig {
-  checkpoint?: CheckpointStorageAdapter;
-  workflow?: WorkflowStorageAdapter;
-  task?: TaskStorageAdapter;
-  workflowExecution?: WorkflowExecutionStorageAdapter;
-  agentLoopCheckpoint?: AgentLoopCheckpointStorageAdapter;
-}
+import { configureContainerBindings, type ContainerStorageConfig } from "./container-config.js";
+import * as Identifiers from "./service-identifiers.js";
+import { generateId } from "../../utils/id-utils.js";
 
 /**
  * Container Manager - Manages multiple DI container instances
@@ -53,6 +59,9 @@ export class ContainerManager {
 
   /**
    * Create a new isolated container with storage adapters
+   * 
+   * Note: GlobalContext uses lazy loading, so it can be safely bound after container creation.
+   * No two-phase initialization is needed.
    * 
    * @param containerId Unique identifier for this container
    * @param adapters Storage adapter configuration
@@ -102,12 +111,12 @@ export class ContainerManager {
    * Destroy a container and release its resources
    * 
    * @param containerId Container identifier
-   * @returns true if container was destroyed
+   * @throws Error if container not found
    */
-  async destroyContainer(containerId: string): Promise<boolean> {
+  async destroyContainer(containerId: string): Promise<void> {
     const container = this.containers.get(containerId);
     if (!container) {
-      return false;
+      throw new Error(`Container with ID '${containerId}' not found.`);
     }
 
     // Clear all caches
@@ -115,8 +124,6 @@ export class ContainerManager {
     
     // Remove from registry
     this.containers.delete(containerId);
-    
-    return true;
   }
 
   /**
@@ -157,7 +164,7 @@ export class ContainerManager {
 }
 
 /**
- * Convenience function to create a container without using the manager directly
+ * Convenience function to create an isolated container
  * Useful for simple cases where you don't need to track multiple containers
  * 
  * @param adapters Storage adapter configuration
@@ -165,7 +172,7 @@ export class ContainerManager {
  */
 export function createIsolatedContainer(adapters: ContainerStorageConfig = {}): { container: Container; containerId: string } {
   const manager = ContainerManager.getInstance();
-  const containerId = `container-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  const containerId = `container-${generateId()}`;
   const container = manager.createContainer(containerId, adapters);
   return { container, containerId };
 }

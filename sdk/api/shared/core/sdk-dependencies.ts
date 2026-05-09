@@ -10,7 +10,6 @@
  * - Dependencies are uniformly obtained through a Dependency Injection (DI) container.
  */
 
-import { getContainer } from "../../../core/di/index.js";
 import * as Identifiers from "../../../core/di/service-identifiers.js";
 import type { WorkflowRegistry } from "../../../workflow/stores/workflow-registry.js";
 import type { WorkflowExecutionRegistry } from "../../../workflow/stores/workflow-execution-registry.js";

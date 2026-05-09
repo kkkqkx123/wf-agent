@@ -7,8 +7,7 @@ import { ReadonlyResourceAPI } from "../../../shared/resources/generic-resource-
 import type { WorkflowExecutionRegistry } from "../../../../workflow/stores/workflow-execution-registry.js";
 import type { Trigger } from "@wf-agent/types";
 import { NotFoundError, WorkflowExecutionNotFoundError } from "@wf-agent/types";
-import { getContainer } from "../../../../core/di/index.js";
-import * as Identifiers from "../../../../core/di/service-identifiers.js";
+import type { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
 import { now } from "@wf-agent/common-utils";
 
 /**
@@ -31,10 +30,9 @@ export interface TriggerFilter {
 export class TriggerResourceAPI extends ReadonlyResourceAPI<Trigger, string, TriggerFilter> {
   private registry: WorkflowExecutionRegistry;
 
-  constructor() {
+  constructor(deps: APIDependencyManager) {
     super();
-    const container = getContainer();
-    this.registry = container.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry;
+    this.registry = deps.getWorkflowExecutionRegistry();
   }
 
   // ============================================================================

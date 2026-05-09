@@ -7,8 +7,7 @@ import { ReadonlyResourceAPI } from "../../../shared/resources/generic-resource-
 import type { WorkflowExecutionRegistry } from "../../../../workflow/stores/workflow-execution-registry.js";
 import type { LLMMessage } from "@wf-agent/types";
 import { WorkflowExecutionNotFoundError } from "@wf-agent/types";
-import { getContainer } from "../../../../core/di/index.js";
-import * as Identifiers from "../../../../core/di/service-identifiers.js";
+import type { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
 
 /**
  * Message Filter
@@ -44,10 +43,9 @@ export interface MessageStats {
 export class MessageResourceAPI extends ReadonlyResourceAPI<LLMMessage, string, MessageFilter> {
   private registry: WorkflowExecutionRegistry;
 
-  constructor() {
+  constructor(deps: APIDependencyManager) {
     super();
-    const container = getContainer();
-    this.registry = container.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry;
+    this.registry = deps.getWorkflowExecutionRegistry();
   }
 
   // ============================================================================

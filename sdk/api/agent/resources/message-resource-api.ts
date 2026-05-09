@@ -10,8 +10,7 @@
 import { ReadonlyResourceAPI } from "../../shared/resources/generic-resource-api.js";
 import type { LLMMessage, ID } from "@wf-agent/types";
 import type { AgentLoopRegistry } from "../../../agent/stores/agent-loop-registry.js";
-import { getContainer } from "../../../core/di/index.js";
-import * as Identifiers from "../../../core/di/service-identifiers.js";
+import type { APIDependencyManager } from "../../shared/core/sdk-dependencies.js";
 
 /**
  * message filter
@@ -47,10 +46,9 @@ export class AgentLoopMessageResourceAPI extends ReadonlyResourceAPI<
 > {
   private registry: AgentLoopRegistry;
 
-  constructor() {
+  constructor(deps: APIDependencyManager) {
     super();
-    const container = getContainer();
-    this.registry = container.get(Identifiers.AgentLoopRegistry) as AgentLoopRegistry;
+    this.registry = deps.getAgentLoopRegistry();
   }
 
   // ============================================================================

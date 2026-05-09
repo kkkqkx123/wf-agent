@@ -94,22 +94,16 @@ import { ExecutionHierarchyRegistry } from "../registry/execution-hierarchy-regi
 import { AgentLoopCoordinator } from "../../agent/execution/coordinators/agent-loop-coordinator.js";
 import { WorkflowExecutionEntity } from "../../workflow/entities/workflow-execution-entity.js";
 
-/** Global container instance */
-let container: Container | null = null;
-
 /**
- * Storage adapter configuration for initialization
- * This is temporarily stored until the container is initialized
+ * Storage adapter configuration for container initialization
  */
-interface StorageAdapterConfig {
+export interface ContainerStorageConfig {
   checkpoint?: CheckpointStorageAdapter;
   workflow?: WorkflowStorageAdapter;
   task?: TaskStorageAdapter;
   workflowExecution?: WorkflowExecutionStorageAdapter;
   agentLoopCheckpoint?: AgentLoopCheckpointStorageAdapter;
 }
-
-let pendingStorageConfig: StorageAdapterConfig | null = null;
 
 /**
  * Configure container bindings with storage adapters
@@ -120,7 +114,7 @@ let pendingStorageConfig: StorageAdapterConfig | null = null;
  */
 export function configureContainerBindings(
   container: Container,
-  adapters: StorageAdapterConfig = {},
+  adapters: ContainerStorageConfig = {},
 ): void {
   // ============================================================
   // Bind Storage Adapters in DI Container
@@ -800,103 +794,4 @@ export function configureContainerBindings(
     .inSingletonScope();
 }
 
-/**
- * Initialize the DI container with storage adapters (Legacy - Deprecated)
- * Configure all service bindings in the order of dependencies
- *
- * @deprecated Use createIsolatedContainer() from container-manager.ts instead
- * @param adapters All storage adapters (optional)
- * @returns The configured container instance
- */
-export function initializeContainerWithAdapters(adapters: StorageAdapterConfig = {}): Container {
-  if (container) {
-    return container;
-  }
 
-  container = new Container();
-  configureContainerBindings(container, adapters);
-  
-  return container;
-}
-
-/**
- * Get a DI container instance
- *
- * @returns The container instance
- * @throws Error If the container is not initialized
- */
-export function getContainer(): Container {
-  if (!container) {
-    throw new Error("Container not initialized. Call initializeContainer() first.");
-  }
-  return container;
-}
-
-/**
- * Reset DI container
- * Clear all caches and service instances, mainly used for test environments
- * After calling, you need to call initializeContainer() again to initialize the container
- */
-export function resetContainer(): void {
-  if (container) {
-    container.clearAllCaches();
-    container = null;
-  }
-  pendingStorageConfig = null;
-}
-
-/**
- * Check if the container has been initialized.
- *
- * @returns Whether it has been initialized
- */
-export function isContainerInitialized(): boolean {
-  return container !== null;
-}
-
-/**
- * Shutdown all storage adapters gracefully (Legacy - for backward compatibility)
- * Closes connections, flushes buffers, and releases resources
- * 
- * @deprecated Use ContainerManager.destroyContainer() instead
- */
-export async function shutdownStorageAdapters(): Promise<void> {
-  if (!container) {
-    return;
-  }
-
-  const shutdownErrors: Array<{ type: string; error: Error }> = [];
-
-  // Shutdown each adapter that has a close/shutdown method
-  const adapterTypes = [
-    { name: 'checkpoint', identifier: Identifiers.CheckpointStorageAdapter },
-    { name: 'workflow', identifier: Identifiers.WorkflowStorageAdapter },
-    { name: 'task', identifier: Identifiers.TaskStorageAdapter },
-    { name: 'workflowExecution', identifier: Identifiers.WorkflowExecutionStorageAdapter },
-    { name: 'agentLoopCheckpoint', identifier: Identifiers.AgentLoopCheckpointStorageAdapter },
-  ] as const;
-
-  for (const { name, identifier } of adapterTypes) {
-    try {
-      const adapter = container.get(identifier);
-      if (adapter) {
-        // Check if adapter has a close or shutdown method
-        const closableAdapter = adapter as { close?: () => Promise<void>; shutdown?: () => Promise<void> };
-        if (typeof closableAdapter.close === 'function') {
-          await closableAdapter.close();
-        } else if (typeof closableAdapter.shutdown === 'function') {
-          await closableAdapter.shutdown();
-        }
-      }
-    } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
-      shutdownErrors.push({ type: name, error: err });
-    }
-  }
-
-  if (shutdownErrors.length > 0) {
-    throw new Error(
-      `Shutdown completed with errors: ${shutdownErrors.map(e => `${e.type}: ${e.error.message}`).join(', ')}`,
-    );
-  }
-}

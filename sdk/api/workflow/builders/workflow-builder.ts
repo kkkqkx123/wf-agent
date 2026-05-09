@@ -18,12 +18,11 @@ import type { WorkflowTrigger } from "@wf-agent/types";
 import type { TriggerReference } from "@wf-agent/types";
 import { NodeTemplateNotFoundError } from "@wf-agent/types";
 import { generateId } from "../../../utils/id-utils.js";
-import { getContainer } from "../../../core/di/index.js";
-import * as Identifiers from "../../../core/di/service-identifiers.js";
 import { ConfigParser, ConfigFormat, getConfigFormatFromPath } from "../../shared/config/index.js";
 import * as fs from "fs/promises";
 import { NodeBuilder } from "./node-builder.js";
 import { BaseBuilder } from "../../shared/base-builder.js";
+import type { GlobalContext } from "../../../core/global-context.js";
 
 /**
  * WorkflowBuilder - Declarative Workflow Builder
@@ -37,20 +36,23 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
   private edges: Edge[] = [];
   private variables: WorkflowVariable[] = [];
   private triggers: (WorkflowTrigger | TriggerReference)[] = [];
+  private globalContext: GlobalContext;
 
-  private constructor(id: string) {
+  private constructor(globalContext: GlobalContext, id: string) {
     super();
+    this.globalContext = globalContext;
     this._id = id;
     this._name = id;
   }
 
   /**
    * Creating a new instance of WorkflowBuilder
+   * @param globalContext The GlobalContext to access services
    * @param id Workflow ID
    * @returns WorkflowBuilder instance
    */
-  static create(id: string): WorkflowBuilder {
-    return new WorkflowBuilder(id);
+  static create(globalContext: GlobalContext, id: string): WorkflowBuilder {
+    return new WorkflowBuilder(globalContext, id);
   }
 
   /**
@@ -141,10 +143,7 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
     configOverride?: Partial<NodeConfig>,
     nodeName?: string,
   ): this {
-    const container = getContainer();
-    const nodeTemplateRegistry = container.get(Identifiers.NodeTemplateRegistry) as {
-      get: (name: string) => { config: NodeConfig; type: NodeType; name: string } | undefined;
-    };
+    const nodeTemplateRegistry = this.globalContext.nodeTemplateRegistry;
     const template = nodeTemplateRegistry.get(templateName);
     if (!template) {
       throw new NodeTemplateNotFoundError(
@@ -447,10 +446,7 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
     }
 
     // Validating Trigger References
-    const container = getContainer();
-    const triggerTemplateRegistry = container.get(Identifiers.TriggerTemplateRegistry) as {
-      has: (name: string) => boolean;
-    };
+    const triggerTemplateRegistry = this.globalContext.triggerTemplateRegistry;
     for (const trigger of this.triggers) {
       if ("templateName" in trigger) {
         const reference = trigger as TriggerReference;

@@ -13,8 +13,7 @@ import type { AgentLoopRegistry } from "../../../agent/stores/agent-loop-registr
 import type { AgentLoopEntity } from "../../../agent/entities/agent-loop-entity.js";
 import { AgentLoopStatus, type ID } from "@wf-agent/types";
 import { getErrorMessage, isSuccess, getData } from "../../shared/types/execution-result.js";
-import { getContainer } from "../../../core/di/index.js";
-import * as Identifiers from "../../../core/di/service-identifiers.js";
+import type { APIDependencyManager } from "../../shared/core/sdk-dependencies.js";
 
 /**
  * Agent Loop Filter
@@ -65,16 +64,11 @@ export class AgentLoopRegistryAPI extends CrudResourceAPI<AgentLoopEntity, ID, A
 
   /**
    * Constructor
-   * @param registry AgentLoopRegistry instance (optional, gets from DI container by default)
+   * @param deps APIDependencyManager instance
    */
-  constructor(registry?: AgentLoopRegistry) {
+  constructor(private deps: APIDependencyManager) {
     super();
-    this.registry =
-      registry ??
-      (() => {
-        const container = getContainer();
-        return container.get(Identifiers.AgentLoopRegistry) as AgentLoopRegistry;
-      })();
+    this.registry = deps.getAgentLoopRegistry();
   }
 
   // ============================================================================

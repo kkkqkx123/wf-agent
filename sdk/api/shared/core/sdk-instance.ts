@@ -20,13 +20,17 @@ import { APIFactory } from "./api-factory.js";
 import { sdkLogger as logger, configureSDKLogger } from "../../../utils/logger.js";
 import { getErrorMessage } from "@wf-agent/common-utils";
 import { createIsolatedContainer, ContainerManager } from "../../../core/di/container-manager.js";
+import * as ServiceIdentifiers from "../../../core/di/service-identifiers.js";
 import { registerContextCompression } from "../../../resources/predefined/index.js";
 import { registerPredefinedPromptTemplates } from "../../../resources/predefined/prompts/index.js";
 import { registerAllPredefinedContent } from "../../../resources/predefined/registration.js";
 import { TomlParserManager } from "../../../utils/toml-parser-manager.js";
-import * as ServiceIdentifiers from "../../../core/di/service-identifiers.js";
 import { createRotatingFileStream, createConsoleStream, createMultistream } from "@wf-agent/common-utils";
 import type { LogStream } from "@wf-agent/common-utils";
+import { WorkflowBuilder } from "../../workflow/builders/workflow-builder.js";
+import { NodeBuilder } from "../../workflow/builders/node-builder.js";
+import { NodeTemplateBuilder } from "../../workflow/builders/node-template-builder.js";
+import { TriggerTemplateBuilder } from "../../workflow/builders/trigger-template-builder.js";
 
 /**
  * SDK Instance Class
@@ -63,10 +67,11 @@ export class SDKInstance {
     });
     this.containerId = containerId;
     
-    // Create GlobalContext from the isolated container
+    // Create GlobalContext - now safe because it uses lazy getters
+    // Services will only be resolved when first accessed, not during construction
     this.globalContext = new GlobalContext(container);
     
-    // Bind GlobalContext to the container so services can access it
+    // Bind GlobalContext to the container for services that depend on it
     container.bind(ServiceIdentifiers.GlobalContext).toConstantValue(this.globalContext);
     
     // Create API factory (it will use services from the container via GlobalContext)
@@ -550,6 +555,51 @@ export class SDKInstance {
   get events() {
     this.ensureReady();
     return this.apiFactory.createEventAPI();
+  }
+
+  // ============================================================================
+  // Builder Factory Methods
+  // ============================================================================
+
+  /**
+   * Create a WorkflowBuilder instance
+   * @param id Workflow ID
+   * @returns WorkflowBuilder instance
+   */
+  createWorkflowBuilder(id: string) {
+    this.ensureReady();
+    return WorkflowBuilder.create(this.globalContext, id);
+  }
+
+  /**
+   * Create a NodeBuilder instance
+   * @param id Node ID (optional, auto-generated)
+   * @returns NodeBuilder instance
+   */
+  createNodeBuilder(id?: string) {
+    this.ensureReady();
+    return NodeBuilder.create(this.globalContext, id);
+  }
+
+  /**
+   * Create a NodeTemplateBuilder instance
+   * @param name Template name
+   * @param type Node type
+   * @returns NodeTemplateBuilder instance
+   */
+  createNodeTemplateBuilder(name: string, type: import("@wf-agent/types").NodeType) {
+    this.ensureReady();
+    return NodeTemplateBuilder.create(this.globalContext, name, type);
+  }
+
+  /**
+   * Create a TriggerTemplateBuilder instance
+   * @param name Template name
+   * @returns TriggerTemplateBuilder instance
+   */
+  createTriggerTemplateBuilder(name: string) {
+    this.ensureReady();
+    return TriggerTemplateBuilder.create(this.globalContext, name);
   }
 
   /**

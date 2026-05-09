@@ -39,20 +39,18 @@ import type { WorkflowExecutionEntity } from "../workflow/entities/workflow-exec
  * Provides access to all shared resources for a specific SDK instance
  */
 export class GlobalContext {
-  // Registries (shared across all executions within this SDK instance)
-  readonly workflowRegistry: WorkflowRegistry;
-  readonly toolRegistry: ToolRegistry;
-  readonly scriptRegistry: ScriptRegistry;
-  readonly eventRegistry: EventRegistry;
-  readonly nodeTemplateRegistry: NodeTemplateRegistry;
-  readonly triggerTemplateRegistry: TriggerTemplateRegistry;
+  // Private backing fields for lazy initialization
+  private _workflowRegistry?: WorkflowRegistry;
+  private _toolRegistry?: ToolRegistry;
+  private _scriptRegistry?: ScriptRegistry;
+  private _eventRegistry?: EventRegistry;
+  private _nodeTemplateRegistry?: NodeTemplateRegistry;
+  private _triggerTemplateRegistry?: TriggerTemplateRegistry;
+  private _llmExecutor?: LLMExecutor;
+  private _toolCallExecutor?: ToolCallExecutor;
+  private _workflowExecutor?: WorkflowExecutor;
   
-  // Execution Engines (stateless or pooled)
-  readonly llmExecutor: LLMExecutor;
-  readonly toolCallExecutor: ToolCallExecutor;
-  readonly workflowExecutor: WorkflowExecutor;
-  
-  // Utilities (stateless)
+  // Utilities (stateless, no lazy loading needed)
   readonly serializationRegistry: SerializationRegistry;
   
   /**
@@ -60,21 +58,75 @@ export class GlobalContext {
    * @param container The DI container to get services from
    */
   constructor(readonly container: Container) {
-    // Registries
-    this.workflowRegistry = container.get(Identifiers.WorkflowRegistry as ServiceIdentifier<WorkflowRegistry>);
-    this.toolRegistry = container.get(Identifiers.ToolRegistry as ServiceIdentifier<ToolRegistry>);
-    this.scriptRegistry = container.get(Identifiers.ScriptRegistry as ServiceIdentifier<ScriptRegistry>);
-    this.eventRegistry = container.get(Identifiers.EventRegistry as ServiceIdentifier<EventRegistry>);
-    this.nodeTemplateRegistry = container.get(Identifiers.NodeTemplateRegistry as ServiceIdentifier<NodeTemplateRegistry>);
-    this.triggerTemplateRegistry = container.get(Identifiers.TriggerTemplateRegistry as ServiceIdentifier<TriggerTemplateRegistry>);
-    
-    // Executors
-    this.llmExecutor = container.get(Identifiers.LLMExecutor as ServiceIdentifier<LLMExecutor>);
-    this.toolCallExecutor = container.get(Identifiers.ToolCallExecutor as ServiceIdentifier<ToolCallExecutor>);
-    this.workflowExecutor = container.get(Identifiers.WorkflowExecutor as ServiceIdentifier<WorkflowExecutor>);
-    
-    // Utilities
+    // Initialize utilities immediately (no dependencies)
     this.serializationRegistry = SerializationRegistry.getInstance();
+    
+    // All other services are lazily loaded via getters to avoid circular dependency
+  }
+  
+  // Lazy getters for registries
+  get workflowRegistry(): WorkflowRegistry {
+    if (!this._workflowRegistry) {
+      this._workflowRegistry = this.container.get(Identifiers.WorkflowRegistry as ServiceIdentifier<WorkflowRegistry>);
+    }
+    return this._workflowRegistry;
+  }
+  
+  get toolRegistry(): ToolRegistry {
+    if (!this._toolRegistry) {
+      this._toolRegistry = this.container.get(Identifiers.ToolRegistry as ServiceIdentifier<ToolRegistry>);
+    }
+    return this._toolRegistry;
+  }
+  
+  get scriptRegistry(): ScriptRegistry {
+    if (!this._scriptRegistry) {
+      this._scriptRegistry = this.container.get(Identifiers.ScriptRegistry as ServiceIdentifier<ScriptRegistry>);
+    }
+    return this._scriptRegistry;
+  }
+  
+  get eventRegistry(): EventRegistry {
+    if (!this._eventRegistry) {
+      this._eventRegistry = this.container.get(Identifiers.EventRegistry as ServiceIdentifier<EventRegistry>);
+    }
+    return this._eventRegistry;
+  }
+  
+  get nodeTemplateRegistry(): NodeTemplateRegistry {
+    if (!this._nodeTemplateRegistry) {
+      this._nodeTemplateRegistry = this.container.get(Identifiers.NodeTemplateRegistry as ServiceIdentifier<NodeTemplateRegistry>);
+    }
+    return this._nodeTemplateRegistry;
+  }
+  
+  get triggerTemplateRegistry(): TriggerTemplateRegistry {
+    if (!this._triggerTemplateRegistry) {
+      this._triggerTemplateRegistry = this.container.get(Identifiers.TriggerTemplateRegistry as ServiceIdentifier<TriggerTemplateRegistry>);
+    }
+    return this._triggerTemplateRegistry;
+  }
+  
+  // Lazy getters for executors
+  get llmExecutor(): LLMExecutor {
+    if (!this._llmExecutor) {
+      this._llmExecutor = this.container.get(Identifiers.LLMExecutor as ServiceIdentifier<LLMExecutor>);
+    }
+    return this._llmExecutor;
+  }
+  
+  get toolCallExecutor(): ToolCallExecutor {
+    if (!this._toolCallExecutor) {
+      this._toolCallExecutor = this.container.get(Identifiers.ToolCallExecutor as ServiceIdentifier<ToolCallExecutor>);
+    }
+    return this._toolCallExecutor;
+  }
+  
+  get workflowExecutor(): WorkflowExecutor {
+    if (!this._workflowExecutor) {
+      this._workflowExecutor = this.container.get(Identifiers.WorkflowExecutor as ServiceIdentifier<WorkflowExecutor>);
+    }
+    return this._workflowExecutor;
   }
   
   /**

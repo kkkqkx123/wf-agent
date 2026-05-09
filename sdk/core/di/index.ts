@@ -20,16 +20,12 @@ export * as ServiceIdentifiers from "./service-identifiers.js";
 
 // Export container configuration function
 export {
-  initializeContainerWithAdapters,
-  getContainer,
-  resetContainer,
-  isContainerInitialized,
-  shutdownStorageAdapters,
+  configureContainerBindings,
+  type ContainerStorageConfig,
 } from "./container-config.js";
 
 // Export Container Manager for multi-instance support
 export {
   ContainerManager,
   createIsolatedContainer,
-  type ContainerStorageConfig,
 } from "./container-manager.js";

@@ -7,8 +7,7 @@ import type { NodeTemplate } from "@wf-agent/types";
 import type { NodeType, NodeConfig } from "@wf-agent/types";
 import type { NodeTemplateRegistry } from "../../../core/registry/node-template-registry.js";
 import { TemplateBuilder } from "./template-builder.js";
-import { getContainer } from "../../../core/di/index.js";
-import * as Identifiers from "../../../core/di/service-identifiers.js";
+import type { GlobalContext } from "../../../core/global-context.js";
 
 /**
  * NodeTemplateBuilder - Node Template Builder
@@ -17,21 +16,24 @@ export class NodeTemplateBuilder extends TemplateBuilder<NodeTemplate> {
   private _name: string;
   private _type: NodeType;
   private _config: NodeConfig = {} as NodeConfig;
+  private globalContext: GlobalContext;
 
-  private constructor(name: string, type: NodeType) {
+  private constructor(globalContext: GlobalContext, name: string, type: NodeType) {
     super();
+    this.globalContext = globalContext;
     this._name = name;
     this._type = type;
   }
 
   /**
    * Create a new NodeTemplateBuilder instance
+   * @param globalContext The GlobalContext to access services
    * @param name: Template name
    * @param type: Node type
    * @returns: NodeTemplateBuilder instance
    */
-  static create(name: string, type: NodeType): NodeTemplateBuilder {
-    return new NodeTemplateBuilder(name, type);
+  static create(globalContext: GlobalContext, name: string, type: NodeType): NodeTemplateBuilder {
+    return new NodeTemplateBuilder(globalContext, name, type);
   }
 
   /**
@@ -64,10 +66,7 @@ export class NodeTemplateBuilder extends TemplateBuilder<NodeTemplate> {
    * @param template: Node template
    */
   protected registerTemplate(template: NodeTemplate): void {
-    const container = getContainer();
-    const nodeTemplateRegistry = container.get(
-      Identifiers.NodeTemplateRegistry,
-    ) as NodeTemplateRegistry;
+    const nodeTemplateRegistry = this.globalContext.nodeTemplateRegistry;
     nodeTemplateRegistry.register(template);
   }
 

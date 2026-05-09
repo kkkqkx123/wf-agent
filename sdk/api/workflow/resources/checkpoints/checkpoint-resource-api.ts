@@ -7,7 +7,7 @@ import { CrudResourceAPI } from "../../../shared/resources/generic-resource-api.
 import { CheckpointState } from "../../../../workflow/checkpoint/checkpoint-state-manager.js";
 import type { Checkpoint, CheckpointMetadata } from "@wf-agent/types";
 import { CheckpointCoordinator } from "../../../../workflow/checkpoint/checkpoint-coordinator.js";
-import { getContainer } from "../../../../core/di/index.js";
+import type { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
 import * as Identifiers from "../../../../core/di/service-identifiers.js";
 import { getErrorMessage, isSuccess, getData } from "../../../shared/types/execution-result.js";
 import type { EventRegistry } from "../../../../core/registry/event-registry.js";
@@ -68,13 +68,14 @@ export interface CheckpointSummary {
 export class CheckpointResourceAPI extends CrudResourceAPI<Checkpoint, string, CheckpointFilter> {
   private stateManager: CheckpointState;
   private eventManager?: EventRegistry;
+  private deps: APIDependencyManager;
 
-  constructor(eventManager?: EventRegistry) {
+  constructor(deps: APIDependencyManager, eventManager?: EventRegistry) {
     super();
 
+    this.deps = deps;
     // Get the CheckpointState from the DI container.
-    const container = getContainer();
-    this.stateManager = container.get(Identifiers.CheckpointState) as CheckpointState;
+    this.stateManager = deps.getCheckpointStateManager();
     this.eventManager = eventManager;
   }
 
@@ -191,21 +192,12 @@ export class CheckpointResourceAPI extends CrudResourceAPI<Checkpoint, string, C
    * @returns Checkpoint ID
    */
   async createWorkflowExecutionCheckpoint(executionId: string, metadata?: CheckpointMetadata): Promise<string> {
-    // Obtain global services from the DI container.
-    const container = getContainer();
-    const executionRegistry = container.get(
-      Identifiers.WorkflowExecutionRegistry,
-    ) as import("../../../../workflow/stores/workflow-execution-registry.js").WorkflowExecutionRegistry;
-    const workflowRegistry = container.get(
-      Identifiers.WorkflowRegistry,
-    ) as import("../../../../workflow/stores/workflow-registry.js").WorkflowRegistry;
-    const graphRegistry = container.get(
-      Identifiers.WorkflowGraphRegistry,
-    ) as import("../../../../workflow/stores/workflow-graph-registry.js").WorkflowGraphRegistry;
+    const executionRegistry = this.deps.getWorkflowExecutionRegistry();
+    const workflowRegistry = this.deps.getWorkflowRegistry();
+    const graphRegistry = this.deps.getWorkflowGraphRegistry();
 
     const dependencies = {
-      workflowExecutionRegistry:
-        executionRegistry as unknown as import("../../../../workflow/stores/workflow-execution-registry.js").WorkflowExecutionRegistry,
+      workflowExecutionRegistry: executionRegistry,
       checkpointStateManager: this.stateManager,
       workflowRegistry,
       workflowGraphRegistry: graphRegistry,
@@ -225,21 +217,12 @@ export class CheckpointResourceAPI extends CrudResourceAPI<Checkpoint, string, C
    * @returns ID of the restored workflow execution
    */
   async restoreFromCheckpoint(checkpointId: string): Promise<string> {
-    // Obtain global services from the DI container.
-    const container = getContainer();
-    const executionRegistry = container.get(
-      Identifiers.WorkflowExecutionRegistry,
-    ) as import("../../../../workflow/stores/workflow-execution-registry.js").WorkflowExecutionRegistry;
-    const workflowRegistry = container.get(
-      Identifiers.WorkflowRegistry,
-    ) as import("../../../../workflow/stores/workflow-registry.js").WorkflowRegistry;
-    const graphRegistry = container.get(
-      Identifiers.WorkflowGraphRegistry,
-    ) as import("../../../../workflow/stores/workflow-graph-registry.js").WorkflowGraphRegistry;
+    const executionRegistry = this.deps.getWorkflowExecutionRegistry();
+    const workflowRegistry = this.deps.getWorkflowRegistry();
+    const graphRegistry = this.deps.getWorkflowGraphRegistry();
 
     const dependencies = {
-      workflowExecutionRegistry:
-        executionRegistry as unknown as import("../../../../workflow/stores/workflow-execution-registry.js").WorkflowExecutionRegistry,
+      workflowExecutionRegistry: executionRegistry,
       checkpointStateManager: this.stateManager,
       workflowRegistry,
       workflowGraphRegistry: graphRegistry,

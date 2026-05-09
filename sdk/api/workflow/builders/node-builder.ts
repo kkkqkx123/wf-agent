@@ -7,9 +7,8 @@ import type { Node, NodeConfig, NodeType } from "@wf-agent/types";
 import type { NodeTemplateRegistry } from "../../../core/registry/node-template-registry.js";
 import { NodeTemplateNotFoundError, ConfigurationValidationError } from "@wf-agent/types";
 import { generateId } from "../../../utils/id-utils.js";
-import { getContainer } from "../../../core/di/index.js";
-import * as Identifiers from "../../../core/di/service-identifiers.js";
 import { BaseBuilder } from "../../shared/base-builder.js";
+import type { GlobalContext } from "../../../core/global-context.js";
 
 /**
  * NodeBuilder - node builder
@@ -21,19 +20,22 @@ export class NodeBuilder extends BaseBuilder<Node> {
   private _config: NodeConfig = {};
   private _outgoingEdgeIds: string[] = [];
   private _incomingEdgeIds: string[] = [];
+  private globalContext: GlobalContext;
 
-  private constructor(id?: string) {
+  private constructor(globalContext: GlobalContext, id?: string) {
     super();
+    this.globalContext = globalContext;
     this._id = id || generateId();
   }
 
   /**
    * Create a new instance of NodeBuilder
+   * @param globalContext The GlobalContext to access services
    * @param id Node ID (optional, auto-generated)
    * @returns NodeBuilder instance
    */
-  static create(id?: string): NodeBuilder {
-    return new NodeBuilder(id);
+  static create(globalContext: GlobalContext, id?: string): NodeBuilder {
+    return new NodeBuilder(globalContext, id);
   }
 
   /**
@@ -87,10 +89,7 @@ export class NodeBuilder extends BaseBuilder<Node> {
    * @returns this
    */
   fromTemplate(templateName: string, configOverride?: Partial<NodeConfig>): this {
-    const container = getContainer();
-    const nodeTemplateRegistry = container.get(
-      Identifiers.NodeTemplateRegistry,
-    ) as NodeTemplateRegistry;
+    const nodeTemplateRegistry = this.globalContext.nodeTemplateRegistry;
     const template = nodeTemplateRegistry.get(templateName);
     if (!template) {
       throw new NodeTemplateNotFoundError(

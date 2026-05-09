@@ -6,8 +6,7 @@
 import type { TriggerTemplate, TriggerCondition, TriggerAction } from "@wf-agent/types";
 import { EventType, TriggerActionType } from "@wf-agent/types";
 import { TemplateBuilder } from "./template-builder.js";
-import { getContainer } from "../../../core/di/index.js";
-import * as Identifiers from "../../../core/di/service-identifiers.js";
+import type { GlobalContext } from "../../../core/global-context.js";
 
 /**
  * TriggerTemplateBuilder - Trigger template builder
@@ -18,19 +17,22 @@ export class TriggerTemplateBuilder extends TemplateBuilder<TriggerTemplate> {
   private _action?: TriggerAction;
   private _enabled?: boolean;
   private _maxTriggers?: number;
+  private globalContext: GlobalContext;
 
-  private constructor(name: string) {
+  private constructor(globalContext: GlobalContext, name: string) {
     super();
+    this.globalContext = globalContext;
     this._name = name;
   }
 
   /**
    * Create a new TriggerTemplateBuilder instance
+   * @param globalContext The GlobalContext to access services
    * @param name: The name of the template
    * @returns: A TriggerTemplateBuilder instance
    */
-  static create(name: string): TriggerTemplateBuilder {
-    return new TriggerTemplateBuilder(name);
+  static create(globalContext: GlobalContext, name: string): TriggerTemplateBuilder {
+    return new TriggerTemplateBuilder(globalContext, name);
   }
 
   /**
@@ -156,10 +158,7 @@ export class TriggerTemplateBuilder extends TemplateBuilder<TriggerTemplate> {
    * @param template: Trigger template
    */
   protected registerTemplate(template: TriggerTemplate): void {
-    const container = getContainer();
-    const triggerTemplateRegistry = container.get(Identifiers.TriggerTemplateRegistry) as {
-      register: (template: TriggerTemplate) => void;
-    };
+    const triggerTemplateRegistry = this.globalContext.triggerTemplateRegistry;
     triggerTemplateRegistry.register(template);
   }
 

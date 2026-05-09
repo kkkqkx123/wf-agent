@@ -72,9 +72,11 @@ export class WorkflowExecutionPool {
   private isShutdown: boolean = false;
 
   /**
-   * Private constructor to prevent direct instantiation
+   * Constructor - now public for DI container usage
+   * @param executorFactory The WorkflowExecutor factory function
+   * @param config The configuration
    */
-  private constructor(executorFactory: () => WorkflowExecutor, config?: ExecutionPoolConfig) {
+  constructor(executorFactory: () => WorkflowExecutor, config?: ExecutionPoolConfig) {
     this.executorFactory = executorFactory;
     this.config = {
       minExecutors: config?.minExecutors || 1,

@@ -144,13 +144,19 @@ export interface WorkflowExecutionConfig {
 }
 
 /**
+ * Custom Trigger Handler Configuration
+ */
+export interface CustomTriggerHandlerConfig {
+  /** Map of handler name to handler function */
+  handlers?: Record<string, unknown>; // Will be typed as CustomTriggerHandler when imported
+}
+
+/**
  * SDK Options
  */
 export interface SDKOptions {
   /** Whether to enable debug mode */
   debug?: boolean;
-  /** Log Level (deprecated, use logging.level instead) */
-  logLevel?: "debug" | "info" | "warn" | "error";
   /** Detailed logging configuration */
   logging?: LoggingConfig;
   /** Default timeout period (in milliseconds) */
@@ -187,6 +193,8 @@ export interface SDKOptions {
   profiles?: LLMProfileConfig;
   /** Workflow execution configuration */
   workflowExecution?: WorkflowExecutionConfig;
+  /** Custom trigger handlers configuration */
+  customTriggerHandlers?: Record<string, unknown>; // Will be typed as CustomTriggerHandler when imported
 }
 
 /**

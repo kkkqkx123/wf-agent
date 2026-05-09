@@ -192,9 +192,17 @@ export function configureContainerBindings(
     .to(TriggerTemplateRegistry)
     .inSingletonScope();
 
+  // TaskRegistry - Task registry (per-instance, not singleton)
+  // Each SDK instance gets its own TaskRegistry to ensure isolation
   container
     .bind(Identifiers.TaskRegistry)
-    .toDynamicValue(() => TaskRegistry.getInstance())
+    .toDynamicValue((c: IContainer) => {
+      const storageAdapter = c.get(Identifiers.TaskStorageAdapter) as TaskStorageAdapter | null;
+      return new TaskRegistry({
+        storageAdapter: storageAdapter || undefined,
+        autoPersist: true,
+      });
+    })
     .inSingletonScope();
 
   // ============================================================
@@ -772,6 +780,7 @@ export function configureContainerBindings(
 
   // WorkflowExecutionPool - workflow execution pool service for concurrent workflow execution
   // Note: It must be bound after all dependencies, as it requires WorkflowExecutor.
+  // Per-instance pool to ensure isolation between SDK instances
   container
     .bind(Identifiers.WorkflowExecutionPool)
     .toDynamicValue((c: IContainer): WorkflowExecutionPool => {
@@ -782,7 +791,8 @@ export function configureContainerBindings(
         defaultTimeout: 30000,
       };
 
-      return WorkflowExecutionPool.getInstance(
+      // Create a new instance per container, not using singleton
+      return new WorkflowExecutionPool(
         () => c.get(Identifiers.WorkflowExecutor) as WorkflowExecutor,
         config,
       );

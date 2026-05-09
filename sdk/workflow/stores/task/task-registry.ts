@@ -120,7 +120,16 @@ export class TaskRegistry {
    */
   private initialized: boolean = false;
 
-  private constructor() {}
+  /**
+   * Constructor - now public for DI container usage
+   * @param config Optional configuration
+   */
+  constructor(config?: TaskRegistryConfig) {
+    if (config?.storageAdapter) {
+      this.storageAdapter = config.storageAdapter;
+      this.autoPersist = config.autoPersist ?? true;
+    }
+  }
 
   /**
    * Obtain a singleton instance

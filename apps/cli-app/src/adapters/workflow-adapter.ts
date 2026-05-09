@@ -7,6 +7,7 @@ import { BaseAdapter } from "./base-adapter.js";
 import { resolve, join, extname } from "path";
 import { CLINotFoundError } from "../types/cli-types.js";
 import { getData, isFailure, getError, loadConfigContent, parseWorkflow } from "@wf-agent/sdk";
+import type { WorkflowTemplate } from "@wf-agent/types";
 
 /**
  * Workflow Adapter
@@ -22,7 +23,7 @@ export class WorkflowAdapter extends BaseAdapter {
    * @param parameters Runtime parameters (for template substitution)
    * @returns Workflow definition
    */
-  async registerFromFile(filePath: string, parameters?: Record<string, any>): Promise<any> {
+  async registerFromFile(filePath: string, parameters?: Record<string, unknown>): Promise<WorkflowTemplate> {
     return this.executeWithErrorHandling(async () => {
       // Use SDK to load the configuration.
       const fullPath = resolve(process.cwd(), filePath);
@@ -54,9 +55,9 @@ export class WorkflowAdapter extends BaseAdapter {
     configDir: string;
     recursive?: boolean;
     filePattern?: RegExp;
-    parameters?: Record<string, any>;
+    parameters?: Record<string, unknown>;
   }): Promise<{
-    success: any[];
+    success: WorkflowTemplate[];
     failures: Array<{ filePath: string; error: string }>;
   }> {
     return this.executeWithErrorHandling(async () => {
@@ -84,7 +85,7 @@ export class WorkflowAdapter extends BaseAdapter {
 
       await scanDir(dir);
 
-      const success: any[] = [];
+      const success: WorkflowTemplate[] = [];
       const failures: Array<{ filePath: string; error: string }> = [];
 
       const api = this.sdk.workflows;
@@ -118,14 +119,23 @@ export class WorkflowAdapter extends BaseAdapter {
   /**
    * List all workflows
    */
-  async listWorkflows(filter?: any): Promise<any[]> {
+  async listWorkflows(filter?: Record<string, unknown>): Promise<Array<{
+    id: string;
+    name: string;
+    type: string;
+    version?: string;
+    description?: string;
+    status: string;
+    createdAt: string;
+    updatedAt: string;
+  }>> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.workflows;
       const result = await api.getAll();
       const workflows = getData(result) || [];
 
       // Transform workflows into summary format.
-      const summaries = workflows.map((wf: any) => ({
+      const summaries = workflows.map((wf: WorkflowTemplate) => ({
         id: wf.id,
         name: wf.name,
         type: wf.type || "unknown",
@@ -143,7 +153,7 @@ export class WorkflowAdapter extends BaseAdapter {
   /**
    * Get workflow details
    */
-  async getWorkflow(id: string): Promise<any> {
+  async getWorkflow(id: string): Promise<WorkflowTemplate & { type: string }> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.workflows;
       const result = await api.get(id);

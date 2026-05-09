@@ -7,6 +7,7 @@ import { BaseAdapter } from "./base-adapter.js";
 import { resolve, join, extname } from "path";
 import { CLINotFoundError } from "../types/cli-types.js";
 import { loadConfigContent, parseNodeTemplate, parseTriggerTemplate, getData, isFailure, getError } from "@wf-agent/sdk";
+import type { NodeTemplate, TriggerTemplate, NodeTemplateSummary, TriggerTemplateSummary } from "@wf-agent/types";
 
 /**
  * Template Adapter
@@ -21,7 +22,7 @@ export class TemplateAdapter extends BaseAdapter {
    * @param filePath Configuration file path
    * @returns Node template definition
    */
-  async registerNodeTemplateFromFile(filePath: string): Promise<any> {
+  async registerNodeTemplateFromFile(filePath: string): Promise<NodeTemplate> {
     return this.executeWithErrorHandling(async () => {
       // Use SDK to load the configuration.
       const fullPath = resolve(process.cwd(), filePath);
@@ -47,7 +48,7 @@ export class TemplateAdapter extends BaseAdapter {
     recursive?: boolean;
     filePattern?: RegExp;
   }): Promise<{
-    success: any[];
+    success: NodeTemplate[];
     failures: Array<{ filePath: string; error: string }>;
   }> {
     return this.executeWithErrorHandling(async () => {
@@ -75,7 +76,7 @@ export class TemplateAdapter extends BaseAdapter {
 
       await scanDir(dir);
 
-      const success: any[] = [];
+      const success: NodeTemplate[] = [];
       const failures: Array<{ filePath: string; error: string }> = [];
 
       const api = this.sdk.nodeTemplates;
@@ -106,7 +107,7 @@ export class TemplateAdapter extends BaseAdapter {
    * @param filePath Configuration file path
    * @returns Trigger template definition
    */
-  async registerTriggerTemplateFromFile(filePath: string): Promise<any> {
+  async registerTriggerTemplateFromFile(filePath: string): Promise<TriggerTemplate> {
     return this.executeWithErrorHandling(async () => {
       // Use SDK to load the configuration.
       const fullPath = resolve(process.cwd(), filePath);
@@ -132,7 +133,7 @@ export class TemplateAdapter extends BaseAdapter {
     recursive?: boolean;
     filePattern?: RegExp;
   }): Promise<{
-    success: any[];
+    success: TriggerTemplate[];
     failures: Array<{ filePath: string; error: string }>;
   }> {
     return this.executeWithErrorHandling(async () => {
@@ -160,7 +161,7 @@ export class TemplateAdapter extends BaseAdapter {
 
       await scanDir(dir);
 
-      const success: any[] = [];
+      const success: TriggerTemplate[] = [];
       const failures: Array<{ filePath: string; error: string }> = [];
 
       const api = this.sdk.triggerTemplates;
@@ -189,7 +190,7 @@ export class TemplateAdapter extends BaseAdapter {
   /**
    * List all node templates
    */
-  async listNodeTemplates(filter?: any): Promise<any[]> {
+  async listNodeTemplates(filter?: Record<string, unknown>): Promise<NodeTemplateSummary[]> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.nodeTemplates;
       const result = await api.getAll();
@@ -198,17 +199,17 @@ export class TemplateAdapter extends BaseAdapter {
         throw getError(result);
       }
       
-      const templates = getData(result) as any[];
+      const templates = getData(result) as NodeTemplate[];
 
       // Transform templates into summary format.
-      const summaries = templates.map((tmpl: any) => ({
-        id: tmpl.id,
+      const summaries: NodeTemplateSummary[] = templates.map((tmpl: NodeTemplate) => ({
         name: tmpl.name,
         type: tmpl.type,
-        category: tmpl.category,
         description: tmpl.description,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        category: (tmpl.metadata?.['category'] as string) || undefined,
+        tags: (tmpl.metadata?.['tags'] as string[]) || undefined,
+        createdAt: tmpl.createdAt,
+        updatedAt: tmpl.updatedAt,
       }));
 
       return summaries;
@@ -218,7 +219,7 @@ export class TemplateAdapter extends BaseAdapter {
   /**
    * List all trigger templates
    */
-  async listTriggerTemplates(filter?: any): Promise<any[]> {
+  async listTriggerTemplates(filter?: Record<string, unknown>): Promise<TriggerTemplateSummary[]> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.triggerTemplates;
       const result = await api.getAll();
@@ -227,16 +228,16 @@ export class TemplateAdapter extends BaseAdapter {
         throw getError(result);
       }
       
-      const templates = getData(result) as any[];
+      const templates = getData(result) as TriggerTemplate[];
 
       // Transform the text into summary format.
-      const summaries = templates.map((tmpl: any) => ({
-        id: tmpl.id,
+      const summaries: TriggerTemplateSummary[] = templates.map((tmpl: TriggerTemplate) => ({
         name: tmpl.name,
-        type: tmpl.type,
         description: tmpl.description,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        category: (tmpl.metadata?.['category'] as string) || undefined,
+        tags: (tmpl.metadata?.['tags'] as string[]) || undefined,
+        createdAt: tmpl.createdAt,
+        updatedAt: tmpl.updatedAt,
       }));
 
       return summaries;
@@ -246,7 +247,7 @@ export class TemplateAdapter extends BaseAdapter {
   /**
    * Get node template details
    */
-  async getNodeTemplate(id: string): Promise<any> {
+  async getNodeTemplate(id: string): Promise<NodeTemplate> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.nodeTemplates;
       const result = await api.get(id);
@@ -268,7 +269,7 @@ export class TemplateAdapter extends BaseAdapter {
   /**
    * Get trigger template details
    */
-  async getTriggerTemplate(id: string): Promise<any> {
+  async getTriggerTemplate(id: string): Promise<TriggerTemplate> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.triggerTemplates;
       const result = await api.get(id);

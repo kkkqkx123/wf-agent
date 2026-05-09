@@ -8,7 +8,8 @@ import { AgentLoopCheckpointAdapter } from "../../adapters/agent-loop-checkpoint
 import { getOutput } from "../../utils/output.js";
 import { formatAgentLoop, formatAgentLoopList } from "../../utils/cli-formatters.js";
 import type { CommandOptions } from "../../types/cli-types.js";
-import type { AgentLoopRuntimeConfig } from "@wf-agent/types";
+import type { AgentLoopRuntimeConfig, AgentLoopCheckpoint, Message, AgentStreamEvent, LLMMessage } from "@wf-agent/types";
+import type { MessageStreamEvent } from "@wf-agent/sdk/core";
 import { handleError } from "../../utils/error-handler.js";
 import { CLIValidationError } from "../../types/cli-types.js";
 import { loadAgentLoopConfig, parseAndValidateAgentLoopConfig, transformToAgentLoopConfig } from "@wf-agent/sdk";
@@ -82,7 +83,7 @@ export function createAgentCommands(): Command {
           if (options.stream !== undefined) config.stream = options.stream;
 
           // Parse initial input
-          let initialMessages: any[] = [];
+          let initialMessages: LLMMessage[] = [];
           if (options.input) {
             try {
               const inputData = JSON.parse(options.input);
@@ -107,16 +108,19 @@ export function createAgentCommands(): Command {
             const result = await adapter.executeAgentLoopStream(
               config,
               { initialMessages },
-              event => {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              (event: any) => {
                 // Print stream events
-                if (event.type === "text") {
-                  output.stream(event.delta);
-                } else if (event.type === "tool_call_start") {
+                if (event.type === "message_update" || event.type === "text") {
+                  if (event.delta) {
+                    output.stream(event.delta);
+                  }
+                } else if (event.type === "tool_call_start" || event.type === "tool_execution_start") {
                   output.newLine();
                   output.output(
                     `Calling tool: ${event.data?.toolCall?.function?.name || "unknown"}`,
                   );
-                } else if (event.type === "tool_call_end") {
+                } else if (event.type === "tool_call_end" || event.type === "tool_execution_end") {
                   if (event.data?.success) {
                     output.output(`Tool call completed: ${event.data?.toolCallId}`);
                   } else {
@@ -176,7 +180,7 @@ export function createAgentCommands(): Command {
             availableTools: options.tools ? { initial: options.tools.split(",").map(t => t.trim()) } : undefined,
           };
 
-          let initialMessages: any[] = [];
+          let initialMessages: LLMMessage[] = [];
           if (options.input) {
             try {
               const inputData = JSON.parse(options.input);
@@ -334,7 +338,7 @@ export function createAgentCommands(): Command {
       try {
         const adapter = new AgentLoopAdapter();
 
-        let agentLoops: any[];
+        let agentLoops: unknown[];
         if (options.running) {
           agentLoops = adapter.listRunningAgentLoops();
         } else if (options.paused) {
@@ -343,7 +347,7 @@ export function createAgentCommands(): Command {
           agentLoops = adapter.listAgentLoops();
         }
 
-        output.output(formatAgentLoopList(agentLoops, { table: options.table }));
+        output.output(formatAgentLoopList(agentLoops as any, { table: options.table }));
       } catch (error) {
         handleError(error, {
           operation: "listAgentLoops",
@@ -376,7 +380,7 @@ export function createAgentCommands(): Command {
 
         // Create checkpoint dependencies with real storage
         const dependencies = {
-          saveCheckpoint: async (checkpoint: any) => {
+          saveCheckpoint: async (checkpoint: AgentLoopCheckpoint) => {
             return await checkpointAdapter.saveCheckpointToStorage(checkpoint);
           },
           getCheckpoint: async (checkpointId: string) => {
@@ -422,7 +426,7 @@ export function createAgentCommands(): Command {
 
         // Create checkpoint dependencies with real storage
         const dependencies = {
-          saveCheckpoint: async (cp: any) => {
+          saveCheckpoint: async (cp: AgentLoopCheckpoint) => {
             return await checkpointAdapter.saveCheckpointToStorage(cp);
           },
           getCheckpoint: async (cpId: string) => {
@@ -497,7 +501,7 @@ export function createAgentCommands(): Command {
         if (options.verbose) {
           output.json(messages);
         } else {
-          messages.forEach((msg: any, index: number) => {
+          messages.forEach((msg: Message, index: number) => {
             const role = msg.role || "unknown";
             const content = msg.content || "";
             const preview = content.length > 100 ? content.substring(0, 100) + "..." : content;

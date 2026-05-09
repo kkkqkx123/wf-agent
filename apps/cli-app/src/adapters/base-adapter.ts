@@ -103,7 +103,7 @@ export class BaseAdapter {
   /**
    * 创建错误上下文
    */
-  protected createErrorContext(operation: string, additional?: Record<string, any>): ErrorContext {
+  protected createErrorContext(operation: string, additional?: Record<string, unknown>): ErrorContext {
     return {
       operation,
       additionalInfo: additional,

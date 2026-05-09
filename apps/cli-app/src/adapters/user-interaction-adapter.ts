@@ -127,7 +127,7 @@ export class UserInteractionAdapter extends BaseAdapter {
   async enableConfig(id: string): Promise<void> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.userInteractions;
-      const result = await api.update(id, { enabled: true } as any);
+      const result = await api.update(id, { enabled: true } as Partial<UserInteractionConfig>);
       
       if (isFailure(result)) {
         throw getError(result);
@@ -143,7 +143,7 @@ export class UserInteractionAdapter extends BaseAdapter {
   async disableConfig(id: string): Promise<void> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.userInteractions;
-      const result = await api.update(id, { enabled: false } as any);
+      const result = await api.update(id, { enabled: false } as Partial<UserInteractionConfig>);
       
       if (isFailure(result)) {
         throw getError(result);

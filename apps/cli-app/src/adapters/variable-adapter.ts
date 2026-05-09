@@ -14,7 +14,7 @@ export class VariableAdapter extends BaseAdapter {
   /**
    * Get variable value
    */
-  async getVariable(executionId: string, variableName: string): Promise<any> {
+  async getVariable(executionId: string, variableName: string): Promise<unknown> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.variables;
       const result = await api.get(`${executionId}:${variableName}`);
@@ -30,7 +30,7 @@ export class VariableAdapter extends BaseAdapter {
   /**
    * Set variable value
    */
-  async setVariable(executionId: string, variableName: string, value: any): Promise<void> {
+  async setVariable(executionId: string, variableName: string, value: unknown): Promise<void> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.variables;
       const result = await api.setVariable(executionId, variableName, value);
@@ -46,7 +46,7 @@ export class VariableAdapter extends BaseAdapter {
   /**
    * List all variables of a workflow execution
    */
-  async listVariables(executionId: string): Promise<Record<string, any>> {
+  async listVariables(executionId: string): Promise<Record<string, unknown>> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.variables;
       const result = await api.getAll({ executionId });
@@ -55,7 +55,7 @@ export class VariableAdapter extends BaseAdapter {
         throw getError(result);
       }
       
-      return getData(result) as Record<string, any>;
+      return getData(result) as Record<string, unknown>;
     }, "List variables");
   }
 
@@ -85,7 +85,7 @@ export class VariableAdapter extends BaseAdapter {
     name: string;
     type: string;
     description?: string;
-    defaultValue?: any;
+    defaultValue?: unknown;
     required?: boolean;
   } | null> {
     return this.executeWithErrorHandling(async () => {
@@ -96,7 +96,7 @@ export class VariableAdapter extends BaseAdapter {
         name: string;
         type: string;
         description?: string;
-        defaultValue?: any;
+        defaultValue?: unknown;
         required?: boolean;
       } | null;
     }, "Get variable definition");

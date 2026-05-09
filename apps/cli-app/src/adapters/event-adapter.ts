@@ -71,7 +71,7 @@ export class EventAdapter extends BaseAdapter {
    */
   async dispatchEvent(event: BaseEvent): Promise<void> {
     return this.executeWithErrorHandling(async () => {
-      const api = this.sdk.events as any;
+      const api = this.sdk.events as unknown as { dispatch: (event: BaseEvent) => Promise<void> };
       
       // Check if dispatch method exists
       if (typeof api.dispatch !== "function") {
@@ -88,7 +88,7 @@ export class EventAdapter extends BaseAdapter {
    */
   async trimEventHistory(maxSize: number): Promise<number> {
     return this.executeWithErrorHandling(async () => {
-      const api = this.sdk.events as any;
+      const api = this.sdk.events as unknown as { trimEventHistory: (maxSize: number) => Promise<number> };
       
       if (typeof api.trimEventHistory !== "function") {
         throw new Error("Trimming event history is not supported in the current SDK version");

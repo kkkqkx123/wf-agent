@@ -103,7 +103,7 @@ export class LLMProfileAdapter extends BaseAdapter {
   /**
    * List all LLM Profiles
    */
-  async listProfiles(filter?: any): Promise<LLMProfile[]> {
+  async listProfiles(filter?: Record<string, unknown>): Promise<LLMProfile[]> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.profiles;
       const result = await api.getAll(filter);

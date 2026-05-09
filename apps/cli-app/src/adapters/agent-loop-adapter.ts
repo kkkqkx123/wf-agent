@@ -16,7 +16,8 @@ import {
   type AgentLoopCheckpointDependencies,
   type AgentLoopEntity,
 } from "@wf-agent/sdk/agent";
-import type { AgentLoopRuntimeConfig, AgentLoopResult, ID } from "@wf-agent/types";
+import type { AgentLoopRuntimeConfig, AgentLoopResult, ID, Message, AgentStreamEvent } from "@wf-agent/types";
+import type { MessageStreamEvent } from "@wf-agent/sdk/core";
 import { LLMExecutor, LLMWrapper, ToolRegistry, EventRegistry } from "@wf-agent/sdk/core";
 import { CLINotFoundError } from "../types/cli-types.js";
 import { CLIToolApprovalHandler } from "../handlers/tool-approval/index.js";
@@ -102,7 +103,7 @@ export class AgentLoopAdapter extends BaseAdapter {
   async executeAgentLoopStream(
     config: AgentLoopRuntimeConfig,
     options: AgentLoopEntityOptions = {},
-    onEvent?: (event: any) => void,
+    onEvent?: (event: AgentStreamEvent | MessageStreamEvent) => void,
   ): Promise<AgentLoopResult> {
     return this.executeWithErrorHandling(async () => {
       let lastResult: AgentLoopResult = {
@@ -199,7 +200,13 @@ export class AgentLoopAdapter extends BaseAdapter {
    * Get Agent Loop instance
    * @param id Instance ID
    */
-  getAgentLoop(id: ID): any | undefined {
+  getAgentLoop(id: ID): {
+    id: ID;
+    status: string;
+    currentIteration: number;
+    toolCallCount: number;
+    messageCount: number;
+  } | undefined {
     const entity = this.coordinator.get(id);
     if (!entity) {
       return undefined;
@@ -218,7 +225,7 @@ export class AgentLoopAdapter extends BaseAdapter {
    * Get Agent Loop entity (internal use)
    * @param id Instance ID
    */
-  getAgentLoopEntity(id: ID): any | undefined {
+  getAgentLoopEntity(id: ID): AgentLoopEntity | undefined {
     return this.coordinator.get(id);
   }
 
@@ -233,7 +240,12 @@ export class AgentLoopAdapter extends BaseAdapter {
   /**
    * List all Agent Loop instances
    */
-  listAgentLoops(): any[] {
+  listAgentLoops(): Array<{
+    id: ID;
+    status: string;
+    currentIteration: number;
+    toolCallCount: number;
+  }> {
     const entities = this.registry.getAll();
     return entities.map((entity: AgentLoopEntity) => ({
       id: entity.id,
@@ -246,7 +258,12 @@ export class AgentLoopAdapter extends BaseAdapter {
   /**
    * List running Agent Loops
    */
-  listRunningAgentLoops(): any[] {
+  listRunningAgentLoops(): Array<{
+    id: ID;
+    status: string;
+    currentIteration: number;
+    toolCallCount: number;
+  }> {
     const entities = this.coordinator.getRunning();
     return entities.map((entity: AgentLoopEntity) => ({
       id: entity.id,
@@ -259,7 +276,12 @@ export class AgentLoopAdapter extends BaseAdapter {
   /**
    * List paused Agent Loops
    */
-  listPausedAgentLoops(): any[] {
+  listPausedAgentLoops(): Array<{
+    id: ID;
+    status: string;
+    currentIteration: number;
+    toolCallCount: number;
+  }> {
     const entities = this.coordinator.getPaused();
     return entities.map((entity: AgentLoopEntity) => ({
       id: entity.id,
@@ -287,7 +309,7 @@ export class AgentLoopAdapter extends BaseAdapter {
   async createCheckpoint(
     id: ID,
     dependencies: AgentLoopCheckpointDependencies,
-    metadata?: any,
+    metadata?: Record<string, unknown>,
   ): Promise<string> {
     return this.executeWithErrorHandling(async () => {
       const entity = this.registry.get(id);
@@ -360,7 +382,7 @@ export class AgentLoopAdapter extends BaseAdapter {
    * Get Agent Loop message history
    * @param id Instance ID
    */
-  getAgentLoopMessages(id: ID): any[] {
+  getAgentLoopMessages(id: ID): Message[] {
     const entity = this.registry.get(id);
     if (!entity) {
       throw new CLINotFoundError(`Agent Loop not found: ${id}`, "AgentLoop", id);

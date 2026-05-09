@@ -218,7 +218,7 @@ export class SkillAdapter extends BaseAdapter {
    * @param name Skill name
    * @returns Skill object
    */
-  async getFullSkill(name: string): Promise<any> {
+  async getFullSkill(name: string): Promise<unknown> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.skills;
       return await api.getFullSkill(name);

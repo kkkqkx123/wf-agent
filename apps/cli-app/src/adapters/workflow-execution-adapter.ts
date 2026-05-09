@@ -20,7 +20,7 @@ export class WorkflowExecutionAdapter extends BaseAdapter {
   /**
    * Execute workflow
    */
-  async executeWorkflow(workflowId: string, input?: Record<string, unknown>): Promise<any> {
+  async executeWorkflow(workflowId: string, input?: Record<string, unknown>): Promise<unknown> {
     return this.executeWithErrorHandling(async () => {
       // Create and execute the command using SDK's command execution interface
       const dependencies = this.sdk.getFactory().getDependencies();
@@ -94,7 +94,13 @@ export class WorkflowExecutionAdapter extends BaseAdapter {
   /**
    * List all workflow executions
    */
-  async listWorkflowExecutions(filter?: any): Promise<any[]> {
+  async listWorkflowExecutions(filter?: Record<string, unknown>): Promise<Array<{
+    id: string;
+    workflowId: string;
+    status: string;
+    createdAt: string;
+    updatedAt: string;
+  }>> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.executions;
       const result = await api.getAll();
@@ -103,10 +109,16 @@ export class WorkflowExecutionAdapter extends BaseAdapter {
         throw getError(result);
       }
       
-      const executions = getData(result) as any[];
+      const executions = getData(result) as unknown as Array<{
+        id: string;
+        workflowId: string;
+        status: string;
+        createdAt?: string;
+        updatedAt?: string;
+      }>;
 
       // Conversion to summary format
-      const summaries = executions.map((execution: any) => ({
+      const summaries = executions.map((execution) => ({
         id: execution.id,
         workflowId: execution.workflowId,
         status: execution.status,
@@ -121,7 +133,7 @@ export class WorkflowExecutionAdapter extends BaseAdapter {
   /**
    * Get workflow execution details
    */
-  async getWorkflowExecution(executionId: string): Promise<any> {
+  async getWorkflowExecution(executionId: string): Promise<unknown> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.executions;
       const result = await api.get(executionId);

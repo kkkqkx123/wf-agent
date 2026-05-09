@@ -103,7 +103,7 @@ export class ScriptAdapter extends BaseAdapter {
   /**
    * List all scripts
    */
-  async listScripts(filter?: any): Promise<Script[]> {
+  async listScripts(filter?: Record<string, unknown>): Promise<Script[]> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.scripts;
       const result = await api.getAll(filter);
@@ -202,7 +202,7 @@ export class ScriptAdapter extends BaseAdapter {
   /**
    * Execute script
    */
-  async executeScript(scriptName: string, options?: ScriptExecutionOptions): Promise<any> {
+  async executeScript(scriptName: string, options?: ScriptExecutionOptions): Promise<unknown> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.scripts;
       const service = api.getService();

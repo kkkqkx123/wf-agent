@@ -110,7 +110,7 @@ export class ToolAdapter extends BaseAdapter {
   /**
    * List all tools
    */
-  async listTools(filter?: any): Promise<Tool[]> {
+  async listTools(filter?: Record<string, unknown>): Promise<Tool[]> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.tools;
       const result = await api.getAll(filter);
@@ -212,9 +212,9 @@ export class ToolAdapter extends BaseAdapter {
    */
   async executeTool(
     toolId: string,
-    parameters: Record<string, any>,
+    parameters: Record<string, unknown>,
     options?: ToolExecutionOptions,
-  ): Promise<any> {
+  ): Promise<unknown> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.tools;
       const service = api.getService();
@@ -235,7 +235,7 @@ export class ToolAdapter extends BaseAdapter {
    */
   async validateParameters(
     toolId: string,
-    parameters: Record<string, any>,
+    parameters: Record<string, unknown>,
   ): Promise<{ valid: boolean; errors: string[] }> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.tools;

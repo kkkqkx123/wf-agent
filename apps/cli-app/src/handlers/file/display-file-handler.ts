@@ -8,6 +8,7 @@
 import type { OutputHandler, BaseComponentMessage } from "@wf-agent/types";
 import { OutputTarget } from "@wf-agent/types";
 import type { DisplayOutputService, DisplaySection } from "../../services/io/index.js";
+import { createContextualLogger } from "@wf-agent/sdk";
 
 /**
  * Display File Handler
@@ -23,6 +24,7 @@ export class DisplayFileHandler implements OutputHandler {
   private buffer: Map<string, DisplaySection[]> = new Map();
   private flushTimer: NodeJS.Timeout | null = null;
   private readonly FLUSH_INTERVAL = 2000; // Flush every 2 seconds
+  private logger = createContextualLogger({ component: "DisplayFileHandler" });
 
   constructor(private displayOutputService: DisplayOutputService) {}
 
@@ -216,7 +218,10 @@ export class DisplayFileHandler implements OutputHandler {
           // Clear buffer after successful write
           this.buffer.set(sessionId, []);
         } catch (error) {
-          console.error(`Failed to flush display output for session ${sessionId}:`, error);
+          this.logger.error(`Failed to flush display output for session`, {}, { 
+            sessionId,
+            error: error instanceof Error ? error.message : String(error) 
+          });
         }
       }
     }

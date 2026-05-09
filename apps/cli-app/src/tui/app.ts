@@ -13,6 +13,7 @@ import { HumanRelayService, DisplayOutputService } from "../services/io/index.js
 import { TUIHumanRelayHandler } from "./handlers/tui-human-relay-handler.js";
 import { TUIHandler, FunctionalFileHandler, DisplayFileHandler } from "../handlers/index.js";
 import { CLI_ROUTING_RULES } from "../config/routing-rules.js";
+import { createContextualLogger } from "@wf-agent/sdk";
 
 export class CLIAppTUI {
   private tui: TUI;
@@ -27,6 +28,7 @@ export class CLIAppTUI {
   private humanRelayService: HumanRelayService;
   private displayOutputService: DisplayOutputService;
   private humanRelayHandler: TUIHumanRelayHandler;
+  private logger = createContextualLogger({ component: "CLIAppTUI" });
 
   constructor() {
     this.terminal = new ProcessTerminal();
@@ -153,7 +155,7 @@ export class CLIAppTUI {
   public showScreen(screenId: string): void {
     const screen = this.screens.get(screenId);
     if (!screen) {
-      console.warn(`Screen "${screenId}" not found`);
+      this.logger.warn(`Screen not found`, {}, { screenId });
       return;
     }
 
@@ -210,7 +212,7 @@ export class CLIAppTUI {
    */
   private showHelp(): void {
     // TODO: Implement help overlay using TUI overlay system
-    console.log("Help requested - to be implemented");
+    this.logger.info("Help requested - to be implemented");
   }
 
   /**

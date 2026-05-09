@@ -12,6 +12,7 @@ import type {
   BaseComponentMessage,
   WorkflowExecutionNodeData,
 } from "@wf-agent/types";
+import { createContextualLogger } from "@wf-agent/sdk";
 
 export class WorkflowScreen implements Screen {
   private container: Container;
@@ -22,6 +23,7 @@ export class WorkflowScreen implements Screen {
   private currentWorkflowId?: string;
   private onBack?: () => void;
   private subscriptions: MessageSubscription[] = [];
+  private logger = createContextualLogger({ component: "WorkflowScreen" });
 
   constructor(messageBus?: MessageBus, onBack?: () => void) {
     this.messageBus = messageBus;
@@ -165,7 +167,9 @@ export class WorkflowScreen implements Screen {
         await this.showWorkflowDetail(item.value);
       };
     } catch (error) {
-      console.error("Failed to load workflows:", error);
+      this.logger.error("Failed to load workflows", {}, { 
+        error: error instanceof Error ? error.message : String(error) 
+      });
     }
   }
 
@@ -221,13 +225,13 @@ export class WorkflowScreen implements Screen {
     
     if (data === "n" || data === "N") {
       // TODO: Implement new workflow dialog
-      console.log("New workflow - to be implemented");
+      this.logger.info("New workflow - to be implemented");
       return true;
     }
     
     if (data === "d" || data === "D" && this.currentWorkflowId) {
       // TODO: Implement delete with confirmation
-      console.log("Delete workflow - to be implemented");
+      this.logger.info("Delete workflow - to be implemented");
       return true;
     }
     

@@ -7,6 +7,7 @@
 
 import * as fs from "fs/promises";
 import * as path from "path";
+import { createContextualLogger } from "@wf-agent/sdk";
 
 /**
  * Display section for output.md aggregation
@@ -49,6 +50,7 @@ export class DisplayOutputService {
   private baseDir: string;
   private autoCleanup: boolean;
   private retentionDays: number;
+  private logger = createContextualLogger({ component: "DisplayOutputService" });
 
   constructor(options: DisplayOutputServiceOptions = {}) {
     this.baseDir = options.baseDir ?? path.join(".wf-agent", "display");
@@ -195,7 +197,7 @@ export class DisplayOutputService {
       await this.cleanupDirectory(this.baseDir, cutoffTime);
     } catch (error) {
       // Log error but don't fail
-      console.warn("Failed to cleanup old sessions:", error);
+      this.logger.warn("Failed to cleanup old sessions", {}, { error: error instanceof Error ? error.message : String(error) });
     }
   }
 

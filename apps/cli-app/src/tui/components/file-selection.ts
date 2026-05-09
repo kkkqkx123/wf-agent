@@ -7,6 +7,7 @@ import { readdir, stat } from "fs/promises";
 import { join, resolve, dirname, extname } from "path";
 import { Box, Container, Text, SelectList, Input } from "../core/index.js";
 import type { Component } from "../core/tui.js";
+import { createContextualLogger } from "@wf-agent/sdk";
 
 export interface FileSelectionOptions {
   allowedExtensions?: string[]; // e.g., ['.toml', '.json']
@@ -32,6 +33,7 @@ export class FileSelectionDialog implements Component {
   private options: FileSelectionOptions;
   private onConfirm?: (filePath: string) => void;
   private onCancel?: () => void;
+  private logger = createContextualLogger({ component: "FileSelectionDialog" });
 
   constructor(options: FileSelectionOptions = {}) {
     this.options = options;
@@ -125,7 +127,10 @@ export class FileSelectionDialog implements Component {
       this.pathInput.setValue(dirPath);
       
     } catch (error) {
-      console.error("Failed to read directory:", error);
+      this.logger.error("Failed to read directory", {}, { 
+        error: error instanceof Error ? error.message : String(error),
+        directory: dirPath 
+      });
     }
   }
 

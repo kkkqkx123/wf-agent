@@ -296,9 +296,9 @@ export function createLLMProfileCommands(): Command {
         output.infoLog("Importing LLM Profile");
 
         const adapter = new LLMProfileAdapter();
-        const profile = await adapter.importProfile(json);
+        const profileId = await adapter.importProfile(json);
 
-        output.output(formatLLMProfile(profile, { verbose: options.verbose }));
+        output.output(`LLM Profile imported successfully: ${profileId}`);
       } catch (error) {
         handleError(error, {
           operation: "importLLMProfile",

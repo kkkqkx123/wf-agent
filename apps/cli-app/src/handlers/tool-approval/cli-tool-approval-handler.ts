@@ -9,6 +9,7 @@ import type {
   ToolApprovalResult,
 } from "@wf-agent/types";
 import readline from "readline";
+import { getOutput } from "../../utils/output.js";
 
 export class CLIToolApprovalHandler implements ToolApprovalHandler {
   /**
@@ -27,47 +28,48 @@ export class CLIToolApprovalHandler implements ToolApprovalHandler {
     }
 
     // Display approval request header
-    console.log("\n========================================");
-    console.log("  TOOL APPROVAL REQUEST");
-    console.log("========================================");
+    const output = getOutput();
+    output.output("\n========================================");
+    output.output("  TOOL APPROVAL REQUEST");
+    output.output("========================================");
 
     // Show batch context if available
     if (request.batchId) {
-      console.log(`\nBatch ID: ${request.batchId}`);
+      output.output(`\nBatch ID: ${request.batchId}`);
       if (request.toolIndex !== undefined && request.totalTools !== undefined) {
-        console.log(`Progress: Tool ${request.toolIndex + 1} of ${request.totalTools}`);
+        output.output(`Progress: Tool ${request.toolIndex + 1} of ${request.totalTools}`);
       }
 
       if (request.pendingQueue && request.pendingQueue.length > 0) {
-        console.log("\nRemaining tools in queue:");
+        output.output("\nRemaining tools in queue:");
         request.pendingQueue.forEach((tc, idx) => {
           const name = tc.function?.name || "unknown";
-          console.log(`  ${idx + 1}. ${name}`);
+          output.output(`  ${idx + 1}. ${name}`);
         });
       }
     }
 
     // Show tool details
-    console.log(`\nTool Name: ${request.toolCall.function?.name || "unknown"}`);
-    console.log(`Tool Call ID: ${request.toolCall.id}`);
+    output.output(`\nTool Name: ${request.toolCall.function?.name || "unknown"}`);
+    output.output(`Tool Call ID: ${request.toolCall.id}`);
 
     // Display parameters
     try {
       const args = JSON.parse(request.toolCall.function?.arguments || "{}");
-      console.log("\nParameters:");
-      console.log(JSON.stringify(args, null, 2));
+      output.output("\nParameters:");
+      output.output(JSON.stringify(args, null, 2));
     } catch (e) {
-      console.log(`Arguments: ${request.toolCall.function?.arguments}`);
+      output.output(`Arguments: ${request.toolCall.function?.arguments}`);
     }
 
     // Prompt user for decision
-    console.log("\n----------------------------------------");
-    console.log("Approve this tool? [y/n/edit/skip]");
-    console.log("  y    = approve and continue");
-    console.log("  n    = reject and stop");
-    console.log("  edit = modify parameters");
-    console.log("  skip = skip this tool, continue with next");
-    console.log("----------------------------------------");
+    output.output("\n----------------------------------------");
+    output.output("Approve this tool? [y/n/edit/skip]");
+    output.output("  y    = approve and continue");
+    output.output("  n    = reject and stop");
+    output.output("  edit = modify parameters");
+    output.output("  skip = skip this tool, continue with next");
+    output.output("----------------------------------------");
 
     const decision = await this.promptUser();
 
@@ -147,17 +149,18 @@ export class CLIToolApprovalHandler implements ToolApprovalHandler {
   private async promptEditParameters(
     currentArgs: string | undefined,
   ): Promise<Record<string, unknown>> {
-    console.log("\n----------------------------------------");
-    console.log("Enter new parameters as JSON");
-    console.log(`Current: ${currentArgs || "{}"}`);
-    console.log("----------------------------------------");
+    const output = getOutput();
+    output.output("\n----------------------------------------");
+    output.output("Enter new parameters as JSON");
+    output.output(`Current: ${currentArgs || "{}"}`);
+    output.output("----------------------------------------");
 
     const jsonInput = await this.promptUser();
 
     try {
       return JSON.parse(jsonInput);
     } catch (e) {
-      console.error("Invalid JSON, using original parameters");
+      output.error("Invalid JSON, using original parameters");
       return currentArgs ? JSON.parse(currentArgs) : {};
     }
   }

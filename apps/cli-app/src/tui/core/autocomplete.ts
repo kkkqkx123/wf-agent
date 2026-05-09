@@ -2,6 +2,10 @@
  * Autocomplete support for TUI components.
  */
 
+import { createContextualLogger } from "@wf-agent/sdk";
+
+const logger = createContextualLogger({ component: "Autocomplete" });
+
 export interface AutocompleteItem {
   label: string;
   value?: string;
@@ -46,7 +50,9 @@ export class CombinedAutocompleteProvider implements AutocompleteProvider {
         allSuggestions.push(...suggestions.items);
       } catch (error) {
         // Ignore errors from individual providers
-        console.error("Autocomplete provider error:", error);
+        logger.warn("Autocomplete provider error", {}, { 
+          error: error instanceof Error ? error.message : String(error) 
+        });
       }
     }
 

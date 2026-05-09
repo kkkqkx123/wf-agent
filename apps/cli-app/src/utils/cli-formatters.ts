@@ -4,17 +4,44 @@
  */
 
 import { getFormatter, Formatter } from "./formatter.js";
+import type {
+  WorkflowExecution,
+  Checkpoint,
+  LLMProfile,
+  Script,
+  Tool,
+  Trigger,
+  Message,
+  Skill,
+  AgentLoopResult,
+  BaseEvent,
+} from "@wf-agent/types";
+
+// HumanRelayConfig is defined in SDK, using inline type definition to avoid import issues
+type HumanRelayConfig = {
+  name?: string;
+  id?: string;
+  enabled?: boolean;
+  description?: string;
+};
 
 // Get global formatter instance
 function getGlobalFormatter(): Formatter {
   return getFormatter();
 }
 
+// Type alias for workflow summary objects (includes metadata like name, status, createdAt)
+type WorkflowSummary = WorkflowExecution & {
+  name?: string;
+  status?: string;
+  createdAt?: string | number;
+};
+
 // ============================================
 // Workflow Formatters
 // ============================================
 
-export function formatWorkflow(workflow: any, options?: { verbose?: boolean }): string {
+export function formatWorkflow(workflow: WorkflowSummary, options?: { verbose?: boolean }): string {
   const formatter = getGlobalFormatter();
   if (options?.verbose) {
     return formatter.json(workflow);
@@ -23,7 +50,7 @@ export function formatWorkflow(workflow: any, options?: { verbose?: boolean }): 
 }
 
 export function formatWorkflowList(
-  workflows: any[],
+  workflows: WorkflowSummary[],
   options?: { table?: boolean; verbose?: boolean },
 ): string {
   const formatter = getGlobalFormatter();
@@ -37,7 +64,7 @@ export function formatWorkflowList(
       w.id?.substring(0, 8) || "N/A",
       w.name || "unnamed",
       w.status || "unknown",
-      w.createdAt || "N/A",
+      String(w.createdAt || "N/A"),
     ]);
     return formatter.table(headers, rows);
   }
@@ -49,7 +76,7 @@ export function formatWorkflowList(
 // Workflow Execution Formatters
 // ============================================
 
-export function formatWorkflowExecution(execution: any, options?: { verbose?: boolean }): string {
+export function formatWorkflowExecution(execution: WorkflowSummary, options?: { verbose?: boolean }): string {
   const formatter = getGlobalFormatter();
   if (options?.verbose) {
     return formatter.json(execution);
@@ -58,7 +85,7 @@ export function formatWorkflowExecution(execution: any, options?: { verbose?: bo
 }
 
 export function formatWorkflowExecutionList(
-  executions: any[],
+  executions: WorkflowSummary[],
   options?: { table?: boolean; verbose?: boolean },
 ): string {
   const formatter = getGlobalFormatter();
@@ -72,7 +99,7 @@ export function formatWorkflowExecutionList(
       e.id?.substring(0, 8) || "N/A",
       e.workflowId?.substring(0, 8) || "N/A",
       e.status || "unknown",
-      e.createdAt || "N/A",
+      String(e.createdAt || "N/A"),
     ]);
     return formatter.table(headers, rows);
   }
@@ -84,7 +111,12 @@ export function formatWorkflowExecutionList(
 // Checkpoint Formatters
 // ============================================
 
-export function formatCheckpoint(checkpoint: any, options?: { verbose?: boolean }): string {
+// Type alias for checkpoint with createdAt field
+type CheckpointWithMetadata = Checkpoint & {
+  createdAt?: string | number;
+};
+
+export function formatCheckpoint(checkpoint: CheckpointWithMetadata, options?: { verbose?: boolean }): string {
   const formatter = getGlobalFormatter();
   if (options?.verbose) {
     return formatter.json(checkpoint);
@@ -92,7 +124,7 @@ export function formatCheckpoint(checkpoint: any, options?: { verbose?: boolean 
   return `${checkpoint.id || "N/A"} - ${checkpoint.executionId || "N/A"} - ${checkpoint.createdAt || "N/A"}`;
 }
 
-export function formatCheckpointList(checkpoints: any[], options?: { table?: boolean }): string {
+export function formatCheckpointList(checkpoints: CheckpointWithMetadata[], options?: { table?: boolean }): string {
   const formatter = getGlobalFormatter();
   if (checkpoints.length === 0) {
     return "No checkpoints found.";
@@ -103,7 +135,7 @@ export function formatCheckpointList(checkpoints: any[], options?: { table?: boo
     const rows = checkpoints.map(c => [
       c.id?.substring(0, 8) || "N/A",
       c.executionId?.substring(0, 8) || "N/A",
-      c.createdAt || "N/A",
+      String(c.createdAt || "N/A"),
     ]);
     return formatter.table(headers, rows);
   }
@@ -115,7 +147,7 @@ export function formatCheckpointList(checkpoints: any[], options?: { table?: boo
 // LLM Profile Formatters
 // ============================================
 
-export function formatLLMProfile(profile: any, options?: { verbose?: boolean }): string {
+export function formatLLMProfile(profile: LLMProfile, options?: { verbose?: boolean }): string {
   const formatter = getGlobalFormatter();
   if (options?.verbose) {
     return formatter.json(profile);
@@ -128,7 +160,7 @@ export function formatLLMProfile(profile: any, options?: { verbose?: boolean }):
   return `${profile.name || "unnamed"} (${profile.id || "N/A"}) - ${provider} - ${model} - ${baseUrl}`;
 }
 
-export function formatLLMProfileList(profiles: any[], options?: { table?: boolean }): string {
+export function formatLLMProfileList(profiles: LLMProfile[], options?: { table?: boolean }): string {
   const formatter = getGlobalFormatter();
   if (profiles.length === 0) {
     return "No LLM Profile found.";
@@ -153,7 +185,12 @@ export function formatLLMProfileList(profiles: any[], options?: { table?: boolea
 // Script Formatters
 // ============================================
 
-export function formatScript(script: any, options?: { verbose?: boolean }): string {
+// Type alias for script with language field
+type ScriptWithLanguage = Script & {
+  language?: string;
+};
+
+export function formatScript(script: ScriptWithLanguage, options?: { verbose?: boolean }): string {
   const formatter = getGlobalFormatter();
   if (options?.verbose) {
     return formatter.json(script);
@@ -165,7 +202,7 @@ export function formatScript(script: any, options?: { verbose?: boolean }): stri
   return `${script.name || "unnamed"} (${script.id || "N/A"}) - ${type} - ${language}`;
 }
 
-export function formatScriptList(scripts: any[], options?: { table?: boolean }): string {
+export function formatScriptList(scripts: ScriptWithLanguage[], options?: { table?: boolean }): string {
   const formatter = getGlobalFormatter();
   if (scripts.length === 0) {
     return "No script found.";
@@ -190,7 +227,12 @@ export function formatScriptList(scripts: any[], options?: { table?: boolean }):
 // Tool Formatters
 // ============================================
 
-export function formatTool(tool: any, options?: { verbose?: boolean }): string {
+// Type alias for tool with name field
+type ToolWithName = Tool & {
+  name?: string;
+};
+
+export function formatTool(tool: ToolWithName, options?: { verbose?: boolean }): string {
   const formatter = getGlobalFormatter();
   if (options?.verbose) {
     return formatter.json(tool);
@@ -200,7 +242,7 @@ export function formatTool(tool: any, options?: { verbose?: boolean }): string {
   return `${tool.name || "unnamed"} (${tool.id || "N/A"}) - ${type}`;
 }
 
-export function formatToolList(tools: any[], options?: { table?: boolean }): string {
+export function formatToolList(tools: ToolWithName[], options?: { table?: boolean }): string {
   const formatter = getGlobalFormatter();
   if (tools.length === 0) {
     return "No tool was found.";
@@ -224,7 +266,13 @@ export function formatToolList(tools: any[], options?: { table?: boolean }): str
 // Trigger Formatters
 // ============================================
 
-export function formatTrigger(trigger: any, options?: { verbose?: boolean }): string {
+// Type alias for trigger with type and executionId fields
+type TriggerWithMetadata = Trigger & {
+  type?: string;
+  executionId?: string;
+};
+
+export function formatTrigger(trigger: TriggerWithMetadata, options?: { verbose?: boolean }): string {
   const formatter = getGlobalFormatter();
   if (options?.verbose) {
     return formatter.json(trigger);
@@ -236,7 +284,7 @@ export function formatTrigger(trigger: any, options?: { verbose?: boolean }): st
   return `${trigger.id || "N/A"} - ${status} - ${type} - ${trigger.executionId || "N/A"}`;
 }
 
-export function formatTriggerList(triggers: any[], options?: { table?: boolean }): string {
+export function formatTriggerList(triggers: TriggerWithMetadata[], options?: { table?: boolean }): string {
   const formatter = getGlobalFormatter();
   if (triggers.length === 0) {
     return "No trigger was found.";
@@ -260,20 +308,33 @@ export function formatTriggerList(triggers: any[], options?: { table?: boolean }
 // Message Formatters
 // ============================================
 
-export function formatMessage(message: any, options?: { verbose?: boolean }): string {
+// Helper function to extract text content from MessageContent
+function getMessageText(content: Message): string {
+  if (typeof content.content === "string") {
+    return content.content;
+  }
+  // For array content, try to extract text from first text element
+  if (Array.isArray(content.content)) {
+    const textElement = content.content.find(item => item.type === "text");
+    return textElement?.text || "";
+  }
+  return "";
+}
+
+export function formatMessage(message: Message, options?: { verbose?: boolean }): string {
   const formatter = getGlobalFormatter();
   if (options?.verbose) {
     return formatter.json(message);
   }
 
   const role = message.role || "N/A";
-  const content = message.content || "";
+  const content = getMessageText(message);
   const preview = content.length > 50 ? content.substring(0, 50) + "..." : content;
 
   return `${role}: ${preview}`;
 }
 
-export function formatMessageList(messages: any[], options?: { table?: boolean }): string {
+export function formatMessageList(messages: Message[], options?: { table?: boolean }): string {
   const formatter = getGlobalFormatter();
   if (messages.length === 0) {
     return "No message found.";
@@ -282,9 +343,9 @@ export function formatMessageList(messages: any[], options?: { table?: boolean }
   if (options?.table) {
     const headers = ["Role", "Content preview", "Time"];
     const rows = messages.map(m => {
-      const content = m.content || "";
+      const content = getMessageText(m);
       const preview = content.length > 30 ? content.substring(0, 30) + "..." : content;
-      return [m.role || "N/A", preview, m.timestamp || "N/A"];
+      return [m.role || "N/A", preview, String(m.timestamp || "N/A")];
     });
     return formatter.table(headers, rows);
   }
@@ -296,7 +357,7 @@ export function formatMessageList(messages: any[], options?: { table?: boolean }
 // Variable Formatters
 // ============================================
 
-export function formatVariable(name: string, value: any, options?: { verbose?: boolean }): string {
+export function formatVariable(name: string, value: unknown, options?: { verbose?: boolean }): string {
   const formatter = getGlobalFormatter();
   if (options?.verbose) {
     return formatter.json({ name, value });
@@ -307,7 +368,7 @@ export function formatVariable(name: string, value: any, options?: { verbose?: b
 }
 
 export function formatVariableList(
-  variables: Record<string, any>,
+  variables: Record<string, unknown>,
   options?: { table?: boolean },
 ): string {
   const formatter = getGlobalFormatter();
@@ -334,7 +395,7 @@ export function formatVariableList(
 // Event Formatters
 // ============================================
 
-export function formatEvent(event: any, options?: { verbose?: boolean }): string {
+export function formatEvent(event: BaseEvent, options?: { verbose?: boolean }): string {
   const formatter = getGlobalFormatter();
   if (options?.verbose) {
     return formatter.json(event);
@@ -347,7 +408,7 @@ export function formatEvent(event: any, options?: { verbose?: boolean }): string
   return `${type} - ${timestamp} - ${executionId.substring(0, 8)}`;
 }
 
-export function formatEventList(events: any[], options?: { table?: boolean }): string {
+export function formatEventList(events: BaseEvent[], options?: { table?: boolean }): string {
   const formatter = getGlobalFormatter();
   if (events.length === 0) {
     return "No event found.";
@@ -357,7 +418,7 @@ export function formatEventList(events: any[], options?: { table?: boolean }): s
     const headers = ["Type", "Time", "Execution ID", "Workflow ID"];
     const rows = events.map(e => [
       e.type || "N/A",
-      e.timestamp || "N/A",
+      String(e.timestamp || "N/A"),
       e.executionId?.substring(0, 8) || "N/A",
       e.workflowId?.substring(0, 8) || "N/A",
     ]);
@@ -371,7 +432,7 @@ export function formatEventList(events: any[], options?: { table?: boolean }): s
 // Human Relay Formatters
 // ============================================
 
-export function formatHumanRelay(config: any, options?: { verbose?: boolean }): string {
+export function formatHumanRelay(config: HumanRelayConfig, options?: { verbose?: boolean }): string {
   const formatter = getGlobalFormatter();
   if (options?.verbose) {
     return formatter.json(config);
@@ -381,7 +442,7 @@ export function formatHumanRelay(config: any, options?: { verbose?: boolean }): 
   return `${config.name || "unnamed"} (${config.id || "N/A"}) - ${enabled}`;
 }
 
-export function formatHumanRelayList(configs: any[], options?: { table?: boolean }): string {
+export function formatHumanRelayList(configs: HumanRelayConfig[], options?: { table?: boolean }): string {
   const formatter = getGlobalFormatter();
   if (configs.length === 0) {
     return "No Human Relay configuration found.";
@@ -405,7 +466,15 @@ export function formatHumanRelayList(configs: any[], options?: { table?: boolean
 // Agent Loop Formatters
 // ============================================
 
-export function formatAgentLoop(agentLoop: any, options?: { verbose?: boolean }): string {
+// Type alias for agent loop with additional fields
+type AgentLoopWithMetadata = AgentLoopResult & {
+  id?: string;
+  status?: string;
+  currentIteration?: number;
+  content?: string;
+};
+
+export function formatAgentLoop(agentLoop: AgentLoopWithMetadata, options?: { verbose?: boolean }): string {
   const formatter = getGlobalFormatter();
   if (options?.verbose) {
     return formatter.json(agentLoop);
@@ -427,7 +496,7 @@ export function formatAgentLoop(agentLoop: any, options?: { verbose?: boolean })
   return `${id} - ${status} - Iterations: ${iterations} - Tool calls: ${toolCallCount}${content ? `\n  Result: ${content}` : ""}`;
 }
 
-export function formatAgentLoopList(agentLoops: any[], options?: { table?: boolean }): string {
+export function formatAgentLoopList(agentLoops: AgentLoopWithMetadata[], options?: { table?: boolean }): string {
   const formatter = getGlobalFormatter();
   if (agentLoops.length === 0) {
     return "No Agent Loop found.";
@@ -438,8 +507,8 @@ export function formatAgentLoopList(agentLoops: any[], options?: { table?: boole
     const rows = agentLoops.map(al => [
       al.id?.substring(0, 8) || "N/A",
       al.status || "unknown",
-      al.iterations ?? al.currentIteration ?? 0,
-      al.toolCallCount ?? 0,
+      String(al.iterations ?? al.currentIteration ?? 0),
+      String(al.toolCallCount ?? 0),
     ]);
     return formatter.table(headers, rows);
   }
@@ -451,7 +520,14 @@ export function formatAgentLoopList(agentLoops: any[], options?: { table?: boole
 // Skill Formatters
 // ============================================
 
-export function formatSkill(skill: any, options?: { verbose?: boolean }): string {
+// Type alias for skill with version and description fields
+type SkillWithMetadata = Skill & {
+  name?: string;
+  version?: string;
+  description?: string;
+};
+
+export function formatSkill(skill: SkillWithMetadata, options?: { verbose?: boolean }): string {
   const formatter = getGlobalFormatter();
   if (options?.verbose) {
     return formatter.json(skill);
@@ -464,7 +540,7 @@ export function formatSkill(skill: any, options?: { verbose?: boolean }): string
   return `${name} (${version}) - ${description}`;
 }
 
-export function formatSkillList(skills: any[], options?: { table?: boolean }): string {
+export function formatSkillList(skills: SkillWithMetadata[], options?: { table?: boolean }): string {
   const formatter = getGlobalFormatter();
   if (skills.length === 0) {
     return "Skill not found.";

@@ -8,9 +8,29 @@ export const APPLY_DIFF_TOOL_DESCRIPTION: ToolDescriptionData = {
   id: "apply_diff",
   type: "STATELESS",
   category: "filesystem",
-  description: `Apply a diff to a file. This tool applies changes to a file using a unified diff format, which shows exactly what lines to remove and add with context to uniquely identify the changes.
+  description: `Apply changes to a file using search-replace blocks. This tool finds specific code sections and replaces them with new content.
 
-The diff should include sufficient context (typically 3 lines) to uniquely identify the location of the change. Use this tool for precise edits when you know the exact content to change.`,
+Format:
+<<<<<<< SEARCH
+[exact code to find]
+=======
+[new code to replace with]
+>>>>>>> REPLACE
+
+Features:
+- Supports multiple search-replace blocks in one call
+- Fuzzy matching handles minor differences (whitespace, small typos)
+- Preserves indentation automatically
+- Use :start_line: hint for precise location when needed
+
+Example with line hint:
+<<<<<<< SEARCH
+:start_line:10
+-------
+function oldName() {
+=======
+function newName() {
+>>>>>>> REPLACE`,
   parameters: [
     {
       name: "path",
@@ -23,12 +43,13 @@ The diff should include sufficient context (typically 3 lines) to uniquely ident
       type: "string",
       required: true,
       description:
-        "The diff content to apply. Should follow unified diff format with context lines to uniquely identify the changes.",
+        "One or more SEARCH/REPLACE blocks. Each block must have <<<<<<< SEARCH, =======, and >>>>>>> REPLACE markers.",
     },
   ],
   tips: [
-    "Include sufficient context (typically 3 lines) to uniquely identify the change location",
-    "Use for precise edits when you know the exact content to change",
-    "Follows unified diff format with --- and +++ headers",
+    "Include 2-3 lines of context around your change for unique identification",
+    "Use :start_line:N to hint at the location when code appears multiple times",
+    "Multiple SEARCH/REPLACE blocks can be used for related changes",
+    "Fuzzy matching handles minor whitespace and formatting differences",
   ],
 };

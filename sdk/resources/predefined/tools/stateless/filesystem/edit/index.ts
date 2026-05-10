@@ -1,5 +1,7 @@
 /**
  * The `edit` tool is used for export.
+ * Mainly using for small llm.
+ * Must keep schema simple and explicit.
  */
 
 export { editSchema } from "./schema.js";

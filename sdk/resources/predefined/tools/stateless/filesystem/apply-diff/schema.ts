@@ -17,7 +17,7 @@ export const applyDiffSchema: ToolParameterSchema = {
     diff: {
       type: "string",
       description:
-        "The diff content to apply. Should follow unified diff format with context lines to uniquely identify the changes.",
+        "One or more SEARCH/REPLACE blocks. Each block must have <<<<<<< SEARCH, =======, and >>>>>>> REPLACE markers.",
     },
   },
   required: ["path", "diff"],

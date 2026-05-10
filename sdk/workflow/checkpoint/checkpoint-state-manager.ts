@@ -12,8 +12,8 @@ import type {
 import type { CheckpointStorageAdapter } from "@wf-agent/storage";
 import type { EventRegistry } from "../../core/registry/event-registry.js";
 import { LifecycleCapable } from "../../core/types/lifecycle-capable.js";
-import { SerializationRegistry } from "../../core/serialization/serialization-registry.js";
-import { WorkflowCheckpointSerializer } from "../../core/serialization/entities/checkpoint-serializer.js";
+import { StateCodec } from "../../core/codec/state-codec.js";
+import { WorkflowCheckpointDeltaUtils } from "./types/checkpoint-snapshot.js";
 import { createCleanupStrategy, emit } from "../execution/utils/index.js";
 import { getErrorOrNew } from "@wf-agent/common-utils";
 import { StateManagementError } from "@wf-agent/types";
@@ -51,8 +51,7 @@ export class CheckpointState implements LifecycleCapable<void> {
   private cleanupPolicy?: CleanupPolicy;
   private checkpointSizes: Map<string, number> = new Map(); // checkpointId -> size in bytes
   private eventManager?: EventRegistry;
-  private serializationRegistry: SerializationRegistry;
-  private checkpointSerializer: WorkflowCheckpointSerializer;
+  private codec: StateCodec;
   private cleanupScheduler?: CleanupScheduler;
 
   /**
@@ -69,16 +68,7 @@ export class CheckpointState implements LifecycleCapable<void> {
     this.storageAdapter = storageAdapter;
     this.eventManager = eventManager;
     this.cleanupScheduler = cleanupScheduler;
-    this.serializationRegistry = SerializationRegistry.getInstance();
-    
-    // Get serializer from registry or create if not registered
-    const serializer = this.serializationRegistry.getSerializer("checkpoint");
-    if (serializer instanceof WorkflowCheckpointSerializer) {
-      this.checkpointSerializer = serializer;
-    } else {
-      // Fallback: create a new instance if not properly registered
-      this.checkpointSerializer = new WorkflowCheckpointSerializer();
-    }
+    this.codec = new StateCodec({ prettyPrint: true });
   }
 
   /**
@@ -129,7 +119,7 @@ export class CheckpointState implements LifecycleCapable<void> {
     for (const checkpointId of checkpointIds) {
       const data = await this.storageAdapter.load(checkpointId);
       if (data) {
-        const checkpoint = await this.checkpointSerializer.deserializeCheckpoint(data);
+        const checkpoint = await this.codec.deserialize<Checkpoint>(data);
         const metadata = extractStorageMetadata(checkpoint);
         checkpointInfoArray.push({ checkpointId, metadata });
         this.checkpointSizes.set(checkpointId, data.length);
@@ -202,7 +192,7 @@ export class CheckpointState implements LifecycleCapable<void> {
 
     try {
       // Use the passed checkpointData.id instead of generating a new ID
-      const data = await this.checkpointSerializer.serializeCheckpoint(checkpointData);
+      const data = await this.codec.serialize(checkpointData);
       const storageMetadata = extractStorageMetadata(checkpointData);
 
       await this.storageAdapter.save(checkpointId, data, storageMetadata);
@@ -287,7 +277,7 @@ export class CheckpointState implements LifecycleCapable<void> {
     if (!data) {
       return null;
     }
-    return await this.checkpointSerializer.deserializeCheckpoint(data);
+    return await this.codec.deserialize<Checkpoint>(data);
   }
 
   /**

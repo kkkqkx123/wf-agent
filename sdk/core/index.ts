@@ -3,6 +3,9 @@
 // Checkpoint
 export * from "./utils/checkpoint/index.js";
 
+// Codec
+export * from "./codec/index.js";
+
 // Coordinators
 export * from "./coordinators/index.js";
 

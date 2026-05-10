@@ -23,3 +23,4 @@ export function generateId(): string {
 }
 
 export * from "./signal/index.js";
+export * from "./compression/index.js";

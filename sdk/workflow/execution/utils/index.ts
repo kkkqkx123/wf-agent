@@ -134,17 +134,3 @@ export {
   SizeBasedCleanupStrategy,
   createCleanupStrategy,
 } from "../../../core/utils/checkpoint/cleanup-policy.js";
-
-// Checkpoint serialization (re-exported from core/serialization)
-export {
-  WorkflowCheckpointSerializer,
-  registerWorkflowCheckpointSerializer,
-} from "../../../core/serialization/entities/checkpoint-serializer.js";
-
-import { WorkflowCheckpointSerializer as _WorkflowCheckpointSerializer } from "../../../core/serialization/entities/checkpoint-serializer.js";
-
-const _checkpointSerializer = new _WorkflowCheckpointSerializer();
-export const serializeCheckpoint = (checkpoint: import("@wf-agent/types").Checkpoint) =>
-  _checkpointSerializer.serializeCheckpoint(checkpoint);
-export const deserializeCheckpoint = (data: Uint8Array) =>
-  _checkpointSerializer.deserializeCheckpoint(data);

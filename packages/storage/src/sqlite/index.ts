@@ -24,4 +24,4 @@ export {
   type CompressionConfig,
   type CompressionResult,
   DEFAULT_COMPRESSION_CONFIG,
-} from "../compression/index.js";
+} from "@wf-agent/common-utils";

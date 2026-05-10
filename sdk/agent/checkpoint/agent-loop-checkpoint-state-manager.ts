@@ -9,11 +9,7 @@ import type { CleanupPolicy, CleanupResult } from "@wf-agent/types";
 import type { AgentLoopCheckpoint, AgentCheckpointMetadata, AgentCheckpointListOptions } from "@wf-agent/types";
 import type { EventRegistry } from "../../core/registry/event-registry.js";
 import type { AgentLoopCheckpointStorageAdapter } from "@wf-agent/storage";
-import { SerializationRegistry } from "../../core/serialization/serialization-registry.js";
-import {
-  AgentLoopCheckpointSerializer,
-  registerAgentLoopCheckpointSerializer,
-} from "../../core/serialization/entities/agent-loop-checkpoint-serializer.js";
+import { StateCodec } from "../../core/codec/state-codec.js";
 import { createCleanupStrategy } from "../../core/utils/checkpoint/cleanup-policy.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
@@ -31,8 +27,7 @@ const logger = createContextualLogger({ operation: "AgentLoopCheckpointStateMana
 export class AgentLoopCheckpointStateManager {
   private storageAdapter: AgentLoopCheckpointStorageAdapter;
   private eventManager?: EventRegistry;
-  private serializationRegistry: SerializationRegistry;
-  private checkpointSerializer: AgentLoopCheckpointSerializer;
+  private codec: StateCodec;
   private checkpointSizes: Map<string, number> = new Map();
   private cleanupPolicy?: CleanupPolicy;
 
@@ -42,17 +37,7 @@ export class AgentLoopCheckpointStateManager {
   ) {
     this.storageAdapter = storageAdapter;
     this.eventManager = eventManager;
-    this.serializationRegistry = SerializationRegistry.getInstance();
-
-    // Get serializer from registry or create if not registered
-    const serializer = this.serializationRegistry.getSerializer("agentLoopCheckpoint");
-    if (serializer instanceof AgentLoopCheckpointSerializer) {
-      this.checkpointSerializer = serializer;
-    } else {
-      // Fallback: create a new instance and register it
-      this.checkpointSerializer = new AgentLoopCheckpointSerializer();
-      registerAgentLoopCheckpointSerializer();
-    }
+    this.codec = new StateCodec({ prettyPrint: true });
   }
 
   /**
@@ -88,7 +73,7 @@ export class AgentLoopCheckpointStateManager {
         type: checkpoint.type,
       });
 
-      const serializedData = await this.checkpointSerializer.serializeCheckpoint(checkpoint);
+      const serializedData = await this.codec.serialize(checkpoint);
 
       const metadata: AgentCheckpointMetadata = {
         agentLoopId: checkpoint.agentLoopId,
@@ -140,7 +125,7 @@ export class AgentLoopCheckpointStateManager {
         return null;
       }
 
-      const checkpoint = await this.checkpointSerializer.deserializeCheckpoint(data);
+      const checkpoint = await this.codec.deserialize<AgentLoopCheckpoint>(data);
 
       logger.debug("Checkpoint loaded successfully", { checkpointId });
       return checkpoint;
@@ -237,7 +222,7 @@ export class AgentLoopCheckpointStateManager {
       try {
         const data = await this.storageAdapter.load(checkpointId);
         if (data) {
-          const checkpoint = await this.checkpointSerializer.deserializeCheckpoint(data);
+          const checkpoint = await this.codec.deserialize<AgentLoopCheckpoint>(data);
           const metadata: AgentCheckpointMetadata = {
             agentLoopId: checkpoint.agentLoopId,
             timestamp: checkpoint.timestamp,

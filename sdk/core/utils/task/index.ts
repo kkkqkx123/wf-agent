@@ -8,7 +8,6 @@ export {
   type SerializedWorkflowExecutionResult,
   type SerializedWorkflowExecutionResultMetadata,
   TaskSerializationUtils,
-  TaskSnapshotSerializer,
-} from "../../serialization/entities/task-serializer.js";
+} from "./task-snapshot.js";
 
-export { ErrorSerializer } from "../../serialization/serializer.js";
+export { ErrorCodec } from "../../codec/state-codec.js";

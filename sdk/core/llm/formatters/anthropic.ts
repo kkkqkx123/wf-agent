@@ -12,7 +12,7 @@ import { convertToolsToAnthropicFormat } from "../utils/index.js";
 import { ToolDeclarationFormatter } from "@wf-agent/prompt-templates";
 import { getToolCallParserOptions } from "./tool-format-selector.js";
 import { ToolCallParser } from "./tool-call-parser.js";
-import { HistoryConverter } from "../../messages/history-converter.js";
+import { HistoryConverter } from "../../messaging/history-converter.js";
 
 /**
  * Anthropic format converter

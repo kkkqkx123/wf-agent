@@ -6,9 +6,15 @@
  */
 
 import type { CompressionConfig } from "./compressor.js";
-import { createModuleLogger } from "../logger.js";
 
-const logger = createModuleLogger("adaptive-compression");
+// Simple logger for compression decisions (avoid circular dependency)
+const logger = {
+  debug: (message: string, ...args: unknown[]) => {
+    if (process.env["DEBUG_COMPRESSION"]) {
+      console.debug(`[adaptive-compression] ${message}`, ...args);
+    }
+  },
+};
 
 /**
  * Data type classification for compression optimization

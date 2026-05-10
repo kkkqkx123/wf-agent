@@ -15,8 +15,8 @@ import type {
 } from "@wf-agent/types";
 import type { AgentLoopStorageAdapter } from "../types/adapter/index.js";
 import { BaseSqliteStorage, BaseSqliteStorageConfig } from "./base-sqlite-storage.js";
-import { selectCompressionStrategy } from "../compression/adaptive-compression.js";
-import { compressBlob, decompressBlob } from "../compression/compressor.js";
+import { selectCompressionStrategy } from "@wf-agent/common-utils";
+import { compressBlob, decompressBlob } from "@wf-agent/common-utils";
 
 /**
  * SQLite Agent Loop Storage

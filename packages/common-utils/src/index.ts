@@ -30,6 +30,9 @@ export * from "./utils/signal/abort-utils.js";
 export * from "./utils/signal/abort-signal-utils.js";
 export * from "./utils/signal/interruption-types.js";
 
+// Compression utilities
+export * from "./utils/compression/index.js";
+
 // Log system (selective export to avoid naming conflicts)
 export {
   createLogger,

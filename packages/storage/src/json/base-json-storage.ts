@@ -8,12 +8,12 @@ import * as path from "path";
 import { createHash } from "crypto";
 import { StorageError, SerializationError } from "../types/storage-errors.js";
 import { createModuleLogger } from "../logger.js";
-import { selectCompressionStrategy } from "../compression/adaptive-compression.js";
+import { selectCompressionStrategy } from "@wf-agent/common-utils";
 import {
   compressBlob,
   decompressBlob,
   type CompressionConfig,
-} from "../compression/index.js";
+} from "@wf-agent/common-utils";
 import { LRUCache } from "../utils/lru-cache.js";
 import type { StorageMetrics } from "../types/metrics.js";
 import { DEFAULT_STORAGE_METRICS } from "../types/metrics.js";

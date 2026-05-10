@@ -32,7 +32,6 @@ import type { TriggerTemplateRegistry } from "./registry/trigger-template-regist
 import type { LLMExecutor } from "./executors/llm-executor.js";
 import type { ToolCallExecutor } from "./executors/tool-call-executor.js";
 import type { WorkflowExecutor } from "../workflow/execution/executors/workflow-executor.js";
-import { SerializationRegistry } from "./serialization/serialization-registry.js";
 import type { WorkflowExecutionCoordinator } from "../workflow/execution/coordinators/workflow-execution-coordinator.js";
 import type { WorkflowStateTransitor } from "../workflow/execution/coordinators/workflow-state-transitor.js";
 import type { CheckpointCoordinator } from "../workflow/checkpoint/checkpoint-coordinator.js";
@@ -54,18 +53,12 @@ export class GlobalContext {
   private _toolCallExecutor?: ToolCallExecutor;
   private _workflowExecutor?: WorkflowExecutor;
   
-  // Utilities (stateless, no lazy loading needed)
-  readonly serializationRegistry: SerializationRegistry;
-  
   /**
    * Create a new GlobalContext instance
    * @param container The DI container to get services from
    */
   constructor(readonly container: Container) {
-    // Initialize utilities immediately (no dependencies)
-    this.serializationRegistry = SerializationRegistry.getInstance();
-    
-    // All other services are lazily loaded via getters to avoid circular dependency
+    // All services are lazily loaded via getters to avoid circular dependency
   }
   
   // Lazy getters for registries

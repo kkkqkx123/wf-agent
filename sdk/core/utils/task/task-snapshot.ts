@@ -1,12 +1,9 @@
 /**
- * Task Snapshot Serializer
+ * Task Snapshot Types and Utilities
  *
- * Handles serialization and deserialization of Task snapshots.
+ * Defines Task snapshot structure and serialization utilities.
  */
 
-import { Serializer, ErrorSerializer } from "../serializer.js";
-import { DeltaCalculator } from "../delta-calculator.js";
-import { SerializationRegistry } from "../serialization-registry.js";
 import type {
   SnapshotBase,
   SerializedError,
@@ -15,6 +12,7 @@ import type {
   NodeExecutionResult,
   WorkflowExecutionStatus,
 } from "@wf-agent/types";
+import { ErrorCodec } from "../../codec/state-codec.js";
 
 /**
  * Task Snapshot - Serializable representation of task data
@@ -79,27 +77,6 @@ export interface SerializedWorkflowExecutionResult {
   nodeResults: NodeExecutionResult[];
   /** Complete metadata */
   metadata: SerializedWorkflowExecutionResultMetadata;
-}
-
-/**
- * Task Snapshot Serializer
- */
-export class TaskSnapshotSerializer extends Serializer<TaskSnapshot> {
-  constructor() {
-    super({ prettyPrint: true, targetVersion: 1 });
-  }
-}
-
-/**
- * Task Delta Calculator
- */
-export class TaskDeltaCalculator extends DeltaCalculator<TaskSnapshot> {
-  constructor() {
-    super({
-      deepCompare: true,
-      ignoreFields: ["_timestamp", "submitTime"],
-    });
-  }
 }
 
 /**
@@ -190,22 +167,9 @@ export const TaskSerializationUtils = {
     }
 
     if (taskInfo.error) {
-      snapshot.error = ErrorSerializer.serialize(taskInfo.error);
+      snapshot.error = ErrorCodec.serialize(taskInfo.error);
     }
 
     return snapshot;
   },
 };
-
-/**
- * Register Task serializer with the global registry
- */
-export function registerTaskSerializer(): void {
-  const registry = SerializationRegistry.getInstance();
-
-  registry.register({
-    entityType: "task",
-    serializer: new TaskSnapshotSerializer(),
-    deltaCalculator: new TaskDeltaCalculator(),
-  });
-}

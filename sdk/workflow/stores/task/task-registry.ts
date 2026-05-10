@@ -32,17 +32,14 @@ import {
 } from "../../../core/types/index.js";
 import type { TaskStorageAdapter } from "@wf-agent/storage";
 import {
-  SerializationRegistry,
-  ErrorSerializer,
+  ErrorCodec,
   type TaskSnapshot,
   TaskSerializationUtils,
-  registerTaskSerializer,
-} from "../../../core/serialization/index.js";
+} from "../../../core/utils/task/index.js";
+import { StateCodec } from "../../../core/codec/state-codec.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "TaskRegistry" });
-
-registerTaskSerializer();
 
 /**
  * Task Manager Interface
@@ -175,12 +172,12 @@ export class TaskRegistry {
 
     try {
       const taskIds = await this.storageAdapter.list();
-      const registry = SerializationRegistry.getInstance();
+      const codec = new StateCodec();
 
       for (const taskId of taskIds) {
         const data = await this.storageAdapter.load(taskId);
         if (data) {
-          const snapshot = await registry.deserialize<TaskSnapshot>("task", data);
+          const snapshot = await codec.deserialize<TaskSnapshot>(data);
           const storedTask: StoredTaskInfo = {
             id: snapshot.id,
             instanceType: snapshot.instanceType,
@@ -197,7 +194,7 @@ export class TaskRegistry {
           }
 
           if (snapshot.error) {
-            storedTask.error = ErrorSerializer.deserialize(snapshot.error);
+            storedTask.error = ErrorCodec.deserialize(snapshot.error);
           }
 
           this.tasks.set(taskId, storedTask);
@@ -219,7 +216,7 @@ export class TaskRegistry {
     if (!taskInfo) return;
 
     try {
-      const registry = SerializationRegistry.getInstance();
+      const codec = new StateCodec();
       let snapshot: TaskSnapshot;
 
       if (hasLoadedInstance(taskInfo)) {
@@ -259,11 +256,11 @@ export class TaskRegistry {
         }
 
         if (storedTask.error) {
-          snapshot.error = ErrorSerializer.serialize(storedTask.error);
+          snapshot.error = ErrorCodec.serialize(storedTask.error);
         }
       }
 
-      const data = await registry.serialize(snapshot);
+      const data = await codec.serialize(snapshot);
 
       const metadata: TaskStorageMetadata = {
         taskId: snapshot.id,
@@ -719,7 +716,7 @@ export class TaskRegistry {
     const data = await this.storageAdapter.load(taskId);
     if (!data) return null;
 
-    const registry = SerializationRegistry.getInstance();
-    return registry.deserialize<TaskSnapshot>("task", data);
+    const codec = new StateCodec();
+    return codec.deserialize<TaskSnapshot>(data);
   }
 }

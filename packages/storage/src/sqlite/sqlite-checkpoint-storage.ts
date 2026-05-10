@@ -11,8 +11,8 @@
 import type { CheckpointStorageMetadata, CheckpointStorageListOptions } from "@wf-agent/types";
 import type { CheckpointStorageAdapter } from "../types/adapter/index.js";
 import { BaseSqliteStorage, BaseSqliteStorageConfig } from "./base-sqlite-storage.js";
-import { selectCompressionStrategy } from "../compression/adaptive-compression.js";
-import { compressBlob, decompressBlob, compressBlobSync, decompressBlobSync } from "../compression/compressor.js";
+import { selectCompressionStrategy } from "@wf-agent/common-utils";
+import { compressBlob, decompressBlob, compressBlobSync, decompressBlobSync } from "@wf-agent/common-utils";
 import { createModuleLogger } from "../logger.js";
 
 const logger = createModuleLogger("sqlite-checkpoint-storage");

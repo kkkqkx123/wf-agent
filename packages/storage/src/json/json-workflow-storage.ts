@@ -14,8 +14,8 @@ import type {
 import type { WorkflowStorageAdapter } from "../types/adapter/workflow-adapter.js";
 import { BaseJsonStorage, BaseJsonStorageConfig } from "./base-json-storage.js";
 import { StorageError, SerializationError } from "../types/storage-errors.js";
-import { selectCompressionStrategy } from "../compression/adaptive-compression.js";
-import { compressBlob, decompressBlob } from "../compression/compressor.js";
+import { selectCompressionStrategy } from "@wf-agent/common-utils";
+import { compressBlob, decompressBlob } from "@wf-agent/common-utils";
 import { createHash } from "crypto";
 
 /**

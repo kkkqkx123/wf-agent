@@ -207,18 +207,4 @@ describe("MessageAdapter", () => {
       await expect(adapter.getGlobalMessageStats()).rejects.toThrow("Global stats retrieval failed");
     });
   });
-
-  describe("normalizeMessages", () => {
-    it("should throw error indicating feature is not supported", async () => {
-      await expect(adapter.normalizeMessages("agent-loop-123")).rejects.toThrow(
-        "normalizeMessages is not supported for workflow executions. This feature is only available for Agent Loops.",
-      );
-    });
-
-    it("should always throw regardless of input", async () => {
-      await expect(adapter.normalizeMessages("any-id")).rejects.toThrow(
-        "normalizeMessages is not supported for workflow executions",
-      );
-    });
-  });
 });

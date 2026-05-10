@@ -28,7 +28,7 @@ export class DisplayFileHandler implements OutputHandler {
 
   // Buffer sections for batching writes
   private buffer: Map<string, DisplaySection[]> = new Map();
-  private flushTimer: NodeJS.Timeout | null = null;
+  private flushTimers: Map<string, NodeJS.Timeout> = new Map(); // Per-session timers
   private readonly FLUSH_INTERVAL = 2000; // Flush every 2 seconds
   private logger = createContextualLogger({ component: "DisplayFileHandler" });
 
@@ -192,46 +192,66 @@ export class DisplayFileHandler implements OutputHandler {
   }
 
   /**
-   * Schedule a flush operation for buffered sections
+   * Schedule a flush operation for buffered sections of a specific session
    * @param sessionId Session identifier
    */
   private scheduleFlush(sessionId: string): void {
-    // Clear existing timer if any
-    if (this.flushTimer) {
-      clearTimeout(this.flushTimer);
+    // Clear existing timer for this session if any
+    const existingTimer = this.flushTimers.get(sessionId);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
     }
 
-    // Schedule new flush
-    this.flushTimer = setTimeout(() => {
-      this.flushAll();
+    // Schedule new flush for this specific session
+    const timer = setTimeout(() => {
+      this.flushSession(sessionId);
     }, this.FLUSH_INTERVAL);
+    
+    this.flushTimers.set(sessionId, timer);
+  }
+
+  /**
+   * Flush buffered sections for a specific session to display files
+   * @param sessionId Session identifier
+   */
+  async flushSession(sessionId: string): Promise<void> {
+    const sections = this.buffer.get(sessionId);
+    if (!sections || sections.length === 0) {
+      return;
+    }
+
+    try {
+      await this.displayOutputService.updateOutput({
+        sessionId,
+        sections,
+        append: true,
+      });
+
+      // Clear buffer after successful write
+      this.buffer.set(sessionId, []);
+      
+      // Clean up timer
+      this.flushTimers.delete(sessionId);
+      
+      this.logger.debug(`Flushed display output for session`, { sessionId, sectionCount: sections.length });
+    } catch (error) {
+      this.logger.error(`Failed to flush display output for session`, {}, { 
+        sessionId,
+        error: error instanceof Error ? error.message : String(error) 
+      });
+    }
   }
 
   /**
    * Flush all buffered sections to display files
    */
   async flushAll(): Promise<void> {
-    for (const [sessionId, sections] of this.buffer.entries()) {
-      if (sections.length > 0) {
-        try {
-          await this.displayOutputService.updateOutput({
-            sessionId,
-            sections,
-            append: true,
-          });
-
-          // Clear buffer after successful write
-          this.buffer.set(sessionId, []);
-        } catch (error) {
-          this.logger.error(`Failed to flush display output for session`, {}, { 
-            sessionId,
-            error: error instanceof Error ? error.message : String(error) 
-          });
-        }
-      }
-    }
-
-    this.flushTimer = null;
+    const sessionIds = Array.from(this.buffer.keys());
+    
+    // Flush all sessions in parallel
+    await Promise.all(
+      sessionIds.map(sessionId => this.flushSession(sessionId))
+    );
   }
 
   /**
@@ -245,9 +265,12 @@ export class DisplayFileHandler implements OutputHandler {
    * Close the handler and flush remaining buffers
    */
   async close(): Promise<void> {
-    if (this.flushTimer) {
-      clearTimeout(this.flushTimer);
+    // Clear all pending timers
+    for (const timer of this.flushTimers.values()) {
+      clearTimeout(timer);
     }
+    this.flushTimers.clear();
+    
     await this.flushAll();
   }
 

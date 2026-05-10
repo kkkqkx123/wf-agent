@@ -25,12 +25,10 @@ export interface IterationPanelOptions {
 
 export class IterationPanel implements Component {
   private iterations: Map<number, IterationInfo> = new Map();
-  private container: Box;
   private maxHeight: number;
 
   constructor(options: IterationPanelOptions = {}) {
     this.maxHeight = options.maxHeight ?? 10;
-    this.container = new Box(1, 0);
   }
 
   /**
@@ -93,7 +91,6 @@ export class IterationPanel implements Component {
    */
   clear() {
     this.iterations.clear();
-    this.container.clear();
   }
 
   render(width?: number): string[] {
@@ -110,22 +107,33 @@ export class IterationPanel implements Component {
     // Limit to max height
     const displayIterations = sortedIterations.slice(-this.maxHeight);
 
-    for (const [num, info] of displayIterations) {
+    for (const [_, info] of displayIterations) {
       const icon = this.getStatusIcon(info.status);
       const duration = info.duration ? `${Math.round(info.duration / 1000)}s` : "...";
       
-      lines.push(
-        `${icon} Iteration ${info.number}: ` +
+      let line = `${icon} Iteration ${info.number}: ` +
         `${info.toolCallCount} tools, ` +
-        `${info.messageCount} msgs, ` +
-        `${duration}`
-      );
+        `${duration}`;
+      
+      // If width is provided, truncate line if needed
+      if (width !== undefined && line.length > width) {
+        line = line.substring(0, width - 3) + "...";
+      }
+      
+      lines.push(line);
     }
 
     // If we have more iterations than displayed, show indicator
     if (sortedIterations.length > this.maxHeight) {
       const hidden = sortedIterations.length - this.maxHeight;
-      lines.push(`... and ${hidden} more iterations`);
+      let summaryLine = `... and ${hidden} more iterations`;
+      
+      // Truncate summary line if width is provided
+      if (width !== undefined && summaryLine.length > width) {
+        summaryLine = summaryLine.substring(0, width - 3) + "...";
+      }
+      
+      lines.push(summaryLine);
     }
 
     return lines;
@@ -146,11 +154,12 @@ export class IterationPanel implements Component {
     }
   }
 
-  handleInput?(data: string): boolean {
+  handleInput?(_data: string): boolean {
     return false;
   }
 
   invalidate(): void {
-    this.render();
+    // No-op: IterationPanel doesn't maintain complex state that needs invalidation
+    // The render method will always reflect the current state of iterations
   }
 }

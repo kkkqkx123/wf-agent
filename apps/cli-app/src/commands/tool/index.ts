@@ -166,8 +166,8 @@ export function createToolCommands(): Command {
         try {
           const adapter = new ToolAdapter();
 
-          if (options.name) updates.name = options.name;
-          if (options.description) updates.description = options.description;
+          if (options.name) updates["name"] = options.name;
+          if (options.description) updates["description"] = options.description;
 
           const tool = await adapter.updateTool(id, updates);
           output.output(formatTool(tool, { verbose: options.verbose }));

@@ -290,8 +290,7 @@ export function createLLMProfileCommands(): Command {
   llmProfileCmd
     .command("import <json>")
     .description("Import LLM Profile from JSON")
-    .option("-v, --verbose", "Detailed output")
-    .action(async (json, options: CommandOptions) => {
+    .action(async (json) => {
       try {
         output.infoLog("Importing LLM Profile");
 

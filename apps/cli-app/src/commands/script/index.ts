@@ -214,7 +214,6 @@ export function createScriptCommands(): Command {
   scriptCmd
     .command("execute <name>")
     .description("Execute script")
-    .option("-i, --input <json>", "Input data (JSON format)")
     .option("-t, --timeout <timeout>", "Timeout time (milliseconds)")
     .option("-r, --retries <retries>", "Retries")
     .option("-d, --retry-delay <retryDelay>", "Retry delay (milliseconds)")
@@ -226,7 +225,6 @@ export function createScriptCommands(): Command {
       async (
         name,
         options: CommandOptions & {
-          input?: string;
           timeout?: string;
           retries?: string;
           retryDelay?: string;
@@ -238,26 +236,12 @@ export function createScriptCommands(): Command {
         try {
           output.infoLog(`Executing script: ${name}`);
 
-          // Parsing Input Data
-          let inputData: Record<string, unknown> | undefined;
-          if (options.input) {
-            try {
-              inputData = JSON.parse(options.input);
-            } catch (error) {
-              handleError(new CLIValidationError("Input data must be in a valid JSON format"), {
-                operation: "executeScript",
-                additionalInfo: { name, input: options.input },
-              });
-              return;
-            }
-          }
-
           // Parsing Environment Variables
           let environment: Record<string, string> | undefined;
           if (options.env) {
             try {
               environment = JSON.parse(options.env);
-            } catch (error) {
+            } catch (_error) {
               handleError(
                 new CLIValidationError("Environment variables must be in a valid JSON format"),
                 {

@@ -97,17 +97,51 @@ export function createMessageCommands(): Command {
 
   // Get message statistics command
   messageCmd
-    .command("stats")
-    .description("Get message statistics")
-    .option("--execution-id <executionId>", "Count by execution ID")
-    .action(async (options: { executionId?: string }) => {
+    .command("stats <execution-id>")
+    .description("Get message statistics for a specific workflow execution")
+    .action(async (executionId: string) => {
       try {
         const adapter = new MessageAdapter();
-        const stats = await adapter.getMessageStats(options.executionId);
+        const stats = await adapter.getMessageStats(executionId);
 
         output.newLine();
-        output.subsection("Message Statistics:");
+        output.subsection(`Message Statistics for Execution ${executionId}:`);
         output.keyValue("Total", String(stats.total));
+        output.newLine();
+        output.output("By role:");
+        Object.entries(stats.byRole).forEach(([role, count]) => {
+          output.output(`    ${role}: ${count}`);
+        });
+        output.newLine();
+        output.output("By type:");
+        Object.entries(stats.byType).forEach(([type, count]) => {
+          output.output(`    ${type}: ${count}`);
+        });
+      } catch (error) {
+        handleError(error, {
+          operation: "getMessageStats",
+          additionalInfo: { executionId },
+        });
+      }
+    });
+
+  // Get global message statistics (for debugging/audit)
+  messageCmd
+    .command("global-stats")
+    .description("Get global message statistics across all executions (debugging/audit purpose)")
+    .action(async () => {
+      try {
+        const adapter = new MessageAdapter();
+        const stats = await adapter.getGlobalMessageStats();
+
+        output.newLine();
+        output.subsection("Global Message Statistics:");
+        output.keyValue("Total Messages", String(stats.total));
+        output.newLine();
+        output.output("By execution:");
+        Object.entries(stats.byExecution).forEach(([execId, count]) => {
+          output.output(`    ${execId.substring(0, 12)}...: ${count}`);
+        });
         output.newLine();
         output.output("By role:");
         Object.entries(stats.byRole).forEach(([role, count]) => {
@@ -115,8 +149,7 @@ export function createMessageCommands(): Command {
         });
       } catch (error) {
         handleError(error, {
-          operation: "getMessageStats",
-          additionalInfo: { executionId: options.executionId },
+          operation: "getGlobalMessageStats",
         });
       }
     });

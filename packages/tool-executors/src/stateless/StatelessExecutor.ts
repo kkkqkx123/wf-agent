@@ -26,12 +26,14 @@ export class StatelessExecutor extends BaseExecutor {
    * @param tool Tool definition
    * @param parameters Tool parameters
    * @param executionId Execution ID (optional; stateless tools do not use it)
+   * @param context Execution context (optional, for interactive tools)
    * @returns Execution result
    */
   protected async doExecute(
     tool: Tool,
     parameters: Record<string, unknown>,
     _executionId?: string,
+    _context?: Record<string, unknown>,
   ): Promise<unknown> {
     // Get the function to be executed
     const config = tool.config as StatelessToolConfig;

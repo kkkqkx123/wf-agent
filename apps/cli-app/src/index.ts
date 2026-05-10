@@ -31,6 +31,7 @@ import { createEventCommands } from "./commands/event/index.js";
 import { createHumanRelayCommands } from "./commands/human-relay/index.js";
 import { createAgentCommands } from "./commands/agent/index.js";
 import { createSkillCommands } from "./commands/skill/index.js";
+import { CLIUserInteractionHandler } from "./handlers/user-interaction-handler.js";
 
 // Create an instance of the main program.
 const program = new Command();
@@ -149,8 +150,16 @@ program
       await ExitManager.exit(1);
     }
 
-    // 8. Human Relay Handler registration is handled by TUI app or command-specific handlers
-    // No global registration needed here
+    // 8. Initialize User Interaction Handler for interactive tools
+    const interactionHandler = new CLIUserInteractionHandler();
+    // Access event manager through the events API's internal dependencies
+    const eventAPI = sdkInstance.events;
+    // The eventAPI has access to the event manager internally
+    // We'll use a different approach: pass the SDK instance and let handler access events
+    interactionHandler.initialize(sdkInstance);
+    
+    // Store handler reference for cleanup
+    (global as any).__cliInteractionHandler = interactionHandler;
   });
 
 // Add workflow command groups

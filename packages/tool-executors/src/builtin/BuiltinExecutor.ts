@@ -24,12 +24,14 @@ export class BuiltinExecutor extends BaseExecutor {
    * @param tool Tool definition
    * @param parameters Tool parameters
    * @param executionId Execution ID (optional)
+   * @param context Execution context (optional, for interactive tools)
    * @returns Execution result
    */
   protected async doExecute(
     tool: Tool,
     parameters: Record<string, unknown>,
     executionId?: string,
+    context?: Record<string, unknown>,
   ): Promise<unknown> {
     // Get the builtin tool config
     const config = tool.config as BuiltinToolConfig;
@@ -49,14 +51,15 @@ export class BuiltinExecutor extends BaseExecutor {
     }
 
     try {
-      // Build execution context
-      const context: BuiltinToolExecutionContext = {
+      // Build execution context by merging default context with passed context
+      const mergedContext: BuiltinToolExecutionContext = {
         executionId,
         ...this.defaultContext,
+        ...context,
       };
 
       // Execute the builtin tool
-      const result = await config.execute(parameters, context);
+      const result = await config.execute(parameters, mergedContext);
 
       return {
         result,

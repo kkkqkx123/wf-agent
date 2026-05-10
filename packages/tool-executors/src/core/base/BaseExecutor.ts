@@ -35,6 +35,7 @@ export abstract class BaseExecutor implements IToolExecutor {
    * @param parameters: Tool parameters
    * @param options: Execution options
    * @param executionId: Execution ID (optional, used for execution isolation in stateful tools)
+   * @param context: Execution context (optional, for interactive tools)
    * @returns: Standardized execution results
    */
   async execute(
@@ -42,6 +43,7 @@ export abstract class BaseExecutor implements IToolExecutor {
     parameters: Record<string, unknown>,
     options: ToolExecutionOptions = {},
     executionId?: string,
+    context?: Record<string, unknown>,
   ): Promise<ToolExecutionResult> {
     const startTime = now();
     const { timeout = 30000, retries = 3, retryDelay = 1000, exponentialBackoff = true } = options;
@@ -64,7 +66,7 @@ export abstract class BaseExecutor implements IToolExecutor {
       try {
         // Execution tool (with timeout and abort signals)
         const result = await this.timeoutController.executeWithTimeout(
-          () => this.doExecute(tool, parameters, executionId),
+          () => this.doExecute(tool, parameters, executionId, context),
           timeout,
           options.signal,
         );
@@ -123,12 +125,14 @@ export abstract class BaseExecutor implements IToolExecutor {
    * @param tool Tool definition
    * @param parameters Tool parameters
    * @param executionId Execution ID (optional, used for execution isolation in stateful tools)
+   * @param context Execution context (optional, for interactive tools)
    * @returns Execution result
    */
   protected abstract doExecute(
     tool: Tool,
     parameters: Record<string, unknown>,
     executionId?: string,
+    context?: Record<string, unknown>,
   ): Promise<unknown>;
 
   /**

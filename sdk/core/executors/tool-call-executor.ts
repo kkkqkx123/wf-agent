@@ -468,13 +468,28 @@ export class ToolCallExecutor {
       signal: options?.abortSignal, // Pass the AbortSignal
     };
 
+    // Check if this is an interactive tool
+    const isInteractiveTool = toolConfig?.metadata?.requiresUserInteraction === true;
+
     // Call ToolRegistry to execute the tool.
     try {
+      // For interactive tools, pass context with event manager and execution info
+      let context: Record<string, unknown> | undefined;
+      if (isInteractiveTool) {
+        context = {
+          eventManager: this.eventManager,
+          executionId,
+          nodeId,
+          parentExecutionEntity: this.checkpointDependencies?.workflowExecutionRegistry?.get(executionId || ""),
+        };
+      }
+
       const result = await this.toolService.execute(
         toolCall.name,
         JSON.parse(toolCall.arguments),
         executionOptions,
         executionId,
+        context, // Pass context for interactive tools
       );
 
       const executionTime = diffTimestamp(startTime, now());

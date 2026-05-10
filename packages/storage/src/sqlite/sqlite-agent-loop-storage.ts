@@ -95,7 +95,6 @@ export class SqliteAgentLoopStorage
    */
   async save(agentLoopId: string, data: Uint8Array, metadata: AgentEntityMetadata): Promise<void> {
     const db = this.getDb();
-    const now = Date.now();
 
     try {
       // Get adaptive compression config

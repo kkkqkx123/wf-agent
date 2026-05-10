@@ -51,7 +51,7 @@ const MAX_PAGE_LIMIT = 1000;
  * SQLite File Storage Abstract Base Class
  * @template TMetadata metadata type
  */
-export abstract class BaseSqliteStorage<_TMetadataType> {
+export abstract class BaseSqliteStorage<TMetadataType> {
   protected db: Database.Database | null = null;
   protected initialized: boolean = false;
   protected usingPool: boolean = false;
@@ -169,7 +169,7 @@ export abstract class BaseSqliteStorage<_TMetadataType> {
    */
   private async initializeSchema(): Promise<void> {
     const db = this.getDb();
-    const currentVersion = this.getCurrentSchemaVersion();
+    const _currentVersion = this.getCurrentSchemaVersion();
     const targetVersion = this.config.schemaVersion ?? 1;
 
     // Create schema version tracking table if it doesn't exist
@@ -430,8 +430,6 @@ export abstract class BaseSqliteStorage<_TMetadataType> {
    * Load data from database
    */
   async load(id: string): Promise<Uint8Array | null> {
-    const db = this.getDb();
-
     try {
       const stmt = this.getPreparedStatement(`SELECT data FROM ${this.getTableName()} WHERE id = ?`);
       const row = stmt.get(id) as { data: Buffer } | undefined;
@@ -454,8 +452,6 @@ export abstract class BaseSqliteStorage<_TMetadataType> {
    * Delete data
    */
   async delete(id: string): Promise<void> {
-    const db = this.getDb();
-
     try {
       const stmt = this.getPreparedStatement(`DELETE FROM ${this.getTableName()} WHERE id = ?`);
       stmt.run(id);
@@ -469,8 +465,6 @@ export abstract class BaseSqliteStorage<_TMetadataType> {
    * Check if data exists
    */
   async exists(id: string): Promise<boolean> {
-    const db = this.getDb();
-
     try {
       const stmt = this.getPreparedStatement(`SELECT 1 FROM ${this.getTableName()} WHERE id = ?`);
       const row = stmt.get(id);
@@ -484,8 +478,6 @@ export abstract class BaseSqliteStorage<_TMetadataType> {
    * Clear all data
    */
   async clear(): Promise<void> {
-    const db = this.getDb();
-
     try {
       const stmt = this.getPreparedStatement(`DELETE FROM ${this.getTableName()}`);
       stmt.run();
@@ -623,7 +615,7 @@ export abstract class BaseSqliteStorage<_TMetadataType> {
    * @param items Array of items to save with id, data, and metadata
    */
   async saveBatch(
-    items: Array<{ id: string; data: Uint8Array; metadata: any }>,
+    items: Array<{ id: string; data: Uint8Array; metadata: TMetadataType }>,
   ): Promise<void> {
     const db = this.getDb();
     const startTime = Date.now();
@@ -669,8 +661,8 @@ export abstract class BaseSqliteStorage<_TMetadataType> {
    * @param saveFn Custom save function for each item
    */
   protected async saveBatchWithCustomLogic(
-    items: Array<{ id: string; data: Uint8Array; metadata: any }>,
-    saveFn: (db: Database.Database, item: { id: string; data: Uint8Array; metadata: any }) => void,
+    items: Array<{ id: string; data: Uint8Array; metadata: TMetadataType }>,
+    saveFn: (db: Database.Database, item: { id: string; data: Uint8Array; metadata: TMetadataType }) => void,
   ): Promise<void> {
     const db = this.getDb();
     const startTime = Date.now();
@@ -764,7 +756,7 @@ export abstract class BaseSqliteStorage<_TMetadataType> {
    */
   protected async loadBatchWithCustomLogic<T>(
     ids: string[],
-    loadFn: (row: any) => Uint8Array | null,
+    loadFn: (row: Record<string, unknown>) => Uint8Array | null,
   ): Promise<Array<{ id: string; data: Uint8Array | null }>> {
     const db = this.getDb();
     const startTime = Date.now();

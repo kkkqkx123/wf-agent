@@ -75,8 +75,8 @@ export function configureLazyLogger(
   const instance = lazyLoggerCache.get(name);
   if (instance) {
     // Logger already created - this might indicate initialization order issue
-    // Use console.warn instead of logger to avoid circular dependency
-    console.warn(
+    // Use logger.warn instead of console to avoid circular dependency
+    instance.warn(
       `[LazyLogger] Warning: Logger "${name}" was already initialized before configuration. ` +
         `Applying config to existing instance. This may indicate an initialization order issue.`,
     );

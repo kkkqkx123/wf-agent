@@ -94,7 +94,7 @@ interface VariableScopes {
 interface NodeExecutionResult {
   nodeId: ID;                           // Node ID
   nodeType: NodeType;                   // Node type
-  status: ExecutionStatus;              // Execution status
+  status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "SKIPPED" | "CANCELLED";  // Execution status
   step: number;                         // Execution step
   startTime: Timestamp;                 // Start time
   endTime: Timestamp;                   // End time

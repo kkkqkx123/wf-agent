@@ -4,7 +4,7 @@
 
 import type { ID, Metadata } from "../common.js";
 import type { LLMProvider } from "./state.js";
-import type { ToolCallFormat, ToolCallFormatConfig } from "./tool-call-format.js";
+import type { ToolCallFormatConfig } from "./tool-call-format.js";
 
 /**
  * LLM profile type for standalone configuration and multiplexing

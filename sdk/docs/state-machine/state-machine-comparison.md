@@ -18,10 +18,10 @@ This document provides a comparative analysis of Thread and Agent Loop state mac
 
 ## Status Mapping
 
-Both state machines can be mapped to a common ExecutionStatus:
+Both state machines can be mapped to a common conceptual status (for reference only):
 
-| ThreadStatus | AgentLoopStatus | ExecutionStatus |
-|--------------|----------------|------------------|
+| ThreadStatus | AgentLoopStatus | Conceptual Status |
+|--------------|----------------|-------------------|
 | CREATED | CREATED | PENDING |
 | RUNNING | RUNNING | RUNNING |
 | PAUSED | PAUSED | PAUSED |

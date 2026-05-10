@@ -31,7 +31,7 @@ export interface MemoryStorageConfig {
  * @template TMetadata Metadata type
  * @template TListOptions List options type
  */
-export abstract class BaseMemoryStorage<TMetadata, TListOptions = any>
+export abstract class BaseMemoryStorage<TMetadata, TListOptions = Record<string, unknown>>
   implements BaseStorageAdapter<TMetadata, TListOptions>
 {
   protected store: Map<string, { data: Uint8Array; metadata: TMetadata }> = new Map();

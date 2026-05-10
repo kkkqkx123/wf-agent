@@ -521,7 +521,7 @@ export class SqliteWorkflowExecutionStorage
         count: number;
       }>;
 
-      const byStatus: Record<WorkflowExecutionStatus, number> = {} as any;
+      const byStatus: Record<WorkflowExecutionStatus, number> = {} as Record<WorkflowExecutionStatus, number>;
       const byType: Record<string, number> = {};
 
       for (const row of rows) {

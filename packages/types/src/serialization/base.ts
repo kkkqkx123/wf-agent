@@ -6,7 +6,6 @@
  */
 
 import type { ID, Timestamp } from "../common.js";
-import type { SerializedError } from "../errors/serialized-error.js";
 
 /**
  * Snapshot version for format identification

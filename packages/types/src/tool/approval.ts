@@ -6,7 +6,7 @@
 import type { LLMToolCall } from "../message/index.js";
 import type { AutoApprovalCategory } from "./risk-level.js";
 import type { FilePermissionSettings } from "./file-permission.js";
-import type { McpApprovalSettings, McpRequest } from "./mcp-approval.js";
+import type { McpApprovalSettings } from "./mcp-approval.js";
 import type { ToolExecutionResult } from "./execution.js";
 
 /**

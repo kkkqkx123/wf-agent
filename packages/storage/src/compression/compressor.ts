@@ -95,7 +95,7 @@ export async function compressBlob(
       case "gzip":
         compressed = await gzipAsync(Buffer.from(data), { level });
         break;
-      case "brotli":
+      case "brotli": {
         // Brotli quality ranges from 0-11, map level 1-9 to quality 4-8
         const quality = Math.max(0, Math.min(11, Math.round((level / 9) * 8)));
         compressed = await brotliCompressAsync(Buffer.from(data), {
@@ -104,6 +104,7 @@ export async function compressBlob(
           },
         });
         break;
+      }
       default:
         throw new Error(`Unsupported compression algorithm: ${algorithm}`);
     }
@@ -210,7 +211,7 @@ export function compressBlobSync(
       case "gzip":
         compressed = gzipSync(Buffer.from(data), { level });
         break;
-      case "brotli":
+      case "brotli": {
         // Brotli quality ranges from 0-11, map level 1-9 to quality 4-8
         const quality = Math.max(0, Math.min(11, Math.round((level / 9) * 8)));
         compressed = brotliCompressSync(Buffer.from(data), {
@@ -219,6 +220,7 @@ export function compressBlobSync(
           },
         });
         break;
+      }
       default:
         throw new Error(`Unsupported compression algorithm: ${algorithm}`);
     }

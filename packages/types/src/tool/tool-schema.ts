@@ -5,9 +5,6 @@
 
 import { z } from "zod";
 import type { ToolType } from "./state.js";
-import type { AutoApprovalCategory } from "./risk-level.js";
-import type { FilePermissionLevel } from "./file-permission.js";
-import type { McpDefaultBehavior } from "./mcp-approval.js";
 
 // ============================================================================
 // Tool Parameter Property Schema (JSON Schema Draft 2020-12)

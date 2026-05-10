@@ -118,12 +118,13 @@ export class MemoryWorkflowExecutionStorage
               const timeB = entryB.metadata.endTime ?? 0;
               comparison = timeA - timeB;
               break;
-            case "updatedAt":
+            case "updatedAt": {
               // Use endTime or startTime as updatedAt proxy
               const updatedA = entryA.metadata.endTime ?? entryA.metadata.startTime;
               const updatedB = entryB.metadata.endTime ?? entryB.metadata.startTime;
               comparison = updatedA - updatedB;
               break;
+            }
           }
 
           return options.sortOrder === "desc" ? -comparison : comparison;
@@ -203,8 +204,8 @@ export class MemoryWorkflowExecutionStorage
 
     return {
       total: entries.length,
-      byStatus: byStatus as Record<any, number>,
-      byType: byType as Record<any, number>,
+      byStatus: byStatus as Record<string, number>,
+      byType: byType as Record<string, number>,
       byWorkflow,
     };
   }

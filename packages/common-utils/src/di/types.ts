@@ -3,7 +3,6 @@
 // ============================================================
 
 import type { Binding, BindToFluentSyntax, BindInFluentSyntax, BindWhenFluentSyntax } from "./binding.js";
-import type { ResolutionEngine } from "./resolver.js";
 
 /**
  * Service Identifier Types

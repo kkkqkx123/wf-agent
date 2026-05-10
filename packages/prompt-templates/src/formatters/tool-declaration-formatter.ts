@@ -83,7 +83,7 @@ export class ToolDeclarationFormatter {
    * Format parameters as XML
    */
   private static formatParametersXML(
-    parameters: { properties: Record<string, any>; required?: string[] },
+    parameters: { properties: Record<string, unknown>; required?: string[] },
     tags: ToolCallXmlTags
   ): string {
     const lines: string[] = [];
@@ -92,8 +92,8 @@ export class ToolDeclarationFormatter {
     for (const [name, schema] of Object.entries(parameters.properties)) {
       const isRequired = required.includes(name);
       const reqStr = isRequired ? 'required' : 'optional';
-      const type = schema.type || 'string';
-      const desc = schema.description || '';
+      const type = (schema as { type?: string }).type || 'string';
+      const desc = (schema as { description?: string }).description || '';
 
       lines.push(`      - ${name} (${reqStr}) [${type}]: ${desc}`);
     }
@@ -109,16 +109,16 @@ export class ToolDeclarationFormatter {
     const parts: string[] = [];
 
     for (const tool of tools) {
-      const toolObj: any = {
+      const toolObj: Record<string, unknown> = {
         name: tool.id,
       };
 
       if (options.includeDescription !== false && tool.description) {
-        toolObj.description = tool.description;
+        toolObj['description'] = tool.description;
       }
 
       if (options.includeParameters !== false && tool.parameters?.properties) {
-        toolObj.parameters = this.formatParametersJSON(tool.parameters);
+        toolObj['parameters'] = this.formatParametersJSON(tool.parameters);
       }
 
       parts.push(`${markers.start}\n${JSON.stringify(toolObj, null, 2)}\n${markers.end}`);
@@ -131,17 +131,17 @@ export class ToolDeclarationFormatter {
    * Format parameters as JSON
    */
   private static formatParametersJSON(parameters: {
-    properties: Record<string, any>;
+    properties: Record<string, unknown>;
     required?: string[];
-  }): Record<string, any> {
-    const result: Record<string, any> = {};
+  }): Record<string, unknown> {
+    const result: Record<string, unknown> = {};
     const required = parameters.required || [];
 
     for (const [name, schema] of Object.entries(parameters.properties)) {
       result[name] = {
-        type: schema.type || 'string',
+        type: (schema as { type?: string }).type || 'string',
         required: required.includes(name),
-        description: schema.description || '',
+        description: (schema as { description?: string }).description || '',
       };
     }
 

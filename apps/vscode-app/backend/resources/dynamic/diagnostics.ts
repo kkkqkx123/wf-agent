@@ -50,7 +50,7 @@ export function getWorkspaceDiagnostics(config: DiagnosticsConfig): string {
     // Filter diagnostic information
     const filteredDiagnostics = diagnostics.filter(diag => {
       const severity = severityMap[diag.severity];
-      return config.includeSeverities.includes(severity as any);
+      return config.includeSeverities.includes(severity as "error" | "warning" | "information" | "hint");
     });
 
     if (filteredDiagnostics.length === 0) continue;

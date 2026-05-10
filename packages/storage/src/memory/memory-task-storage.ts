@@ -169,7 +169,7 @@ export class MemoryTaskStorage
 
     return {
       total: entries.length,
-      byStatus: byStatus as Record<any, number>,
+      byStatus: byStatus as Record<string, number>,
       byWorkflow,
       avgExecutionTime,
       maxExecutionTime,

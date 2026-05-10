@@ -483,10 +483,10 @@ export abstract class BaseJsonStorage<TMetadata> {
         await fs.access(metadataPath);
         // File exists, create minimal entry for deletion
         indexEntry = {
-          metadata: null as any,
+          metadata: null as unknown as TMetadata,
           metadataPath,
           dataPath: this.getDataFilePath(id),
-          dataRef: null as any,
+          dataRef: null as unknown as DataReference,
         };
       } catch {
         logger.debug("Data not found for deletion", { id });

@@ -15,7 +15,6 @@ import {
   JsonWorkflowStorage,
   JsonWorkflowExecutionStorage,
   JsonTaskStorage,
-  JsonNoteStorage,
   JsonAgentLoopCheckpointStorage,
   type BaseJsonStorageConfig,
   SqliteCheckpointStorage,

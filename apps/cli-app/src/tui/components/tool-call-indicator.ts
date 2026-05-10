@@ -5,7 +5,6 @@
  * Shows tool name, status, duration, and arguments preview.
  */
 
-import { Box } from "../core/index.js";
 import type { Component } from "../core/tui.js";
 import type { AgentToolCallData, AgentToolEndData } from "@wf-agent/types";
 
@@ -142,12 +141,12 @@ export class ToolCallIndicator implements Component {
       
       // Truncate with ellipsis
       return json.substring(0, maxWidth - 10) + "...";
-    } catch (error) {
+    } catch (_error) {
       return "[Invalid arguments]";
     }
   }
 
-  handleInput?(data: string): boolean {
+  handleInput?(_data: string): boolean {
     return false;
   }
 

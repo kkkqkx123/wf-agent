@@ -101,7 +101,7 @@ export class HumanRelayService {
     try {
       const content = await fs.readFile(paths.input, "utf-8");
       return content;
-    } catch (error) {
+    } catch (_error) {
       // Return empty string if file doesn't exist yet
       return "";
     }
@@ -115,7 +115,6 @@ export class HumanRelayService {
   watchInput(params: HumanRelayWatchOptions): void {
     const paths = this.getSessionPaths(params.sessionId);
     const inputFile = paths.input;
-    const dir = path.dirname(inputFile);
 
     // Create empty file if doesn't exist
     fs.writeFile(inputFile, "", "utf-8").catch(() => {});
@@ -152,7 +151,7 @@ export class HumanRelayService {
         }
 
         lastSize = currentSize;
-      } catch (error) {
+      } catch (_error) {
         // Ignore read errors during polling
       }
     }, pollInterval);

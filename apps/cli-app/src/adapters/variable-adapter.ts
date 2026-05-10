@@ -4,7 +4,6 @@
  */
 
 import { BaseAdapter } from "./base-adapter.js";
-import { CLINotFoundError } from "../types/cli-types.js";
 import { getData, isFailure, getError } from "@wf-agent/sdk";
 
 /**

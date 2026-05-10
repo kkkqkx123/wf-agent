@@ -241,7 +241,7 @@ export function createToolCommands(): Command {
           if (options.params) {
             try {
               parameters = JSON.parse(options.params);
-            } catch (error) {
+            } catch (_error) {
               handleError(new CLIValidationError("The parameters must be in valid JSON format."), {
                 operation: "executeTool",
                 additionalInfo: { id, params: options.params },
@@ -297,7 +297,7 @@ export function createToolCommands(): Command {
         if (options.params) {
           try {
             parameters = JSON.parse(options.params);
-          } catch (error) {
+          } catch (_error) {
             handleError(new CLIValidationError("The parameters must be in valid JSON format."), {
               operation: "validateToolParameters",
               additionalInfo: { id, params: options.params },

@@ -60,7 +60,7 @@ program
     try {
       const { TomlParserManager } = await import("@wf-agent/sdk");
       await TomlParserManager.initialize();
-    } catch (error) {
+    } catch (_error) {
       // Continue without TOML parser - will use JSON or defaults
     }
 

@@ -82,43 +82,34 @@ export class MessageAdapter extends BaseAdapter {
   }
 
   /**
-   * Get message statistics
-   * Note: This method currently only supports global statistics.
-   * For agent loop specific stats, use the Agent Loop API directly.
+   * Get message statistics for a specific workflow execution
+   * @param executionId Workflow execution ID
    */
-  async getMessageStats(agentLoopId?: string): Promise<{
+  async getMessageStats(executionId: string): Promise<{
     total: number;
     byRole: Record<string, number>;
-    totalTokenUsage?: {
-      promptTokens: number;
-      completionTokens: number;
-      totalTokens: number;
-    };
+    byType: Record<string, number>;
   }> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.messages;
-      
-      // Currently only global stats are supported in Workflow MessageResourceAPI
-      const result = await api.getGlobalMessageStats();
-      return {
-        total: result.total,
-        byRole: result.byRole,
-      };
+      const result = await api.getMessageStats(executionId);
+      return result;
     }, "Get message statistics");
   }
 
   /**
-   * Normalize message history
-   * Note: This feature is specific to Agent Loops and not available for Workflow executions.
-   * To normalize agent loop messages, use the Agent Loop API directly.
-   * @deprecated This method will be removed in a future version
+   * Get global message statistics across all executions (for debugging/audit)
+   * Note: This is primarily for system-level monitoring, not typical user operations.
    */
-  async normalizeMessages(agentLoopId: string): Promise<void> {
-    // This functionality is not available in Workflow MessageResourceAPI
-    // It's only available in AgentLoopMessageResourceAPI
-    throw new Error(
-      "normalizeMessages is not supported for workflow executions. " +
-      "This feature is only available for Agent Loops."
-    );
+  async getGlobalMessageStats(): Promise<{
+    total: number;
+    byExecution: Record<string, number>;
+    byRole: Record<string, number>;
+  }> {
+    return this.executeWithErrorHandling(async () => {
+      const api = this.sdk.messages;
+      const result = await api.getGlobalMessageStats();
+      return result;
+    }, "Get global message statistics");
   }
 }

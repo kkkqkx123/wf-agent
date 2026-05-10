@@ -5,7 +5,7 @@
 
 import { Subject, Observable, Subscription } from "rxjs";
 import { getOutput } from "../../utils/output.js";
-import type { BridgeMessage, TerminalSession } from "./types.js";
+import type { BridgeMessage } from "./types.js";
 
 const output = getOutput();
 

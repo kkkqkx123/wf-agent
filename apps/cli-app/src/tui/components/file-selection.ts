@@ -3,7 +3,7 @@
  * Allows users to browse and select files from the filesystem
  */
 
-import { readdir, stat } from "fs/promises";
+import { readdir } from "fs/promises";
 import { join, resolve, dirname, extname } from "path";
 import { Box, Container, Text, SelectList, Input } from "../core/index.js";
 import type { Component } from "../core/tui.js";

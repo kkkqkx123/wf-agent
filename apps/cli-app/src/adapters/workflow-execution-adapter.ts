@@ -12,7 +12,7 @@ import {
   ResumeWorkflowCommand,
   CancelWorkflowCommand,
 } from "@wf-agent/sdk";
-import type { WorkflowExecution, WorkflowExecutionResult } from "@wf-agent/types";
+import type { WorkflowExecution, WorkflowExecutionResult, WorkflowExecutionStatus } from "@wf-agent/types";
 
 /**
  * Type alias for workflow summary (matches formatter expectations)
@@ -119,7 +119,16 @@ export class WorkflowExecutionAdapter extends BaseAdapter {
   async listWorkflowExecutions(filter?: Record<string, unknown>): Promise<WorkflowSummary[]> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.executions;
-      const result = await api.getAll();
+      
+      // Convert filter to WorkflowExecutionFilter type
+      const executionFilter = filter ? {
+        ids: filter['ids'] as string[] | undefined,
+        workflowId: filter['workflowId'] as string | undefined,
+        status: filter['status'] as WorkflowExecutionStatus | undefined,
+        executionType: filter['executionType'] as 'MAIN' | 'FORK_JOIN' | 'TRIGGERED_SUBWORKFLOW' | undefined,
+      } : undefined;
+      
+      const result = await api.getAll(executionFilter);
       
       if (isFailure(result)) {
         throw getError(result);

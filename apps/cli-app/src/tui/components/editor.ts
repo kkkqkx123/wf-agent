@@ -36,8 +36,6 @@ const SLASH_COMMAND_SELECT_LIST_LAYOUT: SelectListLayoutOptions = {
   maxPrimaryColumnWidth: 32,
 };
 
-const ATTACHMENT_AUTOCOMPLETE_DEBOUNCE_MS = 20;
-
 export class Editor implements Component, Focusable {
   private state: EditorState = {
     lines: [""],
@@ -1509,7 +1507,7 @@ export class Editor implements Component, Focusable {
     this.requestAutocomplete(false);
   }
 
-  private forceFileAutocomplete(explicitTab: boolean = false): void {
+  private forceFileAutocomplete(_explicitTab: boolean = false): void {
     this.requestAutocomplete(true);
   }
 

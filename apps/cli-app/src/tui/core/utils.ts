@@ -32,8 +32,6 @@ const US = '\u001f';
 const DEL = '\u007f';
 const zeroWidthRegex = new RegExp(`^[${NUL}-${US}${DEL}]+$`);
 const leadingNonPrintingRegex = new RegExp(`^[${NUL}-${US}${DEL}]+`);
-// Simplified emoji detection - will use couldBeEmoji heuristic instead
-const rgiEmojiRegex = /^$/; // Placeholder - actual emoji detection done via codepoint checks
 
 // Cache for non-ASCII strings
 const WIDTH_CACHE_SIZE = 512;

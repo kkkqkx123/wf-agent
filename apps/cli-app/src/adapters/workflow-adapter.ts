@@ -131,7 +131,18 @@ export class WorkflowAdapter extends BaseAdapter {
   }>> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.workflows;
-      const result = await api.getAll();
+      
+      // Convert filter to WorkflowFilter type
+      const workflowFilter = filter ? {
+        ids: filter['ids'] as string[] | undefined,
+        name: filter['name'] as string | undefined,
+        tags: filter['tags'] as string[] | undefined,
+        author: filter['author'] as string | undefined,
+        category: filter['category'] as string | undefined,
+        version: filter['version'] as string | undefined,
+      } : undefined;
+      
+      const result = await api.getAll(workflowFilter);
       const workflows = getData(result) || [];
 
       // Transform workflows into summary format.

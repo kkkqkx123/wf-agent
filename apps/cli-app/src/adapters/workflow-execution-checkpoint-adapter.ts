@@ -7,7 +7,7 @@ import { BaseAdapter } from "./base-adapter.js";
 import { CLINotFoundError } from "../types/cli-types.js";
 import { getData, isFailure, getError } from "@wf-agent/sdk";
 import { CheckpointResourceAPI } from "@wf-agent/sdk";
-import type { Checkpoint } from "@wf-agent/types";
+import type { Checkpoint, GraphCheckpointTriggerType } from "@wf-agent/types";
 
 /**
  * Type alias for checkpoint with createdAt field (matches formatter expectations)
@@ -105,7 +105,17 @@ export class WorkflowExecutionCheckpointAdapter extends BaseAdapter {
    */
   async listCheckpoints(filter?: Record<string, unknown>): Promise<CheckpointWithMetadata[]> {
     return this.executeWithErrorHandling(async () => {
-      const result = await this.getCheckpointAPI().getAll();
+      // Convert filter to CheckpointFilter type
+      const checkpointFilter = filter ? {
+        ids: filter['ids'] as string[] | undefined,
+        executionId: filter['executionId'] as string | undefined,
+        workflowId: filter['workflowId'] as string | undefined,
+        triggerType: filter['triggerType'] as GraphCheckpointTriggerType | undefined,
+        creator: filter['creator'] as string | undefined,
+        tags: filter['tags'] as string[] | undefined,
+      } : undefined;
+      
+      const result = await this.getCheckpointAPI().getAll(checkpointFilter);
       
       if (isFailure(result)) {
         throw getError(result);

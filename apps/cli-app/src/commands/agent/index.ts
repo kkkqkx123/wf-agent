@@ -8,12 +8,11 @@ import { AgentLoopCheckpointAdapter } from "../../adapters/agent-loop-checkpoint
 import { getOutput } from "../../utils/output.js";
 import { formatAgentLoop, formatAgentLoopList } from "../../utils/cli-formatters.js";
 import type { CommandOptions } from "../../types/cli-types.js";
-import type { AgentLoopRuntimeConfig, AgentLoopCheckpoint, Message, AgentStreamEvent, LLMMessage } from "@wf-agent/types";
-import type { MessageStreamEvent } from "@wf-agent/sdk/core";
+import type { AgentLoopRuntimeConfig, AgentLoopCheckpoint, Message, LLMMessage } from "@wf-agent/types";
 import { handleError } from "../../utils/error-handler.js";
 import { CLIValidationError } from "../../types/cli-types.js";
-import { loadAgentLoopConfig, parseAndValidateAgentLoopConfig, transformToAgentLoopConfig } from "@wf-agent/sdk";
-import { readFileSync, existsSync } from "fs";
+import { loadAgentLoopConfig, transformToAgentLoopConfig } from "@wf-agent/sdk";
+import { existsSync } from "fs";
 
 const output = getOutput();
 
@@ -92,7 +91,7 @@ export function createAgentCommands(): Command {
               } else if (inputData.message) {
                 initialMessages = [{ role: "user", content: inputData.message }];
               }
-            } catch (error) {
+            } catch (_error) {
               handleError(new CLIValidationError("Input data must be in a valid JSON format"), {
                 operation: "runAgentLoop",
                 additionalInfo: { input: options.input },
@@ -189,7 +188,7 @@ export function createAgentCommands(): Command {
               } else if (inputData.message) {
                 initialMessages = [{ role: "user", content: inputData.message }];
               }
-            } catch (error) {
+            } catch (_error) {
               handleError(new CLIValidationError("Input data must be in a valid JSON format"), {
                 operation: "startAgentLoop",
                 additionalInfo: { input: options.input },

@@ -42,6 +42,7 @@ describe("MessageAdapter", () => {
     mockMessagesApi = {
       getAll: vi.fn(),
       get: vi.fn(),
+      getMessageStats: vi.fn(),
       getGlobalMessageStats: vi.fn(),
     };
 
@@ -143,9 +144,46 @@ describe("MessageAdapter", () => {
   });
 
   describe("getMessageStats", () => {
-    it("should get global message statistics", async () => {
+    it("should get message statistics for a specific execution", async () => {
+      const mockStats = {
+        total: 50,
+        byRole: {
+          user: 25,
+          assistant: 20,
+          system: 5,
+        },
+        byType: {
+          text: 45,
+          object: 5,
+        },
+      };
+      mockMessagesApi.getMessageStats.mockResolvedValue(mockStats);
+
+      const result = await adapter.getMessageStats("exec-123");
+
+      expect(mockMessagesApi.getMessageStats).toHaveBeenCalledWith("exec-123");
+      expect(result.total).toBe(50);
+      expect(result.byRole).toEqual(mockStats.byRole);
+      expect(result.byType).toEqual(mockStats.byType);
+    });
+
+    it("should handle stats retrieval failure", async () => {
+      const mockError = new Error("Stats retrieval failed");
+      mockMessagesApi.getMessageStats.mockRejectedValue(mockError);
+
+      await expect(adapter.getMessageStats("exec-123")).rejects.toThrow("Stats retrieval failed");
+    });
+  });
+
+  describe("getGlobalMessageStats", () => {
+    it("should get global message statistics across all executions", async () => {
       const mockStats = {
         total: 100,
+        byExecution: {
+          "exec-1": 50,
+          "exec-2": 30,
+          "exec-3": 20,
+        },
         byRole: {
           user: 50,
           assistant: 45,
@@ -154,35 +192,19 @@ describe("MessageAdapter", () => {
       };
       mockMessagesApi.getGlobalMessageStats.mockResolvedValue(mockStats);
 
-      const result = await adapter.getMessageStats();
+      const result = await adapter.getGlobalMessageStats();
 
       expect(mockMessagesApi.getGlobalMessageStats).toHaveBeenCalled();
       expect(result.total).toBe(100);
+      expect(result.byExecution).toEqual(mockStats.byExecution);
       expect(result.byRole).toEqual(mockStats.byRole);
     });
 
-    it("should ignore agentLoopId parameter and return global stats", async () => {
-      const mockStats = {
-        total: 50,
-        byRole: {
-          user: 25,
-          assistant: 25,
-        },
-      };
-      mockMessagesApi.getGlobalMessageStats.mockResolvedValue(mockStats);
-
-      const result = await adapter.getMessageStats("agent-loop-123");
-
-      // Should still call getGlobalMessageStats regardless of agentLoopId
-      expect(mockMessagesApi.getGlobalMessageStats).toHaveBeenCalled();
-      expect(result.total).toBe(50);
-    });
-
-    it("should handle stats retrieval failure", async () => {
-      const mockError = new Error("Stats retrieval failed");
+    it("should handle global stats retrieval failure", async () => {
+      const mockError = new Error("Global stats retrieval failed");
       mockMessagesApi.getGlobalMessageStats.mockRejectedValue(mockError);
 
-      await expect(adapter.getMessageStats()).rejects.toThrow("Stats retrieval failed");
+      await expect(adapter.getGlobalMessageStats()).rejects.toThrow("Global stats retrieval failed");
     });
   });
 

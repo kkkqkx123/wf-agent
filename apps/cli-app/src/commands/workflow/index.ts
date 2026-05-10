@@ -5,7 +5,7 @@
 import { Command } from "commander";
 import { WorkflowAdapter } from "../../adapters/workflow-adapter.js";
 import { getOutput } from "../../utils/output.js";
-import { formatWorkflow, formatWorkflowList } from "../../utils/cli-formatters.js";
+import { formatWorkflow } from "../../utils/cli-formatters.js";
 import { handleError } from "../../utils/error-handler.js";
 import type { CommandOptions } from "../../types/cli-types.js";
 

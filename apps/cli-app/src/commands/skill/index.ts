@@ -6,11 +6,10 @@
 import { Command } from "commander";
 import { SkillAdapter } from "../../adapters/skill-adapter.js";
 import { getOutput } from "../../utils/output.js";
-import { formatSkill } from "../../utils/cli-formatters.js";
 import type { CommandOptions } from "../../types/cli-types.js";
 import { handleError } from "../../utils/error-handler.js";
 import { CLIValidationError } from "../../types/cli-types.js";
-import type { Skill, SkillMatchResult, SkillMetadata, SkillResourceType } from "@wf-agent/types";
+import type { SkillMatchResult, SkillMetadata, SkillResourceType } from "@wf-agent/types";
 
 const output = getOutput();
 

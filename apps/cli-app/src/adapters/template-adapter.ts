@@ -193,7 +193,16 @@ export class TemplateAdapter extends BaseAdapter {
   async listNodeTemplates(filter?: Record<string, unknown>): Promise<NodeTemplateSummary[]> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.nodeTemplates;
-      const result = await api.getAll();
+      
+      // Convert filter to NodeTemplateFilter type
+      const nodeFilter = filter ? {
+        name: filter['name'] as string | undefined,
+        nodeType: filter['nodeType'] as string | undefined,
+        category: filter['category'] as string | undefined,
+        tags: filter['tags'] as string[] | undefined,
+      } : undefined;
+      
+      const result = await api.getAll(nodeFilter);
       
       if (isFailure(result)) {
         throw getError(result);
@@ -222,7 +231,17 @@ export class TemplateAdapter extends BaseAdapter {
   async listTriggerTemplates(filter?: Record<string, unknown>): Promise<TriggerTemplateSummary[]> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.triggerTemplates;
-      const result = await api.getAll();
+      
+      // Convert filter to TriggerTemplateFilter type
+      const triggerFilter = filter ? {
+        name: filter['name'] as string | undefined,
+        keyword: filter['keyword'] as string | undefined,
+        triggerType: filter['triggerType'] as string | undefined,
+        category: filter['category'] as string | undefined,
+        tags: filter['tags'] as string[] | undefined,
+      } : undefined;
+      
+      const result = await api.getAll(triggerFilter);
       
       if (isFailure(result)) {
         throw getError(result);

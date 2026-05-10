@@ -215,7 +215,6 @@ export class Formatter {
     const name = workflow.name || "Unnamed";
     const id = workflow.id || "N/A";
     const type = workflow.type || "unknown";
-    const status = this.status(workflow.status || "unknown");
 
     let result = !this._colorEnabled
       ? `${name} (${id}) - ${type}`

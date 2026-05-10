@@ -71,7 +71,7 @@ export function createVariableCommands(): Command {
         if (options.json) {
           try {
             parsedValue = JSON.parse(value);
-          } catch (error) {
+          } catch (_error) {
             handleError(new CLIValidationError("The value must be in a valid JSON format."), {
               operation: "setVariable",
               additionalInfo: { executionId, variableName, value },

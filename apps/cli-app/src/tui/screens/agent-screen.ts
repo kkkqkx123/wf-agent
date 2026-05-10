@@ -367,7 +367,7 @@ export class AgentScreen implements Screen {
     }
   }
 
-  public async startAgent(config: AgentLoopRuntimeConfig) {
+  public async startAgent(_config: AgentLoopRuntimeConfig) {
     if (this.isRunning) {
       this.appendLog("Agent is already running", "system");
       return;

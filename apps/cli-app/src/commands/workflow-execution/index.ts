@@ -13,14 +13,12 @@ import { CLIValidationError } from "../../types/cli-types.js";
 // Add import statements
 import { TerminalManager } from "../../services/terminal/terminal-manager.js";
 import { TaskExecutor } from "../../services/terminal/task-executor.js";
-import { CommunicationBridge } from "../../services/terminal/communication-bridge.js";
 
 const output = getOutput();
 
 // Lazy initialization - create instances only when needed to avoid SDK initialization order issues
 let terminalManager: TerminalManager | null = null;
 let taskExecutor: TaskExecutor | null = null;
-let communicationBridge: CommunicationBridge | null = null;
 
 function getTerminalManager(): TerminalManager {
   if (!terminalManager) {
@@ -34,13 +32,6 @@ function getTaskExecutor(): TaskExecutor {
     taskExecutor = new TaskExecutor();
   }
   return taskExecutor;
-}
-
-function getCommunicationBridge(): CommunicationBridge {
-  if (!communicationBridge) {
-    communicationBridge = new CommunicationBridge();
-  }
-  return communicationBridge;
 }
 
 /**
@@ -75,7 +66,7 @@ export function createWorkflowExecutionCommands(): Command {
           if (options.input) {
             try {
               inputData = JSON.parse(options.input);
-            } catch (error) {
+            } catch (_error) {
               handleError(new CLIValidationError("The input data must be in valid JSON format."), {
                 operation: "runWorkflowExecution",
                 additionalInfo: { workflowId, input: options.input },

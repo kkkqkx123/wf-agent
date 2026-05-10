@@ -58,7 +58,7 @@ export class CLIToolApprovalHandler implements ToolApprovalHandler {
       const args = JSON.parse(request.toolCall.function?.arguments || "{}");
       output.output("\nParameters:");
       output.output(JSON.stringify(args, null, 2));
-    } catch (e) {
+    } catch (_e) {
       output.output(`Arguments: ${request.toolCall.function?.arguments}`);
     }
 
@@ -159,7 +159,7 @@ export class CLIToolApprovalHandler implements ToolApprovalHandler {
 
     try {
       return JSON.parse(jsonInput);
-    } catch (e) {
+    } catch (_e) {
       output.error("Invalid JSON, using original parameters");
       return currentArgs ? JSON.parse(currentArgs) : {};
     }

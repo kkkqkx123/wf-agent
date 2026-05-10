@@ -97,7 +97,7 @@ export class DisplayOutputService {
       // Read existing content
       try {
         content = await fs.readFile(outputFile, "utf-8");
-      } catch (error) {
+      } catch (_error) {
         content = "";
       }
     } else {
@@ -304,7 +304,7 @@ export class DisplayOutputService {
           }
         }
       }
-    } catch (error) {
+    } catch (_error) {
       // Ignore errors for non-existent directories
     }
   }

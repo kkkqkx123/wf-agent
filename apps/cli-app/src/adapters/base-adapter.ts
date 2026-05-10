@@ -5,7 +5,7 @@
 
 import { type SDKInstance } from "@wf-agent/sdk";
 import { getOutput, type CLIOutput } from "../utils/output.js";
-import { handleError as handleCLIError, type ErrorContext } from "../utils/error-handler.js";
+import type { ErrorContext } from "../utils/error-handler.js";
 import { CLIError } from "../types/cli-types.js";
 import { isHeadlessMode } from "../utils/exit-manager.js";
 import { getSDKInstance } from "../index.js";

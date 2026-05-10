@@ -174,17 +174,17 @@ export function createLLMProfileCommands(): Command {
           retryDelay?: string;
         },
       ) => {
-        const updates: any = {};
+        const updates: Record<string, unknown> = {};
         try {
           const adapter = new LLMProfileAdapter();
 
-          if (options.name) updates.name = options.name;
-          if (options.model) updates.model = options.model;
-          if (options.apiKey) updates.apiKey = options.apiKey;
-          if (options.baseUrl) updates.baseUrl = options.baseUrl;
-          if (options.timeout) updates.timeout = parseInt(options.timeout, 10);
-          if (options.maxRetries) updates.maxRetries = parseInt(options.maxRetries, 10);
-          if (options.retryDelay) updates.retryDelay = parseInt(options.retryDelay, 10);
+          if (options.name) updates['name'] = options['name'];
+          if (options.model) updates['model'] = options['model'];
+          if (options.apiKey) updates['apiKey'] = options['apiKey'];
+          if (options.baseUrl) updates['baseUrl'] = options['baseUrl'];
+          if (options.timeout) updates['timeout'] = parseInt(options['timeout'], 10);
+          if (options.maxRetries) updates['maxRetries'] = parseInt(options['maxRetries'], 10);
+          if (options.retryDelay) updates['retryDelay'] = parseInt(options['retryDelay'], 10);
 
           const profile = await adapter.updateProfile(id, updates);
           output.output(formatLLMProfile(profile, { verbose: options.verbose }));

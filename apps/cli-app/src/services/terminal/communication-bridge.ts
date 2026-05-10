@@ -73,7 +73,7 @@ export class CommunicationBridge {
    * @param taskId Task ID
    * @param status Task status
    */
-  syncTaskStatus(taskId: string, status: any): void {
+  syncTaskStatus(taskId: string, status: Record<string, unknown>): void {
     const message: BridgeMessage = {
       type: "status",
       payload: { taskId, status },
@@ -118,7 +118,7 @@ export class CommunicationBridge {
    * @param sessionId Terminal session ID
    * @param command Command object
    */
-  sendCommand(sessionId: string, command: any): void {
+  sendCommand(sessionId: string, command: Record<string, unknown>): void {
     const message: BridgeMessage = {
       type: "command",
       payload: command,

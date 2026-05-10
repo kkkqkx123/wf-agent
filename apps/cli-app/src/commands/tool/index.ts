@@ -162,7 +162,7 @@ export function createToolCommands(): Command {
           description?: string;
         },
       ) => {
-        const updates: any = {};
+        const updates: Record<string, string> = {};
         try {
           const adapter = new ToolAdapter();
 
@@ -237,7 +237,7 @@ export function createToolCommands(): Command {
           output.infoLog(`Executing tool: ${id}`);
 
           // Parse parameters
-          let parameters: Record<string, any> = {};
+          let parameters: Record<string, unknown> = {};
           if (options.params) {
             try {
               parameters = JSON.parse(options.params);
@@ -251,7 +251,12 @@ export function createToolCommands(): Command {
           }
 
           // Build execution options
-          const toolOptions: any = {};
+          const toolOptions: {
+            timeout?: number;
+            maxRetries?: number;
+            retryDelay?: number;
+            enableLogging?: boolean;
+          } = {};
           if (options.timeout) toolOptions.timeout = parseInt(options.timeout, 10);
           if (options.maxRetries) toolOptions.maxRetries = parseInt(options.maxRetries, 10);
           if (options.retryDelay) toolOptions.retryDelay = parseInt(options.retryDelay, 10);
@@ -264,8 +269,9 @@ export function createToolCommands(): Command {
             output.json(result);
           } else {
             output.info("The tool executed successfully.");
-            if (result.result !== undefined) {
-              output.output(`Result: ${JSON.stringify(result.result)}`);
+            const resultTyped = result as { result?: unknown };
+            if (resultTyped.result !== undefined) {
+              output.output(`Result: ${JSON.stringify(resultTyped.result)}`);
             }
           }
         } catch (error) {
@@ -287,7 +293,7 @@ export function createToolCommands(): Command {
         output.infoLog(`Validating parameters for tool: ${id}`);
 
         // Parse parameters
-        let parameters: Record<string, any> = {};
+        let parameters: Record<string, unknown> = {};
         if (options.params) {
           try {
             parameters = JSON.parse(options.params);

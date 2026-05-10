@@ -160,12 +160,12 @@ export function createScriptCommands(): Command {
           description?: string;
         },
       ) => {
-        const updates: any = {};
+        const updates: Record<string, unknown> = {};
         try {
           const adapter = new ScriptAdapter();
 
-          if (options.name) updates.name = options.name;
-          if (options.description) updates.description = options.description;
+          if (options.name) updates['name'] = options['name'];
+          if (options.description) updates['description'] = options['description'];
 
           const script = await adapter.updateScript(id, updates);
           output.output(formatScript(script, { verbose: options.verbose }));
@@ -239,7 +239,7 @@ export function createScriptCommands(): Command {
           output.infoLog(`Executing script: ${name}`);
 
           // Parsing Input Data
-          let inputData: Record<string, any> | undefined;
+          let inputData: Record<string, unknown> | undefined;
           if (options.input) {
             try {
               inputData = JSON.parse(options.input);
@@ -270,13 +270,13 @@ export function createScriptCommands(): Command {
           }
 
           // Build execution options
-          const scriptOptions: any = {};
-          if (options.timeout) scriptOptions.timeout = parseInt(options.timeout, 10);
-          if (options.retries) scriptOptions.retries = parseInt(options.retries, 10);
-          if (options.retryDelay) scriptOptions.retryDelay = parseInt(options.retryDelay, 10);
-          if (options.workingDir) scriptOptions.workingDirectory = options.workingDir;
-          if (environment) scriptOptions.environment = environment;
-          if (options.sandbox) scriptOptions.sandbox = true;
+          const scriptOptions: Record<string, unknown> = {};
+          if (options.timeout) scriptOptions['timeout'] = parseInt(options['timeout'], 10);
+          if (options.retries) scriptOptions['retries'] = parseInt(options['retries'], 10);
+          if (options.retryDelay) scriptOptions['retryDelay'] = parseInt(options['retryDelay'], 10);
+          if (options.workingDir) scriptOptions['workingDirectory'] = options['workingDir'];
+          if (environment) scriptOptions['environment'] = environment;
+          if (options.sandbox) scriptOptions['sandbox'] = true;
 
           const adapter = new ScriptAdapter();
           const result = await adapter.executeScript(name, scriptOptions);
@@ -285,8 +285,9 @@ export function createScriptCommands(): Command {
             output.json(result);
           } else {
             output.info("Script executed successfully");
-            if (result.output !== undefined) {
-              output.output(`Output: ${JSON.stringify(result.output)}`);
+            const resultTyped = result as { output?: unknown };
+            if (resultTyped.output !== undefined) {
+              output.output(`Output: ${JSON.stringify(resultTyped.output)}`);
             }
           }
         } catch (error) {

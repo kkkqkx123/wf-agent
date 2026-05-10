@@ -8,6 +8,7 @@ import { getOutput } from "../../utils/output.js";
 import { formatMessage, formatMessageList } from "../../utils/cli-formatters.js";
 import type { CommandOptions } from "../../types/cli-types.js";
 import { handleError } from "../../utils/error-handler.js";
+import type { BaseEvent } from "@wf-agent/types";
 
 const output = getOutput();
 
@@ -36,10 +37,10 @@ export function createMessageCommands(): Command {
       ) => {
         try {
           const adapter = new MessageAdapter();
-          const filter: any = {};
-          if (options.executionId) filter.executionId = options.executionId;
-          if (options.role) filter.role = options.role;
-          if (options.content) filter.content = options.content;
+          const filter: Record<string, unknown> = {};
+          if (options.executionId) filter['executionId'] = options['executionId'];
+          if (options.role) filter['role'] = options['role'];
+          if (options.content) filter['content'] = options['content'];
 
           const messages = await adapter.listMessages(filter);
 
@@ -130,7 +131,7 @@ export function createMessageCommands(): Command {
       "TRUNCATE",
     )
     .option("--keep-recent <count>", "Retain the number of recent messages.", "10")
-    .action(async (executionId: string, options: any) => {
+    .action(async (executionId: string, options: Record<string, unknown>) => {
       try {
         const { EventAdapter } = await import("../../adapters/event-adapter.js");
         const adapter = new EventAdapter();
@@ -139,14 +140,14 @@ export function createMessageCommands(): Command {
           timestamp: Date.now(),
           executionId,
           data: {
-            strategy: options.strategy,
-            keepRecent: parseInt(options.keepRecent, 10),
+            strategy: options['strategy'],
+            keepRecent: parseInt(options['keepRecent'] as string, 10),
           },
         };
-        await adapter.dispatchEvent(event as any);
+        await adapter.dispatchEvent(event as unknown as BaseEvent);
         output.newLine();
         output.output(
-          `Context compression request sent to execution ${executionId} (strategy: ${options.strategy})`,
+          `Context compression request sent to execution ${executionId} (strategy: ${options['strategy']})`,
         );
         output.output(
           `Note: You need to configure the corresponding trigger in the workflow (trigger event: CONTEXT_COMPRESSION_REQUESTED) to execute.`,
@@ -154,7 +155,7 @@ export function createMessageCommands(): Command {
       } catch (error) {
         handleError(error, {
           operation: "dispatchContextCompressionEvent",
-          additionalInfo: { executionId, strategy: options.strategy, keepRecent: options.keepRecent },
+          additionalInfo: { executionId, strategy: options['strategy'], keepRecent: options['keepRecent'] },
         });
       }
     });

@@ -69,7 +69,7 @@ export class StorageManager {
     } else if (storageConfig.type === "sqlite") {
       await this.initializeSQLiteStorage(storageConfig.sqlite);
     } else {
-      throw new Error(`Unknown storage type: ${(storageConfig as any).type}`);
+      throw new Error(`Unknown storage type: ${(storageConfig as unknown as Record<string, unknown>)["type"]}`);
     }
 
     this.initialized = true;

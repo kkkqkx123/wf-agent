@@ -35,7 +35,7 @@ export class FunctionalFileHandler implements OutputHandler {
    */
   async handle(message: BaseComponentMessage): Promise<void> {
     if (message.type === "agent.human_relay.request") {
-      const data = message.data as any;
+      const data = message.data as { prompt: string };
       const { prompt } = data;
 
       // Extract session ID from entity context

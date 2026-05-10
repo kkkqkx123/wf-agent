@@ -138,8 +138,7 @@ export class FileSelectionDialog implements Component {
     // Handle special keys
     if (data === "\r" || data === "\n") {
       // Enter key - get selected item
-      const anyList = this.fileList as any;
-      const selectedItem = anyList.getSelectedItem?.();
+      const selectedItem = this.fileList.getSelectedItem?.();
       
       if (selectedItem) {
         // Find the corresponding file item

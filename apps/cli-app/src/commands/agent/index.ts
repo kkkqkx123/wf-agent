@@ -308,9 +308,9 @@ export function createAgentCommands(): Command {
     .action(async (id, options: CommandOptions) => {
       try {
         const adapter = new AgentLoopAdapter();
-        const agentLoop = adapter.getAgentLoop(id);
+        const agentLoopInfo = adapter.getAgentLoop(id);
 
-        if (!agentLoop) {
+        if (!agentLoopInfo) {
           handleError(new CLIValidationError(`Agent Loop not found: ${id}`), {
             operation: "getAgentLoop",
             additionalInfo: { id },
@@ -318,7 +318,13 @@ export function createAgentCommands(): Command {
           return;
         }
 
-        output.output(formatAgentLoop(agentLoop, { verbose: options.verbose }));
+        // Convert to AgentLoopWithMetadata format
+        const agentLoopWithMetadata = {
+          ...agentLoopInfo,
+          success: true,
+          iterations: agentLoopInfo.currentIteration,
+        };
+        output.output(formatAgentLoop(agentLoopWithMetadata, { verbose: options.verbose }));
       } catch (error) {
         handleError(error, {
           operation: "getAgentLoop",
@@ -347,7 +353,7 @@ export function createAgentCommands(): Command {
           agentLoops = adapter.listAgentLoops();
         }
 
-        output.output(formatAgentLoopList(agentLoops as any, { table: options.table }));
+        output.output(formatAgentLoopList(agentLoops as never, { table: options.table }));
       } catch (error) {
         handleError(error, {
           operation: "listAgentLoops",
@@ -380,8 +386,8 @@ export function createAgentCommands(): Command {
 
         // Create checkpoint dependencies with real storage
         const dependencies = {
-          saveCheckpoint: async (checkpoint: AgentLoopCheckpoint) => {
-            return await checkpointAdapter.saveCheckpointToStorage(checkpoint);
+          saveCheckpoint: async (checkpoint: unknown) => {
+            return await checkpointAdapter.saveCheckpointToStorage(checkpoint as AgentLoopCheckpoint);
           },
           getCheckpoint: async (checkpointId: string) => {
             return await checkpointAdapter.getCheckpointFromStorage(checkpointId);
@@ -503,7 +509,7 @@ export function createAgentCommands(): Command {
         } else {
           messages.forEach((msg: Message, index: number) => {
             const role = msg.role || "unknown";
-            const content = msg.content || "";
+            const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
             const preview = content.length > 100 ? content.substring(0, 100) + "..." : content;
             output.output(`${index + 1}. [${role}] ${preview}`);
           });

@@ -154,7 +154,7 @@ export class WorkflowScreen implements Screen {
   private async loadWorkflows() {
     try {
       const workflows = await this.adapter.listWorkflows();
-      const items = workflows.map((w: any) => ({
+      const items = workflows.map(w => ({
         value: w.id,
         label: w.name,
         description: `${w.version || "v1.0"} | ${w.status}`,
@@ -189,7 +189,7 @@ export class WorkflowScreen implements Screen {
         `Description: ${workflow.description || "N/A"}`,
         "",
         "Nodes:",
-        ...(workflow.nodes || []).map((n: any) => `  - ${n.id} (${n.type})`),
+        ...(workflow.nodes || []).map(n => `  - ${n.id} (${n.type})`),
         "",
         `Created: ${workflow.createdAt || "N/A"}`,
         `Updated: ${workflow.updatedAt || "N/A"}`,

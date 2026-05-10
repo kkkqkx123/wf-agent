@@ -29,7 +29,7 @@ export interface TerminalSession {
   /** Session Unique Identifier */
   id: string;
   /** Pseudo-terminal instance */
-  pty: any;
+  pty: unknown;
   /** Process ID */
   pid: number;
   /** Creation time */
@@ -81,7 +81,7 @@ export interface BridgeMessage {
   /** Message Type */
   type: "status" | "output" | "error" | "command";
   /** Message payload */
-  payload: any;
+  payload: Record<string, unknown>;
   /** timestamp */
   timestamp: Date;
 }

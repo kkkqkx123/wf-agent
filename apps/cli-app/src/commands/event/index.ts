@@ -39,11 +39,11 @@ export function createEventCommands(): Command {
       ) => {
         try {
           const adapter = new EventAdapter();
-          const filter: any = {};
-          if (options.type) filter.type = options.type;
-          if (options.executionId) filter.executionId = options.executionId;
-          if (options.workflowId) filter.workflowId = options.workflowId;
-          if (options.limit) filter.limit = parseInt(options.limit, 10);
+          const filter: Record<string, unknown> = {};
+          if (options.type) filter['type'] = options.type;
+          if (options.executionId) filter['executionId'] = options.executionId;
+          if (options.workflowId) filter['workflowId'] = options.workflowId;
+          if (options.limit) filter['limit'] = parseInt(options.limit, 10);
 
           const events = await adapter.listEvents(filter);
 
@@ -93,10 +93,10 @@ export function createEventCommands(): Command {
     .action(async (options: { type?: string; executionId?: string; workflowId?: string }) => {
       try {
         const adapter = new EventAdapter();
-        const filter: any = {};
-        if (options.type) filter.type = options.type;
-        if (options.executionId) filter.executionId = options.executionId;
-        if (options.workflowId) filter.workflowId = options.workflowId;
+        const filter: Record<string, unknown> = {};
+        if (options.type) filter['type'] = options.type;
+        if (options.executionId) filter['executionId'] = options.executionId;
+        if (options.workflowId) filter['workflowId'] = options.workflowId;
 
         const stats = await adapter.getEventStats(filter);
 

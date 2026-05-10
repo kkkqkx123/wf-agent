@@ -40,7 +40,7 @@ export interface ErrorContext {
   filePath?: string;
   url?: string;
   statusCode?: number;
-  additionalInfo?: Record<string, any>;
+  additionalInfo?: Record<string, unknown>;
 }
 
 /**

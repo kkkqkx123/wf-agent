@@ -9,6 +9,12 @@ import type { OutputHandler, BaseComponentMessage } from "@wf-agent/types";
 import { OutputTarget } from "@wf-agent/types";
 import type { DisplayOutputService, DisplaySection } from "../../services/io/index.js";
 import { createContextualLogger } from "@wf-agent/sdk";
+import type {
+  AgentToolResultData,
+  WorkflowExecutionNodeData,
+  AgentCheckpointData,
+  AgentIterationData,
+} from "@wf-agent/types";
 
 /**
  * Display File Handler
@@ -103,7 +109,7 @@ export class DisplayFileHandler implements OutputHandler {
    * Create section for tool result
    */
   private createToolResultSection(message: BaseComponentMessage): DisplaySection {
-    const data = message.data as any;
+    const data = message.data as AgentToolResultData;
     const toolName = data.toolName || "unknown";
     const timestamp = new Date(message.timestamp).toLocaleTimeString();
 
@@ -117,7 +123,7 @@ export class DisplayFileHandler implements OutputHandler {
    * Create section for node start
    */
   private createNodeStartSection(message: BaseComponentMessage): DisplaySection {
-    const data = message.data as any;
+    const data = message.data as WorkflowExecutionNodeData;
     const nodeId = data.nodeId || "unknown";
     const nodeType = data.nodeType || "unknown";
     const timestamp = new Date(message.timestamp).toLocaleTimeString();
@@ -132,7 +138,7 @@ export class DisplayFileHandler implements OutputHandler {
    * Create section for node end
    */
   private createNodeEndSection(message: BaseComponentMessage): DisplaySection {
-    const data = message.data as any;
+    const data = message.data as WorkflowExecutionNodeData;
     const nodeId = data.nodeId || "unknown";
     const duration = data.duration ? `${data.duration}ms` : "N/A";
     const timestamp = new Date(message.timestamp).toLocaleTimeString();
@@ -147,7 +153,7 @@ export class DisplayFileHandler implements OutputHandler {
    * Create section for checkpoint
    */
   private createCheckpointSection(message: BaseComponentMessage): DisplaySection {
-    const data = message.data as any;
+    const data = message.data as AgentCheckpointData;
     const checkpointId = data.checkpointId || "unknown";
     const timestamp = new Date(message.timestamp).toLocaleTimeString();
 
@@ -161,14 +167,13 @@ export class DisplayFileHandler implements OutputHandler {
    * Create section for iteration start
    */
   private createIterationSection(message: BaseComponentMessage): DisplaySection {
-    const data = message.data as any;
+    const data = message.data as AgentIterationData;
     const iteration = data.iteration || 0;
-    const maxIterations = data.maxIterations || "∞";
     const timestamp = new Date(message.timestamp).toLocaleTimeString();
 
     return {
-      title: `Iteration Started: ${iteration}/${maxIterations}`,
-      content: `[${timestamp}] Iteration ${iteration} started (max ${maxIterations} iterations)`,
+      title: `Iteration Started: ${iteration}`,
+      content: `[${timestamp}] Iteration ${iteration} started`,
     };
   }
 
@@ -176,7 +181,7 @@ export class DisplayFileHandler implements OutputHandler {
    * Create section for error
    */
   private createErrorSection(message: BaseComponentMessage): DisplaySection {
-    const data = message.data as any;
+    const data = message.data as { message?: string };
     const errorMessage = data.message || "Unknown error";
     const timestamp = new Date(message.timestamp).toLocaleTimeString();
 

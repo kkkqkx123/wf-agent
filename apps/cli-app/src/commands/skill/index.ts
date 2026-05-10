@@ -10,13 +10,14 @@ import { formatSkill } from "../../utils/cli-formatters.js";
 import type { CommandOptions } from "../../types/cli-types.js";
 import { handleError } from "../../utils/error-handler.js";
 import { CLIValidationError } from "../../types/cli-types.js";
+import type { Skill, SkillMatchResult, SkillMetadata, SkillResourceType } from "@wf-agent/types";
 
 const output = getOutput();
 
 /**
  * Format Skill metadata
  */
-function formatSkillMetadata(skill: any, verbose?: boolean): string {
+function formatSkillMetadata(skill: SkillMetadata, verbose?: boolean): string {
   const lines: string[] = [];
 
   lines.push(`\n${"─".repeat(60)}`);
@@ -46,7 +47,7 @@ function formatSkillMetadata(skill: any, verbose?: boolean): string {
 /**
  * Format Skill list
  */
-function formatSkillList(skills: any[], options?: { table?: boolean }): string {
+function formatSkillList(skills: SkillMetadata[], options?: { table?: boolean }): string {
   if (skills.length === 0) {
     return "No Skill found";
   }
@@ -85,7 +86,7 @@ function formatSkillList(skills: any[], options?: { table?: boolean }): string {
 /**
  * Format match results
  */
-function formatMatchResults(results: any[]): string {
+function formatMatchResults(results: SkillMatchResult[]): string {
   if (results.length === 0) {
     return "No matching Skill found";
   }
@@ -230,7 +231,7 @@ export function createSkillCommands(): Command {
       try {
         const adapter = new SkillAdapter();
 
-        const resourceType = (options.type || "scripts") as any;
+        const resourceType = (options.type || "scripts") as SkillResourceType;
 
         const resources = await adapter.listResources(name, resourceType);
 

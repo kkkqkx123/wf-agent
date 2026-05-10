@@ -6,6 +6,11 @@
 import { getFormatter, Formatter } from "./formatter.js";
 import type {
   WorkflowExecution,
+  WorkflowExecutionResult,
+  NodeTemplate,
+  TriggerTemplate,
+  NodeTemplateSummary,
+  TriggerTemplateSummary,
   Checkpoint,
   LLMProfile,
   Script,
@@ -31,7 +36,15 @@ function getGlobalFormatter(): Formatter {
 }
 
 // Type alias for workflow summary objects (includes metadata like name, status, createdAt)
-type WorkflowSummary = WorkflowExecution & {
+// Also supports template types for unified formatting
+type WorkflowSummary = (
+  | WorkflowExecution 
+  | WorkflowExecutionResult
+  | NodeTemplate
+  | TriggerTemplate
+  | NodeTemplateSummary
+  | TriggerTemplateSummary
+) & {
   name?: string;
   status?: string;
   createdAt?: string | number;
@@ -60,12 +73,15 @@ export function formatWorkflowList(
 
   if (options?.table) {
     const headers = ["ID", "Name", "Status", "Creation time"];
-    const rows = workflows.map(w => [
-      w.id?.substring(0, 8) || "N/A",
-      w.name || "unnamed",
-      w.status || "unknown",
-      String(w.createdAt || "N/A"),
-    ]);
+    const rows = workflows.map(w => {
+      const id = 'id' in w ? w.id : (w as WorkflowExecutionResult).executionId;
+      return [
+        id?.substring(0, 8) || "N/A",
+        w.name || "unnamed",
+        w.status || "unknown",
+        String(w.createdAt || "N/A"),
+      ];
+    });
     return formatter.table(headers, rows);
   }
 
@@ -95,12 +111,16 @@ export function formatWorkflowExecutionList(
 
   if (options?.table) {
     const headers = ["Execution ID", "Workflow ID", "Status", "Creation time"];
-    const rows = executions.map(e => [
-      e.id?.substring(0, 8) || "N/A",
-      e.workflowId?.substring(0, 8) || "N/A",
-      e.status || "unknown",
-      String(e.createdAt || "N/A"),
-    ]);
+    const rows = executions.map(e => {
+      const id = 'id' in e ? e.id : (e as WorkflowExecutionResult).executionId;
+      const workflowId = 'workflowId' in e ? e.workflowId : undefined;
+      return [
+        id?.substring(0, 8) || "N/A",
+        workflowId?.substring(0, 8) || "N/A",
+        e.status || "unknown",
+        String(e.createdAt || "N/A"),
+      ];
+    });
     return formatter.table(headers, rows);
   }
 

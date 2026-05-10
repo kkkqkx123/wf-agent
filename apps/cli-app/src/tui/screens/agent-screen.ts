@@ -5,6 +5,7 @@
 
 import { Box, Container, Text, Input } from "../core/index.js";
 import type { Screen } from "./screen.js";
+import type { Component } from "../core/tui.js";
 import type { AgentLoopRuntimeConfig } from "@wf-agent/types";
 import type { MessageBus, MessageSubscription } from "@wf-agent/sdk";
 import { MessageCategory, AgentMessageType } from "@wf-agent/types";
@@ -266,12 +267,12 @@ export class AgentScreen implements Screen {
     // Iteration panel (new)
     const iterationBox = new Box();
     iterationBox.addChild(new Text("Iterations:", 1, 0));
-    iterationBox.addChild(this.iterationPanel as any);
+    iterationBox.addChild(this.iterationPanel as unknown as Component);
 
     // Tool call panel (new)
     const toolCallBox = new Box();
     toolCallBox.addChild(new Text("Tool Calls:", 1, 0));
-    toolCallBox.addChild(this.toolCallPanel as any);
+    toolCallBox.addChild(this.toolCallPanel as unknown as Component);
 
     // Log panel (scrollable area)
     const logBox = new Box();

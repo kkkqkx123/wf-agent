@@ -67,7 +67,7 @@ export function createVariableCommands(): Command {
         output.infoLog(`Setting variable: ${variableName}`);
 
         // Parse the value
-        let parsedValue: any = value;
+        let parsedValue: unknown = value;
         if (options.json) {
           try {
             parsedValue = JSON.parse(value);

@@ -12,6 +12,16 @@ import {
   ResumeWorkflowCommand,
   CancelWorkflowCommand,
 } from "@wf-agent/sdk";
+import type { WorkflowExecution, WorkflowExecutionResult } from "@wf-agent/types";
+
+/**
+ * Type alias for workflow summary (matches formatter expectations)
+ */
+type WorkflowSummary = (WorkflowExecution | WorkflowExecutionResult) & {
+  name?: string;
+  status?: string;
+  createdAt?: string | number;
+};
 
 /**
  * Workflow Execution Adapter
@@ -20,7 +30,7 @@ export class WorkflowExecutionAdapter extends BaseAdapter {
   /**
    * Execute workflow
    */
-  async executeWorkflow(workflowId: string, input?: Record<string, unknown>): Promise<unknown> {
+  async executeWorkflow(workflowId: string, input?: Record<string, unknown>): Promise<WorkflowSummary> {
     return this.executeWithErrorHandling(async () => {
       // Create and execute the command using SDK's command execution interface
       const dependencies = this.sdk.getFactory().getDependencies();
@@ -31,9 +41,21 @@ export class WorkflowExecutionAdapter extends BaseAdapter {
         throw getError(result);
       }
 
-      const executionResult = getData(result);
+      const executionResult = getData(result) as WorkflowExecutionResult;
+      
+      if (!executionResult) {
+        throw new Error("Workflow execution result is null");
+      }
+      
       this.output.infoLog(`Workflow execution started successfully`);
-      return executionResult;
+      
+      // Convert to WorkflowSummary format
+      return {
+        ...executionResult,
+        id: executionResult.executionId,
+        createdAt: executionResult.metadata.startTime || Date.now(),
+        status: executionResult.metadata.status,
+      } as WorkflowSummary;
     }, "Execute workflow");
   }
 
@@ -94,13 +116,7 @@ export class WorkflowExecutionAdapter extends BaseAdapter {
   /**
    * List all workflow executions
    */
-  async listWorkflowExecutions(filter?: Record<string, unknown>): Promise<Array<{
-    id: string;
-    workflowId: string;
-    status: string;
-    createdAt: string;
-    updatedAt: string;
-  }>> {
+  async listWorkflowExecutions(filter?: Record<string, unknown>): Promise<WorkflowSummary[]> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.executions;
       const result = await api.getAll();
@@ -109,31 +125,28 @@ export class WorkflowExecutionAdapter extends BaseAdapter {
         throw getError(result);
       }
       
-      const executions = getData(result) as unknown as Array<{
-        id: string;
-        workflowId: string;
-        status: string;
-        createdAt?: string;
-        updatedAt?: string;
-      }>;
+      const executions = getData(result);
 
-      // Conversion to summary format
-      const summaries = executions.map((execution) => ({
-        id: execution.id,
-        workflowId: execution.workflowId,
-        status: execution.status,
-        createdAt: execution.createdAt || new Date().toISOString(),
-        updatedAt: execution.updatedAt || new Date().toISOString(),
-      }));
+      if (!executions) {
+        return [];
+      }
 
-      return summaries;
+      // Convert to WorkflowSummary format
+      return (executions as WorkflowExecution[]).map((execution) => {
+        // Try to get startTime from execution if available
+        const execWithTime = execution as WorkflowExecution & { startTime?: number };
+        return {
+          ...execution,
+          createdAt: execWithTime.startTime || Date.now(),
+        };
+      }) as WorkflowSummary[];
     }, "List workflow executions");
   }
 
   /**
    * Get workflow execution details
    */
-  async getWorkflowExecution(executionId: string): Promise<unknown> {
+  async getWorkflowExecution(executionId: string): Promise<WorkflowSummary> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.executions;
       const result = await api.get(executionId);
@@ -148,7 +161,12 @@ export class WorkflowExecutionAdapter extends BaseAdapter {
         throw new CLINotFoundError(`Workflow execution not found: ${executionId}`, "WorkflowExecution", executionId);
       }
 
-      return execution;
+      // Convert to WorkflowSummary format
+      const execWithTime = execution as WorkflowExecution & { startTime?: number };
+      return {
+        ...execution,
+        createdAt: execWithTime.startTime || Date.now(),
+      } as WorkflowSummary;
     }, "Get workflow execution details");
   }
 

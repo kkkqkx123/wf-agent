@@ -55,7 +55,7 @@ export class VariableAdapter extends BaseAdapter {
         throw getError(result);
       }
       
-      return getData(result) as Record<string, unknown>;
+      return getData(result) as unknown as Record<string, unknown>;
     }, "List variables");
   }
 

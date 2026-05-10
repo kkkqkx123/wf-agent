@@ -1,4 +1,4 @@
-import type { AutocompleteProvider } from "../core/autocomplete.js";
+import type { AutocompleteProvider, AutocompleteSuggestions } from "../core/autocomplete.js";
 import { getKeybindings } from "../core/keybindings.js";
 import { decodePrintableKey, matchesKey } from "../core/keys.js";
 import { KillRing } from "../core/kill-ring.js";
@@ -1587,9 +1587,12 @@ export class Editor implements Component, Focusable {
     );
   }
 
-  private applyAutocompleteSuggestions(suggestions: any, state: "regular" | "force"): void {
-    this.autocompletePrefix = suggestions.prefix;
-    this.autocompleteList = this.createAutocompleteList(suggestions.prefix, suggestions.items);
+  private applyAutocompleteSuggestions(suggestions: AutocompleteSuggestions & { prefix?: string }, state: "regular" | "force"): void {
+    this.autocompletePrefix = suggestions.prefix || "";
+    const items = suggestions.items
+      .filter((item): item is { value: string; label: string; description?: string } => item.value !== undefined && item.label !== undefined)
+      .map(item => ({ value: item.value!, label: item.label!, description: item.description }));
+    this.autocompleteList = this.createAutocompleteList(suggestions.prefix || "", items);
     this.autocompleteState = state;
   }
 

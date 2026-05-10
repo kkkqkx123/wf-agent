@@ -158,7 +158,8 @@ export class HumanRelayService {
     }, pollInterval);
 
     // Store timer reference for cleanup
-    this.watchers.set(params.sessionId, { close: () => clearInterval(pollTimer) } as any);
+    const watcher: NodeJS.Timeout = pollTimer as unknown as NodeJS.Timeout;
+    this.watchers.set(params.sessionId, watcher);
 
     // Timeout handler
     setTimeout(() => {

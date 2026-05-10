@@ -129,11 +129,11 @@ export function createHumanRelayCommands(): Command {
       ) => {
         try {
           const adapter = new HumanRelayAdapter();
-          const updates: any = {};
+          const updates: Record<string, unknown> = {};
 
-          if (options.name) updates.name = options.name;
-          if (options.description) updates.description = options.description;
-          if (options.timeout) updates.defaultTimeout = parseInt(options.timeout, 10);
+          if (options.name) updates['name'] = options['name'];
+          if (options.description) updates['description'] = options['description'];
+          if (options.timeout) updates['defaultTimeout'] = parseInt(options['timeout'], 10);
 
           const config = await adapter.updateConfig(id, updates);
           output.output(formatHumanRelay(config, { verbose: options.verbose }));

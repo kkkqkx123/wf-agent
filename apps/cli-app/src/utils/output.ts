@@ -360,7 +360,7 @@ export class CLIOutput {
     if (this._stdout.writable) {
       drains.push(
         new Promise(resolve => {
-          if ((this._stdout as any).writableNeedDrain) {
+          if ((this._stdout as unknown as { writableNeedDrain?: boolean }).writableNeedDrain) {
             this._stdout.once("drain", resolve);
           } else {
             resolve();
@@ -373,7 +373,7 @@ export class CLIOutput {
     if (this._stderr.writable) {
       drains.push(
         new Promise(resolve => {
-          if ((this._stderr as any).writableNeedDrain) {
+          if ((this._stderr as unknown as { writableNeedDrain?: boolean }).writableNeedDrain) {
             this._stderr.once("drain", resolve);
           } else {
             resolve();

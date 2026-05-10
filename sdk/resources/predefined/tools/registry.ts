@@ -60,11 +60,6 @@ import {
   ASK_FOLLOWUP_QUESTION_TOOL_DESCRIPTION,
 } from "./stateless/interaction/ask-followup-question/index.js";
 import {
-  runSlashCommandSchema,
-  createRunSlashCommandHandler,
-  RUN_SLASH_COMMAND_TOOL_DESCRIPTION,
-} from "./stateless/interaction/run-slash-command/index.js";
-import {
   skillSchema,
   createSkillHandler,
   SKILL_TOOL_DESCRIPTION,
@@ -285,17 +280,6 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
       description: renderToolDescription(ASK_FOLLOWUP_QUESTION_TOOL_DESCRIPTION),
       parameters: askFollowupQuestionSchema,
       execute: createAskFollowupQuestionHandler(),
-    });
-  }
-
-  // run_slash_command
-  if (!isDisabled("run_slash_command", options)) {
-    tools.push({
-      id: "run_slash_command",
-      type: "STATELESS",
-      description: renderToolDescription(RUN_SLASH_COMMAND_TOOL_DESCRIPTION),
-      parameters: runSlashCommandSchema,
-      execute: createRunSlashCommandHandler(),
     });
   }
 

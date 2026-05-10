@@ -2,12 +2,7 @@
  * Parser for SEARCH/REPLACE diff format.
  */
 
-export interface SearchReplaceBlock {
-  startLine?: number;
-  endLine?: number;
-  searchContent: string;
-  replaceContent: string;
-}
+import type { SearchReplaceBlock } from "./types.js";
 
 /**
  * Parse SEARCH/REPLACE blocks from diff content.
@@ -50,13 +45,11 @@ export function parseSearchReplaceBlocks(diffContent: string): {
 
   for (const match of matches) {
     const startLine = match[2] ? parseInt(match[2], 10) : undefined;
-    const endLine = match[4] ? parseInt(match[4], 10) : undefined;
     const searchContent = unescapeMarkers(match[6] || "");
     const replaceContent = unescapeMarkers(match[7] || "");
 
     blocks.push({
       startLine,
-      endLine,
       searchContent,
       replaceContent,
     });

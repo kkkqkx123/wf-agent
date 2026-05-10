@@ -4,7 +4,7 @@
  */
 
 import type { Hunk, UpdateFileChunk, ApplyPatchFileChange } from "./types.js";
-import { seekSequence } from "./matcher.js";
+import { seekSequence } from "../../../../utils/matcher.js";
 import { PatchErrors } from "@wf-agent/types";
 
 /**
@@ -22,7 +22,7 @@ function computeReplacements(
   for (const chunk of chunks) {
     // If a chunk has a change_context, find it first
     if (chunk.changeContext !== null) {
-      const idx = seekSequence(originalLines, [chunk.changeContext], lineIndex, false);
+      const idx = seekSequence(originalLines, [chunk.changeContext], lineIndex);
       if (idx === null) {
         throw PatchErrors.contextNotFound(chunk.changeContext, filePath);
       }
@@ -42,7 +42,7 @@ function computeReplacements(
     // Try to find the old_lines in the file
     let pattern = chunk.oldLines;
     let newSlice = chunk.newLines;
-    let found = seekSequence(originalLines, pattern, lineIndex, chunk.isEndOfFile);
+    let found = seekSequence(originalLines, pattern, lineIndex, { eof: chunk.isEndOfFile });
 
     // If not found and pattern ends with empty string (trailing newline),
     // retry without it
@@ -51,7 +51,7 @@ function computeReplacements(
       if (newSlice.length > 0 && newSlice[newSlice.length - 1] === "") {
         newSlice = newSlice.slice(0, -1);
       }
-      found = seekSequence(originalLines, pattern, lineIndex, chunk.isEndOfFile);
+      found = seekSequence(originalLines, pattern, lineIndex, { eof: chunk.isEndOfFile });
     }
 
     if (found !== null) {

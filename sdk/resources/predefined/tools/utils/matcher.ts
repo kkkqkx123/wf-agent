@@ -1,7 +1,9 @@
 /**
- * Fuzzy sequence matching for the apply_patch tool
+ * Universal fuzzy sequence matching utilities
  * Implements multi-pass sequence matching (exact, trim-end, trim, Unicode-normalized)
- * to locate old_lines and change_context within a file
+ * to locate patterns within text lines
+ * 
+ * This module is shared across multiple tools (apply_diff, apply_patch, etc.)
  */
 
 /**
@@ -9,7 +11,7 @@
  * This allows patches written with plain ASCII to match source files
  * containing typographic characters
  */
-function normalizeUnicode(s: string): string {
+export function normalizeUnicode(s: string): string {
   return s
     .trim()
     .split("")
@@ -38,7 +40,7 @@ function normalizeUnicode(s: string): string {
 /**
  * Check if two arrays of lines match exactly
  */
-function exactMatch(lines: string[], pattern: string[], startIndex: number): boolean {
+export function exactMatch(lines: string[], pattern: string[], startIndex: number): boolean {
   for (let i = 0; i < pattern.length; i++) {
     if (lines[startIndex + i] !== pattern[i]) {
       return false;
@@ -50,7 +52,7 @@ function exactMatch(lines: string[], pattern: string[], startIndex: number): boo
 /**
  * Check if two arrays of lines match after trimming trailing whitespace
  */
-function trimEndMatch(lines: string[], pattern: string[], startIndex: number): boolean {
+export function trimEndMatch(lines: string[], pattern: string[], startIndex: number): boolean {
   for (let i = 0; i < pattern.length; i++) {
     if (lines[startIndex + i]?.trimEnd() !== pattern[i]?.trimEnd()) {
       return false;
@@ -62,7 +64,7 @@ function trimEndMatch(lines: string[], pattern: string[], startIndex: number): b
 /**
  * Check if two arrays of lines match after trimming both sides
  */
-function trimMatch(lines: string[], pattern: string[], startIndex: number): boolean {
+export function trimMatch(lines: string[], pattern: string[], startIndex: number): boolean {
   for (let i = 0; i < pattern.length; i++) {
     if (lines[startIndex + i]?.trim() !== pattern[i]?.trim()) {
       return false;
@@ -74,7 +76,7 @@ function trimMatch(lines: string[], pattern: string[], startIndex: number): bool
 /**
  * Check if two arrays of lines match after Unicode normalization
  */
-function normalizedMatch(lines: string[], pattern: string[], startIndex: number): boolean {
+export function normalizedMatch(lines: string[], pattern: string[], startIndex: number): boolean {
   for (let i = 0; i < pattern.length; i++) {
     if (normalizeUnicode(lines[startIndex + i] ?? "") !== normalizeUnicode(pattern[i] ?? "")) {
       return false;
@@ -104,14 +106,15 @@ function normalizedMatch(lines: string[], pattern: string[], startIndex: number)
  * @param lines - The file lines to search in
  * @param pattern - The pattern lines to find
  * @param start - The starting index to search from
- * @param eof - Whether this chunk should match at end of file
+ * @param options - Optional configuration
+ * @param options.eof - Whether this pattern should match at end of file
  * @returns The starting index of the match, or null if not found
  */
 export function seekSequence(
   lines: string[],
   pattern: string[],
   start: number,
-  eof: boolean,
+  options?: { eof?: boolean },
 ): number | null {
   if (pattern.length === 0) {
     return start;
@@ -122,6 +125,7 @@ export function seekSequence(
     return null;
   }
 
+  const eof = options?.eof ?? false;
   const searchStart = eof && lines.length >= pattern.length ? lines.length - pattern.length : start;
 
   const maxStart = lines.length - pattern.length;

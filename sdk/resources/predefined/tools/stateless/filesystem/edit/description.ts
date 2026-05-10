@@ -8,9 +8,14 @@ export const EDIT_TOOL_DESCRIPTION: ToolDescriptionData = {
   id: "edit",
   type: "STATELESS",
   category: "filesystem",
-  description: `Edit a file by searching for and replacing a specific string. This tool performs exact string matching and replacement.
+  description: `Edit a file by searching for and replacing a specific string.
 
-This tool performs exact matching. Ensure old_string matches exactly, including whitespace and case sensitivity. For more complex edits, consider using apply_patch or write_to_file.`,
+Safety features:
+- By default, requires the search string to be unique in the file (require_unique=true)
+- Fuzzy matching (Unicode normalization) is only enabled when require_unique is true or not specified
+- When require_unique=false, exact matching is enforced for batch replacements
+
+For complex code edits, consider using apply_diff or apply_patch instead.`,
   parameters: [
     {
       name: "file_path",
@@ -45,13 +50,15 @@ This tool performs exact matching. Ensure old_string matches exactly, including 
       type: "boolean",
       required: false,
       description:
-        "If true, the old_string must appear exactly once in the file. If it appears multiple times, the operation will fail. This is useful to prevent accidental replacements in multiple locations (default: false).",
-      defaultValue: false,
+        "If true (default), the old_string must appear exactly once in the file. This prevents accidental replacements in multiple locations. Fuzzy matching (Unicode normalization) is enabled in this mode. If false, allows batch replacements but enforces exact matching and disables fuzzy matching (default: true).",
+      defaultValue: true,
     },
   ],
   tips: [
-    "Performs exact string matching - ensure old_string matches exactly",
-    "Use replace_all=true to replace all occurrences",
-    "For complex edits, consider apply_patch or write_to_file",
+    "By default, requires unique match (require_unique=true) for safety",
+    "Supports Unicode normalization (fancy quotes, dashes, etc.) when require_unique=true",
+    "Set require_unique=false for batch replacements (exact matching only, no fuzzy match)",
+    "Use replace_all=true with require_unique=false to replace all occurrences",
+    "For complex code edits, use apply_diff or apply_patch instead",
   ],
 };

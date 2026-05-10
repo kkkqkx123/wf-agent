@@ -32,7 +32,7 @@ export const editSchema: ToolParameterSchema = {
     require_unique: {
       type: "boolean",
       description:
-        "If true, the old_string must appear exactly once in the file. If it appears multiple times, the operation will fail. This is useful to prevent accidental replacements in multiple locations (default: false).",
+        "If true (default), the old_string must appear exactly once in the file. This prevents accidental replacements in multiple locations. Fuzzy matching (Unicode normalization) is enabled in this mode. If false, allows batch replacements but enforces exact matching and disables fuzzy matching.",
     },
   },
   required: ["file_path", "old_string", "new_string"],

@@ -50,6 +50,5 @@ function newName() {
     "Include 2-3 lines of context around your change for unique identification",
     "Use :start_line:N to hint at the location when code appears multiple times",
     "Multiple SEARCH/REPLACE blocks can be used for related changes",
-    "Fuzzy matching handles minor whitespace and formatting differences",
   ],
 };

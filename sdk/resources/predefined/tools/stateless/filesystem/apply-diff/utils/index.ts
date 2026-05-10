@@ -2,23 +2,11 @@
  * Apply-diff tool utilities
  */
 
-// Diff statistics for SEARCH/REPLACE format
-export { computeSearchReplaceStats } from "./diff-stats.js";
+// Type definitions
+export type { SearchReplaceBlock, BlockApplyResult, ApplyDiffConfig } from "./types.js";
 
-// Text normalization
-export { unescapeHtmlEntities, escapeHtmlEntities } from "./text-normalization.js";
+// Parser
+export { parseSearchReplaceBlocks, validateMarkerSequencing } from "./parser.js";
 
-// SEARCH/REPLACE format utilities
-export {
-  parseSearchReplaceBlocks,
-  validateMarkerSequencing,
-  type SearchReplaceBlock,
-} from "./search-replace-parser.js";
-
-// Fuzzy matching
-export {
-  getSimilarity,
-  fuzzySearch,
-  preserveIndentation,
-  BUFFER_LINES,
-} from "./fuzzy-matcher.js";
+// Apply logic
+export { applyBlock } from "./apply.js";

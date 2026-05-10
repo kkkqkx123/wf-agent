@@ -10,3 +10,6 @@ export type { BuiltinToolCategory, BuiltinToolDefinition, BuiltinToolsOptions } 
 
 // Export workflow tools
 export * from "./workflow/index.js";
+
+// Export interaction tools
+export * from "./interaction/index.js";

@@ -8,6 +8,7 @@ import type {
   ToolType,
   ToolOutput,
   RestToolConfig,
+  ToolMetadata,
 } from "@wf-agent/types";
 
 /**
@@ -35,6 +36,8 @@ export interface ToolDefinitionLike {
   factory?: () => { execute: (parameters: Record<string, unknown>) => Promise<ToolOutput> };
   /** Configuration (REST tool) */
   config?: RestToolConfig;
+  /** Tool metadata (optional) */
+  metadata?: ToolMetadata;
 }
 
 /**
@@ -48,6 +51,7 @@ export function toSdkTool(toolDef: ToolDefinitionLike): Tool {
     type: toolDef.type,
     description: toolDef.description,
     parameters: toolDef.parameters,
+    metadata: toolDef.metadata,
   };
 
   // Set the config according to the type.

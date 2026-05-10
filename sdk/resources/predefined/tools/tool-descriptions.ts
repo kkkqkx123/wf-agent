@@ -28,8 +28,8 @@ export { GREP_TOOL_DESCRIPTION } from "./stateless/filesystem/grep/index.js";
 export { RUN_SHELL_TOOL_DESCRIPTION } from "./stateless/shell/run-shell/index.js";
 
 // Stateless - Interaction tools
-export { ASK_FOLLOWUP_QUESTION_TOOL_DESCRIPTION } from "./stateless/interaction/ask-followup-question/index.js";
-export { RUN_SLASH_COMMAND_TOOL_DESCRIPTION } from "./stateless/interaction/run-slash-command/index.js";
+// TODO: RUN_SLASH_COMMAND_TOOL_DESCRIPTION not implemented yet
+// export { RUN_SLASH_COMMAND_TOOL_DESCRIPTION } from "./stateless/interaction/run-slash-command/index.js";
 export { SKILL_TOOL_DESCRIPTION } from "./stateless/interaction/skill/index.js";
 export { UPDATE_TODO_LIST_TOOL_DESCRIPTION } from "./stateless/interaction/update-todo-list/index.js";
 export { USE_MCP_TOOL_DESCRIPTION } from "./stateless/interaction/use-mcp/index.js";
@@ -54,8 +54,8 @@ import { EDIT_TOOL_DESCRIPTION } from "./stateless/filesystem/edit/index.js";
 import { LIST_FILES_TOOL_DESCRIPTION } from "./stateless/filesystem/list-files/index.js";
 import { GREP_TOOL_DESCRIPTION } from "./stateless/filesystem/grep/index.js";
 import { RUN_SHELL_TOOL_DESCRIPTION } from "./stateless/shell/run-shell/index.js";
-import { ASK_FOLLOWUP_QUESTION_TOOL_DESCRIPTION } from "./stateless/interaction/ask-followup-question/index.js";
-import { RUN_SLASH_COMMAND_TOOL_DESCRIPTION } from "./stateless/interaction/run-slash-command/index.js";
+// TODO: RUN_SLASH_COMMAND_TOOL_DESCRIPTION not implemented yet
+// import { RUN_SLASH_COMMAND_TOOL_DESCRIPTION } from "./stateless/interaction/run-slash-command/index.js";
 import { SKILL_TOOL_DESCRIPTION } from "./stateless/interaction/skill/index.js";
 import { UPDATE_TODO_LIST_TOOL_DESCRIPTION } from "./stateless/interaction/update-todo-list/index.js";
 import { USE_MCP_TOOL_DESCRIPTION } from "./stateless/interaction/use-mcp/index.js";
@@ -81,9 +81,9 @@ export const ALL_PREDEFINED_TOOL_DESCRIPTIONS = [
   // Shell tools
   RUN_SHELL_TOOL_DESCRIPTION,
 
-  // Interaction tools
-  ASK_FOLLOWUP_QUESTION_TOOL_DESCRIPTION,
-  RUN_SLASH_COMMAND_TOOL_DESCRIPTION,
+  // Interaction tools (stateless)
+  // TODO: RUN_SLASH_COMMAND_TOOL_DESCRIPTION not implemented yet
+  // RUN_SLASH_COMMAND_TOOL_DESCRIPTION,
   SKILL_TOOL_DESCRIPTION,
   UPDATE_TODO_LIST_TOOL_DESCRIPTION,
   USE_MCP_TOOL_DESCRIPTION,

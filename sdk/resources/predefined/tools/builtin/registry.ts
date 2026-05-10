@@ -32,6 +32,13 @@ import {
   createCallAgentHandler,
 } from "./agent/index.js";
 
+// Import interaction tools
+import {
+  askFollowupQuestionSchema,
+  ASK_FOLLOWUP_QUESTION_TOOL_DESCRIPTION,
+  createAskFollowupQuestionHandler,
+} from "./interaction/index.js";
+
 /**
  * Check if the tool is disabled
  */
@@ -105,6 +112,24 @@ export function createBuiltinTools(options?: BuiltinToolsOptions): Tool[] {
       parameters: callAgentSchema,
       config: {
         execute: createCallAgentHandler(),
+      },
+    });
+  }
+
+  // ask_followup_question
+  if (!isDisabled("ask_followup_question", options)) {
+    tools.push({
+      id: "ask_followup_question",
+      type: "BUILTIN",
+      description: renderToolDescription(ASK_FOLLOWUP_QUESTION_TOOL_DESCRIPTION),
+      parameters: askFollowupQuestionSchema,
+      config: {
+        execute: createAskFollowupQuestionHandler(),
+      },
+      metadata: {
+        category: "interaction",
+        requiresUserInteraction: true,
+        interactionType: "ASK_FOLLOWUP_QUESTION",
       },
     });
   }

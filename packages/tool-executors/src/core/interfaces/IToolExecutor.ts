@@ -15,6 +15,7 @@ export interface IToolExecutor {
    * @param parameters: Tool parameters
    * @param options: Execution options
    * @param executionId: Execution ID (optional, used for execution isolation in stateful tools)
+   * @param context: Execution context (optional, for interactive tools)
    * @returns: Execution result
    */
   execute(
@@ -22,6 +23,7 @@ export interface IToolExecutor {
     parameters: Record<string, unknown>,
     options?: ToolExecutionOptions,
     executionId?: string,
+    context?: Record<string, unknown>,
   ): Promise<ToolExecutionResult>;
 
   /**

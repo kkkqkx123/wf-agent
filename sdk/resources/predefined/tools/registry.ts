@@ -55,11 +55,6 @@ import {
 
 // Import interaction tools
 import {
-  askFollowupQuestionSchema,
-  createAskFollowupQuestionHandler,
-  ASK_FOLLOWUP_QUESTION_TOOL_DESCRIPTION,
-} from "./stateless/interaction/ask-followup-question/index.js";
-import {
   skillSchema,
   createSkillHandler,
   SKILL_TOOL_DESCRIPTION,
@@ -269,17 +264,6 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
       description: renderToolDescription(GREP_TOOL_DESCRIPTION),
       parameters: grepSchema,
       execute: createGrepHandler(config?.readFile ?? { workspaceDir: process.cwd() }),
-    });
-  }
-
-  // ask_followup_question
-  if (!isDisabled("ask_followup_question", options)) {
-    tools.push({
-      id: "ask_followup_question",
-      type: "STATELESS",
-      description: renderToolDescription(ASK_FOLLOWUP_QUESTION_TOOL_DESCRIPTION),
-      parameters: askFollowupQuestionSchema,
-      execute: createAskFollowupQuestionHandler(),
     });
   }
 

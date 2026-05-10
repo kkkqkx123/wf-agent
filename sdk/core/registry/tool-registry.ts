@@ -204,6 +204,7 @@ class ToolRegistry {
    * @param parameters: Tool parameters
    * @param options: Execution options
    * @param executionId: Execution ID (optional, for stateful tools)
+   * @param context: Execution context (optional, for interactive tools)
    * @returns: Result<ToolExecutionResult, ToolError>
    */
   async execute(
@@ -211,6 +212,7 @@ class ToolRegistry {
     parameters: Record<string, unknown>,
     options: ToolExecutionOptions = {},
     executionId?: string,
+    context?: Record<string, unknown>,
   ): Promise<Result<ToolExecutionResult, ToolError>> {
     logger.debug("Tool execution started", {
       toolId,
@@ -254,7 +256,7 @@ class ToolRegistry {
     // Use `tryCatchAsyncWithSignal` to ensure that the signal is passed correctly.
     const result = await tryCatchAsyncWithSignal(
       (signal: AbortSignal | undefined) =>
-        executor.execute(tool, parameters, { ...options, signal }, executionId),
+        executor.execute(tool, parameters, { ...options, signal }, executionId, context),
       options?.signal,
     );
 

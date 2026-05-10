@@ -113,4 +113,10 @@ export interface ToolMetadata {
   autoApprovable?: boolean;
   /** Approval conditions that must be met for auto-approval */
   approvalConditions?: ApprovalCondition[];
+
+  // === Interactive tool fields ===
+  /** Whether this tool requires user interaction */
+  requiresUserInteraction?: boolean;
+  /** Type of interaction (e.g., "ASK_FOLLOWUP_QUESTION", "TOOL_APPROVAL") */
+  interactionType?: string;
 }

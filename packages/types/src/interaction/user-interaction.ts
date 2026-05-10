@@ -15,7 +15,9 @@ export type UserInteractionOperationType =
   /** Adding User Messages to LLM Conversations */
   | "ADD_MESSAGE"
   /** Tool call approval */
-  | "TOOL_APPROVAL";
+  | "TOOL_APPROVAL"
+  /** Ask follow-up question */
+  | "ASK_FOLLOWUP_QUESTION";
 
 /**
  * User Interaction Requests

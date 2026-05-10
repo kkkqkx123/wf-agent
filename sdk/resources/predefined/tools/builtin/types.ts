@@ -9,7 +9,8 @@ import type { BuiltinToolExecutionContext } from "@wf-agent/types";
  */
 export type BuiltinToolCategory =
   | "workflow" // Workflow execution tools
-  | "system"; // System tools
+  | "agent" // Agent interaction tools
+  | "interaction"; // User interaction tools
 
 /**
  * Builtin tool definition

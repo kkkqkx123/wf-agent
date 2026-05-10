@@ -43,7 +43,8 @@ export interface ToolDescriptionData {
     | "http"
     | "workflow"
     | "agent"
-    | "integration";
+    | "integration"
+    | "interaction";
   /** Tool Description */
   description: string;
   /** parameter list */

@@ -22,8 +22,10 @@ function parseConfigContent(content: string, format: "json" | "toml"): unknown {
       return parseJson(content);
     case "toml":
       // Use TomlParserManager directly for CLI config (not workflow config)
-      const toml = TomlParserManager.getInstance();
-      return toml.parse(content);
+      {
+        const toml = TomlParserManager.getInstance();
+        return toml.parse(content);
+      }
     default:
       throw new Error(`Unsupported config format: ${format}`);
   }

@@ -333,7 +333,8 @@ export class Editor implements Component, Focusable {
     // Handle bracketed paste mode
     if (data.includes("\x1b[200~")) {
       // Simplified paste handling - just insert the content
-      const pasteContent = data.replace(/\x1b\[200~|\x1b\[201~/g, "");
+      const ESC = '\u001b';
+      const pasteContent = data.replace(new RegExp(ESC + '\\[200~|' + ESC + '\\[201~', 'g'), "");
       if (pasteContent.length > 0) {
         this.insertTextAtCursor(pasteContent);
       }

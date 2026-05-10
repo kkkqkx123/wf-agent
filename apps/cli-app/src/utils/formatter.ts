@@ -217,12 +217,9 @@ export class Formatter {
     const type = workflow.type || "unknown";
     const status = this.status(workflow.status || "unknown");
 
-    let result = "";
-    if (!this._colorEnabled) {
-      result = `${name} (${id}) - ${type}`;
-    } else {
-      result = `\x1b[36m${name}\x1b[0m (\x1b[90m${id}\x1b[0m) - ${type}`;
-    }
+    let result = !this._colorEnabled
+      ? `${name} (${id}) - ${type}`
+      : `\x1b[36m${name}\x1b[0m (\x1b[90m${id}\x1b[0m) - ${type}`;
 
     // Add trigger information if available
     if (workflow.triggers && workflow.triggers.length > 0) {

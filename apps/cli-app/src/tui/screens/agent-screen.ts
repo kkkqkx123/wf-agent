@@ -160,21 +160,25 @@ export class AgentScreen implements Screen {
   private handleAgentLifecycleMessage(message: BaseComponentMessage) {
     switch (message.type) {
       case AgentMessageType.START:
-        const startData = message.data as AgentStartData;
-        this.currentAgentId = startData.loopId;
-        this.isRunning = true;
-        this.updateStatus("running");
-        this.appendLog(`Agent started: ${startData.agentId}`, "system");
+        {
+          const startData = message.data as AgentStartData;
+          this.currentAgentId = startData.loopId;
+          this.isRunning = true;
+          this.updateStatus("running");
+          this.appendLog(`Agent started: ${startData.agentId}`, "system");
+        }
         break;
 
       case AgentMessageType.END:
-        const endData = message.data as AgentEndData;
-        this.isRunning = false;
-        this.updateStatus(endData.status === "completed" ? "completed" : "error");
-        this.appendLog(
-          `Agent ended: ${endData.status} (${endData.totalIterations} iterations, ${endData.duration}ms)`,
-          "system"
-        );
+        {
+          const endData = message.data as AgentEndData;
+          this.isRunning = false;
+          this.updateStatus(endData.status === "completed" ? "completed" : "error");
+          this.appendLog(
+            `Agent ended: ${endData.status} (${endData.totalIterations} iterations, ${endData.duration}ms)`,
+            "system"
+          );
+        }
         break;
 
       case AgentMessageType.PAUSE:

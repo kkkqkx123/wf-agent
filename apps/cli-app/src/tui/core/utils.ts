@@ -27,8 +27,11 @@ function couldBeEmoji(segment: string): boolean {
 }
 
 // Regexes for character classification (simplified versions without Unicode property escapes)
-const zeroWidthRegex = /^[\x00-\x1F\x7F]+$/;
-const leadingNonPrintingRegex = /^[\x00-\x1F\x7F]+/;
+const NUL = '\u0000';
+const US = '\u001f';
+const DEL = '\u007f';
+const zeroWidthRegex = new RegExp(`^[${NUL}-${US}${DEL}]+$`);
+const leadingNonPrintingRegex = new RegExp(`^[${NUL}-${US}${DEL}]+`);
 // Simplified emoji detection - will use couldBeEmoji heuristic instead
 const rgiEmojiRegex = /^$/; // Placeholder - actual emoji detection done via codepoint checks
 
@@ -134,13 +137,15 @@ export function visibleWidth(str: string): number {
     // Skip ANSI escape sequences
     if (str[i] === "\x1b") {
       hasAnsi = true;
-      const ansiMatch = str.slice(i).match(/^\x1b\[[0-9;]*[A-Za-z]/);
+      const ESC = '\u001b';
+      const BEL = '\u0007';
+      const ansiMatch = str.slice(i).match(new RegExp('^' + ESC + '\\[[0-9;]*[A-Za-z]'));
       if (ansiMatch) {
         i += ansiMatch[0].length;
         continue;
       }
       // Handle other escape sequences
-      const otherMatch = str.slice(i).match(/^\x1b[^\x1b]*(?:\x1b\\|[\x07\x1b])/);
+      const otherMatch = str.slice(i).match(new RegExp('^' + ESC + '[^' + ESC + ']*(?:' + ESC + '\\\\|[' + BEL + ESC + '])'));
       if (otherMatch) {
         i += otherMatch[0].length;
         continue;
@@ -182,27 +187,29 @@ function extractAnsiCode(text: string, pos: number): { code: string; length: num
   }
 
   const remaining = text.slice(pos);
+  const ESC = '\u001b';
+  const BEL = '\u0007';
 
   // CSI sequence: ESC [ ... final byte
-  const csiMatch = remaining.match(/^\x1b\[[0-9;]*[A-Za-z]/);
+  const csiMatch = remaining.match(new RegExp('^' + ESC + '\\[[0-9;]*[A-Za-z]'));
   if (csiMatch) {
     return { code: csiMatch[0], length: csiMatch[0].length };
   }
 
   // OSC sequence: ESC ] ... ST (ESC \ or BEL)
-  const oscMatch = remaining.match(/^\x1b\][^\x07]*(?:\x07|\x1b\\)/);
+  const oscMatch = remaining.match(new RegExp('^' + ESC + '\\][^' + BEL + ']*(?:' + BEL + '|' + ESC + '\\\\)'));
   if (oscMatch) {
     return { code: oscMatch[0], length: oscMatch[0].length };
   }
 
   // APC sequence: ESC _ ... ST (ESC \)
-  const apcMatch = remaining.match(/^\x1b_[^\x1b]*\x1b\\/);
+  const apcMatch = remaining.match(new RegExp('^' + ESC + '_[^' + ESC + ']*' + ESC + '\\\\'));
   if (apcMatch) {
     return { code: apcMatch[0], length: apcMatch[0].length };
   }
 
   // DCS sequence: ESC P ... ST (ESC \)
-  const dcsMatch = remaining.match(/^\x1bP[^\x1b]*\x1b\\/);
+  const dcsMatch = remaining.match(new RegExp('^' + ESC + 'P[^' + ESC + ']*' + ESC + '\\\\'));
   if (dcsMatch) {
     return { code: dcsMatch[0], length: dcsMatch[0].length };
   }

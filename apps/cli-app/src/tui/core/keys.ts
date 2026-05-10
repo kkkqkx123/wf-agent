@@ -136,7 +136,8 @@ export function parseKey(data: string): ParsedKey | null {
 
   // Check for Kitty protocol extended sequences
   if (_kittyProtocolActive && data.startsWith("\x1b[")) {
-    const kittyMatch = data.match(/^\x1b\[(\d+);(\d+)([~u])$/);
+    const ESC = '\u001b';
+    const kittyMatch = data.match(new RegExp('^' + ESC + '\\[(\\d+);(\\d+)([~u])$'));
     if (kittyMatch) {
       const [, codeStr, modsStr, terminator] = kittyMatch;
       const code = parseInt(codeStr!, 10);
@@ -178,7 +179,7 @@ export function parseKey(data: string): ParsedKey | null {
 function mapKittyCodeToKey(code: number, shift: boolean, alt: boolean, ctrl: boolean, super_: boolean): KeyId | null {
   // Basic keys (codes 1-127 mostly match ASCII)
   if (code >= 32 && code <= 126) {
-    let baseKey = String.fromCharCode(code).toLowerCase();
+    const baseKey = String.fromCharCode(code).toLowerCase();
     
     // Apply modifiers
     const modifiers: string[] = [];

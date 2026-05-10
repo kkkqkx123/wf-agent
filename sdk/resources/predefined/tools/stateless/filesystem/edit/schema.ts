@@ -24,15 +24,11 @@ export const editSchema: ToolParameterSchema = {
       description:
         "The new string to replace the old_string with. This will be inserted in place of old_string.",
     },
-    replace_all: {
-      type: "boolean",
+    mode: {
+      type: "string",
       description:
-        "If true, replace all occurrences of old_string in the file. If false or omitted, only replace the first occurrence (default: false).",
-    },
-    require_unique: {
-      type: "boolean",
-      description:
-        "If true (default), the old_string must appear exactly once in the file. This prevents accidental replacements in multiple locations. Fuzzy matching (Unicode normalization) is enabled in this mode. If false, allows batch replacements but enforces exact matching and disables fuzzy matching.",
+        "Operation mode. 'safe' (default): requires unique match with fuzzy matching enabled, replaces first occurrence. 'batch': no uniqueness check, exact matching only, replaces all occurrences. Allowed values: 'safe', 'batch'.",
+      enum: ["safe", "batch"],
     },
   },
   required: ["file_path", "old_string", "new_string"],

@@ -26,12 +26,11 @@ function resolvePath(filePath: string, workspaceDir?: string): string {
 export function createEditHandler(config: EditFileConfig = {}) {
   return async (params: Record<string, unknown>): Promise<ToolOutput> => {
     try {
-      const { file_path, old_string, new_string, replace_all, require_unique } = params as {
+      const { file_path, old_string, new_string, mode } = params as {
         file_path: string;
         old_string: string;
         new_string: string;
-        replace_all?: boolean;
-        require_unique?: boolean;
+        mode?: "safe" | "batch";
       };
 
       const filePath = resolvePath(file_path, config.workspaceDir);
@@ -80,9 +79,10 @@ export function createEditHandler(config: EditFileConfig = {}) {
       const content = await readFile(filePath, "utf-8");
 
       // Determine if fuzzy matching is allowed
-      // Fuzzy matching (Unicode normalization) is only allowed when require_unique is true or not specified
-      // When require_unique is explicitly false, we enforce exact matching for safety
-      const allowFuzzyMatch = require_unique !== false;
+      // Fuzzy matching (Unicode normalization) is only allowed in safe mode
+      // In batch mode, we enforce exact matching for safety
+      const isSafeMode = mode !== "batch"; // Default to safe mode
+      const allowFuzzyMatch = isSafeMode;
 
       // Try to find the old_string with optional fuzzy matching
       let matchIndex = content.indexOf(old_string);
@@ -104,7 +104,7 @@ export function createEditHandler(config: EditFileConfig = {}) {
       if (matchIndex === -1) {
         const errorMsg = allowFuzzyMatch
           ? `String not found in file: "${old_string.substring(0, 100)}${old_string.length > 100 ? "..." : ""}"\n\nSuggestions:\n1. Read the file first to get the exact content\n2. Check for Unicode character differences (e.g., fancy quotes vs ASCII quotes)\n3. Use apply_diff for complex code edits`
-          : `String not found in file: "${old_string.substring(0, 100)}${old_string.length > 100 ? "..." : ""}"\n\nNote: Fuzzy matching is disabled because require_unique=false. The string must match exactly.`;
+          : `String not found in file: "${old_string.substring(0, 100)}${old_string.length > 100 ? "..." : ""}"\n\nNote: Fuzzy matching is disabled in batch mode. The string must match exactly.`;
 
         return {
           success: false,
@@ -116,26 +116,25 @@ export function createEditHandler(config: EditFileConfig = {}) {
       // Count occurrences for uniqueness check
       const occurrences = content.split(old_string).length - 1;
 
-      // Check uniqueness (default is true)
-      const shouldRequireUnique = require_unique !== false; // Default to true
-      if (shouldRequireUnique && occurrences > 1) {
+      // Check uniqueness (only in safe mode)
+      if (isSafeMode && occurrences > 1) {
         return {
           success: false,
           content: "",
-          error: `Found ${occurrences} occurrences of old_string. The string must be unique in the file.\n\nTo replace all occurrences, set require_unique=false and replace_all=true.\nTo replace a specific occurrence, make old_string more unique by including surrounding context.`,
+          error: `Found ${occurrences} occurrences of old_string. The string must be unique in the file.\n\nTo replace all occurrences, use mode="batch".\nTo replace a specific occurrence, make old_string more unique by including surrounding context and keep mode="safe".`,
         };
       }
 
       let newContent: string;
       let replacementCount: number;
 
-      if (replace_all) {
-        // Replace all occurrences (only allowed when require_unique=false)
+      if (!isSafeMode) {
+        // Batch mode: Replace all occurrences with exact matching
         const parts = content.split(old_string);
         replacementCount = parts.length - 1;
         newContent = parts.join(new_string);
       } else {
-        // Replace only the matched occurrence (uses matchIndex which may be from fuzzy match)
+        // Safe mode: Replace only the matched occurrence (uses matchIndex which may be from fuzzy match)
         newContent =
           content.substring(0, matchIndex) + new_string + content.substring(matchIndex + old_string.length);
         replacementCount = 1;

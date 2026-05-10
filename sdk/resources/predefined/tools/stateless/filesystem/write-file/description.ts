@@ -9,7 +9,7 @@ export const WRITE_FILE_TOOL_DESCRIPTION: ToolDescriptionData = {
   type: "STATELESS",
   category: "filesystem",
   description:
-    "Write content to a file. Will overwrite existing files completely. For existing files, you should read the file first using read_file. Prefer editing existing files over creating new ones unless explicitly needed.",
+    "Write content to a file. Creates the file if it doesn't exist, or overwrites it completely if it does.",
   parameters: [
     {
       name: "path",
@@ -25,8 +25,8 @@ export const WRITE_FILE_TOOL_DESCRIPTION: ToolDescriptionData = {
     },
   ],
   tips: [
-    "Will overwrite existing files completely",
-    "Read existing files first before overwriting",
-    "Prefer editing over creating new files when possible",
+    "Read existing files first to avoid accidental data loss",
+    "Prefer apply_diff or apply_patch for editing existing files",
+    "Use for creating new files or complete file replacement",
   ],
 };

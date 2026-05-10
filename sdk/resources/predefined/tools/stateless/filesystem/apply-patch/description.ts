@@ -44,8 +44,8 @@ Context guidelines:
     },
   ],
   tips: [
-    "Use for batch operations across multiple files",
-    "Automatically creates parent directories for new files",
-    "Supports file creation, deletion, renaming, and updates",
+    "Ideal for refactoring and multi-file changes in a single operation",
+    "Use @@ with class/function name when 3 lines of context is insufficient",
+    "End hunks with '*** End of File' for clarity when needed",
   ],
 };

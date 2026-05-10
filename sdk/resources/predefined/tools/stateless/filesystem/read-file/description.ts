@@ -59,9 +59,9 @@ export const READ_FILE_TOOL_DESCRIPTION: ToolDescriptionData = {
     },
   ],
   tips: [
-    "Use slice mode for initial exploration when you don't have a target line number",
-    "Switch to indentation mode when you have a specific line number from search/error results",
-    "ALWAYS specify indentation.anchor_line when using indentation mode",
-    "Call this tool multiple times in parallel to read different files",
+    "For large files, use offset and limit to read in chunks",
+    "Indentation mode returns complete semantic blocks - ideal for understanding code structure",
+    "Parallel calls improve performance when reading multiple files",
+    "Use dedicated extraction scripts for PDF, DOCX, XLSX, and image files",
   ],
 };

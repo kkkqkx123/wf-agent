@@ -63,10 +63,6 @@ const ENV_VARS = {
   // SDK module specific
   /** SDK base log level */
   SDK_LOG_LEVEL: "SDK_LOG_LEVEL",
-  /** SDK Graph submodule log level */
-  SDK_LOG_LEVEL_GRAPH: "SDK_LOG_LEVEL_GRAPH",
-  /** SDK Agent submodule log level */
-  SDK_LOG_LEVEL_AGENT: "SDK_LOG_LEVEL_AGENT",
   /** Disable SDK logs */
   SDK_DISABLE_LOGS: "SDK_DISABLE_LOGS",
 } as const;

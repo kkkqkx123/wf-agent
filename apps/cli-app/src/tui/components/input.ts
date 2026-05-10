@@ -1,5 +1,5 @@
 import { getKeybindings } from "../core/keybindings.js";
-import { decodeKittyPrintable } from "../core/keys.js";
+import { decodeKittyPrintable } from "../core/keys/index.js";
 import { KillRing } from "../core/kill-ring.js";
 import { type Component, CURSOR_MARKER, type Focusable } from "../core/tui.js";
 import { UndoStack } from "../core/undo-stack.js";

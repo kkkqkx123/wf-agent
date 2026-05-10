@@ -18,8 +18,6 @@ export const ENV_VARS = {
 
   // SDK module specific
   SDK_LOG_LEVEL: "SDK_LOG_LEVEL",
-  SDK_LOG_LEVEL_GRAPH: "SDK_LOG_LEVEL_GRAPH",
-  SDK_LOG_LEVEL_AGENT: "SDK_LOG_LEVEL_AGENT",
 } as const;
 
 /**
@@ -60,20 +58,4 @@ export function getLogLevelFromEnv(
  */
 export function getDefaultLogLevel(): LogLevel {
   return getLogLevelFromEnv(ENV_VARS.SDK_LOG_LEVEL, ENV_VARS.GLOBAL_LOG_LEVEL, "info");
-}
-
-/**
- * Get log level for graph module from environment variables
- * Priority: SDK_LOG_LEVEL_GRAPH > SDK_LOG_LEVEL > GLOBAL_LOG_LEVEL > info
- */
-export function getGraphLogLevel(): LogLevel {
-  return getLogLevelFromEnv(ENV_VARS.SDK_LOG_LEVEL_GRAPH, ENV_VARS.GLOBAL_LOG_LEVEL, "info");
-}
-
-/**
- * Get log level for agent module from environment variables
- * Priority: SDK_LOG_LEVEL_AGENT > SDK_LOG_LEVEL > GLOBAL_LOG_LEVEL > info
- */
-export function getAgentLogLevel(): LogLevel {
-  return getLogLevelFromEnv(ENV_VARS.SDK_LOG_LEVEL_AGENT, ENV_VARS.GLOBAL_LOG_LEVEL, "info");
 }

@@ -38,10 +38,10 @@ This document provides a complete analysis of the SDK module's output and loggin
                          │ configureSDKLogger()
 ┌────────────────────────▼────────────────────────────────┐
 │                   SDK Logger Layer                       │
-│  ┌────────────┐  ┌────────────┐  ┌────────────┐        │
-│  │ sdkLogger  │  │graphLogger │  │agentLogger │        │
-│  │  (Proxy)   │  │  (Proxy)   │  │  (Proxy)   │        │
-│  └────────────┘  └────────────┘  └────────────┘        │
+│  ┌────────────┐                                        │
+│  │ sdkLogger  │                                        │
+│  │  (Proxy)   │                                        │
+│  └────────────┘                                        │
 └────────────────────────┬────────────────────────────────┘
                          │ Pending Configuration Pattern
 ┌────────────────────────▼────────────────────────────────┐
@@ -95,10 +95,9 @@ Hierarchical configuration with clear priority chains.
 ```
 Priority Order:
 1. Explicit config parameter
-2. Module-specific env var (SDK_LOG_LEVEL_GRAPH)
-3. Parent module env var (SDK_LOG_LEVEL)
-4. Global env var (GLOBAL_LOG_LEVEL)
-5. Default value ('info')
+2. Module-specific env var (SDK_LOG_LEVEL)
+3. Global env var (GLOBAL_LOG_LEVEL)
+4. Default value ('info')
 ```
 
 #### 4. **Stream Abstraction**
@@ -1404,21 +1403,18 @@ initSDKLogger({ debug: true }); // Too late!
 
 **Use appropriate logger for context**:
 ```typescript
-// ✅ For SDK core operations
+// ✅ For SDK operations
 import { sdkLogger } from '@wf-agent/sdk';
 sdkLogger.info('SDK operation');
-
-// ✅ For graph workflow operations
-import { graphLogger } from '@wf-agent/sdk';
-graphLogger.info('Node execution');
-
-// ✅ For agent loop operations
-import { agentLogger } from '@wf-agent/sdk';
-agentLogger.info('Agent iteration');
 
 // ✅ For specific modules
 const moduleLogger = sdkLogger.child('my-module');
 moduleLogger.info('Module-specific log');
+
+// ✅ For contextual logging (recommended pattern)
+import { createContextualLogger } from '@wf-agent/sdk';
+const logger = createContextualLogger({ component: 'MyComponent' });
+logger.info('Operation with context');
 ```
 
 ### 3. Structured Context
@@ -1506,9 +1502,7 @@ The SDK logging system represents a mature, production-ready implementation with
 | Variable | Scope | Default | Description |
 |----------|-------|---------|-------------|
 | `GLOBAL_LOG_LEVEL` | All modules | `info` | Global log level fallback |
-| `SDK_LOG_LEVEL` | SDK core | `info` | SDK core log level |
-| `SDK_LOG_LEVEL_GRAPH` | SDK graph | inherits | Graph submodule log level |
-| `SDK_LOG_LEVEL_AGENT` | SDK agent | inherits | Agent submodule log level |
+| `SDK_LOG_LEVEL` | SDK | `info` | SDK log level |
 | `SDK_DISABLE_LOGS` | SDK | `false` | Disable all SDK logs |
 | `GLOBAL_LOG_MAX_SIZE` | File streams | `104857600` | Max log file size (bytes) |
 | `GLOBAL_LOG_MAX_FILES` | File streams | `10` | Max rotated files to keep |

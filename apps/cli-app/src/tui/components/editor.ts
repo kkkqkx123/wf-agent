@@ -1,6 +1,6 @@
 import type { AutocompleteProvider, AutocompleteSuggestions } from "../core/autocomplete.js";
 import { getKeybindings } from "../core/keybindings.js";
-import { decodePrintableKey, matchesKey } from "../core/keys.js";
+import { decodePrintableKey, matchesKey } from "../core/keys/index.js";
 import { KillRing } from "../core/kill-ring.js";
 import { type Component, CURSOR_MARKER, type Focusable, type TUI } from "../core/tui.js";
 import { UndoStack } from "../core/undo-stack.js";

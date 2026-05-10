@@ -2,7 +2,7 @@
  * Minimal TUI implementation with differential rendering
  */
 
-import { isKeyRelease } from "./keys.js";
+import { isKeyRelease } from "./keys/index.js";
 import type { Terminal } from "./terminal.js";
 import { visibleWidth } from "./utils.js";
 

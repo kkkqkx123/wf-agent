@@ -4,7 +4,7 @@
  */
 
 import * as pty from "node-pty";
-import { spawn } from "child_process";
+import { spawn, type ChildProcess } from "child_process";
 import { randomUUID } from "crypto";
 import * as fs from "fs";
 import * as path from "path";
@@ -12,6 +12,13 @@ import { getOutput } from "../../utils/output.js";
 import type { TerminalOptions, TerminalSession, TerminalEvent } from "./types.js";
 
 const output = getOutput();
+
+/**
+ * Type guard to check if pty is IPty (foreground terminal)
+ */
+function isIPty(ptyInstance: unknown): ptyInstance is pty.IPty {
+  return ptyInstance !== null && typeof ptyInstance === "object" && "write" in ptyInstance && "resize" in ptyInstance;
+}
 
 /**
  * Terminal Manager
@@ -252,7 +259,12 @@ export class TerminalManager {
       throw new Error(`Terminal session is not active: ${sessionId}`);
     }
 
-    session.pty.write(data);
+    // Only foreground terminals (IPty) support write operation
+    if (isIPty(session.pty)) {
+      session.pty.write(data);
+    } else {
+      throw new Error(`Write operation is not supported for background terminals`);
+    }
   }
 
   /**
@@ -271,8 +283,13 @@ export class TerminalManager {
       throw new Error(`Terminal session is not active: ${sessionId}`);
     }
 
-    session.pty.resize(cols, rows);
-    output.debugLog(`Terminal resized: ${sessionId}, cols: ${cols}, rows: ${rows}`);
+    // Only foreground terminals (IPty) support resize operation
+    if (isIPty(session.pty)) {
+      session.pty.resize(cols, rows);
+      output.debugLog(`Terminal resized: ${sessionId}, cols: ${cols}, rows: ${rows}`);
+    } else {
+      throw new Error(`Resize operation is not supported for background terminals`);
+    }
   }
 
   /**

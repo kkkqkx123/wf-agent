@@ -17,6 +17,10 @@ import {
   brotliDecompressSync,
   constants as zlibConstants,
 } from "zlib";
+import { getGlobalLogger } from "../../logger/global-logger.js";
+
+// Get compression module logger (child of global logger)
+const logger = getGlobalLogger().child("compressor", { pkg: "common-utils" });
 
 const gzipAsync = promisify(gzip);
 const gunzipAsync = promisify(gunzip);
@@ -131,7 +135,7 @@ export async function compressBlob(
     };
   } catch (error) {
     // If compression fails, return original data
-    process.stderr.write(`Compression failed, returning original data: ${error}\n`);
+    logger.error("Compression failed, returning original data", { error });
     return {
       compressed: data,
       algorithm: null,
@@ -245,7 +249,8 @@ export function compressBlobSync(
       ratio: 1,
     };
   } catch (error) {
-    process.stderr.write(`Sync compression failed, returning original data: ${error}\n`);
+    // If compression fails, return original data
+    logger.error("Sync compression failed, returning original data", { error });
     return {
       compressed: data,
       algorithm: null,

@@ -6,15 +6,10 @@
  */
 
 import type { CompressionConfig } from "./compressor.js";
+import { getGlobalLogger } from "../../logger/global-logger.js";
 
-// Simple logger for compression decisions (avoid circular dependency)
-const logger = {
-  debug: (message: string, ...args: unknown[]) => {
-    if (process.env["DEBUG_COMPRESSION"]) {
-      console.debug(`[adaptive-compression] ${message}`, ...args);
-    }
-  },
-};
+// Get compression module logger (child of global logger)
+const logger = getGlobalLogger().child("compression", { pkg: "common-utils" });
 
 /**
  * Data type classification for compression optimization
@@ -201,15 +196,17 @@ export function logCompressionDecision(
   const savings = ((1 - ratio) * 100).toFixed(1);
   
   if (algorithm) {
-    process.stderr.write(
-      `[Compression] Type: ${dataType}, Algorithm: ${algorithm}, ` +
-      `Original: ${originalSize}B, Compressed: ${compressedSize}B, ` +
-      `Savings: ${savings}%\n`
-    );
+    logger.info("Compression completed", {
+      dataType,
+      algorithm,
+      originalSize,
+      compressedSize,
+      savings: `${savings}%`,
+    });
   } else {
-    process.stderr.write(
-      `[Compression] Type: ${dataType}, Skipped (no benefit), ` +
-      `Size: ${originalSize}B\n`
-    );
+    logger.debug("Compression skipped (no benefit)", {
+      dataType,
+      originalSize,
+    });
   }
 }

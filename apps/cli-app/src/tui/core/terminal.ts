@@ -1,4 +1,4 @@
-import { setKittyProtocolActive } from "./keys.js";
+import { setKittyProtocolActive } from "./keys/index.js";
 import { StdinBuffer } from "./stdin-buffer.js";
 
 const TERMINAL_PROGRESS_KEEPALIVE_MS = 1000;

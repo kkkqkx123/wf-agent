@@ -5,11 +5,19 @@
 
 import { type SDKInstance } from "@wf-agent/sdk";
 import { randomUUID } from "crypto";
+import * as pty from "node-pty";
 import { getOutput } from "../../utils/output.js";
 import type { TerminalSession, TaskExecutionResult, TaskStatus } from "./types.js";
 import { getSDKInstance } from "../../index.js";
 
 const output = getOutput();
+
+/**
+ * Type guard to check if pty is IPty (foreground terminal)
+ */
+function isIPty(ptyInstance: unknown): ptyInstance is pty.IPty {
+  return ptyInstance !== null && typeof ptyInstance === "object" && "write" in ptyInstance;
+}
 
 /**
  * Task Executor
@@ -61,7 +69,12 @@ export class TaskExecutor {
 
     try {
       // Execute the command in the terminal.
-      terminal.pty.write(command + "\r");
+      // Only foreground terminals (IPty) support write operation
+      if (isIPty(terminal.pty)) {
+        terminal.pty.write(command + "\r");
+      } else {
+        throw new Error(`Write operation is not supported for background terminals`);
+      }
 
       output.infoLog(`Task started: ${taskId} in terminal ${terminal.id}`);
 

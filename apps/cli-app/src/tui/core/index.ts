@@ -57,7 +57,7 @@ export {
   matchesKey,
   parseKey,
   setKittyProtocolActive,
-} from "./keys.js";
+} from "./keys/index.js";
 
 // Input buffering for batch splitting
 export { StdinBuffer, type StdinBufferEventMap, type StdinBufferOptions } from "./stdin-buffer.js";

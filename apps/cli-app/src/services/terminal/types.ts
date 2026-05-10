@@ -2,6 +2,9 @@
  * Terminal related type definitions
  */
 
+import type * as pty from "node-pty";
+import type { ChildProcess } from "child_process";
+
 /**
  * Terminal configuration options
  */
@@ -29,7 +32,7 @@ export interface TerminalSession {
   /** Session Unique Identifier */
   id: string;
   /** Pseudo-terminal instance */
-  pty: unknown;
+  pty: pty.IPty | ChildProcess;
   /** Process ID */
   pid: number;
   /** Creation time */

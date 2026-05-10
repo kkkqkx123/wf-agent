@@ -174,10 +174,10 @@ export abstract class BaseJsonStorage<TMetadata> {
 
           // Store minimal info - just paths, no metadata content
           this.metadataIndex.set(id, {
-            metadata: null as any, // Will be loaded on demand
+            metadata: null as unknown as TMetadata, // Will be loaded on demand
             metadataPath,
             dataPath,
-            dataRef: null as any, // Will be loaded on demand
+            dataRef: null as unknown as DataReference, // Will be loaded on demand
           });
         }
       }

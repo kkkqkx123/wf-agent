@@ -113,11 +113,12 @@ export class MemoryWorkflowExecutionStorage
             case "startTime":
               comparison = entryA.metadata.startTime - entryB.metadata.startTime;
               break;
-            case "endTime":
+            case "endTime": {
               const timeA = entryA.metadata.endTime ?? 0;
               const timeB = entryB.metadata.endTime ?? 0;
               comparison = timeA - timeB;
               break;
+            }
             case "updatedAt": {
               // Use endTime or startTime as updatedAt proxy
               const updatedA = entryA.metadata.endTime ?? entryA.metadata.startTime;

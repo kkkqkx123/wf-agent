@@ -123,7 +123,7 @@ export abstract class BaseMemoryStorage<TMetadata, TListOptions = Record<string,
   /**
    * List all IDs in memory storage
    */
-  async list(options?: TListOptions): Promise<string[]> {
+  async list(_options?: TListOptions): Promise<string[]> {
     const startTime = Date.now();
     this.ensureInitialized();
     await this.simulateLatency();

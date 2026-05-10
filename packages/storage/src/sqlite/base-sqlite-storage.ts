@@ -754,7 +754,7 @@ export abstract class BaseSqliteStorage<TMetadataType> {
    * @param loadFn Function to extract data from row
    * @returns Array of loaded data (null if not found), maintaining order
    */
-  protected async loadBatchWithCustomLogic<T>(
+  protected async loadBatchWithCustomLogic(
     ids: string[],
     loadFn: (row: Record<string, unknown>) => Uint8Array | null,
   ): Promise<Array<{ id: string; data: Uint8Array | null }>> {

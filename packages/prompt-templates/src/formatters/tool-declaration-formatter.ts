@@ -84,7 +84,7 @@ export class ToolDeclarationFormatter {
    */
   private static formatParametersXML(
     parameters: { properties: Record<string, unknown>; required?: string[] },
-    tags: ToolCallXmlTags
+    _tags: ToolCallXmlTags
   ): string {
     const lines: string[] = [];
     const required = parameters.required || [];

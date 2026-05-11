@@ -20,7 +20,7 @@ import type { AgentLoopRuntimeConfig, AgentLoopResult, ID, Message, AgentStreamE
 import type { MessageStreamEvent } from "@wf-agent/sdk/core";
 import { LLMExecutor, LLMWrapper, ToolRegistry, EventRegistry } from "@wf-agent/sdk/core";
 import { CLINotFoundError } from "../types/cli-types.js";
-import { CLIToolApprovalHandler } from "../handlers/tool-approval/index.js";
+import { CLIToolApprovalHandler } from "../handlers/user-interaction/tool-approval.js";
 
 /**
  * Agent Loop Adapter

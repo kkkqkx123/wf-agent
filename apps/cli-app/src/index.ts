@@ -31,7 +31,7 @@ import { createEventCommands } from "./commands/event/index.js";
 import { createHumanRelayCommands } from "./commands/human-relay/index.js";
 import { createAgentCommands } from "./commands/agent/index.js";
 import { createSkillCommands } from "./commands/skill/index.js";
-import { CLIUserInteractionHandler } from "./handlers/user-interaction-handler.js";
+import { CLIUserInteractionManager } from "./handlers/user-interaction/index.js";
 
 // Create an instance of the main program.
 const program = new Command();
@@ -156,7 +156,7 @@ program
     }
 
     // 8. Initialize User Interaction Handler for interactive tools
-    const interactionHandler = new CLIUserInteractionHandler();
+    const interactionHandler = new CLIUserInteractionManager();
     // Access event manager through the events API's internal dependencies
     const eventAPI = sdkInstance.events;
     // The eventAPI has access to the event manager internally

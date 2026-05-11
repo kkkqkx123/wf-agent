@@ -25,3 +25,10 @@ export {
   type ToolApprovalRequestData,
   type ToolApprovalResponseData,
 } from "./tool-approval.js";
+
+export {
+  // Follow-up question types
+  type FollowupQuestion,
+  type FollowupQuestionRequestData,
+  type FollowupQuestionResponseData,
+} from "./followup-question.js";

@@ -1,66 +1,97 @@
 /**
  * CLI Tool Approval Handler
- * Provides interactive command-line interface for tool approval requests
+ * Provides interactive command-line interface for tool approval requests.
+ * Migrated to user-interaction directory for unified interaction management.
  */
 
-import type {
+import readline from "readline";
+import type { 
+  ToolApprovalRequestData,
+  ToolApprovalResponseData,
   ToolApprovalHandler,
   ToolApprovalRequest,
-  ToolApprovalResult,
+  ToolApprovalResult
 } from "@wf-agent/types";
-import readline from "readline";
 import { getOutput } from "../../utils/output.js";
 
 export class CLIToolApprovalHandler implements ToolApprovalHandler {
+  private rl: readline.Interface;
+
+  constructor() {
+    this.rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+  }
+
   /**
-   * Request approval for tool execution
-   * Displays tool information and prompts user for decision
+   * Request approval for tool execution (implements ToolApprovalHandler)
    */
   async requestApproval(request: ToolApprovalRequest): Promise<ToolApprovalResult> {
+    // Extract structured data from the request for our handler
+    const data: ToolApprovalRequestData = {
+      toolCallId: request.toolCall.id,
+      toolName: request.toolCall.function?.name || "unknown",
+      parameters: JSON.parse(request.toolCall.function?.arguments || "{}"),
+      batchId: request.batchId,
+      toolIndex: request.toolIndex,
+      totalTools: request.totalTools,
+      pendingQueue: request.pendingQueue?.map(tc => ({
+        id: tc.id,
+        name: tc.function?.name || "unknown",
+        arguments: tc.function?.arguments
+      })),
+    };
+
+    const response = await this.handle(data);
+
+    return {
+      ...response,
+      toolCallId: request.toolCall.id,
+    };
+  }
+
+  /**
+   * Handle the tool approval request and return structured response
+   */
+  public async handle(data: ToolApprovalRequestData): Promise<ToolApprovalResponseData> {
     // Check if running in interactive mode
     if (!process.stdin.isTTY || !process.stdout.isTTY) {
       return {
         approved: false,
-        toolCallId: request.toolCall.id,
-        continueBatch: false,
         rejectionReason: "Non-interactive mode, approval not available",
       };
     }
 
-    // Display approval request header
     const output = getOutput();
     output.output("\n========================================");
     output.output("  TOOL APPROVAL REQUEST");
     output.output("========================================");
 
     // Show batch context if available
-    if (request.batchId) {
-      output.output(`\nBatch ID: ${request.batchId}`);
-      if (request.toolIndex !== undefined && request.totalTools !== undefined) {
-        output.output(`Progress: Tool ${request.toolIndex + 1} of ${request.totalTools}`);
+    if (data.batchId) {
+      output.output(`\nBatch ID: ${data.batchId}`);
+      if (data.toolIndex !== undefined && data.totalTools !== undefined) {
+        output.output(`Progress: Tool ${data.toolIndex + 1} of ${data.totalTools}`);
       }
 
-      if (request.pendingQueue && request.pendingQueue.length > 0) {
+      if (data.pendingQueue && data.pendingQueue.length > 0) {
         output.output("\nRemaining tools in queue:");
-        request.pendingQueue.forEach((tc, idx) => {
-          const name = tc.function?.name || "unknown";
-          output.output(`  ${idx + 1}. ${name}`);
+        data.pendingQueue.forEach((tc, idx) => {
+          output.output(`  ${idx + 1}. ${tc.name}`);
         });
       }
     }
 
     // Show tool details
-    output.output(`\nTool Name: ${request.toolCall.function?.name || "unknown"}`);
-    output.output(`Tool Call ID: ${request.toolCall.id}`);
+    output.output(`\nTool Name: ${data.toolName}`);
+    if (data.toolDescription) {
+      output.output(`Description: ${data.toolDescription}`);
+    }
 
     // Display parameters
-    try {
-      const args = JSON.parse(request.toolCall.function?.arguments || "{}");
-      output.output("\nParameters:");
-      output.output(JSON.stringify(args, null, 2));
-    } catch (_e) {
-      output.output(`Arguments: ${request.toolCall.function?.arguments}`);
-    }
+    output.output("\nParameters:");
+    output.output(JSON.stringify(data.parameters, null, 2));
 
     // Prompt user for decision
     output.output("\n----------------------------------------");
@@ -79,7 +110,6 @@ export class CLIToolApprovalHandler implements ToolApprovalHandler {
       case "yes":
         return {
           approved: true,
-          toolCallId: request.toolCall.id,
           continueBatch: true,
         };
 
@@ -87,18 +117,14 @@ export class CLIToolApprovalHandler implements ToolApprovalHandler {
       case "no":
         return {
           approved: false,
-          toolCallId: request.toolCall.id,
           continueBatch: false,
           rejectionReason: "User rejected",
         };
 
       case "edit": {
-        const editedParams = await this.promptEditParameters(
-          request.toolCall.function?.arguments,
-        );
+        const editedParams = await this.promptEditParameters(data.parameters);
         return {
           approved: true,
-          toolCallId: request.toolCall.id,
           editedParameters: editedParams,
           continueBatch: true,
         };
@@ -107,14 +133,12 @@ export class CLIToolApprovalHandler implements ToolApprovalHandler {
       case "skip":
         return {
           approved: false,
-          toolCallId: request.toolCall.id,
           continueBatch: true, // Skip but continue batch
         };
 
       default:
         return {
           approved: false,
-          toolCallId: request.toolCall.id,
           continueBatch: false,
           rejectionReason: "Invalid response",
         };
@@ -126,18 +150,11 @@ export class CLIToolApprovalHandler implements ToolApprovalHandler {
    */
   private promptUser(): Promise<string> {
     return new Promise((resolve, reject) => {
-      const rl = readline.createInterface({
-        input: process.stdin,
-        output: process.stdout,
-      });
-
-      rl.question("> ", (answer) => {
-        rl.close();
+      this.rl.question("> ", (answer) => {
         resolve(answer.trim());
       });
 
-      rl.on("SIGINT", () => {
-        rl.close();
+      this.rl.on("SIGINT", () => {
         reject(new Error("User cancelled"));
       });
     });
@@ -147,12 +164,12 @@ export class CLIToolApprovalHandler implements ToolApprovalHandler {
    * Prompt user to edit tool parameters as JSON
    */
   private async promptEditParameters(
-    currentArgs: string | undefined,
+    currentParams: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
     const output = getOutput();
     output.output("\n----------------------------------------");
     output.output("Enter new parameters as JSON");
-    output.output(`Current: ${currentArgs || "{}"}`);
+    output.output(`Current: ${JSON.stringify(currentParams)}`);
     output.output("----------------------------------------");
 
     const jsonInput = await this.promptUser();
@@ -161,7 +178,14 @@ export class CLIToolApprovalHandler implements ToolApprovalHandler {
       return JSON.parse(jsonInput);
     } catch (_e) {
       output.error("Invalid JSON, using original parameters");
-      return currentArgs ? JSON.parse(currentArgs) : {};
+      return currentParams;
     }
+  }
+
+  /**
+   * Cleanup resources
+   */
+  public cleanup(): void {
+    this.rl.close();
   }
 }

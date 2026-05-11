@@ -58,6 +58,8 @@ export type EventType =
   | "TOOL_CALL_COMPLETED"
   /** Tool call failure */
   | "TOOL_CALL_FAILED"
+  /** Tool call blocked (failure protection) */
+  | "TOOL_CALL_BLOCKED"
   /** Tool Additions */
   | "TOOL_ADDED"
   /** Dialog status change */

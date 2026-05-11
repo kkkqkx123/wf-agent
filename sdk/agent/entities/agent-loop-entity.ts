@@ -66,6 +66,8 @@ import { buildInitialMessages, type InitialMessagesConfig } from "../../core/pro
 import { ExecutionHierarchyManager } from "../../core/execution/execution-hierarchy-manager.js";
 import type { ExecutionHierarchyRegistry } from "../../core/registry/execution-hierarchy-registry.js";
 import { createInterruptionAbortReason } from "../../core/utils/interruption/index.js";
+import { ToolFailureProtectionState } from "../../core/state-managers/tool-failure-protection-state.js";
+import type { ToolFailureProtectionConfig } from "../../core/state-managers/tool-failure-protection-types.js";
 
 /**
  * Steering Mode
@@ -113,6 +115,9 @@ export class AgentLoopEntity {
   /** Dialogue Manager (unified message management) */
   conversationManager: ConversationSession;
 
+  /** Tool Failure Protection State Manager (NEW) */
+  readonly toolFailureProtection: ToolFailureProtectionState;
+
   /** Abort Controller */
   abortController?: AbortController;
 
@@ -145,6 +150,7 @@ export class AgentLoopEntity {
    * @param config Cyclic configuration
    * @param state Execution state (optional, new instance created by default)
    * @param conversationManagerConfig conversation manager configuration (optional)
+   * @param toolFailureProtectionConfig tool failure protection configuration (optional)
    * @param registry Optional execution hierarchy registry for cycle detection and depth calculation
    */
   constructor(
@@ -152,6 +158,7 @@ export class AgentLoopEntity {
     config: AgentLoopRuntimeConfig,
     state?: AgentLoopState,
     conversationManagerConfig?: Partial<ConversationSessionConfig>,
+    toolFailureProtectionConfig?: ToolFailureProtectionConfig,
     registry?: ExecutionHierarchyRegistry,
   ) {
     this.id = id;
@@ -168,6 +175,9 @@ export class AgentLoopEntity {
       initialMessages: [],
       ...conversationManagerConfig,
     });
+
+    // Initialize tool failure protection state
+    this.toolFailureProtection = new ToolFailureProtectionState(toolFailureProtectionConfig);
   }
 
   /**
@@ -677,6 +687,9 @@ export class AgentLoopEntity {
 
     // Cleanup conversation manager
     this.conversationManager.cleanup();
+
+    // Cleanup tool failure protection state
+    this.toolFailureProtection.cleanup();
 
     // Clear abort controller
     this.abortController = undefined;

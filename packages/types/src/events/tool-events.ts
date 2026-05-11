@@ -65,6 +65,29 @@ export interface ToolCallFailedEvent extends BaseEvent {
 }
 
 /**
+ * Tool Call Blocked Event Type (NEW - for failure protection)
+ */
+export interface ToolCallBlockedEvent extends BaseEvent {
+  type: "TOOL_CALL_BLOCKED";
+  /** Execution ID */
+  executionId: ID;
+  /** Node ID */
+  nodeId: ID;
+  /** Tool ID */
+  toolId: ID;
+  /** Tool name */
+  toolName?: string;
+  /** Current failure count */
+  failureCount: number;
+  /** Last error message */
+  lastError?: string;
+  /** Remaining cooldown time in milliseconds */
+  remainingCooldown?: number;
+  /** Blocking reason */
+  reason?: string;
+}
+
+/**
  * Tool to add event types
  */
 export interface ToolAddedEvent extends BaseEvent {

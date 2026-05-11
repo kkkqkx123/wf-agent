@@ -3,12 +3,13 @@
  * Provides builders for tool call events
  */
 
-import { now } from "@wf-agent/common-utils";
+import { now, generateId } from "@wf-agent/common-utils";
 import { createBuilder, type BuildParams } from "./common.js";
 import type {
   ToolCallStartedEvent,
   ToolCallCompletedEvent,
   ToolCallFailedEvent,
+  ToolCallBlockedEvent,
   ToolAddedEvent,
 } from "@wf-agent/types";
 
@@ -44,6 +45,25 @@ export const buildToolCallFailedEvent = (
     ...params,
     error: params.error.message || "Unknown error",
   }) as ToolCallFailedEvent;
+
+/**
+ * Build tool call blocked event (NEW - for failure protection)
+ */
+export const buildToolCallBlockedEvent = (
+  params: Omit<BuildParams<ToolCallBlockedEvent>, "executionId"> & {
+    executionId: string;
+    failureCount: number;
+    lastError?: string;
+    remainingCooldown?: number;
+    reason?: string;
+    workflowId?: string;
+  },
+): ToolCallBlockedEvent => ({
+  id: generateId(),
+  type: "TOOL_CALL_BLOCKED",
+  timestamp: now(),
+  ...params,
+}) as ToolCallBlockedEvent;
 
 // =============================================================================
 // Tool Events

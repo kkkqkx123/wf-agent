@@ -25,6 +25,8 @@ import { MessageHistory } from "../../agent/state-managers/message-history.js";
 import { VariableState } from "../state-managers/variable-state.js";
 import { ExecutionHierarchyManager } from "../../core/execution/execution-hierarchy-manager.js";
 import type { ExecutionHierarchyRegistry } from "../../core/registry/execution-hierarchy-registry.js";
+import { ToolFailureProtectionState } from "../../core/state-managers/tool-failure-protection-state.js";
+import type { ToolFailureProtectionConfig } from "../../core/state-managers/tool-failure-protection-types.js";
 
 /**
  * WorkflowExecutionEntity - Workflow Execution Entity
@@ -64,6 +66,9 @@ export class WorkflowExecutionEntity {
   /** Variable State Manager */
   readonly variableStateManager: VariableState;
 
+  /** Tool Failure Protection State Manager (NEW) */
+  readonly toolFailureProtection: ToolFailureProtectionState;
+
   /** Stop Controller */
   abortController?: AbortController;
 
@@ -81,12 +86,14 @@ export class WorkflowExecutionEntity {
    * @param workflowExecution: WorkflowExecution data object
    * @param executionState: Execution state manager
    * @param state: Execution status (optional; a new instance is created by default)
+   * @param toolFailureProtectionConfig: Tool failure protection configuration (optional)
    * @param registry: Optional execution hierarchy registry for cycle detection and depth calculation
    */
   constructor(
     workflowExecution: WorkflowExecution,
     executionState: ExecutionState,
     state?: WorkflowExecutionState,
+    toolFailureProtectionConfig?: ToolFailureProtectionConfig,
     registry?: ExecutionHierarchyRegistry
   ) {
     this.id = workflowExecution.id;
@@ -95,6 +102,9 @@ export class WorkflowExecutionEntity {
     this.state = state ?? new WorkflowExecutionState();
     this.messageHistoryManager = new MessageHistory(workflowExecution.id);
     this.variableStateManager = new VariableState();
+
+    // Initialize tool failure protection state
+    this.toolFailureProtection = new ToolFailureProtectionState(toolFailureProtectionConfig);
 
     // Initialize hierarchy manager with existing hierarchy metadata or as root node
     this.hierarchyManager = new ExecutionHierarchyManager(

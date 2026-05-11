@@ -34,6 +34,7 @@ import { MessageBuilder } from "../messaging/message-builder.js";
 import type { CheckpointDependencies } from "../../workflow/checkpoint/utils/checkpoint-utils.js";
 import type { ToolVisibilityStore } from "../../workflow/stores/tool-visibility-store.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
+import type { ToolFailureProtectionState } from "../state-managers/tool-failure-protection-state.js";
 
 const logger = createContextualLogger({ component: "ToolCallExecutor" });
 
@@ -98,6 +99,7 @@ export interface EventBuilder {
   buildToolCallStartedEvent(params: unknown): Event;
   buildToolCallCompletedEvent(params: unknown): Event;
   buildToolCallFailedEvent(params: unknown): Event;
+  buildToolCallBlockedEvent?(params: unknown): Event; // NEW - optional for backward compatibility
 }
 
 /**
@@ -123,6 +125,7 @@ export class ToolCallExecutor {
       eventManager: EventRegistry | undefined,
       event: Event,
     ) => void | Promise<void>,
+    private toolFailureProtection?: ToolFailureProtectionState,
   ) {}
 
   /**
@@ -269,6 +272,11 @@ export class ToolCallExecutor {
           this.safeEmitFn(this.eventManager, failedEvent);
         }
 
+        // Record failed tool execution for failure protection (NEW)
+        if (this.toolFailureProtection) {
+          this.toolFailureProtection.recordFailure(toolCall.name, errorMessage || "Tool execution failed");
+        }
+
         return {
           toolCallId: toolCall.id,
           toolId: toolCall.name,
@@ -389,6 +397,71 @@ export class ToolCallExecutor {
             batchId,
           });
           await this.safeEmitFn(this.eventManager, failedEvent);
+        }
+
+        return {
+          toolCallId: toolCall.id,
+          toolId: toolCall.name,
+          success: false,
+          error: errorMessage,
+          executionTime: diffTimestamp(startTime, now()),
+        };
+      }
+    }
+
+    // Check tool failure protection (NEW)
+    if (executionId && this.toolFailureProtection) {
+      const checkResult = this.toolFailureProtection.canExecuteTool(toolCall.name);
+      
+      if (!checkResult.allowed) {
+        const errorMessage = checkResult.reason || `Tool '${toolCall.name}' is blocked due to consecutive failures`;
+        
+        logger.warn(`Tool call blocked by failure protection`, {
+          toolCallId: toolCall.id,
+          toolName: toolCall.name,
+          executionId,
+          nodeId,
+          failureCount: checkResult.failureCount,
+          remainingCooldown: checkResult.remainingCooldown,
+          lastError: checkResult.lastError,
+        });
+
+        // Build tool result message for blocked tool
+        const toolMessage = MessageBuilder.buildToolMessage(toolCall.id, {
+          success: false,
+          error: errorMessage,
+          executionTime: diffTimestamp(startTime, now()),
+          retryCount: 0,
+        });
+        conversationState.addMessage(toolMessage);
+
+        // Trigger message addition event
+        if (this.eventManager && this.eventBuilder && this.safeEmitFn) {
+          const messageEvent = this.eventBuilder.buildMessageAddedEvent({
+            executionId: executionId || "",
+            role: toolMessage.role,
+            content:
+              typeof toolMessage.content === "string"
+                ? toolMessage.content
+                : JSON.stringify(toolMessage.content),
+            nodeId,
+          });
+          await this.safeEmitFn(this.eventManager, messageEvent);
+        }
+
+        // Trigger tool call blocked event (NEW)
+        if (this.eventManager && this.eventBuilder?.buildToolCallBlockedEvent && this.safeEmitFn) {
+          const blockedEvent = this.eventBuilder.buildToolCallBlockedEvent({
+            executionId: executionId || "",
+            nodeId: nodeId || "",
+            toolId: toolCall.name,
+            toolName: toolCall.name,
+            failureCount: checkResult.failureCount,
+            lastError: checkResult.lastError,
+            remainingCooldown: checkResult.remainingCooldown,
+            reason: checkResult.reason,
+          });
+          await this.safeEmitFn(this.eventManager, blockedEvent);
         }
 
         return {
@@ -557,6 +630,11 @@ export class ToolCallExecutor {
           await this.safeEmitFn(this.eventManager, failedEvent);
         }
 
+        // Record failed tool execution for failure protection (NEW)
+        if (this.toolFailureProtection) {
+          this.toolFailureProtection.recordFailure(toolCall.name, errorMessage || "Tool execution failed");
+        }
+
         return {
           toolCallId: toolCall.id,
           toolId: toolCall.name,
@@ -645,6 +723,11 @@ export class ToolCallExecutor {
           batchId,
         });
         await this.safeEmitFn(this.eventManager, completedEvent);
+      }
+
+      // Record successful tool execution for failure protection (NEW)
+      if (this.toolFailureProtection) {
+        this.toolFailureProtection.recordSuccess(toolCall.name);
       }
 
       return {

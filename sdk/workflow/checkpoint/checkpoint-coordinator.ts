@@ -61,6 +61,24 @@ export interface CheckpointDependencies {
 }
 
 /**
+ * Checkpoint creation options
+ */
+export interface CheckpointOptions {
+  /**
+   * If true, blocks until data is persisted to disk
+   * Default: false (async for performance)
+   */
+  sync?: boolean;
+
+  /**
+   * Timeout for synchronous checkpoint (milliseconds)
+   * Only applies when sync=true
+   * Default: 30000 (30 seconds)
+   */
+  syncTimeout?: number;
+}
+
+/**
  * Checkpoint Coordinator (completely stateless)
  */
 export class CheckpointCoordinator {
@@ -72,6 +90,7 @@ export class CheckpointCoordinator {
    * @param dependencies Dependencies
    * @param metadata Checkpoint metadata
    * @param conversationManager Optional ConversationSession (if not using stateCoordinatorMap)
+   * @param options Checkpoint options (sync mode, timeout, etc.)
    * @returns Checkpoint ID
    */
   static async createCheckpoint(
@@ -79,6 +98,7 @@ export class CheckpointCoordinator {
     dependencies: CheckpointDependencies,
     metadata?: CheckpointMetadata,
     conversationManager?: ConversationSession,
+    options?: CheckpointOptions,
   ): Promise<string> {
     const { workflowExecutionRegistry, checkpointStateManager, deltaConfig, stateCoordinatorMap } =
       dependencies;
@@ -196,7 +216,7 @@ export class CheckpointCoordinator {
     }
 
     // Step 7: Call CheckpointState to create a checkpoint
-    return await checkpointStateManager.create(checkpoint);
+    return await checkpointStateManager.create(checkpoint, options);
   }
 
   /**

@@ -10,6 +10,7 @@
 
 import type { CheckpointStorageMetadata, CheckpointStorageListOptions } from "@wf-agent/types";
 import type { CheckpointStorageAdapter } from "../types/adapter/index.js";
+import type { CheckpointOptions } from "../types/checkpoint-options.js";
 import { BaseSqliteStorage, BaseSqliteStorageConfig } from "./base-sqlite-storage.js";
 import { selectCompressionStrategy } from "@wf-agent/common-utils";
 import { compressBlob, decompressBlob, compressBlobSync, decompressBlobSync } from "@wf-agent/common-utils";
@@ -140,8 +141,17 @@ export class SqliteCheckpointStorage
 
   /**
    * Save checkpoint with metadata-BLOB separation and compression
+   * @param id Checkpoint ID
+   * @param data Checkpoint data
+   * @param metadata Checkpoint metadata
+   * @param options Checkpoint options (sync mode, timeout, etc.)
    */
-  async save(id: string, data: Uint8Array, metadata: CheckpointStorageMetadata): Promise<void> {
+  async save(
+    id: string,
+    data: Uint8Array,
+    metadata: CheckpointStorageMetadata,
+    options?: CheckpointOptions,
+  ): Promise<void> {
     const startTime = Date.now();
     const db = this.getDb();
     const now = Date.now();
@@ -234,6 +244,20 @@ export class SqliteCheckpointStorage
           throw error; // Transaction will automatically rollback
         }
       })();
+
+      // If sync mode is enabled, force WAL checkpoint to ensure data is flushed to disk
+      if (options?.sync) {
+        try {
+          db.pragma('wal_checkpoint(TRUNCATE)');
+          logger.debug('Synchronous checkpoint saved with WAL flush', { id, size: data.length });
+        } catch (error) {
+          logger.error('Failed to flush WAL during synchronous checkpoint', { 
+            id, 
+            error: (error as Error).message 
+          });
+          throw error;
+        }
+      }
 
       // Track metrics
       const elapsed = Date.now() - startTime;

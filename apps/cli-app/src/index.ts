@@ -123,6 +123,11 @@ program
       taskStorageAdapter: storageManager?.getTaskStorage() ?? undefined,
       workflowExecutionStorageAdapter: storageManager?.getWorkflowExecutionStorage() ?? undefined,
       agentLoopCheckpointStorageAdapter: storageManager?.getAgentLoopCheckpointStorage() ?? undefined,
+      // Enable graceful shutdown (default is true, but explicit for clarity)
+      gracefulShutdown: {
+        enabled: true,
+        timeoutMs: 15000,
+      },
       hooks: {
         onBootstrapStart: () => {
           output.infoLog("Initializing SDK...");
@@ -261,6 +266,7 @@ async function startTUI() {
     }
     
     // Setup cleanup handlers for TUI mode
+    // Note: GracefulShutdownManager is already registered by SDK, so we don't need manual signal handlers
     const cleanupAndExit = async () => {
       output.infoLog("Cleaning up resources...");
       
@@ -302,9 +308,8 @@ async function startTUI() {
       }
     };
 
-    // Listen for exit signals
-    process.on("SIGINT", cleanupAndExit);
-    process.on("SIGTERM", cleanupAndExit);
+    // Note: GracefulShutdownManager is already registered by SDK, so we don't need manual signal handlers
+    // The cleanup logic is handled in the onDestroy hook
     
     // Start the TUI application
     app.start();
@@ -356,11 +361,9 @@ const shutdown = async () => {
   }
 };
 
-// Only add signal listeners if not in TUI mode
-if (!hasTuiFlag && executionMode !== "interactive") {
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
-}
+// Note: GracefulShutdownManager is already registered by SDK during bootstrap
+// Manual signal handlers are no longer needed - the SDK handles SIGINT/SIGTERM automatically
+// The shutdown function above is kept for reference but not used as a signal handler
 
 // Export function to get SDK instance (for adapters and other modules)
 export function getSDKInstance(): import("@wf-agent/sdk").SDKInstance | null {

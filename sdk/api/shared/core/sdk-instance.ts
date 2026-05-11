@@ -35,6 +35,7 @@ import { TriggerTemplateBuilder } from "../../workflow/builders/trigger-template
 import type { BaseCommand } from "../types/command.js";
 import type { ExecutionResult } from "../types/execution-result.js";
 import { failure } from "../types/execution-result.js";
+import { GracefulShutdownManager } from "../../../services/shutdown/graceful-shutdown-manager.js";
 
 /**
  * SDK Instance Class
@@ -47,6 +48,7 @@ export class SDKInstance {
   private bootstrapPromise?: Promise<void>;
   private isBootstrapped: boolean = false;
   private containerId: string;
+  private shutdownManager?: GracefulShutdownManager;
 
   /**
    * Create an SDK instance
@@ -457,6 +459,51 @@ export class SDKInstance {
       }
     }
 
+    // Initialize Graceful Shutdown Manager if enabled
+    const gracefulShutdownConfig = this.config?.gracefulShutdown;
+    const enableGracefulShutdown = gracefulShutdownConfig?.enabled ?? true;
+    
+    if (enableGracefulShutdown) {
+      try {
+        const workflowExecutionRegistry = this.globalContext.container.get(
+          ServiceIdentifiers.WorkflowExecutionRegistry
+        );
+        const checkpointState = this.globalContext.container.get(
+          ServiceIdentifiers.CheckpointState
+        );
+        const workflowRegistry = this.globalContext.workflowRegistry;
+        const workflowGraphRegistry = this.globalContext.container.get(
+          ServiceIdentifiers.WorkflowGraphRegistry
+        );
+        
+        const shutdownManager = new GracefulShutdownManager(
+          workflowExecutionRegistry as any,
+          {
+            workflowExecutionRegistry: workflowExecutionRegistry as any,
+            checkpointStateManager: checkpointState as any,
+            workflowRegistry: workflowRegistry as any,
+            workflowGraphRegistry: workflowGraphRegistry as any,
+            // stateCoordinatorMap is optional and not registered in container
+            stateCoordinatorMap: undefined,
+          },
+          {
+            timeoutMs: gracefulShutdownConfig?.timeoutMs ?? 15000,
+            enabled: true,
+          }
+        );
+        
+        shutdownManager.registerSignalHandlers();
+        this.shutdownManager = shutdownManager;
+        
+        logger.info("Graceful shutdown manager initialized and signal handlers registered", {
+          timeoutMs: gracefulShutdownConfig?.timeoutMs ?? 15000,
+        });
+      } catch (error) {
+        logger.error(`Failed to initialize graceful shutdown manager: ${getErrorMessage(error)}`);
+        // Don't fail bootstrap - SDK can still work without graceful shutdown
+      }
+    }
+
     // Call complete hook if provided
     await this.config?.hooks?.onBootstrapComplete?.();
   }
@@ -759,6 +806,14 @@ export class SDKInstance {
     }
 
     logger.info("SDK instance shutdown completed", { containerId: this.containerId });
+  }
+
+  /**
+   * Get the GracefulShutdownManager instance (if initialized)
+   * @returns The shutdown manager or undefined if not enabled
+   */
+  getShutdownManager(): GracefulShutdownManager | undefined {
+    return this.shutdownManager;
   }
 
   /**

@@ -152,6 +152,16 @@ export interface CustomTriggerHandlerConfig {
 }
 
 /**
+ * Graceful Shutdown Configuration
+ */
+export interface GracefulShutdownConfig {
+  /** Whether to enable graceful shutdown (default: true) */
+  enabled?: boolean;
+  /** Maximum time to wait for all checkpoints during shutdown (milliseconds, default: 15000) */
+  timeoutMs?: number;
+}
+
+/**
  * SDK Options
  */
 export interface SDKOptions {
@@ -195,24 +205,8 @@ export interface SDKOptions {
   workflowExecution?: WorkflowExecutionConfig;
   /** Custom trigger handlers configuration */
   customTriggerHandlers?: Record<string, unknown>; // Will be typed as CustomTriggerHandler when imported
-}
-
-/**
- * SDK Dependencies
- */
-export interface SDKDependencies {
-  /** Workflow Registry */
-  workflowRegistry?: unknown;
-  /** Workflow Execution Registry */
-  executionRegistry?: unknown;
-  /** Tool Registry */
-  toolRegistry?: unknown;
-  /** Script Registry */
-  scriptRegistry?: unknown;
-  /** Event Manager */
-  eventManager?: unknown;
-  /** Checkpoint storage adapter interface (implemented by the application layer) */
-  checkpointStorageAdapter?: CheckpointStorageAdapter;
+  /** Graceful shutdown configuration */
+  gracefulShutdown?: GracefulShutdownConfig;
 }
 
 export type { WorkflowExecutionOptions };

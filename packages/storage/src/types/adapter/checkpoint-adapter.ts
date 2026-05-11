@@ -5,6 +5,7 @@
 
 import type { CheckpointStorageMetadata, CheckpointStorageListOptions } from "@wf-agent/types";
 import type { BaseStorageAdapter } from "./base-storage-adapter.js";
+import type { CheckpointOptions } from "../checkpoint-options.js";
 
 /**
  * Checkpoint Storage Adapter Interface
@@ -16,5 +17,6 @@ import type { BaseStorageAdapter } from "./base-storage-adapter.js";
  */
 export type CheckpointStorageAdapter = BaseStorageAdapter<
   CheckpointStorageMetadata,
-  CheckpointStorageListOptions
+  CheckpointStorageListOptions,
+  CheckpointOptions
 >;

@@ -30,6 +30,9 @@ export * from "./utils/signal/abort-utils.js";
 export * from "./utils/signal/abort-signal-utils.js";
 export * from "./utils/signal/interruption-types.js";
 
+// Process management utilities (cross-platform signal handling)
+export * from "./utils/process/index.js";
+
 // Compression utilities
 export * from "./utils/compression/index.js";
 

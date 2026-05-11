@@ -17,6 +17,7 @@ import {
 import { LRUCache } from "../utils/lru-cache.js";
 import type { StorageMetrics } from "../types/metrics.js";
 import { DEFAULT_STORAGE_METRICS } from "../types/metrics.js";
+import type { CheckpointOptions } from "../types/checkpoint-options.js";
 
 const logger = createModuleLogger("json-storage");
 
@@ -334,8 +335,12 @@ export abstract class BaseJsonStorage<TMetadata> {
   /**
    * Save data to storage
    * Writes metadata to JSON file and data to binary file
+   * @param id Unique identifier
+   * @param data Data to save
+   * @param metadata Metadata
+   * @param options Save options (e.g., sync mode)
    */
-  async save(id: string, data: Uint8Array, metadata: TMetadata): Promise<void> {
+  async save(id: string, data: Uint8Array, metadata: TMetadata, options?: CheckpointOptions): Promise<void> {
     const startTime = Date.now();
     this.ensureInitialized();
 
@@ -381,6 +386,28 @@ export abstract class BaseJsonStorage<TMetadata> {
 
       const jsonContent = JSON.stringify(content, null, 2);
       await fs.writeFile(metadataPath, jsonContent, "utf-8");
+
+      // If sync mode is enabled, ensure data is flushed to disk
+      if (options?.sync) {
+        try {
+          // Open files and sync to ensure data is persisted
+          const metadataFd = await fs.open(metadataPath, 'r');
+          await metadataFd.sync();
+          await metadataFd.close();
+
+          const dataFd = await fs.open(dataPath, 'r');
+          await dataFd.sync();
+          await dataFd.close();
+
+          logger.debug('Synchronous checkpoint saved with fsync', { id, size: data.length });
+        } catch (error) {
+          logger.error('Failed to sync files during synchronous checkpoint', {
+            id,
+            error: (error as Error).message,
+          });
+          throw error;
+        }
+      }
 
       // Update index
       this.metadataIndex.set(id, {

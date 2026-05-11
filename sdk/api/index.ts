@@ -71,7 +71,7 @@ export type { SDKInstance } from "./shared/core/sdk-instance.js";
 export type { GlobalContext } from "../core/global-context.js";
 
 // SDK Types
-export type { SDKOptions, SDKLifecycleHooks } from "./shared/types/core-types.js";
+export type { SDKOptions, SDKLifecycleHooks, GracefulShutdownConfig } from "./shared/types/core-types.js";
 
 // API Factory
 export { APIFactory, type AllAPIs } from "./shared/core/api-factory.js";

@@ -27,6 +27,7 @@ import {
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 import { logError, emitErrorEvent } from "../../core/utils/error-utils.js";
 import type { CleanupScheduler } from "@wf-agent/storage";
+import type { CheckpointOptions } from "./checkpoint-coordinator.js";
 
 const logger = createContextualLogger({ operation: "checkpoint-state-manager" });
 
@@ -178,9 +179,10 @@ export class CheckpointState implements LifecycleCapable<void> {
   /**
    * Create a checkpoint
    * @param checkpointData Checkpoint data
+   * @param options Checkpoint options (sync mode, timeout, etc.)
    * @returns Checkpoint ID
    */
-  async create(checkpointData: Checkpoint): Promise<string> {
+  async create(checkpointData: Checkpoint, options?: CheckpointOptions): Promise<string> {
     const workflowExecutionId = checkpointData.executionId;
     const checkpointId = checkpointData.id;
 
@@ -195,7 +197,8 @@ export class CheckpointState implements LifecycleCapable<void> {
       const data = await this.codec.serialize(checkpointData);
       const storageMetadata = extractStorageMetadata(checkpointData);
 
-      await this.storageAdapter.save(checkpointId, data, storageMetadata);
+      // Pass options to storage adapter for sync support
+      await this.storageAdapter.save(checkpointId, data, storageMetadata, options);
       this.checkpointSizes.set(checkpointId, data.length);
 
       logger.info("Checkpoint created", { workflowExecutionId, checkpointId, sizeBytes: data.length });

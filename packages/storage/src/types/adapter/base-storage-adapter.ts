@@ -36,15 +36,17 @@ export interface StorageLifecycle {
  * Provides standardized CRUD operation interfaces
  * @template TMetadata - Metadata type
  * @template TListOptions - List query option type
+ * @template TSaveOptions - Save operation options type (optional)
  */
-export interface BaseStorageAdapter<TMetadata, TListOptions> extends StorageLifecycle {
+export interface BaseStorageAdapter<TMetadata, TListOptions, TSaveOptions = void> extends StorageLifecycle {
   /**
    * Save data
    * @param id: Unique identifier
    * @param data: Serialized data (byte array)
    * @param metadata: Metadata (used for indexing and querying)
+   * @param options: Save options (optional, e.g., sync mode)
    */
-  save(id: string, data: Uint8Array, metadata: TMetadata): Promise<void>;
+  save(id: string, data: Uint8Array, metadata: TMetadata, options?: TSaveOptions): Promise<void>;
 
   /**
    * Load data

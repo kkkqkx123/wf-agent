@@ -8,6 +8,7 @@ export { CheckpointTypeEnum as CheckpointType } from "./base.js";
 export type { CheckpointType as TCheckpointType } from "./base.js";
 export {
   CheckpointMetadata,
+  CheckpointOptions,
   DeltaStorageConfig,
   DEFAULT_DELTA_STORAGE_CONFIG,
   CheckpointConfigResult,

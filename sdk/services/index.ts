@@ -6,6 +6,7 @@
  * - Ignore Service: File/directory ignore pattern matching
  * - Protect Service: File write protection control
  * - Terminal Service: Shell session management and command execution
+ * - Shutdown Service: Graceful shutdown management for SDK lifecycle
  */
 
 // ============================================================================
@@ -187,3 +188,13 @@ export {
   getMcpManager,
   releaseMcpManager,
 } from './mcp/index.js';
+
+// ============================================================================
+// Shutdown Service
+// ============================================================================
+export {
+  GracefulShutdownManager,
+  type GracefulShutdownConfig,
+  type ShutdownSignal,
+  type ShutdownCheckpointResult,
+} from './shutdown/index.js';

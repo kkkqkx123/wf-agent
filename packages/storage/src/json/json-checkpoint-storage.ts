@@ -6,6 +6,7 @@
 import * as path from "path";
 import type { CheckpointStorageMetadata, CheckpointStorageListOptions } from "@wf-agent/types";
 import type { CheckpointStorageAdapter } from "../types/adapter/checkpoint-adapter.js";
+import type { CheckpointOptions } from "../types/checkpoint-options.js";
 import { BaseJsonStorage, BaseJsonStorageConfig } from "./base-json-storage.js";
 
 /**

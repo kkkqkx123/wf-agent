@@ -4,7 +4,7 @@
  * Implements the specific configuration parsing logic for Agent Loop based on the sdk/core/checkpoint common framework.
  */
 
-import { CheckpointConfigResolver } from "../../core/utils/checkpoint/checkpoint-config-resolver.js";
+import { CheckpointConfigResolver } from "../../../core/utils/checkpoint/checkpoint-config-resolver.js";
 import type {
   AgentLoopCheckpointConfig,
   CheckpointConfigResult,
@@ -24,7 +24,7 @@ import type {
  * 3. global - Global configuration
  * 4. default - Default values
  */
-export class AgentLoopCheckpointResolver extends CheckpointConfigResolver {
+export class AgentLoopCheckpointConfigResolver extends CheckpointConfigResolver {
   /**
    * Parse Agent Loop checkpoint configuration
    *

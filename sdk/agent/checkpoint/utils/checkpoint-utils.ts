@@ -6,12 +6,12 @@
 
 import type { ID } from "@wf-agent/types";
 import type { CheckpointMetadata } from "@wf-agent/types";
-import type { AgentLoopEntity } from "../entities/agent-loop-entity.js";
+import type { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import {
   AgentLoopCheckpointCoordinator,
   type CheckpointDependencies,
-} from "./checkpoint-coordinator.js";
-import { mergeMetadata } from "../../utils/metadata-utils.js";
+} from "../checkpoint-coordinator.js";
+import { mergeMetadata } from "../../../utils/metadata-utils.js";
 import type { Metadata } from "@wf-agent/types";
 
 /**

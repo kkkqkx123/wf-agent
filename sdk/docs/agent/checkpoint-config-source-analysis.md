@@ -44,7 +44,7 @@ type CheckpointConfigSource =
 
 | 冗余项 | 位置 | 说明 |
 |--------|------|------|
-| `resolveAgentLoopCheckpointConfig` 函数 | `packages/types/src/checkpoint/agent/config.ts` | 与 `AgentLoopCheckpointResolver` 类功能重复 |
+| `resolveAgentLoopCheckpointConfig` 函数 | `packages/types/src/checkpoint/agent/config.ts` | 与 `AgentLoopCheckpointConfigResolver` 类功能重复 |
 | `'iteration'` 来源 | 类型定义中 | 类实现中从未使用 |
 | 两套 Agent Loop 解析实现 | types 包和 sdk 包 | 都未被实际调用 |
 
@@ -290,7 +290,7 @@ export interface AgentLoopCheckpointConfigLayer {
 #### 需要删除的文件/代码
 
 1. **`packages/types/src/checkpoint/agent/config.ts`** 中的 `resolveAgentLoopCheckpointConfig` 函数
-   - 功能与 `AgentLoopCheckpointResolver` 重复
+   - 功能与 `AgentLoopCheckpointConfigResolver` 重复
    - 该函数也未被任何代码调用
 
 2. **类型 `AgentLoopCheckpointConfigSource`** 中的 `'iteration'` 值
@@ -302,13 +302,13 @@ export interface AgentLoopCheckpointConfigLayer {
 - `packages/types/src/checkpoint/agent/index.ts` - 移除 `resolveAgentLoopCheckpointConfig` 导出
 - `packages/types/src/agent/index.ts` - 移除相关导出
 
-### 4.3 重构 `AgentLoopCheckpointResolver`
+### 4.3 重构 `AgentLoopCheckpointConfigResolver`
 
 ```typescript
 /**
  * Agent Loop 检查点配置解析器
  */
-export class AgentLoopCheckpointResolver extends CheckpointConfigResolver {
+export class AgentLoopCheckpointConfigResolver extends CheckpointConfigResolver {
   /**
    * 解析 Agent Loop 检查点配置
    *

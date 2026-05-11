@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { AgentLoopCheckpointStateManager } from "../agent-loop-checkpoint-state-manager.js";
+import { AgentLoopCheckpointStateManager } from "../checkpoint-state-manager.js";
 import type { AgentLoopCheckpointStorageAdapter } from "@wf-agent/storage";
 import type { AgentLoopCheckpoint } from "@wf-agent/types";
 import { AgentLoopStatus } from "@wf-agent/types";

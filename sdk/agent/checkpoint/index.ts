@@ -3,7 +3,7 @@
  */
 
 // Configure the parser
-export { AgentLoopCheckpointResolver } from "./checkpoint-config-resolver.js";
+export { AgentLoopCheckpointConfigResolver } from "./utils/config-resolver.js";
 
 // Checkpoint Coordinator
 export {
@@ -13,11 +13,11 @@ export {
 } from "./checkpoint-coordinator.js";
 
 // State Manager (NEW - Phase 4)
-export { AgentLoopCheckpointStateManager } from "./agent-loop-checkpoint-state-manager.js";
+export { AgentLoopCheckpointStateManager } from "./checkpoint-state-manager.js";
 
 // Utility functions
 export {
   createCheckpoint,
   restoreFromCheckpoint,
   type CreateCheckpointOptions,
-} from "./checkpoint-utils.js";
+} from "./utils/checkpoint-utils.js";

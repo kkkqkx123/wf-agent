@@ -1,20 +1,20 @@
 /**
- * Tests for AgentLoopCheckpointResolver
+ * Tests for AgentLoopCheckpointConfigResolver
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { AgentLoopCheckpointResolver } from "../checkpoint-config-resolver.js";
+import { AgentLoopCheckpointConfigResolver } from "../utils/config-resolver.js";
 import type {
   AgentLoopCheckpointConfigLayer,
   AgentLoopCheckpointConfigContext,
   AgentLoopCheckpointTriggerType,
 } from "@wf-agent/types";
 
-describe("AgentLoopCheckpointResolver", () => {
-  let resolver: AgentLoopCheckpointResolver;
+describe("AgentLoopCheckpointConfigResolver", () => {
+  let resolver: AgentLoopCheckpointConfigResolver;
 
   beforeEach(() => {
-    resolver = new AgentLoopCheckpointResolver();
+    resolver = new AgentLoopCheckpointConfigResolver();
   });
 
   const createContext = (

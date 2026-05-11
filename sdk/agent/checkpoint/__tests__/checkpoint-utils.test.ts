@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { createCheckpoint, restoreFromCheckpoint } from "../checkpoint-utils.js";
+import { createCheckpoint, restoreFromCheckpoint } from "../utils/checkpoint-utils.js";
 import type { CheckpointDependencies } from "../checkpoint-coordinator.js";
 import type { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import { AgentLoopStatus } from "@wf-agent/types";

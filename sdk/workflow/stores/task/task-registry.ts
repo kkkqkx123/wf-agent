@@ -33,10 +33,12 @@ import {
 import type { TaskStorageAdapter } from "@wf-agent/storage";
 import {
   ErrorCodec,
+  StateCodec,
+} from "@wf-agent/common-utils";
+import {
   type TaskSnapshot,
   TaskSerializationUtils,
 } from "../../../core/utils/task/index.js";
-import { StateCodec } from "../../../core/codec/state-codec.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "TaskRegistry" });

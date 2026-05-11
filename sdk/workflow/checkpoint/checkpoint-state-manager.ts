@@ -12,7 +12,7 @@ import type {
 import type { CheckpointStorageAdapter } from "@wf-agent/storage";
 import type { EventRegistry } from "../../core/registry/event-registry.js";
 import { LifecycleCapable } from "../../core/types/lifecycle-capable.js";
-import { StateCodec } from "../../core/codec/state-codec.js";
+import { StateCodec } from "@wf-agent/common-utils";
 import { WorkflowCheckpointDeltaUtils } from "./types/checkpoint-snapshot.js";
 import { createCleanupStrategy, emit } from "../execution/utils/index.js";
 import { getErrorOrNew } from "@wf-agent/common-utils";

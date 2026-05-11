@@ -9,5 +9,3 @@ export {
   type SerializedWorkflowExecutionResultMetadata,
   TaskSerializationUtils,
 } from "./task-snapshot.js";
-
-export { ErrorCodec } from "../../codec/state-codec.js";

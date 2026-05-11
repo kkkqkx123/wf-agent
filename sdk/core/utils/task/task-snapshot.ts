@@ -12,7 +12,7 @@ import type {
   NodeExecutionResult,
   WorkflowExecutionStatus,
 } from "@wf-agent/types";
-import { ErrorCodec } from "../../codec/state-codec.js";
+import { ErrorCodec } from "@wf-agent/common-utils";
 
 /**
  * Task Snapshot - Serializable representation of task data

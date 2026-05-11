@@ -9,7 +9,7 @@ import type { CleanupPolicy, CleanupResult } from "@wf-agent/types";
 import type { AgentLoopCheckpoint, AgentCheckpointMetadata, AgentCheckpointListOptions } from "@wf-agent/types";
 import type { EventRegistry } from "../../core/registry/event-registry.js";
 import type { AgentLoopCheckpointStorageAdapter } from "@wf-agent/storage";
-import { StateCodec } from "../../core/codec/state-codec.js";
+import { StateCodec } from "@wf-agent/common-utils";
 import { createCleanupStrategy } from "../../core/utils/checkpoint/cleanup-policy.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 

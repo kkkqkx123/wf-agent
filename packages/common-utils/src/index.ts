@@ -33,6 +33,9 @@ export * from "./utils/signal/interruption-types.js";
 // Compression utilities
 export * from "./utils/compression/index.js";
 
+// Codec (serialization/deserialization)
+export * from "./codec/index.js";
+
 // Log system (selective export to avoid naming conflicts)
 export {
   createLogger,

@@ -5,7 +5,7 @@
  * Supports optional compression for storage efficiency.
  */
 
-import { compressBlob, decompressBlob } from "@wf-agent/common-utils";
+import { compressBlob, decompressBlob } from "../utils/compression/index.js";
 import type { SerializedError } from "@wf-agent/types";
 
 /**

@@ -6,19 +6,43 @@
  * - Only contains the core execution logic; does not include event triggering.
  * - Receives verified configuration.
  * - Returns the execution results.
+ * 
+ * Note: This handler is workflow-specific and handles UPDATE_VARIABLES and ADD_MESSAGE operations.
+ * It does NOT use the general UserInteractionRequest protocol (which is for app-level UI interactions
+ * like tool approval and follow-up questions).
  */
 
 import type { Node, UserInteractionNodeConfig } from "@wf-agent/types";
 import type { WorkflowExecution } from "@wf-agent/types";
 import type {
   UserInteractionHandler as AppUserInteractionHandler,
-  UserInteractionRequest,
   UserInteractionContext,
 } from "@wf-agent/types";
 import type { VariableScope } from "@wf-agent/types";
 import { ExecutionError } from "@wf-agent/types";
 import { generateId } from "../../../../utils/id-utils.js";
 import { now, diffTimestamp } from "@wf-agent/common-utils";
+
+/**
+ * Workflow-specific interaction request
+ * Internal type for passing workflow node config to the interaction handler
+ */
+interface WorkflowInteractionRequest {
+  interactionId: string;
+  operationType: 'UPDATE_VARIABLES' | 'ADD_MESSAGE';
+  variables?: Array<{
+    variableName: string;
+    expression: string;
+    scope: VariableScope;
+  }>;
+  message?: {
+    role: 'user';
+    contentTemplate: string;
+  };
+  prompt: string;
+  timeout: number;
+  metadata?: Record<string, unknown>;
+}
 
 /**
  * User Interaction Execution Context
@@ -49,15 +73,15 @@ export interface UserInteractionExecutionResult {
 }
 
 /**
- * Create an interactive request
+ * Create a workflow-specific interaction request from node config
  */
-function createInteractionRequest(
+function createWorkflowInteractionRequest(
   config: UserInteractionNodeConfig,
   interactionId: string,
-): UserInteractionRequest {
+): WorkflowInteractionRequest {
   return {
     interactionId,
-    operationType: config.operationType as unknown as UserInteractionRequest["operationType"],
+    operationType: config.operationType,
     variables: config.variables,
     message: config.message,
     prompt: config.prompt,
@@ -109,7 +133,7 @@ function createInteractionContext(
  * Get user input
  */
 async function getUserInput(
-  request: UserInteractionRequest,
+  request: WorkflowInteractionRequest,
   context: UserInteractionContext,
   handler: AppUserInteractionHandler,
 ): Promise<unknown> {
@@ -268,8 +292,8 @@ export async function userInteractionHandler(
   const interactionId = generateId();
   const startTime = now();
 
-  // 1. Create an interactive request
-  const request = createInteractionRequest(config, interactionId);
+  // 1. Create a workflow-specific interaction request
+  const request = createWorkflowInteractionRequest(config, interactionId);
 
   // 2. Create an interactive context
   const interactionContext = createInteractionContext(

@@ -1,14 +1,16 @@
 /**
  * Zod Schemas for Interaction Node Configuration
  * Provides runtime validation schemas that are synchronized with TypeScript type definitions
+ * 
+ * Note: This is workflow-specific configuration, separate from the general interaction protocol.
  */
 
 import { z } from "zod";
 
 /**
- * Variable update configuration schema
+ * Variable update configuration schema (Workflow-specific)
  */
-const variableUpdateConfigSchema = z.object({
+const workflowVariableUpdateConfigSchema = z.object({
   variableName: z.string().min(1, { message: "Variable name is required" }),
   expression: z.string().min(1, { message: "Expression is required" }),
   scope: z.enum(["global", "workflowExecution", "subgraph", "loop"], {
@@ -17,9 +19,9 @@ const variableUpdateConfigSchema = z.object({
 });
 
 /**
- * Message configuration schema
+ * Message configuration schema (Workflow-specific)
  */
-const messageConfigSchema = z.object({
+const workflowMessageConfigSchema = z.object({
   role: z.literal("user", { message: 'Message role must be "user"' }),
   contentTemplate: z.string().min(1, { message: "Content template is required" }),
 });
@@ -27,15 +29,16 @@ const messageConfigSchema = z.object({
 /**
  * User interaction node configuration schema
  *
- * Description: Define the business semantics of user interactions without application layer implementation details
+ * Description: Workflow-specific configuration for USER_INTERACTION nodes.
+ * Supports UPDATE_VARIABLES and ADD_MESSAGE operations for workflow state management.
  */
 export const UserInteractionNodeConfigSchema = z
   .object({
     operationType: z.enum(["UPDATE_VARIABLES", "ADD_MESSAGE"], {
       message: "Operation type must be one of: UPDATE_VARIABLES, ADD_MESSAGE",
     }),
-    variables: z.array(variableUpdateConfigSchema).optional(),
-    message: messageConfigSchema.optional(),
+    variables: z.array(workflowVariableUpdateConfigSchema).optional(),
+    message: workflowMessageConfigSchema.optional(),
     prompt: z.string().min(1, { message: "Prompt is required" }),
     timeout: z.number().positive().optional(),
     metadata: z.record(z.string(), z.any()).optional(),

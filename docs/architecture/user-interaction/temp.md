@@ -77,16 +77,28 @@
 
 **Purpose:** Define the contract between SDK and application layer
 
-**Current State:**
+**Current State (After Refactoring):**
 ```typescript
+// General-purpose interaction protocol (app-level UI interactions)
 export interface UserInteractionRequest {
   interactionId: ID;
-  operationType: UserInteractionOperationType;
-  variables?: VariableUpdateConfig[];
-  message?: MessageConfig;
+  operationType: UserInteractionOperationType; // "TOOL_APPROVAL" | "ASK_FOLLOWUP_QUESTION"
   prompt: string;
   timeout: number;
-  metadata?: Metadata;
+  metadata?: Metadata & {
+    toolData?: ToolApprovalRequestData;
+    followupData?: FollowupQuestionRequestData;
+  };
+}
+
+// Workflow-specific node configuration (workflow state management)
+export interface UserInteractionNodeConfig {
+  operationType: 'UPDATE_VARIABLES' | 'ADD_MESSAGE';
+  variables?: WorkflowVariableUpdateConfig[];
+  message?: WorkflowMessageConfig;
+  prompt: string;
+  timeout?: number;
+  metadata?: Record<string, unknown>;
 }
 
 export interface UserInteractionHandler {

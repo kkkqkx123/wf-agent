@@ -1,36 +1,38 @@
 /**
  * User Interaction Core Types
  * Define the core business types related to user interactions
+ * 
+ * This module defines the general-purpose interaction protocol for app-level UI interactions.
+ * Examples: tool approval (requires confirmation UI), follow-up questions (requires options UI).
+ * 
+ * Note: This is separate from workflow node configuration. Workflow-specific operations
+ * like UPDATE_VARIABLES and ADD_MESSAGE are defined in packages/types/src/node/configs/interaction-configs.ts.
  */
 
 import type { ID, Metadata } from "../common.js";
 import type { VariableScope } from "../workflow-execution/scopes.js";
 
 /**
- * Types of user interactions
+ * Types of user interactions (App-level UI interactions)
  */
 export type UserInteractionOperationType =
-  /** Updating workflow variables */
-  | "UPDATE_VARIABLES"
-  /** Adding User Messages to LLM Conversations */
-  | "ADD_MESSAGE"
-  /** Tool call approval */
+  /** Tool call approval (requires confirmation UI) */
   | "TOOL_APPROVAL"
-  /** Ask follow-up question */
+  /** Ask follow-up question (requires options UI) */
   | "ASK_FOLLOWUP_QUESTION";
 
 /**
  * User Interaction Requests
+ * 
+ * General-purpose interaction request for app-level UI interactions.
+ * For workflow-specific operations (UPDATE_VARIABLES, ADD_MESSAGE), 
+ * use UserInteractionNodeConfig instead.
  */
 export interface UserInteractionRequest {
   /** Interaction ID */
   interactionId: ID;
   /** Type of operation */
   operationType: UserInteractionOperationType;
-  /** Variable update configuration (when operationType = UPDATE_VARIABLES) */
-  variables?: import("./variable-update.js").VariableUpdateConfig[];
-  /** Message configuration (when operationType = ADD_MESSAGE) */
-  message?: import("./variable-update.js").MessageConfig;
   /** Prompt message to the user (used by the application layer for display) */
   prompt: string;
   /** Interaction timeout (milliseconds) */
@@ -39,6 +41,8 @@ export interface UserInteractionRequest {
   metadata?: Metadata & {
     // Structured tool approval data
     toolData?: import("./tool-approval.js").ToolApprovalRequestData;
+    // Structured follow-up question data
+    followupData?: import("./followup-question.js").FollowupQuestionRequestData;
   };
 }
 

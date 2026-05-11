@@ -1,6 +1,9 @@
 /**
  * User Interaction Module
  * Unified export of all user interaction related types
+ * 
+ * This module exports general-purpose interaction protocols for app-level UI interactions.
+ * Workflow-specific operations (UPDATE_VARIABLES, ADD_MESSAGE) are in node/configs/interaction-configs.js.
  */
 
 export {
@@ -12,12 +15,6 @@ export {
   type UserInteractionContext,
   type UserInteractionHandler,
 } from "./user-interaction.js";
-
-export {
-  // Variable update types
-  type VariableUpdateConfig,
-  type MessageConfig,
-} from "./variable-update.js";
 
 export {
   // Tool approval types

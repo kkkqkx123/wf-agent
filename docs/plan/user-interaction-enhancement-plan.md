@@ -88,17 +88,29 @@ export interface PendingToolCall {
 
 **Changes:**
 ```typescript
-// ENHANCE: UserInteractionRequest - support structured tool data
+// After Refactoring: Separated workflow config from general protocol
+
+// Workflow-specific node configuration (workflow state management)
+export interface UserInteractionNodeConfig {
+  operationType: 'UPDATE_VARIABLES' | 'ADD_MESSAGE';
+  variables?: WorkflowVariableUpdateConfig[];
+  message?: WorkflowMessageConfig;
+  prompt: string;
+  timeout?: number;
+  metadata?: Record<string, unknown>;
+}
+
+// General-purpose interaction protocol (app-level UI interactions)
 export interface UserInteractionRequest {
   interactionId: ID;
-  operationType: UserInteractionOperationType;
-  variables?: VariableUpdateConfig[];
-  message?: MessageConfig;
+  operationType: UserInteractionOperationType; // "TOOL_APPROVAL" | "ASK_FOLLOWUP_QUESTION"
   prompt: string;
   timeout: number;
   metadata?: Metadata & {
-    // NEW: Structured tool approval data
+    // Structured tool approval data
     toolData?: ToolApprovalRequestData;
+    // Structured follow-up question data
+    followupData?: FollowupQuestionRequestData;
   };
 }
 

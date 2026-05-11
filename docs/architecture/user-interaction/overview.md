@@ -43,14 +43,26 @@ Located in `packages/types/src/interaction.ts`:
 **Key Interfaces:**
 
 ```typescript
+// General-purpose interaction protocol (app-level UI interactions)
 interface UserInteractionRequest {
   interactionId: ID;
-  operationType: UserInteractionOperationType;
-  variables?: VariableUpdateConfig[];  // For UPDATE_VARIABLES
-  message?: MessageConfig;              // For ADD_MESSAGE
+  operationType: UserInteractionOperationType; // "TOOL_APPROVAL" | "ASK_FOLLOWUP_QUESTION"
   prompt: string;                       // Display text for user
   timeout: number;                      // Timeout in milliseconds
-  metadata?: Metadata;
+  metadata?: Metadata & {
+    toolData?: ToolApprovalRequestData;
+    followupData?: FollowupQuestionRequestData;
+  };
+}
+
+// Workflow-specific node configuration (workflow state management)
+interface UserInteractionNodeConfig {
+  operationType: 'UPDATE_VARIABLES' | 'ADD_MESSAGE';
+  variables?: WorkflowVariableUpdateConfig[];  // For UPDATE_VARIABLES
+  message?: WorkflowMessageConfig;              // For ADD_MESSAGE
+  prompt: string;
+  timeout?: number;
+  metadata?: Record<string, unknown>;
 }
 
 interface UserInteractionContext {

@@ -26,6 +26,9 @@ export * from './context-configs.js';
 // Export subgraph node configuration
 export * from './subgraph-configs.js';
 
+// Export agent loop node configuration
+export * from './agent-loop-configs.js';
+
 // Export Zod Schemas for Node Configurations
 export {
   ContextProcessorNodeConfigSchema,
@@ -82,3 +85,8 @@ export {
   UserInteractionNodeConfigSchema,
   isUserInteractionNodeConfig,
 } from './interaction-configs-schema.js';
+
+export {
+  AgentLoopNodeConfigSchema,
+  isAgentLoopNodeConfig,
+} from './agent-loop-configs-schema.js';

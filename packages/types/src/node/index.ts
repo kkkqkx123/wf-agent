@@ -15,9 +15,6 @@ export * from "./hooks.js";
 // Export Node Attribute Types
 export * from "./properties.js";
 
-// Exporting Agent Loop Types
-export * from "./agent-loop.js";
-
 // Export all node configured union types (for scenarios such as NodeTemplate)
 import type { StartNodeConfig, EndNodeConfig, RouteNodeConfig } from "./configs/control-configs.js";
 
@@ -43,7 +40,7 @@ import type {
   ContinueFromTriggerNodeConfig,
 } from "./configs/subgraph-configs.js";
 
-import type { AgentLoopNodeConfig } from "./agent-loop.js";
+import type { AgentLoopNodeConfig } from "./configs/agent-loop-configs.js";
 
 /**
  * Node Configuration Union Type

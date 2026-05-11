@@ -32,7 +32,7 @@ import type {
   ContinueFromTriggerNodeConfig,
 } from "./configs/subgraph-configs.js";
 
-import type { AgentLoopNodeConfig } from "./agent-loop.js";
+import type { AgentLoopNodeConfig } from "./configs/agent-loop-configs.js";
 
 /**
  * Node type

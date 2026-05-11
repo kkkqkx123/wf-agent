@@ -636,6 +636,130 @@ inputs = {
 ✅ **解耦父子工作流**：通过 externalName/internalName 映射  
 ✅ **类型安全**：预处理验证 + 运行时检查  
 ✅ **灵活性**：支持必填/可选、默认值、多输入输出  
-✅ **与架构一致**：复用现有 Registry，遵循"一切皆消息"理念  
+✅ **与架构一致**：复用现有 Registry，遵循“一切皆消息”理念  
 
 该方案从根本上解决了 context ID 冲突问题，同时保持了配置的简洁性和可维护性。
+
+---
+
+## 10. 实施状态
+
+### ✅ 已完成
+
+- [x] 扩展 `StartNodeConfig` 和 `SubgraphNodeConfig` 类型定义
+- [x] 更新 Zod Schema 验证模式
+- [x] 实现 `validateAndMapMessageContexts` 验证函数
+- [x] 重构 `enterSubgraph` 实现消息上下文传递（父→子）
+- [x] 重构 `exitSubgraph` 实现消息上下文返回（子→父）
+- [x] 更新 `node-execution-coordinator` 传递 subgraphNode 参数
+- [x] 编写单元测试验证功能
+
+### 📝 使用示例
+
+#### 子工作流定义 (research-agent.toml)
+
+```toml
+[workflow]
+id = "research-agent"
+name = "Research Agent"
+type = "DEPENDENT"
+
+# START 节点声明输入输出
+[[nodes]]
+id = "start"
+type = "START"
+[nodes.config]
+# 声明接收的消息上下文
+[[nodes.config.messageInputs]]
+externalName = "research_query"
+internalName = "query"
+required = true
+description = "The research question or topic"
+
+[[nodes.config.messageInputs]]
+externalName = "background_knowledge"
+internalName = "knowledge"
+required = false
+description = "Optional background information"
+
+# 声明输出的消息上下文
+[[nodes.config.messageOutputs]]
+internalName = "analysis_result"
+externalName = "result"
+description = "Analysis results"
+
+# 内部节点使用 internalName
+[[nodes]]
+id = "analyze"
+type = "LLM"
+[nodes.config]
+profileId = "gpt-4"
+contextRefs = ["query", "knowledge"]
+
+[[nodes]]
+id = "end"
+type = "END"
+[nodes.config]
+outputContexts = ["analysis_result"]
+```
+
+#### 父工作流调用 (main-workflow.toml)
+
+```toml
+[[nodes]]
+id = "call-research"
+type = "SUBGRAPH"
+[nodes.config]
+subgraphId = "research-agent"
+async = false
+
+# 传递消息上下文 (使用 externalName)
+[nodes.config.messagePassing]
+inputs = {
+  research_query = "my-query",
+  background_knowledge = "kb-context"
+}
+outputs = {
+  result = "research-result"
+}
+```
+
+### 🔍 关键实现细节
+
+1. **浅拷贝策略**：消息数组使用浅拷贝，避免深拷贝开销，同时防止父子工作流相互影响
+2. **强制配置**：`messagePassing` 现在是 SUBGRAPH 节点的必需配置，未配置将抛出错误
+3. **严格验证**：所有验证失败都会抛出错误而非警告，确保配置正确性
+4. **元数据追踪**：复制的 context 会添加 `sourceContext` 和 `passedFromParent` 等元数据，便于调试
+5. **必需参数**：`enterSubgraph` 和 `exitSubgraph` 函数的 `subgraphNode` 参数现在是必需的
+
+### ⚠️ Breaking Changes
+
+从向后兼容版本迁移时需要注意：
+
+1. **所有 SUBGRAPH 节点必须配置 messagePassing**
+   ```toml
+   # ❌ 旧方式（不再支持）
+   [[nodes]]
+   id = "call-subgraph"
+   type = "SUBGRAPH"
+   [nodes.config]
+   subgraphId = "child"
+   
+   # ✅ 新方式（必需）
+   [[nodes]]
+   id = "call-subgraph"
+   type = "SUBGRAPH"
+   [nodes.config]
+   subgraphId = "child"
+   [nodes.config.messagePassing]
+   inputs = { query = "current" }
+   outputs = { result = "result" }
+   ```
+
+2. **缺失的 required context 将抛出错误**
+   - 以前：记录警告但继续执行
+   - 现在：立即抛出错误，终止执行
+
+3. **输出 context 必须存在**
+   - 以前：记录警告
+   - 现在：如果声明的输出 context 不存在，抛出错误

@@ -6,9 +6,26 @@
 import { z } from "zod";
 
 /**
- * Start node configuration schema (must be an empty object)
+ * Start node configuration schema
+ * Extended to support message context inputs/outputs declaration for subgraphs
  */
-export const StartNodeConfigSchema = z.object({}).strict();
+export const StartNodeConfigSchema = z.object({
+  messageInputs: z.array(
+    z.object({
+      externalName: z.string().min(1, "External name is required"),
+      internalName: z.string().min(1, "Internal name is required"),
+      required: z.boolean().optional(),
+      description: z.string().optional(),
+    })
+  ).optional(),
+  messageOutputs: z.array(
+    z.object({
+      internalName: z.string().min(1, "Internal name is required"),
+      externalName: z.string().min(1, "External name is required"),
+      description: z.string().optional(),
+    })
+  ).optional(),
+});
 
 /**
  * End node configuration schema (must be an empty object)

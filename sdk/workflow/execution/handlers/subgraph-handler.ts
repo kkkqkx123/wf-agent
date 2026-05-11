@@ -6,6 +6,7 @@
  * - Handle the logic for subgraphs to enter
  * - Handle the logic for subgraphs to exit
  * - Create metadata for the subgraph context
+ * - Manage message context passing between parent and subgraph workflows
  *
  * Design Principles:
  * - Reuse existing path parsing functions
@@ -14,12 +15,13 @@
  * - Use pure functions with no internal state
  *
  * Context Management:
- * - By default, subgraphs share the parent workflow's MessageContextRegistry
- * - All nodes in the subgraph can directly access contexts via contextRefs
- * - Future: Support isolatedContext mode for independent registry cloning
+ * - Subgraphs can explicitly declare message context inputs/outputs via START node configuration
+ * - Message contexts are passed through messagePassing configuration in SUBGRAPH nodes
+ * - Contexts are copied (shallow copy) to avoid conflicts between parent and child workflows
  */
 
 import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
+import type { Node, StartNodeConfig, SubgraphNodeConfig, NamedMessageContext } from "@wf-agent/types";
 import { now } from "@wf-agent/common-utils";
 import {
   checkWorkflowInterruption,
@@ -27,6 +29,7 @@ import {
   getWorkflowInterruptionDescription,
 } from "../../../core/utils/interruption/index.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
+import { validateAndMapMessageContexts } from "../../validation/utils/message-context-validator.js";
 
 const logger = createContextualLogger({ component: "subgraph-handler" });
 
@@ -36,12 +39,14 @@ const logger = createContextualLogger({ component: "subgraph-handler" });
  * @param workflowId Subgraph workflow ID
  * @param parentWorkflowId Parent workflow ID
  * @param input Subgraph input
+ * @param subgraphNode The SUBGRAPH node from parent workflow (required for message context passing)
  */
 export async function enterSubgraph(
   executionEntity: WorkflowExecutionEntity,
   workflowId: string,
   parentWorkflowId: string,
   input: Record<string, unknown>,
+  subgraphNode: Node,
 ): Promise<void> {
   // Check for interruption before entering subgraph
   const abortSignal = executionEntity.getAbortSignal();
@@ -56,15 +61,20 @@ export async function enterSubgraph(
     throw new Error(`Subgraph entry interrupted: ${getWorkflowInterruptionDescription(interruption)}`);
   }
 
+  // Handle message context passing (required)
+  await handleEnterSubgraphMessageContexts(executionEntity, subgraphNode, workflowId);
+
   await executionEntity.enterSubgraph(workflowId, parentWorkflowId, input);
 }
 
 /**
  * Exit the subgraph
  * @param executionEntity WorkflowExecution entity
+ * @param subgraphNode The SUBGRAPH node from parent workflow (required for message context passing)
  */
 export async function exitSubgraph(
   executionEntity: WorkflowExecutionEntity,
+  subgraphNode: Node,
 ): Promise<void> {
   // Check for interruption before exiting subgraph
   const abortSignal = executionEntity.getAbortSignal();
@@ -78,7 +88,222 @@ export async function exitSubgraph(
     throw new Error(`Subgraph exit interrupted: ${getWorkflowInterruptionDescription(interruption)}`);
   }
 
+  // Handle message context passing (required)
+  await handleExitSubgraphMessageContexts(executionEntity, subgraphNode);
+
   await executionEntity.exitSubgraph();
+}
+
+/**
+ * Handle message context passing when entering a subgraph
+ * Copies parent workflow contexts to subgraph internal names
+ * 
+ * @param executionEntity WorkflowExecution entity
+ * @param subgraphNode The SUBGRAPH node
+ * @param subgraphWorkflowId Subgraph workflow ID
+ */
+async function handleEnterSubgraphMessageContexts(
+  executionEntity: WorkflowExecutionEntity,
+  subgraphNode: Node,
+  subgraphWorkflowId: string,
+): Promise<void> {
+  // Access the MessageContextRegistry attached to workflowExecution
+  const workflowExecution = (executionEntity as any).workflowExecution;
+  const registry = workflowExecution?.messageContextRegistry;
+  
+  if (!registry) {
+    throw new Error(
+      `MessageContextRegistry not available for subgraph '${subgraphWorkflowId}'. This is required for message context passing.`
+    );
+  }
+
+  const subgraphConfig = subgraphNode.config as SubgraphNodeConfig;
+  
+  // Get the subgraph's START node to access its messageInputs declaration
+  const subgraphGraph = executionEntity.getGraph();
+  const startNodeId = subgraphGraph.startNodeId;
+  if (!startNodeId) {
+    throw new Error(
+      `Subgraph '${subgraphWorkflowId}' has no START node. Cannot validate message context configuration.`
+    );
+  }
+  
+  const startNode = subgraphGraph.getNode(startNodeId);
+  
+  if (!startNode) {
+    throw new Error(
+      `Subgraph '${subgraphWorkflowId}' START node not found. Cannot validate message context configuration.`
+    );
+  }
+
+  // Validate and get mapping (this will throw if validation fails)
+  const mappingResult = validateAndMapMessageContexts(subgraphNode, startNode as any);
+  
+  if (mappingResult.isErr()) {
+    const errorMessages = mappingResult.error.map(e => e.message).join('; ');
+    throw new Error(
+      `Message context validation failed for subgraph '${subgraphWorkflowId}': ${errorMessages}`
+    );
+  }
+
+  const mapping = mappingResult.value;
+  const startConfig = (startNode as any).config as unknown as StartNodeConfig;
+
+  // Copy input contexts from parent to subgraph
+  for (const [parentContextId, internalName] of mapping.inputMapping) {
+    const parentContext = registry.get(parentContextId);
+    
+    if (!parentContext) {
+      // Check if this is a required input
+      const inputDef = startConfig.messageInputs?.find(
+        (i: { internalName: string }) => i.internalName === internalName
+      );
+      
+      if (inputDef?.required !== false) {
+        // Default to required if not explicitly marked as optional
+        throw new Error(
+          `Required context '${parentContextId}' not found in parent workflow. ` +
+          `Cannot pass to subgraph '${subgraphWorkflowId}' as '${internalName}'.`
+        );
+      }
+      
+      // Optional input with default messages
+      if (inputDef && (inputDef as any).defaultMessages) {
+        const defaultContext: NamedMessageContext = {
+          id: internalName,
+          messages: (inputDef as any).defaultMessages,
+          createdAt: now(),
+          updatedAt: now(),
+          metadata: {
+            description: `Default messages for optional input '${internalName}'`,
+          },
+        };
+        registry.register(defaultContext);
+        logger.debug(`Created optional context '${internalName}' with default messages`, {
+          executionId: executionEntity.id,
+        });
+      }
+      continue;
+    }
+    
+    // Create a shallow copy of messages to avoid conflicts
+    const copiedContext: NamedMessageContext = {
+      id: internalName,
+      messages: [...parentContext.messages],
+      createdAt: now(),
+      updatedAt: now(),
+      metadata: {
+        ...parentContext.metadata,
+        sourceContext: parentContextId,
+        passedFromParent: true,
+      } as any,
+    };
+    
+    registry.register(copiedContext);
+    
+    logger.debug(`Passed context '${parentContextId}' as '${internalName}' to subgraph`, {
+      executionId: executionEntity.id,
+      messageCount: parentContext.messages.length,
+    });
+  }
+}
+
+/**
+ * Handle message context passing when exiting a subgraph
+ * Copies subgraph output contexts back to parent workflow
+ * 
+ * @param executionEntity WorkflowExecution entity
+ * @param subgraphNode The SUBGRAPH node
+ */
+async function handleExitSubgraphMessageContexts(
+  executionEntity: WorkflowExecutionEntity,
+  subgraphNode: Node,
+): Promise<void> {
+  // Access the MessageContextRegistry attached to workflowExecution
+  const workflowExecution = (executionEntity as any).workflowExecution;
+  const registry = workflowExecution?.messageContextRegistry;
+  
+  if (!registry) {
+    throw new Error(
+      `MessageContextRegistry not available. This is required for message context returning.`
+    );
+  }
+
+  const subgraphConfig = subgraphNode.config as SubgraphNodeConfig;
+  
+  // Get the subgraph's START node to access its messageOutputs declaration
+  const subgraphContext = executionEntity.getCurrentSubgraphContext();
+  if (!subgraphContext) {
+    throw new Error(
+      `No active subgraph context. Cannot return message contexts.`
+    );
+  }
+
+  const subgraphGraph = executionEntity.getGraph();
+  const startNodeId = subgraphGraph.startNodeId;
+  if (!startNodeId) {
+    throw new Error(
+      `Subgraph '${subgraphContext.workflowId}' has no START node. Cannot validate message context configuration.`
+    );
+  }
+  
+  const startNode = subgraphGraph.getNode(startNodeId);
+  
+  if (!startNode) {
+    throw new Error(
+      `Subgraph '${subgraphContext.workflowId}' START node not found. Cannot validate message context configuration.`
+    );
+  }
+
+  // Validate and get mapping (this will throw if validation fails)
+  const mappingResult = validateAndMapMessageContexts(subgraphNode, startNode as any);
+  
+  if (mappingResult.isErr()) {
+    const errorMessages = mappingResult.error.map(e => e.message).join('; ');
+    throw new Error(
+      `Message context validation failed on exit for subgraph '${subgraphContext.workflowId}': ${errorMessages}`
+    );
+  }
+
+  const mapping = mappingResult.value;
+
+  // Copy output contexts from subgraph back to parent
+  for (const [internalName, parentContextId] of mapping.outputMapping) {
+    const childContext = registry.get(internalName);
+    
+    if (!childContext) {
+      throw new Error(
+        `Expected output context '${internalName}' not found in subgraph. ` +
+        `Cannot return to parent workflow as '${parentContextId}'.`
+      );
+    }
+    
+    // Update or create parent workflow's context
+    if (registry.has(parentContextId)) {
+      registry.update(parentContextId, [...childContext.messages]);
+      
+      logger.debug(`Returned context '${internalName}' as '${parentContextId}'`, {
+        executionId: executionEntity.id,
+        messageCount: childContext.messages.length,
+      });
+    } else {
+      registry.register({
+        id: parentContextId,
+        messages: [...childContext.messages],
+        createdAt: now(),
+        updatedAt: now(),
+        metadata: {
+          description: `Output from subgraph '${subgraphContext.workflowId}'`,
+          sourceSubgraph: subgraphContext.workflowId,
+        } as any,
+      });
+      
+      logger.debug(`Created new context '${parentContextId}' from subgraph output '${internalName}'`, {
+        executionId: executionEntity.id,
+        messageCount: childContext.messages.length,
+      });
+    }
+  }
 }
 
 /**

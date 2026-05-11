@@ -12,6 +12,10 @@ import { TruncateMessageOperationSchema, FilterMessageOperationSchema } from "..
 export const SubgraphNodeConfigSchema = z.object({
   subgraphId: z.string().min(1, "Subgraph ID is required"),
   async: z.boolean(),
+  messagePassing: z.object({
+    inputs: z.record(z.string(), z.string()).optional(),
+    outputs: z.record(z.string(), z.string()).optional(),
+  }).optional(),
 });
 
 /**

@@ -17,26 +17,19 @@ export interface SubgraphNodeConfig {
   async: boolean;
   
   /**
-   * Note: Context management is handled through the shared MessageContextRegistry.
-   * All nodes (including those in subgraphs) access contexts via contextRefs.
+   * Message context passing configuration
    * 
-   * If isolation is needed, use Context Processor nodes to create separate contexts:
-   * 
-   * Example:
-   * [[nodes]]
-   * id = "create-isolated"
-   * type = "CONTEXT_PROCESSOR"
-   * [nodes.config]
-   * sourceContext = "current"
-   * targetContext = "isolated-workspace"
-   * 
-   * [[nodes]]
-   * id = "call-subgraph"
-   * type = "SUBGRAPH"
-   * [nodes.config]
-   * subgraphId = "child"
-   * # Child workflow references "isolated-workspace"
+   * Maps parent workflow contexts to subgraph inputs,
+   * and subgraph outputs back to parent workflow contexts.
+   * This provides explicit control over message context flow between workflows.
    */
+  messagePassing?: {
+    /** Input mapping: parentContextId → subgraphInputExternalName */
+    inputs?: Record<string, string>;
+    
+    /** Output mapping: subgraphOutputExternalName → parentContextId */
+    outputs?: Record<string, string>;
+  };
 }
 
 /**

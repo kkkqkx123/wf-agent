@@ -524,6 +524,7 @@ export class NodeExecutionCoordinator {
       internalMetadata?: Record<string, unknown>;
       workflowId: string;
       parentWorkflowId?: string;
+      originalNode?: any; // Original SUBGRAPH node
     },
   ): Promise<void> {
     const boundaryType = graphNode.internalMetadata?.[
@@ -539,7 +540,8 @@ export class NodeExecutionCoordinator {
       });
       // Enter the subgraph
       const input = getSubgraphInput(workflowExecutionEntity);
-      await enterSubgraph(workflowExecutionEntity, graphNode.workflowId, graphNode.parentWorkflowId!, input);
+      // Pass the original SUBGRAPH node for message context handling
+      await enterSubgraph(workflowExecutionEntity, graphNode.workflowId, graphNode.parentWorkflowId!, input, graphNode.originalNode);
 
       // Trigger the start event of the subgraph
       const subgraphStartedEvent = workflowExecutionEntity.buildEvent(buildSubgraphStartedEvent, {
@@ -568,7 +570,8 @@ export class NodeExecutionCoordinator {
         });
         await emit(this.eventManager, subgraphCompletedEvent);
 
-        await exitSubgraph(workflowExecutionEntity);
+        // Pass the original SUBGRAPH node for message context handling
+        await exitSubgraph(workflowExecutionEntity, graphNode.originalNode);
       }
     }
   }

@@ -10,12 +10,6 @@ export { CheckpointCoordinator, type CheckpointDependencies } from "./checkpoint
 // State Manager
 export { CheckpointState } from "./checkpoint-state-manager.js";
 
-// Diff Calculator
-export { CheckpointDiffCalculator } from "./utils/diff-calculator.js";
-
-// Delta Restorer
-export { DeltaCheckpointRestorer } from "./utils/delta-restorer.js";
-
 // Config Resolver
 export {
   WorkflowCheckpointConfigResolver,

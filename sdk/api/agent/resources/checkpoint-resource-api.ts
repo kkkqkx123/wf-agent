@@ -237,10 +237,13 @@ export class AgentLoopCheckpointResourceAPI extends CrudResourceAPI<
   /**
    * Create an Agent Loop checkpoint
    * @param entity Agent Loop entity
-   * @param options Creation options
+   * @param options Creation options (metadata)
    * @returns Checkpoint ID
    */
-  async createCheckpoint(entity: AgentLoopEntity, options?: CheckpointOptions): Promise<string> {
+  async createCheckpoint(
+    entity: AgentLoopEntity,
+    options?: import("@wf-agent/types").CheckpointMetadata,
+  ): Promise<string> {
     const dependencies: CheckpointDependencies = {
       saveCheckpoint: this.storage.saveCheckpoint,
       getCheckpoint: this.storage.getCheckpoint,

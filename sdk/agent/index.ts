@@ -61,10 +61,9 @@ export { AgentLoopExecutor } from "./execution/executors/index.js";
 
 // Checkpoint layer
 export {
-  AgentLoopDiffCalculator,
-  AgentLoopDeltaRestorer,
   AgentLoopCheckpointResolver,
   AgentLoopCheckpointCoordinator,
+  AgentLoopCheckpointStateManager,
   createCheckpoint,
   restoreFromCheckpoint,
   type CheckpointDependencies,

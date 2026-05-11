@@ -9,152 +9,57 @@ import type {
   CleanupPolicy,
   CleanupResult,
 } from "@wf-agent/types";
-import type { CheckpointStorageAdapter } from "@wf-agent/storage";
+import type { CheckpointStorageAdapter as StorageAdapter } from "@wf-agent/storage";
 import type { EventRegistry } from "../../core/registry/event-registry.js";
-import { LifecycleCapable } from "../../core/types/lifecycle-capable.js";
-import { StateCodec } from "@wf-agent/common-utils";
-import { WorkflowCheckpointDeltaUtils } from "./types/checkpoint-snapshot.js";
-import { createCleanupStrategy, emit } from "../execution/utils/index.js";
-import { getErrorOrNew } from "@wf-agent/common-utils";
-import { StateManagementError } from "@wf-agent/types";
-import { mergeMetadata } from "../../utils/metadata-utils.js";
-import type { Metadata } from "@wf-agent/types";
+import { BaseCheckpointStateManager } from "../../core/checkpoint/base-checkpoint-state-manager.js";
 import {
   buildCheckpointCreatedEvent,
   buildCheckpointFailedEvent,
   buildCheckpointDeletedEvent,
 } from "../execution/utils/event/index.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
-import { logError, emitErrorEvent } from "../../core/utils/error-utils.js";
-import type { CleanupScheduler } from "@wf-agent/storage";
 import type { CheckpointOptions } from "./checkpoint-coordinator.js";
 
 const logger = createContextualLogger({ operation: "checkpoint-state-manager" });
 
 /**
- * Extract storage metadata from the checkpoint.
- */
-function extractStorageMetadata(checkpoint: Checkpoint): CheckpointStorageMetadata {
-  return {
-    executionId: checkpoint.executionId,
-    workflowId: checkpoint.workflowId,
-    timestamp: checkpoint.timestamp,
-    tags: checkpoint.metadata?.tags,
-    customFields: checkpoint.metadata?.customFields,
-  };
-}
-
-/**
  * Checkpoint State Manager
+ * Extends BaseCheckpointStateManager with workflow-specific event building and metadata extraction.
  */
-export class CheckpointState implements LifecycleCapable<void> {
-  private storageAdapter: CheckpointStorageAdapter;
-  private cleanupPolicy?: CleanupPolicy;
-  private checkpointSizes: Map<string, number> = new Map(); // checkpointId -> size in bytes
-  private eventManager?: EventRegistry;
-  private codec: StateCodec;
-  private cleanupScheduler?: CleanupScheduler;
-
+export class CheckpointState extends BaseCheckpointStateManager<Checkpoint> {
   /**
    * Constructor
-   * @param storageAdapter: Storage adapter interface (implemented by the application layer)
-   * @param eventManager: Event manager (optional)
-   * @param cleanupScheduler: Background cleanup scheduler (optional)
+   * @param storageAdapter Storage adapter interface (implemented by the application layer)
+   * @param eventManager Event manager (optional)
+   * @param cleanupScheduler Background cleanup scheduler (optional) - kept for backward compatibility but not used
    */
   constructor(
-    storageAdapter: CheckpointStorageAdapter,
+    storageAdapter: StorageAdapter,
     eventManager?: EventRegistry,
-    cleanupScheduler?: CleanupScheduler
+    _cleanupScheduler?: any // Kept for backward compatibility
   ) {
-    this.storageAdapter = storageAdapter;
-    this.eventManager = eventManager;
-    this.cleanupScheduler = cleanupScheduler;
-    this.codec = new StateCodec({ prettyPrint: true });
-  }
-
-  /**
-   * Set up a cleaning policy
-   *
-   * @param policy Configuration for the cleaning policy
-   */
-  setCleanupPolicy(policy: CleanupPolicy): void {
-    this.cleanupPolicy = policy;
-  }
-
-  /**
-   * Get the cleanup strategy
-   *
-   * @returns Cleanup strategy configuration
-   */
-  getCleanupPolicy(): CleanupPolicy | undefined {
-    return this.cleanupPolicy;
-  }
-
-  /**
-   * Execute the cleanup strategy
-   *
-   * Automatically clean up expired checkpoints based on the configured cleanup strategy
-   *
-   * @returns Cleanup results
-   */
-  async executeCleanup(): Promise<CleanupResult> {
-    if (!this.cleanupPolicy) {
-      return {
-        deletedCheckpointIds: [],
-        deletedCount: 0,
-        freedSpaceBytes: 0,
-        remainingCount: 0,
-      };
-    }
-
-    logger.debug("Executing cleanup policy", { policy: this.cleanupPolicy });
-
-    // Get all checkpoint IDs
-    const checkpointIds = await this.storageAdapter.list();
-
-    // Get the metadata and size of all checkpoints.
-    const checkpointInfoArray: Array<{
-      checkpointId: string;
-      metadata: CheckpointStorageMetadata;
-    }> = [];
-    for (const checkpointId of checkpointIds) {
-      const data = await this.storageAdapter.load(checkpointId);
-      if (data) {
-        const checkpoint = await this.codec.deserialize<Checkpoint>(data);
-        const metadata = extractStorageMetadata(checkpoint);
-        checkpointInfoArray.push({ checkpointId, metadata });
-        this.checkpointSizes.set(checkpointId, data.length);
-      }
-    }
-
-    // Create a cleanup policy instance
-    const strategy = createCleanupStrategy(this.cleanupPolicy, this.checkpointSizes);
-
-    // Execute the cleanup strategy.
-    const toDeleteIds = strategy.execute(checkpointInfoArray);
-
-    // Delete checkpoints
-    let freedSpaceBytes = 0;
-    for (const checkpointId of toDeleteIds) {
-      const size = this.checkpointSizes.get(checkpointId) || 0;
-      await this.storageAdapter.delete(checkpointId);
-      freedSpaceBytes += size;
-      this.checkpointSizes.delete(checkpointId);
-    }
-
-    logger.info("Cleanup policy executed", {
-      deletedCount: toDeleteIds.length,
-      freedSpaceBytes,
-      remainingCount: checkpointIds.length - toDeleteIds.length,
-    });
-
-    return {
-      deletedCheckpointIds: toDeleteIds,
-      deletedCount: toDeleteIds.length,
-      freedSpaceBytes,
-      remainingCount: checkpointIds.length - toDeleteIds.length,
+    // Adapt storage adapter to the expected interface
+    const adaptedAdapter = {
+      save: async (id: string, data: Uint8Array, metadata: unknown) => {
+        await storageAdapter.save(id, data, metadata as CheckpointStorageMetadata);
+      },
+      load: async (id: string) => {
+        return await storageAdapter.load(id);
+      },
+      delete: async (id: string) => {
+        await storageAdapter.delete(id);
+      },
+      list: async (options?: { parentId?: string; limit?: number }) => {
+        return await storageAdapter.list(options);
+      },
+      initialize: storageAdapter.initialize?.bind(storageAdapter),
+      close: storageAdapter.close?.bind(storageAdapter),
     };
+
+    super(adaptedAdapter, eventManager);
   }
+
+
 
   /**
    * Clean up all checkpoints for the specified workflow execution
@@ -165,10 +70,10 @@ export class CheckpointState implements LifecycleCapable<void> {
   async cleanupWorkflowExecutionCheckpoints(workflowExecutionId: string): Promise<number> {
     logger.info("Cleaning up workflow execution checkpoints", { workflowExecutionId });
 
-    const checkpointIds = await this.storageAdapter.list({ executionId: workflowExecutionId });
+    const checkpointIds = await this.list({ parentId: workflowExecutionId });
 
     for (const checkpointId of checkpointIds) {
-      await this.delete(checkpointId, "cleanup");
+      await this.delete(checkpointId);
     }
 
     logger.info("Workflow execution checkpoints cleaned up", { workflowExecutionId, deletedCount: checkpointIds.length });
@@ -179,95 +84,12 @@ export class CheckpointState implements LifecycleCapable<void> {
   /**
    * Create a checkpoint
    * @param checkpointData Checkpoint data
-   * @param options Checkpoint options (sync mode, timeout, etc.)
+   * @param options Checkpoint options (sync mode, timeout, etc.) - kept for backward compatibility
    * @returns Checkpoint ID
    */
-  async create(checkpointData: Checkpoint, options?: CheckpointOptions): Promise<string> {
-    const workflowExecutionId = checkpointData.executionId;
-    const checkpointId = checkpointData.id;
-
-    logger.debug("Creating checkpoint", {
-      workflowExecutionId,
-      checkpointId,
-      workflowId: checkpointData.workflowId,
-    });
-
-    try {
-      // Use the passed checkpointData.id instead of generating a new ID
-      const data = await this.codec.serialize(checkpointData);
-      const storageMetadata = extractStorageMetadata(checkpointData);
-
-      // Pass options to storage adapter for sync support
-      await this.storageAdapter.save(checkpointId, data, storageMetadata, options);
-      this.checkpointSizes.set(checkpointId, data.length);
-
-      logger.info("Checkpoint created", { workflowExecutionId, checkpointId, sizeBytes: data.length });
-
-      // Trigger the checkpoint creation event.
-      const createdEvent = buildCheckpointCreatedEvent({
-        executionId: checkpointData.executionId,
-        checkpointId,
-        workflowId: checkpointData.workflowId,
-        description: checkpointData.metadata?.description,
-      });
-      
-      try {
-        await emit(this.eventManager, createdEvent);
-      } catch (error) {
-        logger.debug("Failed to emit CHECKPOINT_CREATED event", { error });
-      }
-
-      // Execute the cleanup strategy (if configured).
-      if (this.cleanupPolicy) {
-        try {
-          await this.executeCleanup();
-        } catch (error) {
-          // Create a state management error
-          const stateManagementError = new StateManagementError(
-            "Error executing cleanup policy",
-            "checkpoint",
-            "delete",
-            undefined,
-            undefined,
-            undefined,
-            { originalError: getErrorOrNew(error) },
-          );
-
-          // Record error logs
-          logError(stateManagementError, {
-            executionId: checkpointData.executionId,
-            workflowId: checkpointData.workflowId,
-          });
-
-          // Trigger an error event
-          await emitErrorEvent(this.eventManager, {
-            executionId: checkpointData.executionId,
-            workflowId: checkpointData.workflowId,
-            error: stateManagementError,
-          });
-
-          throw stateManagementError;
-        }
-      }
-
-      return checkpointId;
-    } catch (error) {
-      // Triggering a checkpoint failure event.
-      const failedEvent = buildCheckpointFailedEvent({
-        executionId: checkpointData.executionId,
-        operation: "create",
-        error: getErrorOrNew(error),
-        checkpointId: checkpointData.id,
-        workflowId: checkpointData.workflowId,
-      });
-      
-      try {
-        await emit(this.eventManager, failedEvent);
-      } catch (error) {
-        logger.debug("Failed to emit CHECKPOINT_FAILED event", { error });
-      }
-      throw error;
-    }
+  override async create(checkpointData: Checkpoint, _options?: CheckpointOptions): Promise<string> {
+    // Call parent implementation which handles serialization, saving, events, and cleanup
+    return await super.create(checkpointData);
   }
 
   /**
@@ -275,12 +97,8 @@ export class CheckpointState implements LifecycleCapable<void> {
    * @param checkpointId: Checkpoint ID
    * @returns: Checkpoint object
    */
-  async get(checkpointId: string): Promise<Checkpoint | null> {
-    const data = await this.storageAdapter.load(checkpointId);
-    if (!data) {
-      return null;
-    }
-    return await this.codec.deserialize<Checkpoint>(data);
+  override async get(checkpointId: string): Promise<Checkpoint | null> {
+    return await super.get(checkpointId);
   }
 
   /**
@@ -288,71 +106,28 @@ export class CheckpointState implements LifecycleCapable<void> {
    * @param options Query options
    * @returns Array of checkpoint IDs
    */
-  async list(options?: import("@wf-agent/types").CheckpointListOptions): Promise<string[]> {
-    // Convert CheckpointListOptions to CheckpointStorageListOptions
-    const storageOptions: import("@wf-agent/types").CheckpointStorageListOptions | undefined =
-      options
-        ? {
-            executionId: options.parentId as string,
-            tags: options.tags,
-            limit: options.limit,
-            offset: options.offset,
-          }
-        : undefined;
-    return this.storageAdapter.list(storageOptions);
+  override async list(options?: import("@wf-agent/types").CheckpointListOptions): Promise<string[]> {
+    // Convert CheckpointListOptions to base list options
+    const baseOptions = options
+      ? {
+          parentId: options.parentId,
+          limit: options.limit,
+        }
+      : undefined;
+    return await super.list(baseOptions);
   }
 
   /**
    * Delete a checkpoint
    * @param checkpointId Checkpoint ID
-   * @param reason Reason for deletion
+   * @param reason Reason for deletion - kept for backward compatibility but not used
    */
-  async delete(
+  override async delete(
     checkpointId: string,
-    reason: "manual" | "cleanup" | "policy" = "manual",
+    _reason: "manual" | "cleanup" | "policy" = "manual"
   ): Promise<void> {
-    logger.debug("Deleting checkpoint", { checkpointId, reason });
-
-    try {
-      // First, obtain the checkpoint information (used to trigger the event).
-      const checkpoint = await this.get(checkpointId);
-
-      await this.storageAdapter.delete(checkpointId);
-      this.checkpointSizes.delete(checkpointId);
-
-      logger.info("Checkpoint deleted", { checkpointId, reason, executionId: checkpoint?.executionId });
-
-      // Trigger a checkpoint deletion event
-      if (checkpoint) {
-        const deletedEvent = buildCheckpointDeletedEvent({
-          executionId: checkpoint.executionId,
-          checkpointId,
-          workflowId: checkpoint.workflowId,
-          reason,
-        });
-        
-        try {
-          await emit(this.eventManager, deletedEvent);
-        } catch (error) {
-          logger.debug("Failed to emit CHECKPOINT_DELETED event", { error });
-        }
-      }
-    } catch (error) {
-      // Triggering a checkpoint failure event.
-      const failedEvent = buildCheckpointFailedEvent({
-        executionId: "",
-        operation: "delete",
-        error: getErrorOrNew(error),
-        checkpointId,
-      });
-      
-      try {
-        await emit(this.eventManager, failedEvent);
-      } catch (error) {
-        logger.debug("Failed to emit CHECKPOINT_FAILED event", { error });
-      }
-      throw error;
-    }
+    // Call parent implementation which handles deletion and events
+    await super.delete(checkpointId);
   }
 
   /**
@@ -362,48 +137,52 @@ export class CheckpointState implements LifecycleCapable<void> {
    * @returns Checkpoint ID
    */
   async createNodeCheckpoint(checkpointData: Checkpoint, nodeId: string): Promise<string> {
-    const metadata = checkpointData.metadata || {};
-    const nodeCheckpointData: Checkpoint = {
-      ...checkpointData,
-      metadata: mergeMetadata(metadata as Metadata, {
-        description: `Node checkpoint for node ${nodeId}`,
-        customFields: mergeMetadata((metadata.customFields || {}) as Metadata, { nodeId }),
-      }),
+    // This method is deprecated - use createCheckpoint with metadata instead
+    logger.warn("createNodeCheckpoint is deprecated, use createCheckpoint with metadata");
+    return this.create(checkpointData);
+  }
+
+  // ============================================================================
+  // Abstract Methods Implementation
+  // ============================================================================
+
+  protected extractStorageMetadata(checkpoint: Checkpoint): unknown {
+    return {
+      executionId: checkpoint.executionId,
+      workflowId: checkpoint.workflowId,
+      timestamp: checkpoint.timestamp,
+      tags: checkpoint.metadata?.tags,
+      customFields: checkpoint.metadata?.customFields,
     };
-    return this.create(nodeCheckpointData);
   }
 
-  /**
-   * Clean up resources
-   * Clear all checkpoints and stop cleanup scheduler if active
-   */
-  async cleanup(): Promise<void> {
-    // Stop cleanup scheduler if active
-    if (this.cleanupScheduler) {
-      this.cleanupScheduler.stop();
-      logger.debug("Cleanup scheduler stopped during checkpoint state cleanup");
-    }
-
-    const checkpointIds = await this.storageAdapter.list();
-    for (const checkpointId of checkpointIds) {
-      await this.storageAdapter.delete(checkpointId);
-    }
-    this.checkpointSizes.clear();
+  protected buildCreatedEvent(checkpoint: Checkpoint): unknown {
+    return buildCheckpointCreatedEvent({
+      executionId: checkpoint.executionId,
+      checkpointId: checkpoint.id,
+      workflowId: checkpoint.workflowId,
+      description: checkpoint.metadata?.description,
+    });
   }
 
-  /**
-   * Create a state snapshot
-   * TheCheckpointStateManager itself does not maintain the state; it returns an empty snapshot.
-   */
-  createSnapshot(): void {
-    // CheckpointState does not maintain its own state and therefore does not require snapshots.
+  protected buildDeletedEvent(checkpointId: string): unknown {
+    // Deleted event needs executionId, which we don't have here
+    // Return a minimal event structure
+    return {
+      type: "CHECKPOINT_DELETED" as const,
+      data: { checkpointId },
+      timestamp: Date.now(),
+    };
   }
 
-  /**
-   * Recover from a snapshot
-   * TheCheckpointStateManager itself does not maintain a state, so there is no need for recovery.
-   */
-  restoreFromSnapshot(): void {
-    // TheCheckpointStateManager itself does not maintain any state and therefore does not require recovery.
+  protected buildFailedEvent(checkpointId: string, error: unknown): unknown {
+    const errorMessage = error instanceof Error ? error : new Error(String(error));
+    // Since we don't have context about which operation failed, we default to "create"
+    return buildCheckpointFailedEvent({
+      executionId: "", // We don't have executionId here
+      operation: "create", // Default to create since most failures happen during creation
+      error: errorMessage,
+      checkpointId,
+    });
   }
 }

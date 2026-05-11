@@ -57,9 +57,7 @@ export async function createAgentLoopCheckpoint(
   const checkpointId = await coordinator.createCheckpoint(
     entity,
     dependencies as import("../../checkpoint/checkpoint-coordinator.js").CheckpointDependencies,
-    options
-      ? { metadata: options.metadata as import("@wf-agent/types").CheckpointMetadata }
-      : undefined,
+    options?.metadata as import("@wf-agent/types").CheckpointMetadata | undefined,
   );
 
   logger.info("Agent Loop checkpoint created successfully", {

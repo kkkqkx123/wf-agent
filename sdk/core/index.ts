@@ -1,6 +1,9 @@
 // Core module exports
 
-// Checkpoint
+// Checkpoint - Universal Layer
+export * from "./checkpoint/index.js";
+
+// Checkpoint - Utils (legacy, will be deprecated)
 export * from "./utils/checkpoint/index.js";
 
 // Coordinators

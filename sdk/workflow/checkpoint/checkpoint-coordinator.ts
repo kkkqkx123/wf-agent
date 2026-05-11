@@ -35,8 +35,8 @@ import { VariableState } from "../state-managers/variable-state.js";
 import { WorkflowExecutionEntity } from "../entities/workflow-execution-entity.js";
 import { ExecutionState } from "../state-managers/execution-state.js";
 import { WorkflowStateCoordinator } from "../state-managers/workflow-state-coordinator.js";
-import { CheckpointDiffCalculator } from "./utils/diff-calculator.js";
-import { DeltaCheckpointRestorer } from "./utils/delta-restorer.js";
+import { BaseDiffCalculator } from "../../core/checkpoint/base-diff-calculator.js";
+import { BaseDeltaRestorer } from "../../core/checkpoint/base-delta-restorer.js";
 import { generateId } from "../../utils/index.js";
 import { now } from "@wf-agent/common-utils";
 import { mergeMetadata } from "../../utils/metadata-utils.js";
@@ -80,9 +80,10 @@ export interface CheckpointOptions {
 
 /**
  * Checkpoint Coordinator (completely stateless)
+ * Uses base diff calculator and delta restorer to eliminate code duplication
  */
 export class CheckpointCoordinator {
-  private static diffCalculator = new CheckpointDiffCalculator();
+  private static diffCalculator = new BaseDiffCalculator();
 
   /**
    * Create a checkpoint (static method)
@@ -175,7 +176,7 @@ export class CheckpointCoordinator {
         let previousState: WorkflowExecutionStateSnapshot;
         if (previousCheckpoint.type === "DELTA") {
           // If the previous checkpoint was an incremental checkpoint, the full state needs to be restored.
-          const restorer = new DeltaCheckpointRestorer(
+          const restorer = new BaseDeltaRestorer<Checkpoint, WorkflowExecutionStateSnapshot>(
             id => checkpointStateManager.get(id),
             workflowExecutionId => checkpointStateManager.list({ parentId: workflowExecutionId }),
           );
@@ -349,7 +350,7 @@ export class CheckpointCoordinator {
     let workflowExecutionState: WorkflowExecutionStateSnapshot;
     if (checkpoint.type === "DELTA") {
       // If it's an incremental checkpoint, the full state needs to be restored.
-      const restorer = new DeltaCheckpointRestorer(
+      const restorer = new BaseDeltaRestorer<Checkpoint, WorkflowExecutionStateSnapshot>(
         id => checkpointStateManager.get(id),
         workflowExecutionId => checkpointStateManager.list({ parentId: workflowExecutionId }),
       );

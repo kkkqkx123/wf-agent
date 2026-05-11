@@ -122,11 +122,6 @@ export {
   cleanupCache,
 } from "../../../core/utils/callback.js";
 
-// Checkpoint utilities are now exported from checkpoint/
-// Re-export here for backward compatibility
-export { CheckpointDiffCalculator } from "../../checkpoint/utils/diff-calculator.js";
-export { DeltaCheckpointRestorer } from "../../checkpoint/utils/delta-restorer.js";
-
 // Checkpoint cleanup strategy (re-exported from core/utils/checkpoint)
 export {
   TimeBasedCleanupStrategy,

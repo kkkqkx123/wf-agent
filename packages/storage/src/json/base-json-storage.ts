@@ -76,8 +76,9 @@ interface MetadataIndexEntry<TMetadata> {
  * JSON File Storage Abstract Base Class
  * Separates metadata (JSON) and binary data for optimal performance
  * @template TMetadata Metadata Type
+ * @template TSaveOptions Save operation options type (default: void)
  */
-export abstract class BaseJsonStorage<TMetadata> {
+export abstract class BaseJsonStorage<TMetadata, TSaveOptions = void> {
   protected metadataIndex: Map<string, MetadataIndexEntry<TMetadata>> = new Map();
   protected initialized: boolean = false;
   protected lockFiles: Map<string, Promise<void>> = new Map();
@@ -340,7 +341,7 @@ export abstract class BaseJsonStorage<TMetadata> {
    * @param metadata Metadata
    * @param options Save options (e.g., sync mode)
    */
-  async save(id: string, data: Uint8Array, metadata: TMetadata, options?: CheckpointOptions): Promise<void> {
+  async save(id: string, data: Uint8Array, metadata: TMetadata, options?: TSaveOptions): Promise<void> {
     const startTime = Date.now();
     this.ensureInitialized();
 
@@ -388,7 +389,7 @@ export abstract class BaseJsonStorage<TMetadata> {
       await fs.writeFile(metadataPath, jsonContent, "utf-8");
 
       // If sync mode is enabled, ensure data is flushed to disk
-      if (options?.sync) {
+      if ((options as any)?.sync) {
         try {
           // Open files and sync to ensure data is persisted
           const metadataFd = await fs.open(metadataPath, 'r');

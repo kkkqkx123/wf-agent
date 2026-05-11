@@ -47,9 +47,7 @@ export async function createCheckpoint(
 
   // Creating coordinator instance and create checkpoint
   const coordinator = new AgentLoopCheckpointCoordinator();
-  return await coordinator.createCheckpoint(entity, dependencies, {
-    metadata: checkpointMetadata,
-  });
+  return await coordinator.createCheckpoint(entity, dependencies, checkpointMetadata);
 }
 
 /**

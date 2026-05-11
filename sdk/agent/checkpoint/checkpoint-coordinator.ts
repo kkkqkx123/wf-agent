@@ -2,7 +2,7 @@
  * Agent Loop Checkpoint Coordinator
  *
  * A service that coordinates the entire checkpoint process
- * Supports dependency injection for better testability
+ * Extends BaseCheckpointCoordinator to eliminate code duplication.
  */
 
 import { AgentLoopEntity } from "../entities/agent-loop-entity.js";
@@ -14,8 +14,8 @@ import type {
   AgentLoopStateSnapshot,
 } from "@wf-agent/types";
 import { AgentCheckpointError } from "@wf-agent/types";
-import { AgentLoopDiffCalculator } from "./agent-loop-diff-calculator.js";
-import { AgentLoopDeltaRestorer } from "./agent-loop-delta-restorer.js";
+import { BaseCheckpointCoordinator } from "../../core/checkpoint/base-checkpoint-coordinator.js";
+import type { CheckpointDependencies as BaseCheckpointDependencies } from "../../core/checkpoint/types.js";
 import { DEFAULT_DELTA_STORAGE_CONFIG } from "../../core/utils/checkpoint/constants.js";
 import { generateId } from "../../utils/index.js";
 import { now } from "@wf-agent/common-utils";
@@ -29,9 +29,9 @@ export interface CheckpointOptions {
 }
 
 /**
- * Checkpoint dependencies
+ * Checkpoint dependencies (extends base with agent-specific fields)
  */
-export interface CheckpointDependencies {
+export interface CheckpointDependencies extends BaseCheckpointDependencies<AgentLoopCheckpoint> {
   /** Save checkpoints */
   saveCheckpoint: (checkpoint: AgentLoopCheckpoint) => Promise<string>;
   /** Get checkpoints */
@@ -49,58 +49,26 @@ export interface CheckpointDependencies {
  * - Instance-based for dependency injection and testability
  * - Stateless operations - no internal state maintained between calls
  * - Coordinates the entire checkpoint lifecycle
+ * - Extends BaseCheckpointCoordinator to eliminate duplication
  */
-export class AgentLoopCheckpointCoordinator {
-  private diffCalculator: AgentLoopDiffCalculator;
-
-  constructor(diffCalculator?: AgentLoopDiffCalculator) {
-    this.diffCalculator = diffCalculator ?? new AgentLoopDiffCalculator();
-  }
-
+export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
+  AgentLoopCheckpoint,
+  AgentLoopEntity, // Now compatible because CheckpointableEntity only requires 'id'
+  AgentLoopStateSnapshot
+> {
   /**
    * Create a checkpoint
    * @param entity Agent Loop entity
    * @param dependencies dependencies
-   * @param options creation options
+   * @param metadata checkpoint metadata
    * @returns checkpoint ID
    */
-  async createCheckpoint(
+  override async createCheckpoint(
     entity: AgentLoopEntity,
     dependencies: CheckpointDependencies,
-    options?: CheckpointOptions,
+    metadata?: CheckpointMetadata,
   ): Promise<string> {
-    const { saveCheckpoint, getCheckpoint, listCheckpoints, deltaConfig } = dependencies;
-    const config = { ...DEFAULT_DELTA_STORAGE_CONFIG, ...deltaConfig };
-
-    // Step 1: Extract the current state
-    const currentState = this.extractState(entity);
-
-    // Step 2: Retrieve the previous checkpoint
-    const previousCheckpointIds = await listCheckpoints(entity.id);
-    const checkpointCount = previousCheckpointIds.length;
-
-    // Step 3: Decide on checkpoint type
-    const checkpointType = this.determineCheckpointType(checkpointCount, config);
-
-    // Step 4: Generate a unique checkpointId and timestamp
-    const checkpointId = generateId();
-    const timestamp = now();
-
-    // Step 5: Create Checkpoints
-    const checkpoint = await this.buildCheckpoint(
-      entity,
-      currentState,
-      checkpointType,
-      checkpointId,
-      timestamp,
-      checkpointCount,
-      previousCheckpointIds,
-      getCheckpoint,
-      options?.metadata,
-    );
-
-    // Step 6: Save the checkpoint
-    return await saveCheckpoint(checkpoint);
+    return await super.createCheckpoint(entity, dependencies, metadata);
   }
 
   /**
@@ -109,38 +77,50 @@ export class AgentLoopCheckpointCoordinator {
    * @param dependencies dependencies
    * @returns Recovered Agent Loop Entity
    */
-  async restoreFromCheckpoint(
+  override async restoreFromCheckpoint(
     checkpointId: string,
     dependencies: CheckpointDependencies,
   ): Promise<AgentLoopEntity> {
-    const { getCheckpoint, listCheckpoints } = dependencies;
-
-    // Step 1: Load the checkpoint
-    const checkpoint = await getCheckpoint(checkpointId);
-    if (!checkpoint) {
-      throw new AgentCheckpointError(
-        `Checkpoint not found: ${checkpointId}`,
-        "restore",
-        checkpointId,
-      );
+    try {
+      return await super.restoreFromCheckpoint(checkpointId, dependencies);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("Checkpoint not found")) {
+        throw new AgentCheckpointError(
+          `Checkpoint not found: ${checkpointId}`,
+          "restore",
+          checkpointId,
+        );
+      }
+      throw error;
     }
+  }
 
-    // Step 2: Verify checkpoint integrity
-    this.validateCheckpoint(checkpoint);
+  // ============================================================================
+  // Abstract Methods Implementation
+  // ============================================================================
 
-    // Step 3: Obtain the complete status (processing incremental checkpoints)
-    const restorer = new AgentLoopDeltaRestorer(getCheckpoint, listCheckpoints);
-    const restoreResult = await restorer.restore(checkpointId);
-    const { snapshot } = restoreResult;
-
-    // Step 4: Create AgentLoopEntity from snapshot using factory method
-    return AgentLoopEntity.fromSnapshot(checkpoint.agentLoopId, snapshot);
+  /**
+   * Extracting a state snapshot
+   * @param entity Agent Loop entity
+   * @returns Status Snapshot
+   */
+  protected extractState(entity: AgentLoopEntity): AgentLoopStateSnapshot {
+    return {
+      status: entity.state.status,
+      currentIteration: entity.state.currentIteration,
+      toolCallCount: entity.state.toolCallCount,
+      startTime: entity.state.startTime,
+      endTime: entity.state.endTime,
+      error: entity.state.error,
+      messages: entity.getMessages(),
+      config: entity.config,
+    };
   }
 
   /**
    * Build checkpoint object
    */
-  private async buildCheckpoint(
+  protected async buildCheckpoint(
     entity: AgentLoopEntity,
     currentState: AgentLoopStateSnapshot,
     checkpointType: TCheckpointType,
@@ -148,9 +128,11 @@ export class AgentLoopCheckpointCoordinator {
     timestamp: number,
     checkpointCount: number,
     previousCheckpointIds: string[],
-    getCheckpoint: (id: string) => Promise<AgentLoopCheckpoint | null>,
+    dependencies: CheckpointDependencies,
     metadata?: CheckpointMetadata,
   ): Promise<AgentLoopCheckpoint> {
+    const { getCheckpoint } = dependencies;
+
     if (checkpointType === "FULL") {
       return {
         id: checkpointId,
@@ -172,6 +154,20 @@ export class AgentLoopCheckpointCoordinator {
       getCheckpoint,
       metadata,
     );
+  }
+
+  /**
+   * Extract parent ID from checkpoint
+   */
+  protected extractParentId(checkpoint: AgentLoopCheckpoint): string {
+    return checkpoint.agentLoopId;
+  }
+
+  /**
+   * Create entity from restored state snapshot
+   */
+  protected createEntityFromSnapshot(parentId: string, snapshot: AgentLoopStateSnapshot): AgentLoopEntity {
+    return AgentLoopEntity.fromSnapshot(parentId, snapshot);
   }
 
   /**
@@ -216,11 +212,8 @@ export class AgentLoopCheckpointCoordinator {
       };
     }
 
-    // Calculate the difference with context for optimization
-    const delta = this.diffCalculator.calculateDelta(baseCheckpoint.snapshot, currentState, {
-      previousMessageCount: baseCheckpoint.snapshot.messages.length,
-      currentMessages: entity.getMessages(),
-    });
+    // Calculate the difference using inherited diffCalculator
+    const delta = this.diffCalculator.calculateDelta(baseCheckpoint.snapshot, currentState);
 
     // Find the baseline checkpoint ID
     const baseCheckpointId =
@@ -238,6 +231,40 @@ export class AgentLoopCheckpointCoordinator {
       delta,
       metadata,
     };
+  }
+
+  /**
+   * Determine the checkpoint type
+   * 
+   * Agent-specific strategy: Creates FULL checkpoint when (checkpointCount + 1) is divisible by baselineInterval.
+   * This means: with baselineInterval=5, checkpoints at count 4, 9, 14... will be FULL.
+   * 
+   * @param checkpointCount The current number of checkpoints
+   * @param config Incremental storage configuration
+   * @returns The type of checkpoint
+   */
+  protected override determineCheckpointType(
+    checkpointCount: number,
+    config: DeltaStorageConfig,
+  ): TCheckpointType {
+    // Always create full checkpoints if incremental storage is not enabled
+    if (!config.enabled) {
+      return "FULL";
+    }
+
+    // The first checkpoint must be a complete checkpoint
+    if (checkpointCount === 0) {
+      return "FULL";
+    }
+
+    // Creates a full checkpoint every baselineInterval checkpoints
+    // Agent uses (checkpointCount + 1) to align with iteration-based semantics
+    if ((checkpointCount + 1) % config.baselineInterval === 0) {
+      return "FULL";
+    }
+
+    // Create incremental checkpoints in other cases
+    return "DELTA";
   }
 
   /**
@@ -263,60 +290,16 @@ export class AgentLoopCheckpointCoordinator {
   }
 
   /**
-   * Extracting a state snapshot
-   * @param entity Agent Loop entity
-   * @returns Status Snapshot
-   */
-  private extractState(entity: AgentLoopEntity): AgentLoopStateSnapshot {
-    return {
-      status: entity.state.status,
-      currentIteration: entity.state.currentIteration,
-      toolCallCount: entity.state.toolCallCount,
-      startTime: entity.state.startTime,
-      endTime: entity.state.endTime,
-      error: entity.state.error,
-      messages: entity.getMessages(),
-      config: entity.config,
-    };
-  }
-
-  /**
-   * Determine the checkpoint type
-   * @param checkpointCount: The current number of checkpoints
-   * @param config: Incremental storage configuration
-   * @returns: The type of checkpoint
-   */
-  private determineCheckpointType(
-    checkpointCount: number,
-    config: DeltaStorageConfig,
-  ): TCheckpointType {
-    // Always create full checkpoints if incremental storage is not enabled
-    if (!config.enabled) {
-      return "FULL";
-    }
-
-    // The first checkpoint must be a complete checkpoint
-    if (checkpointCount === 0) {
-      return "FULL";
-    }
-
-    // Creates a full checkpoint every baselineInterval checkpoints
-    if ((checkpointCount + 1) % config.baselineInterval === 0) {
-      return "FULL";
-    }
-
-    // Create incremental checkpoints in other cases
-    return "DELTA";
-  }
-
-  /**
    * Verify checkpoint integrity and compatibility
    */
-  private validateCheckpoint(checkpoint: AgentLoopCheckpoint): void {
-    // Verify required fields
-    if (!checkpoint.id || !checkpoint.agentLoopId) {
+  protected override validateCheckpoint(checkpoint: AgentLoopCheckpoint): void {
+    // Call parent validation first
+    super.validateCheckpoint(checkpoint);
+
+    // Additional agent-specific validation
+    if (!checkpoint.agentLoopId) {
       throw new AgentCheckpointError(
-        "Invalid checkpoint: missing required fields",
+        "Invalid checkpoint: missing agentLoopId",
         "validate",
         checkpoint.id,
         checkpoint.agentLoopId,
@@ -325,7 +308,6 @@ export class AgentLoopCheckpointCoordinator {
 
     // Validation against checkpoint type
     if (checkpoint.type === "DELTA") {
-      // The incremental checkpoint requires verification of the delta field
       const deltaCheckpoint = checkpoint as import("@wf-agent/types").DeltaCheckpoint<import("@wf-agent/types").AgentLoopDelta>;
       if (!deltaCheckpoint.delta && !deltaCheckpoint.previousCheckpointId) {
         throw new AgentCheckpointError(
@@ -336,7 +318,6 @@ export class AgentLoopCheckpointCoordinator {
         );
       }
     } else {
-      // The full checkpoint requires validation of the snapshot field
       const fullCheckpoint = checkpoint as import("@wf-agent/types").FullCheckpoint<import("@wf-agent/types").AgentLoopStateSnapshot>;
       if (!fullCheckpoint.snapshot) {
         throw new AgentCheckpointError(

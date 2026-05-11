@@ -12,6 +12,8 @@ import { MessageOperationConfigSchema } from "../../message/message-operations-s
 export const ContextProcessorNodeConfigSchema = z.object({
   version: z.number().optional(),
   operationConfig: MessageOperationConfigSchema,
+  sourceContext: z.string().optional(),
+  targetContext: z.string().optional(),
   operationOptions: z.object({
     visibleOnly: z.boolean().optional(),
     autoCreateBatch: z.boolean().optional(),

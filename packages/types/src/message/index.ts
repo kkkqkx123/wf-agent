@@ -34,6 +34,11 @@ export type { MessageOperationContext } from "./message-context.js";
 // Message token mapping type
 export type { MessageMarkMap, BatchCheckpointInfo, MemoryRangeConfig } from "./message-mark-map.js";
 
+// Named Message Context types
+export type { NamedMessageContext, MessageContextRegistry } from "./named-message-context.js";
+export { BUILTIN_CONTEXT_IDS } from "./named-message-context.js";
+export type { BuiltinContextId } from "./named-message-context.js";
+
 // Batch management operation type
 export type {
   BatchManagementOperation,

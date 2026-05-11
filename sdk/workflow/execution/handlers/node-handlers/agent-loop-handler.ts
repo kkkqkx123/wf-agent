@@ -3,13 +3,13 @@
  *
  * Responsible for processing AgentLoop nodes within the Graph execution engine.
  * Uses the new AgentLoopCoordinator architecture, which supports pause/resume functionality.
- * Allows for the reference of predefined system prompt templates via the systemPromptTemplateId.
+ * Supports referencing named message contexts via initialContextRefs.
  */
 
-import type { Node, WorkflowExecution, AgentLoopNodeConfig, LLMMessage } from "@wf-agent/types";
-import { ExecutionError } from "@wf-agent/types";
+import type { Node, WorkflowExecution, AgentLoopNodeConfig, LLMMessage, NamedMessageContext } from "@wf-agent/types";
+import { ExecutionError, RuntimeValidationError } from "@wf-agent/types";
 import { now, diffTimestamp, getErrorOrNew } from "@wf-agent/common-utils";
-import { resolveSystemPrompt } from "../../../../core/prompt/system-prompt-resolver.js";
+
 import type { ConversationSession } from "../../../../core/messaging/conversation-session.js";
 import type { EventRegistry } from "../../../../core/registry/event-registry.js";
 import { AgentLoopCoordinator, AgentLoopExecutor } from "../../../../agent/index.js";
@@ -68,6 +68,46 @@ export interface AgentLoopHandlerContext {
 }
 
 /**
+ * Collect messages from initial context references
+ */
+function collectInitialMessages(
+  config: AgentLoopNodeConfig,
+  workflowExecution: WorkflowExecution,
+): LLMMessage[] {
+  const registry = (workflowExecution as any).messageContextRegistry;
+  
+  if (!registry) {
+    throw new RuntimeValidationError("MessageContextRegistry not found in execution context", {
+      operation: "collectInitialMessages",
+      field: "messageContextRegistry",
+    });
+  }
+
+  // Use default context if initialContextRefs not specified
+  const contextRefs = config.inlineConfig?.initialContextRefs && config.inlineConfig.initialContextRefs.length > 0
+    ? config.inlineConfig.initialContextRefs
+    : ['current'];
+
+  let allMessages: LLMMessage[] = [];
+  
+  for (const contextId of contextRefs) {
+    const namedContext = registry.get(contextId);
+    
+    if (!namedContext) {
+      throw new RuntimeValidationError(`Context '${contextId}' not found`, {
+        operation: "collectInitialMessages",
+        field: "initialContextRefs",
+        value: contextId,
+      });
+    }
+    
+    allMessages.push(...namedContext.messages);
+  }
+  
+  return allMessages;
+}
+
+/**
  * Create an AgentLoopCoordinator instance
  */
 function createCoordinator(globalContext: GlobalContext, context: AgentLoopHandlerContext): AgentLoopCoordinator {
@@ -96,17 +136,23 @@ export async function agentLoopHandler(
   const config = node.config as AgentLoopNodeConfig;
   const startTime = now();
 
-  if (!config.profileId) {
+  // Extract inline config or use defaults
+  const inlineConfig = config.inlineConfig;
+  const profileId = inlineConfig?.profileId;
+
+  if (!profileId) {
     return {
       status: "FAILED",
-      error: new ExecutionError("AgentLoop node requires profileId", node.id),
+      error: new ExecutionError("AgentLoop node requires profileId in inlineConfig", node.id),
       executionTime: 0,
     };
   }
 
   try {
-    // 1. Prepare the initial message
-    const initialMessages: LLMMessage[] = [];
+    // 1. Prepare the initial messages from context references
+    const initialMessages = collectInitialMessages(config, execution);
+    
+    // Add input prompt if available
     const inputPrompt =
       execution.variableScopes?.workflowExecution?.["input"] || execution.variableScopes?.workflowExecution?.["prompt"];
 
@@ -134,11 +180,11 @@ export async function agentLoopHandler(
 
     const result = await coordinator.execute(
       {
-        profileId: config.profileId,
-        systemPrompt: resolveSystemPrompt(config),
+        profileId,
+        systemPrompt: "", // Empty system prompt - context comes from initialContextRefs
         initialMessages,
-        availableTools: config.availableTools,
-        maxIterations: config.maxIterations,
+        availableTools: inlineConfig?.availableTools,
+        maxIterations: inlineConfig?.maxIterations,
       },
       {
         conversationManager: context.conversationManager,
@@ -220,17 +266,23 @@ export async function* agentLoopStreamHandler(
   const config = node.config as AgentLoopNodeConfig;
   const startTime = now();
 
-  if (!config.profileId) {
+  // Extract inline config or use defaults
+  const inlineConfig = config.inlineConfig;
+  const profileId = inlineConfig?.profileId;
+
+  if (!profileId) {
     return {
       status: "FAILED",
-      error: new ExecutionError("AgentLoop node requires profileId", node.id),
+      error: new ExecutionError("AgentLoop node requires profileId in inlineConfig", node.id),
       executionTime: 0,
     };
   }
 
   try {
-    // 1. Prepare the initial message
-    const initialMessages: LLMMessage[] = [];
+    // 1. Prepare the initial messages from context references
+    const initialMessages = collectInitialMessages(config, execution);
+    
+    // Add input prompt if available
     const inputPrompt =
       execution.variableScopes?.workflowExecution?.["input"] || execution.variableScopes?.workflowExecution?.["prompt"];
 
@@ -243,11 +295,11 @@ export async function* agentLoopStreamHandler(
 
     for await (const event of coordinator.executeStream(
       {
-        profileId: config.profileId,
-        systemPrompt: resolveSystemPrompt(config),
+        profileId,
+        systemPrompt: "", // Empty system prompt - context comes from initialContextRefs
         initialMessages,
-        availableTools: config.availableTools,
-        maxIterations: config.maxIterations,
+        availableTools: inlineConfig?.availableTools,
+        maxIterations: inlineConfig?.maxIterations,
       },
       {
         conversationManager: context.conversationManager,

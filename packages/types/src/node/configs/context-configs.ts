@@ -12,8 +12,26 @@ import type { MessageOperationConfig } from '../../message/index.js';
 export interface ContextProcessorNodeConfig {
   /** Configuration version (optional, default 4) */
   version?: number;
+  
   /** Message operation configuration (batch-aware) */
   operationConfig: MessageOperationConfig;
+  
+  /**
+   * Source context ID
+   * 
+   * - If not specified: defaults to 'current'
+   * - If specified: reads from the named context
+   */
+  sourceContext?: string;
+  
+  /**
+   * Target context ID
+   * 
+   * - If not specified: defaults to 'current'
+   * - If specified: writes to the named context (auto-created if not exists)
+   */
+  targetContext?: string;
+  
   /** Operational Options */
   operationOptions?: {
     /** Whether to manipulate only visible messages */

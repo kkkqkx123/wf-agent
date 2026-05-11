@@ -20,18 +20,35 @@ export interface ScriptNodeConfig {
 
 /**
  * LLM Node Configuration
+ * 
+ * Simplified configuration using named message contexts.
+ * Replaces the complex template system with direct context references.
  */
 export interface LLMNodeConfig {
   /** Referenced LLM Profile ID */
   profileId: ID;
-  /** Cue word (specified directly, lower priority than templateId) */
-  prompt?: string;
-  /** Prompt word template ID (references a predefined template, higher priority than prompt) */
-  promptTemplateId?: string;
-  /** Template variable (required when promptTemplateId is used) */
-  promptTemplateVariables?: Record<string, unknown>;
+  
+  /**
+   * Message context references
+   * 
+   * - Can be built-in IDs (e.g., 'current', 'system')
+   * - Can be custom IDs (created by Context Processor)
+   * - Supports multiple contexts, merged in order
+   * 
+   * @example ["system", "research-notes", "current"]
+   */
+  contextRefs?: string[];
+  
+  /**
+   * Optional: Whether to append LLM response to specified context
+   * 
+   * Defaults to 'current' if not specified.
+   */
+  outputContext?: string;
+  
   /** Optional parameter override (overrides parameters in Profile) */
   parameters?: Record<string, unknown>;
+  
   /** Maximum number of tool calls returned by a single LLM call (default 3, error thrown if exceeded) */
   maxToolCallsPerRequest?: number;
 }

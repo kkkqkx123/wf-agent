@@ -65,21 +65,21 @@ export interface AgentLoopNodeConfig {
     availableTools?: AvailableTools;
 
     /**
-     * System prompt (direct string, lower priority than systemPromptTemplateId)
-     * @description Injected at each iteration of the agent loop
+     * Initial message context references
+     * 
+     * Replaces systemPrompt, initialMessages and other configurations.
+     * References named contexts to initialize the Agent Loop.
+     * 
+     * @example ["system", "task-spec"]
      */
-    systemPrompt?: string;
-
+    initialContextRefs?: string[];
+    
     /**
-     * System prompt template ID (references a predefined template, higher priority)
-     * @description Renders the system prompt via the template registry
+     * Working context ID for Agent Loop internal operations
+     * 
+     * Defaults to 'current' if not specified.
      */
-    systemPromptTemplateId?: string;
-
-    /**
-     * System prompt template variables (required when systemPromptTemplateId is used)
-     */
-    systemPromptTemplateVariables?: Record<string, unknown>;
+    workingContext?: string;
   };
 }
 

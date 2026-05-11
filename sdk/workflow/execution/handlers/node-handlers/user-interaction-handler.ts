@@ -155,8 +155,21 @@ async function getUserInput(
   });
 
   try {
+    // Convert WorkflowInteractionRequest to UserInteractionRequest for compatibility
+    // Map workflow operation types to app-level operation types
+    const mappedOperationType: import("@wf-agent/types").UserInteractionOperationType = 
+      request.operationType === 'UPDATE_VARIABLES' ? 'TOOL_APPROVAL' : 'ASK_FOLLOWUP_QUESTION';
+    
+    const appRequest: import("@wf-agent/types").UserInteractionRequest = {
+      interactionId: request.interactionId,
+      operationType: mappedOperationType,
+      prompt: request.prompt,
+      timeout: request.timeout,
+      metadata: request.metadata,
+    };
+    
     // Competition: User input, timeouts, cancellations
-    return await Promise.race([handler.handle(request, context), timeoutPromise, cancelPromise]);
+    return await Promise.race([handler.handle(appRequest, context), timeoutPromise, cancelPromise]);
   } finally {
     // Clean up the cancellation check.
     context.cancelToken.cancel();

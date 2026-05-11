@@ -12,8 +12,32 @@ import type { TruncateMessageOperation, FilterMessageOperation } from '../../mes
 export interface SubgraphNodeConfig {
   /** Subworkflow ID */
   subgraphId: ID;
+  
   /** Whether to execute asynchronously */
   async: boolean;
+  
+  /**
+   * Context passing configuration
+   * 
+   * Replaces the original conversationHistoryCallback.
+   * Allows passing named message contexts to the subworkflow.
+   */
+  contextPassing?: {
+    /** List of context IDs to pass to the subworkflow */
+    contextIds: string[];
+    
+    /** Passing strategy */
+    strategy?: {
+      /** Mode: clone (copy), reference (share), or snapshot (immutable copy) */
+      mode?: 'clone' | 'reference' | 'snapshot';
+      
+      /** Whether to merge passed contexts into the subworkflow's initial context */
+      mergeToInitial?: boolean;
+      
+      /** Namespace prefix to avoid ID conflicts (e.g., "parent_") */
+      namespace?: string;
+    };
+  };
 }
 
 /**

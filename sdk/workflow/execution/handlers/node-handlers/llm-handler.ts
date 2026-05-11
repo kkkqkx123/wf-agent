@@ -10,12 +10,11 @@
  * - Supports referencing predefined prompt templates via templateId
  */
 
-import type { Node, LLMNodeConfig } from "@wf-agent/types";
+import type { Node, LLMNodeConfig, NamedMessageContext } from "@wf-agent/types";
 import type { WorkflowExecution, LLMMessage } from "@wf-agent/types";
 import type { HumanRelayHandler } from "@wf-agent/types";
-import { ExecutionError } from "@wf-agent/types";
+import { ExecutionError, RuntimeValidationError } from "@wf-agent/types";
 import { now, diffTimestamp, getErrorOrNew } from "@wf-agent/common-utils";
-import { templateRegistry } from "../../../../resources/predefined/template-registry.js";
 import { createContextualLogger } from "../../../../utils/contextual-logger.js";
 import { LLMExecutionCoordinator } from "../../coordinators/llm-execution-coordinator.js";
 import { LLMWrapper } from "../../../../core/llm/wrapper.js";
@@ -57,30 +56,44 @@ export interface LLMHandlerContext {
 }
 
 /**
- * Parse Prompt Words
- * Supports referencing templates via templateId or specifying the prompt directly
- * @param config LLM node configuration
- * @returns The parsed prompt words
+ * Collect messages from named contexts
  */
-function resolvePrompt(config: LLMNodeConfig): string {
-  // "Use templateId as a priority."
-  if (config.promptTemplateId) {
-    const template = templateRegistry.get(config.promptTemplateId);
-    if (template) {
-      return (
-        templateRegistry.render(config.promptTemplateId, config.promptTemplateVariables || {}) ??
-        template.content
-      );
-    }
-    // Fall back to the direct prompt when the template does not exist.
-    logger.warn(
-      `Prompt template '${config.promptTemplateId}' not found, falling back to direct prompt`,
-      { templateId: config.promptTemplateId },
-    );
+function collectMessagesFromContexts(
+  config: LLMNodeConfig,
+  workflowExecution: WorkflowExecution,
+): LLMMessage[] {
+  // Get MessageContextRegistry from execution context
+  const registry = (workflowExecution as any).messageContextRegistry;
+  
+  if (!registry) {
+    throw new RuntimeValidationError("MessageContextRegistry not found in execution context", {
+      operation: "collectMessagesFromContexts",
+      field: "messageContextRegistry",
+    });
   }
 
-  // Use the directly specified prompt
-  return config.prompt || "";
+  // Use default context if contextRefs not specified
+  const contextRefs = config.contextRefs && config.contextRefs.length > 0 
+    ? config.contextRefs 
+    : ['current'];
+
+  let allMessages: LLMMessage[] = [];
+  
+  for (const contextId of contextRefs) {
+    const namedContext = registry.get(contextId);
+    
+    if (!namedContext) {
+      throw new RuntimeValidationError(`Context '${contextId}' not found`, {
+        operation: "collectMessagesFromContexts",
+        field: "contextRefs",
+        value: contextId,
+      });
+    }
+    
+    allMessages.push(...namedContext.messages);
+  }
+  
+  return allMessages;
 }
 
 /**
@@ -99,22 +112,30 @@ export async function llmHandler(
   const startTime = now();
 
   try {
-    // 1. Convert the configuration into executable data (the configuration has already passed static validation during workflow registration).
+    // 1. Collect messages from named contexts
+    const messages = collectMessagesFromContexts(config, workflowExecution);
+    
+    // 2. Add messages to conversation manager for this execution
+    for (const message of messages) {
+      context.conversationManager.addMessage(message);
+    }
+
+    // 3. Convert the configuration into executable data
     const executionData = {
-      prompt: resolvePrompt(config),
+      prompt: "", // Empty prompt - messages come from context references
       profileId: config.profileId,
       parameters: config.parameters || {},
       maxToolCallsPerRequest: config.maxToolCallsPerRequest,
       stream: false,
     };
 
-    // 2. Check if it is a HumanRelay provider.
+    // 4. Check if it is a HumanRelay provider.
     const profile = context.llmWrapper.getProfile(executionData.profileId || "DEFAULT");
     if (profile?.provider === "HUMAN_RELAY") {
       return await executeHumanRelayLLMNode(workflowExecution, node, executionData, context, startTime);
     }
 
-    // 3. Call LLMExecutionCoordinator
+    // 5. Call LLMExecutionCoordinator
     const result = await context.llmCoordinator.executeLLM(
       {
         executionId: workflowExecution.id,
@@ -128,6 +149,32 @@ export async function llmHandler(
     );
 
     const endTime = now();
+
+    // 6. Append response to output context if specified
+    if (result.success && config.outputContext) {
+      const registry = (workflowExecution as any).messageContextRegistry;
+      if (registry) {
+        const outputContextId = config.outputContext;
+        const existingContext = registry.get(outputContextId);
+        
+        if (existingContext) {
+          // Update existing context
+          registry.update(outputContextId, [
+            ...existingContext.messages,
+            { role: "assistant", content: result.content || "" },
+          ]);
+        } else {
+          // Create new context
+          registry.register({
+            id: outputContextId,
+            messages: [{ role: "assistant", content: result.content || "" }],
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            metadata: { description: `Output from LLM node ${node.id}` },
+          });
+        }
+      }
+    }
 
     if (result.success) {
       return {

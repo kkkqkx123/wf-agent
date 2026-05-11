@@ -24,9 +24,8 @@ export const ScriptNodeConfigSchema = z.object({
  */
 export const LLMNodeConfigSchema = z.object({
   profileId: z.string().min(1, "Profile ID is required"),
-  prompt: z.string().optional(),
-  promptTemplateId: z.string().optional(),
-  promptTemplateVariables: z.record(z.string(), z.any()).optional(),
+  contextRefs: z.array(z.string()).optional(),
+  outputContext: z.string().optional(),
   parameters: z.record(z.string(), z.any()).optional(),
   maxToolCallsPerRequest: z
     .number()

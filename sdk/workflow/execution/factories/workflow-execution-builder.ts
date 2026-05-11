@@ -14,7 +14,7 @@
  */
 
 import type { WorkflowGraph } from "@wf-agent/types";
-import type { WorkflowExecution, WorkflowExecutionOptions } from "@wf-agent/types";
+import type { WorkflowExecution, WorkflowExecutionOptions, WorkflowConfig } from "@wf-agent/types";
 import { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
 import { WorkflowExecutionState } from "../../state-managers/workflow-execution-state.js";
 import { ExecutionState } from "../../state-managers/execution-state.js";
@@ -26,7 +26,9 @@ import * as Identifiers from "../../../core/di/service-identifiers.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import type { ToolRegistry } from "../../../core/registry/tool-registry.js";
+import type { WorkflowRegistry } from "../../stores/workflow-registry.js";
 import { ConversationSession } from "../../../core/messaging/conversation-session.js";
+import { InMemoryMessageContextRegistry, initializeExecutionContext } from "../../../core/messaging/index.js";
 import { logError, emitErrorEvent } from "../../../core/utils/error-utils.js";
 import type { ExecutionHierarchyRegistry } from "../../../core/registry/execution-hierarchy-registry.js";
 import type { GlobalContext } from "../../../core/global-context.js";
@@ -97,6 +99,16 @@ export class WorkflowExecutionBuilder {
   }
 
   /**
+   * Get workflow registry (from DI container)
+   */
+  private getWorkflowRegistry(): WorkflowRegistry {
+    if (!this.globalContext) {
+      throw new Error("GlobalContext not initialized. Use constructor with GlobalContext parameter.");
+    }
+    return this.globalContext.container.get(Identifiers.WorkflowRegistry) as WorkflowRegistry;
+  }
+
+  /**
    * Get tool service (from DI container)
    */
   private getToolService(): ToolRegistry {
@@ -149,7 +161,7 @@ export class WorkflowExecutionBuilder {
     }
 
     // Build from WorkflowGraph
-    const result = await this.buildFromWorkflowGraph(workflowGraph, options);
+    const result = await this.buildFromWorkflowGraph(workflowGraph, options, workflowId);
 
     logger.info("Workflow execution built successfully", {
       workflowExecutionId: result.workflowExecutionEntity.id,
@@ -169,6 +181,7 @@ export class WorkflowExecutionBuilder {
   private async buildFromWorkflowGraph(
     workflowGraph: WorkflowGraph,
     options: WorkflowExecutionOptions = {},
+    workflowId?: string,
   ): Promise<WorkflowExecutionBuildResult> {
     // Step 1: Verify workflow graph
     if (!workflowGraph.nodes || workflowGraph.nodes.size === 0) {
@@ -239,14 +252,33 @@ export class WorkflowExecutionBuilder {
       registry
     );
 
-    // Step 7: Create ConversationSession
+    // Step 7: Create MessageContextRegistry and initialize contexts
+    const messageContextRegistry = new InMemoryMessageContextRegistry();
+    
+    // Initialize execution contexts based on workflow config
+    let workflowConfig: WorkflowConfig | undefined;
+    if (workflowId) {
+      try {
+        const workflowRegistry = this.getWorkflowRegistry();
+        const workflowTemplate = workflowRegistry.get(workflowId);
+        workflowConfig = workflowTemplate?.config;
+      } catch (error) {
+        logger.warn(`Failed to get workflow config for initialization`, { workflowId, error });
+      }
+    }
+    initializeExecutionContext(messageContextRegistry, workflowConfig);
+    
+    // Attach registry to workflow execution for handlers to access
+    (workflowExecution as any).messageContextRegistry = messageContextRegistry;
+
+    // Step 8: Create ConversationSession
     const conversationManager = new ConversationSession({
       eventManager: this.getEventManager(),
       executionId: workflowExecution.id,
       workflowId: workflowGraph.workflowId,
     });
 
-    // Step 8: Create WorkflowStateCoordinator
+    // Step 9: Create WorkflowStateCoordinator
     const stateCoordinator = new WorkflowStateCoordinator({
       workflowExecutionEntity,
       conversationManager,

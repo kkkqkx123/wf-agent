@@ -3,6 +3,7 @@
  */
 
 import type { ToolApprovalOptions } from "../tool/approval.js";
+import type { LLMMessage } from "../message/message.js";
 
 /**
  * Checkpoint Configuration Types
@@ -53,4 +54,20 @@ export interface WorkflowConfig {
   };
   /** Tool Approval Configuration (uses ToolApprovalOptions for advanced features) */
   toolApproval?: ToolApprovalOptions;
+  
+  /**
+   * Predefined system messages
+   * 
+   * Automatically created as 'system' context on execution start.
+   */
+  systemMessages?: LLMMessage[];
+  
+  /**
+   * Predefined static contexts
+   */
+  staticContexts?: {
+    id: string;
+    messages: LLMMessage[];
+    description?: string;
+  }[];
 }

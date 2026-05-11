@@ -71,7 +71,7 @@ export function createContextCompressionWorkflow(compressionPrompt?: string): Wo
       description: "Using LLM to compress dialog history",
       config: {
         profileId: "DEFAULT",
-        prompt: compressionPrompt || DEFAULT_COMPRESSION_PROMPT,
+        contextRefs: ["current"],
       },
       outgoingEdgeIds: [],
       incomingEdgeIds: [],

@@ -25,7 +25,7 @@ export interface ForkPath {
 export interface ForkNodeConfig {
   /** An array of forked paths, each containing pathId and childNodeId. */
   forkPaths: ForkPath[];
-  /** 分叉策略(串行、并行) */
+  /** Fork strategy (serial、parallel) */
   forkStrategy: 'serial' | 'parallel';
 }
 
@@ -46,7 +46,7 @@ export interface JoinNodeConfig {
    * Array of forked path IDs, which must be identical to the paired FORK nodes
    */
   forkPathIds: ID[];
-  /** 连接策略(ALL_COMPLETED、ANY_COMPLETED、ALL_FAILED、ANY_FAILED、SUCCESS_COUNT_THRESHOLD) */
+  /** Join strategy (ALL_COMPLETED、ANY_COMPLETED、ALL_FAILED、ANY_FAILED、SUCCESS_COUNT_THRESHOLD) */
   joinStrategy: 'ALL_COMPLETED' | 'ANY_COMPLETED' | 'ALL_FAILED' | 'ANY_FAILED' | 'SUCCESS_COUNT_THRESHOLD';
   /** Number of successes threshold (used when joinStrategy is SUCCESS_COUNT_THRESHOLD) */
   threshold?: number;

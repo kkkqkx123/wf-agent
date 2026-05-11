@@ -13,7 +13,7 @@
  * - Dependency injection: Manage dependencies through LLMContextFactory
  */
 
-import type { LLMMessage, BaseEvent } from "@wf-agent/types";
+import type { LLMMessage, BaseEvent, LLMToolCall } from "@wf-agent/types";
 import type { WorkflowConfig } from "@wf-agent/types";
 import { ConversationSession } from "../../../core/messaging/conversation-session.js";
 import type { ToolContextStore } from "../../stores/tool-context-store.js";
@@ -32,8 +32,7 @@ import {
 import type { WorkflowInterruptionCheckResult } from "../../../core/utils/interruption/index.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import {
-  buildUserInteractionRequestedEvent,
-  buildUserInteractionProcessedEvent,
+  buildToolApprovalRequestedEvent,
 } from "../utils/event/index.js";
 import {
   LLMContextFactory,
@@ -495,7 +494,7 @@ export class LLMExecutionCoordinator {
    * @returns: Approval result
    */
   private async requestToolApproval(
-    toolCall: { id: string; name: string; arguments: string },
+    toolCall: LLMToolCall,
     approvalConfig: { approvalTimeout?: number } | undefined,
     executionId: string,
     nodeId: string,
@@ -542,20 +541,20 @@ export class LLMExecutionCoordinator {
     }
 
     try {
-      // Trigger the USER_INTERACTION_REQUESTED event
-      const requestedEvent = buildUserInteractionRequestedEvent({
+      // Trigger the TOOL_APPROVAL_REQUESTED event
+      const requestedEvent = buildToolApprovalRequestedEvent({
         executionId,
         nodeId,
         interactionId,
-        operationType: "TOOL_APPROVAL",
-        prompt: `Do you approve calling the tool "${toolCall.id}"?`,
+        toolCall,
+        contextId: executionId,
         timeout: approvalConfig?.approvalTimeout || 0,
       });
       
       try {
         await emit(this.contextFactory.getEventManager(), requestedEvent);
       } catch (error) {
-        logger.debug("Failed to emit USER_INTERACTION_REQUESTED event", { eventType: requestedEvent.type, error });
+        logger.debug("Failed to emit TOOL_APPROVAL_REQUESTED event", { eventType: requestedEvent.type, error });
       }
 
       // Wait for the USER_INTERACTION_RESPONDED event to be triggered.
@@ -566,20 +565,6 @@ export class LLMExecutionCoordinator {
 
       // Parse approval results
       const approvalResult = response.inputData as ToolApprovalResult;
-
-      // Trigger the USER_INTERACTION_PROCESSED event
-      const processedEvent = buildUserInteractionProcessedEvent({
-        executionId,
-        interactionId,
-        operationType: "TOOL_APPROVAL",
-        results: approvalResult,
-      });
-      
-      try {
-        await emit(this.contextFactory.getEventManager(), processedEvent);
-      } catch (error) {
-        logger.debug("Failed to emit USER_INTERACTION_PROCESSED event", { eventType: processedEvent.type, error });
-      }
 
       return approvalResult;
     } finally {
@@ -626,11 +611,7 @@ export class LLMExecutionCoordinator {
 
     // Call the approval flow which returns ToolApprovalResult
     const result = await this.requestToolApproval(
-      {
-        id: request.toolCall.id,
-        name: toolCallName,
-        arguments: toolCallArgs,
-      },
+      request.toolCall as import("@wf-agent/types").LLMToolCall,
       undefined,
       executionId,
       nodeId,
@@ -670,7 +651,7 @@ export class LLMExecutionCoordinator {
           if (timeoutId) {
             clearTimeout(timeoutId);
           }
-          eventManager.off("USER_INTERACTION_RESPONDED", handler);
+          eventManager.off("TOOL_APPROVAL_RESPONDED", handler);
           resolve(typedEvent);
         }
       };
@@ -678,12 +659,12 @@ export class LLMExecutionCoordinator {
       // The timeout is set only when timeoutMs > 0.
       if (timeoutMs > 0) {
         timeoutId = setTimeout(() => {
-          eventManager.off("USER_INTERACTION_RESPONDED", handler);
+          eventManager.off("TOOL_APPROVAL_RESPONDED", handler);
           reject(new Error(`User interaction timeout after ${timeoutMs}ms`));
         }, timeoutMs);
       }
 
-      eventManager.on("USER_INTERACTION_RESPONDED", handler);
+      eventManager.on("TOOL_APPROVAL_RESPONDED", handler);
     });
   }
 }

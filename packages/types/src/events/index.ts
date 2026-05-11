@@ -94,18 +94,19 @@ import type {
 } from "./subgraph-events.js";
 
 import type {
-  UserInteractionRequestedEvent,
-  UserInteractionRespondedEvent,
-  UserInteractionProcessedEvent,
-  UserInteractionFailedEvent,
   HumanRelayRequestedEvent,
   HumanRelayRespondedEvent,
-  HumanRelayProcessedEvent,
   HumanRelayFailedEvent,
   ProgressiveToolExecutionStartEvent,
   ProgressiveToolExecutionEndEvent,
   ToolQueueUpdateEvent,
   ToolApprovalAnnotatedEvent,
+  ToolApprovalRequestedEvent,
+  ToolApprovalRespondedEvent,
+  ToolApprovalFailedEvent,
+  FollowupQuestionRequestedEvent,
+  FollowupQuestionRespondedEvent,
+  FollowupQuestionFailedEvent,
 } from "./interaction-events.js";
 
 import type {
@@ -188,13 +189,8 @@ export type Event =
   | TriggeredSubgraphCompletedEvent
   | TriggeredSubgraphFailedEvent
   | VariableChangedEvent
-  | UserInteractionRequestedEvent
-  | UserInteractionRespondedEvent
-  | UserInteractionProcessedEvent
-  | UserInteractionFailedEvent
   | HumanRelayRequestedEvent
   | HumanRelayRespondedEvent
-  | HumanRelayProcessedEvent
   | HumanRelayFailedEvent
   | LLMStreamAbortedEvent
   | LLMStreamErrorEvent
@@ -224,4 +220,10 @@ export type Event =
   | ProgressiveToolExecutionStartEvent
   | ProgressiveToolExecutionEndEvent
   | ToolQueueUpdateEvent
-  | ToolApprovalAnnotatedEvent;
+  | ToolApprovalAnnotatedEvent
+  | ToolApprovalRequestedEvent
+  | ToolApprovalRespondedEvent
+  | ToolApprovalFailedEvent
+  | FollowupQuestionRequestedEvent
+  | FollowupQuestionRespondedEvent
+  | FollowupQuestionFailedEvent;

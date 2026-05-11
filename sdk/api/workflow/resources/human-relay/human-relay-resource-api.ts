@@ -29,7 +29,6 @@ import { ConfigurationError, NotFoundError } from "@wf-agent/types";
 import type {
   HumanRelayRequestedEvent,
   HumanRelayRespondedEvent,
-  HumanRelayProcessedEvent,
   HumanRelayFailedEvent,
 } from "@wf-agent/types";
 import type { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
@@ -273,22 +272,6 @@ export class HumanRelayResourceAPI extends CrudResourceAPI<
    */
   offRelayResponded(listener: (event: HumanRelayRespondedEvent) => void): void {
     this.dependencies.getEventManager().off("HUMAN_RELAY_RESPONDED", listener);
-  }
-
-  /**
-   * Subscribe to the Human Relay processing completion event
-   * @param listener event listener
-   */
-  onRelayProcessed(listener: (event: HumanRelayProcessedEvent) => void): void {
-    this.dependencies.getEventManager().on("HUMAN_RELAY_PROCESSED", listener);
-  }
-
-  /**
-   * Unsubscribe from the Human Relay processing completion event
-   * @param listener Event listener
-   */
-  offRelayProcessed(listener: (event: HumanRelayProcessedEvent) => void): void {
-    this.dependencies.getEventManager().off("HUMAN_RELAY_PROCESSED", listener);
   }
 
   /**

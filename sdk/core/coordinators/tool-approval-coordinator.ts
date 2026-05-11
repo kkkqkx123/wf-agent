@@ -31,14 +31,11 @@ import { generateId } from "@wf-agent/common-utils";
 import type { EventRegistry } from "../registry/event-registry.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 import {
-  buildUserInteractionRequestedEvent,
-  buildUserInteractionProcessedEvent,
-} from "../utils/event/builders/index.js";
-import {
   checkAutoApproval,
   extractContextFromParameters,
 } from "../../services/auto-approval/index.js";
 import {
+  buildToolApprovalRequestedEvent,
   buildProgressiveToolExecutionStartEvent,
   buildProgressiveToolExecutionEndEvent,
   buildToolQueueUpdateEvent,
@@ -541,11 +538,6 @@ export class ToolApprovalCoordinator {
       // Request approval
       const result = await approvalHandler.requestApproval(request);
 
-      // Trigger USER_INTERACTION_PROCESSED event
-      if (this.eventManager) {
-        await this.triggerApprovalProcessedEvent(request, result);
-      }
-
       return result;
     } catch (error) {
       // Return rejection on error
@@ -567,45 +559,22 @@ export class ToolApprovalCoordinator {
   ): Promise<void> {
     try {
       await this.eventManager!.emit(
-        buildUserInteractionRequestedEvent({
+        buildToolApprovalRequestedEvent({
           executionId: request.contextId || "",
           interactionId: request.interactionId,
-          operationType: "TOOL_APPROVAL" as const,
-          prompt: `Approve tool call "${request.toolCall.function?.name ?? "unknown"}"?`,
+          toolCall: request.toolCall,
+          toolDescription: request.toolDescription,
+          contextId: request.contextId,
+          nodeId: request.nodeId,
           timeout,
-          contextData: {
-            toolName: request.toolCall.function?.name,
-            toolDescription: request.toolDescription,
-            toolCall: request.toolCall,
-          },
+          batchId: request.batchId,
+          toolIndex: request.toolIndex,
+          totalTools: request.totalTools,
+          pendingQueue: request.pendingQueue,
         }),
       );
     } catch (error) {
       logger.warn("Failed to trigger approval requested event", {
-        contextId: request.contextId,
-        error,
-      });
-    }
-  }
-
-  /**
-   * Trigger approval processed event
-   */
-  private async triggerApprovalProcessedEvent(
-    request: ToolApprovalRequest,
-    result: ToolApprovalResult,
-  ): Promise<void> {
-    try {
-      await this.eventManager!.emit(
-        buildUserInteractionProcessedEvent({
-          executionId: request.contextId || "",
-          interactionId: request.interactionId,
-          operationType: "TOOL_APPROVAL" as const,
-          results: result,
-        }),
-      );
-    } catch (error) {
-      logger.warn("Failed to trigger approval processed event", {
         contextId: request.contextId,
         error,
       });

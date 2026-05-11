@@ -7,7 +7,7 @@
 
 import type { ToolOutput, BuiltinToolExecutionContext } from "@wf-agent/types";
 import type { EventRegistry } from "../../../../../../core/registry/event-registry.js";
-import { buildUserInteractionRequestedEvent } from "../../../../../../core/utils/event/builders/interaction-events.js";
+import { buildFollowupQuestionRequestedEvent } from "../../../../../../core/utils/event/builders/interaction-events.js";
 import { generateId, now, diffTimestamp } from "@wf-agent/common-utils";
 
 /**
@@ -109,10 +109,10 @@ export function createAskFollowupQuestionHandler() {
         nodeId = entity.getCurrentNodeId?.();
       }
 
-      // Build interaction request payload
-      const interactionRequest = {
+      // Emit FOLLOWUP_QUESTION_REQUESTED event
+      const requestedEvent = buildFollowupQuestionRequestedEvent({
+        executionId: context.executionId,
         interactionId,
-        operationType: "ASK_FOLLOWUP_QUESTION" as const,
         questions: questions.map((q, idx) => ({
           index: idx,
           text: q.text,
@@ -122,20 +122,11 @@ export function createAskFollowupQuestionHandler() {
           })),
         })),
         additionalInfoLabel: additionalInfoLabel || "Additional comments or information",
+        timeout,
         metadata: {
           executionId: context.executionId,
           nodeId,
         },
-      };
-
-      // Emit USER_INTERACTION_REQUESTED event
-      const requestedEvent = buildUserInteractionRequestedEvent({
-        executionId: context.executionId,
-        interactionId,
-        operationType: "ASK_FOLLOWUP_QUESTION",
-        prompt: JSON.stringify(interactionRequest),
-        timeout,
-        nodeId,
       });
 
       await eventManager.emit(requestedEvent);
@@ -231,17 +222,17 @@ async function waitForInteractionResponse(
       if (event.interactionId === interactionId && !resolved) {
         resolved = true;
         if (timeoutId) clearTimeout(timeoutId);
-        eventManager.off("USER_INTERACTION_RESPONDED", listener);
+        eventManager.off("FOLLOWUP_QUESTION_RESPONDED", listener);
         resolve(event);
       }
     };
 
-    eventManager.on("USER_INTERACTION_RESPONDED", listener);
+    eventManager.on("FOLLOWUP_QUESTION_RESPONDED", listener);
 
     timeoutId = setTimeout(() => {
       if (!resolved) {
         resolved = true;
-        eventManager.off("USER_INTERACTION_RESPONDED", listener);
+        eventManager.off("FOLLOWUP_QUESTION_RESPONDED", listener);
         resolve(null);
       }
     }, timeout);

@@ -26,10 +26,8 @@ import { success, failure } from "../../../shared/types/execution-result.js";
 import type { UserInteractionHandler, UserInteractionRequest } from "@wf-agent/types";
 import { ConfigurationError } from "@wf-agent/types";
 import type {
-  UserInteractionRequestedEvent,
-  UserInteractionRespondedEvent,
-  UserInteractionProcessedEvent,
-  UserInteractionFailedEvent,
+  ToolApprovalRequestedEvent,
+  FollowupQuestionRequestedEvent,
 } from "@wf-agent/types";
 import type { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
 
@@ -228,71 +226,39 @@ export class UserInteractionResourceAPI extends CrudResourceAPI<
   }
 
   // ============================================================================
-  // event subscription
+  // Specialized Event Subscriptions
   // ============================================================================
 
   /**
-   * Subscribe to user interaction request events
+   * Subscribe to tool approval request events
    * @param listener event listener
    */
-  onInteractionRequested(listener: (event: UserInteractionRequestedEvent) => void): void {
-    this.dependencies.getEventManager().on("USER_INTERACTION_REQUESTED", listener);
+  onToolApprovalRequested(listener: (event: ToolApprovalRequestedEvent) => void): void {
+    this.dependencies.getEventManager().on("TOOL_APPROVAL_REQUESTED", listener);
   }
 
   /**
-   * Unsubscribe from user interaction request events
+   * Unsubscribe from tool approval request events
    * @param listener event listener
    */
-  offInteractionRequested(listener: (event: UserInteractionRequestedEvent) => void): void {
-    this.dependencies.getEventManager().off("USER_INTERACTION_REQUESTED", listener);
+  offToolApprovalRequested(listener: (event: ToolApprovalRequestedEvent) => void): void {
+    this.dependencies.getEventManager().off("TOOL_APPROVAL_REQUESTED", listener);
   }
 
   /**
-   * Subscribe to user interaction events
+   * Subscribe to follow-up question request events
    * @param listener event listener
    */
-  onInteractionResponded(listener: (event: UserInteractionRespondedEvent) => void): void {
-    this.dependencies.getEventManager().on("USER_INTERACTION_RESPONDED", listener);
+  onFollowupQuestionRequested(listener: (event: FollowupQuestionRequestedEvent) => void): void {
+    this.dependencies.getEventManager().on("FOLLOWUP_QUESTION_REQUESTED", listener);
   }
 
   /**
-   * Unsubscribe from user interaction response events
+   * Unsubscribe from follow-up question request events
    * @param listener event listener
    */
-  offInteractionResponded(listener: (event: UserInteractionRespondedEvent) => void): void {
-    this.dependencies.getEventManager().off("USER_INTERACTION_RESPONDED", listener);
-  }
-
-  /**
-   * Subscribe to user interaction completion events
-   * @param listener event listener
-   */
-  onInteractionProcessed(listener: (event: UserInteractionProcessedEvent) => void): void {
-    this.dependencies.getEventManager().on("USER_INTERACTION_PROCESSED", listener);
-  }
-
-  /**
-   * Unsubscribe from the user interaction completion event
-   * @param listener event listener
-   */
-  offInteractionProcessed(listener: (event: UserInteractionProcessedEvent) => void): void {
-    this.dependencies.getEventManager().off("USER_INTERACTION_PROCESSED", listener);
-  }
-
-  /**
-   * Subscribe to user interaction failure events
-   * @param listener event listener
-   */
-  onInteractionFailed(listener: (event: UserInteractionFailedEvent) => void): void {
-    this.dependencies.getEventManager().on("USER_INTERACTION_FAILED", listener);
-  }
-
-  /**
-   * Unsubscribe from user interaction failure events
-   * @param listener event listener
-   */
-  offInteractionFailed(listener: (event: UserInteractionFailedEvent) => void): void {
-    this.dependencies.getEventManager().off("USER_INTERACTION_FAILED", listener);
+  offFollowupQuestionRequested(listener: (event: FollowupQuestionRequestedEvent) => void): void {
+    this.dependencies.getEventManager().off("FOLLOWUP_QUESTION_REQUESTED", listener);
   }
 
   // ============================================================================

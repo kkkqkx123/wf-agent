@@ -235,6 +235,7 @@ export class WorkflowExecutionBuilder {
       workflowExecution,
       executionState,
       workflowExecutionState,
+      undefined,
       registry
     );
 
@@ -332,6 +333,7 @@ export class WorkflowExecutionBuilder {
       copiedWorkflowExecution,
       executionState,
       workflowExecutionState,
+      undefined,
       registry
     );
 
@@ -430,6 +432,7 @@ export class WorkflowExecutionBuilder {
       forkWorkflowExecution,
       executionState,
       workflowExecutionState,
+      undefined,
       registry
     );
 

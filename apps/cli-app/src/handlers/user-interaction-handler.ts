@@ -5,8 +5,9 @@
 
 import readline from "readline";
 import type { 
-  UserInteractionRequestedEvent,
-  UserInteractionContext 
+  FollowupQuestionRequestedEvent,
+  FollowupQuestionRespondedEvent,
+  FollowupQuestionFailedEvent
 } from "@wf-agent/types";
 import { now } from "@wf-agent/common-utils";
 import type { SDKInstance } from "@wf-agent/sdk";
@@ -61,25 +62,21 @@ export class CLIUserInteractionHandler {
     
     const eventManager = globalContext.eventRegistry;
     
-    // Subscribe to USER_INTERACTION_REQUESTED events
-    eventManager.on("USER_INTERACTION_REQUESTED", async (event: UserInteractionRequestedEvent) => {
-      if (event.operationType === "ASK_FOLLOWUP_QUESTION") {
-        await this.handleAskFollowupQuestion(event);
-      }
+    // Subscribe to FOLLOWUP_QUESTION_REQUESTED events
+    eventManager.on("FOLLOWUP_QUESTION_REQUESTED", async (event: FollowupQuestionRequestedEvent) => {
+      await this.handleAskFollowupQuestion(event);
     });
   }
 
   /**
    * Handle ASK_FOLLOWUP_QUESTION interaction
    */
-  private async handleAskFollowupQuestion(event: UserInteractionRequestedEvent): Promise<void> {
+  private async handleAskFollowupQuestion(event: FollowupQuestionRequestedEvent): Promise<void> {
     const timeoutMs = event.timeout || 300000; // Default 5 minutes
     let timeoutId: NodeJS.Timeout | null = null;
     let isCompleted = false;
 
     try {
-      const requestData: AskFollowupQuestionRequest = JSON.parse(event.prompt);
-      
       console.log("\n" + "=".repeat(60));
       console.log("📝 Follow-up Questions");
       console.log("=".repeat(60) + "\n");
@@ -95,34 +92,33 @@ export class CLIUserInteractionHandler {
 
       // Race between user input and timeout
       await Promise.race([
-        this.collectAnswers(requestData),
+        this.collectAnswers(event),
         timeoutPromise,
       ]).then(async (answers) => {
         isCompleted = true;
         if (timeoutId) clearTimeout(timeoutId);
         
         // Get additional information
-        console.log(`${requestData.additionalInfoLabel}:`);
+        console.log(`${event.additionalInfoLabel}:`);
         console.log("(Press Enter to skip)");
         const additionalInfo = await this.getUserInput();
         console.log();
 
         // Build response
-        const responseData = {
+        const responseData: FollowupQuestionRespondedEvent = {
+          id: `followup-response-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          type: "FOLLOWUP_QUESTION_RESPONDED",
+          timestamp: now(),
+          executionId: event.metadata?.executionId,
           interactionId: event.interactionId,
-          inputData: {
-            answers,
-            additionalInfo: additionalInfo.trim() || undefined,
-          },
+          answers,
+          additionalInfo: additionalInfo.trim() || undefined,
         };
 
-        // Emit USER_INTERACTION_RESPONDED event
+        // Emit FOLLOWUP_QUESTION_RESPONDED event
         const globalContext = (this.sdkInstance as any)?.globalContext;
         if (globalContext) {
-          globalContext.eventRegistry.emit("USER_INTERACTION_RESPONDED", {
-            ...responseData,
-            timestamp: now(),
-          });
+          globalContext.eventRegistry.emit(responseData.type, responseData);
         }
 
         console.log("✅ Response submitted successfully\n");
@@ -143,11 +139,15 @@ export class CLIUserInteractionHandler {
       // Emit failure event
       const globalContext = (this.sdkInstance as any)?.globalContext;
       if (globalContext) {
-        globalContext.eventRegistry.emit("USER_INTERACTION_FAILED", {
+        const failedEvent: FollowupQuestionFailedEvent = {
+          id: `followup-failed-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          type: "FOLLOWUP_QUESTION_FAILED",
+          timestamp: now(),
+          executionId: event.metadata?.executionId,
           interactionId: event.interactionId,
           error: errorMessage,
-          timestamp: now(),
-        });
+        };
+        globalContext.eventRegistry.emit(failedEvent.type, failedEvent);
       }
     }
   }
@@ -155,7 +155,7 @@ export class CLIUserInteractionHandler {
   /**
    * Collect answers for all questions
    */
-  private async collectAnswers(requestData: AskFollowupQuestionRequest): Promise<Array<{
+  private async collectAnswers(event: FollowupQuestionRequestedEvent): Promise<Array<{
     questionIndex: number;
     selectedOptionIndex: number;
     customInput?: string;
@@ -169,7 +169,7 @@ export class CLIUserInteractionHandler {
     }> = [];
 
     // Process each question
-    for (const question of requestData.questions) {
+    for (const question of event.questions) {
       console.log(`Q${question.index + 1}: ${question.text}`);
       
       // Display options

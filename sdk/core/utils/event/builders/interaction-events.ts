@@ -6,62 +6,20 @@
 import { now } from "@wf-agent/common-utils";
 import { createBuilder, type BuildParams } from "./common.js";
 import type {
-  UserInteractionRequestedEvent,
-  UserInteractionRespondedEvent,
-  UserInteractionProcessedEvent,
-  UserInteractionFailedEvent,
   HumanRelayRequestedEvent,
   HumanRelayRespondedEvent,
-  HumanRelayProcessedEvent,
   HumanRelayFailedEvent,
   ProgressiveToolExecutionStartEvent,
   ProgressiveToolExecutionEndEvent,
   ToolQueueUpdateEvent,
   ToolApprovalAnnotatedEvent,
+  ToolApprovalRequestedEvent,
+  ToolApprovalRespondedEvent,
+  ToolApprovalFailedEvent,
+  FollowupQuestionRequestedEvent,
+  FollowupQuestionRespondedEvent,
+  FollowupQuestionFailedEvent,
 } from "@wf-agent/types";
-
-// =============================================================================
-// User Interaction Events
-// =============================================================================
-
-/**
- * Build user interaction requested event
- */
-export const buildUserInteractionRequestedEvent = (
-  params: BuildParams<UserInteractionRequestedEvent> & { workflowId?: string; nodeId?: string },
-): UserInteractionRequestedEvent =>
-  ({
-    type: "USER_INTERACTION_REQUESTED",
-    timestamp: now(),
-    ...params,
-  }) as UserInteractionRequestedEvent;
-
-/**
- * Build user interaction responded event
- */
-export const buildUserInteractionRespondedEvent = createBuilder<UserInteractionRespondedEvent>(
-  "USER_INTERACTION_RESPONDED",
-);
-
-/**
- * Build user interaction processed event
- */
-export const buildUserInteractionProcessedEvent = (
-  params: BuildParams<UserInteractionProcessedEvent> & { workflowId?: string },
-): UserInteractionProcessedEvent =>
-  ({
-    type: "USER_INTERACTION_PROCESSED",
-    timestamp: now(),
-    ...params,
-  }) as UserInteractionProcessedEvent;
-
-/**
- * Build user interaction failed event
- */
-export const buildUserInteractionFailedEvent = (
-  params: BuildParams<UserInteractionFailedEvent>,
-): UserInteractionFailedEvent =>
-  ({ type: "USER_INTERACTION_FAILED", timestamp: now(), ...params }) as UserInteractionFailedEvent;
 
 // =============================================================================
 // Human Relay Events
@@ -78,12 +36,6 @@ export const buildHumanRelayRequestedEvent =
  */
 export const buildHumanRelayRespondedEvent =
   createBuilder<HumanRelayRespondedEvent>("HUMAN_RELAY_RESPONDED");
-
-/**
- * Build human relay processed event
- */
-export const buildHumanRelayProcessedEvent =
-  createBuilder<HumanRelayProcessedEvent>("HUMAN_RELAY_PROCESSED");
 
 /**
  * Build human relay failed event
@@ -129,3 +81,63 @@ export const buildToolApprovalAnnotatedEvent = (
     timestamp: now(),
     ...params,
   }) as ToolApprovalAnnotatedEvent;
+
+// =============================================================================
+// Tool Approval Events (Specific)
+// =============================================================================
+
+/**
+ * Build tool approval requested event
+ */
+export const buildToolApprovalRequestedEvent = createBuilder<ToolApprovalRequestedEvent>(
+  "TOOL_APPROVAL_REQUESTED",
+);
+
+/**
+ * Build tool approval responded event
+ */
+export const buildToolApprovalRespondedEvent = createBuilder<ToolApprovalRespondedEvent>(
+  "TOOL_APPROVAL_RESPONDED",
+);
+
+/**
+ * Build tool approval failed event
+ */
+export const buildToolApprovalFailedEvent = (
+  params: BuildParams<ToolApprovalFailedEvent>,
+): ToolApprovalFailedEvent =>
+  ({
+    type: "TOOL_APPROVAL_FAILED",
+    timestamp: now(),
+    ...params,
+  }) as ToolApprovalFailedEvent;
+
+// =============================================================================
+// Follow-up Question Events (Specific)
+// =============================================================================
+
+/**
+ * Build follow-up question requested event
+ */
+export const buildFollowupQuestionRequestedEvent = createBuilder<FollowupQuestionRequestedEvent>(
+  "FOLLOWUP_QUESTION_REQUESTED",
+);
+
+/**
+ * Build follow-up question responded event
+ */
+export const buildFollowupQuestionRespondedEvent = createBuilder<FollowupQuestionRespondedEvent>(
+  "FOLLOWUP_QUESTION_RESPONDED",
+);
+
+/**
+ * Build follow-up question failed event
+ */
+export const buildFollowupQuestionFailedEvent = (
+  params: BuildParams<FollowupQuestionFailedEvent>,
+): FollowupQuestionFailedEvent =>
+  ({
+    type: "FOLLOWUP_QUESTION_FAILED",
+    timestamp: now(),
+    ...params,
+  }) as FollowupQuestionFailedEvent;

@@ -86,20 +86,22 @@ export type EventType =
   | "TRIGGERED_SUBGRAPH_FAILED"
   /** Variable change */
   | "VARIABLE_CHANGED"
-  /** User Interaction Requests */
-  | "USER_INTERACTION_REQUESTED"
-  /** User Interaction Response */
-  | "USER_INTERACTION_RESPONDED"
-  /** User interaction processing complete */
-  | "USER_INTERACTION_PROCESSED"
-  /** User interaction failure */
-  | "USER_INTERACTION_FAILED"
+  /** Tool Approval Requested (specific) */
+  | "TOOL_APPROVAL_REQUESTED"
+  /** Tool Approval Responded */
+  | "TOOL_APPROVAL_RESPONDED"
+  /** Tool Approval Failed */
+  | "TOOL_APPROVAL_FAILED"
+  /** Follow-up Question Requested (specific) */
+  | "FOLLOWUP_QUESTION_REQUESTED"
+  /** Follow-up Question Responded */
+  | "FOLLOWUP_QUESTION_RESPONDED"
+  /** Follow-up Question Failed */
+  | "FOLLOWUP_QUESTION_FAILED"
   /** HumanRelay request */
   | "HUMAN_RELAY_REQUESTED"
   /** HumanRelay Response */
   | "HUMAN_RELAY_RESPONDED"
-  /** HumanRelay processing complete. */
-  | "HUMAN_RELAY_PROCESSED"
   /** HumanRelay Failed */
   | "HUMAN_RELAY_FAILED"
   /** LLM Flow Abort */

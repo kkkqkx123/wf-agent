@@ -55,7 +55,6 @@ const eventTypeSchema = z.custom<EventType>((val): val is EventType =>
     "USER_INTERACTION_FAILED",
     "HUMAN_RELAY_REQUESTED",
     "HUMAN_RELAY_RESPONDED",
-    "HUMAN_RELAY_PROCESSED",
     "HUMAN_RELAY_FAILED",
     "LLM_STREAM_ABORTED",
     "LLM_STREAM_ERROR",

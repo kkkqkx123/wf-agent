@@ -109,7 +109,7 @@ export class AgentLoopFactory {
     // Get execution hierarchy registry from DI container
     const registry = globalContext.container.get(Identifiers.ExecutionHierarchyRegistry) as ExecutionHierarchyRegistry;
     
-    const entity = new AgentLoopEntity(id, config, undefined, undefined, registry);
+    const entity = new AgentLoopEntity(id, config, undefined, undefined, undefined, registry);
 
     logger.info("Creating new Agent Loop entity", {
       agentLoopId: id,

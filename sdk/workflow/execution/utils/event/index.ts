@@ -39,8 +39,8 @@ export {
   buildCheckpointCreatedEvent,
   buildCheckpointFailedEvent,
   buildCheckpointDeletedEvent,
-  buildUserInteractionRequestedEvent,
-  buildUserInteractionProcessedEvent,
+  buildToolApprovalRequestedEvent,
+  buildFollowupQuestionRequestedEvent,
 } from "../../../../core/utils/event/builders/index.js";
 
 // Event Trigger Tool Function

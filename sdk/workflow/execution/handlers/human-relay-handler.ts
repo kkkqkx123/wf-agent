@@ -40,7 +40,6 @@ import {
 import {
   buildHumanRelayRequestedEvent,
   buildHumanRelayRespondedEvent,
-  buildHumanRelayProcessedEvent,
   buildHumanRelayFailedEvent,
 } from "../../../core/utils/event/builders/interaction-events.js";
 
@@ -152,55 +151,6 @@ export async function emitHumanRelayRespondedEvent(
       executionId: task.workflowExecutionEntity.id,
       requestId: response.requestId,
       content: response.content,
-    }),
-  );
-}
-
-/**
- * Trigger the HUMAN_RELAY_PROCESSED event
- * @param task: The HumanRelay task
- * @param message: The LLM message
- * @param executionTime: The execution time
- * @param eventManager: The event manager
- */
-export async function emitHumanRelayProcessedEvent(
-  task: HumanRelayTask,
-  message: LLMMessage,
-  executionTime: number,
-  eventManager: EventRegistry,
-): Promise<void> {
-  await eventManager.emit(
-    buildHumanRelayProcessedEvent({
-      workflowId: task.workflowExecutionEntity.getWorkflowId(),
-      executionId: task.workflowExecutionEntity.id,
-      requestId: task.requestId,
-      message: {
-        role: message.role,
-        content:
-          typeof message.content === "string" ? message.content : JSON.stringify(message.content),
-      },
-      executionTime,
-    }),
-  );
-}
-
-/**
- * Trigger the HUMAN_RELAY_FAILED event
- * @param task: The HumanRelay task
- * @param error: The error message
- * @param eventManager: The event manager
- */
-export async function emitHumanRelayFailedEvent(
-  task: HumanRelayTask,
-  error: Error | string,
-  eventManager: EventRegistry,
-): Promise<void> {
-  await eventManager.emit(
-    buildHumanRelayFailedEvent({
-      workflowId: task.workflowExecutionEntity.getWorkflowId(),
-      executionId: task.workflowExecutionEntity.id,
-      requestId: task.requestId,
-      reason: getErrorMessage(error),
     }),
   );
 }
@@ -320,18 +270,35 @@ export async function executeHumanRelay(
     // 6. Convert human input into LLM messages
     const message = convertToLLMMessage(task, response);
 
-    // 7. Trigger the HUMAN_RELAY_PROCESSED event
-    const executionTime = diffTimestamp(startTime, now());
-    await emitHumanRelayProcessedEvent(task, message, executionTime, eventManager);
-
     return {
       requestId,
       message,
-      executionTime,
+      executionTime: diffTimestamp(startTime, now()),
     };
   } catch (error) {
     // Trigger the HUMAN_RELAY_FAILED event.
     await emitHumanRelayFailedEvent(task, getErrorOrNew(error), eventManager);
     throw error;
   }
+}
+
+/**
+ * Trigger the HUMAN_RELAY_FAILED event
+ * @param task: The HumanRelay task
+ * @param error: The error message
+ * @param eventManager: The event manager
+ */
+export async function emitHumanRelayFailedEvent(
+  task: HumanRelayTask,
+  error: Error | string,
+  eventManager: EventRegistry,
+): Promise<void> {
+  await eventManager.emit(
+    buildHumanRelayFailedEvent({
+      workflowId: task.workflowExecutionEntity.getWorkflowId(),
+      executionId: task.workflowExecutionEntity.id,
+      requestId: task.requestId,
+      reason: getErrorMessage(error),
+    }),
+  );
 }

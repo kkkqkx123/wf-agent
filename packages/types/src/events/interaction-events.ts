@@ -4,60 +4,8 @@
 
 import type { ID } from "../common.js";
 import type { BaseEvent } from "./base.js";
-import type { UserInteractionOperationType, PendingToolCallInfo } from "../interaction/index.js";
+import type { PendingToolCallInfo } from "../interaction/index.js";
 import type { ToolExecutionResult } from "../tool/execution.js";
-
-/**
- * User interaction requested event type
- */
-export interface UserInteractionRequestedEvent extends BaseEvent {
-  type: "USER_INTERACTION_REQUESTED";
-  /** Interaction ID */
-  interactionId: ID;
-  /** Operation type */
-  operationType: UserInteractionOperationType;
-  /** Prompt message */
-  prompt: string;
-  /** Timeout in milliseconds */
-  timeout: number;
-  /** Additional context data (optional) */
-  contextData?: Record<string, unknown>;
-}
-
-/**
- * User interaction response event types
- */
-export interface UserInteractionRespondedEvent extends BaseEvent {
-  type: "USER_INTERACTION_RESPONDED";
-  /** Interaction ID */
-  interactionId: ID;
-  /** User input data */
-  inputData: unknown;
-}
-
-/**
- * User Interaction Processing Completion Event Type
- */
-export interface UserInteractionProcessedEvent extends BaseEvent {
-  type: "USER_INTERACTION_PROCESSED";
-  /** Interaction ID */
-  interactionId: ID;
-  /** Type of operation */
-  operationType: string;
-  /** Disposal results */
-  results: unknown;
-}
-
-/**
- * User interaction failure event types
- */
-export interface UserInteractionFailedEvent extends BaseEvent {
-  type: "USER_INTERACTION_FAILED";
-  /** Interaction ID */
-  interactionId: ID;
-  /** Reasons for failure */
-  reason: string;
-}
 
 /**
  * HumanRelay requested event type
@@ -83,22 +31,6 @@ export interface HumanRelayRespondedEvent extends BaseEvent {
   requestId: ID;
   /** Manual input of content */
   content: string;
-}
-
-/**
- * HumanRelay Processing Completion Event Type
- */
-export interface HumanRelayProcessedEvent extends BaseEvent {
-  type: "HUMAN_RELAY_PROCESSED";
-  /** Request ID */
-  requestId: ID;
-  /** Disposal results */
-  message: {
-    role: string;
-    content: string;
-  };
-  /** Execution time (milliseconds) */
-  executionTime: number;
 }
 
 /**
@@ -204,4 +136,114 @@ export interface ToolApprovalAnnotatedEvent extends BaseEvent {
   annotation: string;
   /** Whether approved */
   approved: boolean;
+}
+
+// =============================================================================
+// Tool Approval Events (Specific)
+// =============================================================================
+
+/**
+ * Tool approval requested event
+ */
+export interface ToolApprovalRequestedEvent extends BaseEvent {
+  type: "TOOL_APPROVAL_REQUESTED";
+  /** Interaction ID */
+  interactionId: ID;
+  /** Tool call to approve */
+  toolCall: import("../message/message.js").LLMToolCall;
+  /** Tool description */
+  toolDescription?: string;
+  /** Context ID */
+  contextId: ID;
+  /** Node ID */
+  nodeId?: ID;
+  /** Timeout in milliseconds */
+  timeout: number;
+  /** Batch metadata */
+  batchId?: string;
+  toolIndex?: number;
+  totalTools?: number;
+  pendingQueue?: import("../message/message.js").LLMToolCall[];
+}
+
+/**
+ * Tool approval responded event
+ */
+export interface ToolApprovalRespondedEvent extends BaseEvent {
+  type: "TOOL_APPROVAL_RESPONDED";
+  /** Interaction ID */
+  interactionId: ID;
+  /** Approval result */
+  result: import("../tool/approval.js").ToolApprovalResult;
+}
+
+/**
+ * Tool approval failed event
+ */
+export interface ToolApprovalFailedEvent extends BaseEvent {
+  type: "TOOL_APPROVAL_FAILED";
+  /** Interaction ID */
+  interactionId: ID;
+  /** Error reason */
+  error: string;
+}
+
+// =============================================================================
+// Follow-up Question Events (Specific)
+// =============================================================================
+
+/**
+ * Follow-up question requested event
+ */
+export interface FollowupQuestionRequestedEvent extends BaseEvent {
+  type: "FOLLOWUP_QUESTION_REQUESTED";
+  /** Interaction ID */
+  interactionId: ID;
+  /** Questions to ask */
+  questions: Array<{
+    index: number;
+    text: string;
+    options: Array<{
+      index: number;
+      value: string;
+    }>;
+  }>;
+  /** Label for additional info */
+  additionalInfoLabel: string;
+  /** Timeout in milliseconds */
+  timeout: number;
+  /** Metadata */
+  metadata?: {
+    executionId?: ID;
+    nodeId?: ID;
+  };
+}
+
+/**
+ * Follow-up question responded event
+ */
+export interface FollowupQuestionRespondedEvent extends BaseEvent {
+  type: "FOLLOWUP_QUESTION_RESPONDED";
+  /** Interaction ID */
+  interactionId: ID;
+  /** User answers */
+  answers: Array<{
+    questionIndex: number;
+    selectedOptionIndex: number;
+    customInput?: string;
+    answer: string;
+  }>;
+  /** Additional info */
+  additionalInfo?: string;
+}
+
+/**
+ * Follow-up question failed event
+ */
+export interface FollowupQuestionFailedEvent extends BaseEvent {
+  type: "FOLLOWUP_QUESTION_FAILED";
+  /** Interaction ID */
+  interactionId: ID;
+  /** Error reason */
+  error: string;
 }

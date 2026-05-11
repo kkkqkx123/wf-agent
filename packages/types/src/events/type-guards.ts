@@ -69,14 +69,13 @@ import type {
   ConversationStateChangedEvent,
 } from "./conversation-events.js";
 import type {
-  UserInteractionRequestedEvent,
-  UserInteractionRespondedEvent,
-  UserInteractionProcessedEvent,
-  UserInteractionFailedEvent,
   HumanRelayRequestedEvent,
   HumanRelayRespondedEvent,
-  HumanRelayProcessedEvent,
   HumanRelayFailedEvent,
+  ToolApprovalRequestedEvent,
+  ToolApprovalFailedEvent,
+  FollowupQuestionRequestedEvent,
+  FollowupQuestionFailedEvent,
 } from "./interaction-events.js";
 import type {
   SubgraphStartedEvent,
@@ -234,7 +233,8 @@ export function isErrorEvent(
     event.type === 'TOOL_CALL_FAILED' ||
     event.type === 'CHECKPOINT_FAILED' ||
     event.type === 'ERROR' ||
-    event.type === 'USER_INTERACTION_FAILED' ||
+    event.type === 'TOOL_APPROVAL_FAILED' ||
+    event.type === 'FOLLOWUP_QUESTION_FAILED' ||
     event.type === 'HUMAN_RELAY_FAILED' ||
     event.type === 'TRIGGERED_SUBGRAPH_FAILED' ||
     event.type === 'SKILL_LOAD_FAILED'
@@ -305,22 +305,23 @@ export function isConversationEvent(
 }
 
 /**
- * Type guard for user interaction events
- * Narrows to all user interaction lifecycle events
+ * Type guard for tool approval events
+ * Narrows to all tool approval lifecycle events
  */
-export function isUserInteractionEvent(
+export function isToolApprovalEvent(
   event: Event,
-): event is
-  | UserInteractionRequestedEvent
-  | UserInteractionRespondedEvent
-  | UserInteractionProcessedEvent
-  | UserInteractionFailedEvent {
-  return (
-    event.type === 'USER_INTERACTION_REQUESTED' ||
-    event.type === 'USER_INTERACTION_RESPONDED' ||
-    event.type === 'USER_INTERACTION_PROCESSED' ||
-    event.type === 'USER_INTERACTION_FAILED'
-  );
+): event is ToolApprovalRequestedEvent {
+  return event.type === 'TOOL_APPROVAL_REQUESTED';
+}
+
+/**
+ * Type guard for follow-up question events
+ * Narrows to all follow-up question lifecycle events
+ */
+export function isFollowupQuestionEvent(
+  event: Event,
+): event is FollowupQuestionRequestedEvent {
+  return event.type === 'FOLLOWUP_QUESTION_REQUESTED';
 }
 
 /**
@@ -329,34 +330,26 @@ export function isUserInteractionEvent(
  */
 export function isHumanRelayEvent(
   event: Event,
-): event is
-  | HumanRelayRequestedEvent
-  | HumanRelayRespondedEvent
-  | HumanRelayProcessedEvent
-  | HumanRelayFailedEvent {
+): event is HumanRelayRequestedEvent | HumanRelayRespondedEvent | HumanRelayFailedEvent {
   return (
     event.type === 'HUMAN_RELAY_REQUESTED' ||
     event.type === 'HUMAN_RELAY_RESPONDED' ||
-    event.type === 'HUMAN_RELAY_PROCESSED' ||
     event.type === 'HUMAN_RELAY_FAILED'
   );
 }
 
 /**
- * Type guard for all interaction events (user interaction + human relay)
+ * Type guard for all interaction events (tool approval + follow-up question + human relay)
  */
 export function isInteractionEvent(
   event: Event,
 ): event is
-  | UserInteractionRequestedEvent
-  | UserInteractionRespondedEvent
-  | UserInteractionProcessedEvent
-  | UserInteractionFailedEvent
+  | ToolApprovalRequestedEvent
+  | FollowupQuestionRequestedEvent
   | HumanRelayRequestedEvent
   | HumanRelayRespondedEvent
-  | HumanRelayProcessedEvent
   | HumanRelayFailedEvent {
-  return isUserInteractionEvent(event) || isHumanRelayEvent(event);
+  return isToolApprovalEvent(event) || isFollowupQuestionEvent(event) || isHumanRelayEvent(event);
 }
 
 /**
@@ -405,7 +398,8 @@ export const eventTypeGuards = {
   isPromiseCallbackEvent,
   isSkillEvent,
   isConversationEvent,
-  isUserInteractionEvent,
+  isToolApprovalEvent,
+  isFollowupQuestionEvent,
   isHumanRelayEvent,
   isInteractionEvent,
   isSubgraphEvent,

@@ -60,12 +60,6 @@ export * from "./skill.js";
 // Registry Options Type
 export * from "./registry-options.js";
 
-// Type Tool Functions
-export * from "./utils/index.js";
-
-// Serialization Types
-export * from "./serialization/index.js";
-
 // Component Message System
 export * from "./component-message/index.js";
 

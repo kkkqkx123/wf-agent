@@ -3,7 +3,26 @@
  * For use by both the agent and graph modules
  */
 
-import type { ID } from "../common.js";
+import type { ID, Timestamp } from "../common.js";
+
+/**
+ * Snapshot version for format identification
+ */
+export type SnapshotVersion = number;
+
+/**
+ * Base interface for all snapshot types
+ *
+ * All serializable entities should produce snapshots that extend this interface.
+ */
+export interface SnapshotBase {
+  /** Snapshot format version */
+  _version: SnapshotVersion;
+  /** Timestamp when the snapshot was created */
+  _timestamp: Timestamp;
+  /** Entity type identifier (e.g., 'task', 'checkpoint', 'execution') */
+  _entityType: string;
+}
 
 /**
  * Checkpoint type

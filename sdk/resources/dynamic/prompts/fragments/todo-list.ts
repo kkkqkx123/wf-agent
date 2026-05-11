@@ -4,10 +4,85 @@
  * Generates dynamic content for a TODO list
  */
 
-import type { TodoItem, TodoStatus } from "@wf-agent/types";
-import { isValidTodoItem, normalizeTodoList } from "@wf-agent/types";
+import type { TodoItem, TodoStatus, TodoPriority } from "@wf-agent/types";
 import { wrapSection } from "./utils.js";
 import { truncateText } from "@wf-agent/sdk";
+
+// ============================================================================
+// Local TODO Validation and Normalization Functions
+// ============================================================================
+
+/**
+ * Validating TODO Status
+ */
+function isTodoStatus(value: unknown): value is TodoStatus {
+  return (
+    value === "pending" || value === "in_progress" || value === "completed" || value === "cancelled"
+  );
+}
+
+/**
+ * Validating TODO Priorities
+ */
+function isTodoPriority(value: unknown): value is TodoPriority {
+  return value === "high" || value === "medium" || value === "low";
+}
+
+/**
+ * Validating individual TODO entries
+ */
+function isValidTodoItem(item: unknown): item is TodoItem {
+  if (!item || typeof item !== "object") return false;
+  const obj = item as Record<string, unknown>;
+  return (
+    typeof obj["id"] === "string" &&
+    obj["id"].trim() !== "" &&
+    typeof obj["content"] === "string" &&
+    isTodoStatus(obj["status"])
+  );
+}
+
+/**
+ * Normalizing TODO Status
+ */
+function normalizeTodoStatus(
+  value: unknown,
+  defaultValue: TodoStatus = "pending",
+): TodoStatus {
+  return isTodoStatus(value) ? value : defaultValue;
+}
+
+/**
+ * Normalizing TODO Priorities
+ */
+function normalizeTodoPriority(
+  value: unknown,
+  defaultValue: TodoPriority = "medium",
+): TodoPriority {
+  return isTodoPriority(value) ? value : defaultValue;
+}
+
+/**
+ * Normalized TODO List
+ */
+function normalizeTodoList(raw: unknown): TodoItem[] {
+  if (!Array.isArray(raw)) return [];
+  const out: TodoItem[] = [];
+  for (const item of raw) {
+    if (isValidTodoItem(item)) {
+      out.push({
+        id: item.id.trim(),
+        content: item.content,
+        status: normalizeTodoStatus(item.status),
+        priority: item.priority ? normalizeTodoPriority(item.priority) : undefined,
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt,
+        metadata: item.metadata,
+      });
+    }
+  }
+  return out;
+}
 
 /**
  * Format TODO list text

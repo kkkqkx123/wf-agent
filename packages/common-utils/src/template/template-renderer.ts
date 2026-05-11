@@ -1,14 +1,14 @@
 /**
- * TemplateRenderer - 模板渲染器
- * 提供模板变量替换功能，支持嵌套路径解析
- *
- * 功能：
- * - 支持 {{variable}} 占位符替换
- * - 支持嵌套路径解析（如 user.name）
- * - 支持数组索引访问（如 items[0].name）
- * - 支持条件渲染 {{#if variable}}...{{/if}}
- * - 支持循环渲染 {{#each array}}...{{/each}}
- * - 提供安全的变量值获取
+ * TemplateRenderer - Template Renderer
+ * Provide template variable replacement function, support nested path resolution
+ * 
+ * function:
+ * - {{variable}} placeholder replacement support
+ * - support for nested path resolution (e.g. user.name)
+ * - support for array index access (e.g. items[0].name)
+ * - Conditional rendering support {{#if variable}}...{{/if}}
+ * - Support for cyclic rendering {{#each array}}...{{/each}}
+ * - Provides safe variable value fetching
  */
 
 import { resolvePath } from "../evalutor/path-resolver.js";
@@ -377,33 +377,33 @@ function checkInvalidSpecialVars(template: string, inLoop: boolean): void {
 /**
  * 渲染模板
  * 替换模板中的 {{variable}} 占位符，支持条件和循环
- *
+ * 
  * @param template 模板字符串，包含 {{variable}} 占位符
  * @param variables 变量对象
  * @returns 渲染后的字符串
  * @throws {TemplateRenderError} 当使用不支持的循环特殊变量或在循环外使用特殊变量时抛出
- *
+ * 
  * @example
  * ```ts
  * const template = 'Hello, {{name}}! Today is {{date}}.';
  * const result = renderTemplate(template, { name: 'Alice', date: '2024-01-01' });
  * // 结果: 'Hello, Alice! Today is 2024-01-01.'
  * ```
- *
+ * 
  * @example
  * ```ts
  * const template = 'User: {{user.name}}, Age: {{user.age}}';
  * const result = renderTemplate(template, { user: { name: 'Bob', age: 30 } });
  * // 结果: 'User: Bob, Age: 30'
  * ```
- *
+ * 
  * @example 条件渲染
  * ```ts
  * const template = '{{#if showName}}Name: {{name}}{{/if}}';
  * const result = renderTemplate(template, { showName: true, name: 'Alice' });
  * // 结果: 'Name: Alice'
  * ```
- *
+ * 
  * @example 循环渲染
  * ```ts
  * const template = 'Items:{{#each items}} - {{this}}{{/each}}';

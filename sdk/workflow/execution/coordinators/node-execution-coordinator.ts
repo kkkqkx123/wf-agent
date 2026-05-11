@@ -328,7 +328,7 @@ export class NodeExecutionCoordinator {
         nodeId,
         boundaryType: graphNode.internalMetadata[SUBGRAPH_METADATA_KEYS.BOUNDARY_TYPE],
       });
-      await this.handleSubgraphBoundary(workflowExecutionEntity, graphNode, node);
+      await this.handleSubgraphBoundary(workflowExecutionEntity, graphNode);
     }
 
     try {
@@ -517,7 +517,6 @@ export class NodeExecutionCoordinator {
    * Handle subgraph boundaries
    * @param workflowExecutionEntity Workflow execution entity
    * @param graphNode Graph node
-   * @param node Original node definition (for contextPassing config)
    */
   private async handleSubgraphBoundary(
     workflowExecutionEntity: WorkflowExecutionEntity,
@@ -526,7 +525,6 @@ export class NodeExecutionCoordinator {
       workflowId: string;
       parentWorkflowId?: string;
     },
-    node?: Node,
   ): Promise<void> {
     const boundaryType = graphNode.internalMetadata?.[
       SUBGRAPH_METADATA_KEYS.BOUNDARY_TYPE
@@ -541,7 +539,7 @@ export class NodeExecutionCoordinator {
       });
       // Enter the subgraph
       const input = getSubgraphInput(workflowExecutionEntity);
-      await enterSubgraph(workflowExecutionEntity, graphNode.workflowId, graphNode.parentWorkflowId!, input, node);
+      await enterSubgraph(workflowExecutionEntity, graphNode.workflowId, graphNode.parentWorkflowId!, input);
 
       // Trigger the start event of the subgraph
       const subgraphStartedEvent = workflowExecutionEntity.buildEvent(buildSubgraphStartedEvent, {
@@ -570,7 +568,7 @@ export class NodeExecutionCoordinator {
         });
         await emit(this.eventManager, subgraphCompletedEvent);
 
-        await exitSubgraph(workflowExecutionEntity, node);
+        await exitSubgraph(workflowExecutionEntity);
       }
     }
   }

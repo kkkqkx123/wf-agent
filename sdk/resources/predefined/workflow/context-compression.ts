@@ -5,7 +5,7 @@
  * Combines the definition layer with the execution layer, simplifying the architecture
  */
 
-import type { WorkflowTemplate, Node, Edge, TruncateMessageOperation } from "@wf-agent/types";
+import type { WorkflowTemplate, StaticNode, Edge, TruncateMessageOperation } from "@wf-agent/types";
 import { now, generateId } from "@wf-agent/common-utils";
 import type { WorkflowRegistry } from "../../../workflow/stores/workflow-registry.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
@@ -54,15 +54,13 @@ export function createContextCompressionWorkflow(compressionPrompt?: string): Wo
   const processorNodeId = generateId();
   const endNodeId = generateId();
 
-  const nodes: Node[] = [
+  const nodes: StaticNode[] = [
     {
       id: startNodeId,
       type: "START_FROM_TRIGGER",
       name: "Start Compression",
       description: "Receive the full context passed in by the main workflow execution",
       config: {},
-      outgoingEdgeIds: [],
-      incomingEdgeIds: [],
     },
     {
       id: llmNodeId,
@@ -73,8 +71,6 @@ export function createContextCompressionWorkflow(compressionPrompt?: string): Wo
         profileId: "DEFAULT",
         contextRefs: ["current"],
       },
-      outgoingEdgeIds: [],
-      incomingEdgeIds: [],
     },
     {
       id: processorNodeId,
@@ -87,8 +83,6 @@ export function createContextCompressionWorkflow(compressionPrompt?: string): Wo
           strategy: { type: "KEEP_LAST", count: 1 },
         } as TruncateMessageOperation,
       },
-      outgoingEdgeIds: [],
-      incomingEdgeIds: [],
     },
     {
       id: endNodeId,
@@ -96,8 +90,6 @@ export function createContextCompressionWorkflow(compressionPrompt?: string): Wo
       name: "Complete Compression",
       description: "Passes compression results back to the main workflow execution",
       config: {},
-      outgoingEdgeIds: [],
-      incomingEdgeIds: [],
     },
   ];
 
@@ -122,17 +114,8 @@ export function createContextCompressionWorkflow(compressionPrompt?: string): Wo
     },
   ];
 
-  const nodeMap = new Map(nodes.map(n => [n.id, n]));
-  for (const edge of edges) {
-    const sourceNode = nodeMap.get(edge.sourceNodeId);
-    const targetNode = nodeMap.get(edge.targetNodeId);
-    if (sourceNode) {
-      sourceNode.outgoingEdgeIds.push(edge.id);
-    }
-    if (targetNode) {
-      targetNode.incomingEdgeIds.push(edge.id);
-    }
-  }
+  // Edge IDs are now managed at runtime during preprocessing
+  // No need to manually assign them in static node definitions
 
   return {
     id: CONTEXT_COMPRESSION_WORKFLOW_ID,

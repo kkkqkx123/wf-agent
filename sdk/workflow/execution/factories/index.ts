@@ -5,7 +5,7 @@
  *
  * Included factories:
  * - WorkflowExecutionBuilder: Workflow execution entity builder (main factory for workflow execution creation)
- * - NodeHandlerContextFactory: Node handler context factory
+ * - NodeHandlerContextFactory: StaticNode handler context factory
  * - LLMContextFactory: LLM execution context factory
  *
  * Note: WorkflowExecutionBuilder follows the factory pattern but keeps its name to reflect the builder pattern usage.

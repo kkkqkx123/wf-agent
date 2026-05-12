@@ -4,7 +4,7 @@
  */
 
 import { z } from "zod";
-import type { Node } from "@wf-agent/types";
+import type { StaticNode } from "@wf-agent/types";
 import { ConfigurationValidationError } from "@wf-agent/types";
 import type { Result } from "@wf-agent/types";
 import { ok } from "@wf-agent/common-utils";
@@ -23,7 +23,7 @@ const subgraphNodeConfigSchema = z.object({
  * @param node Node definition
  * @returns Verification result
  */
-export function validateSubgraphNode(node: Node): Result<Node, ConfigurationValidationError[]> {
+export function validateSubgraphNode(node: StaticNode): Result<StaticNode, ConfigurationValidationError[]> {
   const typeResult = validateNodeType(node, "SUBGRAPH");
   if (typeResult.isErr()) {
     return typeResult;

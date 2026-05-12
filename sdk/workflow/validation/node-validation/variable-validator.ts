@@ -3,7 +3,7 @@
  * Provides static validation logic for Variable nodes, using zod for validation.
  */
 
-import type { Node } from "@wf-agent/types";
+import type { StaticNode } from "@wf-agent/types";
 import { VariableNodeConfigSchema, ConfigurationValidationError } from "@wf-agent/types";
 import type { Result } from "@wf-agent/types";
 import { ok } from "@wf-agent/common-utils";
@@ -11,10 +11,10 @@ import { validateNodeType, validateNodeConfig } from "../../../core/validation/u
 
 /**
  * Verify Variable node configuration
- * @param node: Node definition
+ * @param node: StaticNode definition
  * @returns: Verification result
  */
-export function validateVariableNode(node: Node): Result<Node, ConfigurationValidationError[]> {
+export function validateVariableNode(node: StaticNode): Result<StaticNode, ConfigurationValidationError[]> {
   const typeResult = validateNodeType(node, "VARIABLE");
   if (typeResult.isErr()) {
     return typeResult;

@@ -24,7 +24,7 @@
  */
 
 import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
-import type { Node, StartNodeConfig, SubgraphNodeConfig, NamedMessageContext } from "@wf-agent/types";
+import type { StaticNode, StartNodeConfig, SubgraphNodeConfig, NamedMessageContext } from "@wf-agent/types";
 import { now } from "@wf-agent/common-utils";
 import {
   checkWorkflowInterruption,
@@ -51,7 +51,7 @@ export async function enterSubgraph(
   workflowId: string,
   parentWorkflowId: string,
   input: Record<string, unknown>,
-  subgraphNode: Node,
+  subgraphNode: StaticNode,
 ): Promise<void> {
   // Check for interruption before entering subgraph
   const abortSignal = executionEntity.getAbortSignal();
@@ -87,7 +87,7 @@ export async function enterSubgraph(
  */
 export async function exitSubgraph(
   executionEntity: WorkflowExecutionEntity,
-  subgraphNode: Node,
+  subgraphNode: StaticNode,
 ): Promise<void> {
   // Check for interruption before exiting subgraph
   const abortSignal = executionEntity.getAbortSignal();
@@ -128,7 +128,7 @@ export async function exitSubgraph(
  */
 async function handleEnterSubgraphMessageContexts(
   executionEntity: WorkflowExecutionEntity,
-  subgraphNode: Node,
+  subgraphNode: StaticNode,
   subgraphWorkflowId: string,
 ): Promise<void> {
   // Access the MessageContextRegistry attached to workflowExecution
@@ -241,7 +241,7 @@ async function handleEnterSubgraphMessageContexts(
  */
 async function handleExitSubgraphMessageContexts(
   executionEntity: WorkflowExecutionEntity,
-  subgraphNode: Node,
+  subgraphNode: StaticNode,
 ): Promise<void> {
   // Access the MessageContextRegistry attached to workflowExecution
   const workflowExecution = (executionEntity as any).workflowExecution;

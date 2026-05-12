@@ -9,7 +9,7 @@
  * - Verify the pairing relationships and business logic of FORK/JOIN nodes.
  */
 
-import type { ID, NodeType, GraphValidationOptions } from "@wf-agent/types";
+import type { ID, StaticNodeType, GraphValidationOptions } from "@wf-agent/types";
 import { ConfigurationValidationError } from "@wf-agent/types";
 import type { Result } from "@wf-agent/types";
 import { ok, err } from "@wf-agent/common-utils";
@@ -187,7 +187,7 @@ export class WorkflowGraphValidator {
     // Check whether the START node is unique
     let startNodeCount = 0;
     for (const node of graph.nodes.values()) {
-      if (node.type === ("START" as NodeType)) {
+      if (node.type === ("START" as StaticNodeType)) {
         // Check if it is a sub-workflow boundary node.
         const isSubgraphBoundary =
           node.internalMetadata?.[SUBGRAPH_METADATA_KEYS.BOUNDARY_TYPE] === "entry";
@@ -222,10 +222,10 @@ export class WorkflowGraphValidator {
 
       // The START, END, START_FROM_TRIGGER, and CONTINUE_FROM_TRIGGER nodes are not considered isolated nodes.
       if (
-        node.type === ("START" as NodeType) ||
-        node.type === ("END" as NodeType) ||
-        node.type === ("START_FROM_TRIGGER" as NodeType) ||
-        node.type === ("CONTINUE_FROM_TRIGGER" as NodeType)
+        node.type === ("START" as StaticNodeType) ||
+        node.type === ("END" as StaticNodeType) ||
+        node.type === ("START_FROM_TRIGGER" as StaticNodeType) ||
+        node.type === ("CONTINUE_FROM_TRIGGER" as StaticNodeType)
       ) {
         continue;
       }
@@ -257,7 +257,7 @@ export class WorkflowGraphValidator {
 
     // Collect all FORK and JOIN nodes.
     for (const node of graph.nodes.values()) {
-      if (node.type === ("FORK" as NodeType)) {
+      if (node.type === ("FORK" as StaticNodeType)) {
         const config = node.originalNode?.config as
           | { forkPaths?: Array<{ pathId: ID; childNodeId: ID }> }
           | undefined;
@@ -322,7 +322,7 @@ export class WorkflowGraphValidator {
         }
         const pairId = forkPathIds[0]!;
         forkNodes.set(pairId, { nodeId: node.id, forkPathIds });
-      } else if (node.type === ("JOIN" as NodeType)) {
+      } else if (node.type === ("JOIN" as StaticNodeType)) {
         const config = node.originalNode?.config as
           | { forkPathIds?: ID[]; mainPathId?: ID }
           | undefined;
@@ -431,7 +431,7 @@ export class WorkflowGraphValidator {
    */
   private static isTriggeredSubgraph(graph: WorkflowGraphData): boolean {
     for (const node of graph.nodes.values()) {
-      if (node.type === ("START_FROM_TRIGGER" as NodeType)) {
+      if (node.type === ("START_FROM_TRIGGER" as StaticNodeType)) {
         return true;
       }
     }
@@ -451,7 +451,7 @@ export class WorkflowGraphValidator {
     let startFromTriggerNodeId: ID | undefined;
 
     for (const node of graph.nodes.values()) {
-      if (node.type === ("START_FROM_TRIGGER" as NodeType)) {
+      if (node.type === ("START_FROM_TRIGGER" as StaticNodeType)) {
         startFromTriggerCount++;
         startFromTriggerNodeId = node.id;
       }
@@ -500,7 +500,7 @@ export class WorkflowGraphValidator {
     // Check CONTINUE_FROM_TRIGGER nodes.
     let continueFromTriggerCount = 0;
     for (const node of graph.nodes.values()) {
-      if (node.type === ("CONTINUE_FROM_TRIGGER" as NodeType)) {
+      if (node.type === ("CONTINUE_FROM_TRIGGER" as StaticNodeType)) {
         continueFromTriggerCount++;
       }
     }
@@ -521,7 +521,7 @@ export class WorkflowGraphValidator {
 
     // Triggered subworkflows should not contain regular START or END nodes.
     for (const node of graph.nodes.values()) {
-      if (node.type === ("START" as NodeType)) {
+      if (node.type === ("START" as StaticNodeType)) {
         errors.push(
           new ConfigurationValidationError(
             "Triggered subworkflow cannot contain a regular START node",
@@ -535,7 +535,7 @@ export class WorkflowGraphValidator {
           ),
         );
       }
-      if (node.type === ("END" as NodeType)) {
+      if (node.type === ("END" as StaticNodeType)) {
         errors.push(
           new ConfigurationValidationError(
             "Triggered subworkflow cannot contain a regular END node",
@@ -566,7 +566,7 @@ export class WorkflowGraphValidator {
     // Find START_FROM_TRIGGER node.
     let startFromTriggerNodeId: ID | undefined;
     for (const node of graph.nodes.values()) {
-      if (node.type === ("START_FROM_TRIGGER" as NodeType)) {
+      if (node.type === ("START_FROM_TRIGGER" as StaticNodeType)) {
         startFromTriggerNodeId = node.id;
         break;
       }
@@ -579,7 +579,7 @@ export class WorkflowGraphValidator {
     // Find all CONTINUE_FROM_TRIGGER nodes.
     const continueFromTriggerNodeIds: ID[] = [];
     for (const node of graph.nodes.values()) {
-      if (node.type === ("CONTINUE_FROM_TRIGGER" as NodeType)) {
+      if (node.type === ("CONTINUE_FROM_TRIGGER" as StaticNodeType)) {
         continueFromTriggerNodeIds.push(node.id);
       }
     }

@@ -5,7 +5,7 @@
  * The timing of execution is managed by higher-level stateful modules (such as WorkflowExecutor).
  */
 
-import type { Node, NodeHook, NodeExecutionResult, NodeCustomEvent } from "@wf-agent/types";
+import type { StaticNode, NodeHook, NodeExecutionResult, NodeCustomEvent } from "@wf-agent/types";
 import { HookType, ExecutionError } from "@wf-agent/types";
 import type { CheckpointDependencies } from "../../../checkpoint/utils/checkpoint-utils.js";
 import { createCheckpoint } from "../../../checkpoint/utils/checkpoint-utils.js";
@@ -38,7 +38,7 @@ export interface HookExecutionContext extends BaseHookContext {
   /** WorkflowExecutionEntity instance */
   workflowExecutionEntity: WorkflowExecutionEntity;
   /** Node Definition */
-  node: Node;
+  node: StaticNode;
   /** Node execution results (available at AFTER_EXECUTE) */
   result?: NodeExecutionResult;
   /** Checkpoint dependencies (optional) */

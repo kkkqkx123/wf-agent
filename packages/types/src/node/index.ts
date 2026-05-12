@@ -1,69 +1,124 @@
 /**
  * Node Type Definition Unified Export
- * Define the type and structure of workflow nodes
+ * 
+ * Architecture:
+ * - StaticNode types: Used for workflow definition, validation, preprocessing
+ * - RuntimeNode types: Used for execution after preprocessing
+ * - SUBGRAPH nodes exist only in static definitions, expanded at runtime
  */
 
-// Export base types (including recognizable union Node types and type guards)
-export * from "./base.js";
+// Export shared base types
+export {
+  NodeIdentity,
+  StaticNodeDisplayProps,
+  NodeExecutionConfig,
+  RuntimeNodeContext,
+} from "./shared-node-types.js";
 
-// Export node configuration type (detailed version for external references)
+// Export static node types (for workflow definition and validation)
+export {
+  StaticNodeType,
+  BaseStaticNode,
+  StaticNodeConfigMap,
+  StaticNodeOfType,
+  // Specific static node types
+  StartNode as StaticStartNode,
+  EndNode as StaticEndNode,
+  VariableNode as StaticVariableNode,
+  ForkNode as StaticForkNode,
+  JoinNode as StaticJoinNode,
+  SubgraphNode,
+  ScriptNode as StaticScriptNode,
+  LLMNode as StaticLLMNode,
+  AddToolNode as StaticAddToolNode,
+  UserInteractionNode as StaticUserInteractionNode,
+  RouteNode as StaticRouteNode,
+  ContextProcessorNode as StaticContextProcessorNode,
+  LoopStartNode as StaticLoopStartNode,
+  LoopEndNode as StaticLoopEndNode,
+  AgentLoopNode as StaticAgentLoopNode,
+  StartFromTriggerNode as StaticStartFromTriggerNode,
+  ContinueFromTriggerNode as StaticContinueFromTriggerNode,
+  StaticNode,
+  // Static type guards
+  isStartNode as isStaticStartNode,
+  isEndNode as isStaticEndNode,
+  isVariableNode as isStaticVariableNode,
+  isForkNode as isStaticForkNode,
+  isJoinNode as isStaticJoinNode,
+  isSubgraphNode,
+  isScriptNode as isStaticScriptNode,
+  isLLMNode as isStaticLLMNode,
+  isAddToolNode as isStaticAddToolNode,
+  isUserInteractionNode as isStaticUserInteractionNode,
+  isRouteNode as isStaticRouteNode,
+  isContextProcessorNode as isStaticContextProcessorNode,
+  isLoopStartNode as isStaticLoopStartNode,
+  isLoopEndNode as isStaticLoopEndNode,
+  isAgentLoopNode as isStaticAgentLoopNode,
+  isStartFromTriggerNode as isStaticStartFromTriggerNode,
+  isContinueFromTriggerNode as isStaticContinueFromTriggerNode,
+} from "./static-node-types.js";
+
+// Export runtime node types (for execution)
+export {
+  RuntimeNodeType,
+  BaseRuntimeNode,
+  RuntimeNodeConfigMap,
+  RuntimeNodeOfType,
+  // Specific runtime node types
+  StartNode as RuntimeStartNode,
+  EndNode as RuntimeEndNode,
+  VariableNode as RuntimeVariableNode,
+  ForkNode as RuntimeForkNode,
+  JoinNode as RuntimeJoinNode,
+  ScriptNode as RuntimeScriptNode,
+  LLMNode as RuntimeLLMNode,
+  AddToolNode as RuntimeAddToolNode,
+  UserInteractionNode as RuntimeUserInteractionNode,
+  RouteNode as RuntimeRouteNode,
+  ContextProcessorNode as RuntimeContextProcessorNode,
+  LoopStartNode as RuntimeLoopStartNode,
+  LoopEndNode as RuntimeLoopEndNode,
+  AgentLoopNode as RuntimeAgentLoopNode,
+  StartFromTriggerNode as RuntimeStartFromTriggerNode,
+  ContinueFromTriggerNode as RuntimeContinueFromTriggerNode,
+  SubgraphStartNode,
+  SubgraphEndNode,
+  RuntimeNode,
+  // Runtime type guards
+  isStartNode as isRuntimeStartNode,
+  isEndNode as isRuntimeEndNode,
+  isVariableNode as isRuntimeVariableNode,
+  isForkNode as isRuntimeForkNode,
+  isJoinNode as isRuntimeJoinNode,
+  isScriptNode as isRuntimeScriptNode,
+  isLLMNode as isRuntimeLLMNode,
+  isAddToolNode as isRuntimeAddToolNode,
+  isUserInteractionNode as isRuntimeUserInteractionNode,
+  isRouteNode as isRuntimeRouteNode,
+  isContextProcessorNode as isRuntimeContextProcessorNode,
+  isLoopStartNode as isRuntimeLoopStartNode,
+  isLoopEndNode as isRuntimeLoopEndNode,
+  isAgentLoopNode as isRuntimeAgentLoopNode,
+  isStartFromTriggerNode as isRuntimeStartFromTriggerNode,
+  isContinueFromTriggerNode as isRuntimeContinueFromTriggerNode,
+  isSubgraphStartNode,
+  isSubgraphEndNode,
+} from "./runtime-node-types.js";
+
+// Export runtime-only configurations
+export {
+  SubgraphStartNodeConfig,
+  SubgraphStartVariableInput,
+  SubgraphStartMessageInput,
+  SubgraphEndNodeConfig,
+  SubgraphEndVariableOutput,
+  SubgraphEndMessageOutput,
+} from "./runtime/index.js";
+
+// Export node configuration types (detailed version for external references)
 export * from "./configs/index.js";
 
 // Export Hook Related Types
 export * from "./hooks.js";
-
-// Export Node Attribute Types
-export * from "./properties.js";
-
-// Export all node configured union types (for scenarios such as NodeTemplate)
-import type { StartNodeConfig, EndNodeConfig, RouteNodeConfig } from "./configs/control-configs.js";
-
-import type { VariableNodeConfig } from "./configs/variable-configs.js";
-
-import type { ForkNodeConfig, JoinNodeConfig } from "./configs/fork-join-configs.js";
-
-import type { LoopStartNodeConfig, LoopEndNodeConfig } from "./configs/loop-configs.js";
-
-import type {
-  ScriptNodeConfig,
-  LLMNodeConfig,
-  AddToolNodeConfig,
-} from "./configs/execution-configs.js";
-
-import type { UserInteractionNodeConfig } from "./configs/interaction-configs.js";
-
-import type { ContextProcessorNodeConfig } from "./configs/context-configs.js";
-
-import type {
-  SubgraphNodeConfig,
-} from "./configs/subgraph-configs.js";
-
-import type {
-  StartFromTriggerNodeConfig,
-  ContinueFromTriggerNodeConfig,
-} from "./configs/trigger-subworkflow-configs.js";
-
-import type { AgentLoopNodeConfig } from "./configs/agent-loop-configs.js";
-
-/**
- * Node Configuration Union Type
- * Used in scenarios where arbitrary node configurations need to be accepted (e.g. NodeTemplate)
- */
-export type NodeConfig =
-  | StartNodeConfig
-  | EndNodeConfig
-  | VariableNodeConfig
-  | ForkNodeConfig
-  | JoinNodeConfig
-  | ScriptNodeConfig
-  | LLMNodeConfig
-  | AddToolNodeConfig
-  | UserInteractionNodeConfig
-  | RouteNodeConfig
-  | ContextProcessorNodeConfig
-  | LoopStartNodeConfig
-  | LoopEndNodeConfig
-  | AgentLoopNodeConfig
-  | SubgraphNodeConfig
-  | StartFromTriggerNodeConfig
-  | ContinueFromTriggerNodeConfig;

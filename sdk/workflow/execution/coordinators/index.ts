@@ -8,7 +8,7 @@
  * - Dependency Injection: Receive dependent managers through the constructor.
  *
  * Included Coordinators:
- * - NodeExecutionCoordinator: Node execution coordinator
+ * - NodeExecutionCoordinator: StaticNode execution coordinator
  * - TriggerCoordinator: Trigger coordinator
  * - LLMExecutionCoordinator: LLM execution coordinator
  * - WorkflowLifecycleCoordinator: Workflow lifecycle coordinator

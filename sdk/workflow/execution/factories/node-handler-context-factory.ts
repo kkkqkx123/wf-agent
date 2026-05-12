@@ -8,7 +8,7 @@
  * - Simplification of the responsibilities of the NodeExecutionCoordinator
  */
 
-import type { Node } from "@wf-agent/types";
+import type { RuntimeNode } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
 import type { UserInteractionHandler } from "@wf-agent/types";
 import type { HumanRelayHandler } from "@wf-agent/types";
@@ -62,7 +62,7 @@ export class NodeHandlerContextFactory {
    * @returns Processor context
    * @throws ExecutionError When required dependencies are missing
    */
-  createHandlerContext(node: Node, executionEntity: WorkflowExecutionEntity): Record<string, unknown> {
+  createHandlerContext(node: RuntimeNode, executionEntity: WorkflowExecutionEntity): Record<string, unknown> {
     switch (node.type) {
       case "USER_INTERACTION":
         return this.createUserInteractionContext(node, executionEntity);
@@ -89,7 +89,7 @@ export class NodeHandlerContextFactory {
    * Create a user interaction node context
    */
   private createUserInteractionContext(
-    node: Node,
+    node: RuntimeNode,
     executionEntity: WorkflowExecutionEntity,
   ): Record<string, unknown> {
     if (!this.config.userInteractionHandler) {
@@ -132,7 +132,7 @@ export class NodeHandlerContextFactory {
   /**
    * Create a tool to add node context
    */
-  private createAddToolContext(node: Node, executionEntity: WorkflowExecutionEntity): Record<string, unknown> {
+  private createAddToolContext(node: RuntimeNode, executionEntity: WorkflowExecutionEntity): Record<string, unknown> {
     if (!this.config.toolContextStore || !this.config.toolService) {
       throw new ExecutionError(
         "ToolContextStore or ToolRegistry is not provided",
@@ -152,7 +152,7 @@ export class NodeHandlerContextFactory {
   /**
    * Create an Agent Loop node context
    */
-  private createAgentLoopContext(node: Node, executionEntity: WorkflowExecutionEntity): Record<string, unknown> {
+  private createAgentLoopContext(node: RuntimeNode, executionEntity: WorkflowExecutionEntity): Record<string, unknown> {
     if (!this.config.agentLoopExecutorFactory) {
       throw new ExecutionError(
         "AgentLoopExecutorFactory is not provided",

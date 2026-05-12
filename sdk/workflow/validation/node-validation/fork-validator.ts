@@ -3,7 +3,7 @@
  * Provides static validation logic for Fork nodes, using Zod for validation.
  */
 
-import type { Node } from "@wf-agent/types";
+import type { StaticNode } from "@wf-agent/types";
 import { ForkNodeConfigSchema, ConfigurationValidationError } from "@wf-agent/types";
 import type { Result } from "@wf-agent/types";
 import { ok } from "@wf-agent/common-utils";
@@ -14,7 +14,7 @@ import { validateNodeType, validateNodeConfig } from "../../../core/validation/u
  * @param node Node definition
  * @returns Verification result
  */
-export function validateForkNode(node: Node): Result<Node, ConfigurationValidationError[]> {
+export function validateForkNode(node: StaticNode): Result<StaticNode, ConfigurationValidationError[]> {
   const typeResult = validateNodeType(node, "FORK");
   if (typeResult.isErr()) {
     return typeResult;

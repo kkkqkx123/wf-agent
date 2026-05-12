@@ -3,7 +3,7 @@
  * Provides static validation logic for the Start node, using zod for validation.
  */
 
-import type { Node } from "@wf-agent/types";
+import type { StaticNode } from "@wf-agent/types";
 import { StartNodeConfigSchema, ConfigurationValidationError } from "@wf-agent/types";
 import type { Result } from "@wf-agent/types";
 import { ok } from "@wf-agent/common-utils";
@@ -11,10 +11,10 @@ import { validateNodeType, validateNodeConfig } from "../../../core/validation/u
 
 /**
  * Verify Start node configuration
- * @param node Node definition
+ * @param node Static node definition
  * @returns Verification result
  */
-export function validateStartNode(node: Node): Result<Node, ConfigurationValidationError[]> {
+export function validateStartNode(node: StaticNode): Result<StaticNode, ConfigurationValidationError[]> {
   const typeResult = validateNodeType(node, "START");
   if (typeResult.isErr()) {
     return typeResult;

@@ -3,7 +3,7 @@
  * Provides static validation logic for the LoopStart node, using zod for validation.
  */
 
-import type { Node } from "@wf-agent/types";
+import type { StaticNode } from "@wf-agent/types";
 import { LoopStartNodeConfigSchema, ConfigurationValidationError } from "@wf-agent/types";
 import type { Result } from "@wf-agent/types";
 import { ok } from "@wf-agent/common-utils";
@@ -11,10 +11,10 @@ import { validateNodeType, validateNodeConfig } from "../../../core/validation/u
 
 /**
  * Verify LoopStart node configuration
- * @param node: Node definition
+ * @param node: StaticNode definition
  * @returns: Verification result
  */
-export function validateLoopStartNode(node: Node): Result<Node, ConfigurationValidationError[]> {
+export function validateLoopStartNode(node: StaticNode): Result<StaticNode, ConfigurationValidationError[]> {
   const typeResult = validateNodeType(node, "LOOP_START");
   if (typeResult.isErr()) {
     return typeResult;

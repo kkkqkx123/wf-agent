@@ -3,7 +3,7 @@
  * Responsible for executing the LOOP_END node, updating loop variables, and checking for interruption conditions.
  */
 
-import type { Node, LoopEndNodeConfig } from "@wf-agent/types";
+import type { RuntimeNode, LoopEndNodeConfig } from "@wf-agent/types";
 import type { WorkflowExecution } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import type { Condition, EvaluationContext } from "@wf-agent/types";
@@ -26,7 +26,7 @@ interface LoopState {
 /**
  * Check whether the node can be executed.
  */
-function canExecute(workflowExecutionEntity: WorkflowExecutionEntity, node: Node): boolean {
+function canExecute(workflowExecutionEntity: WorkflowExecutionEntity, node: RuntimeNode): boolean {
   if (workflowExecutionEntity.getStatus() !== "RUNNING") {
     return false;
   }
@@ -164,7 +164,7 @@ function updateLoopState(loopState: LoopState): void {
  */
 export async function loopEndHandler(
   workflowExecutionEntity: WorkflowExecutionEntity,
-  node: Node,
+  node: RuntimeNode,
   _context?: unknown,
 ): Promise<unknown> {
   const workflowExecution = workflowExecutionEntity.getExecution();

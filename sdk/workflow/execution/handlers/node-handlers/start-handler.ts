@@ -3,14 +3,14 @@
  * Responsible for executing the START node, marking the beginning of the workflow, and initializing the WorkflowExecution status.
  */
 
-import type { Node } from "@wf-agent/types";
+import type { RuntimeNode } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import { now } from "@wf-agent/common-utils";
 
 /**
  * Check whether the node can be executed.
  */
-function canExecute(workflowExecutionEntity: WorkflowExecutionEntity, node: Node): boolean {
+function canExecute(workflowExecutionEntity: WorkflowExecutionEntity, node: RuntimeNode): boolean {
   // The START node can be executed in either the CREATED or RUNNING state (if it has not been executed before).
   const status = workflowExecutionEntity.getStatus();
   if (status !== "CREATED" && status !== "RUNNING") {
@@ -27,12 +27,12 @@ function canExecute(workflowExecutionEntity: WorkflowExecutionEntity, node: Node
 /**
  * Start node processing function
  * @param workflowExecutionEntity: WorkflowExecutionEntity instance
- * @param node: Node definition
+ * @param node: RuntimeNode definition
  * @returns: Execution result
  */
 export async function startHandler(
   workflowExecutionEntity: WorkflowExecutionEntity,
-  node: Node,
+  node: RuntimeNode,
   _context?: unknown,
 ): Promise<unknown> {
   // Check if it is possible to execute.

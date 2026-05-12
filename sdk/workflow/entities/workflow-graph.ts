@@ -15,7 +15,7 @@ import type {
   Version,
   WorkflowTrigger,
   VariableDefinition,
-  NodeType,
+  StaticNodeType,
   EdgeType,
 } from "@wf-agent/types";
 import { WorkflowGraphData } from "./workflow-graph-data.js";
@@ -113,7 +113,7 @@ export class WorkflowGraph extends WorkflowGraphData implements WorkflowGraphTyp
       },
       nodeStats: {
         total: 0,
-        byType: new Map<NodeType, number>(),
+        byType: new Map<string, number>(),
       },
       edgeStats: {
         total: 0,

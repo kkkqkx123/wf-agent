@@ -5,7 +5,7 @@
  * This handler now only handles variable callbacks.
  */
 
-import type { Node } from "@wf-agent/types";
+import type { RuntimeNode } from "@wf-agent/types";
 import type { ContinueFromTriggerNodeConfig } from "@wf-agent/types";
 import { now } from "@wf-agent/common-utils";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
@@ -21,7 +21,7 @@ export interface ContinueFromTriggerHandlerContext {
 /**
  * Check whether the node can be executed.
  */
-function canExecute(workflowExecutionEntity: WorkflowExecutionEntity, node: Node): boolean {
+function canExecute(workflowExecutionEntity: WorkflowExecutionEntity, node: RuntimeNode): boolean {
   if (workflowExecutionEntity.getStatus() !== "RUNNING") {
     return false;
   }
@@ -36,13 +36,13 @@ function canExecute(workflowExecutionEntity: WorkflowExecutionEntity, node: Node
 /**
  * ContinueFromTrigger node processing function
  * @param workflowExecutionEntity: WorkflowExecutionEntity instance
- * @param node: Node definition
+ * @param node: RuntimeNode definition
  * @param context: Processor context (optional)
  * @returns: Execution result
  */
 export async function continueFromTriggerHandler(
   workflowExecutionEntity: WorkflowExecutionEntity,
-  node: Node,
+  node: RuntimeNode,
   context?: ContinueFromTriggerHandlerContext,
 ): Promise<unknown> {
   // Check if it is possible to execute.

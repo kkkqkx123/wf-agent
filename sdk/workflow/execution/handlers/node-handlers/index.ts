@@ -2,7 +2,7 @@
  * Node handlers export
  */
 
-import type { Node } from "@wf-agent/types";
+import type { RuntimeNode } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import type { GlobalContext } from "../../../../core/global-context.js";
 import { addToolHandler, type AddToolHandlerContext } from "./add-tool-handler.js";
@@ -26,7 +26,7 @@ import { variableHandler } from "./variable-handler.js";
 export type NodeHandlerFn = (
   globalContext: GlobalContext,
   workflowExecutionEntity: WorkflowExecutionEntity,
-  node: Node,
+  node: RuntimeNode,
   context?: unknown,
 ) => Promise<unknown>;
 

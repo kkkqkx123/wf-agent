@@ -4,8 +4,8 @@
  */
 
 import type { ID, Metadata, Timestamp } from "./common.js";
-import { NodeType } from "./node/index.js";
-import type { NodeConfig } from "./node/index.js";
+import { StaticNodeType } from "./node/index.js";
+import type { StaticNode } from "./node/index.js";
 
 /**
  * Node Templates
@@ -15,9 +15,9 @@ export interface NodeTemplate {
   /** Node template name (unique identifier) */
   name: string;
   /** Node type */
-  type: NodeType;
+  type: StaticNodeType;
   /** Node Configuration */
-  config: NodeConfig;
+  config: StaticNode['config'];
   /** Node Description */
   description?: string;
   /** metadata */
@@ -40,7 +40,7 @@ export interface NodeReferenceConfig {
   /** Node name (displayed in the workflow, optional) */
   nodeName?: string;
   /** Configuration override (optional) */
-  configOverride?: Partial<NodeConfig>;
+  configOverride?: Partial<StaticNode['config']>;
 }
 
 /**
@@ -50,7 +50,7 @@ export interface NodeTemplateSummary {
   /** Node template name */
   name: string;
   /** Node type */
-  type: NodeType;
+  type: StaticNodeType;
   /** Node Description */
   description?: string;
   /** categorization */

@@ -36,7 +36,7 @@ export function validateNodeConfig<T>(
 
 /**
  * Verify node type
- * @param node: Node definition
+ * @param node: StaticNode definition
  * @param expectedType: Expected node type
  * @returns: Verification result
  */

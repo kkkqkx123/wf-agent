@@ -3,7 +3,7 @@
  * Provides static validation logic for LLM nodes, using zod for validation.
  */
 
-import type { Node } from "@wf-agent/types";
+import type { StaticNode } from "@wf-agent/types";
 import { LLMNodeConfigSchema } from "@wf-agent/types";
 import type { Result } from "@wf-agent/types";
 import { ConfigurationValidationError } from "@wf-agent/types";
@@ -15,7 +15,7 @@ import { validateNodeType, validateNodeConfig } from "../../../core/validation/u
  * @param node Node definition
  * @returns Verification result
  */
-export function validateLLMNode(node: Node): Result<Node, ConfigurationValidationError[]> {
+export function validateLLMNode(node: StaticNode): Result<StaticNode, ConfigurationValidationError[]> {
   const typeResult = validateNodeType(node, "LLM");
   if (typeResult.isErr()) {
     return typeResult;

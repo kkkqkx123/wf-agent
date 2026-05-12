@@ -3,7 +3,7 @@
  * The Join node serves as a placeholder; the actual Join operation is handled by the WorkflowExecutor invoking the WorkflowCoordinator.
  */
 
-import type { Node } from "@wf-agent/types";
+import type { RuntimeNode } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 
 /**
@@ -25,10 +25,10 @@ function canExecute(workflowExecutionEntity: WorkflowExecutionEntity): boolean {
  * - The default timeout is 0 (no timeout), which can be overridden in the configuration.
  *
  * @param workflowExecutionEntity: WorkflowExecutionEntity instance
- * @param node: Node definition
+ * @param node: RuntimeNode definition
  * @returns: Execution result
  */
-export async function joinHandler(workflowExecutionEntity: WorkflowExecutionEntity, node: Node): Promise<unknown> {
+export async function joinHandler(workflowExecutionEntity: WorkflowExecutionEntity, node: RuntimeNode): Promise<unknown> {
   // Check if it is possible to execute.
   if (!canExecute(workflowExecutionEntity)) {
     return {

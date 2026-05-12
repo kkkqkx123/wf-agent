@@ -3,7 +3,7 @@
  * Responsible for initializing the trigger sub-workflow and receiving input data from the main workflow execution
  */
 
-import type { Node, LLMMessage, StartFromTriggerNodeConfig } from "@wf-agent/types";
+import type { RuntimeNode, LLMMessage, StartFromTriggerNodeConfig } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import { now } from "@wf-agent/common-utils";
 import type { ConversationSession } from "../../../../core/messaging/conversation-session.js";
@@ -24,7 +24,7 @@ export interface StartFromTriggerHandlerContext {
 /**
  * Check whether the node can be executed.
  */
-function canExecute(workflowExecutionEntity: WorkflowExecutionEntity, node: Node): boolean {
+function canExecute(workflowExecutionEntity: WorkflowExecutionEntity, node: RuntimeNode): boolean {
   // The START_FROM_TRIGGER node can execute in either the CREATED or RUNNING state.
   const status = workflowExecutionEntity.getStatus();
   if (status !== "CREATED" && status !== "RUNNING") {
@@ -47,7 +47,7 @@ function canExecute(workflowExecutionEntity: WorkflowExecutionEntity, node: Node
  */
 export async function startFromTriggerHandler(
   workflowExecutionEntity: WorkflowExecutionEntity,
-  node: Node,
+  node: RuntimeNode,
   context?: StartFromTriggerHandlerContext,
 ): Promise<unknown> {
   // Check if it is possible to execute.

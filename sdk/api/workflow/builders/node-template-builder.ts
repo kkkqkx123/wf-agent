@@ -3,7 +3,7 @@
  * Provides a fluent chain-of-command API for creating and registering node templates.
  */
 
-import type { NodeTemplate, NodeType, NodeConfig } from "@wf-agent/types";
+import type { NodeTemplate, StaticNodeType, StaticNode } from "@wf-agent/types";
 import { TemplateBuilder } from "./template-builder.js";
 import type { GlobalContext } from "../../../core/global-context.js";
 
@@ -12,11 +12,11 @@ import type { GlobalContext } from "../../../core/global-context.js";
  */
 export class NodeTemplateBuilder extends TemplateBuilder<NodeTemplate> {
   private _name: string;
-  private _type: NodeType;
-  private _config: NodeConfig = {} as NodeConfig;
+  private _type: StaticNodeType;
+  private _config: Partial<StaticNode['config']> = {};
   private globalContext: GlobalContext;
 
-  private constructor(globalContext: GlobalContext, name: string, type: NodeType) {
+  private constructor(globalContext: GlobalContext, name: string, type: StaticNodeType) {
     super();
     this.globalContext = globalContext;
     this._name = name;
@@ -27,10 +27,10 @@ export class NodeTemplateBuilder extends TemplateBuilder<NodeTemplate> {
    * Create a new NodeTemplateBuilder instance
    * @param globalContext The GlobalContext to access services
    * @param name: Template name
-   * @param type: Node type
+   * @param type: StaticNode type
    * @returns: NodeTemplateBuilder instance
    */
-  static create(globalContext: GlobalContext, name: string, type: NodeType): NodeTemplateBuilder {
+  static create(globalContext: GlobalContext, name: string, type: StaticNodeType): NodeTemplateBuilder {
     return new NodeTemplateBuilder(globalContext, name, type);
   }
 
@@ -39,7 +39,7 @@ export class NodeTemplateBuilder extends TemplateBuilder<NodeTemplate> {
    * @param config Node configuration
    * @returns this
    */
-  config(config: NodeConfig): this {
+  config(config: StaticNode['config']): this {
     this._config = config;
     this.updateTimestamp();
     return this;
@@ -50,9 +50,9 @@ export class NodeTemplateBuilder extends TemplateBuilder<NodeTemplate> {
    * @param partialConfig: A partial configuration object that will be merged shallowly into the existing configuration
    * @returns: The updated configuration object
    */
-  mergeConfig(partialConfig: Partial<NodeConfig>): this {
+  mergeConfig(partialConfig: Partial<StaticNode['config']>): this {
     if (!this._config) {
-      this._config = {} as NodeConfig;
+      this._config = {} as StaticNode['config'];
     }
     this._config = { ...this._config, ...partialConfig };
     this.updateTimestamp();
@@ -61,7 +61,7 @@ export class NodeTemplateBuilder extends TemplateBuilder<NodeTemplate> {
 
   /**
    * Register the template in the node template registry.
-   * @param template: Node template
+   * @param template: StaticNode template
    */
   protected registerTemplate(template: NodeTemplate): void {
     const nodeTemplateRegistry = this.globalContext.nodeTemplateRegistry;

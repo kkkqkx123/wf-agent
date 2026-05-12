@@ -4,7 +4,7 @@
  */
 
 import type { ID } from "../common.js";
-import type { NodeType } from "../node/base.js";
+import type { StaticNodeType } from "../node/index.js";
 
 /**
  * ID Mapping Table
@@ -31,7 +31,7 @@ export interface IdMapping {
  */
 export interface NodeConfigUpdater {
   /** Node type */
-  nodeType: NodeType;
+  nodeType: StaticNodeType;
 
   /**
    * Check if the configuration contains an ID reference

@@ -4,8 +4,7 @@
  */
 
 import type { WorkflowConfigFile, IConfigTransformer } from "./types.js";
-import type { WorkflowTemplate } from "@wf-agent/types";
-import type { Node } from "@wf-agent/types";
+import type { WorkflowTemplate, StaticNode } from "@wf-agent/types";
 import type { Edge as EdgeType } from "@wf-agent/types";
 import { generateId } from "../../../utils/id-utils.js";
 import { substituteParameters } from "./config-utils.js";
@@ -93,11 +92,11 @@ export class ConfigTransformer implements IConfigTransformer {
   /**
    * Transform nodes from config format to internal format
    * Config format: { id, type, config, name? }
-   * Internal format: { id, type, config, name, incomingEdgeIds, outgoingEdgeIds, ... }
+   * Internal format: StaticNode (without edge IDs - they are added at runtime)
    * @param nodeConfigs Array of node configurations
    * @returns Array of transformed nodes
    */
-  private transformNodes(nodeConfigs: unknown[]): Node[] {
+  private transformNodes(nodeConfigs: unknown[]): StaticNode[] {
     return nodeConfigs.map(nodeConfig =>
       this.transformNode(
         nodeConfig as {
@@ -132,21 +131,19 @@ export class ConfigTransformer implements IConfigTransformer {
     hooks?: unknown;
     checkpointBeforeExecute?: boolean;
     checkpointAfterExecute?: boolean;
-  }): Node {
+  }): StaticNode {
+    // Build static node without edge IDs (they are added during runtime preprocessing)
     return {
       id: nodeConfig.id,
-      type: nodeConfig.type,
-      name: nodeConfig.name || nodeConfig.id, // Default name to id if not provided
-      config: nodeConfig.config || {},
+      type: nodeConfig.type as StaticNode['type'],
+      name: nodeConfig.name || nodeConfig.id,
+      config: nodeConfig.config as StaticNode['config'],
       description: nodeConfig.description,
-      metadata: nodeConfig.metadata,
-      incomingEdgeIds: [],
-      outgoingEdgeIds: [],
-      properties: nodeConfig.properties,
+      metadata: nodeConfig.metadata as Record<string, unknown>,
       hooks: nodeConfig.hooks,
       checkpointBeforeExecute: nodeConfig.checkpointBeforeExecute,
       checkpointAfterExecute: nodeConfig.checkpointAfterExecute,
-    } as Node;
+    } as StaticNode;
   }
 
   /**
@@ -210,29 +207,15 @@ export class ConfigTransformer implements IConfigTransformer {
 
   /**
    * Update edge references of nodes
+   * Note: In the new architecture, edge IDs are added during runtime preprocessing,
+   * not in static node definitions. This method is kept for backward compatibility
+   * but does nothing.
    * @param nodes array of nodes
    * @param edges array of edges
    */
-  private updateNodeEdgeReferences(nodes: Node[], edges: EdgeType[]): void {
-    // Creating a node ID to node mapping
-    const nodeMap = new Map<string, Node>();
-    for (const node of nodes) {
-      nodeMap.set(node.id, node);
-    }
-
-    // Update edge references for each node
-    for (const edge of edges) {
-      const fromNode = nodeMap.get(edge.sourceNodeId);
-      const toNode = nodeMap.get(edge.targetNodeId);
-
-      if (fromNode) {
-        fromNode.outgoingEdgeIds.push(edge.id);
-      }
-
-      if (toNode) {
-        toNode.incomingEdgeIds.push(edge.id);
-      }
-    }
+  private updateNodeEdgeReferences(nodes: StaticNode[], edges: EdgeType[]): void {
+    // Edge IDs are now managed at runtime, not in static definitions
+    // This method is a no-op in the new architecture
   }
 
   /**

@@ -8,7 +8,7 @@
  * - Returns the execution result
  */
 
-import type { Node, AddToolNodeConfig } from "@wf-agent/types";
+import type { RuntimeNode, AddToolNodeConfig } from "@wf-agent/types";
 import type { WorkflowExecution } from "@wf-agent/types";
 import { ExecutionError } from "@wf-agent/types";
 import { now, diffTimestamp, getErrorOrNew } from "@wf-agent/common-utils";
@@ -57,7 +57,7 @@ export interface AddToolHandlerContext {
  */
 export async function addToolHandler(
   workflowExecution: WorkflowExecution,
-  node: Node,
+  node: RuntimeNode,
   context: AddToolHandlerContext,
 ): Promise<AddToolExecutionResult> {
   const config = node.config as AddToolNodeConfig;

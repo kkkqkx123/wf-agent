@@ -6,7 +6,7 @@
 
 import type {
   WorkflowTemplate,
-  NodeType,
+  StaticNodeType,
   ID,
   WorkflowNode,
   WorkflowEdge,
@@ -45,18 +45,21 @@ export class WorkflowGraphBuilder {
     for (const node of workflow.nodes) {
       const workflowNode: WorkflowNode = {
         id: node.id,
-        type: node.type,
+        type: node.type as WorkflowNode['type'], // Cast from StaticNodeType to RuntimeNodeType
         name: node.name,
         description: node.description,
+        config: node.config,
         originalNode: node,
         workflowId: workflow.id,
+        outgoingEdgeIds: [],
+        incomingEdgeIds: [],
       };
       graph.addNode(workflowNode);
 
       // Record the START and END nodes.
-      if (node.type === ("START" as NodeType)) {
+      if (node.type === ("START" as StaticNodeType)) {
         graph.startNodeId = node.id;
-      } else if (node.type === ("END" as NodeType)) {
+      } else if (node.type === ("END" as StaticNodeType)) {
         graph.endNodeIds.add(node.id);
       }
     }
@@ -124,7 +127,7 @@ export class WorkflowGraphBuilder {
 
     // Collect all Fork nodes and generate a globally unique Path ID.
     for (const node of graph.nodes.values()) {
-      if (node.type === ("FORK" as NodeType)) {
+      if (node.type === ("FORK" as StaticNodeType)) {
         const config = node.originalNode?.config as Record<string, unknown>;
         const forkPaths = config?.["forkPaths"] as Array<{ pathId: ID }>;
         if (forkPaths && Array.isArray(forkPaths)) {
@@ -143,7 +146,7 @@ export class WorkflowGraphBuilder {
 
     // Update the Path ID of all Join nodes.
     for (const node of graph.nodes.values()) {
-      if (node.type === ("JOIN" as NodeType)) {
+      if (node.type === ("JOIN" as StaticNodeType)) {
         const config = node.originalNode?.config as Record<string, unknown>;
         const forkPathIds = config?.["forkPathIds"] as ID[];
         if (forkPathIds && Array.isArray(forkPathIds)) {
@@ -224,7 +227,7 @@ export class WorkflowGraphBuilder {
     // Find all SUBGRAPH nodes
     const subgraphNodes: WorkflowNode[] = [];
     for (const node of graph.nodes.values()) {
-      if (node.type === ("SUBGRAPH" as NodeType)) {
+      if (node.type === ("SUBGRAPH" as StaticNodeType)) {
         subgraphNodes.push(node);
       }
     }
@@ -373,7 +376,7 @@ export class WorkflowGraphBuilder {
       };
 
       // Add the internalMetadata tag to the boundary nodes.
-      if (node.type === ("START" as NodeType)) {
+      if (node.type === ("START" as StaticNodeType)) {
         newNode.internalMetadata = {
           ...newNode.internalMetadata,
           [SUBGRAPH_METADATA_KEYS.BOUNDARY_TYPE]: "entry",
@@ -403,7 +406,7 @@ export class WorkflowGraphBuilder {
             });
           }
         }
-      } else if (node.type === ("END" as NodeType)) {
+      } else if (node.type === ("END" as StaticNodeType)) {
         newNode.internalMetadata = {
           ...newNode.internalMetadata,
           [SUBGRAPH_METADATA_KEYS.BOUNDARY_TYPE]: "exit",

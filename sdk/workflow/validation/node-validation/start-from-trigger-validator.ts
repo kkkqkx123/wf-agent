@@ -4,7 +4,7 @@
  */
 
 import { z } from "zod";
-import type { Node } from "@wf-agent/types";
+import type { StaticNode } from "@wf-agent/types";
 import { ConfigurationValidationError } from "@wf-agent/types";
 import type { Result } from "@wf-agent/types";
 import { ok } from "@wf-agent/common-utils";
@@ -18,12 +18,12 @@ const startFromTriggerNodeConfigSchema = z.strictObject({});
 
 /**
  * Verify the START_FROM_TRIGGER node
- * @param node: Node definition
+ * @param node: StaticNode definition
  * @returns: Verification result
  */
 export function validateStartFromTriggerNode(
-  node: Node,
-): Result<Node, ConfigurationValidationError[]> {
+  node: StaticNode,
+): Result<StaticNode, ConfigurationValidationError[]> {
   const typeResult = validateNodeType(node, "START_FROM_TRIGGER");
   if (typeResult.isErr()) {
     return typeResult;

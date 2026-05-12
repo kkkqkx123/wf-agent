@@ -8,7 +8,7 @@
  * - It avoids re-verifying content that can already be guaranteed by the type system.
  */
 
-import type { Node } from "@wf-agent/types";
+import type { StaticNode } from "@wf-agent/types";
 import { ConfigurationValidationError } from "@wf-agent/types";
 import type { Result } from "@wf-agent/types";
 import { err } from "@wf-agent/common-utils";
@@ -32,7 +32,7 @@ export class NodeValidator {
    * @param node The node to be verified
    * @returns The verification result
    */
-  validateNode(node: Node): Result<Node, ConfigurationValidationError[]> {
+  validateNode(node: StaticNode): Result<StaticNode, ConfigurationValidationError[]> {
     // Verify business rules
     return this.validateBusinessRules(node);
   }
@@ -42,7 +42,7 @@ export class NodeValidator {
    * @param node Node
    * @returns Verification result
    */
-  private validateBusinessRules(node: Node): Result<Node, ConfigurationValidationError[]> {
+  private validateBusinessRules(node: StaticNode): Result<StaticNode, ConfigurationValidationError[]> {
     // Call business rule validations for each node type.
     return validateNodeByType(node);
   }
@@ -52,7 +52,7 @@ export class NodeValidator {
    * @param nodes: Array of nodes
    * @returns: Array of validation results
    */
-  validateNodes(nodes: Node[]): Result<Node, ConfigurationValidationError[]>[] {
+  validateNodes(nodes: StaticNode[]): Result<StaticNode, ConfigurationValidationError[]>[] {
     return nodes.map(node => this.validateNode(node));
   }
 
@@ -63,7 +63,7 @@ export class NodeValidator {
    * @param rawNode: Raw node data
    * @returns: Validation result
    */
-  validateRawNode(rawNode: unknown): Result<Node, ConfigurationValidationError[]> {
+  validateRawNode(rawNode: unknown): Result<StaticNode, ConfigurationValidationError[]> {
     // Basic structure check
     if (!rawNode || typeof rawNode !== "object") {
       return err([
@@ -161,6 +161,6 @@ export class NodeValidator {
     }
 
     // After passing the basic checks, proceed with the validation of business rules.
-    return this.validateNode(node as unknown as Node);
+    return this.validateNode(node as unknown as StaticNode);
   }
 }

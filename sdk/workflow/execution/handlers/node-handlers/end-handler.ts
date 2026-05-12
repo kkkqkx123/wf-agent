@@ -3,14 +3,14 @@
  * Responsible for executing the END node, marking the end of the workflow, and collecting the execution results.
  */
 
-import type { Node } from "@wf-agent/types";
+import type { RuntimeNode } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import { now, diffTimestamp } from "@wf-agent/common-utils";
 
 /**
  * Check whether the node can be executed.
  */
-function canExecute(workflowExecutionEntity: WorkflowExecutionEntity, node: Node): boolean {
+function canExecute(workflowExecutionEntity: WorkflowExecutionEntity, node: RuntimeNode): boolean {
   if (workflowExecutionEntity.getStatus() !== "RUNNING") {
     return false;
   }
@@ -25,12 +25,12 @@ function canExecute(workflowExecutionEntity: WorkflowExecutionEntity, node: Node
 /**
  * End Node Processing Function
  * @param workflowExecutionEntity: WorkflowExecutionEntity instance
- * @param node: Node definition
+ * @param node: RuntimeNode definition
  * @returns: Execution result
  */
 export async function endHandler(
   workflowExecutionEntity: WorkflowExecutionEntity,
-  node: Node,
+  node: RuntimeNode,
   _context?: unknown,
 ): Promise<unknown> {
   // Check if it is possible to execute.

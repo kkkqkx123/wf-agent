@@ -2,7 +2,7 @@
  * Type of workflow definition
  */
 
-import type { Node } from "../node/index.js";
+import type { StaticNode } from "../node/index.js";
 import type { Edge } from "../edge.js";
 import type { ID, Version, Timestamp } from "../common.js";
 import type { WorkflowTrigger } from "../trigger/index.js";
@@ -40,7 +40,7 @@ export interface WorkflowTemplate {
   description?: string;
 
   /** Array of nodes defining all execution steps in the workflow */
-  nodes: Node[];
+  nodes: StaticNode[];
 
   /** Array of edges defining the connections and flow between nodes */
   edges: Edge[];

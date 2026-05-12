@@ -16,7 +16,7 @@
  */
 
 import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
-import type { Node } from "@wf-agent/types";
+import type { RuntimeNode, WorkflowNode } from "@wf-agent/types";
 import type {
   NodeExecutionResult,
   Event,
@@ -281,7 +281,7 @@ export class NodeExecutionCoordinator {
    * @param node Node definition
    * @returns Node execution result
    */
-  async executeNode(workflowExecutionEntity: WorkflowExecutionEntity, node: Node): Promise<NodeExecutionResult> {
+  async executeNode(workflowExecutionEntity: WorkflowExecutionEntity, node: WorkflowNode | RuntimeNode): Promise<NodeExecutionResult> {
     const nodeId = node.id;
     const nodeType = node.type;
     const executionId = workflowExecutionEntity.id;
@@ -345,7 +345,7 @@ export class NodeExecutionCoordinator {
           triggerType: "NODE_BEFORE_EXECUTE" as const,
           nodeId,
         };
-        const layers = buildNodeCheckpointLayers(this.globalCheckpointConfig, node, context);
+        const layers = buildNodeCheckpointLayers(this.globalCheckpointConfig, node as any, context);
         const configResult = resolveCheckpointConfig(layers, context);
 
         if (configResult.shouldCreate) {
@@ -382,7 +382,7 @@ export class NodeExecutionCoordinator {
           {
             workflowExecution: workflowExecutionEntity.getWorkflowExecutionData(),
             workflowExecutionEntity,
-            node,
+            node: node as any,
             checkpointDependencies: this.checkpointDependencies,
           },
           "BEFORE_EXECUTE",
@@ -408,7 +408,7 @@ export class NodeExecutionCoordinator {
           {
             workflowExecution: workflowExecutionEntity.getWorkflowExecutionData(),
             workflowExecutionEntity,
-            node,
+            node: node as any,
             result: nodeResult,
             checkpointDependencies: this.checkpointDependencies,
           },
@@ -423,7 +423,7 @@ export class NodeExecutionCoordinator {
           triggerType: "NODE_AFTER_EXECUTE" as const,
           nodeId,
         };
-        const layers = buildNodeCheckpointLayers(this.globalCheckpointConfig, node, context);
+        const layers = buildNodeCheckpointLayers(this.globalCheckpointConfig, node as any, context);
         const configResult = resolveCheckpointConfig(layers, context);
 
         if (configResult.shouldCreate) {
@@ -584,7 +584,7 @@ export class NodeExecutionCoordinator {
    */
   private async executeNodeLogic(
     workflowExecutionEntity: WorkflowExecutionEntity,
-    node: Node,
+    node: WorkflowNode | RuntimeNode,
   ): Promise<NodeExecutionResult> {
     const startTime = now();
 
@@ -592,10 +592,10 @@ export class NodeExecutionCoordinator {
     const handler = getNodeHandler(node.type);
 
     // 2. Use the factory to create the processor context.
-    const handlerContext = this.handlerContextFactory.createHandlerContext(node, workflowExecutionEntity);
+    const handlerContext = this.handlerContextFactory.createHandlerContext(node as RuntimeNode, workflowExecutionEntity);
 
     // 3. Execute the processor
-    const output = await handler(this.globalContext, workflowExecutionEntity, node, handlerContext);
+    const output = await handler(this.globalContext, workflowExecutionEntity, node as RuntimeNode, handlerContext);
 
     // 4. Constructing the execution results
     const endTime = now();

@@ -15,7 +15,7 @@
  * - Multiple configuration types are supported: workflows, node templates, trigger templates, scripts, and Agent Loop
  */
 
-import type { Node } from "@wf-agent/types";
+import type { StaticNode } from "@wf-agent/types";
 import type { Edge } from "@wf-agent/types";
 import type { WorkflowTemplate } from "@wf-agent/types";
 import type { NodeTemplate } from "@wf-agent/types";

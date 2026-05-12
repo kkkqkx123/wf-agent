@@ -7,7 +7,7 @@
 
 import type {
   CheckpointConfig,
-  Node,
+  StaticNode,
   CheckpointConfigContext,
   CheckpointConfigResult,
   GraphCheckpointConfigLayer,
@@ -164,13 +164,13 @@ const defaultResolver = new WorkflowCheckpointConfigResolver();
  * Constructing the node checkpoint configuration layer
  *
  * @param globalConfig: Global checkpoint configuration
- * @param node: Node configuration
+ * @param node: StaticNode configuration
  * @param context: Checkpoint configuration context
  * @returns: List of configuration levels (sorted in descending order of priority)
  */
 export function buildNodeCheckpointLayers(
   globalConfig: CheckpointConfig | undefined,
-  node: Node | undefined,
+  node: StaticNode | undefined,
   context: CheckpointConfigContext,
 ): GraphCheckpointConfigLayer[] {
   const layers: GraphCheckpointConfigLayer[] = [];

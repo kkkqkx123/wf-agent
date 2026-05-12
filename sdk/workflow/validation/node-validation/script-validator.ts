@@ -3,7 +3,7 @@
  * Provides static validation logic for Code nodes, using Zod for validation.
  */
 
-import type { Node } from "@wf-agent/types";
+import type { StaticNode } from "@wf-agent/types";
 import { ScriptNodeConfigSchema } from "@wf-agent/types";
 import type { Result } from "@wf-agent/types";
 import { ConfigurationValidationError } from "@wf-agent/types";
@@ -15,7 +15,7 @@ import { validateNodeType, validateNodeConfig } from "../../../core/validation/u
  * @param node Node definition
  * @returns Verification result
  */
-export function validateScriptNode(node: Node): Result<Node, ConfigurationValidationError[]> {
+export function validateScriptNode(node: StaticNode): Result<StaticNode, ConfigurationValidationError[]> {
   const typeResult = validateNodeType(node, "SCRIPT");
   if (typeResult.isErr()) {
     return typeResult;

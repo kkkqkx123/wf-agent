@@ -653,7 +653,7 @@ export class SDKInstance {
    * @param type Node type
    * @returns NodeTemplateBuilder instance
    */
-  createNodeTemplateBuilder(name: string, type: import("@wf-agent/types").NodeType) {
+  createNodeTemplateBuilder(name: string, type: import("@wf-agent/types").StaticNodeType) {
     this.ensureReady();
     return NodeTemplateBuilder.create(this.globalContext, name, type);
   }

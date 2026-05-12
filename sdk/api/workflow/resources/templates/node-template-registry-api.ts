@@ -4,9 +4,8 @@
  * Refactored version: Inherit GenericResourceAPI to improve code reusability and consistency.
  */
 
-import type { NodeTemplate, Node } from "@wf-agent/types";
-import { ValidationError, ConfigurationValidationError } from "@wf-agent/types";
-import { NodeType } from "@wf-agent/types";
+import type { NodeTemplate, StaticNode } from "@wf-agent/types";
+import { ValidationError, ConfigurationValidationError, StaticNodeType } from "@wf-agent/types";
 import type { Result } from "@wf-agent/types";
 import { ok, err, getErrorMessage } from "@wf-agent/common-utils";
 import { CrudResourceAPI } from "../../../shared/resources/generic-resource-api.js";
@@ -35,7 +34,7 @@ export interface NodeTemplateSummary {
   /** Template name */
   name: string;
   /** Node type */
-  type: NodeType;
+  type: StaticNodeType;
   /** Node Description */
   description?: string;
   /** categorization */
@@ -177,7 +176,7 @@ export class NodeRegistryAPI extends CrudResourceAPI<NodeTemplate, string, NodeT
   async getTemplatesByType(type: string): Promise<NodeTemplate[]> {
     return this.dependencies
       .getNodeTemplateRegistry()
-      .listByType(type as import("@wf-agent/types").NodeType);
+      .listByType(type as StaticNodeType);
   }
 
   /**
@@ -277,9 +276,7 @@ export class NodeRegistryAPI extends CrudResourceAPI<NodeTemplate, string, NodeT
       type: template.type,
       name: template.name,
       config: template.config,
-      outgoingEdgeIds: [],
-      incomingEdgeIds: [],
-    } as Node;
+    } as StaticNode;
 
     try {
       validateNodeByType(mockNode);

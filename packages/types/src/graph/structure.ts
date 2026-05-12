@@ -2,32 +2,30 @@
  * Graph Structure Type Definition
  */
 
-import type { ID, Metadata } from "../common.js";
-import type { Node } from "../node/index.js";
-import { NodeType } from "../node/index.js";
+import type { ID } from "../common.js";
+import type { StaticNode, RuntimeNode } from "../node/index.js";
 import type { Edge, EdgeType } from "../edge.js";
 
 /**
- * Workflow Node Types
- * Node representations for graph validation and analysis
+ * Workflow Node Type
+ * 
+ * Represents nodes in the workflow execution graph.
+ * Extends RuntimeNode with additional metadata for graph operations.
+ * 
+ * This is used during:
+ * - Graph building and preprocessing
+ * - Graph validation and analysis  
+ * - Workflow execution (nodes retrieved from the graph)
  */
-export interface WorkflowNode {
-  /** Node Unique Identifier */
-  id: ID;
-  /** Node type */
-  type: NodeType;
-  /** Node Name */
+export interface WorkflowNode extends Omit<RuntimeNode, 'name'> {
+  /** Node name (copied from static node for logging/debugging) */
   name: string;
-  /** Optional node description */
+  
+  /** Optional node description (copied from static node) */
   description?: string;
-  /** Internal metadata (used internally by the system, not set by the user, to avoid data injection vulnerability) [does not exist in the node definition, only in the graph stage] */
-  internalMetadata?: Metadata;
-  /** Original node reference (for accessing the full node configuration) */
-  originalNode?: Node;
-  /** The original workflow ID to which the node belongs */
-  workflowId: ID;
-  /** Parent workflow ID (if it is a node of a subgraph expansion) */
-  parentWorkflowId?: ID;
+  
+  /** Reference to the original static node definition */
+  originalNode?: StaticNode;
 }
 
 /**

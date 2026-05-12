@@ -5,7 +5,7 @@
  * Ensures that inputs/outputs are properly mapped and required contexts are provided.
  */
 
-import type { Node, StartNodeConfig, SubgraphNodeConfig } from "@wf-agent/types";
+import type { StaticNode, StartNodeConfig, SubgraphNodeConfig } from "@wf-agent/types";
 import { ConfigurationValidationError } from "@wf-agent/types";
 import type { Result } from "@wf-agent/types";
 import { ok, err } from "@wf-agent/common-utils";
@@ -38,8 +38,8 @@ export interface MessageContextMapping {
  * @returns Validation result with mapping if successful
  */
 export function validateAndMapMessageContexts(
-  subgraphNode: Node,
-  subgraphStartNode: Node,
+  subgraphNode: StaticNode,
+  subgraphStartNode: StaticNode,
 ): Result<MessageContextMapping, ConfigurationValidationError[]> {
   const errors: ConfigurationValidationError[] = [];
   
@@ -122,7 +122,7 @@ export function validateAndMapMessageContexts(
  * @param subgraphNode The SUBGRAPH node
  * @returns true if messagePassing is configured
  */
-export function hasMessageContextConfig(subgraphNode: Node): boolean {
+export function hasMessageContextConfig(subgraphNode: StaticNode): boolean {
   const config = subgraphNode.config as SubgraphNodeConfig;
   return !!(config.messagePassing && (config.messagePassing.inputs || config.messagePassing.outputs));
 }

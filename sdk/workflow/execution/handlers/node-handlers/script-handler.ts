@@ -8,7 +8,7 @@
  * - Execution history is recorded for use by higher-level systems.
  */
 
-import type { Node, ScriptNodeConfig } from "@wf-agent/types";
+import type { RuntimeNode, ScriptNodeConfig } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import { now, getErrorMessage } from "@wf-agent/common-utils";
 import * as Identifiers from "../../../../core/di/service-identifiers.js";
@@ -31,7 +31,7 @@ import type { GlobalContext } from "../../../../core/global-context.js";
 export async function scriptHandler(
   globalContext: GlobalContext,
   workflowExecutionEntity: WorkflowExecutionEntity,
-  node: Node,
+  node: RuntimeNode,
   _context?: unknown,
 ): Promise<unknown> {
   const config = node.config as ScriptNodeConfig;

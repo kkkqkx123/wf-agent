@@ -10,7 +10,7 @@
  * Creation Method: Instances of WorkflowNavigator are created and cached uniformly by WorkflowExecutionContext, initialized using the graph object within the WorkflowExecution.
  */
 
-import type { ID, NodeType, Condition, Edge, WorkflowGraphStructure } from "@wf-agent/types";
+import type { ID, StaticNodeType, Condition, Edge, WorkflowGraphStructure } from "@wf-agent/types";
 import { conditionEvaluator } from "@wf-agent/common-utils";
 import { getReachableNodes } from "./utils/workflow-traversal.js";
 
@@ -176,11 +176,11 @@ export class WorkflowNavigator {
       input: unknown;
       output: unknown;
     },
-    currentNodeType: NodeType,
+    currentNodeType: StaticNodeType,
     lastNodeResult?: { nodeId?: string; selectedNode?: string },
   ): Promise<string | null> {
     // Handling special logic for the ROUTE node
-    if (currentNodeType === ("ROUTE" as NodeType)) {
+    if (currentNodeType === ("ROUTE" as StaticNodeType)) {
       // The ROUTE node uses its own routing decisions to get selectedNode from the output returned by the processor
       // Route processor returns: { status: 'COMPLETED', selectedNode: nodeId }
       if (
@@ -409,7 +409,7 @@ export class WorkflowNavigator {
    */
   isForkNode(nodeId: ID): boolean {
     const node = this.graph.getNode(nodeId);
-    return node?.type === ("FORK" as NodeType);
+    return node?.type === ("FORK" as StaticNodeType);
   }
 
   /**
@@ -419,7 +419,7 @@ export class WorkflowNavigator {
    */
   isJoinNode(nodeId: ID): boolean {
     const node = this.graph.getNode(nodeId);
-    return node?.type === ("JOIN" as NodeType);
+    return node?.type === ("JOIN" as StaticNodeType);
   }
 
   /**
@@ -429,7 +429,7 @@ export class WorkflowNavigator {
    */
   isRouteNode(nodeId: ID): boolean {
     const node = this.graph.getNode(nodeId);
-    return node?.type === ("ROUTE" as NodeType);
+    return node?.type === ("ROUTE" as StaticNodeType);
   }
 
   /**

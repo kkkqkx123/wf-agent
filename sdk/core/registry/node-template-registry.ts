@@ -6,9 +6,8 @@
  *
  */
 
-import type { NodeTemplate, NodeTemplateSummary } from "@wf-agent/types";
-import type { Node } from "@wf-agent/types";
-import { NodeType } from "@wf-agent/types";
+import type { NodeTemplate, NodeTemplateSummary, StaticNode } from "@wf-agent/types";
+import { StaticNodeType } from "@wf-agent/types";
 import {
   ValidationError,
   ConfigurationValidationError,
@@ -160,10 +159,10 @@ class NodeTemplateRegistry {
 
   /**
    * List node templates by type
-   * @param type: Node type
+   * @param type: Static node type
    * @returns: Array of node templates
    */
-  listByType(type: NodeType): NodeTemplate[] {
+  listByType(type: StaticNodeType): NodeTemplate[] {
     return this.list().filter(template => template.type === type);
   }
 
@@ -282,7 +281,7 @@ class NodeTemplateRegistry {
       config: template.config,
       outgoingEdgeIds: [],
       incomingEdgeIds: [],
-    } as Node;
+    } as StaticNode;
 
     try {
       validateNodeByType(mockNode);

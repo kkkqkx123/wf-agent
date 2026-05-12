@@ -3,7 +3,7 @@
  * Responsible for executing the VARIABLE node, evaluating variable expressions, and updating variable values.
  */
 
-import type { Node, VariableNodeConfig, WorkflowExecution } from "@wf-agent/types";
+import type { RuntimeNode, VariableNodeConfig, WorkflowExecution } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import { RuntimeValidationError } from "@wf-agent/types";
 import { now } from "@wf-agent/common-utils";
@@ -12,7 +12,7 @@ import { resolvePath } from "@wf-agent/common-utils";
 /**
  * Check whether the node can be executed.
  */
-function canExecute(executionEntity: WorkflowExecutionEntity, node: Node): boolean {
+function canExecute(executionEntity: WorkflowExecutionEntity, node: RuntimeNode): boolean {
   if (executionEntity.getStatus() !== "RUNNING") {
     return false;
   }
@@ -171,7 +171,7 @@ function convertType(value: unknown, targetType: string): unknown {
  */
 export async function variableHandler(
   executionEntity: WorkflowExecutionEntity,
-  node: Node,
+  node: RuntimeNode,
   _context?: unknown,
 ): Promise<unknown> {
   // Check if it is possible to execute.

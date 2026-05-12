@@ -29,7 +29,7 @@
  */
 
 import type { WorkflowTemplate } from "@wf-agent/types";
-import type { Node, NodeHook } from "@wf-agent/types";
+import type { StaticNode, NodeHook } from "@wf-agent/types";
 import { ConfigurationValidationError } from "@wf-agent/types";
 import type { Result } from "@wf-agent/types";
 import { ok, err } from "@wf-agent/common-utils";
@@ -246,10 +246,10 @@ export class WorkflowValidator {
 
     // Verify the uniqueness of node IDs.
     const nodeIds = new Set<string>();
-    const startNodes: Node[] = [];
-    const endNodes: Node[] = [];
-    const startFromTriggerNodes: Node[] = [];
-    const continueFromTriggerNodes: Node[] = [];
+    const startNodes: StaticNode[] = [];
+    const endNodes: StaticNode[] = [];
+    const startFromTriggerNodes: StaticNode[] = [];
+    const continueFromTriggerNodes: StaticNode[] = [];
 
     for (let i = 0; i < workflow.nodes.length; i++) {
       const node = workflow.nodes[i];

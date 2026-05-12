@@ -10,8 +10,7 @@ import type {
   WorkflowMetadata,
   Metadata,
 } from "@wf-agent/types";
-import type { Node, NodeConfig } from "@wf-agent/types";
-import { NodeType } from "@wf-agent/types";
+import type { StaticNode, StaticNodeType } from "@wf-agent/types";
 import type { Edge } from "@wf-agent/types";
 import type { Condition } from "@wf-agent/types";
 import type { WorkflowTrigger } from "@wf-agent/types";
@@ -32,7 +31,7 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
   private _name: string;
   private _version: string = "1.0.0";
   private _config?: WorkflowConfig;
-  private nodes: Map<string, Node> = new Map();
+  private nodes: Map<string, StaticNode> = new Map();
   private edges: Edge[] = [];
   private variables: VariableDefinition[] = [];
   private triggers: (WorkflowTrigger | TriggerReference)[] = [];
@@ -106,7 +105,7 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
    * @param name Node name (optional, defaults to ID)
    * @returns this
    */
-  addNode(id: string, type: NodeType, config: NodeConfig, name?: string): this {
+  addNode(id: string, type: StaticNodeType, config: StaticNode['config'], name?: string): this {
     const nodeBuilder = NodeBuilder.create(this.globalContext, id).type(type).config(config);
     if (name) {
       nodeBuilder.name(name);
@@ -140,7 +139,7 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
   addNodeFromTemplate(
     nodeId: string,
     templateName: string,
-    configOverride?: Partial<NodeConfig>,
+    configOverride?: Partial<StaticNode['config']>,
     nodeName?: string,
   ): this {
     const nodeTemplateRegistry = this.globalContext.nodeTemplateRegistry;
@@ -394,26 +393,13 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
 
   /**
    * Update edge references of a node
+   * Note: In the new architecture, edge IDs are added during runtime preprocessing,
+   * not in static node definitions. This method is kept for backward compatibility
+   * but does nothing.
    */
   private updateNodeEdgeReferences(): void {
-    // Clear edge references for all nodes
-    for (const node of Array.from(this.nodes.values())) {
-      node.outgoingEdgeIds = [];
-      node.incomingEdgeIds = [];
-    }
-
-    // Refill side references
-    for (const edge of this.edges) {
-      const fromNode = this.nodes.get(edge.sourceNodeId);
-      const toNode = this.nodes.get(edge.targetNodeId);
-
-      if (fromNode) {
-        fromNode.outgoingEdgeIds.push(edge.id);
-      }
-      if (toNode) {
-        toNode.incomingEdgeIds.push(edge.id);
-      }
-    }
+    // Edge IDs are now managed at runtime, not in static definitions
+    // This method is a no-op in the new architecture
   }
 
   /**

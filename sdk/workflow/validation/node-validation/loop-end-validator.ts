@@ -3,7 +3,7 @@
  * Provides static validation logic for the LoopEnd node, using zod for validation.
  */
 
-import type { Node } from "@wf-agent/types";
+import type { StaticNode } from "@wf-agent/types";
 import { LoopEndNodeConfigSchema, ConfigurationValidationError } from "@wf-agent/types";
 import type { Result } from "@wf-agent/types";
 import { ok } from "@wf-agent/common-utils";
@@ -14,7 +14,7 @@ import { validateNodeType, validateNodeConfig } from "../../../core/validation/u
  * @param node Node definition
  * @returns Verification result
  */
-export function validateLoopEndNode(node: Node): Result<Node, ConfigurationValidationError[]> {
+export function validateLoopEndNode(node: StaticNode): Result<StaticNode, ConfigurationValidationError[]> {
   const typeResult = validateNodeType(node, "LOOP_END");
   if (typeResult.isErr()) {
     return typeResult;

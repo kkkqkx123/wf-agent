@@ -12,7 +12,7 @@
  * like tool approval and follow-up questions).
  */
 
-import type { Node, UserInteractionNodeConfig } from "@wf-agent/types";
+import type { RuntimeNode, UserInteractionNodeConfig } from "@wf-agent/types";
 import type { WorkflowExecution } from "@wf-agent/types";
 import type {
   UserInteractionHandler as AppUserInteractionHandler,
@@ -95,7 +95,7 @@ function createWorkflowInteractionRequest(
  */
 function createInteractionContext(
   workflowExecution: WorkflowExecution,
-  node: Node,
+  node: RuntimeNode,
   timeout: number,
   _conversationManager?: unknown,
 ): unknown {
@@ -298,7 +298,7 @@ async function processUserInput(
  */
 export async function userInteractionHandler(
   workflowExecution: WorkflowExecution,
-  node: Node,
+  node: RuntimeNode,
   context: UserInteractionHandlerContext,
 ): Promise<UserInteractionExecutionResult> {
   const config = node.config as UserInteractionNodeConfig;

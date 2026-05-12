@@ -3,7 +3,7 @@
  * Responsible for executing the ROUTE node, evaluating route conditions, and selecting the next node.
  */
 
-import type { Node, RouteNodeConfig } from "@wf-agent/types";
+import type { RuntimeNode, RouteNodeConfig } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import type { Condition, EvaluationContext } from "@wf-agent/types";
 import { ExecutionError } from "@wf-agent/types";
@@ -49,7 +49,7 @@ function evaluateRouteCondition(condition: Condition, workflowExecutionEntity: W
  * @param context Processor context (optional)
  * @returns Execution result
  */
-export async function routeHandler(workflowExecutionEntity: WorkflowExecutionEntity, node: Node): Promise<unknown> {
+export async function routeHandler(workflowExecutionEntity: WorkflowExecutionEntity, node: RuntimeNode): Promise<unknown> {
   // Check if it can be executed.
   if (!canExecute(workflowExecutionEntity)) {
     return {

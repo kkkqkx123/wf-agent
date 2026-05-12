@@ -10,7 +10,7 @@
  * - Supports referencing predefined prompt templates via templateId
  */
 
-import type { Node, LLMNodeConfig, NamedMessageContext } from "@wf-agent/types";
+import type { RuntimeNode, LLMNodeConfig, NamedMessageContext } from "@wf-agent/types";
 import type { WorkflowExecution, LLMMessage } from "@wf-agent/types";
 import type { HumanRelayHandler } from "@wf-agent/types";
 import { ExecutionError, RuntimeValidationError } from "@wf-agent/types";
@@ -105,7 +105,7 @@ function collectMessagesFromContexts(
  */
 export async function llmHandler(
   workflowExecution: WorkflowExecution,
-  node: Node,
+  node: RuntimeNode,
   context: LLMHandlerContext,
 ): Promise<LLMExecutionResult> {
   const config = node.config as LLMNodeConfig;
@@ -204,7 +204,7 @@ export async function llmHandler(
  */
 async function executeHumanRelayLLMNode(
   workflowExecution: WorkflowExecution,
-  node: Node,
+  node: RuntimeNode,
   requestData: { prompt?: string; parameters?: { timeout?: number } },
   context: LLMHandlerContext,
   startTime: number,

@@ -5,7 +5,6 @@
 
 import type {
   ID,
-  NodeType,
   EdgeType,
   WorkflowGraphAnalysis,
   ForkJoinValidationResult,
@@ -36,7 +35,7 @@ export function analyzeWorkflowGraph(graph: WorkflowGraphStructure): WorkflowGra
   // Node Statistics
   const nodeStats = {
     total: graph.nodes.size,
-    byType: new Map<NodeType, number>(),
+    byType: new Map<string, number>(), // Use string to accommodate both StaticNodeType and RuntimeNodeType
   };
   for (const node of graph.nodes.values()) {
     const count = nodeStats.byType.get(node.type) || 0;
@@ -75,12 +74,12 @@ export function collectForkJoinPairs(graph: WorkflowGraphStructure): ForkJoinVal
 
   // Collect all FORK and JOIN nodes.
   for (const node of graph.nodes.values()) {
-    if (node.type === ("FORK" as NodeType)) {
+    if (node.type === "FORK") {
       const forkId = (node.originalNode?.config as { forkId?: ID } | undefined)?.forkId;
       if (forkId) {
         forkNodes.set(forkId, node.id);
       }
-    } else if (node.type === ("JOIN" as NodeType)) {
+    } else if (node.type === "JOIN") {
       const joinId = (node.originalNode?.config as { joinId?: ID } | undefined)?.joinId;
       if (joinId) {
         joinNodes.set(joinId, node.id);

@@ -5,7 +5,7 @@
  * Subgraph nodes do not exist during the execution phase, therefore no processing is required.
  */
 
-import type { Node } from "@wf-agent/types";
+import type { StaticNode } from "@wf-agent/types";
 import { ConfigurationValidationError } from "@wf-agent/types";
 import type { Result } from "@wf-agent/types";
 import { err } from "@wf-agent/common-utils";
@@ -46,10 +46,10 @@ export { validateContinueFromTriggerNode } from "./continue-from-trigger-validat
 
 /**
  * Verify node configuration based on the node type
- * @param node Node definition
+ * @param node Static node definition
  * @returns Verification result
  */
-export function validateNodeByType(node: Node): Result<Node, ConfigurationValidationError[]> {
+export function validateNodeByType(node: StaticNode): Result<StaticNode, ConfigurationValidationError[]> {
   switch (node.type) {
     case "START":
       return validateStartNode(node);

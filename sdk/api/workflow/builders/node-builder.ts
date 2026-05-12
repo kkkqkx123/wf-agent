@@ -3,7 +3,7 @@
  * Provides a fluent chaining API to build node definitions, supports creation from templates and configuration overrides
  */
 
-import type { Node, NodeConfig, NodeType } from "@wf-agent/types";
+import type { StaticNode, StaticNodeType } from "@wf-agent/types";
 import { NodeTemplateNotFoundError, ConfigurationValidationError } from "@wf-agent/types";
 import { generateId } from "../../../utils/id-utils.js";
 import { BaseBuilder } from "../../shared/base-builder.js";
@@ -12,13 +12,11 @@ import type { GlobalContext } from "../../../core/global-context.js";
 /**
  * NodeBuilder - node builder
  */
-export class NodeBuilder extends BaseBuilder<Node> {
+export class NodeBuilder extends BaseBuilder<StaticNode> {
   private _id: string;
-  private _type?: NodeType;
+  private _type?: StaticNodeType;
   private _name?: string;
-  private _config: NodeConfig = {};
-  private _outgoingEdgeIds: string[] = [];
-  private _incomingEdgeIds: string[] = [];
+  private _config: Partial<StaticNode['config']> = {};
   private globalContext: GlobalContext;
 
   private constructor(globalContext: GlobalContext, id?: string) {
@@ -42,7 +40,7 @@ export class NodeBuilder extends BaseBuilder<Node> {
    * @param type Node type
    * @returns this
    */
-  type(type: NodeType): this {
+  type(type: StaticNodeType): this {
     this._type = type;
     this.updateTimestamp();
     return this;
@@ -64,7 +62,7 @@ export class NodeBuilder extends BaseBuilder<Node> {
    * @param config node configuration
    * @returns this
    */
-  config(config: NodeConfig): this {
+  config(config: StaticNode['config']): this {
     this._config = config;
     this.updateTimestamp();
     return this;
@@ -75,7 +73,7 @@ export class NodeBuilder extends BaseBuilder<Node> {
    * @param partialConfig partialConfig object that merges shallow into existing configuration
    * @returns this
    */
-  mergeConfig(partialConfig: Partial<NodeConfig>): this {
+  mergeConfig(partialConfig: Partial<StaticNode['config']>): this {
     this._config = { ...this._config, ...partialConfig };
     this.updateTimestamp();
     return this;
@@ -87,7 +85,7 @@ export class NodeBuilder extends BaseBuilder<Node> {
    * @param configOverride Configuration override (optional)
    * @returns this
    */
-  fromTemplate(templateName: string, configOverride?: Partial<NodeConfig>): this {
+  fromTemplate(templateName: string, configOverride?: Partial<StaticNode['config']>): this {
     const nodeTemplateRegistry = this.globalContext.nodeTemplateRegistry;
     const template = nodeTemplateRegistry.get(templateName);
     if (!template) {
@@ -108,7 +106,7 @@ export class NodeBuilder extends BaseBuilder<Node> {
    * Building Nodes
    * @returns node definition
    */
-  build(): Node {
+  build(): StaticNode {
     // Validating Required Fields
     if (!this._id) {
       throw new ConfigurationValidationError("Node ID cannot be null", { configType: "node" });
@@ -122,15 +120,13 @@ export class NodeBuilder extends BaseBuilder<Node> {
       this._name = this._id;
     }
 
-    // Use type assertions, since runtime validation already ensures that the type is correct
+    // Build static node without edge IDs (they are added during runtime preprocessing)
     return {
       id: this._id,
       type: this._type,
-      name: this._name,
-      config: this._config,
-      outgoingEdgeIds: this._outgoingEdgeIds,
-      incomingEdgeIds: this._incomingEdgeIds,
-    } as Node;
+      name: this._name || this._id,
+      config: this._config as StaticNode['config'],
+    } as StaticNode;
   }
 
   // The following shortcut methods are used to quickly create specific types of nodes
@@ -142,7 +138,7 @@ export class NodeBuilder extends BaseBuilder<Node> {
    */
   start(id: string = "start"): this {
     this._id = id;
-    return this.type("start" as NodeType).name("Start");
+    return this.type("START").name("Start");
   }
 
   /**
@@ -152,7 +148,7 @@ export class NodeBuilder extends BaseBuilder<Node> {
    */
   end(id: string = "end"): this {
     this._id = id;
-    return this.type("end" as NodeType).name("End");
+    return this.type("END").name("End");
   }
 
   /**
@@ -162,7 +158,7 @@ export class NodeBuilder extends BaseBuilder<Node> {
    * @returns this
    */
   llm(profileId: string, prompt?: string): this {
-    return this.type("llm" as NodeType).mergeConfig({
+    return this.type("LLM").mergeConfig({
       profileId,
       ...(prompt && { prompt }),
     });
@@ -175,7 +171,7 @@ export class NodeBuilder extends BaseBuilder<Node> {
    * @returns this
    */
   code(scriptName: string, risk: "none" | "low" | "medium" | "high"): this {
-    return this.type("code" as NodeType).mergeConfig({
+    return this.type("SCRIPT").mergeConfig({
       scriptName,
       risk,
     });
@@ -193,7 +189,7 @@ export class NodeBuilder extends BaseBuilder<Node> {
     variableType: "number" | "string" | "boolean" | "array" | "object",
     expression: string,
   ): this {
-    return this.type("variable" as NodeType).mergeConfig({
+    return this.type("VARIABLE").mergeConfig({
       variableName,
       variableType,
       expression,
@@ -210,7 +206,7 @@ export class NodeBuilder extends BaseBuilder<Node> {
     routes: Array<{ condition: string; targetNodeId: string; priority?: number }>,
     defaultTargetNodeId?: string,
   ): this {
-    return this.type("route" as NodeType).mergeConfig({
+    return this.type("ROUTE").mergeConfig({
       routes: routes.map(route => ({
         ...route,
         condition: { expression: route.condition },

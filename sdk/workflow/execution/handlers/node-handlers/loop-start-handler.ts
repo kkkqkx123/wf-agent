@@ -3,7 +3,7 @@
  * Responsible for executing the LOOP_START node, initializing loop variables, and setting loop conditions.
  */
 
-import type { Node, LoopStartNodeConfig } from "@wf-agent/types";
+import type { RuntimeNode, LoopStartNodeConfig } from "@wf-agent/types";
 import type { WorkflowExecution } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import { ExecutionError, ValidationError, RuntimeValidationError } from "@wf-agent/types";
@@ -24,7 +24,7 @@ interface LoopState {
 /**
  * Check if the node can be executed.
  */
-function canExecute(executionEntity: WorkflowExecutionEntity, _node: Node): boolean {
+function canExecute(executionEntity: WorkflowExecutionEntity, _node: RuntimeNode): boolean {
   if (executionEntity.getStatus() !== "RUNNING") {
     return false;
   }
@@ -279,13 +279,13 @@ function updateLoopState(loopState: LoopState): void {
 /**
  * LoopStart node processing function
  * @param workflowExecution: WorkflowExecution instance
- * @param node: Node definition
+ * @param node: RuntimeNode definition
  * @param context: Processor context (optional)
  * @returns: Execution result
  */
 export async function loopStartHandler(
   executionEntity: WorkflowExecutionEntity,
-  node: Node,
+  node: RuntimeNode,
   _context?: unknown,
 ): Promise<unknown> {
   const workflowExecution = executionEntity.getExecution();

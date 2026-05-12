@@ -3,7 +3,7 @@
  * The Fork node serves as a placeholder; the actual Fork operation is handled by the WorkflowExecutor invoking the WorkflowCoordinator.
  */
 
-import type { Node } from "@wf-agent/types";
+import type { RuntimeNode } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 
 /**
@@ -20,12 +20,12 @@ function canExecute(workflowExecutionEntity: WorkflowExecutionEntity): boolean {
  * Fork Node Processing Function
  * The Fork node serves as a placeholder; the actual Fork operation is handled by the WorkflowExecutor, which in turn calls the WorkflowCoordinator.
  * @param workflowExecutionEntity: WorkflowExecutionEntity instance
- * @param node: Node definition
+ * @param node: RuntimeNode definition
  * @returns: Execution result
  */
 export async function forkHandler(
   workflowExecutionEntity: WorkflowExecutionEntity,
-  node: Node,
+  node: RuntimeNode,
 ): Promise<unknown> {
   // Check if it is possible to execute.
   if (!canExecute(workflowExecutionEntity)) {

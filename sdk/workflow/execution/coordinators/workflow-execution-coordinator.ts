@@ -4,7 +4,7 @@
  */
 
 import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
-import type { WorkflowExecutionResult, Node as WorkflowNode } from "@wf-agent/types";
+import type { WorkflowExecutionResult, WorkflowNode } from "@wf-agent/types";
 import type { VariableCoordinator } from "./variable-coordinator.js";
 import type { TriggerCoordinator } from "./trigger-coordinator.js";
 import type { InterruptionState } from "../../../core/types/interruption-state.js";
@@ -74,25 +74,13 @@ export class WorkflowExecutionCoordinator {
         break;
       }
 
-      // Get the node object
-      const graphNode = this.navigator.getGraph().getNode(currentNodeId);
-      if (!graphNode) {
+      // Get the node object from the graph (already a RuntimeNode after preprocessing)
+      const currentNode = this.navigator.getGraph().getNode(currentNodeId);
+      if (!currentNode) {
         break;
       }
 
-      // Use `originalNode` or create a new `Node`.
-      const currentNode =
-        graphNode.originalNode ||
-        ({
-          id: graphNode.id,
-          type: graphNode.type,
-          name: graphNode.name,
-          config: {},
-          outgoingEdgeIds: [],
-          incomingEdgeIds: [],
-        } as WorkflowNode);
-
-      // Execute Node
+      // Execute Node (currentNode is already a RuntimeNode)
       const result = await this.nodeExecutionCoordinator.executeNode(
         this.workflowExecutionEntity,
         currentNode,

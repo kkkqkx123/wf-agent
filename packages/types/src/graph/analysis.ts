@@ -2,7 +2,7 @@
  * Graph Analysis Result Type Definition
  */
 
-import { NodeType } from "../node/index.js";
+import { StaticNodeType } from "../node/index.js";
 import type { EdgeType } from "../edge.js";
 import type {
   CycleDetectionResult,
@@ -29,7 +29,7 @@ export interface WorkflowGraphAnalysis {
     /** Total nodes */
     total: number;
     /** Number of nodes grouped by type */
-    byType: Map<NodeType, number>;
+    byType: Map<string, number>; // Use string to accommodate both StaticNodeType and RuntimeNodeType
   };
   /** Border statistical information */
   edgeStats: {

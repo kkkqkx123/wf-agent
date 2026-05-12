@@ -7,7 +7,7 @@
  * The triggered sub-workflow is specified through the triggeredWorkflowId in the ExecuteTriggeredSubgraphActionConfig of the trigger.
  */
 
-import type { Node } from "@wf-agent/types";
+import type { StaticNode } from "@wf-agent/types";
 import { ConfigurationValidationError } from "@wf-agent/types";
 
 /**
@@ -25,10 +25,10 @@ export interface SubgraphConfig {
 export class SelfReferenceValidationStrategy {
   /**
    * Check if the node is of the subtype workflow node.
-   * @param node: Node definition
+   * @param node: StaticNode definition
    * @returns: Whether it is a subtype workflow node
    */
-  static isSubgraphNode(node: Node): boolean {
+  static isSubgraphNode(node: StaticNode): boolean {
     // The START_FROM_TRIGGER node is now empty and no longer references any other workflows.
     return node.type === "SUBGRAPH";
   }
@@ -40,7 +40,7 @@ export class SelfReferenceValidationStrategy {
    * @param path Prefix for error paths
    * @returns List of verification errors
    */
-  static validate(node: Node, workflowId: string, path: string): ConfigurationValidationError[] {
+  static validate(node: StaticNode, workflowId: string, path: string): ConfigurationValidationError[] {
     const errors: ConfigurationValidationError[] = [];
 
     // Verify only SUBGRAPH nodes.
@@ -76,7 +76,7 @@ export class SelfReferenceValidationStrategy {
    * @returns List of verification errors
    */
   static validateNodes(
-    nodes: Node[],
+    nodes: StaticNode[],
     workflowId: string,
     pathPrefix: string = "workflow.nodes",
   ): ConfigurationValidationError[] {

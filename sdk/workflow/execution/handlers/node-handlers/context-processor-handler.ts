@@ -15,7 +15,7 @@
  * - Batch Management: Control message visibility via startNewBatch() and rollbackToBatch()
  */
 
-import type { Node, ContextProcessorNodeConfig, NamedMessageContext } from "@wf-agent/types";
+import type { RuntimeNode, ContextProcessorNodeConfig, NamedMessageContext } from "@wf-agent/types";
 import type { WorkflowExecution } from "@wf-agent/types";
 import { RuntimeValidationError } from "@wf-agent/types";
 import { now, getErrorOrNew } from "@wf-agent/common-utils";
@@ -134,7 +134,7 @@ function getOrCreateNamedContext(
  */
 export async function contextProcessorHandler(
   workflowExecution: WorkflowExecution,
-  node: Node,
+  node: RuntimeNode,
   context: ContextProcessorHandlerContext,
 ): Promise<ContextProcessorExecutionResult> {
   const config = node.config as ContextProcessorNodeConfig;

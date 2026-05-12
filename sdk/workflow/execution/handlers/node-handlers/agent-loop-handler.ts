@@ -6,7 +6,7 @@
  * Supports referencing named message contexts via initialContextRefs.
  */
 
-import type { Node, WorkflowExecution, AgentLoopNodeConfig, LLMMessage, NamedMessageContext } from "@wf-agent/types";
+import type { RuntimeNode, WorkflowExecution, AgentLoopNodeConfig, LLMMessage, NamedMessageContext } from "@wf-agent/types";
 import { ExecutionError, RuntimeValidationError } from "@wf-agent/types";
 import { now, diffTimestamp, getErrorOrNew } from "@wf-agent/common-utils";
 
@@ -130,7 +130,7 @@ function createCoordinator(globalContext: GlobalContext, context: AgentLoopHandl
 export async function agentLoopHandler(
   globalContext: GlobalContext,
   execution: WorkflowExecution,
-  node: Node,
+  node: RuntimeNode,
   context: AgentLoopHandlerContext,
 ): Promise<AgentLoopExecutionResult> {
   const config = node.config as AgentLoopNodeConfig;
@@ -260,7 +260,7 @@ export async function agentLoopHandler(
 export async function* agentLoopStreamHandler(
   globalContext: GlobalContext,
   execution: WorkflowExecution,
-  node: Node,
+  node: RuntimeNode,
   context: AgentLoopHandlerContext,
 ): AsyncGenerator<unknown, AgentLoopExecutionResult, unknown> {
   const config = node.config as AgentLoopNodeConfig;

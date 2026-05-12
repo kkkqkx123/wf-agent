@@ -489,7 +489,7 @@ export class LLMExecutionCoordinator {
    * @param toolCall: Tool call
    * @param approvalConfig: Approval configuration
    * @param executionId: Execution ID
-   * @param nodeId: Node ID
+   * @param nodeId: StaticNode ID
    * @param conversationState: Conversation manager
    * @returns: Approval result
    */

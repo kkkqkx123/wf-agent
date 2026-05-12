@@ -3,7 +3,7 @@
  * Provides static validation logic for the ADD_TOOL node, using zod for validation.
  */
 
-import type { Node } from "@wf-agent/types";
+import type { StaticNode } from "@wf-agent/types";
 import { AddToolNodeConfigSchema, ConfigurationValidationError } from "@wf-agent/types";
 import type { Result } from "@wf-agent/types";
 import { ok, err } from "@wf-agent/common-utils";
@@ -23,9 +23,9 @@ interface HasToolChecker {
  * @returns Verification result
  */
 export function validateAddToolNode(
-  node: Node,
+  node: StaticNode,
   toolChecker?: HasToolChecker,
-): Result<Node, ConfigurationValidationError[]> {
+): Result<StaticNode, ConfigurationValidationError[]> {
   const typeResult = validateNodeType(node, "ADD_TOOL");
   if (typeResult.isErr()) {
     return typeResult;

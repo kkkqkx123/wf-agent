@@ -35,10 +35,11 @@ interface VariableEntry {
 
 /**
  * Scope Stack - For subgraph and loop scopes
+ * Uses Set for O(1) lookup performance instead of Array.includes() O(n)
  */
 interface ScopeStacks {
-  subgraph: string[][];  // Each level contains variable names in that scope
-  loop: string[][];
+  subgraph: Set<string>[];  // Each level contains variable names in that scope (Set for O(1) lookup)
+  loop: Set<string>[];
 }
 
 /**
@@ -58,17 +59,37 @@ export interface VariableManagerSnapshot {
  * - Support state snapshots and restoration
  * - Offer atomic state operations
  * 
+ * ⚠️ IMPORTANT: Object Reference Sharing
+ * Snapshots use shallow copy for variable values. Object values are shared by reference,
+ * not deep copied. This means:
+ * ```typescript
+ * manager.setVariable("data", { count: 1 });
+ * const snapshot = manager.createSnapshot();
+ * manager.setVariable("data", { count: 2 }); // Creates new object, safe
+ * 
+ * // BUT if you modify the object directly:
+ * const obj = manager.getVariable("config") as any;
+ * obj.newProp = "value"; // This affects ALL references including snapshots!
+ * ```
+ * 
+ * Best Practices:
+ * 1. Use immutable data structures (Immer.js, Immutable.js)
+ * 2. Always use setVariable() to update values, never modify objects directly
+ * 3. If needed, manually deep clone before setting: setVariable("data", structuredClone(obj))
+ * 4. Use freeze option in variable definition to prevent mutation: { name: "config", freeze: true }
+ * 
  * Usage Example:
  * ```typescript
  * const manager = new VariableManager();
  * 
- * // Register variables
+ * // Register variables with freeze
  * manager.registerVariable({
- *   name: 'counter',
- *   type: 'number',
- *   value: 0,
- *   scope: 'execution',
- *   readonly: false
+ *   name: 'config',
+ *   type: 'object',
+ *   value: { timeout: 5000 },
+ *   scope: 'global',
+ *   readonly: true,
+ *   freeze: true  // Auto-freeze on registration
  * });
  * 
  * // Get/Set variables
@@ -171,11 +192,23 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
    * @param definition Variable definition
    */
   registerVariable(definition: VariableDefinition): void {
-    logger.debug("Registering variable", { name: definition.name, scope: definition.scope });
+    logger.debug("Registering variable", { 
+      name: definition.name, 
+      scope: definition.scope,
+      freeze: definition.freeze 
+    });
+
+    let value = definition.value;
+    
+    // Auto-freeze if specified in definition
+    if (definition.freeze && typeof value === 'object' && value !== null && !Object.isFrozen(value)) {
+      Object.freeze(value);
+      logger.debug("Auto-froze variable value during registration", { name: definition.name });
+    }
 
     this.variables.set(definition.name, {
       definition,
-      value: definition.value,
+      value,
     });
   }
 
@@ -220,7 +253,7 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
         // Check if we're in a subgraph scope
         if (this.scopeStacks.subgraph.length > 0) {
           const currentScope = this.scopeStacks.subgraph[this.scopeStacks.subgraph.length - 1];
-          if (currentScope && currentScope.includes(name)) {
+          if (currentScope && currentScope.has(name)) {  // O(1) lookup with Set
             value = entry.value;
             found = true;
           }
@@ -231,7 +264,7 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
         // Check if we're in a loop scope
         if (this.scopeStacks.loop.length > 0) {
           const currentScope = this.scopeStacks.loop[this.scopeStacks.loop.length - 1];
-          if (currentScope && currentScope.includes(name)) {
+          if (currentScope && currentScope.has(name)) {  // O(1) lookup with Set
             value = entry.value;
             found = true;
           }
@@ -255,18 +288,21 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
    * Set variable value (unified entry point)
    * @param name Variable name
    * @param value New value
+   * @param freeze If true, freezes the value (overrides definition.freeze if provided)
    * @throws RuntimeValidationError if variable is readonly or doesn't exist
    */
-  setVariable(name: string, value: unknown): void {
+  setVariable(name: string, value: unknown, freeze?: boolean): void {
     const entry = this.variables.get(name);
     
     if (!entry) {
+      const availableVars = Array.from(this.variables.keys());
       throw new RuntimeValidationError(
-        `Variable '${name}' is not defined. Variables must be registered before use.`,
+        `Variable '${name}' is not defined. Available variables: ${availableVars.length > 0 ? availableVars.join(', ') : '(none)'}`,
         {
           operation: "setVariable",
           field: "variableName",
           value: name,
+          context: { availableVariables: availableVars },
         }
       );
     }
@@ -282,7 +318,21 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
       );
     }
 
-    logger.debug("Setting variable", { name, scope: entry.definition.scope });
+    // Determine whether to freeze:
+    // 1. Explicit parameter takes precedence
+    // 2. Fall back to definition.freeze
+    const shouldFreeze = freeze ?? entry.definition.freeze ?? false;
+
+    logger.debug("Setting variable", { 
+      name, 
+      scope: entry.definition.scope, 
+      freeze: shouldFreeze 
+    });
+
+    if (shouldFreeze && typeof value === 'object' && value !== null && !Object.isFrozen(value)) {
+      Object.freeze(value);
+      logger.debug("Froze object value for variable", { name });
+    }
 
     // Update the value
     entry.value = value;
@@ -381,12 +431,12 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
   enterSubgraphScope(): void {
     logger.debug("Entering subgraph scope", { currentDepth: this.scopeStacks.subgraph.length });
 
-    const scopeVars: string[] = [];
+    const scopeVars = new Set<string>();
 
     // Collect all subgraph-scoped variables
     for (const [name, entry] of this.variables) {
       if (entry.definition.scope === "subgraph") {
-        scopeVars.push(name);
+        scopeVars.add(name);
       }
     }
 
@@ -421,12 +471,12 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
   enterLoopScope(): void {
     logger.debug("Entering loop scope", { currentDepth: this.scopeStacks.loop.length });
 
-    const scopeVars: string[] = [];
+    const scopeVars = new Set<string>();
 
     // Collect all loop-scoped variables
     for (const [name, entry] of this.variables) {
       if (entry.definition.scope === "loop") {
-        scopeVars.push(name);
+        scopeVars.add(name);
       }
     }
 
@@ -462,8 +512,8 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
     return {
       variables: new Map(this.variables),
       scopeStacks: {
-        subgraph: this.scopeStacks.subgraph.map(level => [...level]),
-        loop: this.scopeStacks.loop.map(level => [...level]),
+        subgraph: this.scopeStacks.subgraph.map(level => new Set(level)),
+        loop: this.scopeStacks.loop.map(level => new Set(level)),
       },
     };
   }
@@ -475,8 +525,8 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
   restoreFromSnapshot(snapshot: VariableManagerSnapshot): void {
     this.variables = new Map(snapshot.variables);
     this.scopeStacks = {
-      subgraph: snapshot.scopeStacks.subgraph.map(level => [...level]),
-      loop: snapshot.scopeStacks.loop.map(level => [...level]),
+      subgraph: snapshot.scopeStacks.subgraph.map(level => new Set(level)),
+      loop: snapshot.scopeStacks.loop.map(level => new Set(level)),
     };
 
     // Clear cache after restore

@@ -5,7 +5,7 @@
 
 import type {
   WorkflowTemplate,
-  WorkflowVariable,
+  VariableDefinition,
   WorkflowConfig,
   WorkflowMetadata,
   Metadata,
@@ -34,7 +34,7 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
   private _config?: WorkflowConfig;
   private nodes: Map<string, Node> = new Map();
   private edges: Edge[] = [];
-  private variables: WorkflowVariable[] = [];
+  private variables: VariableDefinition[] = [];
   private triggers: (WorkflowTrigger | TriggerReference)[] = [];
   private globalContext: GlobalContext;
 
@@ -305,13 +305,21 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
       description?: string;
       required?: boolean;
       readonly?: boolean;
+      freeze?: boolean;
       scope?: "global" | "execution" | "subgraph" | "loop"; // Updated to new naming
     },
   ): this {
-    const variable: WorkflowVariable = {
+    const variable: VariableDefinition = {
       name,
       type,
-      ...options,
+      value: options?.defaultValue ?? undefined,
+      scope: options?.scope || "execution",
+      readonly: options?.readonly || false,
+      freeze: options?.freeze,
+      metadata: {
+        description: options?.description,
+        required: options?.required,
+      },
     };
     this.variables.push(variable);
     this.updateTimestamp();

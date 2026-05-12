@@ -386,4 +386,160 @@ describe("VariableManager - Core Functionality", () => {
       expect(def?.readonly).toBe(false); // Default readonly
     });
   });
+
+  describe("Freeze Mechanism", () => {
+    it("should auto-freeze variable during registration when freeze=true", () => {
+      const varDef: VariableDefinition = {
+        name: "config",
+        type: "object",
+        value: { timeout: 5000, retries: 3 },
+        scope: "global",
+        readonly: true,
+        freeze: true,
+      };
+
+      manager.registerVariable(varDef);
+      const config = manager.getVariable("config") as any;
+      
+      // Object should be frozen
+      expect(Object.isFrozen(config)).toBe(true);
+      
+      // Attempting to modify should throw
+      expect(() => {
+        config.timeout = 10000;
+      }).toThrow();
+    });
+
+    it("should not freeze variable when freeze=false (default)", () => {
+      const varDef: VariableDefinition = {
+        name: "data",
+        type: "object",
+        value: { count: 1 },
+        scope: "execution",
+        readonly: false,
+        freeze: false,
+      };
+
+      manager.registerVariable(varDef);
+      const data = manager.getVariable("data") as any;
+      
+      // Object should NOT be frozen
+      expect(Object.isFrozen(data)).toBe(false);
+      
+      // Should be able to modify
+      data.count = 2;
+      expect(manager.getVariable("data")).toEqual({ count: 2 });
+    });
+
+    it("should respect explicit freeze parameter in setVariable", () => {
+      const varDef: VariableDefinition = {
+        name: "result",
+        type: "object",
+        value: { value: 0 },
+        scope: "execution",
+        readonly: false,
+        freeze: false, // Definition says no freeze
+      };
+
+      manager.registerVariable(varDef);
+      
+      // Override with explicit freeze=true
+      manager.setVariable("result", { value: 100 }, true);
+      const result = manager.getVariable("result") as any;
+      
+      expect(Object.isFrozen(result)).toBe(true);
+      expect(() => {
+        result.value = 200;
+      }).toThrow();
+    });
+
+    it("should allow overriding definition.freeze with explicit parameter", () => {
+      const varDef: VariableDefinition = {
+        name: "settings",
+        type: "object",
+        value: { theme: "dark" },
+        scope: "global",
+        readonly: false,
+        freeze: true, // Definition says freeze
+      };
+
+      manager.registerVariable(varDef);
+      
+      // Override with explicit freeze=false
+      manager.setVariable("settings", { theme: "light" }, false);
+      const settings = manager.getVariable("settings") as any;
+      
+      // Should NOT be frozen (explicit parameter overrides)
+      expect(Object.isFrozen(settings)).toBe(false);
+      
+      // Should be able to modify
+      settings.theme = "blue";
+      expect(manager.getVariable("settings")).toEqual({ theme: "blue" });
+    });
+
+    it("should not freeze primitive values even with freeze=true", () => {
+      const varDef: VariableDefinition = {
+        name: "counter",
+        type: "number",
+        value: 0,
+        scope: "execution",
+        readonly: false,
+        freeze: true,
+      };
+
+      manager.registerVariable(varDef);
+      
+      // Primitives cannot be frozen, but should not error
+      expect(manager.getVariable("counter")).toBe(0);
+      
+      // Should still be able to update
+      manager.setVariable("counter", 10);
+      expect(manager.getVariable("counter")).toBe(10);
+    });
+
+    it("should handle nested objects with shallow freeze", () => {
+      const varDef: VariableDefinition = {
+        name: "nested",
+        type: "object",
+        value: { outer: { inner: "value" } },
+        scope: "global",
+        readonly: false,
+        freeze: true,
+      };
+
+      manager.registerVariable(varDef);
+      const nested = manager.getVariable("nested") as any;
+      
+      // Outer object is frozen
+      expect(Object.isFrozen(nested)).toBe(true);
+      
+      // But nested object is NOT frozen (shallow freeze)
+      expect(Object.isFrozen(nested.outer)).toBe(false);
+      
+      // Can still modify nested properties
+      nested.outer.inner = "modified";
+      expect((manager.getVariable("nested") as any).outer.inner).toBe("modified");
+    });
+
+    it("should not re-freeze already frozen objects", () => {
+      const obj = { count: 1 };
+      Object.freeze(obj);
+      
+      const varDef: VariableDefinition = {
+        name: "alreadyFrozen",
+        type: "object",
+        value: obj,
+        scope: "global",
+        readonly: false,
+        freeze: true,
+      };
+
+      // Should not throw when trying to freeze an already frozen object
+      expect(() => {
+        manager.registerVariable(varDef);
+      }).not.toThrow();
+      
+      expect(manager.getVariable("alreadyFrozen")).toBe(obj);
+    });
+  });
 });

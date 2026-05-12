@@ -58,8 +58,16 @@ export interface VariableDefinition {
   /** Variable scope */
   scope: VariableScope;
   
-  /** Read-only flag */
+  /** Read-only flag - prevents reassignment of the variable */
   readonly: boolean;
+  
+  /** 
+   * Freeze flag - prevents mutation of object/array values
+   * When true, object values are frozen using Object.freeze() during registration
+   * Note: This is shallow freeze - nested objects are not frozen
+   * Default: false
+   */
+  freeze?: boolean;
   
   /** Optional metadata */
   metadata?: Metadata & {

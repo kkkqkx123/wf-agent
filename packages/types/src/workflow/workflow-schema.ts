@@ -51,6 +51,7 @@ export const VariableDefinitionSchema: z.ZodType<VariableDefinition> = z.object(
   value: z.any(),
   scope: variableScopeSchema,
   readonly: z.boolean(),
+  freeze: z.boolean().optional().default(false),
   metadata: z.object({
     description: z.string().optional(),
     required: z.boolean().optional(),

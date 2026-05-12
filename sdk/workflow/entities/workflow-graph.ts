@@ -14,7 +14,7 @@ import type {
   Timestamp,
   Version,
   WorkflowTrigger,
-  WorkflowVariable,
+  VariableDefinition,
   NodeType,
   EdgeType,
 } from "@wf-agent/types";
@@ -64,7 +64,7 @@ export class WorkflowGraph extends WorkflowGraphData implements WorkflowGraphTyp
   public triggers?: WorkflowTrigger[];
 
   /** Workflow variable definitions */
-  public variables?: WorkflowVariable[];
+  public variables?: VariableDefinition[];
 
   /** Does it contain sub-workflows? */
   public hasSubgraphs: boolean;

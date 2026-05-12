@@ -241,12 +241,26 @@ export const ApplyMessageOperationActionParametersSchema = z.object({
 export const ExecuteTriggeredSubgraphActionConfigSchema = z.object({
   triggeredWorkflowId: z.string().min(1, "Triggered workflow ID is required"),
   waitForCompletion: z.boolean().optional(),
-  mergeOptions: z
-    .object({
-      includeVariables: z.array(z.string()).optional(),
-      includeConversationHistory: ConversationHistoryOptionsSchema.optional(),
-    })
-    .optional(),
+  timeout: z.number().int().positive().optional(),
+  recordHistory: z.boolean().optional(),
+  
+  inputMapping: z.object({
+    variables: z.record(z.string(), z.string()).optional(),
+    messageContexts: z.record(z.string(), z.string()).optional(),
+    additionalParams: z.record(z.string(), z.unknown()).optional(),
+  }).optional(),
+  
+  outputMapping: z.object({
+    variables: z.object({
+      include: z.array(z.string()).optional(),
+      includeAll: z.boolean().optional(),
+      rename: z.record(z.string(), z.string()).optional(),
+    }).optional(),
+    messageContexts: z.object({
+      include: z.array(z.string()).optional(),
+      includeAll: z.boolean().optional(),
+    }).optional(),
+  }).optional(),
 });
 
 /**

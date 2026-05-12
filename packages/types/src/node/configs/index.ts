@@ -26,6 +26,9 @@ export * from './context-configs.js';
 // Export subgraph node configuration
 export * from './subgraph-configs.js';
 
+// Export trigger-based subworkflow node configurations
+export * from './trigger-subworkflow-configs.js';
+
 // Export agent loop node configuration
 export * from './agent-loop-configs.js';
 
@@ -37,12 +40,15 @@ export {
 
 export {
   SubgraphNodeConfigSchema,
+  isSubgraphNodeConfig,
+} from './subgraph-configs-schema.js';
+
+export {
   StartFromTriggerNodeConfigSchema,
   ContinueFromTriggerNodeConfigSchema,
-  isSubgraphNodeConfig,
   isStartFromTriggerNodeConfig,
   isContinueFromTriggerNodeConfig,
-} from './subgraph-configs-schema.js';
+} from './trigger-subworkflow-configs-schema.js';
 
 export {
   LLMNodeConfigSchema,

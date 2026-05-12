@@ -7,7 +7,7 @@
  * - Provide a complete lifecycle status for trigger workflows
  */
 
-import type { ID } from "@wf-agent/types";
+import type { ID, ExecuteTriggeredSubgraphActionConfig } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../entities/index.js";
 import type { WorkflowExecutionResult } from "@wf-agent/types";
 import { TaskStatus } from "../../../core/types/index.js";
@@ -25,20 +25,7 @@ export interface TriggeredSubgraphTask {
   /** Main Workflow Execution Entity */
   mainWorkflowExecutionEntity: WorkflowExecutionEntity;
   /** Configuration options */
-  config?: {
-    /**
-     * Whether to wait for the sub-workflow to complete:
-     * - true: Execute synchronously (default); the caller will be blocked until the sub-workflow is completed.
-     * - false: Execute asynchronously; the caller will return immediately, and the sub-workflow will run in the background.
-     */
-    waitForCompletion?: boolean;
-    /** Timeout period (in milliseconds) */
-    timeout?: number;
-    /** Should history be recorded? */
-    recordHistory?: boolean;
-    /** metadata */
-    metadata?: Record<string, unknown>;
-  };
+  config?: ExecuteTriggeredSubgraphActionConfig;
 }
 
 /**

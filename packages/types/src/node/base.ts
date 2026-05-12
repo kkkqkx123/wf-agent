@@ -28,9 +28,12 @@ import type { ContextProcessorNodeConfig } from "./configs/context-configs.js";
 
 import type {
   SubgraphNodeConfig,
+} from "./configs/subgraph-configs.js";
+
+import type {
   StartFromTriggerNodeConfig,
   ContinueFromTriggerNodeConfig,
-} from "./configs/subgraph-configs.js";
+} from "./configs/trigger-subworkflow-configs.js";
 
 import type { AgentLoopNodeConfig } from "./configs/agent-loop-configs.js";
 

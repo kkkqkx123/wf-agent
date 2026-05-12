@@ -95,15 +95,7 @@ export function createContextCompressionWorkflow(compressionPrompt?: string): Wo
       type: "CONTINUE_FROM_TRIGGER",
       name: "Complete Compression",
       description: "Passes compression results back to the main workflow execution",
-      config: {
-        conversationHistoryCallback: {
-          operation: "TRUNCATE",
-          truncate: {
-            operation: "TRUNCATE",
-            strategy: { type: "KEEP_LAST", count: 1 },
-          },
-        },
-      },
+      config: {},
       outgoingEdgeIds: [],
       incomingEdgeIds: [],
     },

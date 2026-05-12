@@ -18,6 +18,7 @@
 import type { WorkflowExecutionEntity } from "../../entities/index.js";
 import type { WorkflowStateCoordinator } from "../../state-managers/workflow-state-coordinator.js";
 import type { ConversationSession } from "../../../core/messaging/conversation-session.js";
+import type { ExecuteTriggeredSubgraphActionConfig } from "@wf-agent/types";
 import { getErrorOrNew, now } from "@wf-agent/common-utils";
 import { TaskRegistry, type TaskManager } from "../../stores/task/task-registry.js";
 import type { WorkflowExecutionPool } from "../workflow-execution-pool.js";
@@ -200,10 +201,47 @@ export class TriggeredSubworkflowHandler implements TaskManager {
    * @returns: Input data
    */
   private prepareInputData(task: TriggeredSubgraphTask): Record<string, unknown> {
-    return {
+    const config = task.config as ExecuteTriggeredSubgraphActionConfig | undefined;
+    const mainEntity = task.mainWorkflowExecutionEntity;
+    
+    // Base input data
+    const baseInput: Record<string, unknown> = {
       triggerId: task.triggerId,
-      output: task.mainWorkflowExecutionEntity.getOutput(),
-      input: task.mainWorkflowExecutionEntity.getInput(),
+      output: mainEntity.getOutput(),
+      input: mainEntity.getInput(),
+    };
+    
+    // Apply input mapping if configured
+    if (config?.inputMapping) {
+      const mappedInput: Record<string, unknown> = { ...baseInput };
+      
+      // Map variables
+      if (config.inputMapping.variables) {
+        for (const [parentVar, subworkflowInput] of Object.entries(config.inputMapping.variables)) {
+          const value = mainEntity.getVariable(parentVar);
+          if (value !== undefined) {
+            mappedInput[subworkflowInput] = value;
+          }
+        }
+      }
+      
+      // Map message contexts (future: integrate with message reference architecture)
+      if (config.inputMapping.messageContexts) {
+        // TODO: Implement message context mapping using new reference architecture
+        console.warn('Message context mapping not yet implemented');
+      }
+      
+      // Add additional static parameters
+      if (config.inputMapping.additionalParams) {
+        Object.assign(mappedInput, config.inputMapping.additionalParams);
+      }
+      
+      return mappedInput;
+    }
+    
+    // Fallback: merge task.input for backward compatibility
+    return {
+      ...baseInput,
       ...task.input,
     };
   }

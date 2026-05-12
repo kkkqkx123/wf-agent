@@ -1,15 +1,13 @@
 /**
- * The ContinueFromTrigger node processing function (batch-aware) is responsible for invoking the results back to the main workflow after the execution of the sub-workflows is completed.
+ * The ContinueFromTrigger node processing function is responsible for invoking the results back to the main workflow after the execution of the sub-workflows is completed.
  *
+ * Note: Message context filtering/truncation has been migrated to the unified reference architecture.
+ * This handler now only handles variable callbacks.
  */
 
 import type { Node } from "@wf-agent/types";
 import type { ContinueFromTriggerNodeConfig } from "@wf-agent/types";
 import { now } from "@wf-agent/common-utils";
-import { executeOperation } from "../../../../core/utils/messages/message-operation-utils.js";
-import { getVisibleMessages } from "../../../../core/utils/messages/visible-range-calculator.js";
-import type { MessageOperationContext } from "@wf-agent/types";
-import type { ConversationSession } from "../../../../core/messaging/conversation-session.js";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 
 /**
@@ -18,8 +16,6 @@ import type { WorkflowExecutionEntity } from "../../../entities/workflow-executi
 export interface ContinueFromTriggerHandlerContext {
   /** Main workflow execution entity */
   mainWorkflowExecutionEntity?: WorkflowExecutionEntity;
-  /** Conversation manager */
-  conversationManager?: ConversationSession;
 }
 
 /**
@@ -68,6 +64,13 @@ export async function continueFromTriggerHandler(
     throw new Error("Main workflow execution entity is required for CONTINUE_FROM_TRIGGER node");
   }
 
+  // Handle messageOutputs if configured (currently just validates declaration)
+  if (config.messageOutputs && config.messageOutputs.length > 0) {
+    // TODO: Integrate with unified message reference architecture
+    // For now, just validate that outputs are declared
+    console.log('Message outputs declared:', config.messageOutputs.map(o => o.externalName));
+  }
+
   // Handling variable callbacks
   const workflowExecution = workflowExecutionEntity.getExecution();
   if (config.variableCallback) {
@@ -88,32 +91,8 @@ export async function continueFromTriggerHandler(
     }
   }
 
-  // Handling conversation history callbacks (batch awareness)
-  if (config.conversationHistoryCallback) {
-    const conversationManager = context?.conversationManager;
-    if (conversationManager) {
-      const allMessages = conversationManager.getAllMessages();
-      const markMap = conversationManager.getMarkMap();
-
-      // Constructing the operation context
-      const operationContext: MessageOperationContext = {
-        messages: allMessages,
-        markMap: markMap,
-        options: config.callbackOptions || {},
-      };
-
-      // Execute message operations
-      const result = await executeOperation(operationContext, config.conversationHistoryCallback);
-
-      // Get the visible messages and send them back to the main workflow execution.
-      const visibleMessages = getVisibleMessages(result.messages, result.markMap);
-
-      // Send the message back to the main workflow execution.
-      for (const msg of visibleMessages) {
-        mainWorkflowExecutionEntity?.addMessage(msg);
-      }
-    }
-  }
+  // Note: Message context handling has been migrated to the unified reference architecture.
+  // The conversationHistoryCallback and callbackOptions fields have been removed from ContinueFromTriggerNodeConfig.
 
   // Record execution history
   workflowExecutionEntity.addNodeResult({

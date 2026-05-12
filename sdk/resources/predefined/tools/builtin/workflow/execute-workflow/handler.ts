@@ -103,6 +103,7 @@ export function createExecuteWorkflowHandler() {
       mainWorkflowExecutionEntity: workflowContext.parentExecutionEntity,
       triggerId: `builtin-${context.executionId}-${Date.now()}`,
       config: {
+        triggeredWorkflowId: workflowId,
         waitForCompletion,
         timeout,
       },

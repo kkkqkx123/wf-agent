@@ -168,11 +168,7 @@ export async function executeTriggeredSubgraphHandler(
       input,
       triggerId,
       mainWorkflowExecutionEntity,
-      config: {
-        waitForCompletion,
-        timeout,
-        recordHistory,
-      },
+      config: parameters, // Pass the full config including inputMapping and outputMapping
     };
 
     const result = await manager.executeTriggeredSubgraph(task);

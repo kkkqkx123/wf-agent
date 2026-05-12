@@ -3,7 +3,7 @@
  * Responsible for initializing the trigger sub-workflow and receiving input data from the main workflow execution
  */
 
-import type { Node, LLMMessage } from "@wf-agent/types";
+import type { Node, LLMMessage, StartFromTriggerNodeConfig } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import { now } from "@wf-agent/common-utils";
 import type { ConversationSession } from "../../../../core/messaging/conversation-session.js";
@@ -13,7 +13,7 @@ import type { ConversationSession } from "../../../../core/messaging/conversatio
  */
 export interface StartFromTriggerHandlerContext {
   /** Trigger input data */
-  triggerInput?: {
+  triggerInput?: Record<string, unknown> & {
     variables?: Array<{ name: string; value: unknown }>;
     conversationHistory?: LLMMessage[];
   };
@@ -83,11 +83,46 @@ export async function startFromTriggerHandler(
   // Get the input data passed from the trigger from the context.
   const triggerInput = context?.triggerInput || {};
 
+  // Get node config for messageInputs validation
+  const config = node.config as StartFromTriggerNodeConfig | undefined;
+
   // Set input data to workflowExecution.input
-  const updatedInput = {
-    ...workflowExecutionEntity.getInput(),
-    ...triggerInput,
-  };
+  let updatedInput: Record<string, unknown>;
+
+  // Validate and map inputs based on messageInputs configuration
+  if (config?.messageInputs && config.messageInputs.length > 0) {
+    const validatedInput: Record<string, unknown> = {};
+    
+    for (const inputDef of config.messageInputs) {
+      const { externalName, internalName, required } = inputDef;
+      
+      // Look for the value in triggerInput using externalName
+      const value = triggerInput[externalName];
+      
+      if (value === undefined) {
+        if (required) {
+          throw new Error(`Required input '${externalName}' (mapped to '${internalName}') is missing`);
+        }
+        continue;
+      }
+      
+      // Map to internal name
+      validatedInput[internalName] = value;
+    }
+    
+    // Set validated input to workflowExecution.input
+    updatedInput = {
+      ...workflowExecutionEntity.getInput(),
+      ...validatedInput,
+    };
+  } else {
+    // Fallback: use triggerInput directly (backward compatibility)
+    updatedInput = {
+      ...workflowExecutionEntity.getInput(),
+      ...triggerInput,
+    };
+  }
+  
   workflowExecution.input = updatedInput;
 
   // If there are variables passed, initialize them in the workflowExecution.

@@ -137,19 +137,36 @@ export class TriggerTemplateBuilder extends TemplateBuilder<TriggerTemplate> {
   /**
    * Set the action to trigger the execution of a sub-workflow
    * @param triggeredWorkflowId: ID of the sub-workflow to be triggered
-   * @param waitForCompletion: Whether to wait for the completion of the sub-workflow
-   * @param parameters: Additional parameters to pass to the sub-workflow
+   * @param options: Configuration options including input/output mapping
    * @returns: This object representing the current state of the workflow
    */
   executeTriggeredSubgraph(
     triggeredWorkflowId: string,
-    waitForCompletion: boolean = true,
-    parameters: Record<string, unknown> = {},
+    options: {
+      waitForCompletion?: boolean;
+      timeout?: number;
+      recordHistory?: boolean;
+      inputMapping?: {
+        variables?: Record<string, string>;
+        messageContexts?: Record<string, string>;
+        additionalParams?: Record<string, unknown>;
+      };
+      outputMapping?: {
+        variables?: {
+          include?: string[];
+          includeAll?: boolean;
+          rename?: Record<string, string>;
+        };
+        messageContexts?: {
+          include?: string[];
+          includeAll?: boolean;
+        };
+      };
+    } = {},
   ): this {
     return this.withAction("execute_triggered_subgraph", {
       triggeredWorkflowId,
-      waitForCompletion,
-      ...parameters,
+      ...options,
     });
   }
 

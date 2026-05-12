@@ -283,6 +283,48 @@ export interface ExecuteTriggeredSubgraphActionConfig {
   timeout?: number;
   /** Whether to record history */
   recordHistory?: boolean;
+  
+  /**
+   * Input mapping configuration
+   * Maps parent workflow data to trigger subworkflow inputs
+   */
+  inputMapping?: {
+    /** Variable mapping: parent variable name → subworkflow input name */
+    variables?: Record<string, string>;
+    
+    /** Message context mapping: parent context ID → subworkflow message input externalName */
+    messageContexts?: Record<string, string>;
+    
+    /** Additional static parameters to pass */
+    additionalParams?: Record<string, unknown>;
+  };
+  
+  /**
+   * Output mapping configuration
+   * Controls how subworkflow outputs are returned to parent workflow
+   */
+  outputMapping?: {
+    /** Variable callback configuration */
+    variables?: {
+      /** List of variable names to return */
+      include?: string[];
+      
+      /** Whether to return all variables (default false) */
+      includeAll?: boolean;
+      
+      /** Mapping: subworkflow variable name → parent variable name */
+      rename?: Record<string, string>;
+    };
+    
+    /** Message context output configuration */
+    messageContexts?: {
+      /** List of message context externalNames to return */
+      include?: string[];
+      
+      /** Whether to return all message contexts (default false) */
+      includeAll?: boolean;
+    };
+  };
 }
 
 /**

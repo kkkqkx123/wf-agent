@@ -183,35 +183,21 @@ export class VariableCoordinator {
   }
 
   /**
-   * Enter subgraph scope
-   * Delegates to VariableManager
+   * Enter subgraph/loop scope
+   * Delegates to VariableManager.enterSubgraphScope()
+   * Note: Both subgraphs and loops now use the same scope stack mechanism
    */
   enterLocalScope(): void {
     this.manager.enterSubgraphScope();
   }
 
   /**
-   * Leave subgraph scope
-   * Delegates to VariableManager
+   * Leave subgraph/loop scope
+   * Delegates to VariableManager.exitSubgraphScope()
+   * Note: Both subgraphs and loops now use the same scope stack mechanism
    */
   exitLocalScope(): void {
     this.manager.exitSubgraphScope();
-  }
-
-  /**
-   * Enter loop scope
-   * Delegates to VariableManager
-   */
-  enterLoopScope(): void {
-    this.manager.enterLoopScope();
-  }
-
-  /**
-   * Leave loop scope
-   * Delegates to VariableManager
-   */
-  exitLoopScope(): void {
-    this.manager.exitLoopScope();
   }
 
   /**

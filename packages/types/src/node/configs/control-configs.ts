@@ -3,8 +3,9 @@
  * Contains START, END, and ROUTE node configurations
  * 
  * Design Philosophy:
- * - START node defines explicit variable inputs/outputs (like function signature)
- * - Especially important for subgraphs where START is the entry point
+ * - START node defines explicit variable inputs (like function parameters)
+ * - START is the entry point only, should not have outputs
+ * - Especially important for subgraphs where START receives mapped variables from parent
  */
 
 import type { Condition } from "../../graph/condition.js";
@@ -30,29 +31,18 @@ export interface StartVariableInput {
   description?: string;
 }
 
-/**
- * Variable Output Mapping for END node
- * Defines which workflow variables are returned to the caller
- */
-export interface StartVariableOutput {
-  /** Internal variable name within this workflow */
-  internalName: string;
-  
-  /** Name visible to the caller (parent workflow) */
-  externalName: string;
-  
-  /** Description for documentation */
-  description?: string;
-}
+
 
 /**
  * Starting Node Configuration
  * 
- * Extended to support explicit declaration of message context AND variable inputs/outputs,
- * especially for subgraphs. This provides a clear interface contract similar to function signatures.
+ * Extended to support explicit declaration of message context AND variable inputs,
+ * especially for subgraphs. This provides a clear interface contract similar to function parameters.
  * 
- * IMPORTANT: For subgraphs, ALL variables must be explicitly declared here.
- * There is NO automatic scope inheritance from parent workflow.
+ * IMPORTANT: For subgraphs, ALL input variables must be explicitly declared here.
+ * Variables are passed from parent workflow through SUBGRAPH node's variableInputs mapping.
+ * START node acts as the entry point only - it does NOT define outputs.
+ * Outputs are handled by END nodes or returned via the execution result.
  */
 export interface StartNodeConfig {
   /**
@@ -60,6 +50,9 @@ export interface StartNodeConfig {
    * 
    * Explicitly defines which parent workflow variables are accessible within this workflow.
    * This is the ONLY way for a subgraph to receive variables from its parent.
+   * 
+   * For root workflows, this field is typically empty.
+   * For subgraphs, these inputs are mapped from SUBGRAPH node's variableInputs configuration.
    * 
    * Example:
    * ```typescript
@@ -81,25 +74,6 @@ export interface StartNodeConfig {
   variableInputs?: StartVariableInput[];
   
   /**
-   * Variable Outputs
-   * 
-   * Explicitly defines which workflow variables are returned to the caller.
-   * Only mapped variables will be visible in the parent after workflow execution.
-   * 
-   * Example:
-   * ```typescript
-   * variableOutputs: [
-   *   {
-   *     internalName: "result",        // This workflow's output variable
-   *     externalName: "processedData", // Parent receives it as this name
-   *     description: "Processed result"
-   *   }
-   * ]
-   * ```
-   */
-  variableOutputs?: StartVariableOutput[];
-  
-  /**
    * Message context inputs
    * 
    * Defines the message contexts that this workflow (especially subgraphs)
@@ -114,22 +88,6 @@ export interface StartNodeConfig {
     
     /** Whether this input is required */
     required?: boolean;
-    
-    /** Description for documentation */
-    description?: string;
-  }>;
-  
-  /**
-   * Message context outputs
-   * 
-   * Defines the message contexts that this workflow produces for the caller.
-   */
-  messageOutputs?: Array<{
-    /** Name used internally within this workflow */
-    internalName: string;
-    
-    /** Name visible to the caller (parent workflow) */
-    externalName: string;
     
     /** Description for documentation */
     description?: string;

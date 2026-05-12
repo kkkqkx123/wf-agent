@@ -6,7 +6,7 @@ import type { ID, Version } from "../common.js";
 import type { WorkflowGraph } from "../graph/index.js";
 import type { WorkflowExecutionType } from "./status.js";
 import type { ForkJoinContext, TriggeredSubworkflowContext } from "./context.js";
-import type { WorkflowExecutionVariable } from "./variables.js";
+import type { VariableDefinition } from "./variables.js";
 import type { NodeExecutionResult } from "./history.js";
 import type { VariableScopes } from "./scopes.js";
 import type { ExecutionHierarchyMetadata } from "../execution/hierarchy.js";
@@ -29,8 +29,8 @@ export interface WorkflowExecution {
   currentNodeId: ID;
   /** Preprocessed workflow graph structure (using the WorkflowGraph interface) */
   graph: WorkflowGraph;
-  /** Array of variables (for persistence and metadata) */
-  variables: WorkflowExecutionVariable[];
+  /** Array of variable definitions (for persistence and metadata) */
+  variables: VariableDefinition[];
   /** Four levels of scope variable storage */
   variableScopes: VariableScopes;
   /**

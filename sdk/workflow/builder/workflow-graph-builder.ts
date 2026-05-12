@@ -26,6 +26,9 @@ import {
 import { SUBGRAPH_METADATA_KEYS } from "@wf-agent/types";
 import * as Identifiers from "../../core/di/service-identifiers.js";
 import type { GlobalContext } from "../../core/global-context.js";
+import { createContextualLogger } from "../../utils/contextual-logger.js";
+
+const logger = createContextualLogger({ component: "workflow-graph-builder" });
 
 /**
  * Workflow Graph Builder Class
@@ -378,6 +381,28 @@ export class WorkflowGraphBuilder {
           [SUBGRAPH_METADATA_KEYS.NAMESPACE]: options.nodeIdPrefix,
           [SUBGRAPH_METADATA_KEYS.DEPTH]: options.depth,
         };
+        
+        // IMPORTANT: Transfer variableInputs from SUBGRAPH node config to START node config
+        // This ensures that the START node knows which variables to expect from the parent workflow
+        const subgraphNode = mainGraph.getNode(subgraphNodeId);
+        if (subgraphNode) {
+          const subgraphConfig = subgraphNode.originalNode?.config as Record<string, unknown>;
+          if (subgraphConfig && subgraphConfig['variableInputs']) {
+            // Update the START node's config to include the variable inputs
+            const startConfig = (newNode.originalNode?.config || {}) as Record<string, unknown>;
+            startConfig['variableInputs'] = subgraphConfig['variableInputs'];
+            newNode.originalNode = {
+              ...newNode.originalNode!,
+              config: startConfig as any,
+            };
+            
+            logger.debug("Transferred variableInputs from SUBGRAPH node to START node", {
+              subgraphNodeId,
+              startNodeId: newId,
+              inputCount: (subgraphConfig['variableInputs'] as Array<any>).length,
+            });
+          }
+        }
       } else if (node.type === ("END" as NodeType)) {
         newNode.internalMetadata = {
           ...newNode.internalMetadata,

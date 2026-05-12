@@ -234,8 +234,9 @@ export class CheckpointCoordinator {
     // Create a variable snapshot using VariableManager
     const vmSnapshot = workflowExecutionEntity.variableStateManager.createSnapshot();
     
-    // Convert Map to array for backward compatibility with checkpoint format
-    const variablesArray = Array.from(vmSnapshot.variables.values()).map(entry => entry.definition);
+    // Convert Maps to arrays for backward compatibility with checkpoint format
+    const globalVarsArray = Array.from(vmSnapshot.global.values()).map(entry => entry.definition);
+    const executionVarsArray = Array.from(vmSnapshot.execution.values()).map(entry => entry.definition);
 
     // Convert the `nodeResults` array into Record format.
     const nodeResultsRecord: Record<string, NodeExecutionResult> = {};
@@ -272,8 +273,13 @@ export class CheckpointCoordinator {
     return {
       status: workflowExecutionEntity.getStatus(),
       currentNodeId: workflowExecution.currentNodeId,
-      variables: variablesArray,
-      variableScopes: vmSnapshot.scopeStacks as any, // Convert to compatible format
+      variables: [...globalVarsArray, ...executionVarsArray],
+      variableScopes: {
+        global: Object.fromEntries(vmSnapshot.global.entries()),
+        execution: Object.fromEntries(vmSnapshot.execution.entries()),
+        subgraph: vmSnapshot.scopeStack.map(scope => Object.fromEntries(scope.entries())),
+        loop: [],
+      } as any,
       input: workflowExecution.input,
       output: workflowExecution.output,
       nodeResults: nodeResultsRecord,
@@ -403,17 +409,53 @@ export class CheckpointCoordinator {
 
     // Step 7: Restore the variable snapshot using VariableManager
     // Convert from checkpoint format back to VariableManager format
-    const variablesMap = new Map();
-    for (const varDef of workflowExecutionState.variables as any[]) {
-      variablesMap.set(varDef.name, {
-        definition: varDef,
-        value: varDef.value,
-      });
+    const globalMap = new Map();
+    const executionMap = new Map();
+    const scopeStack = [];
+    
+    // Restore variables from variableScopes
+    if (workflowExecutionState.variableScopes) {
+      const scopes = workflowExecutionState.variableScopes as any;
+      
+      // Restore global variables
+      if (scopes.global) {
+        for (const [name, value] of Object.entries(scopes.global)) {
+          globalMap.set(name, {
+            definition: { name, type: typeof value, value, scope: 'global' },
+            value,
+          });
+        }
+      }
+      
+      // Restore execution variables
+      if (scopes.execution) {
+        for (const [name, value] of Object.entries(scopes.execution)) {
+          executionMap.set(name, {
+            definition: { name, type: typeof value, value, scope: 'execution' },
+            value,
+          });
+        }
+      }
+      
+      // Restore subgraph scopes
+      if (scopes.subgraph && Array.isArray(scopes.subgraph)) {
+        for (const scopeObj of scopes.subgraph) {
+          const scopeMap = new Map();
+          for (const [name, value] of Object.entries(scopeObj)) {
+            scopeMap.set(name, {
+              definition: { name, type: typeof value, value, scope: 'subgraph' },
+              value,
+            });
+          }
+          scopeStack.push(scopeMap);
+        }
+      }
     }
     
     workflowExecutionEntity.variableStateManager.restoreFromSnapshot({
-      variables: variablesMap,
-      scopeStacks: workflowExecutionState.variableScopes as any,
+      global: globalMap,
+      execution: executionMap,
+      scopeStack,
     });
 
     // Step 8: Create the ConversationSession

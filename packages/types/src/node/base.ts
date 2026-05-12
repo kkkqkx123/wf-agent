@@ -296,13 +296,13 @@ export type Node =
 // ============================================================================
 
 /**
- * 通用类型守卫工厂函数
- * 用于创建特定节点类型的类型守卫
- *
+ * Generic Type Guard Factory Functions
+ * Used to create a type guard for a specific node type
+ * 
  * @example
  * const isStartNode = createNodeTypeGuard('START');
  * if (isStartNode(node)) {
- *   // node 自动收窄为 StartNode
+ * // node is automatically narrowed to StartNode
  * }
  */
 export function createNodeTypeGuard<T extends NodeType>(type: T) {
@@ -311,12 +311,12 @@ export function createNodeTypeGuard<T extends NodeType>(type: T) {
 }
 
 /**
- * 检查节点是否为指定类型
- * 通用类型守卫函数，适用于所有节点类型
- *
+ * Checks if a node is of the specified type
+ * Generic type guard function for all node types
+ * 
  * @example
  * if (isNodeType(node, 'START')) {
- *   // node 自动收窄为 StartNode
+ * // node is automatically narrowed to StartNode
  * }
  */
 export function isNodeType<T extends NodeType>(node: unknown, type: T): node is NodeOfType<T> {

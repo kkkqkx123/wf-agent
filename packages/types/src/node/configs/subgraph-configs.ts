@@ -6,8 +6,9 @@
  * 
  * Design Philosophy:
  * - Explicit variable mapping (like function parameters)
- * - No implicit scope inheritance
+ * - Variable isolation through scope stack mechanism
  * - Clear interface contract between parent and child workflows
+ * - START node in subgraph receives mapped inputs, but does NOT define outputs
  */
 
 import type { ID } from '../../common.js';
@@ -54,9 +55,13 @@ export interface SubgraphVariableOutput {
  * Used for embedding workflows as black-box nodes within the graph structure.
  * The subgraph is expanded and merged into the parent graph during preprocessing.
  * 
- * IMPORTANT: All variable passing must be explicit through variableInputs/variableOutputs.
+ * IMPORTANT: All variable passing must be explicit through variableInputs.
  * There is NO automatic scope inheritance - subgraphs cannot access parent variables
- * unless explicitly mapped.
+ * unless explicitly mapped. Variable isolation is achieved through VariableManager's
+ * scope stack mechanism.
+ * 
+ * Note: variableOutputs has been removed from this configuration. Output values
+ * should be handled through the workflow's execution result or END node configuration.
  */
 export interface SubgraphNodeConfig {
   /** Subworkflow ID to embed */
@@ -70,6 +75,9 @@ export interface SubgraphNodeConfig {
    * 
    * Explicitly defines which parent workflow variables are passed to the subgraph.
    * This is the ONLY way for a subgraph to receive data from its parent.
+   * 
+   * During graph preprocessing, these mappings are transferred to the subgraph's
+   * START node configuration, making them available at runtime.
    * 
    * Example:
    * ```typescript
@@ -89,25 +97,6 @@ export interface SubgraphNodeConfig {
    * ```
    */
   variableInputs?: SubgraphVariableInput[];
-  
-  /**
-   * Variable Output Mapping
-   * 
-   * Explicitly defines which subgraph variables are returned to the parent workflow.
-   * Only mapped variables will be visible in the parent after subgraph execution.
-   * 
-   * Example:
-   * ```typescript
-   * variableOutputs: [
-   *   {
-   *     internalName: "result",        // Child's output variable
-   *     externalName: "processedData", // Parent receives it as this name
-   *     description: "Processed result from subgraph"
-   *   }
-   * ]
-   * ```
-   */
-  variableOutputs?: SubgraphVariableOutput[];
   
   /**
    * Message context passing configuration

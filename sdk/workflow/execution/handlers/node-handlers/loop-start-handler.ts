@@ -303,6 +303,9 @@ export async function loopStartHandler(
 
   const config = node.config as LoopStartNodeConfig;
 
+  // NEW: Handle explicit variable input mapping for loop
+  await handleLoopVariableInputs(executionEntity, config);
+
   // Get or initialize the loop state.
   let loopState = getLoopState(workflowExecution);
 
@@ -402,4 +405,40 @@ export async function loopStartHandler(
     iterationCount: loopState.iterationCount,
     shouldContinue: true,
   };
+}
+
+/**
+ * Handle explicit variable input mapping for loop
+ * Maps parent workflow variables to loop internal variables
+ * 
+ * @param executionEntity WorkflowExecution entity
+ * @param config LoopStart node configuration
+ */
+async function handleLoopVariableInputs(
+  executionEntity: WorkflowExecutionEntity,
+  config: LoopStartNodeConfig,
+): Promise<void> {
+  const manager = executionEntity.variableStateManager;
+  
+  // Process explicit variable inputs
+  if (config.variableInputs && config.variableInputs.length > 0) {
+    for (const mapping of config.variableInputs) {
+      const parentValue = manager.getVariable(mapping.externalName);
+      
+      if (parentValue === undefined) {
+        if (mapping.required) {
+          throw new Error(
+            `Required input '${mapping.externalName}' not found for loop '${config.loopId}'. ` +
+            `Cannot set as '${mapping.internalName}'.`
+          );
+        }
+        // Use default value if provided
+        if (mapping.defaultValue !== undefined) {
+          manager.setVariable(mapping.internalName, mapping.defaultValue);
+        }
+      } else {
+        manager.setVariable(mapping.internalName, parentValue);
+      }
+    }
+  }
 }

@@ -6,7 +6,7 @@
 import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
 import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-registry.js";
 import type { CheckpointDependencies } from "../../checkpoint/utils/checkpoint-utils.js";
-import type { Checkpoint, WorkflowExecutionVariable, LLMMessage, VariableValueType, VariableScope } from "@wf-agent/types";
+import type { Checkpoint, LLMMessage, VariableValueType, VariableScope, VariableDefinition } from "@wf-agent/types";
 import type { GlobalContext } from "../../../core/global-context.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 
@@ -114,29 +114,29 @@ export async function restoreWorkflowFromCheckpoint(
     // Restore variable state if available
     if (checkpoint.metadata?.customFields?.["variables"]) {
       const variables = checkpoint.metadata.customFields["variables"] as Record<string, unknown>;
-      // Convert object to array format expected by restoreFromSnapshot
-      const variableArray = Object.entries(variables).map(([name, value]) => ({
-        name,
-        value,
-        type: "string" as VariableValueType,
-        scope: "workflowExecution" as VariableScope,
-        readonly: false,
-      })) as WorkflowExecutionVariable[];
+      
       // Convert to VariableManager format
-      const variablesMap = new Map();
-      for (const varDef of variableArray) {
-        variablesMap.set(varDef.name, {
+      const globalMap = new Map();
+      const executionMap = new Map();
+      
+      for (const [name, value] of Object.entries(variables)) {
+        const varDef: VariableDefinition = {
+          name,
+          value,
+          type: typeof value as any,
+          scope: 'execution',
+          readonly: false,
+        };
+        executionMap.set(name, {
           definition: varDef,
-          value: varDef.value,
+          value,
         });
       }
       
       workflowExecutionEntity.variableStateManager.restoreFromSnapshot({
-        variables: variablesMap,
-        scopeStacks: {
-          subgraph: [],
-          loop: [],
-        },
+        global: globalMap,
+        execution: executionMap,
+        scopeStack: [],
       });
       logger.debug("Variable state restored from checkpoint");
     }

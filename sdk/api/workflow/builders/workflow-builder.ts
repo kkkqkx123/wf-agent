@@ -464,6 +464,55 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
       }
     }
 
+    // Validate subgraph variable mappings
+    for (const node of Array.from(this.nodes.values())) {
+      if (node.type === "SUBGRAPH") {
+        const config = node.config as any; // SubgraphNodeConfig
+        
+        // Check that variableInputs reference valid parent variables
+        if (config.variableInputs && config.variableInputs.length > 0) {
+          for (const input of config.variableInputs) {
+            const parentVar = this.variables.find(v => v.name === input.externalName);
+            if (!parentVar && input.required && input.defaultValue === undefined) {
+              errors.push(
+                `Subgraph '${node.id}' requires variable '${input.externalName}' which is not defined in parent workflow`
+              );
+            }
+          }
+        }
+      }
+      
+      if (node.type === "START") {
+        const config = node.config as any; // StartNodeConfig
+        
+        // Validate START node variable declarations
+        if (config.variableInputs) {
+          // Ensure no duplicate internal names
+          const internalNames = config.variableInputs.map((i: any) => i.internalName);
+          const uniqueNames = new Set(internalNames);
+          if (uniqueNames.size !== internalNames.length) {
+            errors.push(`START node has duplicate internal variable names`);
+          }
+        }
+      }
+      
+      if (node.type === "LOOP_START") {
+        const config = node.config as any; // LoopStartNodeConfig
+        
+        // Validate LOOP_START variable inputs
+        if (config.variableInputs && config.variableInputs.length > 0) {
+          for (const input of config.variableInputs) {
+            const parentVar = this.variables.find(v => v.name === input.externalName);
+            if (!parentVar && input.required && input.defaultValue === undefined) {
+              errors.push(
+                `Loop '${config.loopId}' requires variable '${input.externalName}' which is not defined in parent workflow`
+              );
+            }
+          }
+        }
+      }
+    }
+
     // Throw an exception if there is an error
     if (errors.length > 0) {
       throw new Error(`Workflow validation failed:\n${errors.join("\n")}`);

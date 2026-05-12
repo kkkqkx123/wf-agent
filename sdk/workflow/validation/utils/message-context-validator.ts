@@ -9,6 +9,9 @@ import type { Node, StartNodeConfig, SubgraphNodeConfig } from "@wf-agent/types"
 import { ConfigurationValidationError } from "@wf-agent/types";
 import type { Result } from "@wf-agent/types";
 import { ok, err } from "@wf-agent/common-utils";
+import { createContextualLogger } from "../../../utils/contextual-logger.js";
+
+const logger = createContextualLogger({ component: "message-context-validator" });
 
 /**
  * Message context mapping result
@@ -98,33 +101,12 @@ export function validateAndMapMessageContexts(
   }
   
   // Validate outputs
+  // Note: messageOutputs has been removed from START node config
+  // Output contexts should be handled through the workflow's output mechanism
   if (subgraphConfig.messagePassing?.outputs) {
-    for (const [externalName, parentContextId] of Object.entries(subgraphConfig.messagePassing.outputs)) {
-      const outputDef = startConfig.messageOutputs?.find((o: { externalName: string }) => o.externalName === externalName);
-      
-      if (!outputDef) {
-        errors.push(
-          new ConfigurationValidationError(
-            `Subgraph '${subgraphConfig.subgraphId}' does not produce output '${externalName}'`,
-            {
-              configType: "node",
-              configPath: `nodes[${subgraphNode.id}].config.messagePassing.outputs`,
-              value: externalName,
-              context: {
-                code: "INVALID_SUBGRAPH_OUTPUT",
-                nodeId: subgraphNode.id,
-                subgraphId: subgraphConfig.subgraphId,
-                externalName,
-              },
-            }
-          )
-        );
-        continue;
-      }
-      
-      // Map subgraph internal name to parent context
-      mapping.outputMapping.set(outputDef.internalName, parentContextId as string);
-    }
+    logger.warn("messagePassing.outputs is deprecated. Output contexts should be handled through workflow output mechanism.", {
+      subgraphId: subgraphConfig.subgraphId,
+    });
   }
   
   if (errors.length > 0) {

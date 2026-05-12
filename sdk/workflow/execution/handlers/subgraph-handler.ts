@@ -7,17 +7,20 @@
  * - Handle the logic for subgraphs to exit
  * - Create metadata for the subgraph context
  * - Manage message context passing between parent and subgraph workflows
+ * - Manage variable scope isolation using VariableManager's scope stack
  *
  * Design Principles:
  * - Reuse existing path parsing functions
  * - Avoid duplicating the implementation of variable parsing logic
  * - Provide a clear interface for subgraph processing
  * - Use pure functions with no internal state
+ * - Leverage VariableManager's scope stack for proper variable isolation
  *
  * Context Management:
  * - Subgraphs can explicitly declare message context inputs/outputs via START node configuration
  * - Message contexts are passed through messagePassing configuration in SUBGRAPH nodes
  * - Contexts are copied (shallow copy) to avoid conflicts between parent and child workflows
+ * - Variables are isolated using scope stack - child scopes cannot access parent variables unless explicitly mapped
  */
 
 import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
@@ -32,6 +35,8 @@ import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import { validateAndMapMessageContexts } from "../../validation/utils/message-context-validator.js";
 
 const logger = createContextualLogger({ component: "subgraph-handler" });
+
+
 
 /**
  * Enter the subgraph
@@ -61,6 +66,14 @@ export async function enterSubgraph(
     throw new Error(`Subgraph entry interrupted: ${getWorkflowInterruptionDescription(interruption)}`);
   }
 
+  // Enter a new variable scope for isolation
+  // This ensures that variables created in the subgraph don't leak to the parent
+  executionEntity.variableStateManager.enterSubgraphScope();
+  logger.debug("Entered new variable scope for subgraph", {
+    executionId: executionEntity.id,
+    workflowId,
+  });
+
   // Handle message context passing (required)
   await handleEnterSubgraphMessageContexts(executionEntity, subgraphNode, workflowId);
 
@@ -88,8 +101,19 @@ export async function exitSubgraph(
     throw new Error(`Subgraph exit interrupted: ${getWorkflowInterruptionDescription(interruption)}`);
   }
 
+  // NOTE: Variable output mapping is handled by the scope stack mechanism
+  // When we exit the scope, all subgraph-local variables are automatically discarded
+  // If you need to return specific values, use the workflow's output mechanism
+
   // Handle message context passing (required)
   await handleExitSubgraphMessageContexts(executionEntity, subgraphNode);
+
+  // Exit the variable scope
+  // This discards all variables created within the subgraph scope
+  executionEntity.variableStateManager.exitSubgraphScope();
+  logger.debug("Exited variable scope for subgraph", {
+    executionId: executionEntity.id,
+  });
 
   await executionEntity.exitSubgraph();
 }

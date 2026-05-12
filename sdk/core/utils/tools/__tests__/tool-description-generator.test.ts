@@ -53,8 +53,7 @@ describe("ToolDescriptionGenerator", () => {
 
   beforeEach(() => {
     mockTool1 = {
-      id: "tool-1",
-      name: "Calculator",
+      id: "calculator",
       type: "STATELESS" as const,
       description: "Performs basic calculations",
       parameters: {
@@ -65,8 +64,7 @@ describe("ToolDescriptionGenerator", () => {
     };
 
     mockTool2 = {
-      id: "tool-2",
-      name: "Weather",
+      id: "weather",
       type: "STATELESS" as const,
       description: "Gets weather information",
       parameters: {
@@ -77,8 +75,7 @@ describe("ToolDescriptionGenerator", () => {
     };
 
     mockTool3 = {
-      id: "tool-3",
-      name: "Email",
+      id: "email",
       type: "STATELESS" as const,
       description: "Sends emails",
       parameters: {

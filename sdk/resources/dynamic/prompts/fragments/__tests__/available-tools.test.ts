@@ -9,8 +9,7 @@ import {
 describe("available-tools fragment", () => {
   const mockTools: Tool[] = [
     {
-      id: "tool-1",
-      name: "readFile",
+      id: "readFile",
       type: "STATELESS",
       description: "Read content from a file",
       parameters: {
@@ -22,8 +21,7 @@ describe("available-tools fragment", () => {
       },
     },
     {
-      id: "tool-2",
-      name: "writeFile",
+      id: "writeFile",
       type: "STATELESS",
       description: "Write content to a file",
       parameters: {
@@ -84,8 +82,7 @@ describe("available-tools fragment", () => {
     it("should handle tools without parameters", () => {
       const toolsWithoutParams: Tool[] = [
         {
-          id: "tool-3",
-          name: "getTime",
+          id: "getTime",
           type: "STATELESS",
           description: "Get current time",
           parameters: {
@@ -104,8 +101,7 @@ describe("available-tools fragment", () => {
     it("should handle tools without description", () => {
       const toolsWithoutDesc: Tool[] = [
         {
-          id: "tool-4",
-          name: "unknownTool",
+          id: "unknownTool",
           type: "STATELESS",
           description: "",
           parameters: {

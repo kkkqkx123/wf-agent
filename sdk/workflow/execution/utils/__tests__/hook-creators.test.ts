@@ -35,9 +35,7 @@ function createMockExecutionContext(
     executionType: "MAIN",
     variableScopes: {
       global: {},
-      workflowExecution: {},
-      local: [],
-      loop: [],
+      execution: {},
     },
   };
 

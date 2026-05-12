@@ -12,6 +12,10 @@ import * as Identifiers from "../../../../../../core/di/service-identifiers.js";
 import { RuntimeValidationError } from "@wf-agent/types";
 import type { TriggeredSubworkflowHandler } from "../../../../../../workflow/execution/handlers/triggered-subworkflow-handler.js";
 import { isWorkflowExecutionInstance } from "../../../../../../core/types/index.js";
+import {
+  QueryWorkflowStatusParamsSchema,
+  assertWorkflowContext,
+} from "../../../../../../workflow/execution/types/workflow-tool.types.js";
 
 /**
  * Create query workflow status handler
@@ -21,10 +25,13 @@ export function createQueryWorkflowStatusHandler() {
     params: Record<string, unknown>,
     context: BuiltinToolExecutionContext,
   ): Promise<QueryWorkflowStatusResult> => {
-    const { taskId } = params as unknown as QueryWorkflowStatusParams;
+    // Validate parameters using Zod schema
+    const validatedParams = QueryWorkflowStatusParamsSchema.parse(params);
+    const { taskId } = validatedParams;
 
-    // Cast to WorkflowToolExecutionContext for type safety
-    const workflowContext = context as WorkflowToolExecutionContext;
+    // Validate context using type guard
+    assertWorkflowContext(context);
+    const workflowContext = context;
 
     // Validate required parameters
     if (!taskId) {
@@ -82,7 +89,7 @@ export function createQueryWorkflowStatusHandler() {
     if (!taskInfo) {
       return {
         success: false,
-        status: "not_found",
+        status: "NOT_FOUND",
         message: `Task with ID '${taskId}' not found`,
       };
     }
@@ -94,7 +101,7 @@ export function createQueryWorkflowStatusHandler() {
     if (!isWorkflowExecutionInstance(instance)) {
       return {
         success: false,
-        status: "error",
+        status: "ERROR",
         message: "Task instance is not a workflow execution",
       };
     }

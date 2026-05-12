@@ -11,6 +11,10 @@ import type {
 import * as Identifiers from "../../../../../../core/di/service-identifiers.js";
 import { RuntimeValidationError } from "@wf-agent/types";
 import type { TriggeredSubworkflowHandler } from "../../../../../../workflow/execution/handlers/triggered-subworkflow-handler.js";
+import {
+  CancelWorkflowParamsSchema,
+  assertWorkflowContext,
+} from "../../../../../../workflow/execution/types/workflow-tool.types.js";
 
 /**
  * Create cancel workflow handler
@@ -20,10 +24,13 @@ export function createCancelWorkflowHandler() {
     params: Record<string, unknown>,
     context: BuiltinToolExecutionContext,
   ): Promise<CancelWorkflowResult> => {
-    const { taskId } = params as unknown as CancelWorkflowParams;
+    // Validate parameters using Zod schema
+    const validatedParams = CancelWorkflowParamsSchema.parse(params);
+    const { taskId } = validatedParams;
 
-    // Cast to WorkflowToolExecutionContext for type safety
-    const workflowContext = context as WorkflowToolExecutionContext;
+    // Validate context using type guard
+    assertWorkflowContext(context);
+    const workflowContext = context;
 
     // Validate required parameters
     if (!taskId) {

@@ -15,7 +15,33 @@ import type { TaskQueue } from "../../stores/task/task-queue.js";
 import type { WorkflowRegistry } from "../../stores/workflow-registry.js";
 import type { WorkflowGraphRegistry } from "../../stores/workflow-graph-registry.js";
 import type { GlobalContext } from "../../../core/global-context.js";
-import type { LLMMessage } from "@wf-agent/types";
+import { z } from "zod";
+
+/**
+ * Type guard to check if context is a valid WorkflowToolExecutionContext
+ */
+export function isWorkflowToolExecutionContext(
+  context: unknown,
+): context is WorkflowToolExecutionContext {
+  const ctx = context as Partial<WorkflowToolExecutionContext>;
+  return (
+    ctx.globalContext !== undefined &&
+    ctx.parentExecutionEntity !== undefined
+  );
+}
+
+/**
+ * Assert that context is a valid WorkflowToolExecutionContext, throws error if not
+ */
+export function assertWorkflowContext(
+  context: unknown,
+): asserts context is WorkflowToolExecutionContext {
+  if (!isWorkflowToolExecutionContext(context)) {
+    throw new Error(
+      "Invalid workflow context: globalContext and parentExecutionEntity are required",
+    );
+  }
+}
 
 /**
  * Workflow Tool Execution Context
@@ -46,47 +72,94 @@ export interface WorkflowToolExecutionContext {
 }
 
 /**
- * Execute Workflow Parameters
+ * Workflow Task Status Enum
+ * Aligned with TaskStatus from @wf-agent/types for consistency
  */
-export interface ExecuteWorkflowParams {
-  /** Workflow ID to execute */
-  workflowId: string;
-  /** Input parameters for the workflow (variables) */
-  input?: Record<string, unknown>;
-  /** Named message contexts to pass to the workflow */
-  messageContexts?: Record<string, LLMMessage[]>;
-  /** Whether to wait for completion (default: true) */
-  waitForCompletion?: boolean;
-  /** Timeout in milliseconds */
-  timeout?: number;
-}
+export type WorkflowTaskStatus =
+  | "QUEUED"
+  | "RUNNING"
+  | "COMPLETED"
+  | "FAILED"
+  | "CANCELLED"
+  | "TIMEOUT"
+  | "NOT_FOUND"
+  | "ERROR";
 
 /**
- * Execute Workflow Result (Synchronous)
+ * Execute Workflow Parameters Schema (for runtime validation)
  */
-export interface ExecuteWorkflowSyncResult {
+export const ExecuteWorkflowParamsSchema = z.object({
+  workflowId: z.string(),
+  input: z.record(z.string(), z.unknown()).default({}),
+  messageContexts: z
+    .record(
+      z.string(),
+      z.array(
+        z.object({
+          role: z.enum(["user", "assistant", "system", "tool"]),
+          content: z.union([z.string(), z.array(z.any())]),
+        }),
+      ),
+    )
+    .optional(),
+  waitForCompletion: z.boolean().default(true),
+  timeout: z.number().positive().max(300000).optional(), // Max 5 minutes
+});
+
+/**
+ * Execute Workflow Parameters
+ */
+export type ExecuteWorkflowParams = z.infer<typeof ExecuteWorkflowParamsSchema>;
+
+/**
+ * Execute Workflow Success Result (Synchronous)
+ */
+export interface ExecuteWorkflowSuccessResult {
   /** Success flag */
-  success: boolean;
+  success: true;
   /** Execution status */
   status: "completed";
   /** Workflow output */
-  output?: Record<string, unknown>;
+  output: Record<string, unknown>;
+  /** Execution time in milliseconds */
+  executionTime: number;
+}
+
+/**
+ * Execute Workflow Error Result (Synchronous)
+ */
+export interface ExecuteWorkflowErrorResult {
+  /** Success flag */
+  success: false;
+  /** Execution status */
+  status: "FAILED" | "TIMEOUT" | "CANCELLED";
+  /** Error details */
+  error: {
+    code: string;
+    message: string;
+    details?: unknown;
+  };
   /** Execution time in milliseconds */
   executionTime?: number;
 }
+
+/**
+ * Execute Workflow Result (Synchronous) - Union of success and error
+ */
+export type ExecuteWorkflowSyncResult = ExecuteWorkflowSuccessResult | ExecuteWorkflowErrorResult;
 
 /**
  * Execute Workflow Result (Asynchronous)
  */
 export interface ExecuteWorkflowAsyncResult {
   /** Success flag */
-  success: boolean;
+  success: true;
   /** Execution status */
   status: "submitted";
   /** Task ID for tracking */
-  taskId?: string;
+  taskId: string;
   /** Status message */
-  message?: string;
+  message: string;
 }
 
 /**
@@ -95,12 +168,16 @@ export interface ExecuteWorkflowAsyncResult {
 export type ExecuteWorkflowResult = ExecuteWorkflowSyncResult | ExecuteWorkflowAsyncResult;
 
 /**
+ * Query Workflow Status Parameters Schema
+ */
+export const QueryWorkflowStatusParamsSchema = z.object({
+  taskId: z.string(),
+});
+
+/**
  * Query Workflow Status Parameters
  */
-export interface QueryWorkflowStatusParams {
-  /** Task ID to query */
-  taskId: string;
-}
+export type QueryWorkflowStatusParams = z.infer<typeof QueryWorkflowStatusParamsSchema>;
 
 /**
  * Query Workflow Status Result
@@ -109,7 +186,7 @@ export interface QueryWorkflowStatusResult {
   /** Success flag */
   success: boolean;
   /** Task status */
-  status?: string;
+  status?: WorkflowTaskStatus;
   /** Status message */
   message?: string;
   /** Execution ID */
@@ -123,12 +200,16 @@ export interface QueryWorkflowStatusResult {
 }
 
 /**
+ * Cancel Workflow Parameters Schema
+ */
+export const CancelWorkflowParamsSchema = z.object({
+  taskId: z.string(),
+});
+
+/**
  * Cancel Workflow Parameters
  */
-export interface CancelWorkflowParams {
-  /** Task ID to cancel */
-  taskId: string;
-}
+export type CancelWorkflowParams = z.infer<typeof CancelWorkflowParamsSchema>;
 
 /**
  * Cancel Workflow Result

@@ -33,8 +33,8 @@ const a = 2;
       
       expect(result.error).toBeUndefined();
       expect(result.blocks).toHaveLength(1);
-      expect(result.blocks[0].searchContent).toBe("const a = 1;");
-      expect(result.blocks[0].replaceContent).toBe("const a = 2;");
+      expect(result.blocks[0]!.searchContent).toBe("const a = 1;");
+      expect(result.blocks[0]!.replaceContent).toBe("const a = 2;");
     });
 
     it("should parse multiple SEARCH/REPLACE blocks", () => {
@@ -53,8 +53,8 @@ const b = 4;
       
       expect(result.error).toBeUndefined();
       expect(result.blocks).toHaveLength(2);
-      expect(result.blocks[0].searchContent).toBe("const a = 1;");
-      expect(result.blocks[1].searchContent).toBe("const b = 3;");
+      expect(result.blocks[0]!.searchContent).toBe("const a = 1;");
+      expect(result.blocks[1]!.searchContent).toBe("const b = 3;");
     });
 
     it("should parse start_line hint", () => {
@@ -69,8 +69,8 @@ const x = 10;
       
       expect(result.error).toBeUndefined();
       expect(result.blocks).toHaveLength(1);
-      expect(result.blocks[0].startLine).toBe(10);
-      expect(result.blocks[0].searchContent).toBe("const x = 5;");
+      expect(result.blocks[0]!.startLine).toBe(10);
+      expect(result.blocks[0]!.searchContent).toBe("const x = 5;");
     });
 
     it("should return error for invalid format", () => {
@@ -94,7 +94,7 @@ Replaced
       
       expect(result.error).toBeUndefined();
       expect(result.blocks).toHaveLength(1);
-      expect(result.blocks[0].searchContent).toContain("<<<<<<< SEARCH");
+      expect(result.blocks[0]!.searchContent).toContain("<<<<<<< SEARCH");
     });
   });
 

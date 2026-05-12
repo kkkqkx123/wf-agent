@@ -35,8 +35,7 @@ describe("ToolParametersDescriber", () => {
 
   beforeEach(() => {
     mockTool = {
-      id: "test-tool-1",
-      name: "Calculator",
+      id: "calculator",
       type: "STATELESS" as const,
       description: "Performs basic calculations",
       parameters: {
@@ -64,8 +63,8 @@ describe("ToolParametersDescriber", () => {
     it("A full description of the tool parameters should be generated", () => {
       const description = generateToolParametersDescription(mockTool);
 
-      expect(description).toContain("Tool: Calculator");
-      expect(description).toContain("test-tool-1");
+      expect(description).toContain("Tool: calculator");
+      expect(description).toContain("calculator");
       expect(description).toContain("Performs basic calculations");
       expect(description).toContain("Schema:");
       expect(description).toContain("Parameters:");
@@ -149,7 +148,7 @@ describe("ToolParametersDescriber", () => {
     it("Should not contain the tool name and Schema", () => {
       const description = generateSimpleParametersDescription(mockTool);
 
-      expect(description).not.toContain("Tool: Calculator");
+      expect(description).not.toContain("Tool: calculator");
       expect(description).not.toContain("Schema:");
     });
   });
@@ -267,7 +266,6 @@ describe("ToolParametersDescriber", () => {
     beforeEach(() => {
       toolWithNestedObject = {
         id: "nested-tool",
-        name: "NestedTool",
         type: "STATELESS" as const,
         description: "Tool with nested parameters",
         parameters: {
@@ -319,7 +317,6 @@ describe("ToolParametersDescriber", () => {
     beforeEach(() => {
       toolWithArray = {
         id: "array-tool",
-        name: "ArrayTool",
         type: "STATELESS" as const,
         description: "Tool with array parameters",
         parameters: {

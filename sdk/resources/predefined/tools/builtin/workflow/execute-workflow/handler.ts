@@ -16,6 +16,10 @@ import type {
 import * as Identifiers from "../../../../../../core/di/service-identifiers.js";
 import { RuntimeValidationError } from "@wf-agent/types";
 import type { TriggeredSubworkflowHandler } from "../../../../../../workflow/execution/handlers/triggered-subworkflow-handler.js";
+import {
+  ExecuteWorkflowParamsSchema,
+  assertWorkflowContext,
+} from "../../../../../../workflow/execution/types/workflow-tool.types.js";
 
 /**
  * Create execute workflow handler
@@ -25,16 +29,13 @@ export function createExecuteWorkflowHandler() {
     params: Record<string, unknown>,
     context: BuiltinToolExecutionContext,
   ): Promise<ExecuteWorkflowResult> => {
-    const {
-      workflowId,
-      input = {},
-      messageContexts,
-      waitForCompletion = true,
-      timeout,
-    } = params as unknown as ExecuteWorkflowParams;
+    // Validate parameters using Zod schema
+    const validatedParams = ExecuteWorkflowParamsSchema.parse(params);
+    const { workflowId, input, messageContexts, waitForCompletion, timeout } = validatedParams;
 
-    // Cast to WorkflowToolExecutionContext for type safety
-    const workflowContext = context as WorkflowToolExecutionContext;
+    // Validate context using type guard
+    assertWorkflowContext(context);
+    const workflowContext = context;
 
     // Validate required parameters
     if (!workflowId) {

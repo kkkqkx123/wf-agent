@@ -14,7 +14,8 @@ import { createQueryWorkflowStatusHandler } from "../query-workflow-status/handl
 import { createCancelWorkflowHandler } from "../cancel-workflow/handler.js";
 import type { BuiltinToolExecutionContext } from "@wf-agent/types";
 import { RuntimeValidationError } from "@wf-agent/types";
-import { initializeContainerWithAdapters, resetContainer, getContainer } from "../../../../../../core/di/container-config.js";
+import { ContainerManager } from "../../../../../../core/di/container-manager.js";
+import * as Identifiers from "../../../../../../core/di/service-identifiers.js";
 
 // Mock storage callback
 const mockStorageCallback = {
@@ -47,14 +48,17 @@ const mockTriggeredSubworkflowManager = {
 
 describe("Workflow Builtin Tools Handlers", () => {
   let mockContext: BuiltinToolExecutionContext;
+  let containerId: string;
 
   beforeEach(() => {
-    // Reset and initialize container before each test
-    resetContainer();
-    initializeContainerWithAdapters({ checkpoint: mockStorageCallback });
+    // Create a new isolated container for each test
+    containerId = `test-container-${Date.now()}`;
+    const containerManager = ContainerManager.getInstance();
+    const container = containerManager.createContainer(containerId, { 
+      checkpoint: mockStorageCallback 
+    });
 
     // Patch container.get to return mock for TriggeredSubworkflowHandler
-    const container = getContainer();
     const originalGet = container.get.bind(container);
     (container as any).get = (serviceId: any) => {
       if (serviceId.toString().includes("TriggeredSubworkflowHandler")) {
@@ -80,8 +84,12 @@ describe("Workflow Builtin Tools Handlers", () => {
     };
   });
 
-  afterEach(() => {
-    resetContainer();
+  afterEach(async () => {
+    // Clean up the container
+    const containerManager = ContainerManager.getInstance();
+    if (containerManager.hasContainer(containerId)) {
+      await containerManager.destroyContainer(containerId);
+    }
   });
 
   describe("Execute Workflow Handler", () => {

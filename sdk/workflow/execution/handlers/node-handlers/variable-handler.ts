@@ -8,6 +8,7 @@ import type { WorkflowExecutionEntity } from "../../../entities/workflow-executi
 import { RuntimeValidationError } from "@wf-agent/types";
 import { now } from "@wf-agent/common-utils";
 import { resolvePath } from "@wf-agent/common-utils";
+import { VariableAccessor } from "../../utils/variable-accessor.js";
 
 /**
  * Check whether the node can be executed.
@@ -31,33 +32,22 @@ function canExecute(executionEntity: WorkflowExecutionEntity, node: RuntimeNode)
 
 /**
  * Parse variable references in expressions
- * Use a unified path parsing logic
+ * Use VariableAccessor for unified path parsing logic
  */
-function resolveVariableReferences(expression: string, workflowExecution: WorkflowExecution): string {
+function resolveVariableReferences(
+  expression: string,
+  executionEntity: WorkflowExecutionEntity,
+): string {
   const variablePattern = /\{\{(\w+(?:\.\w+)*)\}\}/g;
+  const accessor = new VariableAccessor(executionEntity);
 
   return expression.replace(variablePattern, (match, varPath) => {
-    // Extract the root variable name.
-    const rootVarName = varPath.split(".")[0];
+    // Use VariableAccessor to get the value (handles all scopes)
+    const value = accessor.get(varPath);
 
-    // First, try to obtain the value from the workflowExecution variable.
-    let value: unknown = workflowExecution.variableScopes.execution?.[rootVarName];
-
-    // If the first part does not exist in the workflowExecution variable, try to obtain it from the global variable.
-    if (value === undefined && workflowExecution.variableScopes) {
-      value = workflowExecution.variableScopes.global[rootVarName];
-    }
-
-    // If the root variable does not exist, return undefined.
+    // If the variable does not exist, return undefined.
     if (value === undefined) {
       return "undefined";
-    }
-
-    // If the path contains nesting, use resolvePath to parse the remaining path.
-    const pathParts = varPath.split(".");
-    if (pathParts.length > 1) {
-      const remainingPath = pathParts.slice(1).join(".");
-      value = resolvePath(remainingPath, value);
     }
 
     // Formatted values
@@ -72,25 +62,24 @@ function resolveVariableReferences(expression: string, workflowExecution: Workfl
 }
 
 /**
- * Evaluate the expression.
+ * Evaluate the expression using VariableManager's variables
  */
-function evaluateExpression(expression: string, variableType: string, execution: WorkflowExecution): unknown {
+function evaluateExpression(
+  expression: string,
+  variableType: string,
+  executionEntity: WorkflowExecutionEntity,
+): unknown {
   try {
     // Handling empty string expressions
     if (!expression.trim()) {
       return "";
     }
 
-    // Create a function scope that includes variables from the workflowExecution scope.
-    const executionScope = execution.variableScopes.execution || {};
-    const globalScope = execution.variableScopes.global || {};
+    // Get all variables from VariableManager (includes all scopes)
+    const allVariables = executionEntity.variableStateManager.getAllVariables();
 
-    const func = new Function(
-      ...Object.keys({ ...executionScope, ...globalScope }),
-      `return (${expression})`,
-    );
-
-    const result = func(...Object.values({ ...executionScope, ...globalScope }));
+    const func = new Function(...Object.keys(allVariables), `return (${expression})`);
+    const result = func(...Object.values(allVariables));
     return result;
   } catch {
     throw new RuntimeValidationError(`Failed to evaluate expression: ${expression}`, {
@@ -189,15 +178,15 @@ export async function variableHandler(
   const workflowExecution = executionEntity.getExecution();
 
   // Parse variable references in expressions
-  const evaluatedExpression = resolveVariableReferences(config.expression, workflowExecution);
+  const evaluatedExpression = resolveVariableReferences(config.expression, executionEntity);
 
   // Evaluate the expression.
-  const result = evaluateExpression(evaluatedExpression, config.variableType, workflowExecution);
+  const result = evaluateExpression(evaluatedExpression, config.variableType, executionEntity);
 
   // Verify the type of the evaluation result.
   const typedResult = convertType(result, config.variableType);
 
-  // Update the variable
+  // Update the variable using VariableManager
   const variable = workflowExecution.variables.find((v) => v.name === config.variableName);
   const variableScope = config.scope || "execution";
 
@@ -213,27 +202,8 @@ export async function variableHandler(
     });
   }
 
-  // Update variable values based on scope.
-  switch (variableScope) {
-    case "global":
-      workflowExecution.variableScopes.global[config.variableName] = typedResult;
-      break;
-    case "execution":
-      workflowExecution.variableScopes.execution[config.variableName] = typedResult;
-      break;
-    case "subgraph":
-      if (workflowExecution.variableScopes.subgraph.length > 0) {
-        workflowExecution.variableScopes.subgraph[workflowExecution.variableScopes.subgraph.length - 1]![config.variableName] =
-          typedResult;
-      }
-      break;
-    case "loop":
-      if (workflowExecution.variableScopes.loop.length > 0) {
-        workflowExecution.variableScopes.loop[workflowExecution.variableScopes.loop.length - 1]![config.variableName] =
-          typedResult;
-      }
-      break;
-  }
+  // Use VariableManager to set the variable (handles all scope logic internally)
+  executionEntity.variableStateManager.setVariable(config.variableName, typedResult);
 
   // Record execution history
   executionEntity.addNodeResult({

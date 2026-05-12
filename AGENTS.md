@@ -157,7 +157,7 @@ modular-agent-framework/
 
 1. **Version Management**: Use root `package.json` for common dependencies
 2. **Workspace Protocol**: Always use `workspace:*` for internal references
-3. **Build Efficiency**: Leverage Turbo for optimal build performance
+3. Avoid importing and dynamically using static types within the module. Use explicit type annotations and avoid indirect type resolution or dynamic type imports. (Only use when really need lazy import)
 
 ## Language
 

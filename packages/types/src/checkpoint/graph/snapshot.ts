@@ -8,6 +8,7 @@ import type { NodeExecutionResult, VariableScopes, TriggeredSubworkflowContext }
 import type { TriggerRuntimeState } from "../../trigger/index.js";
 import type { TokenUsageStats } from "../../llm/index.js";
 import type { MessageMarkMap } from "../../message/index.js";
+import type { CheckpointVariableState } from "../variable-state.js";
 
 /**
  * Operation-level execution state
@@ -54,8 +55,8 @@ export interface WorkflowExecutionStateSnapshot {
   currentNodeId: ID;
   /** Variable array */
   variables: unknown[];
-  /** Variable Scope Snapshot (used for restoring runtime state) */
-  variableScopes: VariableScopes;
+  /** Complete variable state for checkpoint (includes global, execution, and temporary scopes) */
+  variableState: CheckpointVariableState;
   /** Input data */
   input: Record<string, unknown>;
   /** Output data */

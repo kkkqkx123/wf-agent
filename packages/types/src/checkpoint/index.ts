@@ -30,3 +30,6 @@ export * from "./agent/index.js";
 
 // Export Graph Checkpoint Types
 export * from "./graph/index.js";
+
+// Export Checkpoint Variable State
+export { CheckpointVariableState } from "./variable-state.js";

@@ -37,7 +37,7 @@ function canExecute(workflowExecutionEntity: WorkflowExecutionEntity, node: Runt
   }
 
   const workflowExecution = workflowExecutionEntity.getExecution();
-  const loopState = getLoopState(workflowExecution);
+  const loopState = getLoopState(workflowExecutionEntity);
 
   // Check if the loop status exists.
   if (!loopState) {
@@ -48,32 +48,22 @@ function canExecute(workflowExecutionEntity: WorkflowExecutionEntity, node: Runt
 }
 
 /**
- * Get the loop status
+ * Get the loop state from VariableManager's scope stack
  */
-function getLoopState(workflowExecution: WorkflowExecution): LoopState | undefined {
-  const currentLoopScope = workflowExecution.variableScopes.loop[workflowExecution.variableScopes.loop.length - 1] as
-    | Record<string, unknown>
-    | undefined;
-  if (currentLoopScope) {
-    return currentLoopScope[`__loop_state`] as LoopState | undefined;
-  }
-  return undefined;
+function getLoopState(executionEntity: WorkflowExecutionEntity): LoopState | undefined {
+  const manager = executionEntity.variableStateManager;
+  return manager.getVariable('__loop_state') as LoopState | undefined;
 }
 
 /**
- * Clear loop state and scope.
+ * Clear loop state and exit scope using VariableManager
  */
-function clearLoopState(workflowExecution: WorkflowExecution): void {
-  // Clear the loop state object
-  const currentLoopScope = workflowExecution.variableScopes.loop[workflowExecution.variableScopes.loop.length - 1];
-  if (currentLoopScope) {
-    delete currentLoopScope[`__loop_state`];
-  }
-
-  // Leave the loop scope.
-  if (workflowExecution.variableScopes && workflowExecution.variableScopes.loop.length > 0) {
-    workflowExecution.variableScopes.loop.pop();
-  }
+function clearLoopState(executionEntity: WorkflowExecutionEntity): void {
+  const manager = executionEntity.variableStateManager;
+  // Remove loop state
+  manager.deleteVariable('__loop_state');
+  // Exit the loop scope
+  manager.exitSubgraphScope();
 }
 
 /**
@@ -183,7 +173,7 @@ export async function loopEndHandler(
   const config = node.config as LoopEndNodeConfig;
 
   // Get the loop status
-  const loopState = getLoopState(workflowExecution);
+  const loopState = getLoopState(workflowExecutionEntity);
 
   if (!loopState) {
     throw new NotFoundError(
@@ -214,7 +204,7 @@ export async function loopEndHandler(
     updateLoopState(loopState);
   } else {
     // Loop ended, clearing the loop state and scope.
-    clearLoopState(workflowExecution);
+    clearLoopState(workflowExecutionEntity);
   }
 
   // Record execution history

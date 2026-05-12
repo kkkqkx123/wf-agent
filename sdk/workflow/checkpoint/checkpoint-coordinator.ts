@@ -270,16 +270,18 @@ export class CheckpointCoordinator {
     // Capture operation state for mid-node resume
     const operationState = workflowExecutionEntity.state.getOperationStateSnapshot();
 
+    // Build CheckpointVariableState from VariableManager snapshot
+    const variableState: import("@wf-agent/types").CheckpointVariableState = {
+      global: Object.fromEntries(vmSnapshot.global.entries()),
+      execution: Object.fromEntries(vmSnapshot.execution.entries()),
+      scopeStack: vmSnapshot.scopeStack.map(scope => Object.fromEntries(scope.entries())),
+    };
+
     return {
       status: workflowExecutionEntity.getStatus(),
       currentNodeId: workflowExecution.currentNodeId,
       variables: [...globalVarsArray, ...executionVarsArray],
-      variableScopes: {
-        global: Object.fromEntries(vmSnapshot.global.entries()),
-        execution: Object.fromEntries(vmSnapshot.execution.entries()),
-        subgraph: vmSnapshot.scopeStack.map(scope => Object.fromEntries(scope.entries())),
-        loop: [],
-      } as any,
+      variableState,
       input: workflowExecution.input,
       output: workflowExecution.output,
       nodeResults: nodeResultsRecord,
@@ -396,7 +398,10 @@ export class CheckpointCoordinator {
       errors: workflowExecutionState.errors,
       forkJoinContext: workflowExecutionState.forkJoinContext,
       triggeredSubworkflowContext: workflowExecutionState.triggeredSubworkflowContext,
-      variableScopes: workflowExecutionState.variableScopes,
+      variableScopes: {
+        global: workflowExecutionState.variableState.global,
+        execution: workflowExecutionState.variableState.execution,
+      },
       graph,
     };
 
@@ -408,47 +413,44 @@ export class CheckpointCoordinator {
     );
 
     // Step 7: Restore the variable snapshot using VariableManager
-    // Convert from checkpoint format back to VariableManager format
+    // Convert from CheckpointVariableState back to VariableManager format
     const globalMap = new Map();
     const executionMap = new Map();
-    const scopeStack = [];
+    const scopeStack: Map<string, any>[] = [];
     
-    // Restore variables from variableScopes
-    if (workflowExecutionState.variableScopes) {
-      const scopes = workflowExecutionState.variableScopes as any;
-      
-      // Restore global variables
-      if (scopes.global) {
-        for (const [name, value] of Object.entries(scopes.global)) {
-          globalMap.set(name, {
-            definition: { name, type: typeof value, value, scope: 'global' },
+    const variableState = workflowExecutionState.variableState;
+    
+    // Restore global variables
+    if (variableState.global) {
+      for (const [name, value] of Object.entries(variableState.global)) {
+        globalMap.set(name, {
+          definition: { name, type: typeof value, value, scope: 'global' as const },
+          value,
+        });
+      }
+    }
+    
+    // Restore execution variables
+    if (variableState.execution) {
+      for (const [name, value] of Object.entries(variableState.execution)) {
+        executionMap.set(name, {
+          definition: { name, type: typeof value, value, scope: 'execution' as const },
+          value,
+        });
+      }
+    }
+    
+    // Restore temporary scopes from scopeStack
+    if (variableState.scopeStack && Array.isArray(variableState.scopeStack)) {
+      for (const scopeObj of variableState.scopeStack) {
+        const scopeMap = new Map();
+        for (const [name, value] of Object.entries(scopeObj)) {
+          scopeMap.set(name, {
+            definition: { name, type: typeof value, value, scope: 'subgraph' as const },
             value,
           });
         }
-      }
-      
-      // Restore execution variables
-      if (scopes.execution) {
-        for (const [name, value] of Object.entries(scopes.execution)) {
-          executionMap.set(name, {
-            definition: { name, type: typeof value, value, scope: 'execution' },
-            value,
-          });
-        }
-      }
-      
-      // Restore subgraph scopes
-      if (scopes.subgraph && Array.isArray(scopes.subgraph)) {
-        for (const scopeObj of scopes.subgraph) {
-          const scopeMap = new Map();
-          for (const [name, value] of Object.entries(scopeObj)) {
-            scopeMap.set(name, {
-              definition: { name, type: typeof value, value, scope: 'subgraph' },
-              value,
-            });
-          }
-          scopeStack.push(scopeMap);
-        }
+        scopeStack.push(scopeMap);
       }
     }
     

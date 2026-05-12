@@ -163,39 +163,6 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
   }
 
   /**
-   * Initialize from WorkflowVariable definitions (legacy support)
-   * @param workflowVariables Legacy WorkflowVariable array
-   * @deprecated Use registerVariable() directly with VariableDefinition
-   */
-  initializeFromWorkflow(workflowVariables: any[]): void {
-    logger.debug("Initializing from workflow variables", { count: workflowVariables?.length || 0 });
-
-    this.global.clear();
-    this.execution.clear();
-
-    if (!workflowVariables || workflowVariables.length === 0) {
-      return;
-    }
-
-    // Convert legacy WorkflowVariable to VariableDefinition
-    for (const v of workflowVariables) {
-      const definition: VariableDefinition = {
-        name: v.name,
-        type: v.type,
-        value: v.defaultValue ?? undefined,
-        scope: v.scope || "execution",
-        readonly: v.readonly || false,
-        metadata: {
-          description: v.description,
-          required: v.required,
-        },
-      };
-
-      this.registerVariable(definition);
-    }
-  }
-
-  /**
    * Initialize from VariableDefinition array
    * @param variableDefinitions Array of variable definitions
    */
@@ -636,33 +603,6 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
     if (this.cacheEnabled && this.cache) {
       this.cache.clear();
     }
-  }
-
-  /**
-   * Get variable scopes structure (for compatibility with old API)
-   * @returns VariableScopes-like structure
-   * @deprecated Use direct Map access instead
-   */
-  getVariableScopes(): any {
-    // Build a VariableScopes-compatible structure for backward compatibility
-    const scopes = {
-      global: {} as Record<string, unknown>,
-      execution: {} as Record<string, unknown>,
-      subgraph: [] as Record<string, unknown>[],
-      loop: [] as Record<string, unknown>[],
-    };
-
-    // Add global variables
-    for (const [name, entry] of this.global) {
-      scopes.global[name] = entry.value;
-    }
-
-    // Add execution variables
-    for (const [name, entry] of this.execution) {
-      scopes.execution[name] = entry.value;
-    }
-
-    return scopes;
   }
 
   /**

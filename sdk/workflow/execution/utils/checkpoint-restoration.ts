@@ -6,7 +6,7 @@
 import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
 import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-registry.js";
 import type { CheckpointDependencies } from "../../checkpoint/utils/checkpoint-utils.js";
-import type { Checkpoint, LLMMessage, VariableValueType, VariableScope, VariableDefinition } from "@wf-agent/types";
+import type { Checkpoint, LLMMessage } from "@wf-agent/types";
 import type { GlobalContext } from "../../../core/global-context.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 
@@ -111,34 +111,58 @@ export async function restoreWorkflowFromCheckpoint(
       workflowExecutionEntity.setCurrentNodeId(nodeId);
     }
 
-    // Restore variable state if available
-    if (checkpoint.metadata?.customFields?.["variables"]) {
-      const variables = checkpoint.metadata.customFields["variables"] as Record<string, unknown>;
-      
-      // Convert to VariableManager format
+    // Restore complete workflow state from checkpoint snapshot
+    // Note: This uses the same logic as CheckpointCoordinator.restoreFromCheckpoint()
+    const checkpointData = checkpoint as import("@wf-agent/types").FullCheckpoint<any>;
+    const workflowExecutionState = checkpointData.snapshot;
+    
+    if (workflowExecutionState && workflowExecutionState.variableScopes) {
       const globalMap = new Map();
       const executionMap = new Map();
+      const scopeStack: Map<string, any>[] = [];
       
-      for (const [name, value] of Object.entries(variables)) {
-        const varDef: VariableDefinition = {
-          name,
-          value,
-          type: typeof value as any,
-          scope: 'execution',
-          readonly: false,
-        };
-        executionMap.set(name, {
-          definition: varDef,
-          value,
-        });
+      const scopes = workflowExecutionState.variableScopes;
+      
+      // Restore global variables
+      if (scopes.global) {
+        for (const [name, value] of Object.entries(scopes.global)) {
+          globalMap.set(name, {
+            definition: { name, type: typeof value, value, scope: 'global' as const },
+            value,
+          });
+        }
+      }
+      
+      // Restore execution variables
+      if (scopes.execution) {
+        for (const [name, value] of Object.entries(scopes.execution)) {
+          executionMap.set(name, {
+            definition: { name, type: typeof value, value, scope: 'execution' as const },
+            value,
+          });
+        }
+      }
+      
+      // Restore subgraph scopes (scopeStack)
+      if (scopes.subgraph && Array.isArray(scopes.subgraph)) {
+        for (const scopeObj of scopes.subgraph) {
+          const scopeMap = new Map();
+          for (const [name, value] of Object.entries(scopeObj)) {
+            scopeMap.set(name, {
+              definition: { name, type: typeof value, value, scope: 'subgraph' as const },
+              value,
+            });
+          }
+          scopeStack.push(scopeMap);
+        }
       }
       
       workflowExecutionEntity.variableStateManager.restoreFromSnapshot({
         global: globalMap,
         execution: executionMap,
-        scopeStack: [],
+        scopeStack,
       });
-      logger.debug("Variable state restored from checkpoint");
+      logger.debug("Variable state restored from checkpoint snapshot");
     }
 
     // Restore message history if available

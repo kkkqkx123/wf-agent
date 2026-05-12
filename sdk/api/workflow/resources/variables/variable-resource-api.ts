@@ -78,13 +78,11 @@ export class VariableResourceAPI extends ReadonlyResourceAPI<unknown, string, Va
    */
   protected async getResource(id: string): Promise<unknown | null> {
     const [executionId, variableName] = this.parseVariableId(id);
-    const execution = await this.getWorkflowExecution(executionId);
+    const executionEntity = await this.getWorkflowExecutionEntity(executionId);
 
-    if (!(variableName in execution.variableScopes.execution)) {
-      return null;
-    }
-
-    return execution.variableScopes.execution[variableName];
+    // Use VariableManager to get variable (respects scope priority)
+    const value = executionEntity.variableStateManager.getVariable(variableName);
+    return value ?? null;
   }
 
   /**
@@ -106,8 +104,9 @@ export class VariableResourceAPI extends ReadonlyResourceAPI<unknown, string, Va
    * @returns: Record of variable values
    */
   async getWorkflowExecutionVariables(executionId: string): Promise<Record<string, unknown>> {
-    const executionEntity = await this.getWorkflowExecution(executionId);
-    return { ...executionEntity.variableScopes.execution };
+    const executionEntity = await this.getWorkflowExecutionEntity(executionId);
+    // Use VariableManager to get all variables (respects scope priority)
+    return executionEntity.variableStateManager.getAllVariables();
   }
 
   /**
@@ -117,13 +116,14 @@ export class VariableResourceAPI extends ReadonlyResourceAPI<unknown, string, Va
    * @returns: Variable value
    */
   async getWorkflowExecutionVariable(executionId: string, name: string): Promise<unknown> {
-    const executionEntity = await this.getWorkflowExecution(executionId);
+    const executionEntity = await this.getWorkflowExecutionEntity(executionId);
 
-    if (!(name in executionEntity.variableScopes.execution)) {
+    const value = executionEntity.variableStateManager.getVariable(name);
+    if (value === undefined) {
       throw new NotFoundError(`Variable not found: ${name}`, "Variable", name);
     }
 
-    return executionEntity.variableScopes.execution[name];
+    return value;
   }
 
   /**
@@ -133,17 +133,25 @@ export class VariableResourceAPI extends ReadonlyResourceAPI<unknown, string, Va
    * @returns: Whether the variable exists
    */
   async hasWorkflowExecutionVariable(executionId: string, name: string): Promise<boolean> {
-    const execution = await this.getWorkflowExecution(executionId);
-    return name in execution.variableScopes.execution;
+    const executionEntity = await this.getWorkflowExecutionEntity(executionId);
+    return executionEntity.variableStateManager.hasVariable(name);
   }
 
   /**
    * Get variable definitions for a workflow execution
-   * @returns: Record of variable definitions
+   * @param executionId Execution ID
+   * @returns Record of variable definitions (name -> definition)
    */
-  async getWorkflowExecutionVariableDefinitions(): Promise<Record<string, unknown>> {
-    // The variable definition information needs to be obtained from another source; therefore, an empty object is returned here.
-    return {};
+  async getWorkflowExecutionVariableDefinitions(executionId: string): Promise<Record<string, unknown>> {
+    const executionEntity = await this.getWorkflowExecutionEntity(executionId);
+    const definitions = executionEntity.variableStateManager.getAllVariableDefinitions();
+    
+    // Convert array to record format
+    const result: Record<string, unknown> = {};
+    for (const def of definitions) {
+      result[def.name] = def;
+    }
+    return result;
   }
 
   /**
@@ -156,18 +164,18 @@ export class VariableResourceAPI extends ReadonlyResourceAPI<unknown, string, Va
     byExecution: Record<string, number>;
     byType: Record<string, number>;
   }> {
-    const executionContexts = this.registry.getAll();
+    const executionEntities = this.registry.getAll();
     const stats = {
-      totalExecutions: executionContexts.length,
+      totalExecutions: executionEntities.length,
       totalVariables: 0,
       byExecution: {} as Record<string, number>,
       byType: {} as Record<string, number>,
     };
 
-    for (const executionEntity of executionContexts) {
+    for (const executionEntity of executionEntities) {
       const executionId = executionEntity.id;
-      const execution = executionEntity.getExecution();
-      const variables = execution.variableScopes.execution;
+      const manager = executionEntity.variableStateManager;
+      const variables = manager.getAllVariables();
 
       stats.byExecution[executionId] = Object.keys(variables).length;
       stats.totalVariables += Object.keys(variables).length;
@@ -184,27 +192,42 @@ export class VariableResourceAPI extends ReadonlyResourceAPI<unknown, string, Va
 
   /**
    * Obtain variable scope information
+   * Note: subgraph and loop scopes are temporary and managed internally by VariableManager's scopeStack
+   * This method provides visibility into the current scope state for debugging purposes
    * @param executionId Execution ID
-   * @returns Scope information
+   * @returns Scope information including current scope depth and active scopes
    */
   async getVariableScopes(executionId: string): Promise<{
     execution: Record<string, unknown>;
     global: Record<string, unknown>;
-    subgraph: Record<string, unknown>;
-    loop: Record<string, unknown>;
+    subgraph: Record<string, unknown>; // Always empty - internal use only
+    loop: Record<string, unknown>; // Always empty - internal use only
+    currentScopeDepth: number;
+    hasActiveTemporaryScope: boolean;
   }> {
-    const execution = await this.getWorkflowExecution(executionId);
+    const executionEntity = await this.getWorkflowExecutionEntity(executionId);
+    const manager = executionEntity.variableStateManager;
+    
+    // Get persistent scopes
+    const executionVars = manager.getVariablesByScope('execution');
+    const globalVars = manager.getVariablesByScope('global');
+    
+    // Get current scope stack state (for debugging/monitoring)
+    // Note: We can't directly access private scopeStack, but we can infer from size()
+    const totalVars = Object.keys(executionVars).length + Object.keys(globalVars).length;
+    const allVarsCount = manager.size();
+    const tempScopeVarCount = allVarsCount - totalVars;
+    
     return {
-      execution: { ...execution.variableScopes.execution },
-      global: { ...execution.variableScopes.global },
-      subgraph:
-        execution.variableScopes.subgraph.length > 0
-          ? { ...execution.variableScopes.subgraph[execution.variableScopes.subgraph.length - 1] }
-          : {},
-      loop:
-        execution.variableScopes.loop.length > 0
-          ? { ...execution.variableScopes.loop[execution.variableScopes.loop.length - 1] }
-          : {},
+      execution: executionVars,
+      global: globalVars,
+      // Temporary scopes are not exposed as they are transient
+      // Return empty objects to maintain API compatibility
+      subgraph: {},
+      loop: {},
+      // Provide metadata about current scope state
+      currentScopeDepth: tempScopeVarCount > 0 ? 1 : 0, // Simplified: just indicate if there are temp vars
+      hasActiveTemporaryScope: tempScopeVarCount > 0,
     };
   }
 
@@ -215,8 +238,8 @@ export class VariableResourceAPI extends ReadonlyResourceAPI<unknown, string, Va
    * @returns Array of matching variable names
    */
   async searchVariables(executionId: string, query: string): Promise<string[]> {
-    const execution = await this.getWorkflowExecution(executionId);
-    const variables = execution.variableScopes.execution;
+    const executionEntity = await this.getWorkflowExecutionEntity(executionId);
+    const variables = executionEntity.variableStateManager.getAllVariables();
 
     return Object.keys(variables).filter(name => name.toLowerCase().includes(query.toLowerCase()));
   }
@@ -352,6 +375,17 @@ export class VariableResourceAPI extends ReadonlyResourceAPI<unknown, string, Va
       throw new WorkflowExecutionNotFoundError(`Workflow execution not found: ${executionId}`, executionId);
     }
     return executionContext.getExecution();
+  }
+
+  /**
+   * Obtain an execution entity
+   */
+  private async getWorkflowExecutionEntity(executionId: string) {
+    const executionEntity = this.registry.get(executionId);
+    if (!executionEntity) {
+      throw new WorkflowExecutionNotFoundError(`Workflow execution not found: ${executionId}`, executionId);
+    }
+    return executionEntity;
   }
 
   /**

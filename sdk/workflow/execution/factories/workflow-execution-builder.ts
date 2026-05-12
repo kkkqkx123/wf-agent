@@ -220,8 +220,6 @@ export class WorkflowExecutionBuilder {
       variableScopes: {
         global: {},
         execution: {},
-        subgraph: [],
-        loop: [],
       },
       input: options.input || {},
       output: {},
@@ -232,9 +230,9 @@ export class WorkflowExecutionBuilder {
 
     // Step 4: Initialize variables from WorkflowGraph
     const variableCoordinator = this.getVariableCoordinator() as {
-      initializeFromWorkflow: (variables: unknown[]) => void;
+      initializeFromDefinitions: (variables: import("@wf-agent/types").VariableDefinition[]) => void;
     };
-    variableCoordinator.initializeFromWorkflow(workflowGraph.variables || []);
+    variableCoordinator.initializeFromDefinitions(workflowGraph.variables || []);
 
     // Step 5: Create WorkflowExecutionState
     const workflowExecutionState = new WorkflowExecutionState();
@@ -334,12 +332,10 @@ export class WorkflowExecutionBuilder {
       currentNodeId: sourceWorkflowExecution.currentNodeId,
       graph: sourceWorkflowExecution.graph,
       variables: sourceWorkflowExecution.variables.map(v => ({ ...v })),
-      // 4-level scopes: global is shared through references, execution creates deep copies, subgraph and loop values are cleared
+      // 2-level scopes: global is shared through references, execution creates deep copies
       variableScopes: {
         global: sourceWorkflowExecution.variableScopes.global,
         execution: { ...sourceWorkflowExecution.variableScopes.execution },
-        subgraph: [],
-        loop: [],
       },
       input: { ...sourceWorkflowExecution.input },
       output: { ...sourceWorkflowExecution.output },
@@ -434,12 +430,10 @@ export class WorkflowExecutionBuilder {
       currentNodeId: forkConfig.startNodeId || parentWorkflowExecution.currentNodeId,
       graph: parentWorkflowExecution.graph,
       variables: workflowExecutionVariables,
-      // 4-level scopes: global is shared via references, execution creates deep copies, while subgraph and loop scopes clear their contents upon exit
+      // 2-level scopes: global is shared via references, execution creates deep copies
       variableScopes: {
         global: parentWorkflowExecution.variableScopes.global,
         execution: { ...parentWorkflowExecution.variableScopes.execution },
-        subgraph: [],
-        loop: [],
       },
       input: { ...parentWorkflowExecution.input },
       output: {},

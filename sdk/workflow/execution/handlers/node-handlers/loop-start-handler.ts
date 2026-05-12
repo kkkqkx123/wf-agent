@@ -155,36 +155,29 @@ function resolveIterable(iterableConfig: unknown, workflowExecution: WorkflowExe
 }
 
 /**
- * Get the loop status
+ * Get the loop state from VariableManager's scope stack
  */
-function getLoopState(workflowExecution: WorkflowExecution): LoopState | undefined {
-  const currentLoopScope = workflowExecution.variableScopes.loop[workflowExecution.variableScopes.loop.length - 1] as
-    | Record<string, unknown>
-    | undefined;
-  if (currentLoopScope) {
-    return currentLoopScope[`__loop_state`] as LoopState | undefined;
-  }
-  return undefined;
+function getLoopState(executionEntity: WorkflowExecutionEntity): LoopState | undefined {
+  const manager = executionEntity.variableStateManager;
+  // Loop state is stored with special key in current scope
+  return manager.getVariable('__loop_state') as LoopState | undefined;
 }
 
 /**
- * Set the loop state within the loop scope.
+ * Set the loop state within the current scope using VariableManager
  */
-function setLoopState(workflowExecution: WorkflowExecution, loopState: LoopState): void {
-  const currentLoopScope = workflowExecution.variableScopes.loop[workflowExecution.variableScopes.loop.length - 1];
-  if (currentLoopScope) {
-    currentLoopScope[`__loop_state`] = loopState;
-  }
+function setLoopState(executionEntity: WorkflowExecutionEntity, loopState: LoopState): void {
+  const manager = executionEntity.variableStateManager;
+  manager.setVariable('__loop_state', loopState);
 }
 
 /**
- * Clear the loop state (only delete the state objects; the scope is cleared upon exit).
+ * Clear the loop state (only delete the state object; scope is cleared on exit)
  */
-function clearLoopState(workflowExecution: WorkflowExecution): void {
-  const currentLoopScope = workflowExecution.variableScopes.loop[workflowExecution.variableScopes.loop.length - 1];
-  if (currentLoopScope) {
-    delete currentLoopScope[`__loop_state`];
-  }
+function clearLoopState(executionEntity: WorkflowExecutionEntity): void {
+  const manager = executionEntity.variableStateManager;
+  // Just remove the loop state, the scope itself will be popped on exit
+  manager.deleteVariable('__loop_state');
 }
 
 /**
@@ -258,14 +251,11 @@ function getCurrentValue(loopState: LoopState): unknown {
 }
 
 /**
- * Set the loop variable within the scope of the loop.
+ * Set the loop variable within the current scope using VariableManager
  */
-function setLoopVariable(workflowExecution: WorkflowExecution, variableName: string, value: unknown): void {
-  // The loop scope should be created via enterLoopScope() in loopStartHandler.
-  const currentLoopScope = workflowExecution.variableScopes.loop[workflowExecution.variableScopes.loop.length - 1];
-  if (currentLoopScope) {
-    currentLoopScope[variableName] = value;
-  }
+function setLoopVariable(executionEntity: WorkflowExecutionEntity, variableName: string, value: unknown): void {
+  const manager = executionEntity.variableStateManager;
+  manager.setVariable(variableName, value);
 }
 
 /**
@@ -307,7 +297,7 @@ export async function loopStartHandler(
   await handleLoopVariableInputs(executionEntity, config);
 
   // Get or initialize the loop state.
-  let loopState = getLoopState(workflowExecution);
+  let loopState = getLoopState(executionEntity);
 
   if (!loopState) {
     // On the first execution, the loop state is parsed and initialized.
@@ -331,26 +321,17 @@ export async function loopStartHandler(
       variableName: variableName,
     };
 
-    setLoopState(workflowExecution, loopState);
-
-    // Enter the new loop scope.
-    if (!workflowExecution.variableScopes) {
-      workflowExecution.variableScopes = {
-        global: {},
-        execution: {},
-        subgraph: [],
-        loop: [],
-      };
-    }
-
-    // Create a new loop scope and initialize the variables within that scope.
-    const newLoopScope: Record<string, unknown> = {};
+    // Enter the new loop scope using VariableManager
+    executionEntity.variableStateManager.enterSubgraphScope();
+    
+    // Initialize loop-scoped variables from definitions
     for (const variable of workflowExecution.variables) {
       if (variable.scope === "loop") {
-        newLoopScope[variable.name] = variable.value;
+        executionEntity.variableStateManager.setVariable(variable.name, variable.value);
       }
     }
-    workflowExecution.variableScopes.loop.push(newLoopScope);
+    
+    setLoopState(executionEntity, loopState);
   }
 
   // Check the loop conditions.
@@ -358,12 +339,10 @@ export async function loopStartHandler(
 
   if (!shouldContinue) {
     // Loop ended, clearing loop state.
-    clearLoopState(workflowExecution);
+    clearLoopState(executionEntity);
 
-    // Leave the loop scope
-    if (workflowExecution.variableScopes && workflowExecution.variableScopes.loop.length > 0) {
-      workflowExecution.variableScopes.loop.pop();
-    }
+    // Leave the loop scope using VariableManager
+    executionEntity.variableStateManager.exitSubgraphScope();
 
     return {
       loopId: config.loopId,
@@ -379,14 +358,14 @@ export async function loopStartHandler(
   // Set loop variables to loop scope (only when data-driven loops)
   // Note: If dataSource is provided, variableName is required
   if (loopState.variableName !== null) {
-    setLoopVariable(workflowExecution, loopState.variableName, currentValue);
+    setLoopVariable(executionEntity, loopState.variableName, currentValue);
   }
 
   // Update the loop status
   updateLoopState(loopState);
 
   // Save the updated loop state to the scope.
-  setLoopState(workflowExecution, loopState);
+  setLoopState(executionEntity, loopState);
 
   // Record execution history
   workflowExecution.nodeResults.push({

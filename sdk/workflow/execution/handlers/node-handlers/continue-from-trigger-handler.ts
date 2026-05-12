@@ -97,22 +97,17 @@ export async function continueFromTriggerHandler(
     }
   }
 
-  // Handling variable callbacks
-  const workflowExecution = workflowExecutionEntity.getExecution();
-  if (config.variableCallback) {
-    if (config.variableCallback.includeAll) {
-      // Return all variables
-      const allVariables = workflowExecution.variables || [];
-      for (const v of allVariables) {
-        mainWorkflowExecutionEntity.setVariable(v.name, v.value);
-      }
-    } else if (config.variableCallback.includeVariables) {
-      // Selective variable return
-      const variablesToCallback = (workflowExecution.variables || []).filter(v =>
-        config.variableCallback?.includeVariables?.includes(v.name),
-      );
-      for (const v of variablesToCallback) {
-        mainWorkflowExecutionEntity.setVariable(v.name, v.value);
+  // Handling variable outputs using new VariableManager architecture
+  if (config.variableOutputs && config.variableOutputs.length > 0) {
+    for (const outputDef of config.variableOutputs) {
+      const { internalName, externalName } = outputDef;
+      
+      // Get the variable value from subworkflow's VariableManager
+      const value = workflowExecutionEntity.variableStateManager.getVariable(internalName);
+      
+      if (value !== undefined) {
+        // Set the variable in main workflow's VariableManager with external name
+        mainWorkflowExecutionEntity.setVariable(externalName, value);
       }
     }
   }

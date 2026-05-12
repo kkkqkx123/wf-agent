@@ -52,16 +52,7 @@ export class VariableCoordinator {
   ) {}
 
   /**
-   * Initialize variables from WorkflowTemplate (legacy support)
-   * @param workflowVariables Workflow variable definitions
-   * @deprecated Use initializeFromDefinitions instead
-   */
-  initializeFromWorkflow(workflowVariables: any[]): void {
-    this.manager.initializeFromWorkflow(workflowVariables);
-  }
-
-  /**
-   * Initialize variables from VariableDefinition array (new API)
+   * Initialize variables from VariableDefinition array
    * @param variableDefinitions Array of variable definitions
    */
   initializeFromDefinitions(variableDefinitions: VariableDefinition[]): void {

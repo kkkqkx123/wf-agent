@@ -1,42 +1,51 @@
 /**
  * Variable Scope Definitions
  *
- * Contains two core concepts:
- * 1. VariableScope - enumerated values for a single scope
- * 2. VariableScopes - a container structure with four levels of scopes
+ * Simplified architecture after migration to VariableManager:
+ * - Only two persistent scopes: global and execution
+ * - Temporary scopes (subgraph/loop) are managed by VariableManager.scopeStack internally
+ * - For checkpoint serialization, use CheckpointVariableState which includes all scopes
  */
 
 /**
- * Variable Scope Type (Single Value)
+ * Variable Scope Type
  * Define the scope level of the variable in the workflow
+ * 
+ * Note: 'subgraph' and 'loop' are only used for temporary scope management within VariableManager.
+ * They should not be accessed directly through VariableScopes interface.
  */
 export type VariableScope = "global" | "execution" | "subgraph" | "loop";
 
 /**
  * Variable Scope Structure (Runtime State)
  *
+ * This interface represents the persistent variable storage structure for runtime use.
+ * After migration to VariableManager, only global and execution scopes are exposed here.
+ * Temporary scopes (subgraph/loop) are managed internally by VariableManager.scopeStack
+ * and should be accessed via VariableManager methods (enterSubgraphScope/exitSubgraphScope).
+ *
+ * For checkpoint serialization, use CheckpointVariableState which captures the complete
+ * variable state including temporary scopes.
+ *
  * Usage:
- * 1. WorkflowExecution.variableScopes - runtime variable storage for execution
- * 2. WorkflowExecutionStateSnapshot.variableScopes - state for checkpoint snapshots
- * 3. Runtime variable management in VariableState
+ * - WorkflowExecution.variableScopes - runtime variable storage for execution
+ * - Access only: global and execution
+ * - For temporary scopes: use VariableManager methods
  *
  * Scope Characteristics:
  * - **global**: Workflow-level global variables, shared across executions with same object reference
  * - **execution**: Execution-level variables, each execution has its own, deep copied on fork
- * - **subgraph**: Subgraph scope stack, supports nesting (e.g., entering subgraph)
- * - **loop**: Loop scope stack, supports nested loops
  *
  * Access Priority (from low to high):
- * global < execution < subgraph[...] < loop[...]
+ * global < execution < [temporary scopes managed by VariableManager]
  *
  * Description:
  * - When accessing variables, search in higher priority scopes first
- * - subgraph and loop are stack structures, use top of stack (innermost) value when accessing
+ * - For persistent scopes (global/execution), access via variableScopes
+ * - For temporary scopes (subgraph/loop), use VariableManager.enterSubgraphScope()/exitSubgraphScope()
  * - Usage examples:
  *   - global: Workflow configuration, constants, global state
  *   - execution: Temporary variables during workflow execution, intermediate results
- *   - subgraph: Local variables within subgraph (destroyed after subgraph ends)
- *   - loop: Loop iteration variables (destroyed after loop ends)
  */
 export interface VariableScopes {
   /**
@@ -72,58 +81,4 @@ export interface VariableScopes {
    * ```
    */
   execution: Record<string, unknown>;
-
-  /**
-   * Subgraph Scope Stack - Supports nesting
-   *
-   * Characteristics:
-   * - Array-based stack structure, each element is a scope
-   * - Push new object when entering subgraph scope
-   * - Pop when exiting subgraph scope
-   * - Higher priority than global/execution scope
-   * - Automatically destroyed after subgraph scope ends, doesn't affect parent scope
-   *
-   * Use Cases:
-   * - Local variables in subgraph
-   * - Temporary calculation results
-   * - Scope isolation
-   *
-   * Example:
-   * ```typescript
-   * // Enter subgraph
-   * execution.variableScopes.subgraph.push({ tempVar: 'value' });
-   * // tempVar accessible in subgraph
-   * // Exit subgraph
-   * execution.variableScopes.subgraph.pop();
-   * // tempVar no longer visible
-   * ```
-   */
-  subgraph: Record<string, unknown>[];
-
-  /**
-   * Loop Scope Stack - Supports nested loops
-   *
-   * Characteristics:
-   * - Array-based stack structure, each element is a loop's scope
-   * - Push new object when entering each loop
-   * - Pop when loop ends
-   * - Highest priority, overrides other three scope layers
-   * - Scope destroyed after loop ends
-   *
-   * Use Cases:
-   * - Loop iteration variables (item, index, etc.)
-   * - Temporary calculation results within loop
-   * - Variable isolation in nested loops
-   *
-   * Example:
-   * ```typescript
-   * // Enter loop (iterating array [1, 2, 3])
-   * execution.variableScopes.loop.push({ item: 1, index: 0 });
-   * // item and index accessible in loop body
-   * // Iteration complete, exit loop
-   * execution.variableScopes.loop.pop();
-   * // item and index no longer visible
-   * ```
-   */
-  loop: Record<string, unknown>[];
 }

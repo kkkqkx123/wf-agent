@@ -146,90 +146,70 @@ export class VariableAccessor {
   }
 
   /**
-   * Get a value from the specified scope
+   * Get a value from the specified scope using VariableManager
    * @param path Path
    * @param scope Scope
    * @returns Value
    */
   private getFromScope(path: string, scope: VariableScope): unknown {
-    const workflowExecution = this.executionEntity.getExecution();
-    const scopes = workflowExecution.variableScopes;
-
-    let scopeData: Record<string, unknown> | undefined;
-
-    switch (scope) {
-      case "global":
-        scopeData = scopes.global;
-        break;
-      case "execution":
-        scopeData = scopes.execution;
-        break;
-      case "subgraph":
-        if (scopes.subgraph.length > 0) {
-          scopeData = scopes.subgraph[scopes.subgraph.length - 1];
-        }
-        break;
-      case "loop":
-        if (scopes.loop.length > 0) {
-          scopeData = scopes.loop[scopes.loop.length - 1];
-        }
-        break;
+    const manager = this.executionEntity.variableStateManager;
+    
+    // For global and execution scopes, use direct methods
+    if (scope === "global" || scope === "execution") {
+      const variablesByScope = manager.getVariablesByScope(scope);
+      const pathParts = path.split(".");
+      const rootVarName = pathParts[0];
+      
+      if (!rootVarName) {
+        return undefined;
+      }
+      
+      const rootValue = variablesByScope[rootVarName];
+      if (rootValue === undefined) {
+        return undefined;
+      }
+      
+      // If the path contains nesting, use resolvePath to parse the remaining path.
+      if (pathParts.length > 1) {
+        const remainingPath = pathParts.slice(1).join(".");
+        return resolvePath(remainingPath, rootValue);
+      }
+      
+      return rootValue;
     }
-
-    if (!scopeData) {
-      return undefined;
-    }
-
-    // Extract the root variable name
-    const pathParts = path.split(".");
-    const rootVarName = pathParts[0];
-
-    if (!rootVarName) {
-      return undefined;
-    }
-
-    const rootValue = scopeData[rootVarName];
-
-    if (rootValue === undefined) {
-      return undefined;
-    }
-
-    // If the path contains nesting, use resolvePath to parse the remaining path.
-    if (pathParts.length > 1) {
-      const remainingPath = pathParts.slice(1).join(".");
-      return resolvePath(remainingPath, rootValue);
-    }
-
-    return rootValue;
+    
+    // For subgraph and loop scopes, they are now part of the scopeStack
+    // VariableManager.getVariable() already handles scope priority correctly
+    // So we just use the general getVariable method
+    const value = manager.getVariable(path);
+    return value;
   }
 
   /**
    * Retrieve a value from a scope variable (searched in order of priority)
-   * Priority: loop > subgraph > workflowExecution > global
+   * Priority: loop > subgraph > execution > global
+   * Delegates to VariableManager which handles all scope logic
    * @param path The path to the variable
    * @returns The value of the variable
    */
   private getFromScopedVariables(path: string): unknown {
-    // Extract the root variable name
-    const pathParts = path.split(".");
-    const rootVarName = pathParts[0];
-
-    if (!rootVarName) {
+    const manager = this.executionEntity.variableStateManager;
+    
+    // VariableManager.getVariable() already implements the correct priority:
+    // scopeStack (loop/subgraph) > execution > global
+    const value = manager.getVariable(path);
+    
+    if (value === undefined) {
       return undefined;
     }
-
-    const rootValue = this.executionEntity.getVariable(rootVarName);
-
-    if (rootValue === undefined) {
-      return undefined;
-    }
-
+    
     // If the path contains nesting, use resolvePath to parse the remaining path.
+    const pathParts = path.split(".");
     if (pathParts.length > 1) {
       const remainingPath = pathParts.slice(1).join(".");
-      return resolvePath(remainingPath, rootValue);
+      return resolvePath(remainingPath, value);
     }
-
-    return rootValue;
+    
+    return value;
   }
 }

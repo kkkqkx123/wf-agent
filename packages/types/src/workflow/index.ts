@@ -25,4 +25,24 @@ export * from "./relationship.js";
 export * from "./metadata.js";
 
 // Export Zod Schemas
-export * from "./workflow-schema.js";
+export * from "./config-schema.js";
+
+// Export Boundary Data Passing Configuration
+export * from "./boundary-config.js";
+
+// Export Boundary Configuration Zod Schemas
+export {
+  WorkflowVariableInputSchema,
+  WorkflowVariableOutputSchema,
+  WorkflowMessageInputSchema,
+  WorkflowMessageOutputSchema,
+  WorkflowStartConfigSchema,
+  WorkflowEndConfigSchema,
+  VariableCallbackConfigSchema,
+  isWorkflowVariableInput,
+  isWorkflowVariableOutput,
+  isWorkflowMessageInput,
+  isWorkflowMessageOutput,
+  isWorkflowStartConfig,
+  isWorkflowEndConfig,
+} from "./boundary-config-schema.js";

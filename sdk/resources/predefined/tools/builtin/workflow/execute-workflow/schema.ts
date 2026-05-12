@@ -16,8 +16,18 @@ export const executeWorkflowSchema: ToolParameterSchema = {
     },
     input: {
       type: "object",
-      description: "Input parameters for the workflow",
+      description: "Input parameters for the workflow (variables)",
       additionalProperties: true,
+    },
+    messageContexts: {
+      type: "object",
+      description: "Named message contexts to pass to the workflow. Keys are context IDs, values are message arrays.",
+      additionalProperties: {
+        type: "array",
+        items: {
+          type: "object",
+        },
+      },
     },
     waitForCompletion: {
       type: "boolean",

@@ -2,7 +2,7 @@
  * The ContinueFromTrigger node processing function is responsible for invoking the results back to the main workflow after the execution of the sub-workflows is completed.
  *
  * Note: Message context filtering/truncation has been migrated to the unified reference architecture.
- * This handler now only handles variable callbacks.
+ * This handler now handles both variable callbacks and message context outputs.
  */
 
 import type { RuntimeNode } from "@wf-agent/types";
@@ -64,11 +64,37 @@ export async function continueFromTriggerHandler(
     throw new Error("Main workflow execution entity is required for CONTINUE_FROM_TRIGGER node");
   }
 
-  // Handle messageOutputs if configured (currently just validates declaration)
+  // Handle message context outputs if configured
   if (config.messageOutputs && config.messageOutputs.length > 0) {
-    // TODO: Integrate with unified message reference architecture
-    // For now, just validate that outputs are declared
-    console.log('Message outputs declared:', config.messageOutputs.map(o => o.externalName));
+    const workflowExecution = workflowExecutionEntity.getExecution();
+    const mainWorkflowExecution = mainWorkflowExecutionEntity.getExecution();
+    
+    // Access message context registries
+    const registry = (workflowExecution as any).messageContextRegistry;
+    const parentRegistry = (mainWorkflowExecution as any).messageContextRegistry;
+    
+    if (registry && parentRegistry) {
+      for (const outputDef of config.messageOutputs) {
+        const { internalName, externalName } = outputDef;
+        
+        // Get the message context from subworkflow's registry
+        const context = registry.get(internalName);
+        
+        if (context) {
+          // Copy to parent workflow's registry with external name
+          parentRegistry.register({
+            id: externalName,
+            messages: [...context.messages],  // Shallow copy
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            metadata: {
+              ...context.metadata,
+              sourceWorkflow: workflowExecutionEntity.getWorkflowId(),
+            },
+          });
+        }
+      }
+    }
   }
 
   // Handling variable callbacks

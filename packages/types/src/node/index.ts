@@ -107,15 +107,7 @@ export {
   isSubgraphEndNode,
 } from "./runtime-node-types.js";
 
-// Export runtime-only configurations
-export {
-  SubgraphStartNodeConfig,
-  SubgraphStartVariableInput,
-  SubgraphStartMessageInput,
-  SubgraphEndNodeConfig,
-  SubgraphEndVariableOutput,
-  SubgraphEndMessageOutput,
-} from "./runtime/index.js";
+
 
 // Export node configuration types (detailed version for external references)
 export * from "./configs/index.js";

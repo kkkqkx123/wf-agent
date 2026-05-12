@@ -1,10 +1,13 @@
 /**
  * Start Node Validation Function
- * Provides static validation logic for the Start node, using zod for validation.
+ * Provides static validation logic for the Start node.
+ * 
+ * Note: START nodes use WorkflowStartConfig which supports explicit variable
+ * and message context input mapping (like function parameters).
  */
 
 import type { StaticNode } from "@wf-agent/types";
-import { StartNodeConfigSchema, ConfigurationValidationError } from "@wf-agent/types";
+import { WorkflowStartConfigSchema, ConfigurationValidationError } from "@wf-agent/types";
 import type { Result } from "@wf-agent/types";
 import { ok } from "@wf-agent/common-utils";
 import { validateNodeType, validateNodeConfig } from "../../../core/validation/utils.js";
@@ -20,7 +23,7 @@ export function validateStartNode(node: StaticNode): Result<StaticNode, Configur
     return typeResult;
   }
 
-  const configResult = validateNodeConfig(node.config || {}, StartNodeConfigSchema, node.id);
+  const configResult = validateNodeConfig(node.config || {}, WorkflowStartConfigSchema, node.id);
   if (configResult.isErr()) {
     return configResult;
   }

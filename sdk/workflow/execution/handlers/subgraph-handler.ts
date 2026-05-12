@@ -24,7 +24,7 @@
  */
 
 import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
-import type { StaticNode, StartNodeConfig, SubgraphNodeConfig, NamedMessageContext } from "@wf-agent/types";
+import type { StaticNode, WorkflowStartConfig, SubgraphNodeConfig, NamedMessageContext } from "@wf-agent/types";
 import { now } from "@wf-agent/common-utils";
 import {
   checkWorkflowInterruption,
@@ -171,7 +171,7 @@ async function handleEnterSubgraphMessageContexts(
   }
 
   const mapping = mappingResult.value;
-  const startConfig = (startNode as any).config as unknown as StartNodeConfig;
+  const startConfig = (startNode as any).config as unknown as WorkflowStartConfig;
 
   // Copy input contexts from parent to subgraph
   for (const [parentContextId, internalName] of mapping.inputMapping) {

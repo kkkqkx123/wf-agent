@@ -156,7 +156,7 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
       ? { ...template.config, ...configOverride }
       : template.config;
 
-    return this.addNode(nodeId, template.type, mergedConfig, nodeName || template.name);
+    return this.addNode(nodeId, template.type, mergedConfig as StaticNode['config'], nodeName || template.name);
   }
 
   /**

@@ -16,7 +16,7 @@ import type { ID } from "../common.js";
 import type { NodeIdentity, NodeExecutionConfig, RuntimeNodeContext } from "./shared-node-types.js";
 
 // Import configuration types (most are shared between static and runtime)
-import type { StartNodeConfig, EndNodeConfig, RouteNodeConfig } from "./configs/control-configs.js";
+import type { RouteNodeConfig } from "./configs/control-configs.js";
 import type { VariableNodeConfig } from "./configs/variable-configs.js";
 import type { ForkNodeConfig, JoinNodeConfig } from "./configs/fork-join-configs.js";
 import type { LoopStartNodeConfig, LoopEndNodeConfig } from "./configs/loop-configs.js";
@@ -27,17 +27,9 @@ import type {
 } from "./configs/execution-configs.js";
 import type { UserInteractionNodeConfig } from "./configs/interaction-configs.js";
 import type { ContextProcessorNodeConfig } from "./configs/context-configs.js";
-import type {
-  StartFromTriggerNodeConfig,
-  ContinueFromTriggerNodeConfig,
-} from "./configs/trigger-subworkflow-configs.js";
 import type { AgentLoopNodeConfig } from "./configs/agent-loop-configs.js";
-
-// Import runtime-only configurations (generated during preprocessing)
-import type {
-  SubgraphStartNodeConfig,
-  SubgraphEndNodeConfig,
-} from "./runtime/subgraph-runtime-configs.js";
+// Import boundary configs for START/END nodes and trigger nodes
+import type { WorkflowStartConfig, WorkflowEndConfig } from "../workflow/boundary-config.js";
 
 // ============================================================================
 // Runtime Node Types
@@ -89,8 +81,8 @@ export interface BaseRuntimeNode extends NodeIdentity, NodeExecutionConfig, Runt
 // ============================================================================
 
 export interface RuntimeNodeConfigMap {
-  START: StartNodeConfig;
-  END: EndNodeConfig;
+  START: WorkflowStartConfig;
+  END: WorkflowEndConfig;
   VARIABLE: VariableNodeConfig;
   FORK: ForkNodeConfig;
   JOIN: JoinNodeConfig;
@@ -104,11 +96,11 @@ export interface RuntimeNodeConfigMap {
   LOOP_START: LoopStartNodeConfig;
   LOOP_END: LoopEndNodeConfig;
   AGENT_LOOP: AgentLoopNodeConfig;
-  START_FROM_TRIGGER: StartFromTriggerNodeConfig;
-  CONTINUE_FROM_TRIGGER: ContinueFromTriggerNodeConfig;
+  START_FROM_TRIGGER: WorkflowStartConfig;
+  CONTINUE_FROM_TRIGGER: WorkflowEndConfig;
   // Runtime-only node types
-  SUBGRAPH_START: SubgraphStartNodeConfig;
-  SUBGRAPH_END: SubgraphEndNodeConfig;
+  SUBGRAPH_START: WorkflowStartConfig;
+  SUBGRAPH_END: WorkflowEndConfig;
 }
 
 export type RuntimeNodeOfType<T extends RuntimeNodeType> = BaseRuntimeNode & {

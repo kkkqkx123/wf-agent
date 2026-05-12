@@ -83,20 +83,4 @@ export interface AgentLoopNodeConfig {
   };
 }
 
-/**
- * Agent Loop node execution data
- * Used to pass data through the node processor
- * 
- * @deprecated This type is no longer needed. The handler directly uses AgentLoopRuntimeConfig
- * constructed from AgentLoopNodeConfig. Kept for backward compatibility only.
- */
-export interface AgentLoopExecutionData {
-  /** Node ID */
-  nodeId: ID;
-  /** Execution ID */
-  executionId: ID;
-  /** Input prompt (from workflow variables) */
-  prompt?: string;
-  /** Node Configuration */
-  config: AgentLoopNodeConfig;
-}
+

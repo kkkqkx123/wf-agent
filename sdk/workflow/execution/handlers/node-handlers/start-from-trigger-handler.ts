@@ -3,7 +3,7 @@
  * Responsible for initializing the trigger sub-workflow and receiving input data from the main workflow execution
  */
 
-import type { RuntimeNode, LLMMessage, StartFromTriggerNodeConfig } from "@wf-agent/types";
+import type { RuntimeNode, LLMMessage, WorkflowStartConfig } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import { now } from "@wf-agent/common-utils";
 import type { ConversationSession } from "../../../../core/messaging/conversation-session.js";
@@ -16,6 +16,7 @@ export interface StartFromTriggerHandlerContext {
   triggerInput?: Record<string, unknown> & {
     variables?: Array<{ name: string; value: unknown }>;
     conversationHistory?: LLMMessage[];
+    messageContexts?: Record<string, LLMMessage[]>;
   };
   /** Conversation manager */
   conversationManager?: ConversationSession;
@@ -84,7 +85,7 @@ export async function startFromTriggerHandler(
   const triggerInput = context?.triggerInput || {};
 
   // Get node config for messageInputs validation
-  const config = node.config as StartFromTriggerNodeConfig | undefined;
+  const config = node.config as WorkflowStartConfig | undefined;
 
   // Set input data to workflowExecution.input
   let updatedInput: Record<string, unknown>;
@@ -124,6 +125,52 @@ export async function startFromTriggerHandler(
   }
   
   workflowExecution.input = updatedInput;
+
+  // Handle message contexts if configured
+  if (config?.messageInputs && config.messageInputs.length > 0) {
+    // Access the message context registry from workflowExecution
+    const workflowExecution = workflowExecutionEntity.getExecution();
+    const registry = (workflowExecution as any).messageContextRegistry;
+    
+    if (registry) {
+      for (const inputDef of config.messageInputs) {
+        const { externalName, internalName, required, defaultMessages } = inputDef;
+        
+        // Try to get messages from triggerInput.messageContexts first
+        let messages = triggerInput.messageContexts?.[externalName];
+        
+        // Fallback to triggerInput[externalName] if it's an array (backward compatibility)
+        if (!messages && Array.isArray(triggerInput[externalName])) {
+          messages = triggerInput[externalName] as LLMMessage[];
+        }
+        
+        if (!messages) {
+          if (required) {
+            throw new Error(`Required message context '${externalName}' (mapped to '${internalName}') is missing`);
+          }
+          // Use default messages if provided
+          if (defaultMessages && defaultMessages.length > 0) {
+            registry.register({
+              id: internalName,
+              messages: [...defaultMessages],
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+            });
+          }
+          continue;
+        }
+        
+        // Register the message context with internal name
+        registry.register({
+          id: internalName,
+          messages: [...messages],  // Shallow copy
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          metadata: { sourceContext: externalName },
+        });
+      }
+    }
+  }
 
   // If there are variables passed, initialize them in the workflowExecution.
   if (triggerInput.variables) {

@@ -28,6 +28,7 @@ export function createExecuteWorkflowHandler() {
     const {
       workflowId,
       input = {},
+      messageContexts,
       waitForCompletion = true,
       timeout,
     } = params as unknown as ExecuteWorkflowParams;
@@ -100,6 +101,7 @@ export function createExecuteWorkflowHandler() {
     const task: TriggeredSubgraphTask = {
       subgraphId: workflowId,
       input,
+      messageContexts,  // Pass message contexts to the triggered subworkflow
       mainWorkflowExecutionEntity: workflowContext.parentExecutionEntity,
       triggerId: `builtin-${context.executionId}-${Date.now()}`,
       config: {

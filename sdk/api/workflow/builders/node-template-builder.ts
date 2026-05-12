@@ -87,7 +87,7 @@ export class NodeTemplateBuilder extends TemplateBuilder<NodeTemplate> {
     return {
       name: this._name,
       type: this._type,
-      config: this._config,
+      config: this._config as StaticNode['config'],  // Type assertion: config has been validated
       description: this._description,
       metadata: this._metadata,
       createdAt: this.getCreatedAt(),

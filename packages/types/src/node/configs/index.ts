@@ -27,7 +27,11 @@ export * from './context-configs.js';
 export * from './subgraph-configs.js';
 
 // Export trigger-based subworkflow node configurations
-export * from './trigger-subworkflow-configs.js';
+// Note: These are aliases to WorkflowStartConfig and WorkflowEndConfig
+export {
+  WorkflowStartConfig as StartFromTriggerNodeConfig,
+  WorkflowEndConfig as ContinueFromTriggerNodeConfig,
+} from '../../workflow/boundary-config.js';
 
 // Export agent loop node configuration
 export * from './agent-loop-configs.js';
@@ -43,12 +47,13 @@ export {
   isSubgraphNodeConfig,
 } from './subgraph-configs-schema.js';
 
+// Re-export boundary config schemas for trigger nodes (aliases)
 export {
-  StartFromTriggerNodeConfigSchema,
-  ContinueFromTriggerNodeConfigSchema,
-  isStartFromTriggerNodeConfig,
-  isContinueFromTriggerNodeConfig,
-} from './trigger-subworkflow-configs-schema.js';
+  WorkflowStartConfigSchema as StartFromTriggerNodeConfigSchema,
+  WorkflowEndConfigSchema as ContinueFromTriggerNodeConfigSchema,
+  isWorkflowStartConfig as isStartFromTriggerNodeConfig,
+  isWorkflowEndConfig as isContinueFromTriggerNodeConfig,
+} from '../../workflow/boundary-config-schema.js';
 
 export {
   LLMNodeConfigSchema,
@@ -79,11 +84,7 @@ export {
 } from './variable-configs-schema.js';
 
 export {
-  StartNodeConfigSchema,
-  EndNodeConfigSchema,
   RouteNodeConfigSchema,
-  isStartNodeConfig,
-  isEndNodeConfig,
   isRouteNodeConfig,
 } from './control-configs-schema.js';
 

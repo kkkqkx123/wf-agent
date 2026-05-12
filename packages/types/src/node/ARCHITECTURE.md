@@ -71,10 +71,8 @@ packages/types/src/node/
 │   ├── RuntimeNode           # Union of all runtime nodes
 │   └── Type guards
 │
-├── runtime/                  # Runtime-only configurations
-│   └── subgraph-runtime-configs.ts
-│       ├── SubgraphStartNodeConfig
-│       └── SubgraphEndNodeConfig
+├── runtime/                  # Runtime-only configurations (deprecated, removed in v2.0)
+│   └── (previously contained subgraph-runtime-configs.ts)
 │
 └── base.ts                   # Backward compatibility exports
 ```

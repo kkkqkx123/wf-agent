@@ -7,7 +7,7 @@
  * - Provide a complete lifecycle status for trigger workflows
  */
 
-import type { ID, ExecuteTriggeredSubgraphActionConfig } from "@wf-agent/types";
+import type { ID, ExecuteTriggeredSubgraphActionConfig, LLMMessage } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../entities/index.js";
 import type { WorkflowExecutionResult } from "@wf-agent/types";
 import { TaskStatus } from "../../../core/types/index.js";
@@ -18,8 +18,10 @@ import { TaskStatus } from "../../../core/types/index.js";
 export interface TriggeredSubgraphTask {
   /** Sub-workflow ID */
   subgraphId: ID;
-  /** Input data */
+  /** Input data (variables) */
   input: Record<string, unknown>;
+  /** Named message contexts to pass to the subworkflow */
+  messageContexts?: Record<string, LLMMessage[]>;
   /** Trigger ID */
   triggerId: string;
   /** Main Workflow Execution Entity */

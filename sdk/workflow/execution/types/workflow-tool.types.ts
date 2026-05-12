@@ -15,6 +15,7 @@ import type { TaskQueue } from "../../stores/task/task-queue.js";
 import type { WorkflowRegistry } from "../../stores/workflow-registry.js";
 import type { WorkflowGraphRegistry } from "../../stores/workflow-graph-registry.js";
 import type { GlobalContext } from "../../../core/global-context.js";
+import type { LLMMessage } from "@wf-agent/types";
 
 /**
  * Workflow Tool Execution Context
@@ -50,8 +51,10 @@ export interface WorkflowToolExecutionContext {
 export interface ExecuteWorkflowParams {
   /** Workflow ID to execute */
   workflowId: string;
-  /** Input parameters for the workflow */
+  /** Input parameters for the workflow (variables) */
   input?: Record<string, unknown>;
+  /** Named message contexts to pass to the workflow */
+  messageContexts?: Record<string, LLMMessage[]>;
   /** Whether to wait for completion (default: true) */
   waitForCompletion?: boolean;
   /** Timeout in milliseconds */

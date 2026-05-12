@@ -8,46 +8,13 @@
  * - Explicit variable mapping (like function parameters)
  * - Variable isolation through scope stack mechanism
  * - Clear interface contract between parent and child workflows
- * - START node in subgraph receives mapped inputs, but does NOT define outputs
+ * - Reuses WorkflowBoundaryConfig for consistent boundary handling across all workflow types
  */
 
 import type { ID } from '../../common.js';
+import type { WorkflowVariableInput, WorkflowVariableOutput } from '../../workflow/boundary-config.js';
 
-/**
- * Variable Input Mapping
- * Defines how parent workflow variables are passed to subgraph
- */
-export interface SubgraphVariableInput {
-  /** Parent workflow variable name (source) */
-  externalName: string;
-  
-  /** Subgraph internal variable name (target) */
-  internalName: string;
-  
-  /** Whether this input is required */
-  required?: boolean;
-  
-  /** Default value if parent variable is not found */
-  defaultValue?: unknown;
-  
-  /** Description for documentation */
-  description?: string;
-}
 
-/**
- * Variable Output Mapping
- * Defines how subgraph variables are returned to parent workflow
- */
-export interface SubgraphVariableOutput {
-  /** Subgraph internal variable name (source) */
-  internalName: string;
-  
-  /** Parent workflow variable name (target) */
-  externalName: string;
-  
-  /** Description for documentation */
-  description?: string;
-}
 
 /**
  * Subgraph node configuration
@@ -60,8 +27,9 @@ export interface SubgraphVariableOutput {
  * unless explicitly mapped. Variable isolation is achieved through VariableManager's
  * scope stack mechanism.
  * 
- * Note: variableOutputs has been removed from this configuration. Output values
- * should be handled through the workflow's execution result or END node configuration.
+ * Note: This configuration reuses WorkflowVariableInput/WorkflowVariableOutput from
+ * boundary-config.ts to maintain consistency with other workflow boundary configurations
+ * (START, END, START_FROM_TRIGGER, CONTINUE_FROM_TRIGGER).
  */
 export interface SubgraphNodeConfig {
   /** Subworkflow ID to embed */
@@ -78,6 +46,8 @@ export interface SubgraphNodeConfig {
    * 
    * During graph preprocessing, these mappings are transferred to the subgraph's
    * START node configuration, making them available at runtime.
+   * 
+   * Uses WorkflowVariableInput for consistency with other boundary configurations.
    * 
    * Example:
    * ```typescript
@@ -96,7 +66,19 @@ export interface SubgraphNodeConfig {
    * ]
    * ```
    */
-  variableInputs?: SubgraphVariableInput[];
+  variableInputs?: WorkflowVariableInput[];
+  
+  /**
+   * Variable Output Mapping
+   * 
+   * Defines how subgraph variables are returned to the parent workflow.
+   * Uses WorkflowVariableOutput for consistency with other boundary configurations.
+   * 
+   * Note: While this field exists in the SUBGRAPH node config for documentation
+   * and validation purposes, actual output handling is done through the subgraph's
+   * END node configuration or execution result.
+   */
+  variableOutputs?: WorkflowVariableOutput[];
   
   /**
    * Message context passing configuration
@@ -104,6 +86,10 @@ export interface SubgraphNodeConfig {
    * Maps parent workflow contexts to subgraph inputs,
    * and subgraph outputs back to parent workflow contexts.
    * This provides explicit control over message context flow between workflows.
+   * 
+   * Note: This is different from WorkflowMessageInput/WorkflowMessageOutput used
+   * in START/END nodes. Those define the boundary contract of a workflow itself,
+   * while this defines how the SUBGRAPH node maps contexts between parent and child.
    */
   messagePassing?: {
     /** Input mapping: parentContextId → subgraphInputExternalName */

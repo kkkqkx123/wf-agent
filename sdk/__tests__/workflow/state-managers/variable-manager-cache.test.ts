@@ -3,7 +3,7 @@
  * Tests the optional caching feature for performance optimization
  */
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { VariableManager } from "../../../workflow/state-managers/variable-manager.js";
 import type { VariableDefinition } from "@wf-agent/types";
 

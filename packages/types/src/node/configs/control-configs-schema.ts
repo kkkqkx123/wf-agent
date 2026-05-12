@@ -6,10 +6,32 @@
 import { z } from "zod";
 
 /**
+ * Variable input mapping schema
+ */
+const variableInputSchema = z.object({
+  externalName: z.string().min(1, "External name (parent variable) is required"),
+  internalName: z.string().min(1, "Internal name (workflow variable) is required"),
+  required: z.boolean().optional(),
+  defaultValue: z.any().optional(),
+  description: z.string().optional(),
+});
+
+/**
+ * Variable output mapping schema
+ */
+const variableOutputSchema = z.object({
+  internalName: z.string().min(1, "Internal name (workflow variable) is required"),
+  externalName: z.string().min(1, "External name (parent variable) is required"),
+  description: z.string().optional(),
+});
+
+/**
  * Start node configuration schema
- * Extended to support message context inputs/outputs declaration for subgraphs
+ * Extended to support variable inputs/outputs and message context inputs/outputs declaration for subgraphs
  */
 export const StartNodeConfigSchema = z.object({
+  variableInputs: z.array(variableInputSchema).optional(),
+  variableOutputs: z.array(variableOutputSchema).optional(),
   messageInputs: z.array(
     z.object({
       externalName: z.string().min(1, "External name is required"),

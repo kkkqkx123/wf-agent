@@ -9,14 +9,8 @@ export { ExecutionState, type SubgraphContext } from "../state-managers/index.js
 
 // Main Execution Engine
 export { WorkflowExecutor, type WorkflowExecutorDependencies } from "./executors/workflow-executor.js";
-// Backward compatibility
-export { WorkflowExecutor as WorkflowExecutor, type WorkflowExecutorDependencies as WorkflowExecutorDependencies } from "./executors/workflow-executor.js";
-
 // Workflow Execution Builder
 export { WorkflowExecutionBuilder } from "./factories/workflow-execution-builder.js";
-// Backward compatibility
-export { WorkflowExecutionBuilder as WorkflowExecutionBuilder } from "./factories/workflow-execution-builder.js";
-
 // Workflow State Validation
 export {
   validateTransition,

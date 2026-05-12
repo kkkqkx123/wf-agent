@@ -6,6 +6,17 @@
 import { z } from "zod";
 
 /**
+ * Loop variable input mapping schema
+ */
+const loopVariableInputSchema = z.object({
+  externalName: z.string().min(1, "External name (parent variable) is required"),
+  internalName: z.string().min(1, "Internal name (loop variable) is required"),
+  required: z.boolean().optional(),
+  defaultValue: z.any().optional(),
+  description: z.string().optional(),
+});
+
+/**
  * Loop data source schema
  *
  * DataSource supports two forms:
@@ -26,22 +37,12 @@ const dataSourceSchema = z.object({
  * 1. Data-driven loop: Provides dataSource (which includes iterable and variableName)
  * 2. Count-driven loop: Does not provide dataSource, uses only maxIterations
  *
- * Description: Initializes loop iteration, supporting two loop modes
- *
- * Mode 1: Data-driven loop (providing dataSource)
- * - Iterates over a specified data collection (array, object, etc.)
- * - Automatically extracts the current value into the loop variable in each iteration
- * - Example: Iterate over [1,2,3], item = current value each time
- *
- * Mode 2: Count-driven loop (not providing dataSource)
- * - Loops a fixed number of times based only on maxIterations
- * - No loop variable, the loop body can maintain state itself
- * - Example: Check 10 times
- *
- * - Loop state (iteration count, index, etc.) is stored in loop-level scope and automatically managed with the scope lifecycle
+ * IMPORTANT: Loops do NOT inherit parent workflow variables automatically.
+ * All variables needed inside the loop must be explicitly declared in variableInputs.
  */
 export const LoopStartNodeConfigSchema = z.object({
   loopId: z.string().min(1, "Loop ID is required"),
+  variableInputs: z.array(loopVariableInputSchema).optional(),
   dataSource: dataSourceSchema.optional(),
   maxIterations: z.number().positive("Max iterations must be positive"),
 });

@@ -75,22 +75,3 @@ export interface VariableDefinition {
     required?: boolean;
   };
 }
-
-/**
- * Legacy: Workflow Execution Variable Types
- * @deprecated Use VariableDefinition instead. Will be removed after refactoring.
- */
-export interface WorkflowExecutionVariable {
-  /** Variable name */
-  name: string;
-  /** Variable value */
-  value: unknown;
-  /** Variable type */
-  type: VariableValueType;
-  /** Variable scope */
-  scope: VariableScope;
-  /** Read-only or not */
-  readonly: boolean;
-  /** Variable metadata */
-  metadata?: Metadata;
-}

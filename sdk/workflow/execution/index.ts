@@ -31,7 +31,8 @@ export { WorkflowExecutionRegistry } from "../stores/workflow-execution-registry
 
 // Variable Coordinator and State Manager
 export { VariableCoordinator } from "./coordinators/variable-coordinator.js";
-export { VariableState } from "../state-managers/variable-state.js";
+// Unified VariableManager
+export { VariableManager, type VariableManagerSnapshot } from "../state-managers/variable-manager.js";
 
 // LLM Execution-related - Re-exporting from the General Execution Core
 export {

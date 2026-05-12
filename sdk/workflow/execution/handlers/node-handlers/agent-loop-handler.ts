@@ -154,7 +154,7 @@ export async function agentLoopHandler(
     
     // Add input prompt if available
     const inputPrompt =
-      execution.variableScopes?.workflowExecution?.["input"] || execution.variableScopes?.workflowExecution?.["prompt"];
+      execution.variableScopes?.execution?.["input"] || execution.variableScopes?.execution?.["prompt"];
 
     if (inputPrompt && typeof inputPrompt === "string") {
       initialMessages.push({ role: "user", content: inputPrompt });
@@ -232,10 +232,10 @@ export async function agentLoopHandler(
     }
 
     // 4. Update the variable
-    if (execution.variableScopes?.workflowExecution) {
-      execution.variableScopes.workflowExecution["output"] = result.content;
-      execution.variableScopes.workflowExecution["agentLoopIterations"] = result.iterations;
-      execution.variableScopes.workflowExecution["agentLoopToolCallCount"] = result.toolCallCount;
+    if (execution.variableScopes?.execution) {
+      execution.variableScopes.execution["output"] = result.content;
+      execution.variableScopes.execution["agentLoopIterations"] = result.iterations;
+      execution.variableScopes.execution["agentLoopToolCallCount"] = result.toolCallCount;
     }
 
     return {
@@ -284,7 +284,7 @@ export async function* agentLoopStreamHandler(
     
     // Add input prompt if available
     const inputPrompt =
-      execution.variableScopes?.workflowExecution?.["input"] || execution.variableScopes?.workflowExecution?.["prompt"];
+      execution.variableScopes?.execution?.["input"] || execution.variableScopes?.execution?.["prompt"];
 
     if (inputPrompt && typeof inputPrompt === "string") {
       initialMessages.push({ role: "user", content: inputPrompt });
@@ -326,10 +326,10 @@ export async function* agentLoopStreamHandler(
       .pop()?.content;
 
     // 4. Update the variable
-    if (execution.variableScopes?.workflowExecution) {
-      execution.variableScopes.workflowExecution["output"] = content;
-      execution.variableScopes.workflowExecution["agentLoopIterations"] = iterations;
-      execution.variableScopes.workflowExecution["agentLoopToolCallCount"] = toolCallCount;
+    if (execution.variableScopes?.execution) {
+      execution.variableScopes.execution["output"] = content;
+      execution.variableScopes.execution["agentLoopIterations"] = iterations;
+      execution.variableScopes.execution["agentLoopToolCallCount"] = toolCallCount;
     }
 
     return {

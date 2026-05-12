@@ -37,8 +37,8 @@ export type VariableNamespace =
   | "input" /** Input data */
   | "output" /** Output data */
   | "global" /** Global scope */
-  | "workflowExecution" /** Workflow execution scope */
-  | "local" /** Local scope */
+  | "execution" /** Execution scope (formerly workflowExecution) */
+  | "subgraph" /** Subgraph scope (formerly local) */
   | "loop"; /** Loop Scope */
 
 /**
@@ -95,11 +95,11 @@ export class VariableAccessor {
       case "global":
         return this.getFromScope(remainingPath || path, "global");
 
-      case "workflowExecution":
-        return this.getFromScope(remainingPath || path, "workflowExecution");
+      case "execution":
+        return this.getFromScope(remainingPath || path, "execution");
 
-      case "local":
-        return this.getFromScope(remainingPath || path, "local");
+      case "subgraph":
+        return this.getFromScope(remainingPath || path, "subgraph");
 
       case "loop":
         return this.getFromScope(remainingPath || path, "loop");
@@ -161,12 +161,12 @@ export class VariableAccessor {
       case "global":
         scopeData = scopes.global;
         break;
-      case "workflowExecution":
-        scopeData = scopes.workflowExecution;
+      case "execution":
+        scopeData = scopes.execution;
         break;
-      case "local":
-        if (scopes.local.length > 0) {
-          scopeData = scopes.local[scopes.local.length - 1];
+      case "subgraph":
+        if (scopes.subgraph.length > 0) {
+          scopeData = scopes.subgraph[scopes.subgraph.length - 1];
         }
         break;
       case "loop":

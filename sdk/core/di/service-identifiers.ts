@@ -40,7 +40,6 @@ import type { ToolVisibilityCoordinator as ToolVisibilityCoordinatorType } from 
 import type { ToolVisibilityStore as ToolVisibilityStoreType } from "../../workflow/stores/tool-visibility-store.js";
 import type { CheckpointCoordinator as CheckpointCoordinatorType } from "../../workflow/checkpoint/checkpoint-coordinator.js";
 import type { ConversationSession as ConversationSessionType } from "../messaging/conversation-session.js";
-import type { VariableState as VariableStateType } from "../../workflow/state-managers/variable-state.js";
 import type { TriggerState as TriggerStateType } from "../../workflow/state-managers/trigger-state.js";
 import type { InterruptionState as InterruptionStateType } from "../types/interruption-state.js";
 import type { SDKInstance as SDKInstanceType } from "../../api/shared/core/sdk-instance.js";
@@ -270,10 +269,10 @@ export const CheckpointCoordinator: ServiceIdentifier<CheckpointCoordinatorType>
 export const ConversationSession: ServiceIdentifier<ConversationSessionType> = Symbol("ConversationSession");
 
 /**
- * VariableState - Variable State Manager
- * Specializes in managing the runtime state of variables
+ * VariableManager - Unified Variable State Manager
+ * Manages variable definitions, values, and scope stacks in a single Map structure
  */
-export const VariableState: ServiceIdentifier<VariableStateType> = Symbol("VariableState");
+export const VariableManager: ServiceIdentifier<any> = Symbol("VariableManager");
 
 /**
  * TriggerState - Trigger State Manager

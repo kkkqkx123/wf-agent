@@ -8,7 +8,7 @@ import type { ID, Version, Timestamp } from "../common.js";
 import type { WorkflowTrigger } from "../trigger/index.js";
 import type { TriggerReference } from "../trigger-template.js";
 import type { WorkflowTemplateType } from "./type.js";
-import type { WorkflowVariable } from "./variables.js";
+import type { VariableDefinition } from "../workflow-execution/variables.js";
 import type { WorkflowConfig } from "./config.js";
 import type { WorkflowMetadata } from "./metadata.js";
 import type { TriggeredSubworkflowConfig } from "./config.js";
@@ -46,7 +46,7 @@ export interface WorkflowTemplate {
   edges: Edge[];
 
   /** Array of workflow variable definitions for declaring variables required during execution */
-  variables?: WorkflowVariable[];
+  variables?: VariableDefinition[];
 
   /** Workflow trigger definitions for declaring workflow-level event triggers */
   triggers?: (WorkflowTrigger | TriggerReference)[];

@@ -22,7 +22,7 @@ import type { SubgraphContext } from "../state-managers/execution-state.js";
 import { ExecutionState } from "../state-managers/execution-state.js";
 import { WorkflowExecutionState } from "../state-managers/workflow-execution-state.js";
 import { MessageHistory } from "../../agent/state-managers/message-history.js";
-import { VariableState } from "../state-managers/variable-state.js";
+import { VariableManager } from "../state-managers/variable-manager.js";
 import { ExecutionHierarchyManager } from "../../core/execution/execution-hierarchy-manager.js";
 import type { ExecutionHierarchyRegistry } from "../../core/registry/execution-hierarchy-registry.js";
 import { ToolFailureProtectionState } from "../../core/state-managers/tool-failure-protection-state.js";
@@ -63,8 +63,8 @@ export class WorkflowExecutionEntity {
   /** Message History Manager */
   readonly messageHistoryManager: MessageHistory;
 
-  /** Variable State Manager */
-  readonly variableStateManager: VariableState;
+  /** Variable State Manager (NEW - Simplified) */
+  readonly variableStateManager: VariableManager;
 
   /** Tool Failure Protection State Manager (NEW) */
   readonly toolFailureProtection: ToolFailureProtectionState;
@@ -101,7 +101,7 @@ export class WorkflowExecutionEntity {
     this.executionState = executionState;
     this.state = state ?? new WorkflowExecutionState();
     this.messageHistoryManager = new MessageHistory(workflowExecution.id);
-    this.variableStateManager = new VariableState();
+    this.variableStateManager = new VariableManager();
 
     // Initialize tool failure protection state
     this.toolFailureProtection = new ToolFailureProtectionState(toolFailureProtectionConfig);

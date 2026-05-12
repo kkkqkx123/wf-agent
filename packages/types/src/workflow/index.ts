@@ -12,9 +12,6 @@ export * from "./definition.js";
 // Export Configuration Type
 export * from "./config.js";
 
-// Exporting Variable Types
-export * from "./variables.js";
-
 // Export preprocessing related types
 export * from "./preprocess.js";
 

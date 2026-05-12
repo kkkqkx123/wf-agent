@@ -80,11 +80,11 @@ export class VariableResourceAPI extends ReadonlyResourceAPI<unknown, string, Va
     const [executionId, variableName] = this.parseVariableId(id);
     const execution = await this.getWorkflowExecution(executionId);
 
-    if (!(variableName in execution.variableScopes.workflowExecution)) {
+    if (!(variableName in execution.variableScopes.execution)) {
       return null;
     }
 
-    return execution.variableScopes.workflowExecution[variableName];
+    return execution.variableScopes.execution[variableName];
   }
 
   /**
@@ -107,7 +107,7 @@ export class VariableResourceAPI extends ReadonlyResourceAPI<unknown, string, Va
    */
   async getWorkflowExecutionVariables(executionId: string): Promise<Record<string, unknown>> {
     const executionEntity = await this.getWorkflowExecution(executionId);
-    return { ...executionEntity.variableScopes.workflowExecution };
+    return { ...executionEntity.variableScopes.execution };
   }
 
   /**
@@ -119,11 +119,11 @@ export class VariableResourceAPI extends ReadonlyResourceAPI<unknown, string, Va
   async getWorkflowExecutionVariable(executionId: string, name: string): Promise<unknown> {
     const executionEntity = await this.getWorkflowExecution(executionId);
 
-    if (!(name in executionEntity.variableScopes.workflowExecution)) {
+    if (!(name in executionEntity.variableScopes.execution)) {
       throw new NotFoundError(`Variable not found: ${name}`, "Variable", name);
     }
 
-    return executionEntity.variableScopes.workflowExecution[name];
+    return executionEntity.variableScopes.execution[name];
   }
 
   /**
@@ -134,7 +134,7 @@ export class VariableResourceAPI extends ReadonlyResourceAPI<unknown, string, Va
    */
   async hasWorkflowExecutionVariable(executionId: string, name: string): Promise<boolean> {
     const execution = await this.getWorkflowExecution(executionId);
-    return name in execution.variableScopes.workflowExecution;
+    return name in execution.variableScopes.execution;
   }
 
   /**
@@ -167,7 +167,7 @@ export class VariableResourceAPI extends ReadonlyResourceAPI<unknown, string, Va
     for (const executionEntity of executionContexts) {
       const executionId = executionEntity.id;
       const execution = executionEntity.getExecution();
-      const variables = execution.variableScopes.workflowExecution;
+      const variables = execution.variableScopes.execution;
 
       stats.byExecution[executionId] = Object.keys(variables).length;
       stats.totalVariables += Object.keys(variables).length;
@@ -188,18 +188,18 @@ export class VariableResourceAPI extends ReadonlyResourceAPI<unknown, string, Va
    * @returns Scope information
    */
   async getVariableScopes(executionId: string): Promise<{
-    workflowExecution: Record<string, unknown>;
+    execution: Record<string, unknown>;
     global: Record<string, unknown>;
-    local: Record<string, unknown>;
+    subgraph: Record<string, unknown>;
     loop: Record<string, unknown>;
   }> {
     const execution = await this.getWorkflowExecution(executionId);
     return {
-      workflowExecution: { ...execution.variableScopes.workflowExecution },
+      execution: { ...execution.variableScopes.execution },
       global: { ...execution.variableScopes.global },
-      local:
-        execution.variableScopes.local.length > 0
-          ? { ...execution.variableScopes.local[execution.variableScopes.local.length - 1] }
+      subgraph:
+        execution.variableScopes.subgraph.length > 0
+          ? { ...execution.variableScopes.subgraph[execution.variableScopes.subgraph.length - 1] }
           : {},
       loop:
         execution.variableScopes.loop.length > 0
@@ -216,7 +216,7 @@ export class VariableResourceAPI extends ReadonlyResourceAPI<unknown, string, Va
    */
   async searchVariables(executionId: string, query: string): Promise<string[]> {
     const execution = await this.getWorkflowExecution(executionId);
-    const variables = execution.variableScopes.workflowExecution;
+    const variables = execution.variableScopes.execution;
 
     return Object.keys(variables).filter(name => name.toLowerCase().includes(query.toLowerCase()));
   }

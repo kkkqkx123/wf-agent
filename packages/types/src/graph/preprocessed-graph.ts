@@ -9,7 +9,7 @@ import type { IdMapping, SubgraphRelationship } from "../workflow/id-mapping.js"
 import type { WorkflowGraphAnalysis } from "./analysis.js";
 import type { PreprocessValidationResult, SubgraphMergeLog } from "../workflow/preprocess.js";
 import type { WorkflowTrigger } from "../trigger/index.js";
-import type { WorkflowVariable } from "../workflow/variables.js";
+import type { VariableDefinition } from "../workflow-execution/variables.js";
 import type { AvailableTools } from "../available-tools.js";
 
 /**
@@ -57,7 +57,7 @@ export interface WorkflowGraph extends WorkflowGraphStructure {
   triggers?: WorkflowTrigger[];
 
   /** Workflow variable definitions */
-  variables?: WorkflowVariable[];
+  variables?: VariableDefinition[];
 
   /** Whether or not it contains sub workflows */
   hasSubgraphs: boolean;

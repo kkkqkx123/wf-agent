@@ -10,7 +10,7 @@
  * Variable Scope Type (Single Value)
  * Define the scope level of the variable in the workflow
  */
-export type VariableScope = "global" | "workflowExecution" | "local" | "loop";
+export type VariableScope = "global" | "execution" | "subgraph" | "loop";
 
 /**
  * Variable Scope Structure (Runtime State)
@@ -22,20 +22,20 @@ export type VariableScope = "global" | "workflowExecution" | "local" | "loop";
  *
  * Scope Characteristics:
  * - **global**: Workflow-level global variables, shared across executions with same object reference
- * - **workflowExecution**: Execution-level variables, each execution has its own, deep copied on fork
- * - **local**: Local scope stack, supports nesting (e.g., entering subgraph)
+ * - **execution**: Execution-level variables, each execution has its own, deep copied on fork
+ * - **subgraph**: Subgraph scope stack, supports nesting (e.g., entering subgraph)
  * - **loop**: Loop scope stack, supports nested loops
  *
  * Access Priority (from low to high):
- * global < workflowExecution < local[...] < loop[...]
+ * global < execution < subgraph[...] < loop[...]
  *
  * Description:
  * - When accessing variables, search in higher priority scopes first
- * - local and loop are stack structures, use top of stack (innermost) value when accessing
+ * - subgraph and loop are stack structures, use top of stack (innermost) value when accessing
  * - Usage examples:
  *   - global: Workflow configuration, constants, global state
- *   - workflowExecution: Temporary variables during workflow execution, intermediate results
- *   - local: Local variables within subgraph (destroyed after subgraph ends)
+ *   - execution: Temporary variables during workflow execution, intermediate results
+ *   - subgraph: Local variables within subgraph (destroyed after subgraph ends)
  *   - loop: Loop iteration variables (destroyed after loop ends)
  */
 export interface VariableScopes {
@@ -57,7 +57,7 @@ export interface VariableScopes {
   global: Record<string, unknown>;
 
   /**
-   * WorkflowExecution Scope - Within single execution
+   * Execution Scope - Within single execution
    *
    * Characteristics:
    * - Each execution has its own independent object, no interference
@@ -67,21 +67,21 @@ export interface VariableScopes {
    *
    * Example:
    * ```typescript
-   * execution.variableScopes.workflowExecution['result'] = data;
+   * execution.variableScopes.execution['result'] = data;
    * // Only visible in this execution
    * ```
    */
-  workflowExecution: Record<string, unknown>;
+  execution: Record<string, unknown>;
 
   /**
-   * Local Scope Stack - Supports nesting
+   * Subgraph Scope Stack - Supports nesting
    *
    * Characteristics:
    * - Array-based stack structure, each element is a scope
-   * - Push new object when entering local scope (e.g., entering subgraph)
-   * - Pop when exiting local scope
-   * - Higher priority than global/workflowExecution scope
-   * - Automatically destroyed after local scope ends, doesn't affect parent scope
+   * - Push new object when entering subgraph scope
+   * - Pop when exiting subgraph scope
+   * - Higher priority than global/execution scope
+   * - Automatically destroyed after subgraph scope ends, doesn't affect parent scope
    *
    * Use Cases:
    * - Local variables in subgraph
@@ -91,14 +91,14 @@ export interface VariableScopes {
    * Example:
    * ```typescript
    * // Enter subgraph
-   * execution.variableScopes.local.push({ tempVar: 'value' });
+   * execution.variableScopes.subgraph.push({ tempVar: 'value' });
    * // tempVar accessible in subgraph
    * // Exit subgraph
-   * execution.variableScopes.local.pop();
+   * execution.variableScopes.subgraph.pop();
    * // tempVar no longer visible
    * ```
    */
-  local: Record<string, unknown>[];
+  subgraph: Record<string, unknown>[];
 
   /**
    * Loop Scope Stack - Supports nested loops

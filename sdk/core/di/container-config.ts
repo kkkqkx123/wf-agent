@@ -94,7 +94,7 @@ import { WorkflowLifecycleCoordinator } from "../../workflow/execution/coordinat
 
 // Execution Layer - Managers
 import { ConversationSession } from "../messaging/conversation-session.js";
-import { VariableState } from "../../workflow/state-managers/variable-state.js";
+import { VariableManager } from "../../workflow/state-managers/variable-manager.js";
 import { TriggerState } from "../../workflow/state-managers/trigger-state.js";
 import { InterruptionState } from "../types/interruption-state.js";
 import { AgentLoopExecutor } from "../../agent/execution/executors/agent-loop-executor.js";
@@ -470,13 +470,13 @@ export function configureContainerBindings(
   // Level 10: Basic Managers at the Execution Layer (without dependencies or factory patterns)
   // ============================================================
 
-  // VariableState - Variable State Manager Factory
-  // VariableState requires executionId, use factory pattern to create instance
+  // VariableManager - Simplified Variable State Manager Factory (NEW)
+  // VariableManager requires executionId, use factory pattern to create instance
   container
-    .bind(Identifiers.VariableState)
+    .bind(Identifiers.VariableManager)
     .toDynamicValue(() => {
       return {
-        create: () => new VariableState(),
+        create: () => new VariableManager(),
       };
     })
     .inSingletonScope();
@@ -509,13 +509,14 @@ export function configureContainerBindings(
   // Layer Eleven: Execution Layer Coordinators (High Priority)
   // ============================================================
 
-  // VariableCoordinator - A variable coordinator that relies on VariableState and EventRegistry
+  // VariableCoordinator - A variable coordinator that relies on VariableManager and EventRegistry
   container
     .bind(Identifiers.VariableCoordinator)
     .toDynamicValue((c: IContainer): VariableCoordinator => {
-      const stateManager = c.get(Identifiers.VariableState) as VariableState;
+      const managerFactory = c.get(Identifiers.VariableManager) as { create: () => VariableManager };
+      const manager = managerFactory.create();
       const eventManager = c.get(Identifiers.EventRegistry) as EventRegistry;
-      return new VariableCoordinator(stateManager, eventManager);
+      return new VariableCoordinator(manager, eventManager);
     })
     .inSingletonScope();
 

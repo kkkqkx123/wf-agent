@@ -3,7 +3,9 @@
  * Provides state management classes for workflow execution.
  */
 
-export { VariableState } from "./variable-state.js";
+// Unified VariableManager
+export { VariableManager, type VariableManagerSnapshot } from "./variable-manager.js";
+
 export { ExecutionState, type SubgraphContext } from "./execution-state.js";
 export {
   AsyncCompletionManager,

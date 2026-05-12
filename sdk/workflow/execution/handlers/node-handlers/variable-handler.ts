@@ -41,7 +41,7 @@ function resolveVariableReferences(expression: string, workflowExecution: Workfl
     const rootVarName = varPath.split(".")[0];
 
     // First, try to obtain the value from the workflowExecution variable.
-    let value: unknown = workflowExecution.variableScopes.workflowExecution?.[rootVarName];
+    let value: unknown = workflowExecution.variableScopes.execution?.[rootVarName];
 
     // If the first part does not exist in the workflowExecution variable, try to obtain it from the global variable.
     if (value === undefined && workflowExecution.variableScopes) {
@@ -82,7 +82,7 @@ function evaluateExpression(expression: string, variableType: string, execution:
     }
 
     // Create a function scope that includes variables from the workflowExecution scope.
-    const executionScope = execution.variableScopes.workflowExecution || {};
+    const executionScope = execution.variableScopes.execution || {};
     const globalScope = execution.variableScopes.global || {};
 
     const func = new Function(
@@ -199,7 +199,7 @@ export async function variableHandler(
 
   // Update the variable
   const variable = workflowExecution.variables.find((v) => v.name === config.variableName);
-  const variableScope = config.scope || "workflowExecution";
+  const variableScope = config.scope || "execution";
 
   if (variable) {
     variable.value = typedResult;
@@ -218,12 +218,12 @@ export async function variableHandler(
     case "global":
       workflowExecution.variableScopes.global[config.variableName] = typedResult;
       break;
-    case "workflowExecution":
-      workflowExecution.variableScopes.workflowExecution[config.variableName] = typedResult;
+    case "execution":
+      workflowExecution.variableScopes.execution[config.variableName] = typedResult;
       break;
-    case "local":
-      if (workflowExecution.variableScopes.local.length > 0) {
-        workflowExecution.variableScopes.local[workflowExecution.variableScopes.local.length - 1]![config.variableName] =
+    case "subgraph":
+      if (workflowExecution.variableScopes.subgraph.length > 0) {
+        workflowExecution.variableScopes.subgraph[workflowExecution.variableScopes.subgraph.length - 1]![config.variableName] =
           typedResult;
       }
       break;

@@ -18,7 +18,6 @@ import type {
   MessageMarkMap,
   DeltaStorageConfig,
   TCheckpointType,
-  WorkflowExecutionVariable,
   LLMMessage,
   NodeExecutionResult,
   TriggerRuntimeState,
@@ -31,7 +30,7 @@ import { ConversationSession } from "../../core/messaging/conversation-session.j
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "CheckpointCoordinator" });
-import { VariableState } from "../state-managers/variable-state.js";
+import { VariableManager } from "../state-managers/variable-manager.js";
 import { WorkflowExecutionEntity } from "../entities/workflow-execution-entity.js";
 import { ExecutionState } from "../state-managers/execution-state.js";
 import { WorkflowStateCoordinator } from "../state-managers/workflow-state-coordinator.js";
@@ -232,9 +231,11 @@ export class CheckpointCoordinator {
     workflowExecution: WorkflowExecution,
     conversationManager?: ConversationSession,
     ): WorkflowExecutionStateSnapshot {
-    // Create a variable snapshot using VariableState
-    const variableStateManager = new VariableState();
-    const variableSnapshot = variableStateManager.createSnapshot();
+    // Create a variable snapshot using VariableManager
+    const vmSnapshot = workflowExecutionEntity.variableStateManager.createSnapshot();
+    
+    // Convert Map to array for backward compatibility with checkpoint format
+    const variablesArray = Array.from(vmSnapshot.variables.values()).map(entry => entry.definition);
 
     // Convert the `nodeResults` array into Record format.
     const nodeResultsRecord: Record<string, NodeExecutionResult> = {};
@@ -271,8 +272,8 @@ export class CheckpointCoordinator {
     return {
       status: workflowExecutionEntity.getStatus(),
       currentNodeId: workflowExecution.currentNodeId,
-      variables: variableSnapshot.variables,
-      variableScopes: variableSnapshot.variableScopes,
+      variables: variablesArray,
+      variableScopes: vmSnapshot.scopeStacks as any, // Convert to compatible format
       input: workflowExecution.input,
       output: workflowExecution.output,
       nodeResults: nodeResultsRecord,
@@ -393,19 +394,27 @@ export class CheckpointCoordinator {
       graph,
     };
 
-    // Step 6: Restore the variable snapshot using VariableState
-    const variableStateManager = new VariableState();
-    variableStateManager.restoreFromSnapshot({
-      variables: workflowExecutionState.variables as WorkflowExecutionVariable[],
-      variableScopes: workflowExecutionState.variableScopes,
-    });
-
-    // Step 7: Create WorkflowExecutionEntity (without ConversationManager)
+    // Step 6: Create WorkflowExecutionEntity (without ConversationManager)
     const executionState = new ExecutionState();
     const workflowExecutionEntity = new WorkflowExecutionEntity(
       workflowExecution as WorkflowExecution,
       executionState,
     );
+
+    // Step 7: Restore the variable snapshot using VariableManager
+    // Convert from checkpoint format back to VariableManager format
+    const variablesMap = new Map();
+    for (const varDef of workflowExecutionState.variables as any[]) {
+      variablesMap.set(varDef.name, {
+        definition: varDef,
+        value: varDef.value,
+      });
+    }
+    
+    workflowExecutionEntity.variableStateManager.restoreFromSnapshot({
+      variables: variablesMap,
+      scopeStacks: workflowExecutionState.variableScopes as any,
+    });
 
     // Step 8: Create the ConversationSession
     const conversationManager = new ConversationSession();

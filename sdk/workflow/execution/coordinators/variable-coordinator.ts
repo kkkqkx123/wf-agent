@@ -12,15 +12,15 @@
  * - Stateless design: Does not maintain any mutable state
  * - Coordination logic: Encapsulates the coordination logic for variable operations
  * - Dependency injection: Receives managers for dependencies through the constructor
- * - Delegation pattern: Uses the VariableState for atomic state operations
+ * - Delegation pattern: Uses the VariableManager for atomic state operations
  */
 
 import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
-import type { VariableScope, WorkflowVariable } from "@wf-agent/types";
+import type { VariableScope, VariableDefinition } from "@wf-agent/types";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import { getErrorOrNew } from "@wf-agent/common-utils";
 import { RuntimeValidationError } from "@wf-agent/types";
-import { VariableState } from "../../state-managers/variable-state.js";
+import { VariableManager } from "../../state-managers/variable-manager.js";
 import { VariableAccessor } from "../utils/variable-accessor.js";
 import { emit } from "../../../core/utils/event/event-emitter.js";
 import { buildVariableChangedEvent } from "../utils/event/index.js";
@@ -41,103 +41,47 @@ const logger = createContextualLogger({ component: "VariableCoordinator" });
  * - Stateless design: Does not maintain any mutable state
  * - Coordination logic: Encapsulates the logic for coordinating variable operations
  * - Dependency injection: Receives managers for dependencies through the constructor
- * - Command pattern: Uses the VariableState to perform atomic state operations
+ * - Delegation pattern: Uses the VariableManager to perform atomic state operations
  */
 export class VariableCoordinator {
   constructor(
-    private stateManager: VariableState,
+    private manager: VariableManager,
     private eventManager?: EventRegistry,
     private executionId?: string,
     private workflowId?: string,
   ) {}
 
   /**
-   * Initialize variables from WorkflowTemplate
+   * Initialize variables from WorkflowTemplate (legacy support)
    * @param workflowVariables Workflow variable definitions
+   * @deprecated Use initializeFromDefinitions instead
    */
-  initializeFromWorkflow(workflowVariables: WorkflowVariable[]): void {
-    this.stateManager.initializeFromWorkflow(workflowVariables);
+  initializeFromWorkflow(workflowVariables: any[]): void {
+    this.manager.initializeFromWorkflow(workflowVariables);
   }
 
   /**
-   * Retrieve the value of a variable (searching based on scope priority)
-   * Priority: loop > local > workflowExecution > global
-   * Supports on-demand initialization: Variables in the workflowExecution, local, and loop scopes are initialized the first time they are accessed.
-   * @param executionEntity WorkflowExecutionEntity instance
+   * Initialize variables from VariableDefinition array (new API)
+   * @param variableDefinitions Array of variable definitions
+   */
+  initializeFromDefinitions(variableDefinitions: VariableDefinition[]): void {
+    this.manager.initializeFromDefinitions(variableDefinitions);
+  }
+
+  /**
+   * Retrieve the value of a variable
+   * Delegates to VariableManager.getVariable() which handles all scope priority logic
+   * 
+   * Priority: loop > subgraph > execution > global
+   * 
+   * @param _executionEntity WorkflowExecutionEntity instance (kept for API compatibility)
    * @param name Variable name
-   * @returns Variable value
+   * @returns Variable value or undefined if not found
    */
-  getVariable(executionEntity: WorkflowExecutionEntity, name: string): unknown {
-    const scopes = this.stateManager.getVariableScopes();
-
-    // Loop Scope (Highest Priority)
-    if (scopes.loop.length > 0) {
-      const currentLoopScope = scopes.loop[scopes.loop.length - 1];
-      if (currentLoopScope && name in currentLoopScope) {
-        return currentLoopScope[name];
-      }
-      // If the variable is not initialized, attempt to initialize it as needed.
-      if (currentLoopScope && !(name in currentLoopScope)) {
-        const initialized = this.initializeVariableOnDemand(name, "loop");
-        if (initialized !== undefined) {
-          return initialized;
-        }
-      }
-    }
-
-    // 2. Local Scope
-    if (scopes.local.length > 0) {
-      const currentLocalScope = scopes.local[scopes.local.length - 1];
-      if (currentLocalScope && name in currentLocalScope) {
-        return currentLocalScope[name];
-      }
-      // If the variable is not initialized, attempt to initialize it as needed.
-      if (currentLocalScope && !(name in currentLocalScope)) {
-        const initialized = this.initializeVariableOnDemand(name, "local");
-        if (initialized !== undefined) {
-          return initialized;
-        }
-      }
-    }
-
-    // 3. WorkflowExecution Scope
-    if (name in scopes.workflowExecution) {
-      return scopes.workflowExecution[name];
-    }
-    // If the variable is not initialized, attempt to initialize it as needed.
-    if (!(name in scopes.workflowExecution)) {
-      const initialized = this.initializeVariableOnDemand(name, "workflowExecution");
-      if (initialized !== undefined) {
-        return initialized;
-      }
-    }
-
-    // 4. Global scope (lowest priority)
-    if (name in scopes.global) {
-      return scopes.global[name];
-    }
-
-    return undefined;
-  }
-
-  /**
-   * Initialize variables as needed
-   * @param name: Variable name
-   * @param scope: Scope of the variable
-   * @returns: The initialized value; returns undefined if the variable does not exist
-   */
-  private initializeVariableOnDemand(name: string, scope: VariableScope): unknown {
-    const variableDef = this.stateManager.getVariableDefinition(name);
-
-    if (!variableDef) {
-      return undefined;
-    }
-
-    // Initialize with default values
-    const initialValue = variableDef.value;
-    this.stateManager.setVariableValue(name, initialValue, scope);
-
-    return initialValue;
+  getVariable(_executionEntity: WorkflowExecutionEntity, name: string): unknown {
+    // Simple delegation to VariableManager
+    // All scope priority logic is centralized in VariableManager.getVariable()
+    return this.manager.getVariable(name);
   }
 
   /**
@@ -153,7 +97,7 @@ export class VariableCoordinator {
     value: unknown,
     explicitScope?: VariableScope,
   ): Promise<void> {
-    const variableDef = this.stateManager.getVariableDefinition(name);
+    const variableDef = this.manager.getVariableDefinition(name);
 
     if (!variableDef) {
       throw new RuntimeValidationError(
@@ -194,14 +138,21 @@ export class VariableCoordinator {
       );
     }
 
-    // If an explicit scope is specified, use that scope.
-    const targetScope = explicitScope || variableDef.scope;
+    // If an explicit scope is specified, verify it matches the definition
+    if (explicitScope && explicitScope !== variableDef.scope) {
+      logger.warn("Explicit scope differs from variable definition scope", {
+        name,
+        definitionScope: variableDef.scope,
+        explicitScope,
+      });
+      // Use the definition's scope (more restrictive approach)
+    }
 
-    // Delegating atomic operations to the state manager.
-    this.stateManager.setVariableValue(name, value, targetScope);
+    // Delegate to VariableManager
+    this.manager.setVariable(name, value);
 
     // Trigger a variable change event
-    await this.emitVariableChangedEvent(executionEntity, name, value, targetScope);
+    await this.emitVariableChangedEvent(executionEntity, name, value, variableDef.scope);
   }
 
   /**
@@ -219,7 +170,7 @@ export class VariableCoordinator {
    * @returns A map of all variable key-value pairs
    */
   getAllVariables(): Record<string, unknown> {
-    return this.stateManager.getAllVariables();
+    return this.manager.getAllVariables();
   }
 
   /**
@@ -228,37 +179,39 @@ export class VariableCoordinator {
    * @returns Variable key-value pair within the specified scope
    */
   getVariablesByScope(scope: VariableScope): Record<string, unknown> {
-    return this.stateManager.getVariablesByScope(scope);
+    return this.manager.getVariablesByScope(scope);
   }
 
   /**
-   * Enter the local scope
-   * Automatically initialize the variables in this scope
+   * Enter subgraph scope
+   * Delegates to VariableManager
    */
   enterLocalScope(): void {
-    this.stateManager.enterLocalScope();
+    this.manager.enterSubgraphScope();
   }
 
   /**
-   * Leave the local scope
+   * Leave subgraph scope
+   * Delegates to VariableManager
    */
   exitLocalScope(): void {
-    this.stateManager.exitLocalScope();
+    this.manager.exitSubgraphScope();
   }
 
   /**
-   * Enter the scope of the loop
-   * Automatically initialize the variables within that scope
+   * Enter loop scope
+   * Delegates to VariableManager
    */
   enterLoopScope(): void {
-    this.stateManager.enterLoopScope();
+    this.manager.enterLoopScope();
   }
 
   /**
-   * Leave the loop scope
+   * Leave loop scope
+   * Delegates to VariableManager
    */
   exitLoopScope(): void {
-    this.stateManager.exitLoopScope();
+    this.manager.exitLoopScope();
   }
 
   /**
@@ -287,19 +240,19 @@ export class VariableCoordinator {
   }
 
   /**
-   * Copy variable (for fork scenarios)
-   * @param sourceStateManager Source state manager
-   * @param targetStateManager Target state manager
+   * Copy variables (for fork scenarios)
+   * @param source Source VariableManager
+   * @param target Target VariableManager
    */
-  copyVariables(sourceStateManager: VariableState, targetStateManager: VariableState): void {
-    targetStateManager.copyFrom(sourceStateManager);
+  copyVariables(source: VariableManager, target: VariableManager): void {
+    target.copyFrom(source);
   }
 
   /**
-   * Clear the variable
+   * Clear all variables
    */
   clearVariables(): void {
-    this.stateManager.cleanup();
+    this.manager.cleanup();
   }
 
   /**
@@ -388,10 +341,10 @@ export class VariableCoordinator {
   }
 
   /**
-   * Get the state manager (used for scenarios such as checkpoints)
-   * @returns VariableState instance
+   * Get the underlying VariableManager (for advanced use cases like checkpoints)
+   * @returns VariableManager instance
    */
-  getStateManager(): VariableState {
-    return this.stateManager;
+  getManager(): VariableManager {
+    return this.manager;
   }
 }

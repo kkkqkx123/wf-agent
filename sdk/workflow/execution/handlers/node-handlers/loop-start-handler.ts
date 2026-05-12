@@ -97,8 +97,8 @@ function resolveIterable(iterableConfig: unknown, workflowExecution: WorkflowExe
             }
             break;
 
-          case "workflowExecution":
-            value = workflowExecution.variableScopes.workflowExecution;
+          case "execution":
+            value = workflowExecution.variableScopes.execution;
             for (let i = 1; i < parts.length; i++) {
               value = (value as Record<string, unknown>)?.[parts[i]!];
             }
@@ -334,8 +334,8 @@ export async function loopStartHandler(
     if (!workflowExecution.variableScopes) {
       workflowExecution.variableScopes = {
         global: {},
-        workflowExecution: {},
-        local: [],
+        execution: {},
+        subgraph: [],
         loop: [],
       };
     }

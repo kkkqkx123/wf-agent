@@ -83,7 +83,7 @@ function evaluateBreakCondition(breakCondition: Condition, workflowExecution: Wo
   try {
     // Constructing the evaluation context
     const context: EvaluationContext = {
-      variables: workflowExecution.variableScopes.workflowExecution || {},
+      variables: workflowExecution.variableScopes.execution || {},
       input: workflowExecution.input || {},
       output: workflowExecution.output || {},
     };
@@ -97,7 +97,7 @@ function evaluateBreakCondition(breakCondition: Condition, workflowExecution: Wo
       workflowExecution.workflowId,
       {
         breakCondition,
-        variables: workflowExecution.variableScopes.workflowExecution,
+        variables: workflowExecution.variableScopes.execution,
         input: workflowExecution.input,
         output: workflowExecution.output,
       },

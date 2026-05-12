@@ -85,7 +85,7 @@ export class WorkflowExecutionBuilder {
     if (!this.globalContext) {
       throw new Error("GlobalContext not initialized. Use constructor with GlobalContext parameter.");
     }
-    return this.globalContext.container.get(Identifiers.VariableState);
+    return this.globalContext.container.get(Identifiers.VariableManager);
   }
 
   /**
@@ -219,8 +219,8 @@ export class WorkflowExecutionBuilder {
       variables: [],
       variableScopes: {
         global: {},
-        workflowExecution: {},
-        local: [],
+        execution: {},
+        subgraph: [],
         loop: [],
       },
       input: options.input || {},
@@ -334,11 +334,11 @@ export class WorkflowExecutionBuilder {
       currentNodeId: sourceWorkflowExecution.currentNodeId,
       graph: sourceWorkflowExecution.graph,
       variables: sourceWorkflowExecution.variables.map(v => ({ ...v })),
-      // 4-level scopes: global is shared through references, workflowExecution creates deep copies, local and loop values are cleared
+      // 4-level scopes: global is shared through references, execution creates deep copies, subgraph and loop values are cleared
       variableScopes: {
         global: sourceWorkflowExecution.variableScopes.global,
-        workflowExecution: { ...sourceWorkflowExecution.variableScopes.workflowExecution },
-        local: [],
+        execution: { ...sourceWorkflowExecution.variableScopes.execution },
+        subgraph: [],
         loop: [],
       },
       input: { ...sourceWorkflowExecution.input },
@@ -421,7 +421,7 @@ export class WorkflowExecutionBuilder {
     const workflowExecutionVariables = [];
 
     for (const variable of parentWorkflowExecution.variables) {
-      if (variable.scope === "workflowExecution") {
+      if (variable.scope === "execution") {
         workflowExecutionVariables.push({ ...variable });
       }
       // Global variables are not copied to child workflow executions; instead, they are shared through references
@@ -434,11 +434,11 @@ export class WorkflowExecutionBuilder {
       currentNodeId: forkConfig.startNodeId || parentWorkflowExecution.currentNodeId,
       graph: parentWorkflowExecution.graph,
       variables: workflowExecutionVariables,
-      // 4-level scopes: global is shared via references, workflowExecution creates deep copies, while local and loop scopes clear their contents upon exit
+      // 4-level scopes: global is shared via references, execution creates deep copies, while subgraph and loop scopes clear their contents upon exit
       variableScopes: {
         global: parentWorkflowExecution.variableScopes.global,
-        workflowExecution: { ...parentWorkflowExecution.variableScopes.workflowExecution },
-        local: [],
+        execution: { ...parentWorkflowExecution.variableScopes.execution },
+        subgraph: [],
         loop: [],
       },
       input: { ...parentWorkflowExecution.input },

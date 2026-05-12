@@ -12,12 +12,12 @@ import type { VariableValueType } from "../workflow-execution/variables.js";
 
 // Import the types to ensure schema stays in sync
 import type {
-  WorkflowVariable,
   CheckpointConfig,
   TriggeredSubworkflowConfig,
   WorkflowConfig,
   WorkflowMetadata,
 } from "./index.js";
+import type { VariableDefinition } from "../workflow-execution/variables.js";
 import { ToolApprovalOptionsSchema } from "../tool/tool-schema.js";
 
 /**
@@ -25,8 +25,8 @@ import { ToolApprovalOptionsSchema } from "../tool/tool-schema.js";
  */
 export const variableScopeSchema: z.ZodType<VariableScope> = z.enum([
   "global",
-  "workflowExecution",
-  "local",
+  "execution",
+  "subgraph",
   "loop",
 ]);
 
@@ -42,9 +42,26 @@ export const variableValueTypeSchema: z.ZodType<VariableValueType> = z.enum([
 ]);
 
 /**
- * Workflow Variable Schema
+ * Variable Definition Schema (NEW - Unified)
+ * Replaces WorkflowVariable with VariableDefinition
  */
-export const WorkflowVariableSchema: z.ZodType<WorkflowVariable> = z.object({
+export const VariableDefinitionSchema: z.ZodType<VariableDefinition> = z.object({
+  name: z.string().min(1, "Variable name is required"),
+  type: variableValueTypeSchema,
+  value: z.any(),
+  scope: variableScopeSchema,
+  readonly: z.boolean(),
+  metadata: z.object({
+    description: z.string().optional(),
+    required: z.boolean().optional(),
+  }).optional(),
+});
+
+/**
+ * Legacy: Workflow Variable Schema
+ * @deprecated Use VariableDefinitionSchema instead
+ */
+export const WorkflowVariableSchema: z.ZodType<any> = z.object({
   name: z.string().min(1, "Variable name is required"),
   type: variableValueTypeSchema,
   defaultValue: z.any().optional(),
@@ -129,7 +146,7 @@ export const WorkflowTemplateSchema = z.object({
   description: z.string().optional(),
   nodes: z.array(z.any()).min(1, "Workflow must have at least one node"),
   edges: z.array(z.any()),
-  variables: z.array(WorkflowVariableSchema).optional(),
+  variables: z.array(VariableDefinitionSchema).optional(),
   triggers: z.array(z.any()).optional(),
   triggeredSubworkflowConfig: TriggeredSubworkflowConfigSchema.optional(),
   config: WorkflowConfigSchema.optional(),
@@ -153,9 +170,22 @@ export const WorkflowTemplateSchema = z.object({
  */
 
 /**
- * Check if a value is a valid WorkflowVariable
+ * Check if a value is a valid VariableDefinition
  */
-export function isWorkflowVariable(value: unknown): value is WorkflowVariable {
+export function isVariableDefinition(value: unknown): value is VariableDefinition {
+  try {
+    VariableDefinitionSchema.parse(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Legacy: Check if a value is a valid WorkflowVariable
+ * @deprecated Use isVariableDefinition instead
+ */
+export function isWorkflowVariable(value: unknown): value is any {
   try {
     WorkflowVariableSchema.parse(value);
     return true;

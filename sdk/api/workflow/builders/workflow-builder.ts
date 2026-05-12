@@ -305,7 +305,7 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
       description?: string;
       required?: boolean;
       readonly?: boolean;
-      scope?: "global" | "workflowExecution" | "local" | "loop";
+      scope?: "global" | "execution" | "subgraph" | "loop"; // Updated to new naming
     },
   ): this {
     const variable: WorkflowVariable = {

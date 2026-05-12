@@ -112,17 +112,17 @@ function createInteractionContext(
     nodeId: node.id,
     getVariable: (variableName: string, _scope?: VariableScope) => {
       // Simplify the implementation; in reality, the variable should be retrieved from the workflow execution.
-      return workflowExecution.variableScopes.workflowExecution?.[variableName];
+      return workflowExecution.variableScopes.execution?.[variableName];
     },
     setVariable: async (variableName: string, value: unknown, _scope?: VariableScope) => {
       // Simplify the implementation; in reality, the variable in the workflow execution should be updated.
-      if (!workflowExecution.variableScopes.workflowExecution) {
-        workflowExecution.variableScopes.workflowExecution = {};
+      if (!workflowExecution.variableScopes.execution) {
+        workflowExecution.variableScopes.execution = {};
       }
-      workflowExecution.variableScopes.workflowExecution[variableName] = value;
+      workflowExecution.variableScopes.execution[variableName] = value;
     },
     getVariables: (_scope?: VariableScope) => {
-      return workflowExecution.variableScopes.workflowExecution || {};
+      return workflowExecution.variableScopes.execution || {};
     },
     timeout,
     cancelToken,
@@ -228,10 +228,10 @@ async function processVariableUpdate(
     const value = evaluateExpression(expression, inputData);
 
     // Update the variable
-    if (!workflowExecution.variableScopes.workflowExecution) {
-      workflowExecution.variableScopes.workflowExecution = {};
+    if (!workflowExecution.variableScopes.execution) {
+      workflowExecution.variableScopes.execution = {};
     }
-    workflowExecution.variableScopes.workflowExecution[variableConfig.variableName] = value;
+    workflowExecution.variableScopes.execution[variableConfig.variableName] = value;
 
     results[variableConfig.variableName] = value;
   }

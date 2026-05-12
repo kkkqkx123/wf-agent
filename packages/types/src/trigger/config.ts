@@ -97,7 +97,7 @@ export interface SetVariableActionParameters {
   /** variable key-value pair */
   variables: Record<string, unknown>;
   /** variable scope */
-  scope?: "global" | "workflowExecution" | "local" | "loop";
+  scope?: "global" | "execution" | "subgraph" | "loop";
 }
 
 /**

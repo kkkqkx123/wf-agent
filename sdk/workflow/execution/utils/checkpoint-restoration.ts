@@ -122,12 +122,19 @@ export async function restoreWorkflowFromCheckpoint(
         scope: "workflowExecution" as VariableScope,
         readonly: false,
       })) as WorkflowExecutionVariable[];
+      // Convert to VariableManager format
+      const variablesMap = new Map();
+      for (const varDef of variableArray) {
+        variablesMap.set(varDef.name, {
+          definition: varDef,
+          value: varDef.value,
+        });
+      }
+      
       workflowExecutionEntity.variableStateManager.restoreFromSnapshot({
-        variables: variableArray,
-        variableScopes: {
-          global: {},
-          workflowExecution: {},
-          local: [],
+        variables: variablesMap,
+        scopeStacks: {
+          subgraph: [],
           loop: [],
         },
       });

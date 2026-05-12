@@ -44,7 +44,7 @@ import { handleErrorWithContext } from "../../../core/utils/error-utils.js";
 import { now, diffTimestamp, getErrorOrNew } from "@wf-agent/common-utils";
 import { emit } from "../../../core/utils/event/event-emitter.js";
 import { getNodeHandler } from "../handlers/node-handlers/index.js";
-import { SUBGRAPH_METADATA_KEYS, SubgraphBoundaryType } from "@wf-agent/types";
+import { isSubgraphStartNode, isSubgraphEndNode } from "@wf-agent/types";
 import type { CheckpointDependencies } from "../../checkpoint/utils/checkpoint-utils.js";
 import { createCheckpoint } from "../../checkpoint/utils/checkpoint-utils.js";
 import {
@@ -287,7 +287,7 @@ export class NodeExecutionCoordinator {
     const executionId = workflowExecutionEntity.id;
     const abortSignal = this.interruptionManager.getAbortSignal();
 
-    logger.debug("Starting node execution", { executionId, nodeId, nodeType, nodeName: node.name });
+    logger.debug("Starting node execution", { executionId, nodeId, nodeType, nodeName: (node as WorkflowNode).name || (node as RuntimeNode).originalNode?.name });
 
     // Use the return value tagging system to check for interruptions.
     const interruption = checkWorkflowInterruption(abortSignal);
@@ -321,12 +321,12 @@ export class NodeExecutionCoordinator {
     // Get the GraphNode to check the boundary information.
     const graphNode = this.navigator.getGraph().getNode(nodeId);
 
-    // Check if it is a boundary node of a subgraph.
-    if (graphNode?.internalMetadata?.[SUBGRAPH_METADATA_KEYS.BOUNDARY_TYPE]) {
+    // Check if it is a boundary node of a subgraph using type guards.
+    if (graphNode && (isSubgraphStartNode(graphNode) || isSubgraphEndNode(graphNode))) {
       logger.debug("Handling subgraph boundary", {
         executionId,
         nodeId,
-        boundaryType: graphNode.internalMetadata[SUBGRAPH_METADATA_KEYS.BOUNDARY_TYPE],
+        nodeType: graphNode.type,
       });
       await this.handleSubgraphBoundary(workflowExecutionEntity, graphNode);
     }
@@ -355,7 +355,7 @@ export class NodeExecutionCoordinator {
               {
                 workflowExecutionId: workflowExecutionEntity.id,
                 nodeId,
-                description: configResult.description || `Before node: ${node.name}`,
+                description: configResult.description || `Before node: ${(node as WorkflowNode).name || (node as RuntimeNode).originalNode?.name}`,
               },
               this.checkpointDependencies,
             );
@@ -433,7 +433,7 @@ export class NodeExecutionCoordinator {
               {
                 workflowExecutionId: workflowExecutionEntity.id,
                 nodeId,
-                description: configResult.description || `After node: ${node.name}`,
+                description: configResult.description || `After node: ${(node as WorkflowNode).name || (node as RuntimeNode).originalNode?.name}`,
               },
               this.checkpointDependencies,
             );
@@ -521,18 +521,17 @@ export class NodeExecutionCoordinator {
   private async handleSubgraphBoundary(
     workflowExecutionEntity: WorkflowExecutionEntity,
     graphNode: {
+      id: string;
+      type: string;
       internalMetadata?: Record<string, unknown>;
       workflowId: string;
       parentWorkflowId?: string;
       originalNode?: any; // Original SUBGRAPH node
     },
   ): Promise<void> {
-    const boundaryType = graphNode.internalMetadata?.[
-      SUBGRAPH_METADATA_KEYS.BOUNDARY_TYPE
-    ] as SubgraphBoundaryType;
     const executionId = workflowExecutionEntity.id;
 
-    if (boundaryType === "entry") {
+    if (isSubgraphStartNode(graphNode)) {
       logger.info("Entering subgraph", {
         executionId,
         subgraphId: graphNode.workflowId,
@@ -550,7 +549,7 @@ export class NodeExecutionCoordinator {
         input,
       });
       await emit(this.eventManager, subgraphStartedEvent);
-    } else if (boundaryType === "exit") {
+    } else if (isSubgraphEndNode(graphNode)) {
       // Exit the subgraph
       const subgraphContext = workflowExecutionEntity.getCurrentSubgraphContext();
       if (subgraphContext) {

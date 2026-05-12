@@ -9,24 +9,28 @@ import type { Edge, EdgeType } from "../edge.js";
 /**
  * Workflow Node Type
  * 
- * Represents nodes in the workflow execution graph.
- * Extends RuntimeNode with additional metadata for graph operations.
+ * Represents nodes in the workflow execution graph AFTER preprocessing.
+ * This is a RuntimeNode with additional graph-specific properties.
+ * 
+ * IMPORTANT: Display metadata (name/description) are NOT part of RuntimeNode.
+ * They are optionally copied here from StaticNode for logging/debugging convenience.
+ * For CRUD/UI operations, always use the originalNode reference.
  * 
  * This is used during:
  * - Graph building and preprocessing
  * - Graph validation and analysis  
  * - Workflow execution (nodes retrieved from the graph)
  */
-export interface WorkflowNode extends Omit<RuntimeNode, 'name'> {
-  /** Node name (copied from static node for logging/debugging) */
-  name: string;
-  
-  /** Optional node description (copied from static node) */
-  description?: string;
-  
-  /** Reference to the original static node definition */
+export type WorkflowNode = RuntimeNode & {
+  /** Reference to the original static node definition (for accessing display props if needed) */
   originalNode?: StaticNode;
-}
+  
+  /** 
+   * Optional node name copied from static node for logging/debugging convenience.
+   * @deprecated Access via originalNode?.name instead for better separation of concerns.
+   */
+  name?: string;
+};
 
 /**
  * Workflow Edge Types

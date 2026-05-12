@@ -84,7 +84,4 @@ export interface RuntimeNodeContext {
   /** Graph structure (populated during preprocessing) */
   outgoingEdgeIds: ID[];
   incomingEdgeIds: ID[];
-  
-  /** Node name for logging and debugging (copied from static node during preprocessing) */
-  name?: string;
 }

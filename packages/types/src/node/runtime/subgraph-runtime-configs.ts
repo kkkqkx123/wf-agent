@@ -82,9 +82,19 @@ export interface SubgraphStartNodeConfig {
   messageInputs?: SubgraphStartMessageInput[];
   
   /**
-   * Original subgraph ID (for debugging/tracing)
+   * Original SUBGRAPH node ID from parent workflow (for tracing)
    */
-  originalSubgraphId?: ID;
+  originalSubgraphNodeId?: ID;
+  
+  /**
+   * Subgraph namespace prefix (used for node ID namespacing)
+   */
+  namespace?: string;
+  
+  /**
+   * Subgraph nesting depth (for debugging/tracing)
+   */
+  depth?: number;
 }
 
 // ============================================================================
@@ -146,7 +156,17 @@ export interface SubgraphEndNodeConfig {
   messageOutputs?: SubgraphEndMessageOutput[];
   
   /**
-   * Original subgraph ID (for debugging/tracing)
+   * Original SUBGRAPH node ID from parent workflow (for tracing)
    */
-  originalSubgraphId?: ID;
+  originalSubgraphNodeId?: ID;
+  
+  /**
+   * Subgraph namespace prefix (used for node ID namespacing)
+   */
+  namespace?: string;
+  
+  /**
+   * Subgraph nesting depth (for debugging/tracing)
+   */
+  depth?: number;
 }

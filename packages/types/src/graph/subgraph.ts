@@ -1,13 +1,16 @@
 /**
  * Subgraph boundary tagging constants
- * Define keys used in metadata to avoid naming conflicts
+ * 
+ * @deprecated These metadata keys were used in the old architecture where START/END 
+ * nodes were marked via internalMetadata. Now we use proper type conversion:
+ * - START → SUBGRAPH_START
+ * - END → SUBGRAPH_END
+ * 
+ * Use isSubgraphStartNode() and isSubgraphEndNode() type guards instead.
  */
 
 import type { ID } from "../common.js";
 
-/**
- * Subgraph boundary marker metadata key name constant
- */
 export const SUBGRAPH_METADATA_KEYS = {
   /** Boundary types: 'entry' | 'exit' | 'internal' */
   BOUNDARY_TYPE: "subgraphBoundaryType",

@@ -7,6 +7,7 @@
 import type {
   WorkflowTemplate,
   StaticNodeType,
+  RuntimeNodeType,
   ID,
   WorkflowNode,
   WorkflowEdge,
@@ -43,23 +44,31 @@ export class WorkflowGraphBuilder {
 
     // Build nodes
     for (const node of workflow.nodes) {
-      const workflowNode: WorkflowNode = {
+      const workflowNode = {
         id: node.id,
-        type: node.type as WorkflowNode['type'], // Cast from StaticNodeType to RuntimeNodeType
-        name: node.name,
-        description: node.description,
+        type: node.type as RuntimeNodeType,
         config: node.config,
+        hooks: node.hooks,
+        checkpointBeforeExecute: node.checkpointBeforeExecute,
+        checkpointAfterExecute: node.checkpointAfterExecute,
+        
+        // Runtime context (initialized, will be populated during preprocessing)
+        internalMetadata: {},
         originalNode: node,
         workflowId: workflow.id,
+        parentWorkflowId: undefined,
         outgoingEdgeIds: [],
         incomingEdgeIds: [],
-      };
+        
+        // Copy name for logging/debugging convenience (optional)
+        name: node.name,
+      } as WorkflowNode;
       graph.addNode(workflowNode);
 
       // Record the START and END nodes.
-      if (node.type === ("START" as StaticNodeType)) {
+      if (node.type === "START") {
         graph.startNodeId = node.id;
-      } else if (node.type === ("END" as StaticNodeType)) {
+      } else if (node.type === "END") {
         graph.endNodeIds.add(node.id);
       }
     }
@@ -367,52 +376,71 @@ export class WorkflowGraphBuilder {
     for (const node of subgraph.nodes.values()) {
       const newId = generateNamespacedNodeId(options.nodeIdPrefix || "", node.id);
 
-      const newNode: WorkflowNode = {
-        ...node,
-        id: newId,
-        originalNode: node.originalNode,
-        workflowId: options.subworkflowId,
-        parentWorkflowId: options.parentWorkflowId,
-      };
-
-      // Add the internalMetadata tag to the boundary nodes.
-      if (node.type === ("START" as StaticNodeType)) {
-        newNode.internalMetadata = {
-          ...newNode.internalMetadata,
-          [SUBGRAPH_METADATA_KEYS.BOUNDARY_TYPE]: "entry",
-          [SUBGRAPH_METADATA_KEYS.ORIGINAL_NODE_ID]: subgraphNodeId,
-          [SUBGRAPH_METADATA_KEYS.NAMESPACE]: options.nodeIdPrefix,
-          [SUBGRAPH_METADATA_KEYS.DEPTH]: options.depth,
+      let newNode: WorkflowNode;
+      
+      // Transform START -> SUBGRAPH_START and END -> SUBGRAPH_END
+      if (node.type === "START") {
+        const startConfig = node.config as any;
+        const subgraphStartConfig: any = {
+          variableInputs: startConfig.variableInputs,
+          messageInputs: startConfig.messageInputs,
+          originalSubgraphNodeId: subgraphNodeId,
+          namespace: options.nodeIdPrefix,
+          depth: options.depth,
         };
         
-        // IMPORTANT: Transfer variableInputs from SUBGRAPH node config to START node config
-        // This ensures that the START node knows which variables to expect from the parent workflow
+        // Transfer variableInputs from SUBGRAPH node config to START node config
         const subgraphNode = mainGraph.getNode(subgraphNodeId);
         if (subgraphNode) {
           const subgraphConfig = subgraphNode.originalNode?.config as Record<string, unknown>;
           if (subgraphConfig && subgraphConfig['variableInputs']) {
-            // Update the START node's config to include the variable inputs
-            const startConfig = (newNode.originalNode?.config || {}) as Record<string, unknown>;
-            startConfig['variableInputs'] = subgraphConfig['variableInputs'];
-            newNode.originalNode = {
-              ...newNode.originalNode!,
-              config: startConfig as any,
-            };
-            
-            logger.debug("Transferred variableInputs from SUBGRAPH node to START node", {
+            subgraphStartConfig.variableInputs = subgraphConfig['variableInputs'];
+            logger.debug("Transferred variableInputs from SUBGRAPH node to SUBGRAPH_START node", {
               subgraphNodeId,
               startNodeId: newId,
               inputCount: (subgraphConfig['variableInputs'] as Array<any>).length,
             });
           }
         }
-      } else if (node.type === ("END" as StaticNodeType)) {
-        newNode.internalMetadata = {
-          ...newNode.internalMetadata,
-          [SUBGRAPH_METADATA_KEYS.BOUNDARY_TYPE]: "exit",
-          [SUBGRAPH_METADATA_KEYS.ORIGINAL_NODE_ID]: subgraphNodeId,
-          [SUBGRAPH_METADATA_KEYS.NAMESPACE]: options.nodeIdPrefix,
-          [SUBGRAPH_METADATA_KEYS.DEPTH]: options.depth,
+        
+        newNode = {
+          ...node,
+          id: newId,
+          type: "SUBGRAPH_START",
+          config: subgraphStartConfig,
+          originalNode: node.originalNode,
+          workflowId: options.subworkflowId,
+          parentWorkflowId: options.parentWorkflowId,
+        };
+        
+      } else if (node.type === "END") {
+        const endConfig = node.config as any;
+        const subgraphEndConfig: any = {
+          variableOutputs: endConfig.variableOutputs,
+          messageOutputs: endConfig.messageOutputs,
+          originalSubgraphNodeId: subgraphNodeId,
+          namespace: options.nodeIdPrefix,
+          depth: options.depth,
+        };
+        
+        newNode = {
+          ...node,
+          id: newId,
+          type: "SUBGRAPH_END",
+          config: subgraphEndConfig,
+          originalNode: node.originalNode,
+          workflowId: options.subworkflowId,
+          parentWorkflowId: options.parentWorkflowId,
+        };
+        
+      } else {
+        // Other nodes remain unchanged
+        newNode = {
+          ...node,
+          id: newId,
+          originalNode: node.originalNode,
+          workflowId: options.subworkflowId,
+          parentWorkflowId: options.parentWorkflowId,
         };
       }
 

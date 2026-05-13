@@ -41,6 +41,43 @@ export interface RoutingDecision {
 }
 
 /**
+ * Path enumeration options for safety limits
+ */
+export interface PathEnumerationOptions {
+  /** Maximum number of paths to return (default: 100) */
+  maxPaths?: number;
+  
+  /** Maximum depth per path (default: 50) */
+  maxDepth?: number;
+  
+  /** Stop after finding first path to END node (default: false) */
+  stopAtFirstEnd?: boolean;
+  
+  /** Timeout in milliseconds (default: 5000ms) */
+  timeoutMs?: number;
+  
+  /** Callback for progress reporting - return false to stop */
+  onPathFound?: (path: ID[], totalCount: number) => boolean;
+}
+
+/**
+ * Result of path enumeration with metadata
+ */
+export interface PathEnumerationResult {
+  /** Paths found (up to maxPaths limit) */
+  paths: ID[][];
+  
+  /** Whether enumeration was truncated */
+  truncated: boolean;
+  
+  /** Total number of paths found (may exceed paths.length) */
+  totalCount: number;
+  
+  /** Reason for truncation, if any */
+  reason?: 'MAX_PATHS' | 'MAX_DEPTH' | 'TIMEOUT' | 'USER_CANCELLED' | 'COMPLETE';
+}
+
+/**
  * Workflow Navigator class
  */
 export class WorkflowNavigator {
@@ -90,14 +127,7 @@ export class WorkflowNavigator {
 
     if (outgoingEdges.length === 1) {
       // There is only one exit; return it directly.
-      const edge = outgoingEdges[0];
-      if (!edge) {
-        return {
-          isEnd: true,
-          hasMultiplePaths: false,
-          possibleNextNodeIds: [],
-        };
-      }
+      const edge = outgoingEdges[0]!;
       return {
         nextNodeId: edge.targetNodeId,
         isEnd: this.graph.endNodeIds.has(edge.targetNodeId),
@@ -135,17 +165,9 @@ export class WorkflowNavigator {
       return (b.weight || 0) - (a.weight || 0);
     });
 
-    // Traverse all edges to find the first one that meets the condition.
+    // First pass: Try to find a CONDITIONAL edge that matches (respecting weight priority)
     for (const edge of sortedEdges) {
-      if (edge.type === "DEFAULT") {
-        // The default edge can always be passed through.
-        return {
-          selectedNodeId: edge.targetNodeId,
-          edgeId: edge.id,
-          reason: "DEFAULT_EDGE",
-        };
-      } else if (edge.type === "CONDITIONAL") {
-        // Conditional edge, evaluating the condition
+      if (edge.type === "CONDITIONAL") {
         const condition = edge.originalEdge?.condition;
         if (condition && conditionEvaluator(condition)) {
           return {
@@ -154,6 +176,17 @@ export class WorkflowNavigator {
             reason: "CONDITION_MATCHED",
           };
         }
+      }
+    }
+
+    // Second pass: If no CONDITIONAL edge matched, use DEFAULT edge (if exists)
+    for (const edge of sortedEdges) {
+      if (edge.type === "DEFAULT") {
+        return {
+          selectedNodeId: edge.targetNodeId,
+          edgeId: edge.id,
+          reason: "DEFAULT_EDGE",
+        };
       }
     }
 
@@ -345,43 +378,101 @@ export class WorkflowNavigator {
   /**
    * Get all possible execution paths (from the specified node to all END nodes)
    * @param fromNodeId: The ID of the starting node
-   * @returns: An array of all possible paths
+   * @param options: Path enumeration options for safety limits
+   * @returns: Path enumeration result with metadata
    */
-  getAllExecutionPaths(fromNodeId: ID): ID[][] {
+  getAllExecutionPaths(
+    fromNodeId: ID,
+    options: PathEnumerationOptions = {}
+  ): PathEnumerationResult {
+    const {
+      maxPaths = 100,
+      maxDepth = 50,
+      stopAtFirstEnd = false,
+      timeoutMs = 5000,
+      onPathFound
+    } = options;
+
     const paths: ID[][] = [];
     const visited = new Set<ID>();
+    let totalCount = 0;
+    let truncated = false;
+    let reason: PathEnumerationResult['reason'] = 'COMPLETE';
+    
+    const startTime = Date.now();
 
-    const dfs = (nodeId: ID, path: ID[]): void => {
-      // Prevent infinite loops
-      if (path.length > 1000) {
-        return;
+    const dfs = (nodeId: ID, path: ID[]): boolean => {
+      // Check timeout
+      if (Date.now() - startTime > timeoutMs) {
+        truncated = true;
+        reason = 'TIMEOUT';
+        return false;
+      }
+
+      // Check depth limit
+      if (path.length >= maxDepth) {
+        truncated = true;
+        reason = 'MAX_DEPTH';
+        return false;
       }
 
       const newPath = [...path, nodeId];
 
-      // If the END node is reached, record the path.
+      // Check if END node
       if (this.graph.endNodeIds.has(nodeId)) {
-        paths.push(newPath);
-        return;
+        totalCount++;
+        
+        // Add to results if under limit
+        if (paths.length < maxPaths) {
+          paths.push(newPath);
+        } else {
+          truncated = true;
+          reason = 'MAX_PATHS';
+        }
+
+        // Notify callback
+        if (onPathFound && !onPathFound(newPath, totalCount)) {
+          truncated = true;
+          reason = 'USER_CANCELLED';
+          return false;
+        }
+
+        // Stop at first end if requested
+        if (stopAtFirstEnd) {
+          return false;
+        }
+
+        return true; // Continue searching for more paths
       }
 
-      // Avoid duplicate accesses (simple solution, not applicable to all cases)
+      // Avoid cycles
       if (visited.has(nodeId)) {
-        return;
+        return true;
       }
+      
       visited.add(nodeId);
 
-      // Recursively access all neighbors
+      // Explore neighbors
       const neighbors = this.graph.getOutgoingNeighbors(nodeId);
       for (const neighborId of neighbors) {
-        dfs(neighborId, newPath);
+        if (!dfs(neighborId, newPath)) {
+          visited.delete(nodeId);
+          return false; // Early termination
+        }
       }
 
       visited.delete(nodeId);
+      return true;
     };
 
     dfs(fromNodeId, []);
-    return paths;
+
+    return {
+      paths,
+      truncated,
+      totalCount,
+      reason: truncated ? reason : 'COMPLETE'
+    };
   }
 
   /**

@@ -18,7 +18,12 @@ const logger = createContextualLogger({ component: "ScriptExecutor" });
  * All scripts are treated as shell commands - no type distinctions needed.
  */
 export class ScriptExecutor {
-  private terminalService = getTerminalService();
+  private terminalService;
+
+  constructor(terminalService?: any) {
+    // Allow injection for testing, otherwise use default
+    this.terminalService = terminalService || getTerminalService();
+  }
 
   /**
    * Execute a script

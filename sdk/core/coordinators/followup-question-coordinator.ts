@@ -16,6 +16,8 @@ export class FollowupQuestionCoordinator {
   private logger: ReturnType<typeof createContextualLogger>;
   private timeoutMs: number;
   private uiAdapter: ((data: FollowupQuestionRequestData) => Promise<FollowupQuestionResponseData>) | null = null;
+  private initialized: boolean = false;
+  private unsubscribe?: () => void;
 
   constructor(eventManager: EventRegistry, options?: { timeoutMs?: number }) {
     this.eventManager = eventManager;
@@ -34,10 +36,16 @@ export class FollowupQuestionCoordinator {
    * Initialize the coordinator by subscribing to relevant events
    */
   public initialize(): void {
-    this.eventManager.on(
+    if (this.initialized) {
+      this.logger.warn("FollowupQuestionCoordinator already initialized, skipping");
+      return;
+    }
+
+    this.unsubscribe = this.eventManager.on(
       "FOLLOWUP_QUESTION_REQUESTED" as any,
       this.handleFollowupQuestionRequest.bind(this),
     );
+    this.initialized = true;
     this.logger.info("FollowupQuestionCoordinator initialized");
   }
 
@@ -53,14 +61,15 @@ export class FollowupQuestionCoordinator {
 
     if (!this.uiAdapter) {
       this.logger.error("No UI adapter registered for follow-up questions");
-      this.emitFailure(executionId, nodeId, "No UI adapter available");
+      await this.emitFailure(executionId, nodeId, "No UI adapter available");
       return;
     }
 
     try {
-      // Set up timeout
+      // Set up timeout with proper cleanup
+      let timeoutId: NodeJS.Timeout | undefined;
       const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error("Follow-up question timed out")), this.timeoutMs);
+        timeoutId = setTimeout(() => reject(new Error("Follow-up question timed out")), this.timeoutMs);
       });
 
       // Race between UI adapter and timeout
@@ -69,18 +78,23 @@ export class FollowupQuestionCoordinator {
         timeoutPromise,
       ]);
 
-      this.emitSuccess(executionId, nodeId, responseData);
+      // Clear timeout if completed successfully
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+
+      await this.emitSuccess(executionId, nodeId, responseData);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.error(`Failed to process follow-up question: ${message}`);
-      this.emitFailure(executionId, nodeId, message);
+      await this.emitFailure(executionId, nodeId, message);
     }
   }
 
   /**
    * Emit success response event
    */
-  private emitSuccess(executionId: string, nodeId: string, responseData: FollowupQuestionResponseData): void {
+  private async emitSuccess(executionId: string, nodeId: string, responseData: FollowupQuestionResponseData): Promise<void> {
     const successEvent = {
       type: "FOLLOWUP_QUESTION_RESPONSE",
       executionId,
@@ -88,14 +102,14 @@ export class FollowupQuestionCoordinator {
       timestamp: Date.now(),
       data: responseData,
     };
-    this.eventManager.emit(successEvent as any);
+    await this.eventManager.emit(successEvent as any);
     this.logger.info(`Emitted follow-up question response for execution ${executionId}`);
   }
 
   /**
    * Emit failure event
    */
-  private emitFailure(executionId: string, nodeId: string, reason: string): void {
+  private async emitFailure(executionId: string, nodeId: string, reason: string): Promise<void> {
     const failureEvent = {
       type: "FOLLOWUP_QUESTION_RESPONSE",
       executionId,
@@ -107,7 +121,7 @@ export class FollowupQuestionCoordinator {
         error: reason,
       },
     };
-    this.eventManager.emit(failureEvent as any);
+    await this.eventManager.emit(failureEvent as any);
     this.logger.warn(`Emitted follow-up question failure for execution ${executionId}: ${reason}`);
   }
 
@@ -115,7 +129,14 @@ export class FollowupQuestionCoordinator {
    * Cleanup resources
    */
   public cleanup(): void {
+    // Unsubscribe from events
+    if (this.unsubscribe) {
+      this.unsubscribe();
+      this.unsubscribe = undefined;
+    }
+    
     this.uiAdapter = null;
+    this.initialized = false;
     this.logger.info("FollowupQuestionCoordinator cleaned up");
   }
 }

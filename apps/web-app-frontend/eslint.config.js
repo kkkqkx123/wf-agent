@@ -8,4 +8,10 @@ export default [
       // web-app-frontend specific rules can be added here
     },
   },
+  {
+    ignores: [
+      ".svelte-kit/**",
+      "**/.svelte-kit/**",
+    ],
+  },
 ];

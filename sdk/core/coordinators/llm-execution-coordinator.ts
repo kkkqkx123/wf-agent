@@ -124,15 +124,21 @@ export class LLMExecutionCoordinator {
     params: LLMExecutionParams,
     conversationState: ConversationSession,
   ): Promise<LLMExecutionResponse> {
-    // Execute complete LLM-tool call loop
-    const result = await this.executeLLMLoop(params, conversationState);
+    // Execute single LLM call with optional tool execution
+    const result = await this.executeSingleLLMCall(params, conversationState);
 
     // Check if it's an interruption state
     if (typeof result !== "string") {
       // It's an interruption state
+      const description = getInterruptionDescription(result);
+      const error = new Error(description);
+      // Preserve original interruption info as cause if available
+      if (result && typeof result === 'object' && 'reason' in result) {
+        (error as any).cause = result;
+      }
       return {
         success: false,
-        error: new Error(getInterruptionDescription(result)),
+        error,
       };
     }
 
@@ -145,20 +151,23 @@ export class LLMExecutionCoordinator {
   }
 
   /**
-   * Execute complete LLM-tool call loop
+   * Execute a single LLM call with optional tool execution
    *
-   * Core Responsibilities:
-   * 1. Execute complete LLM-tool call loop
-   * 2. Control loop iteration count
-   * 3. Manage Token usage monitoring
-   * 4. Handle conversation state
-   * 5. Trigger events
+   * This method performs ONE complete LLM interaction:
+   * 1. Add user message to conversation
+   * 2. Execute single LLM call
+   * 3. Execute tool calls if present (when executeTools=true)
+   * 4. Update token usage and trigger warnings
+   * 5. Trigger events (message, token, conversation state)
+   *
+   * Note: This is NOT a loop. If callers need multiple iterations
+   * (LLM -> Tool -> LLM), they should call executeLLM() repeatedly.
    *
    * @param params Execution parameters
    * @param conversationState Conversation manager
    * @returns LLM response content or interruption state
    */
-  private async executeLLMLoop(
+  private async executeSingleLLMCall(
     params: LLMExecutionParams,
     conversationState: ConversationSession,
   ): Promise<string | InterruptionCheckResult> {
@@ -191,30 +200,6 @@ export class LLMExecutionCoordinator {
     // Trigger message added event
     if (eventManager) {
       await this.triggerMessageAddedEvent(eventManager, contextId, userMessage, nodeId);
-    }
-
-    // Check Token usage
-    if (enableTokenTracking !== false) {
-      await conversationState.checkTokenUsage();
-
-      // Check Token usage warning
-      const tokenUsage = conversationState.getTokenUsage();
-      if (tokenUsage && eventManager) {
-        const limit = tokenLimit || 100000;
-        const threshold = tokenWarningThreshold || 80;
-        const usagePercentage = (tokenUsage.totalTokens / limit) * 100;
-
-        // Trigger warning when usage exceeds threshold
-        if (usagePercentage > threshold) {
-          await this.triggerTokenWarningEvent(
-            eventManager,
-            contextId,
-            tokenUsage.totalTokens,
-            limit,
-            usagePercentage,
-          );
-        }
-      }
     }
 
     // Prepare tool schemas
@@ -259,6 +244,29 @@ export class LLMExecutionCoordinator {
 
     // Finalize current request Token statistics
     conversationState.finalizeCurrentRequest();
+
+    // Check Token usage warning AFTER updating with new usage
+    // Note: enableTokenTracking controls whether to check token limits and trigger warnings,
+    // but token usage is always updated regardless of this setting
+    if (enableTokenTracking !== false && eventManager) {
+      const tokenUsage = conversationState.getTokenUsage();
+      if (tokenUsage) {
+        const limit = tokenLimit || 100000;
+        const threshold = tokenWarningThreshold || 80;
+        const usagePercentage = (tokenUsage.totalTokens / limit) * 100;
+
+        // Trigger warning when usage exceeds threshold
+        if (usagePercentage > threshold) {
+          await this.triggerTokenWarningEvent(
+            eventManager,
+            contextId,
+            tokenUsage.totalTokens,
+            limit,
+            usagePercentage,
+          );
+        }
+      }
+    }
 
     // Add LLM response to conversation history
     const assistantMessage = {

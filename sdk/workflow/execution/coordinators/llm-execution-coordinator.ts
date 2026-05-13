@@ -174,8 +174,8 @@ export class LLMExecutionCoordinator {
     params: LLMExecutionParams,
     conversationState: ConversationSession,
   ): Promise<LLMExecutionResponse> {
-    // Execute the complete LLM tool invocation loop.
-    const result = await this.executeLLMLoop(params, conversationState);
+    // Execute single LLM call with optional tool execution
+    const result = await this.executeSingleLLMCall(params, conversationState);
 
     // Check if it is in an interrupted state.
     if (typeof result !== "string") {
@@ -195,18 +195,21 @@ export class LLMExecutionCoordinator {
   }
 
   /**
-   * Execute the complete LLM tool invocation cycle
+   * Execute a single LLM call with workflow-specific tool approval
    *
    * Key responsibilities:
    * 1. Delegate LLM call to shared coordinator (message management, token tracking)
    * 2. Add workflow-specific tool approval before executing tools
    * 3. Handle operation state tracking for checkpoint/resume
    *
+   * Note: This executes ONE LLM call, not a loop.
+   * Workflow iteration logic is handled by the node handler.
+   *
    * @param params Execution parameters
    * @param conversationState Conversation manager
    * @returns LLM response content or interruption status
    */
-  private async executeLLMLoop(
+  private async executeSingleLLMCall(
     params: LLMExecutionParams,
     conversationState: ConversationSession,
   ): Promise<string | WorkflowInterruptionCheckResult> {

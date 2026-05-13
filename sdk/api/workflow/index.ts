@@ -84,5 +84,4 @@ export { DisableTriggerCommand } from "./operations/triggers/disable-trigger-com
 
 // Operations - Subscriptions
 export { OnEventSubscription } from "./operations/events/on-event-subscription.js";
-export { OffEventSubscription } from "./operations/events/off-event-subscription.js";
 export { OnceEventSubscription } from "./operations/events/once-event-subscription.js";

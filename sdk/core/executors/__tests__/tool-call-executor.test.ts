@@ -74,9 +74,9 @@ describe('ToolCallExecutor', () => {
       );
 
       expect(results).toHaveLength(1);
-      expect(results[0].success).toBe(true);
-      expect(results[0].toolCallId).toBe('call_1');
-      expect(results[0].result).toBe('Tool result');
+      expect(results[0]?.success).toBe(true);
+      expect(results[0]?.toolCallId).toBe('call_1');
+      expect(results[0]?.result).toBe('Tool result');
       expect(mockToolRegistry.execute).toHaveBeenCalledTimes(1);
     });
 
@@ -109,8 +109,8 @@ describe('ToolCallExecutor', () => {
       );
 
       expect(results).toHaveLength(1);
-      expect(results[0].success).toBe(false);
-      expect(results[0].error).toBe('Tool execution failed');
+      expect(results[0]?.success).toBe(false);
+      expect(results[0]?.error).toBe('Tool execution failed');
     });
 
     it('should execute multiple tool calls in parallel', async () => {
@@ -157,8 +157,8 @@ describe('ToolCallExecutor', () => {
       );
 
       expect(results).toHaveLength(2);
-      expect(results[0].success).toBe(true);
-      expect(results[1].success).toBe(true);
+      expect(results[0]?.success).toBe(true);
+      expect(results[1]?.success).toBe(true);
       expect(mockToolRegistry.execute).toHaveBeenCalledTimes(2);
     });
 
@@ -206,8 +206,8 @@ describe('ToolCallExecutor', () => {
       );
 
       expect(results).toHaveLength(2);
-      expect(results[0].success).toBe(true);
-      expect(results[1].success).toBe(false);
+      expect(results[0]?.success).toBe(true);
+      expect(results[1]?.success).toBe(false);
     });
 
     it('should handle abort signal', async () => {
@@ -241,9 +241,9 @@ describe('ToolCallExecutor', () => {
       );
       
       expect(results).toHaveLength(1);
-      expect(results[0].success).toBe(false);
-      expect(results[0].error).toContain('cancelled');
-      expect(results[0].executionTime).toBe(0);
+      expect(results[0]?.success).toBe(false);
+      expect(results[0]?.error).toContain('cancelled');
+      expect(results[0]?.executionTime).toBe(0);
     });
 
     it('should handle invalid JSON arguments', async () => {
@@ -273,8 +273,8 @@ describe('ToolCallExecutor', () => {
       );
 
       expect(results).toHaveLength(1);
-      expect(results[0].success).toBe(false);
-      expect(results[0].error).toContain('JSON');
+      expect(results[0]?.success).toBe(false);
+      expect(results[0]?.error).toContain('JSON');
     });
 
     it('should track execution time', async () => {
@@ -305,8 +305,8 @@ describe('ToolCallExecutor', () => {
       );
       const endTime = Date.now();
 
-      expect(results[0].executionTime).toBeGreaterThanOrEqual(0);
-      expect(results[0].executionTime).toBeLessThanOrEqual(endTime - startTime + 100);
+      expect(results[0]?.executionTime).toBeGreaterThanOrEqual(0);
+      expect(results[0]?.executionTime).toBeLessThanOrEqual(endTime - startTime + 100);
     });
 
     it('should handle tool not found in registry', async () => {
@@ -331,8 +331,8 @@ describe('ToolCallExecutor', () => {
       );
 
       expect(results).toHaveLength(1);
-      expect(results[0].success).toBe(false);
-      expect(results[0].error).toBeDefined();
+      expect(results[0]?.success).toBe(false);
+      expect(results[0]?.error).toBeDefined();
     });
 
     it('should handle tool visibility check failure', async () => {
@@ -377,8 +377,8 @@ describe('ToolCallExecutor', () => {
       );
 
       expect(results).toHaveLength(1);
-      expect(results[0].success).toBe(false);
-      expect(results[0].error).toContain('Not available in the current scope');
+      expect(results[0]?.success).toBe(false);
+      expect(results[0]?.error).toContain('Not available in the current scope');
       expect(mockToolVisibilityStore.isToolVisible).toHaveBeenCalledWith('exec-1', 'hidden-tool');
     });
 
@@ -422,8 +422,8 @@ describe('ToolCallExecutor', () => {
       );
 
       expect(results).toHaveLength(1);
-      expect(results[0].success).toBe(false);
-      expect(results[0].error).toContain('blocked');
+      expect(results[0]?.success).toBe(false);
+      expect(results[0]?.error).toContain('blocked');
       expect(mockToolFailureProtection.canExecuteTool).toHaveBeenCalledWith('blocked-tool');
     });
 
@@ -773,8 +773,8 @@ describe('ToolCallExecutor', () => {
       );
       
       expect(results).toHaveLength(1);
-      expect(results[0].success).toBe(false);
-      expect(results[0].error).toContain('paused');
+      expect(results[0]?.success).toBe(false);
+      expect(results[0]?.error).toContain('paused');
     });
 
     it('should handle STOP interruption during tool execution', async () => {
@@ -813,8 +813,8 @@ describe('ToolCallExecutor', () => {
       );
       
       expect(results).toHaveLength(1);
-      expect(results[0].success).toBe(false);
-      expect(results[0].error).toContain('cancelled');
+      expect(results[0]?.success).toBe(false);
+      expect(results[0]?.error).toContain('cancelled');
     });
 
     it('should use custom timeout and retry configuration from tool config', async () => {

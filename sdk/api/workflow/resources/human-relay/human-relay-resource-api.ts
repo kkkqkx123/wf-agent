@@ -252,15 +252,8 @@ export class HumanRelayResourceAPI extends CrudResourceAPI<
     executionId: string,
     listener: (event: HumanRelayRequestedEvent) => void
   ): () => void {
-    return this.dependencies.getEventManager().on("HUMAN_RELAY_REQUESTED", listener, { executionId });
-  }
-
-  /**
-   * Unsubscribe from Human Relay request events
-   * @param listener Event listener
-   */
-  offRelayRequested(listener: (event: HumanRelayRequestedEvent) => void): void {
-    this.dependencies.getEventManager().off("HUMAN_RELAY_REQUESTED", listener);
+    const emitter = this.dependencies.getEventManager().getEmitter(executionId);
+    return emitter.on("HUMAN_RELAY_REQUESTED", listener);
   }
 
   /**
@@ -273,15 +266,8 @@ export class HumanRelayResourceAPI extends CrudResourceAPI<
     executionId: string,
     listener: (event: HumanRelayRespondedEvent) => void
   ): () => void {
-    return this.dependencies.getEventManager().on("HUMAN_RELAY_RESPONDED", listener, { executionId });
-  }
-
-  /**
-   * Unsubscribe from Human Relay response events
-   * @param listener Event listener
-   */
-  offRelayResponded(listener: (event: HumanRelayRespondedEvent) => void): void {
-    this.dependencies.getEventManager().off("HUMAN_RELAY_RESPONDED", listener);
+    const emitter = this.dependencies.getEventManager().getEmitter(executionId);
+    return emitter.on("HUMAN_RELAY_RESPONDED", listener);
   }
 
   /**
@@ -294,15 +280,8 @@ export class HumanRelayResourceAPI extends CrudResourceAPI<
     executionId: string,
     listener: (event: HumanRelayFailedEvent) => void
   ): () => void {
-    return this.dependencies.getEventManager().on("HUMAN_RELAY_FAILED", listener, { executionId });
-  }
-
-  /**
-   * Unsubscribe from Human Relay failure event
-   * @param listener Event listener
-   */
-  offRelayFailed(listener: (event: HumanRelayFailedEvent) => void): void {
-    this.dependencies.getEventManager().off("HUMAN_RELAY_FAILED", listener);
+    const emitter = this.dependencies.getEventManager().getEmitter(executionId);
+    return emitter.on("HUMAN_RELAY_FAILED", listener);
   }
 
   // ============================================================================

@@ -84,7 +84,12 @@ export class OnEventSubscription<T extends BaseEvent = BaseEvent> extends BaseSu
   }
 
   subscribe(): () => void {
-    return this.eventManager.on(this.eventType, this.listener, this.options);
+    // Use new EventEmitter API
+    const emitter = this.eventManager.getEmitter(this.options.executionId);
+    return emitter.on(this.eventType, this.listener, {
+      filter: this.options.filter,
+      timeout: this.options.timeout,
+    });
   }
 
   getMetadata(): SubscriptionMetadata {
@@ -125,7 +130,12 @@ export class OnceEventSubscription<T extends BaseEvent = BaseEvent> extends Base
   }
 
   subscribe(): () => void {
-    return this.eventManager.once(this.eventType, this.listener, this.options);
+    // Use new EventEmitter API
+    const emitter = this.eventManager.getEmitter(this.options.executionId);
+    return emitter.once(this.eventType, this.listener, {
+      filter: this.options.filter,
+      timeout: this.options.timeout,
+    });
   }
 
   getMetadata(): SubscriptionMetadata {
@@ -165,6 +175,9 @@ export class WaitForEventSubscription extends BaseSubscription {
   }
 
   subscribe(): () => void {
+    // Use new EventEmitter API
+    const emitter = this.eventManager.getEmitter(this.executionId);
+    
     const listener = (event: BaseEvent) => {
       if (this.resolve) {
         this.resolve(event);
@@ -172,7 +185,7 @@ export class WaitForEventSubscription extends BaseSubscription {
       }
     };
 
-    this.unsubscribe = this.eventManager.on(this.eventType, listener, { executionId: this.executionId });
+    this.unsubscribe = emitter.on(this.eventType, listener);
 
     if (this.timeout !== undefined && this.timeout > 0) {
       this.timeoutId = setTimeout(() => {

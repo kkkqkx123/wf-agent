@@ -203,13 +203,12 @@ export class ExecutionBuilder {
 
       const unsubscribers: Array<() => void> = [];
       
+      // Use new EventEmitter API
+      const emitter = eventManager.getEmitter(executionId || "unknown");
       for (const eventType of eventTypes) {
-        const unsubscribe = eventManager.on(eventType, (event: Event) => {
-          // Only forward events for this execution
-          if (event.executionId === executionId || !executionId) {
-            observer.next(event);
-          }
-        }, { executionId: executionId || "unknown" });
+        const unsubscribe = emitter.on(eventType, (event: Event) => {
+          observer.next(event);
+        });
         unsubscribers.push(unsubscribe);
       }
 

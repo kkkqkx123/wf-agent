@@ -90,8 +90,8 @@ describe('LLMExecutionCoordinator', () => {
 
       const messages = conversationState.getMessages();
       expect(messages.length).toBeGreaterThanOrEqual(1);
-      expect(messages[0].role).toBe('user');
-      expect(messages[0].content).toBe('Test prompt');
+      expect(messages[0]?.role).toBe('user');
+      expect(messages[0]?.content).toBe('Test prompt');
     });
 
     it('should add assistant message to conversation', async () => {
@@ -248,7 +248,9 @@ describe('LLMExecutionCoordinator', () => {
       };
 
       const warningEvents: any[] = [];
-      eventManager.on('TOKEN_USAGE_WARNING' as any, (event: any) => {
+      const testExecutionId = 'test-exec-123';
+      const emitter = eventManager.getEmitter(testExecutionId);
+      emitter.on('TOKEN_USAGE_WARNING' as any, (event: any) => {
         warningEvents.push(event);
       });
 
@@ -333,7 +335,9 @@ describe('LLMExecutionCoordinator', () => {
       };
 
       const messageEvents: any[] = [];
-      eventManager.on('MESSAGE_ADDED' as any, (event: any) => {
+      const testExecutionId = 'test-exec-123';
+      const emitter = eventManager.getEmitter(testExecutionId);
+      emitter.on('MESSAGE_ADDED' as any, (event: any) => {
         messageEvents.push(event);
       });
 
@@ -352,7 +356,9 @@ describe('LLMExecutionCoordinator', () => {
       };
 
       const stateEvents: any[] = [];
-      eventManager.on('CONVERSATION_STATE_CHANGED' as any, (event: any) => {
+      const testExecutionId = 'test-exec-123';
+      const emitter = eventManager.getEmitter(testExecutionId);
+      emitter.on('CONVERSATION_STATE_CHANGED' as any, (event: any) => {
         stateEvents.push(event);
       });
 

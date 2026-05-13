@@ -661,8 +661,9 @@ export class LLMExecutionCoordinator {
         }
       };
 
-      // Use execution-scoped listener - auto cleanup on execution end
-      const unsubscribe = eventManager.on("TOOL_APPROVAL_RESPONDED", handler, { executionId });
+      // Use new EventEmitter API
+      const emitter = eventManager.getEmitter(executionId);
+      const unsubscribe = emitter.on("TOOL_APPROVAL_RESPONDED", handler);
 
       // The timeout is set only when timeoutMs > 0.
       if (timeoutMs > 0) {

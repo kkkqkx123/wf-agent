@@ -51,11 +51,6 @@ export {
 } from "./operations/events/on-event-subscription.js";
 
 export {
-  OffEventSubscription,
-  type OffAgentEventParams,
-} from "./operations/events/off-event-subscription.js";
-
-export {
   OnceEventSubscription,
   type OnceAgentEventParams,
 } from "./operations/events/once-event-subscription.js";

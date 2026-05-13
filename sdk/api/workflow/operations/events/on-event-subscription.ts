@@ -66,7 +66,11 @@ export class OnEventSubscription extends BaseSubscription {
    * Subscribe to events
    */
   subscribe(): () => void {
-    return this.dependencies.getEventManager().on(this.params.eventType, this.params.listener, this.params.options);
+    const emitter = this.dependencies.getEventManager().getEmitter(this.params.options.executionId);
+    return emitter.on(this.params.eventType, this.params.listener, {
+      filter: this.params.options.filter,
+      timeout: this.params.options.timeout,
+    });
   }
 
   /**

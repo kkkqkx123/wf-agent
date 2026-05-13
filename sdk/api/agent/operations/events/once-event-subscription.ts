@@ -48,7 +48,11 @@ export class OnceEventSubscription extends BaseSubscription {
    * Subscribe to events (auto-unsubscribes after first event)
    */
   subscribe(): () => void {
-    return this.dependencies.getEventManager().once(this.params.eventType, this.params.listener, this.params.options);
+    const emitter = this.dependencies.getEventManager().getEmitter(this.params.options.executionId);
+    return emitter.once(this.params.eventType, this.params.listener, {
+      filter: this.params.options.filter,
+      timeout: this.params.options.timeout,
+    });
   }
 
   /**

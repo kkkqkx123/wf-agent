@@ -112,7 +112,8 @@ describe('FollowupQuestionCoordinator', () => {
 
       // Should emit failure event
       const failureEvents: any[] = [];
-      eventManager.on('FOLLOWUP_QUESTION_RESPONSE' as any, (event: any) => {
+      const emitter = eventManager.getEmitter('test-execution-123');
+      emitter.on('FOLLOWUP_QUESTION_RESPONSE' as any, (event: any) => {
         failureEvents.push(event);
       });
 
@@ -132,7 +133,8 @@ describe('FollowupQuestionCoordinator', () => {
       coordinator.initialize();
 
       const responseEvents: any[] = [];
-      eventManager.on('FOLLOWUP_QUESTION_RESPONSE' as any, (event: any) => {
+      const emitter = eventManager.getEmitter('test-execution-123');
+      emitter.on('FOLLOWUP_QUESTION_RESPONSE' as any, (event: any) => {
         responseEvents.push(event);
       });
 
@@ -158,7 +160,8 @@ describe('FollowupQuestionCoordinator', () => {
       coordinator.initialize();
 
       const responseEvents: any[] = [];
-      eventManager.on('FOLLOWUP_QUESTION_RESPONSE' as any, (event: any) => {
+      const emitter = eventManager.getEmitter('test-execution-123');
+      emitter.on('FOLLOWUP_QUESTION_RESPONSE' as any, (event: any) => {
         responseEvents.push(event);
       });
 
@@ -183,7 +186,8 @@ describe('FollowupQuestionCoordinator', () => {
       coordinator.initialize();
 
       const responseEvents: any[] = [];
-      eventManager.on('FOLLOWUP_QUESTION_RESPONSE' as any, (event: any) => {
+      const emitter = eventManager.getEmitter('test-execution-123');
+      emitter.on('FOLLOWUP_QUESTION_RESPONSE' as any, (event: any) => {
         responseEvents.push(event);
       });
 
@@ -207,7 +211,8 @@ describe('FollowupQuestionCoordinator', () => {
       coordinator.initialize();
 
       const responseEvents: any[] = [];
-      eventManager.on('FOLLOWUP_QUESTION_RESPONSE' as any, (event: any) => {
+      const emitter = eventManager.getEmitter('test-execution-123');
+      emitter.on('FOLLOWUP_QUESTION_RESPONSE' as any, (event: any) => {
         responseEvents.push(event);
       });
 
@@ -242,7 +247,8 @@ describe('FollowupQuestionCoordinator', () => {
       shortTimeoutCoordinator.initialize();
 
       const responseEvents: any[] = [];
-      eventManager.on('FOLLOWUP_QUESTION_RESPONSE' as any, (event: any) => {
+      const emitter = eventManager.getEmitter('test-execution-123');
+      emitter.on('FOLLOWUP_QUESTION_RESPONSE' as any, (event: any) => {
         responseEvents.push(event);
       });
 
@@ -277,7 +283,8 @@ describe('FollowupQuestionCoordinator', () => {
       coordinator.initialize();
 
       const responseEvents: any[] = [];
-      eventManager.on('FOLLOWUP_QUESTION_RESPONSE' as any, (event: any) => {
+      const emitter = eventManager.getEmitter('test-execution-123');
+      emitter.on('FOLLOWUP_QUESTION_RESPONSE' as any, (event: any) => {
         responseEvents.push(event);
       });
 
@@ -310,7 +317,8 @@ describe('FollowupQuestionCoordinator', () => {
       coordinator.initialize();
 
       const responseEvents: any[] = [];
-      eventManager.on('FOLLOWUP_QUESTION_RESPONSE' as any, (event: any) => {
+      const emitter = eventManager.getEmitter('test-execution-123');
+      emitter.on('FOLLOWUP_QUESTION_RESPONSE' as any, (event: any) => {
         responseEvents.push(event);
       });
 

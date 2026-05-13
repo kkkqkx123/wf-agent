@@ -6,4 +6,8 @@ export { CustomHandlerRegistry } from "./custom-handler-registry.js";
 export { TriggerTemplateRegistry } from "./trigger-template-registry.js";
 export { NodeTemplateRegistry } from "./node-template-registry.js";
 export { EventRegistry } from "./event-registry.js";
+export { ExecutionEventEmitter } from "./event-emitter.js";
 export { ExecutionHierarchyRegistry, type AnyExecutionEntity, type ExecutionsByRoot } from "./execution-hierarchy-registry.js";
+export { MetricsAggregator } from "./metrics-aggregator.js";
+export type { ExecutionMetric, AggregatedStat, MetricsSummary, MetricsAggregatorConfig, SummaryCallback } from "./metrics-aggregator.js";
+export type { EventEmitterOptions } from "./event-emitter.js";

@@ -220,21 +220,22 @@ async function waitForInteractionResponse(
     let timeoutId: NodeJS.Timeout | null = null;
     let resolved = false;
 
-    const listener = (event: any) => {
+    // Use new EventEmitter API
+    const emitter = eventManager.getEmitter(executionId);
+    
+    const unsubscribe = emitter.on("FOLLOWUP_QUESTION_RESPONDED", (event: any) => {
       if (event.interactionId === interactionId && !resolved) {
         resolved = true;
         if (timeoutId) clearTimeout(timeoutId);
-        eventManager.off("FOLLOWUP_QUESTION_RESPONDED", listener);
+        unsubscribe(); // Unsubscribe using the returned function
         resolve(event);
       }
-    };
-
-    eventManager.on("FOLLOWUP_QUESTION_RESPONDED", listener, { executionId });
+    });
 
     timeoutId = setTimeout(() => {
       if (!resolved) {
         resolved = true;
-        eventManager.off("FOLLOWUP_QUESTION_RESPONDED", listener);
+        unsubscribe(); // Clean up listener on timeout
         resolve(null);
       }
     }, timeout);

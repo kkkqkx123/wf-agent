@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ToolDeclarationFormatter } from '../tool-declaration-formatter';
+import { ToolDeclarationFormatter } from '../tool-declaration-formatter.js';
 import type { ToolSchema, LLMToolCall, LLMMessage } from '@wf-agent/types';
 
 describe('ToolDeclarationFormatter', () => {
@@ -105,7 +105,7 @@ describe('ToolDeclarationFormatter', () => {
       const jsonMatch = result.match(/<<<TOOL_CALL>>>([\s\S]*?)<<<END_TOOL_CALL>>>/);
       expect(jsonMatch).toBeTruthy();
 
-      const parsed = JSON.parse(jsonMatch![1]);
+      const parsed = JSON.parse(jsonMatch?.[1] ?? '');
       expect(parsed.name).toBe('calculator');
       expect(parsed.description).toBe('Performs arithmetic calculations');
     });
@@ -132,7 +132,7 @@ describe('ToolDeclarationFormatter', () => {
       });
 
       const jsonMatch = result.match(/<<<TOOL_CALL>>>([\s\S]*?)<<<END_TOOL_CALL>>>/);
-      const parsed = JSON.parse(jsonMatch![1]);
+      const parsed = JSON.parse(jsonMatch?.[1] ?? '');
       expect(parsed.description).toBeUndefined();
     });
   });

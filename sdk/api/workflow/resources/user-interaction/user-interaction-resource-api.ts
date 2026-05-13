@@ -239,15 +239,8 @@ export class UserInteractionResourceAPI extends CrudResourceAPI<
     executionId: string,
     listener: (event: ToolApprovalRequestedEvent) => void
   ): () => void {
-    return this.dependencies.getEventManager().on("TOOL_APPROVAL_REQUESTED", listener, { executionId });
-  }
-
-  /**
-   * Unsubscribe from tool approval request events
-   * @param listener event listener
-   */
-  offToolApprovalRequested(listener: (event: ToolApprovalRequestedEvent) => void): boolean {
-    return this.dependencies.getEventManager().off("TOOL_APPROVAL_REQUESTED", listener);
+    const emitter = this.dependencies.getEventManager().getEmitter(executionId);
+    return emitter.on("TOOL_APPROVAL_REQUESTED", listener);
   }
 
   /**
@@ -260,15 +253,8 @@ export class UserInteractionResourceAPI extends CrudResourceAPI<
     executionId: string,
     listener: (event: FollowupQuestionRequestedEvent) => void
   ): () => void {
-    return this.dependencies.getEventManager().on("FOLLOWUP_QUESTION_REQUESTED", listener, { executionId });
-  }
-
-  /**
-   * Unsubscribe from follow-up question request events
-   * @param listener event listener
-   */
-  offFollowupQuestionRequested(listener: (event: FollowupQuestionRequestedEvent) => void): boolean {
-    return this.dependencies.getEventManager().off("FOLLOWUP_QUESTION_REQUESTED", listener);
+    const emitter = this.dependencies.getEventManager().getEmitter(executionId);
+    return emitter.on("FOLLOWUP_QUESTION_REQUESTED", listener);
   }
 
   // ============================================================================

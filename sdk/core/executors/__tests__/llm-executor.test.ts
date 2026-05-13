@@ -123,8 +123,8 @@ describe('LLMExecutor', () => {
       if (result.success) {
         expect(result.result.toolCalls).toBeDefined();
         expect(result.result.toolCalls?.length).toBe(1);
-        expect(result.result.toolCalls?.[0].name).toBe('test-tool');
-        expect(result.result.toolCalls?.[0].arguments).toBe('{"param": "value"}');
+        expect(result.result.toolCalls?.[0]?.name).toBe('test-tool');
+        expect(result.result.toolCalls?.[0]?.arguments).toBe('{"param": "value"}');
       }
     });
   });

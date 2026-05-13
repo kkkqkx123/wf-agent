@@ -171,8 +171,6 @@ export type { OnEventParams } from "./workflow/operations/events/on-event-subscr
 export { OnceEventSubscription } from "./workflow/operations/events/once-event-subscription.js";
 export type { OnceEventParams } from "./workflow/operations/events/once-event-subscription.js";
 
-export { OffEventSubscription } from "./workflow/operations/events/off-event-subscription.js";
-export type { OffEventParams } from "./workflow/operations/events/off-event-subscription.js";
 
 // ============================================================================
 // Shared - Command class (with side-effect operations)
@@ -279,10 +277,6 @@ export {
   type OnAgentEventParams,
 } from "./agent/operations/events/on-event-subscription.js";
 
-export {
-  OffEventSubscription as AgentOffEventSubscription,
-  type OffAgentEventParams,
-} from "./agent/operations/events/off-event-subscription.js";
 
 export {
   OnceEventSubscription as AgentOnceEventSubscription,

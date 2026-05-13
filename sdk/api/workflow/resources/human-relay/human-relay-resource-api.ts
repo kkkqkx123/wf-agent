@@ -244,10 +244,15 @@ export class HumanRelayResourceAPI extends CrudResourceAPI<
 
   /**
    * Subscribe to Human Relay request events
+   * @param executionId Execution ID (required)
    * @param listener Event listener
+   * @returns Unsubscribe function
    */
-  onRelayRequested(listener: (event: HumanRelayRequestedEvent) => void): void {
-    this.dependencies.getEventManager().on("HUMAN_RELAY_REQUESTED", listener);
+  onRelayRequested(
+    executionId: string,
+    listener: (event: HumanRelayRequestedEvent) => void
+  ): () => void {
+    return this.dependencies.getEventManager().on("HUMAN_RELAY_REQUESTED", listener, { executionId });
   }
 
   /**
@@ -260,10 +265,15 @@ export class HumanRelayResourceAPI extends CrudResourceAPI<
 
   /**
    * Subscribe to Human Relay response events
+   * @param executionId Execution ID (required)
    * @param listener event listener
+   * @returns Unsubscribe function
    */
-  onRelayResponded(listener: (event: HumanRelayRespondedEvent) => void): void {
-    this.dependencies.getEventManager().on("HUMAN_RELAY_RESPONDED", listener);
+  onRelayResponded(
+    executionId: string,
+    listener: (event: HumanRelayRespondedEvent) => void
+  ): () => void {
+    return this.dependencies.getEventManager().on("HUMAN_RELAY_RESPONDED", listener, { executionId });
   }
 
   /**
@@ -276,10 +286,15 @@ export class HumanRelayResourceAPI extends CrudResourceAPI<
 
   /**
    * Subscribe to Human Relay failure events
+   * @param executionId Execution ID (required)
    * @param listener Event listener
+   * @returns Unsubscribe function
    */
-  onRelayFailed(listener: (event: HumanRelayFailedEvent) => void): void {
-    this.dependencies.getEventManager().on("HUMAN_RELAY_FAILED", listener);
+  onRelayFailed(
+    executionId: string,
+    listener: (event: HumanRelayFailedEvent) => void
+  ): () => void {
+    return this.dependencies.getEventManager().on("HUMAN_RELAY_FAILED", listener, { executionId });
   }
 
   /**

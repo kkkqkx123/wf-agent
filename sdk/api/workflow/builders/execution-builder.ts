@@ -209,7 +209,7 @@ export class ExecutionBuilder {
           if (event.executionId === executionId || !executionId) {
             observer.next(event);
           }
-        });
+        }, { executionId: executionId || "unknown" });
         unsubscribers.push(unsubscribe);
       }
 

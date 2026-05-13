@@ -4,6 +4,7 @@
  */
 
 import type { EventType, EventListener, BaseEvent } from "@wf-agent/types";
+import { RuntimeValidationError } from "@wf-agent/types";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
 
 /**
@@ -64,14 +65,22 @@ export class OnEventSubscription<T extends BaseEvent = BaseEvent> extends BaseSu
     private readonly eventType: EventType,
     private readonly listener: EventListener<T>,
     private readonly eventManager: EventRegistry,
-    private readonly options?: {
+    private readonly options: {
       priority?: number;
       filter?: (event: T) => boolean;
       timeout?: number;
-      executionId?: string;
+      executionId: string; // Required
     },
   ) {
     super();
+    
+    // Validate executionId is provided
+    if (!options.executionId) {
+      throw new RuntimeValidationError(
+        "executionId is required for event subscriptions",
+        { field: "options.executionId" }
+      );
+    }
   }
 
   subscribe(): () => void {
@@ -97,14 +106,22 @@ export class OnceEventSubscription<T extends BaseEvent = BaseEvent> extends Base
     private readonly eventType: EventType,
     private readonly listener: EventListener<T>,
     private readonly eventManager: EventRegistry,
-    private readonly options?: {
+    private readonly options: {
       priority?: number;
       filter?: (event: T) => boolean;
       timeout?: number;
-      executionId?: string;
+      executionId: string; // Required
     },
   ) {
     super();
+    
+    // Validate executionId is provided
+    if (!options.executionId) {
+      throw new RuntimeValidationError(
+        "executionId is required for event subscriptions",
+        { field: "options.executionId" }
+      );
+    }
   }
 
   subscribe(): () => void {
@@ -133,10 +150,18 @@ export class WaitForEventSubscription extends BaseSubscription {
 
   constructor(
     private readonly eventType: EventType,
+    private readonly executionId: string, // Required
     private readonly timeout: number | undefined,
     private readonly eventManager: EventRegistry,
   ) {
     super();
+    
+    if (!executionId) {
+      throw new RuntimeValidationError(
+        "executionId is required for event subscriptions",
+        { field: "executionId" }
+      );
+    }
   }
 
   subscribe(): () => void {
@@ -147,7 +172,7 @@ export class WaitForEventSubscription extends BaseSubscription {
       }
     };
 
-    this.unsubscribe = this.eventManager.on(this.eventType, listener);
+    this.unsubscribe = this.eventManager.on(this.eventType, listener, { executionId: this.executionId });
 
     if (this.timeout !== undefined && this.timeout > 0) {
       this.timeoutId = setTimeout(() => {

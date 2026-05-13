@@ -2,15 +2,10 @@
  * EventRegistry - Event Registry
  * Manages events during workflow execution, provides event listening and dispatching mechanism
  * 
- * Supports two types of event listeners:
- * 1. Global Listeners: Receive all events of specified type across all executions
- *    - Register without executionId parameter
- *    - Use case: Monitoring, logging, cross-execution analytics
- * 
- * 2. Execution-scoped Listeners: Only receive events for specific execution
- *    - Register with executionId parameter
- *    - Automatically cleaned up when execution ends
- *    - Use case: Execution-specific business logic, UI updates
+ * All event listeners must be execution-scoped:
+ * - Register with executionId parameter (REQUIRED)
+ * - Automatically cleaned up when execution ends
+ * - Use case: Execution-specific business logic, UI updates
  * 
  * Note: Internal event mechanism has been removed, replaced with direct method calls
  *
@@ -62,7 +57,7 @@ interface ListenerWrapper<T> {
   priority: number;
   filter?: (event: T) => boolean;
   timeout?: number;
-  executionId?: string; // Optional execution ID for scoped listeners
+  executionId: string; // Required execution ID for scoped listeners
 }
 
 /**
@@ -104,52 +99,47 @@ class EventRegistry {
    * 
    * @param eventType Event type
    * @param listener Event listener
-   * @param options Options (priority, filter, timeout, executionId, etc.)
-   *   - If executionId is provided: Creates execution-scoped listener (auto-cleanup on execution end)
-   *   - If executionId is NOT provided: Creates global listener (manual cleanup required)
+   * @param options Options (priority, filter, timeout, executionId)
+   *   - executionId is REQUIRED for all listeners
    * @returns Unregister function
    * 
    * @example
    * ```typescript
-   * // Global listener - receives events from all executions
+   * // Execution-scoped listener - only receives events for specific execution
+   * const executionId = await sdk.startWorkflow(workflowId);
    * eventManager.on('NODE_COMPLETED', (event) => {
    *   console.log('Node completed:', event.nodeId);
-   * });
-   * 
-   * // Execution-scoped listener - only receives events for specific execution
-   * eventManager.on('NODE_COMPLETED', (event) => {
-   *   console.log('Node completed in this execution:', event.nodeId);
-   * }, { executionId: 'exec-123' });
+   * }, { executionId });
    * ```
    */
   on<T extends BaseEvent>(
     eventType: EventType,
     listener: EventListener<T>,
-    options?: {
+    options: {
       priority?: number;
       filter?: (event: T) => boolean;
       timeout?: number;
-      executionId?: string; // Associate listener with specific execution
+      executionId: string; // Required execution ID
     },
   ): () => void {
-    return this.registerGlobalListener(eventType, listener, options);
+    return this.registerExecutionScopedListener(eventType, listener, options);
   }
 
   /**
-   * Register global event listener
+   * Register execution-scoped event listener
    * @param eventType Event type
    * @param listener Event listener
-   * @param options Options
+   * @param options Options (executionId is required)
    * @returns Unregister function
    */
-  private registerGlobalListener<T>(
+  private registerExecutionScopedListener<T>(
     eventType: string,
     listener: (event: T) => void | Promise<void>,
-    options?: {
+    options: {
       priority?: number;
       filter?: (event: T) => boolean;
       timeout?: number;
-      executionId?: string;
+      executionId: string; // Required
     },
   ): () => void {
     // Validate parameters
@@ -158,6 +148,12 @@ class EventRegistry {
     }
     if (typeof listener !== "function") {
       throw new RuntimeValidationError("Listener must be a function", { field: "listener" });
+    }
+    if (!options.executionId) {
+      throw new RuntimeValidationError(
+        "executionId is required for event subscriptions",
+        { field: "options.executionId" }
+      );
     }
 
     // Backpressure control: check listener count
@@ -181,10 +177,10 @@ class EventRegistry {
       listener,
       id: generateId(),
       timestamp: now(),
-      priority: options?.priority || 0,
-      filter: options?.filter,
-      timeout: options?.timeout ?? this.config.defaultListenerTimeout,
-      executionId: options?.executionId,
+      priority: options.priority || 0,
+      filter: options.filter,
+      timeout: options.timeout ?? this.config.defaultListenerTimeout,
+      executionId: options.executionId,
     };
 
     // Add to global listeners list
@@ -196,13 +192,11 @@ class EventRegistry {
     // Sort by priority (higher priority first)
     this.globalListeners.get(eventType)!.sort((a, b) => b.priority - a.priority);
 
-    // Track execution association if provided
-    if (options?.executionId) {
-      if (!this.executionScopedListeners.has(options.executionId)) {
-        this.executionScopedListeners.set(options.executionId, new Set());
-      }
-      this.executionScopedListeners.get(options.executionId)!.add(wrapper.id);
+    // Track execution association
+    if (!this.executionScopedListeners.has(options.executionId)) {
+      this.executionScopedListeners.set(options.executionId, new Set());
     }
+    this.executionScopedListeners.get(options.executionId)!.add(wrapper.id);
 
     // Initialize metrics for this listener
     this.listenerMetrics.set(wrapper.id, {
@@ -411,17 +405,17 @@ class EventRegistry {
    * Register one-time event listener
    * @param eventType Event type
    * @param listener Event listener
-   * @param options Options (priority, filter, timeout, executionId)
+   * @param options Options (priority, filter, timeout, executionId) - executionId is required
    * @returns Unregister function
    */
   once<T extends BaseEvent>(
     eventType: EventType,
     listener: EventListener<T>,
-    options?: {
+    options: {
       priority?: number;
       filter?: (event: T) => boolean;
       timeout?: number;
-      executionId?: string; // Support execution-scoped once listeners
+      executionId: string; // Required execution ID
     },
   ): () => void {
     // Validate parameters
@@ -430,6 +424,12 @@ class EventRegistry {
     }
     if (typeof listener !== "function") {
       throw new RuntimeValidationError("Listener must be a function", { field: "listener" });
+    }
+    if (!options.executionId) {
+      throw new RuntimeValidationError(
+        "executionId is required for event subscriptions",
+        { field: "options.executionId" }
+      );
     }
 
     // Create wrapper listener
@@ -446,12 +446,14 @@ class EventRegistry {
   /**
    * Wait for specific event to be emitted
    * @param eventType Event type
+   * @param executionId Execution ID (required)
    * @param timeout Timeout (milliseconds)
    * @param filter Event filter function, only resolve Promise when returns true
    * @returns Promise that resolves to event object
    */
   waitFor<T extends BaseEvent>(
     eventType: EventType,
+    executionId: string,
     timeout?: number,
     filter?: (event: T) => boolean,
   ): Promise<T> {
@@ -479,8 +481,8 @@ class EventRegistry {
         resolve(event);
       };
 
-      // Register listener
-      this.on(eventType, listener);
+      // Register listener with executionId
+      this.on(eventType, listener, { executionId });
 
       // Set timeout
       if (timeout) {

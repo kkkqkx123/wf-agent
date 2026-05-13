@@ -562,6 +562,7 @@ export class LLMExecutionCoordinator {
 
       // Wait for the USER_INTERACTION_RESPONDED event to be triggered.
       const response = await this.waitForUserInteractionResponse(
+        executionId,
         interactionId,
         approvalConfig?.approvalTimeout || 0,
       );
@@ -633,11 +634,13 @@ export class LLMExecutionCoordinator {
   /**
    * Waiting for user interaction response
    *
+   * @param executionId: Execution ID (required)
    * @param interactionId: Interaction ID
    * @param timeoutMs: Timeout period in milliseconds; 0 indicates infinite waiting
    * @returns: User response event
    */
   private waitForUserInteractionResponse(
+    executionId: string,
     interactionId: string,
     timeoutMs: number = 0,
   ): Promise<{ interactionId: string; inputData: ToolApprovalResult }> {
@@ -654,20 +657,20 @@ export class LLMExecutionCoordinator {
           if (timeoutId) {
             clearTimeout(timeoutId);
           }
-          eventManager.off("TOOL_APPROVAL_RESPONDED", handler);
           resolve(typedEvent);
         }
       };
 
+      // Use execution-scoped listener - auto cleanup on execution end
+      const unsubscribe = eventManager.on("TOOL_APPROVAL_RESPONDED", handler, { executionId });
+
       // The timeout is set only when timeoutMs > 0.
       if (timeoutMs > 0) {
         timeoutId = setTimeout(() => {
-          eventManager.off("TOOL_APPROVAL_RESPONDED", handler);
+          unsubscribe(); // Manual cleanup on timeout
           reject(new Error(`User interaction timeout after ${timeoutMs}ms`));
         }, timeoutMs);
       }
-
-      eventManager.on("TOOL_APPROVAL_RESPONDED", handler);
     });
   }
 }

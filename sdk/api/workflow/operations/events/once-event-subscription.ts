@@ -1,5 +1,9 @@
 /**
  * OnceEventSubscription - Registers a one-time event listener.
+ * 
+ * All event listeners must be execution-scoped:
+ * - executionId is REQUIRED
+ * - Automatically cleaned up when execution ends
  */
 
 import { BaseSubscription, SubscriptionMetadata } from "../../../shared/types/subscription.js";
@@ -14,6 +18,13 @@ export interface OnceEventParams {
   eventType: EventType;
   /** event listener */
   listener: EventListener<BaseEvent>;
+  /** Listener options - executionId is required */
+  options: {
+    priority?: number;
+    filter?: (event: BaseEvent) => boolean;
+    timeout?: number;
+    executionId: string; // Required execution ID
+  };
 }
 
 /**
@@ -31,7 +42,11 @@ export class OnceEventSubscription extends BaseSubscription {
    * Subscribe to events
    */
   subscribe(): () => void {
-    return this.dependencies.getEventManager().once(this.params.eventType, this.params.listener);
+    return this.dependencies.getEventManager().once(
+      this.params.eventType, 
+      this.params.listener,
+      this.params.options
+    );
   }
 
   /**

@@ -213,23 +213,15 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
 
   /**
    * Setup event listeners to collect all events into history
+   * 
+   * NOTE: This functionality has been disabled as global listeners are no longer supported.
+   * Event history should be collected through structured logging or execution-scoped listeners.
    */
   private setupEventListeners(): void {
-    const eventManager = this.dependencies.getEventManager();
-
-    const listeners: Array<() => void> = [];
-
-    // Listen to all event types
-    for (const eventType of ALL_EVENT_TYPES) {
-      const unsubscribe = eventManager.on(eventType, (event: Event) => {
-        this.addEventToHistory(event);
-      });
-      listeners.push(unsubscribe);
-    }
-
-    // Save unsubscribe function
+    // Global event collection is no longer supported.
+    // Use execution-scoped listeners or structured logging instead.
     this.unsubscribe = () => {
-      listeners.forEach(unsub => unsub());
+      // No-op
     };
   }
 

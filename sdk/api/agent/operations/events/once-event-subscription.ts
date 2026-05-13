@@ -24,12 +24,12 @@ export interface OnceAgentEventParams {
   eventType: EventType;
   /** Event listener */
   listener: EventListener<BaseEvent>;
-  /** Listener options */
-  options?: {
+  /** Listener options - executionId is required */
+  options: {
     priority?: number;
     filter?: (event: BaseEvent) => boolean;
     timeout?: number;
-    executionId?: string;
+    executionId: string; // Required execution ID
   };
 }
 

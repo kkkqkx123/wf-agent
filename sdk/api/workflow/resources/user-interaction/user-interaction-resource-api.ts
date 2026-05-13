@@ -231,34 +231,44 @@ export class UserInteractionResourceAPI extends CrudResourceAPI<
 
   /**
    * Subscribe to tool approval request events
+   * @param executionId Execution ID (required)
    * @param listener event listener
+   * @returns Unsubscribe function
    */
-  onToolApprovalRequested(listener: (event: ToolApprovalRequestedEvent) => void): void {
-    this.dependencies.getEventManager().on("TOOL_APPROVAL_REQUESTED", listener);
+  onToolApprovalRequested(
+    executionId: string,
+    listener: (event: ToolApprovalRequestedEvent) => void
+  ): () => void {
+    return this.dependencies.getEventManager().on("TOOL_APPROVAL_REQUESTED", listener, { executionId });
   }
 
   /**
    * Unsubscribe from tool approval request events
    * @param listener event listener
    */
-  offToolApprovalRequested(listener: (event: ToolApprovalRequestedEvent) => void): void {
-    this.dependencies.getEventManager().off("TOOL_APPROVAL_REQUESTED", listener);
+  offToolApprovalRequested(listener: (event: ToolApprovalRequestedEvent) => void): boolean {
+    return this.dependencies.getEventManager().off("TOOL_APPROVAL_REQUESTED", listener);
   }
 
   /**
    * Subscribe to follow-up question request events
+   * @param executionId Execution ID (required)
    * @param listener event listener
+   * @returns Unsubscribe function
    */
-  onFollowupQuestionRequested(listener: (event: FollowupQuestionRequestedEvent) => void): void {
-    this.dependencies.getEventManager().on("FOLLOWUP_QUESTION_REQUESTED", listener);
+  onFollowupQuestionRequested(
+    executionId: string,
+    listener: (event: FollowupQuestionRequestedEvent) => void
+  ): () => void {
+    return this.dependencies.getEventManager().on("FOLLOWUP_QUESTION_REQUESTED", listener, { executionId });
   }
 
   /**
    * Unsubscribe from follow-up question request events
    * @param listener event listener
    */
-  offFollowupQuestionRequested(listener: (event: FollowupQuestionRequestedEvent) => void): void {
-    this.dependencies.getEventManager().off("FOLLOWUP_QUESTION_REQUESTED", listener);
+  offFollowupQuestionRequested(listener: (event: FollowupQuestionRequestedEvent) => void): boolean {
+    return this.dependencies.getEventManager().off("FOLLOWUP_QUESTION_REQUESTED", listener);
   }
 
   // ============================================================================

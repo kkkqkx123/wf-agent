@@ -224,6 +224,7 @@ export async function emitAndWaitForCallback(
   eventManager: EventRegistry | undefined,
   event: Event,
   callbackEventType: EventType,
+  executionId: string,
   timeout: number = 30000,
 ): Promise<void> {
   if (!eventManager) {
@@ -237,5 +238,5 @@ export async function emitAndWaitForCallback(
   await eventManager.emit(event);
 
   // Waiting for the callback event.
-  await eventManager.waitFor(callbackEventType, timeout);
+  await eventManager.waitFor(callbackEventType, executionId, timeout);
 }

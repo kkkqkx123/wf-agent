@@ -53,7 +53,7 @@ export async function waitForWorkflowExecutionPaused(
   timeout: number = 5000,
 ): Promise<void> {
   const actualTimeout = timeout === WAIT_FOREVER ? undefined : timeout;
-  await eventManager.waitFor("WORKFLOW_EXECUTION_PAUSED", actualTimeout, event => event.executionId === executionId);
+  await eventManager.waitFor("WORKFLOW_EXECUTION_PAUSED", executionId, actualTimeout, event => event.executionId === executionId);
 }
 
 /**
@@ -72,6 +72,7 @@ export async function waitForWorkflowExecutionCancelled(
   const actualTimeout = timeout === WAIT_FOREVER ? undefined : timeout;
   await eventManager.waitFor(
     "WORKFLOW_EXECUTION_CANCELLED",
+    executionId,
     actualTimeout,
     event => event.executionId === executionId,
   );
@@ -93,6 +94,7 @@ export async function waitForWorkflowExecutionCompleted(
   const actualTimeout = timeout === WAIT_FOREVER ? undefined : timeout;
   await eventManager.waitFor(
     "WORKFLOW_EXECUTION_COMPLETED",
+    executionId,
     actualTimeout,
     event => event.executionId === executionId,
   );
@@ -112,7 +114,7 @@ export async function waitForWorkflowExecutionFailed(
   timeout: number = 30000,
 ): Promise<void> {
   const actualTimeout = timeout === WAIT_FOREVER ? undefined : timeout;
-  await eventManager.waitFor("WORKFLOW_EXECUTION_FAILED", actualTimeout, event => event.executionId === executionId);
+  await eventManager.waitFor("WORKFLOW_EXECUTION_FAILED", executionId, actualTimeout, event => event.executionId === executionId);
 }
 
 /**
@@ -129,7 +131,7 @@ export async function waitForWorkflowExecutionResumed(
   timeout: number = 5000,
 ): Promise<void> {
   const actualTimeout = timeout === WAIT_FOREVER ? undefined : timeout;
-  await eventManager.waitFor("WORKFLOW_EXECUTION_RESUMED", actualTimeout, event => event.executionId === executionId);
+  await eventManager.waitFor("WORKFLOW_EXECUTION_RESUMED", executionId, actualTimeout, event => event.executionId === executionId);
 }
 
 /**
@@ -158,7 +160,7 @@ export async function waitForAnyLifecycleEvent(
 
   // Create multiple waiting Promises, each using the executionId filter.
   const promises = events.map(eventType =>
-    eventManager.waitFor(eventType, actualTimeout, event => event.executionId === executionId),
+    eventManager.waitFor(eventType, executionId, actualTimeout, event => event.executionId === executionId),
   );
 
   // Wait for either of the events to trigger.
@@ -253,6 +255,7 @@ export async function waitForNodeCompleted(
   const actualTimeout = timeout === WAIT_FOREVER ? undefined : timeout;
   await eventManager.waitFor(
     "NODE_COMPLETED",
+    executionId,
     actualTimeout,
     (event: { executionId?: string; nodeId?: string }) =>
       event.executionId === executionId && event.nodeId === nodeId,
@@ -277,6 +280,7 @@ export async function waitForNodeFailed(
   const actualTimeout = timeout === WAIT_FOREVER ? undefined : timeout;
   await eventManager.waitFor(
     "NODE_FAILED",
+    executionId,
     actualTimeout,
     (event: { executionId?: string; nodeId?: string }) =>
       event.executionId === executionId && event.nodeId === nodeId,

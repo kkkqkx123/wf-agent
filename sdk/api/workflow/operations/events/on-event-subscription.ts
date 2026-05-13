@@ -1,9 +1,9 @@
 /**
  * OnEventSubscription - Registering an event listener
  * 
- * Supports both global and execution-scoped event listeners:
- * - Global: Receives events from all executions (no executionId)
- * - Execution-scoped: Only receives events for specific execution (with executionId)
+ * All event listeners must be execution-scoped:
+ * - executionId is REQUIRED
+ * - Automatically cleaned up when execution ends
  */
 
 import { BaseSubscription, SubscriptionMetadata } from "../../../shared/types/subscription.js";
@@ -18,12 +18,12 @@ export interface OnEventParams {
   eventType: EventType;
   /** Event listener */
   listener: EventListener<BaseEvent>;
-  /** Listener options */
-  options?: {
+  /** Listener options - executionId is required */
+  options: {
     priority?: number;
     filter?: (event: BaseEvent) => boolean;
     timeout?: number;
-    executionId?: string; // If provided, creates execution-scoped listener
+    executionId: string; // Required execution ID
   };
 }
 

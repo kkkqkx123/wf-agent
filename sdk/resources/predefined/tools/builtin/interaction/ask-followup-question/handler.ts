@@ -135,6 +135,7 @@ export function createAskFollowupQuestionHandler() {
       const response = await waitForInteractionResponse(
         eventManager,
         interactionId,
+        context.executionId,
         timeout
       );
 
@@ -212,6 +213,7 @@ function createFallbackResponse(
 async function waitForInteractionResponse(
   eventManager: EventRegistry,
   interactionId: string,
+  executionId: string,
   timeout: number
 ): Promise<{ inputData: unknown } | null> {
   return new Promise((resolve) => {
@@ -227,7 +229,7 @@ async function waitForInteractionResponse(
       }
     };
 
-    eventManager.on("FOLLOWUP_QUESTION_RESPONDED", listener);
+    eventManager.on("FOLLOWUP_QUESTION_RESPONDED", listener, { executionId });
 
     timeoutId = setTimeout(() => {
       if (!resolved) {

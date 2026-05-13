@@ -140,9 +140,9 @@ describe("SqliteConnectionPool", () => {
       expect(stats.totalConnections).toBe(1);
       expect(stats.activeConnections).toBe(1);
       expect(stats.connections).toHaveLength(1);
-      expect(stats.connections[0].path).toBe(dbPath);
-      expect(stats.connections[0].refCount).toBe(2);
-      expect(stats.connections[0].age).toBeGreaterThanOrEqual(0);
+      expect(stats.connections[0]!.path).toBe(dbPath);
+      expect(stats.connections[0]!.refCount).toBe(2);
+      expect(stats.connections[0]!.age).toBeGreaterThanOrEqual(0);
     });
 
     it("should return empty stats when no connections", () => {

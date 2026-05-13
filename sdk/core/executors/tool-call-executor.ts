@@ -35,6 +35,7 @@ import type { CheckpointDependencies } from "../../workflow/checkpoint/utils/che
 import type { ToolVisibilityStore } from "../../workflow/stores/tool-visibility-store.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 import type { ToolFailureProtectionState } from "../state-managers/tool-failure-protection-state.js";
+import type { ToolMetricsCollector } from "../metrics/tool-collector.js";
 
 const logger = createContextualLogger({ component: "ToolCallExecutor" });
 
@@ -126,6 +127,7 @@ export class ToolCallExecutor {
       event: Event,
     ) => void | Promise<void>,
     private toolFailureProtection?: ToolFailureProtectionState,
+    private metricsCollector?: ToolMetricsCollector,
   ) {}
 
   /**
@@ -358,6 +360,11 @@ export class ToolCallExecutor {
   ): Promise<ToolExecutionResult> {
     const startTime = taskInfo.startTime;
 
+    // Record tool call start metrics
+    if (executionId && this.metricsCollector) {
+      this.metricsCollector.recordToolCallStart(toolCall.name, executionId);
+    }
+
     // Track operation state for mid-node resume (if execution registry is available)
     const executionRegistry = this.checkpointDependencies?.workflowExecutionRegistry;
     let hasOperationState = false;
@@ -446,6 +453,17 @@ export class ToolCallExecutor {
           await this.safeEmitFn(this.eventManager, failedEvent);
         }
 
+        // Record tool call failure metrics
+        if (executionId && this.metricsCollector) {
+          this.metricsCollector.recordToolCallComplete(
+            toolCall.name,
+            executionId,
+            diffTimestamp(startTime, now()),
+            false,
+            JSON.stringify(toolCall.arguments).length,
+          );
+        }
+
         return {
           toolCallId: toolCall.id,
           toolId: toolCall.name,
@@ -509,6 +527,16 @@ export class ToolCallExecutor {
             reason: checkResult.reason,
           });
           await this.safeEmitFn(this.eventManager, blockedEvent);
+        }
+
+        // Record tool call blocked metrics
+        if (executionId && this.metricsCollector) {
+          this.metricsCollector.recordToolCallComplete(
+            toolCall.name,
+            executionId,
+            diffTimestamp(startTime, now()),
+            false,
+          );
         }
 
         return {
@@ -705,6 +733,17 @@ export class ToolCallExecutor {
           this.toolFailureProtection.recordFailure(toolCall.name, errorMessage || "Tool execution failed");
         }
 
+        // Record tool call failure metrics
+        if (executionId && this.metricsCollector) {
+          this.metricsCollector.recordToolCallComplete(
+            toolCall.name,
+            executionId,
+            executionTime,
+            false,
+            JSON.stringify(toolCall.arguments).length,
+          );
+        }
+
         return {
           toolCallId: toolCall.id,
           toolId: toolCall.name,
@@ -798,6 +837,18 @@ export class ToolCallExecutor {
       // Record successful tool execution for failure protection (NEW)
       if (this.toolFailureProtection) {
         this.toolFailureProtection.recordSuccess(toolCall.name);
+      }
+
+      // Record tool call completion metrics
+      if (executionId && this.metricsCollector) {
+        this.metricsCollector.recordToolCallComplete(
+          toolCall.name,
+          executionId,
+          executionTime,
+          true,
+          JSON.stringify(toolCall.arguments).length,
+          JSON.stringify(successResult).length,
+        );
       }
 
       return {

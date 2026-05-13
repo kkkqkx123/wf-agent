@@ -75,17 +75,39 @@ collector.observeSummary("tool.call.duration", 850, {
 
 - `WorkflowMetricsCollector` - 工作流执行指标
 - `EventMetricsCollector` - 事件统计指标（替代旧的 MetricsAggregator）
-- `NodeMetricsCollector` - 节点执行指标 (待实现)
-- `ToolMetricsCollector` - 工具调用指标 (待实现)
-- `TokenMetricsCollector` - Token使用指标 (待实现)
-- `ErrorMetricsCollector` - 错误异常指标 (待实现)
-- `ResourceMetricsCollector` - 资源利用指标 (待实现)
+- `NodeMetricsCollector` - 节点执行指标 ✅ 已实现
+- `ToolMetricsCollector` - 工具调用指标 ✅ 已实现
+- `TokenMetricsCollector` - Token使用指标 ✅ 已实现
+- `ErrorMetricsCollector` - 错误异常指标 ✅ 已实现
+- `ResourceMetricsCollector` - 资源利用指标 ✅ 已实现
 
 ## 快速开始
 
 ### 安装
 
 指标系统已集成在 SDK 中,无需额外安装。
+
+### 使用工厂函数创建所有收集器 (推荐)
+
+```typescript
+import { createMetricsCollectors } from "@wf-agent/sdk/core/metrics";
+
+// 一次性创建所有标准收集器
+const collectors = createMetricsCollectors({
+  bufferSize: 100,
+  flushInterval: 5000,
+  enablePeriodicReporting: true,
+  reportingInterval: 10000,
+});
+
+// 访问各个收集器
+collectors.workflow.recordExecutionStart("wf-123", "exec-456");
+collectors.tool.recordToolCallStart("search-api", "exec-456");
+collectors.token.recordTokenUsage({ /* ... */ });
+collectors.node.recordNodeStart("node-1", "LLM", "wf-123", "exec-456");
+collectors.error.recordError("LLM_ERROR", "exec-456");
+collectors.resource.recordActiveExecutions(5);
+```
 
 ### 基本使用
 
@@ -167,6 +189,146 @@ const unsubscribe = eventCollector.onReport((report) => {
 // 6. 清理
 unsubscribe();
 eventCollector.dispose();
+```
+
+### 工具调用指标 (ToolMetricsCollector)
+
+用于监控工具调用的性能和成功率：
+
+```typescript
+import { ToolMetricsCollector } from "@wf-agent/sdk/core/metrics";
+
+const toolCollector = new ToolMetricsCollector();
+
+// 记录工具调用开始
+toolCollector.recordToolCallStart('search-api', 'exec-123');
+
+// 记录工具调用完成
+toolCollector.recordToolCallComplete(
+  'search-api',
+  'exec-123',
+  850,  // duration in ms
+  true, // success
+  256,  // parameter size in bytes
+  1024  // result size in bytes
+);
+
+// 查询工具性能
+const stats = toolCollector.getToolStats('search-api');
+const summary = toolCollector.getToolPerformanceSummary();
+```
+
+### Token使用指标 (TokenMetricsCollector)
+
+用于跟踪LLM的Token使用和成本：
+
+```typescript
+import { TokenMetricsCollector } from "@wf-agent/sdk/core/metrics";
+
+const tokenCollector = new TokenMetricsCollector();
+
+// 记录Token使用
+tokenCollector.recordTokenUsage({
+  profileId: 'gpt-4',
+  executionId: 'exec-123',
+  nodeId: 'node-1',
+  totalTokens: 1500,
+  promptTokens: 1000,
+  completionTokens: 500,
+  cost: 0.045, // USD
+});
+
+// 获取Token使用摘要
+const summary = tokenCollector.getTokenUsageSummary();
+console.log('Total tokens:', summary.totalTokens);
+console.log('Total cost:', summary.totalCost);
+
+// 获取每个profile的平均Token使用
+const averages = tokenCollector.getAverageTokensPerRequest();
+```
+
+### 节点执行指标 (NodeMetricsCollector)
+
+用于监控工作流节点的执行情况：
+
+```typescript
+import { NodeMetricsCollector } from "@wf-agent/sdk/core/metrics";
+
+const nodeCollector = new NodeMetricsCollector();
+
+// 记录节点开始
+nodeCollector.recordNodeStart('node-1', 'LLM', 'wf-123', 'exec-456');
+
+// 记录节点完成
+nodeCollector.recordNodeComplete(
+  'node-1',
+  'LLM',
+  'wf-123',
+  'exec-456',
+  1200,  // duration in ms
+  true,  // success
+  512,   // input size
+  1024   // output size
+);
+
+// 记录节点重试
+nodeCollector.recordNodeRetry('node-1', 'LLM', 'wf-123', 1);
+
+// 获取节点性能摘要
+const performance = nodeCollector.getNodePerformanceByType();
+```
+
+### 错误指标 (ErrorMetricsCollector)
+
+用于跟踪和分析错误模式：
+
+```typescript
+import { ErrorMetricsCollector } from "@wf-agent/sdk/core/metrics";
+
+const errorCollector = new ErrorMetricsCollector();
+
+// 记录错误
+errorCollector.recordError(
+  'LLM_ERROR',
+  'exec-123',
+  'node-1',
+  'Rate limit exceeded'
+);
+
+// 记录错误恢复
+errorCollector.recordErrorRecovery('LLM_ERROR', 'exec-123');
+
+// 获取错误摘要
+const summary = errorCollector.getErrorSummary();
+console.log('Total errors:', summary.totalErrors);
+console.log('Top errors:', summary.topErrors);
+```
+
+### 资源指标 (ResourceMetricsCollector)
+
+用于监控系统资源使用情况：
+
+```typescript
+import { ResourceMetricsCollector } from "@wf-agent/sdk/core/metrics";
+
+const resourceCollector = new ResourceMetricsCollector();
+
+// 记录资源快照
+resourceCollector.recordResourceSnapshot({
+  memoryUsageMB: 256.5,
+  activeExecutions: 5,
+  queuedTasks: 12,
+  eventQueueLength: 3,
+});
+
+// 或者单独记录
+resourceCollector.recordMemoryUsage(256.5, 'executor');
+resourceCollector.recordActiveExecutions(5);
+resourceCollector.recordQueuedTasks(12, 'workflow');
+resourceCollector.recordEventQueueLength(3);
+
+// 获取资源摘要
+const summary = resourceCollector.getResourceSummary();
 ```
 
 ### 周期性报告
@@ -456,13 +618,18 @@ try {
 
 ## 未来扩展
 
-计划实现的收集器:
+所有核心收集器已实现完成:
 
-- [ ] `NodeMetricsCollector` - 节点级详细指标
-- [ ] `ToolMetricsCollector` - 工具调用性能分析
-- [ ] `TokenMetricsCollector` - LLM Token使用和成本
-- [ ] `ErrorMetricsCollector` - 错误模式和恢复率
-- [ ] `ResourceMetricsCollector` - 系统资源监控
+- ✅ `NodeMetricsCollector` - 节点级详细指标
+- ✅ `ToolMetricsCollector` - 工具调用性能分析
+- ✅ `TokenMetricsCollector` - LLM Token使用和成本
+- ✅ `ErrorMetricsCollector` - 错误模式和恢复率
+- ✅ `ResourceMetricsCollector` - 系统资源监控
+
+下一步可以:
+- 集成到更多执行器和协调器中
+- 实现持久化层(数据库、监控系统)
+- 添加更多高级查询和聚合功能
 
 ## 示例代码
 

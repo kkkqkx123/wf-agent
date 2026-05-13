@@ -33,6 +33,7 @@ import { LLMExecutor } from "../executors/llm-executor.js";
 import { ToolCallExecutor } from "../executors/tool-call-executor.js";
 import { prepareToolSchemasFromTools } from "../utils/tools/tool-schema-helper.js";
 import type { EventRegistry } from "../registry/event-registry.js";
+import type { TokenMetricsCollector } from "../metrics/token-collector.js";
 import {
   buildMessageAddedEvent,
   buildTokenUsageWarningEvent,
@@ -98,10 +99,12 @@ export class LLMExecutionCoordinator {
    *
    * @param llmExecutor LLM executor
    * @param toolCallExecutor Tool call executor
+   * @param tokenMetricsCollector Optional token metrics collector
    */
   constructor(
     private llmExecutor: LLMExecutor,
     private toolCallExecutor: ToolCallExecutor,
+    private tokenMetricsCollector?: TokenMetricsCollector,
   ) {}
 
   /**
@@ -240,6 +243,20 @@ export class LLMExecutionCoordinator {
     // Update Token usage statistics
     if (result.usage) {
       conversationState.updateTokenUsage(result.usage as LLMUsage);
+      
+      // Record token metrics
+      if (this.tokenMetricsCollector && result.usage) {
+        const usage = result.usage as any;
+        this.tokenMetricsCollector.recordTokenUsage({
+          profileId: params.config.profileId || "DEFAULT",
+          executionId: params.contextId,
+          nodeId: params.nodeId,
+          totalTokens: usage.totalTokens || 0,
+          promptTokens: usage.promptTokens || 0,
+          completionTokens: usage.completionTokens || 0,
+          cost: usage.totalCost,
+        });
+      }
     }
 
     // Finalize current request Token statistics

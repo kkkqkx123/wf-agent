@@ -1,6 +1,6 @@
 /**
- * Vitest 配置文件 (ESM)
- * 适用于 monorepo 架构
+ * Vitest Configuration File (ESM)
+ * Suitable for monorepo architecture
  */
 
 import { defineConfig } from "vitest/config";
@@ -12,22 +12,22 @@ const __dirname = dirname(__filename);
 
 export default defineConfig({
   test: {
-    // 测试环境
+    // Test environment
     environment: "node",
 
-    // 测试文件匹配模式
+    // Test file match patterns
     include: ["**/__tests__/**/*.ts", "**/?(*.)+(spec|test).ts"],
 
-    // 排除文件
-    exclude: ["node_modules", "dist", "coverage", "**/*.d.ts"],
+    // Excluded files
+    exclude: ["node_modules", "dist", "coverage", "**/*.d.ts", "**/test-d/**/*"],
 
-    // 覆盖率配置
+    // Coverage configuration
     coverage: {
       provider: "v8",
       reporter: ["text", "lcov", "html"],
       include: ["packages/*/src/**/*.ts", "sdk/*/src/**/*.ts"],
       exclude: ["**/*.d.ts", "**/*.test.ts", "**/*.spec.ts", "**/index.ts"],
-      // 覆盖率阈值
+      // Coverage thresholds
       thresholds: {
         branches: 80,
         functions: 80,
@@ -36,27 +36,27 @@ export default defineConfig({
       },
     },
 
-    // 测试超时时间（毫秒）
+    // Test timeout (milliseconds)
     testTimeout: 30000,
 
-    // 钩子超时时间（毫秒）
+    // Hook timeout (milliseconds)
     hookTimeout: 30000,
 
-    // 详细输出
+    // Detailed reporting
     reporters: ["verbose"],
 
-    // 清除模拟
+    // Clear mocks
     clearMocks: true,
     restoreMocks: true,
 
-    // 全局配置
+    // Global configuration
     globals: true,
 
-    // 自动退出配置
-    // 防止测试进程因未关闭的连接而挂起
+    // Auto-exit configuration
+    // Prevent test processes from hanging due to unclosed connections
     disableConsoleInterception: false,
 
-    // 别名配置
+    // Alias configuration
     alias: {
       "@wf-agent/common-utils": resolve(__dirname, "packages/common-utils/src"),
       "@wf-agent/types": resolve(__dirname, "packages/types/src"),

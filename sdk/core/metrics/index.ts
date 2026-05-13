@@ -44,3 +44,11 @@ export {
 export { BaseMetricCollector } from "./base-collector.js";
 export { WorkflowMetricsCollector } from "./workflow-collector.js";
 export { EventMetricsCollector, type EventMetricLabels, type AggregatedEventStat, type EventMetricsSummary } from "./event-collector.js";
+export { NodeMetricsCollector } from "./node-collector.js";
+export { ToolMetricsCollector } from "./tool-collector.js";
+export { TokenMetricsCollector, type TokenUsageData } from "./token-collector.js";
+export { ErrorMetricsCollector } from "./error-collector.js";
+export { ResourceMetricsCollector } from "./resource-collector.js";
+
+// Factory functions for collectors
+export { createMetricsCollectors } from "./factories.js";

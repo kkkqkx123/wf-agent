@@ -327,10 +327,30 @@ export abstract class BaseJsonStorage<TMetadata, TSaveOptions = void> {
    * Get compression config
    */
   protected getCompressionConfig(data?: Uint8Array): CompressionConfig {
+    // If user explicitly configured compression, respect their configuration
+    if (this.config.compression?.enabled) {
+      const userConfig = this.config.compression;
+      
+      // If data is provided and user didn't specify an algorithm, use adaptive strategy
+      if (data && !userConfig.algorithm) {
+        const adaptiveConfig = selectCompressionStrategy(data);
+        // Merge user's threshold with adaptive config
+        return {
+          ...adaptiveConfig,
+          threshold: userConfig.threshold ?? adaptiveConfig.threshold,
+        };
+      }
+      
+      // Use user's configuration as-is (with or without data)
+      return userConfig;
+    }
+    
+    // If compression is not enabled by user, use adaptive strategy when data is available
     if (data) {
       return selectCompressionStrategy(data);
     }
-    return this.config.compression ?? { enabled: false };
+    
+    return { enabled: false };
   }
 
   /**

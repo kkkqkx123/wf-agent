@@ -1,7 +1,7 @@
 /**
  * Metrics System - Metric Factory Functions
  * 
- * Utility functions for creating metric instances.
+ * Utility functions for creating metric instances and collectors.
  */
 
 import { now } from "@wf-agent/common-utils";
@@ -12,7 +12,15 @@ import type {
   SummaryMetric,
   HistogramBucket,
   PercentileValue,
+  MetricCollectorConfig,
 } from "./types.js";
+import { WorkflowMetricsCollector } from "./workflow-collector.js";
+import { EventMetricsCollector } from "./event-collector.js";
+import { NodeMetricsCollector } from "./node-collector.js";
+import { ToolMetricsCollector } from "./tool-collector.js";
+import { TokenMetricsCollector } from "./token-collector.js";
+import { ErrorMetricsCollector } from "./error-collector.js";
+import { ResourceMetricsCollector } from "./resource-collector.js";
 
 /**
  * Create a counter metric
@@ -99,5 +107,22 @@ export function createSummary(
     sum,
     count,
     metadata,
+  };
+}
+
+/**
+ * Create all standard metric collectors with unified configuration
+ * @param config Optional collector configuration (applied to all)
+ * @returns Object containing all collector instances
+ */
+export function createMetricsCollectors(config?: MetricCollectorConfig) {
+  return {
+    workflow: new WorkflowMetricsCollector(config),
+    event: new EventMetricsCollector(config),
+    node: new NodeMetricsCollector(config),
+    tool: new ToolMetricsCollector(config),
+    token: new TokenMetricsCollector(config),
+    error: new ErrorMetricsCollector(config),
+    resource: new ResourceMetricsCollector(config),
   };
 }

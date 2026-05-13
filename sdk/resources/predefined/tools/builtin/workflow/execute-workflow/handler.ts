@@ -121,7 +121,7 @@ export function createExecuteWorkflowHandler() {
       const executedResult = result as ExecutedSubgraphResult;
       return {
         success: true,
-        status: "completed",
+        status: "COMPLETED",
         output: executedResult.subgraphEntity.getOutput(),
         executionTime: executedResult.executionTime,
       };
@@ -130,7 +130,7 @@ export function createExecuteWorkflowHandler() {
       const submissionResult = result as TaskSubmissionResult;
       return {
         success: true,
-        status: "submitted",
+        status: "SUBMITTED",
         taskId: submissionResult.taskId,
         message: submissionResult.message,
       };

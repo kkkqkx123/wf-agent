@@ -1,20 +1,34 @@
 /**
  * Workflow Graph Traversal Utility Functions
- * Provides depth-first and breadth-first traversal algorithms for workflow graphs
+ * Provides depth-first traversal algorithms for workflow graphs
  */
 
 import type { ID, WorkflowGraphStructure } from "@wf-agent/types";
 
 /**
- * Depth-First Traversal
+ * Depth-First Search with custom visitor and state management
+ * This is the core DFS implementation used by all traversal functions
+ * 
  * @param graph - The graph data to be traversed
  * @param startNodeId - The ID of the starting node
- * @param visitor - The visit function, which is called when each node is visited
+ * @param options - DFS options
+ * @param options.visitor - Called when visiting a node (before exploring neighbors)
+ * @param options.useReverseEdges - If true, traverse using incoming edges instead of outgoing
+ * @returns Set of visited node IDs
  */
-export function dfs(graph: WorkflowGraphStructure, startNodeId: ID, visitor: (nodeId: ID) => void): void {
+function dfsCore(
+  graph: WorkflowGraphStructure,
+  startNodeId: ID,
+  options: {
+    visitor?: (nodeId: ID) => void;
+    useReverseEdges?: boolean;
+  } = {}
+): Set<ID> {
+  const { visitor, useReverseEdges = false } = options;
+  
   // Check if the starting node exists.
   if (!graph.hasNode(startNodeId)) {
-    return;
+    return new Set<ID>();
   }
 
   const visited = new Set<ID>();
@@ -27,96 +41,117 @@ export function dfs(graph: WorkflowGraphStructure, startNodeId: ID, visitor: (no
     }
 
     visited.add(nodeId);
-    visitor(nodeId);
+    
+    // Call visitor if provided
+    if (visitor) {
+      visitor(nodeId);
+    }
 
+    // Get neighbors based on edge direction
+    const neighbors = useReverseEdges
+      ? graph.getIncomingNeighbors(nodeId)
+      : graph.getOutgoingNeighbors(nodeId);
+    
     // Add the unvisited neighbor nodes to the stack.
-    const neighbors = graph.getOutgoingNeighbors(nodeId);
     for (const neighborId of neighbors) {
       if (!visited.has(neighborId)) {
         stack.push(neighborId);
       }
     }
   }
-}
 
-/**
- * Breadth-First Traversal
- * @param graph - The graph data to be traversed
- * @param startNodeId - The ID of the starting node
- * @param visitor - The visit function, which is called when each node is visited
- */
-export function bfs(graph: WorkflowGraphStructure, startNodeId: ID, visitor: (nodeId: ID) => void): void {
-  // Check if the starting node exists.
-  if (!graph.hasNode(startNodeId)) {
-    return;
-  }
-
-  const visited = new Set<ID>();
-  const queue: ID[] = [startNodeId];
-  visited.add(startNodeId);
-
-  while (queue.length > 0) {
-    const nodeId = queue.shift()!;
-    visitor(nodeId);
-
-    // Add the unvisited neighbor nodes to the queue.
-    const neighbors = graph.getOutgoingNeighbors(nodeId);
-    for (const neighborId of neighbors) {
-      if (!visited.has(neighborId)) {
-        visited.add(neighborId);
-        queue.push(neighborId);
-      }
-    }
-  }
+  return visited;
 }
 
 /**
  * Get all nodes reachable from the specified node
+ * Uses depth-first search internally
+ * 
  * @param graph - Graph data
  * @param startNodeId - ID of the starting node
  * @returns Set of IDs of the reachable nodes
  */
 export function getReachableNodes(graph: WorkflowGraphStructure, startNodeId: ID): Set<ID> {
-  const reachable = new Set<ID>();
-  dfs(graph, startNodeId, nodeId => {
-    reachable.add(nodeId);
-  });
-  return reachable;
+  return dfsCore(graph, startNodeId, { useReverseEdges: false });
 }
 
 /**
  * Get all nodes that can reach the specified target node
+ * Uses reverse depth-first search (traverses incoming edges)
+ * 
  * @param graph - Graph data
  * @param targetNodeId - Target node ID
  * @returns Set of node IDs that can reach the target node
  */
 export function getNodesReachingTo(graph: WorkflowGraphStructure, targetNodeId: ID): Set<ID> {
-  // Check if the target node exists.
-  if (!graph.hasNode(targetNodeId)) {
-    return new Set<ID>();
-  }
+  return dfsCore(graph, targetNodeId, { useReverseEdges: true });
+}
 
-  const reaching = new Set<ID>();
+/**
+ * DFS callback for cycle detection
+ * Called during recursive DFS traversal for cycle detection
+ */
+export type DfsCycleCallback = (
+  nodeId: ID,
+  path: ID[],
+  visited: Set<ID>,
+  recursionStack: Set<ID>
+) => {
+  shouldContinue: boolean;  // If false, stop traversing this branch
+  foundCycle?: boolean;      // If true, a cycle was detected
+};
+
+/**
+ * Recursive DFS with path tracking for advanced algorithms (e.g., cycle detection)
+ * This provides a standardized recursive DFS implementation to avoid code duplication
+ * 
+ * @param graph - The graph data to traverse
+ * @param startNodeId - Starting node ID
+ * @param callback - Called for each node with current state
+ * @returns True if traversal should continue, false if stopped early
+ */
+export function dfsWithPathTracking(
+  graph: WorkflowGraphStructure,
+  startNodeId: ID,
+  callback: DfsCycleCallback
+): void {
   const visited = new Set<ID>();
-  const stack = [targetNodeId];
+  const recursionStack = new Set<ID>();
 
-  while (stack.length > 0) {
-    const nodeId = stack.pop()!;
-    if (visited.has(nodeId)) {
-      continue;
+  const dfsRecursive = (nodeId: ID, path: ID[]): boolean => {
+    // Call the callback to check if we should process this node
+    const result = callback(nodeId, path, visited, recursionStack);
+    
+    if (result.foundCycle) {
+      return false; // Stop traversal if cycle found
     }
 
     visited.add(nodeId);
-    reaching.add(nodeId);
+    recursionStack.add(nodeId);
+    path.push(nodeId);
 
-    // Traverse the reverse adjacency list.
-    const neighbors = graph.getIncomingNeighbors(nodeId);
+    const neighbors = graph.getOutgoingNeighbors(nodeId);
     for (const neighborId of neighbors) {
       if (!visited.has(neighborId)) {
-        stack.push(neighborId);
+        if (!dfsRecursive(neighborId, path)) {
+          return false;
+        }
+      } else if (recursionStack.has(neighborId)) {
+        // Found a back edge (cycle)
+        const cycleResult = callback(neighborId, path, visited, recursionStack);
+        if (!cycleResult.shouldContinue) {
+          return false;
+        }
       }
     }
-  }
 
-  return reaching;
+    recursionStack.delete(nodeId);
+    path.pop();
+    return true;
+  };
+
+  // Start DFS from the given node
+  if (!visited.has(startNodeId)) {
+    dfsRecursive(startNodeId, []);
+  }
 }

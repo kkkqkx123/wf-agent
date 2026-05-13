@@ -118,7 +118,7 @@ export interface ExecuteWorkflowSuccessResult {
   /** Success flag */
   success: true;
   /** Execution status */
-  status: "completed";
+  status: "COMPLETED";
   /** Workflow output */
   output: Record<string, unknown>;
   /** Execution time in milliseconds */
@@ -155,7 +155,7 @@ export interface ExecuteWorkflowAsyncResult {
   /** Success flag */
   success: true;
   /** Execution status */
-  status: "submitted";
+  status: "SUBMITTED";
   /** Task ID for tracking */
   taskId: string;
   /** Status message */

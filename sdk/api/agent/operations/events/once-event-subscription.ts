@@ -24,6 +24,13 @@ export interface OnceAgentEventParams {
   eventType: EventType;
   /** Event listener */
   listener: EventListener<BaseEvent>;
+  /** Listener options */
+  options?: {
+    priority?: number;
+    filter?: (event: BaseEvent) => boolean;
+    timeout?: number;
+    executionId?: string;
+  };
 }
 
 /**
@@ -41,7 +48,7 @@ export class OnceEventSubscription extends BaseSubscription {
    * Subscribe to events (auto-unsubscribes after first event)
    */
   subscribe(): () => void {
-    return this.dependencies.getEventManager().once(this.params.eventType, this.params.listener);
+    return this.dependencies.getEventManager().once(this.params.eventType, this.params.listener, this.params.options);
   }
 
   /**

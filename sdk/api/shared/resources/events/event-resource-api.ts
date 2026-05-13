@@ -305,6 +305,134 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
   }
 
   // ============================================================================
+  // Diagnostic APIs - Monitor and debug event listeners
+  // ============================================================================
+
+  /**
+   * Get statistics about execution-scoped listeners
+   * Useful for debugging listener lifecycle and detecting memory leaks
+   * 
+   * @returns Map of execution ID to active listener count
+   * 
+   * @example
+   * ```typescript
+   * const stats = api.getExecutionListenerStats();
+   * for (const [executionId, count] of stats) {
+   *   console.log(`Execution ${executionId}: ${count} listeners`);
+   * }
+   * ```
+   */
+  getExecutionListenerStats(): Map<string, number> {
+    return this.dependencies.getEventManager().getExecutionListenerStats();
+  }
+
+  /**
+   * Get detailed information about all active listeners
+   * Provides comprehensive view for debugging and monitoring
+   * 
+   * @returns Array of listener information including metrics
+   * 
+   * @example
+   * ```typescript
+   * const listeners = api.getAllListenerInfo();
+   * 
+   * // Find execution-scoped listeners
+   * const scopedListeners = listeners.filter(l => l.executionId !== undefined);
+   * 
+   * // Find slow listeners
+   * const slowListeners = listeners.filter(l => 
+   *   l.metrics && l.metrics.slowExecutionCount > 0
+   * );
+   * ```
+   */
+  getAllListenerInfo(): Array<{
+    id: string;
+    eventType: string;
+    executionId?: string;
+    priority: number;
+    registeredAt: number;
+    metrics?: {
+      totalExecutions: number;
+      averageDuration: number;
+      failureCount: number;
+      slowExecutionCount: number;
+    };
+  }> {
+    const rawInfo = this.dependencies.getEventManager().getAllListenerInfo();
+    
+    return rawInfo.map(info => ({
+      ...info,
+      metrics: info.metrics ? {
+        totalExecutions: info.metrics.totalExecutions,
+        averageDuration: info.metrics.averageDuration,
+        failureCount: info.metrics.failureCount,
+        slowExecutionCount: info.metrics.slowExecutionCount,
+      } : undefined,
+    }));
+  }
+
+  /**
+   * Get listener counts by event type
+   * Shows distribution of global vs execution-scoped listeners
+   * 
+   * @returns Map of event type to listener counts
+   * 
+   * @example
+   * ```typescript
+   * const counts = api.getListenerCountByEventType();
+   * const nodeCompleted = counts.get('NODE_COMPLETED');
+   * console.log(`NODE_COMPLETED: ${nodeCompleted?.total} total, ` +
+   *             `${nodeCompleted?.global} global, ` +
+   *             `${nodeCompleted?.executionScoped} execution-scoped`);
+   * ```
+   */
+  getListenerCountByEventType(): Map<string, {
+    total: number;
+    executionScoped: number;
+    global: number;
+  }> {
+    return this.dependencies.getEventManager().getListenerCountByEventType();
+  }
+
+  /**
+   * Get summary of event system health
+   * Combines multiple diagnostic metrics into a single overview
+   * 
+   * @returns Event system health summary
+   * 
+   * @example
+   * ```typescript
+   * const health = api.getEventSystemHealth();
+   * console.log(`Total listeners: ${health.totalListeners}`);
+   * console.log(`Active executions with listeners: ${health.activeExecutionCount}`);
+   * console.log(`Events in history: ${health.historySize}`);
+   * ```
+   */
+  getEventSystemHealth(): {
+    totalListeners: number;
+    activeExecutionCount: number;
+    historySize: number;
+    listenerDistribution: Map<string, { total: number; executionScoped: number; global: number }>;
+    executionStats: Map<string, number>;
+  } {
+    const listenerDistribution = this.getListenerCountByEventType();
+    const executionStats = this.getExecutionListenerStats();
+    
+    let totalListeners = 0;
+    for (const [, counts] of listenerDistribution) {
+      totalListeners += counts.total;
+    }
+
+    return {
+      totalListeners,
+      activeExecutionCount: executionStats.size,
+      historySize: this.eventHistory.length,
+      listenerDistribution,
+      executionStats,
+    };
+  }
+
+  // ============================================================================
   // Implement abstract methods
   // ============================================================================
 

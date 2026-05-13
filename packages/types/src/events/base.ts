@@ -191,3 +191,20 @@ export interface EventHandler {
   /** event listener */
   listener: EventListener<BaseEvent>;
 }
+
+/**
+ * Listener Options Interface
+ * Provides configuration options for event listener registration
+ */
+export interface ListenerOptions<T extends BaseEvent = BaseEvent> {
+  /** Execution order priority (higher values execute first) */
+  priority?: number;
+  /** Selective event handling filter function */
+  filter?: (event: T) => boolean;
+  /** Listener execution timeout in milliseconds */
+  timeout?: number;
+  /** Associate listener with specific execution for auto-cleanup */
+  executionId?: string;
+  /** Enable automatic cleanup when execution ends (default: true) */
+  autoCleanup?: boolean;
+}

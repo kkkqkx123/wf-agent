@@ -112,6 +112,14 @@ export class WorkflowLifecycleCoordinator {
       await this.workflowStateTransitor.failWorkflowExecution(workflowExecutionEntity, lastError);
     }
 
+    // Step 6: Cleanup execution-scoped event listeners
+    const cleanedCount = this.globalContext.eventRegistry.cleanupExecutionListeners(workflowExecutionEntity.id);
+    logger.info('Cleaned up event listeners after execution', { 
+      executionId: workflowExecutionEntity.id, 
+      cleanedCount,
+      status 
+    });
+
     return result;
   }
 

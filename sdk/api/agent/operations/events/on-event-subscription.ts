@@ -5,6 +5,10 @@
  * - Encapsulates event listener registration as Subscription pattern
  * - Provides unified API layer interface for Agent events
  * - Supports all event types from EventRegistry
+ * 
+ * Supports both global and execution-scoped event listeners:
+ * - Global: Receives events from all executions (no executionId)
+ * - Execution-scoped: Only receives events for specific execution (with executionId)
  *
  * Design Principles:
  * - Follows Subscription pattern, inherits BaseSubscription
@@ -24,6 +28,37 @@ export interface OnAgentEventParams {
   eventType: EventType;
   /** Event listener */
   listener: EventListener<BaseEvent>;
+  /** Listener options */
+  options?: {
+    priority?: number;
+    filter?: (event: BaseEvent) => boolean;
+    timeout?: number;
+    executionId?: string; // If provided, creates execution-scoped listener
+  };
+}
+
+/**
+ * Helper function to create execution-scoped subscription for Agent
+ * Automatically injects executionId into options
+ */
+export function createExecutionScopedAgentSubscription(
+  executionId: string,
+  eventType: EventType,
+  listener: EventListener<BaseEvent>,
+  dependencies: APIDependencyManager,
+  additionalOptions?: Omit<OnAgentEventParams['options'], 'executionId'>,
+): OnEventSubscription {
+  return new OnEventSubscription(
+    {
+      eventType,
+      listener,
+      options: {
+        ...additionalOptions,
+        executionId,
+      },
+    },
+    dependencies,
+  );
 }
 
 /**
@@ -41,7 +76,7 @@ export class OnEventSubscription extends BaseSubscription {
    * Subscribe to events
    */
   subscribe(): () => void {
-    return this.dependencies.getEventManager().on(this.params.eventType, this.params.listener);
+    return this.dependencies.getEventManager().on(this.params.eventType, this.params.listener, this.params.options);
   }
 
   /**

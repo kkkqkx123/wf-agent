@@ -64,12 +64,18 @@ export class OnEventSubscription<T extends BaseEvent = BaseEvent> extends BaseSu
     private readonly eventType: EventType,
     private readonly listener: EventListener<T>,
     private readonly eventManager: EventRegistry,
+    private readonly options?: {
+      priority?: number;
+      filter?: (event: T) => boolean;
+      timeout?: number;
+      executionId?: string;
+    },
   ) {
     super();
   }
 
   subscribe(): () => void {
-    return this.eventManager.on(this.eventType, this.listener);
+    return this.eventManager.on(this.eventType, this.listener, this.options);
   }
 
   getMetadata(): SubscriptionMetadata {
@@ -91,12 +97,18 @@ export class OnceEventSubscription<T extends BaseEvent = BaseEvent> extends Base
     private readonly eventType: EventType,
     private readonly listener: EventListener<T>,
     private readonly eventManager: EventRegistry,
+    private readonly options?: {
+      priority?: number;
+      filter?: (event: T) => boolean;
+      timeout?: number;
+      executionId?: string;
+    },
   ) {
     super();
   }
 
   subscribe(): () => void {
-    return this.eventManager.once(this.eventType, this.listener);
+    return this.eventManager.once(this.eventType, this.listener, this.options);
   }
 
   getMetadata(): SubscriptionMetadata {

@@ -1,8 +1,17 @@
 /**
  * EventRegistry - Event Registry
  * Manages events during workflow execution, provides event listening and dispatching mechanism
- * Only supports global events, used for exposing workflow execution status externally
- *
+ * 
+ * Supports two types of event listeners:
+ * 1. Global Listeners: Receive all events of specified type across all executions
+ *    - Register without executionId parameter
+ *    - Use case: Monitoring, logging, cross-execution analytics
+ * 
+ * 2. Execution-scoped Listeners: Only receive events for specific execution
+ *    - Register with executionId parameter
+ *    - Automatically cleaned up when execution ends
+ *    - Use case: Execution-specific business logic, UI updates
+ * 
  * Note: Internal event mechanism has been removed, replaced with direct method calls
  *
  * This module only exports class definition, not instances
@@ -91,11 +100,27 @@ class EventRegistry {
   }
 
   /**
-   * Register event listener (global event)
+   * Register event listener
+   * 
    * @param eventType Event type
    * @param listener Event listener
    * @param options Options (priority, filter, timeout, executionId, etc.)
+   *   - If executionId is provided: Creates execution-scoped listener (auto-cleanup on execution end)
+   *   - If executionId is NOT provided: Creates global listener (manual cleanup required)
    * @returns Unregister function
+   * 
+   * @example
+   * ```typescript
+   * // Global listener - receives events from all executions
+   * eventManager.on('NODE_COMPLETED', (event) => {
+   *   console.log('Node completed:', event.nodeId);
+   * });
+   * 
+   * // Execution-scoped listener - only receives events for specific execution
+   * eventManager.on('NODE_COMPLETED', (event) => {
+   *   console.log('Node completed in this execution:', event.nodeId);
+   * }, { executionId: 'exec-123' });
+   * ```
    */
   on<T extends BaseEvent>(
     eventType: EventType,
@@ -386,7 +411,7 @@ class EventRegistry {
    * Register one-time event listener
    * @param eventType Event type
    * @param listener Event listener
-   * @param options Options
+   * @param options Options (priority, filter, timeout, executionId)
    * @returns Unregister function
    */
   once<T extends BaseEvent>(
@@ -396,6 +421,7 @@ class EventRegistry {
       priority?: number;
       filter?: (event: T) => boolean;
       timeout?: number;
+      executionId?: string; // Support execution-scoped once listeners
     },
   ): () => void {
     // Validate parameters
@@ -413,7 +439,7 @@ class EventRegistry {
       this.off(eventType, wrapper);
     };
 
-    // Register wrapper listener
+    // Register wrapper listener with same options
     return this.on(eventType, wrapper, options);
   }
 
@@ -470,12 +496,30 @@ class EventRegistry {
 
   /**
    * Cleanup all listeners associated with a specific execution
+   * Should be called when execution completes (success, failure, or cancellation)
+   * 
    * @param executionId Execution ID
    * @returns Number of listeners cleaned up
+   * 
+   * @example
+   * ```typescript
+   * // In workflow lifecycle coordinator
+   * async stopWorkflowExecution(executionId: string): Promise<void> {
+   *   // ... other cleanup logic ...
+   *   const cleanedCount = eventRegistry.cleanupExecutionListeners(executionId);
+   *   logger.info('Cleaned up event listeners', { executionId, cleanedCount });
+   * }
+   * ```
    */
   cleanupExecutionListeners(executionId: string): number {
+    if (!executionId) {
+      logger.warn('cleanupExecutionListeners called with empty executionId');
+      return 0;
+    }
+
     const listenerIds = this.executionScopedListeners.get(executionId);
     if (!listenerIds || listenerIds.size === 0) {
+      logger.debug('No execution-scoped listeners to clean up', { executionId });
       return 0;
     }
 
@@ -510,6 +554,106 @@ class EventRegistry {
     });
 
     return cleanedCount;
+  }
+
+  /**
+   * Get statistics for execution-scoped listeners
+   * Useful for debugging and monitoring listener lifecycle
+   * 
+   * @returns Map of execution ID to listener count
+   * 
+   * @example
+   * ```typescript
+   * const stats = eventRegistry.getExecutionListenerStats();
+   * for (const [executionId, count] of stats) {
+   *   console.log(`Execution ${executionId} has ${count} active listeners`);
+   * }
+   * ```
+   */
+  getExecutionListenerStats(): Map<string, number> {
+    const stats = new Map<string, number>();
+    
+    for (const [executionId, listenerIds] of this.executionScopedListeners.entries()) {
+      stats.set(executionId, listenerIds.size);
+    }
+    
+    return stats;
+  }
+
+  /**
+   * Get detailed information about all active listeners
+   * Useful for debugging memory leaks and listener management issues
+   * 
+   * @returns Array of listener information
+   * 
+   * @example
+   * ```typescript
+   * const listeners = eventRegistry.getAllListenerInfo();
+   * const executionScoped = listeners.filter(l => l.executionId !== undefined);
+   * console.log(`Found ${executionScoped.length} execution-scoped listeners`);
+   * ```
+   */
+  getAllListenerInfo(): Array<{
+    id: string;
+    eventType: string;
+    executionId?: string;
+    priority: number;
+    registeredAt: number;
+    metrics?: ListenerMetrics;
+  }> {
+    const result: Array<{
+      id: string;
+      eventType: string;
+      executionId?: string;
+      priority: number;
+      registeredAt: number;
+      metrics?: ListenerMetrics;
+    }> = [];
+
+    for (const [eventType, wrappers] of this.globalListeners.entries()) {
+      for (const wrapper of wrappers) {
+        result.push({
+          id: wrapper.id,
+          eventType,
+          executionId: wrapper.executionId,
+          priority: wrapper.priority,
+          registeredAt: wrapper.timestamp,
+          metrics: this.listenerMetrics.get(wrapper.id),
+        });
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Get listeners count by event type
+   * 
+   * @returns Map of event type to listener count
+   */
+  getListenerCountByEventType(): Map<string, { total: number; executionScoped: number; global: number }> {
+    const result = new Map<string, { total: number; executionScoped: number; global: number }>();
+
+    for (const [eventType, wrappers] of this.globalListeners.entries()) {
+      let executionScoped = 0;
+      let global = 0;
+
+      for (const wrapper of wrappers) {
+        if (wrapper.executionId) {
+          executionScoped++;
+        } else {
+          global++;
+        }
+      }
+
+      result.set(eventType, {
+        total: wrappers.length,
+        executionScoped,
+        global,
+      });
+    }
+
+    return result;
   }
 }
 

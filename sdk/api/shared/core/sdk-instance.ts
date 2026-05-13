@@ -789,6 +789,51 @@ export class SDKInstance {
   }
 
   /**
+   * Cleanup all agent loops
+   * Stops and cleans up all running/paused agent loops
+   */
+  private async cleanupAgentLoops(): Promise<void> {
+    try {
+      const coordinator = this.getFactory().getDependencies().getAgentLoopCoordinator();
+      const registry = this.getFactory().getDependencies().getAgentLoopRegistry();
+      
+      // Get all active agent loops
+      const allLoops = registry.getAll();
+      
+      if (allLoops.length === 0) {
+        return;
+      }
+      
+      logger.info('Cleaning up agent loops', { count: allLoops.length });
+      
+      // Stop all running/paused loops
+      for (const loop of allLoops) {
+        if (loop.isRunning() || loop.isPaused()) {
+          try {
+            await coordinator.stop(loop.id);
+            logger.debug('Stopped agent loop', { agentLoopId: loop.id });
+          } catch (error) {
+            logger.warn('Failed to stop agent loop during cleanup', {
+              agentLoopId: loop.id,
+              error: getErrorMessage(error),
+            });
+          }
+        }
+        
+        // Cleanup resources
+        loop.cleanup();
+      }
+      
+      // Clear registry
+      registry.clear();
+      
+      logger.info('Agent loops cleanup completed', { cleanedCount: allLoops.length });
+    } catch (error) {
+      logger.error('Failed to cleanup agent loops', { error: getErrorMessage(error) });
+    }
+  }
+
+  /**
    * Shutdown the SDK instance gracefully
    * Closes storage adapters and releases instance-specific resources
    */
@@ -841,6 +886,8 @@ export class SDKInstance {
       { name: "profiles", task: () => this.profiles.clear() },
       { name: "userInteractions", task: () => this.userInteractions.clear() },
       { name: "humanRelay", task: () => this.humanRelay.clear() },
+      { name: "events", task: () => this.events.dispose() },
+      { name: "agentLoops", task: () => this.cleanupAgentLoops() },
     ];
 
     for (const { name, task } of cleanupTasks) {

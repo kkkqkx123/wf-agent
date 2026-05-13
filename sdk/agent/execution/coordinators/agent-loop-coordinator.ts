@@ -391,6 +391,14 @@ export class AgentLoopCoordinator {
     // Set a stop flag and abort the process using state transitor
     entity.interrupt("STOP");
     await this.stateTransitor.cancelAgentLoop(entity, "User requested stop");
+    
+    // Cleanup entity resources after stopping
+    entity.cleanup();
+    
+    // Unregister from registry
+    this.registry.unregister(id);
+    
+    logger.info("Agent Loop stopped and cleaned up", { agentLoopId: id });
   }
 
   /**

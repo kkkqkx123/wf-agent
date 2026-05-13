@@ -884,4 +884,24 @@ export class MessageStream implements AsyncIterable<InternalStreamEvent> {
   getController(): AbortController {
     return this.controller;
   }
+
+  /**
+   * Cleanup all event listeners and resources
+   * This should be called when the stream is no longer needed to prevent memory leaks.
+   */
+  cleanup(): void {
+    // Clear all event listeners
+    this.listeners.clear();
+    
+    // Clear queues
+    this.pushQueue = [];
+    this.readQueue = [];
+    
+    // Abort if not already ended
+    if (!this.ended && !this.aborted) {
+      this.abort();
+    }
+    
+    logger.debug('MessageStream cleaned up');
+  }
 }

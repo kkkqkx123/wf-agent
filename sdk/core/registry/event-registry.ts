@@ -53,6 +53,7 @@ interface ListenerWrapper<T> {
   priority: number;
   filter?: (event: T) => boolean;
   timeout?: number;
+  executionId?: string; // Optional execution ID for scoped listeners
 }
 
 /**
@@ -70,6 +71,9 @@ interface ListenerWrapper<T> {
 class EventRegistry {
   // Global event listeners (exposed externally)
   private globalListeners: Map<string, ListenerWrapper<unknown>[]> = new Map();
+  
+  // Execution-scoped listener tracking (executionId -> Set of listener IDs)
+  private executionScopedListeners: Map<string, Set<string>> = new Map();
   
   // Configuration
   private config: Required<EventRegistryConfig>;
@@ -90,7 +94,7 @@ class EventRegistry {
    * Register event listener (global event)
    * @param eventType Event type
    * @param listener Event listener
-   * @param options Options (priority, filter, timeout, etc.)
+   * @param options Options (priority, filter, timeout, executionId, etc.)
    * @returns Unregister function
    */
   on<T extends BaseEvent>(
@@ -100,6 +104,7 @@ class EventRegistry {
       priority?: number;
       filter?: (event: T) => boolean;
       timeout?: number;
+      executionId?: string; // Associate listener with specific execution
     },
   ): () => void {
     return this.registerGlobalListener(eventType, listener, options);
@@ -119,6 +124,7 @@ class EventRegistry {
       priority?: number;
       filter?: (event: T) => boolean;
       timeout?: number;
+      executionId?: string;
     },
   ): () => void {
     // Validate parameters
@@ -153,6 +159,7 @@ class EventRegistry {
       priority: options?.priority || 0,
       filter: options?.filter,
       timeout: options?.timeout ?? this.config.defaultListenerTimeout,
+      executionId: options?.executionId,
     };
 
     // Add to global listeners list
@@ -163,6 +170,14 @@ class EventRegistry {
 
     // Sort by priority (higher priority first)
     this.globalListeners.get(eventType)!.sort((a, b) => b.priority - a.priority);
+
+    // Track execution association if provided
+    if (options?.executionId) {
+      if (!this.executionScopedListeners.has(options.executionId)) {
+        this.executionScopedListeners.set(options.executionId, new Set());
+      }
+      this.executionScopedListeners.get(options.executionId)!.add(wrapper.id);
+    }
 
     // Initialize metrics for this listener
     this.listenerMetrics.set(wrapper.id, {
@@ -218,7 +233,28 @@ class EventRegistry {
       return false;
     }
 
+    // Get wrapper before removing to clean up metrics
+    const wrapper = wrappers[index];
+    if (!wrapper) {
+      return false;
+    }
+    
     wrappers.splice(index, 1);
+
+    // Clean up listener metrics to prevent memory leak
+    this.listenerMetrics.delete(wrapper.id);
+    
+    // Clean up execution tracking if applicable
+    if (wrapper.executionId) {
+      const listenerIds = this.executionScopedListeners.get(wrapper.executionId);
+      if (listenerIds) {
+        listenerIds.delete(wrapper.id);
+        // Remove empty sets
+        if (listenerIds.size === 0) {
+          this.executionScopedListeners.delete(wrapper.executionId);
+        }
+      }
+    }
 
     // If array is empty, delete mapping
     if (wrappers.length === 0) {
@@ -430,6 +466,50 @@ class EventRegistry {
         }, timeout);
       }
     });
+  }
+
+  /**
+   * Cleanup all listeners associated with a specific execution
+   * @param executionId Execution ID
+   * @returns Number of listeners cleaned up
+   */
+  cleanupExecutionListeners(executionId: string): number {
+    const listenerIds = this.executionScopedListeners.get(executionId);
+    if (!listenerIds || listenerIds.size === 0) {
+      return 0;
+    }
+
+    let cleanedCount = 0;
+
+    // Find and remove all listeners for this execution
+    for (const [eventType, wrappers] of this.globalListeners.entries()) {
+      // Filter out listeners belonging to this execution
+      const toRemove = wrappers.filter(w => listenerIds.has(w.id));
+      
+      for (const wrapper of toRemove) {
+        const index = wrappers.indexOf(wrapper);
+        if (index !== -1) {
+          wrappers.splice(index, 1);
+          this.listenerMetrics.delete(wrapper.id);
+          cleanedCount++;
+        }
+      }
+      
+      // Remove empty arrays
+      if (wrappers.length === 0) {
+        this.globalListeners.delete(eventType);
+      }
+    }
+
+    // Remove execution tracking
+    this.executionScopedListeners.delete(executionId);
+
+    logger.info('Cleaned up execution-scoped listeners', {
+      executionId,
+      cleanedCount,
+    });
+
+    return cleanedCount;
   }
 }
 

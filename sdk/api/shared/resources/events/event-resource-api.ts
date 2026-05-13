@@ -115,8 +115,10 @@ const ALL_EVENT_TYPES: EventType[] = [
 export interface EventFilter {
   /** Event ID list */
   ids?: string[];
-  /** Event type */
+  /** Event type (single) */
   eventType?: EventType;
+  /** Event types (multiple, OR logic) */
+  eventTypes?: EventType[];
   /** Execution ID */
   executionId?: string;
   /** Workflow ID */
@@ -144,6 +146,20 @@ export interface EventStats {
 }
 
 /**
+ * EventResourceAPI configuration options
+ */
+export interface EventResourceAPIConfig {
+  /** Maximum number of events to keep in history (default: 1000) */
+  maxHistorySize?: number;
+  /** Retention time in milliseconds for automatic cleanup (optional) */
+  retentionTimeMs?: number;
+  /** Enable persistence for critical events (future feature flag) */
+  persistCriticalEvents?: boolean;
+  /** List of event types to consider as critical (if persistCriticalEvents is true) */
+  criticalEventTypes?: EventType[];
+}
+
+/**
  * EventResourceAPI - Event Resource Management API
  *
  * Refactoring Notes:
@@ -156,16 +172,43 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
   private dependencies: APIDependencyManager;
   private executor: CommandExecutor;
   private unsubscribe?: () => void;
-  private maxHistorySize: number;
+  private config: Required<Omit<EventResourceAPIConfig, 'retentionTimeMs' | 'persistCriticalEvents' | 'criticalEventTypes'>> & Pick<EventResourceAPIConfig, 'retentionTimeMs' | 'persistCriticalEvents' | 'criticalEventTypes'>;
+  private cleanupTimer?: NodeJS.Timeout;
 
-  constructor(dependencies: APIDependencyManager, maxHistorySize: number = 1000) {
+  constructor(
+    dependencies: APIDependencyManager,
+    configOrMaxHistorySize?: EventResourceAPIConfig | number,
+  ) {
     super();
     this.dependencies = dependencies;
     this.executor = new CommandExecutor();
-    this.maxHistorySize = maxHistorySize;
+
+    // Support both old API (number) and new API (config object)
+    if (typeof configOrMaxHistorySize === 'number') {
+      // Legacy API: just maxHistorySize
+      this.config = {
+        maxHistorySize: configOrMaxHistorySize,
+        retentionTimeMs: undefined,
+        persistCriticalEvents: false,
+        criticalEventTypes: undefined,
+      };
+    } else {
+      // New API: config object
+      this.config = {
+        maxHistorySize: configOrMaxHistorySize?.maxHistorySize ?? 1000,
+        retentionTimeMs: configOrMaxHistorySize?.retentionTimeMs,
+        persistCriticalEvents: configOrMaxHistorySize?.persistCriticalEvents ?? false,
+        criticalEventTypes: configOrMaxHistorySize?.criticalEventTypes,
+      };
+    }
 
     // Setup event listeners
     this.setupEventListeners();
+    
+    // Start retention cleanup timer if configured
+    if (this.config.retentionTimeMs) {
+      this.startRetentionCleanup();
+    }
   }
 
   /**
@@ -196,9 +239,48 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
   private addEventToHistory(event: Event): void {
     this.eventHistory.push(event);
 
-    // Auto-trim history
-    if (this.eventHistory.length > this.maxHistorySize) {
-      this.eventHistory = this.eventHistory.slice(-this.maxHistorySize);
+    // Auto-trim history based on size limit
+    if (this.eventHistory.length > this.config.maxHistorySize) {
+      this.eventHistory = this.eventHistory.slice(-this.config.maxHistorySize);
+    }
+  }
+
+  /**
+   * Start retention-based cleanup timer
+   */
+  private startRetentionCleanup(): void {
+    if (!this.config.retentionTimeMs) return;
+
+    const interval = Math.min(this.config.retentionTimeMs, 60 * 1000); // Check at most every minute
+    
+    this.cleanupTimer = setInterval(() => {
+      this.cleanupExpiredEvents();
+    }, interval);
+
+    // Ensure timer doesn't prevent process exit
+    if (this.cleanupTimer.unref) {
+      this.cleanupTimer.unref();
+    }
+  }
+
+  /**
+   * Cleanup events older than retention time
+   */
+  private cleanupExpiredEvents(): void {
+    if (!this.config.retentionTimeMs) return;
+
+    const now = Date.now();
+    const cutoffTime = now - this.config.retentionTimeMs;
+    
+    const originalLength = this.eventHistory.length;
+    this.eventHistory = this.eventHistory.filter(event => event.timestamp >= cutoffTime);
+    
+    const removedCount = originalLength - this.eventHistory.length;
+    if (removedCount > 0) {
+      // Log cleanup in development/debug mode
+      if (process.env['NODE_ENV'] !== 'production') {
+        console.debug(`Cleaned up ${removedCount} expired events`);
+      }
     }
   }
 
@@ -206,10 +288,19 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
    * Cleanup resources
    */
   public dispose(): void {
+    // Clear retention cleanup timer
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer);
+      this.cleanupTimer = undefined;
+    }
+    
+    // Unsubscribe from event listeners
     if (this.unsubscribe) {
       this.unsubscribe();
       this.unsubscribe = undefined;
     }
+    
+    // Clear event history
     this.eventHistory = [];
   }
 
@@ -239,9 +330,16 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
    */
   protected override applyFilter(events: Event[], filter: EventFilter): Event[] {
     return events.filter(event => {
+      // Support single event type
       if (filter.eventType && event.type !== filter.eventType) {
         return false;
       }
+      
+      // Support multiple event types (OR logic)
+      if (filter.eventTypes && !filter.eventTypes.includes(event.type)) {
+        return false;
+      }
+      
       if (filter.executionId && event.executionId !== filter.executionId) {
         return false;
       }

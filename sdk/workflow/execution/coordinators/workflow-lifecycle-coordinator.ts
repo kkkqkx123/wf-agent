@@ -209,6 +209,7 @@ export class WorkflowLifecycleCoordinator {
    * 4. Update the workflow execution status to CANCELLED.
    * 5. Cancel any child workflow executions recursively.
    * 6. Cleanup child AgentLoops.
+   * 7. Cleanup execution-scoped event listeners.
    *
    * @param workflowExecutionId: Workflow Execution ID
    * @throws NotFoundError: The workflow execution context does not exist.
@@ -233,6 +234,10 @@ export class WorkflowLifecycleCoordinator {
 
     // 4. Cleanup child AgentLoops
     await this.cleanupChildAgentLoops(executionId);
+    
+    // 5. Cleanup execution-scoped event listeners
+    const cleanedCount = this.globalContext.eventRegistry.cleanupExecutionListeners(executionId);
+    logger.info('Cleaned up event listeners', { executionId, cleanedCount });
   }
 
   /**

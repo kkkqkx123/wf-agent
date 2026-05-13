@@ -613,68 +613,73 @@ export class AgentExecutionCoordinator {
     let streamDone = false;
     let streamError: Error | null = null;
 
-    messageStream
-      .on("text", ((delta: string, snapshot: string) => {
-        eventQueue.push({ type: "text", delta, snapshot });
-      }) as unknown as (event: MessageStreamEvent) => void)
-      .on("inputJson", ((partialJson: string, parsedSnapshot: unknown, snapshot: LLMMessage) => {
-        eventQueue.push({ type: "inputJson", partialJson, parsedSnapshot, snapshot });
-      }) as unknown as (event: MessageStreamEvent) => void)
-      .on("message", ((message: LLMMessage) => {
-        eventQueue.push({ type: "message", message });
-      }) as unknown as (event: MessageStreamEvent) => void)
-      .on("error", ((error: Error) => {
-        eventQueue.push({ type: "error", error });
-      }) as unknown as (event: MessageStreamEvent) => void);
+    try {
+      messageStream
+        .on("text", ((delta: string, snapshot: string) => {
+          eventQueue.push({ type: "text", delta, snapshot });
+        }) as unknown as (event: MessageStreamEvent) => void)
+        .on("inputJson", ((partialJson: string, parsedSnapshot: unknown, snapshot: LLMMessage) => {
+          eventQueue.push({ type: "inputJson", partialJson, parsedSnapshot, snapshot });
+        }) as unknown as (event: MessageStreamEvent) => void)
+        .on("message", ((message: LLMMessage) => {
+          eventQueue.push({ type: "message", message });
+        }) as unknown as (event: MessageStreamEvent) => void)
+        .on("error", ((error: Error) => {
+          eventQueue.push({ type: "error", error });
+        }) as unknown as (event: MessageStreamEvent) => void);
 
-    messageStream
-      .done()
-      .then(() => {
-        streamDone = true;
-      })
-      .catch(error => {
-        streamError = error;
-        streamDone = true;
-      });
+      messageStream
+        .done()
+        .then(() => {
+          streamDone = true;
+        })
+        .catch(error => {
+          streamError = error;
+          streamDone = true;
+        });
 
-    while (!streamDone || eventQueue.length > 0) {
-      if (entity.isAborted() || entity.shouldStop()) {
-        const result = checkWorkflowInterruption(entity.getAbortSignal());
-        entity.state.cancel();
-        yield this.createErrorEvent(
-          agentLoopId,
-          result.type === "paused" ? "Execution paused" : "Execution cancelled",
-          entity.state.currentIteration,
-          "stream_interruption",
-        );
-        await this.emitToRegistry(
-          this.createErrorEvent(
+      while (!streamDone || eventQueue.length > 0) {
+        if (entity.isAborted() || entity.shouldStop()) {
+          const result = checkWorkflowInterruption(entity.getAbortSignal());
+          entity.state.cancel();
+          yield this.createErrorEvent(
             agentLoopId,
             result.type === "paused" ? "Execution paused" : "Execution cancelled",
             entity.state.currentIteration,
             "stream_interruption",
-          ),
-          entity,
-        );
-        return { success: false };
+          );
+          await this.emitToRegistry(
+            this.createErrorEvent(
+              agentLoopId,
+              result.type === "paused" ? "Execution paused" : "Execution cancelled",
+              entity.state.currentIteration,
+              "stream_interruption",
+            ),
+            entity,
+          );
+          return { success: false };
+        }
+
+        while (eventQueue.length > 0) {
+          const event = eventQueue.shift()!;
+          yield event;
+        }
+
+        if (!streamDone) {
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
       }
 
-      while (eventQueue.length > 0) {
-        const event = eventQueue.shift()!;
-        yield event;
+      if (streamError) {
+        return yield* this.handleStreamError(entity, agentLoopId, streamError);
       }
 
-      if (!streamDone) {
-        await new Promise(resolve => setTimeout(resolve, 0));
-      }
+      const finalResult = await messageStream.getFinalResult();
+      return { success: true, finalResult };
+    } finally {
+      // Cleanup message stream listeners to prevent memory leaks
+      messageStream.cleanup();
     }
-
-    if (streamError) {
-      return yield* this.handleStreamError(entity, agentLoopId, streamError);
-    }
-
-    const finalResult = await messageStream.getFinalResult();
-    return { success: true, finalResult };
   }
 
   /**

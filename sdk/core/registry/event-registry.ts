@@ -18,7 +18,7 @@ import { ExecutionError, RuntimeValidationError } from "@wf-agent/types";
 import { generateId } from "../../utils/index.js";
 import { now, getErrorOrNew } from "@wf-agent/common-utils";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
-import { MetricsAggregator, type ExecutionMetric, type AggregatedStat, type MetricsSummary } from "./metrics-aggregator.js";
+import { EventMetricsCollector, type AggregatedEventStat, type EventMetricsSummary } from "../metrics/event-collector.js";
 import { ExecutionEventEmitter, type EventEmitterOptions } from "./event-emitter.js";
 
 const logger = createContextualLogger({ operation: "EventRegistry" });
@@ -58,8 +58,8 @@ class EventRegistry {
   // Configuration
   private config: Required<EventRegistryConfig>;
   
-  // Cross-execution metrics aggregator
-  private metricsAggregator: MetricsAggregator;
+  // Cross-execution metrics collector (new universal metrics system)
+  private metricsCollector: EventMetricsCollector;
 
   constructor(config?: EventRegistryConfig) {
     this.config = {
@@ -69,8 +69,8 @@ class EventRegistry {
       enableBackpressure: config?.enableBackpressure ?? true,
     };
     
-    // Initialize metrics aggregator
-    this.metricsAggregator = new MetricsAggregator();
+    // Initialize event metrics collector
+    this.metricsCollector = new EventMetricsCollector();
   }
 
   /**
@@ -236,7 +236,7 @@ class EventRegistry {
     }
 
     // Cleanup aggregated metrics for this execution
-    this.metricsAggregator.cleanupExecution(executionId);
+    this.metricsCollector.cleanupExecution(executionId);
 
     logger.info('Cleaned up execution-scoped listeners', {
       executionId,
@@ -270,46 +270,41 @@ class EventRegistry {
 
 
   /**
-   * Get metrics aggregator instance for cross-execution statistics
-   * @returns MetricsAggregator instance
+   * Get metrics collector instance for cross-execution statistics
+   * @returns EventMetricsCollector instance
    * 
    * @example
    * ```typescript
    * // Get aggregated statistics
-   * const aggregator = eventRegistry.getMetricsAggregator();
-   * const stats = aggregator.getStatistics('NODE_COMPLETED');
+   * const collector = eventRegistry.getMetricsCollector();
+   * const stats = collector.getStatistics('NODE_COMPLETED');
    * console.log(`Total nodes completed: ${stats?.count}`);
    * 
    * // Subscribe to periodic summaries
-   * aggregator.onSummary((summary) => {
-   *   console.log('Total events:', summary.totalEvents);
-   *   console.log('Active executions:', summary.activeExecutions);
+   * collector.onReport((report) => {
+   *   console.log('Total events:', report.summary.totalMetrics);
    * }, { interval: 5000 });
    * ```
    */
-  getMetricsAggregator(): MetricsAggregator {
-    return this.metricsAggregator;
+  getMetricsCollector(): EventMetricsCollector {
+    return this.metricsCollector;
   }
 
   /**
    * Get aggregated statistics for a specific event type
    * @param eventType Event type to query
    * @returns Aggregated statistics or undefined if not found
-   * 
-   * @deprecated Use getMetricsAggregator().getStatistics() instead
    */
-  getEventStatistics(eventType: string): AggregatedStat | undefined {
-    return this.metricsAggregator.getStatistics(eventType);
+  getEventStatistics(eventType: string): AggregatedEventStat | undefined {
+    return this.metricsCollector.getStatistics(eventType);
   }
 
   /**
    * Get complete metrics summary
    * @returns Summary of all aggregated metrics
-   * 
-   * @deprecated Use getMetricsAggregator().generateSummary() instead
    */
-  getMetricsSummary(): MetricsSummary {
-    return this.metricsAggregator.generateSummary();
+  getMetricsSummary(): EventMetricsSummary {
+    return this.metricsCollector.generateSummary();
   }
 }
 

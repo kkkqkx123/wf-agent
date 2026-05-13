@@ -33,6 +33,7 @@
     "test": "vitest run --reporter=verbose",
     "test:watch": "vitest --watch",
     "test:coverage": "vitest run --coverage",
+    "test:type": "tsd --files __tests__/test-d",
     "typecheck": "tsc --noEmit",
     "typecheck:tests": "tsc --noEmit -p tsconfig.test.json",
     "clean": "rimraf dist",
@@ -60,9 +61,11 @@
     "@iarna/toml": "^2.2.5",
     "minimatch": "^10.2.5",
     "fast-ignore": "^2.0.0",
-    "isbinaryfile": "^5.0.2"
+    "isbinaryfile": "^6.0.0"
   },
-  "devDependencies": {},
+  "devDependencies": {
+    "tsd": "^0.33.0"
+  },
   "engines": {
     "node": ">=22.0.0"
   }

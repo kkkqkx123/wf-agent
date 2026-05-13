@@ -1,4 +1,12 @@
 {
   "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": [
+    "apps/**/*",
+    "packages/**/*",
+    "sdk/**/*"
+  ],
   "exclude": ["node_modules", "dist", "ref"]
 }

@@ -1,4 +1,19 @@
 {
   "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": [
+    "index.ts",
+    "core/**/*",
+    "services/**/*",
+    "graph/**/*",
+    "agent/**/*",
+    "api/**/*",
+    "utils/**/*",
+    "resources/**/*",
+    "workflow/validation",
+    "__tests__/**/*"
+  ],
   "exclude": ["node_modules", "dist"]
 }

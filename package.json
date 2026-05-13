@@ -12,7 +12,7 @@
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev --parallel",
-    "test": "node scripts/test.mjs",
+    "test": "echo \"Error: no test specified. Use 'pnpm --filter <package-name> test <path>' instead\" && exit 1",
     "lint": "turbo run lint",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

@@ -4,8 +4,8 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { topologicalSort } from '../../../../workflow/builder/utils/workflow-topological-sorter.js';
-import { WorkflowGraphData } from '../../../../workflow/entities/workflow-graph-data.js';
+import { topologicalSort } from '../workflow-topological-sorter.js';
+import { WorkflowGraphData } from '../../../entities/workflow-graph-data.js';
 import type { WorkflowNode, WorkflowEdge } from '@wf-agent/types';
 
 // Helper function to create a simple node

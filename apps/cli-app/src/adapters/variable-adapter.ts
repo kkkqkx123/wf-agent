@@ -89,7 +89,7 @@ export class VariableAdapter extends BaseAdapter {
   } | null> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.variables;
-      const definitions = await api.getWorkflowExecutionVariableDefinitions();
+      const definitions = await api.getWorkflowExecutionVariableDefinitions(executionId);
       const definition = definitions[variableName] || null;
       return definition as {
         name: string;

@@ -4,8 +4,8 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { detectCycles } from '../../../../workflow/builder/utils/workflow-cycle-detector.js';
-import { WorkflowGraphData } from '../../../../workflow/entities/workflow-graph-data.js';
+import { detectCycles } from '../workflow-cycle-detector.js';
+import { WorkflowGraphData } from '../../../entities/workflow-graph-data.js';
 import type { WorkflowNode, WorkflowEdge } from '@wf-agent/types';
 
 // Helper function to create a simple node

@@ -122,10 +122,24 @@ modular-agent-framework/
 ### 3. Testing Strategy
 
 - **Unit tests**: In `__tests__` folders of current path
-- **Integration tests**: Across package boundaries
+  (Example: source code in `<path>/file.ts` , then test file in `<path>/__tests__/file.test.ts`)
+  Note: TypeScript automatically validates internal types during unit test execution.
+
+- **Integration tests**: In `__tests__` folders of current package root
+  (Example: source code in `<package>/`, then test file in `<package>/__tests__/<domain>[optional]/feature.int.test.ts`)
+  Focus: Cross-module functional collaboration.
+
+- **Public type tests (SDK-only)**: In `<sdk>/__tests__/test-d/` 
+  File: `<package>/__tests__/test-d/<domain>[optional]/<type>.test-d.ts` (run via `tsd`)
+  Focus: Validate exported public APIs/interfaces/types from user perspective.
+
 - **End-to-end tests**: In `apps/` for complete workflows
-- **Run Tests**: `cd <module[like sdk]>; pnpm test <relevant-path of test file/folder>`. **Never run all tests at once. pnpm test without files path is not allowed**
-  For example, to run all tests in the `sdk/core/services` package, run `cd sdk; pnpm test core/services`.
+
+- **Run Tests**: 
+  - Unit&integration: `cd <package>; pnpm test <path>`
+  - Type: `cd <package>; pnpm test:type`
+  - Typecheck for test: `cd <package>; pnpm typecheck:type`
+  **Never run all tests at once. `pnpm test` without path is forbidden.**
 
 ### 4. Build Orchestration
 

@@ -16,6 +16,7 @@
     "test": "vitest run --reporter=verbose",
     "test:watch": "vitest --watch",
     "test:coverage": "vitest run --coverage",
+    "test:type": "tsd --files __tests__/test-d",
     "typecheck": "tsc --noEmit",
     "typecheck:tests": "tsc --noEmit -p tsconfig.test.json",
     "lint": "eslint . --ext .ts",
@@ -27,5 +28,7 @@
     "@wf-agent/types": "workspace:*",
     "zod": "^4.3.6"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "tsd": "^0.33.0"
+  }
 }

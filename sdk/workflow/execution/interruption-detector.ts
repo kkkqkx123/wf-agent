@@ -21,6 +21,9 @@ import {
   checkWorkflowInterruption,
   getWorkflowInterruptionType,
 } from "../../core/utils/interruption/index.js";
+import { createContextualLogger } from "../../utils/contextual-logger.js";
+
+const logger = createContextualLogger({ component: "InterruptionDetector" });
 
 /**
  * Interrupt Detector Interface
@@ -62,17 +65,28 @@ export class InterruptionDetectorImpl implements InterruptionDetector {
   getAbortSignal(executionId: string): AbortSignal {
     const executionContext = this.workflowExecutionRegistry.get(executionId);
     if (!executionContext) {
+      logger.warn("Workflow execution context not found", { executionId });
       return new AbortController().signal;
     }
 
-    const interruptionManager = (
-      executionContext as { interruptionManager?: { getAbortSignal: () => AbortSignal } }
-    ).interruptionManager;
-    if (!interruptionManager) {
-      return new AbortController().signal;
+    // Type-safe access to interruptionManager
+    if (
+      "interruptionManager" in executionContext &&
+      executionContext.interruptionManager &&
+      typeof executionContext.interruptionManager === "object" &&
+      "getAbortSignal" in executionContext.interruptionManager &&
+      typeof executionContext.interruptionManager.getAbortSignal === "function"
+    ) {
+      return executionContext.interruptionManager.getAbortSignal();
     }
 
-    return interruptionManager.getAbortSignal();
+    logger.error(
+      "InterruptionManager is missing or invalid in execution context",
+      { executionId },
+    );
+    throw new Error(
+      `InterruptionManager not properly initialized for execution ${executionId}`,
+    );
   }
 
   /**

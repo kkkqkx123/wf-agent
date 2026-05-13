@@ -697,13 +697,20 @@ export function configureContainerBindings(
           const nodeId = executionEntity.getCurrentNodeId();
           const graph = executionEntity.getGraph();
           const navigator = new WorkflowNavigator(graph);
+          
+          // Create InterruptionState and set it on the entity
+          const interruptionManager = (
+            interruptionManagerFactory as unknown as InterruptionStateFactory<InterruptionState>
+          ).create(executionId, nodeId);
+          
+          // Set the interruption state on the entity so getAbortSignal() returns the same signal
+          executionEntity.setInterruptionState(interruptionManager);
+          
           return new WorkflowExecutionCoordinator(
             executionEntity,
             variableCoordinator,
             (triggerCoordinatorFactory as unknown as IdBasedServiceFactory<TriggerCoordinator>).create(executionId),
-            (
-              interruptionManagerFactory as unknown as InterruptionStateFactory<InterruptionState>
-            ).create(executionId, nodeId),
+            interruptionManager,
             toolVisibilityCoordinator,
             (
               nodeExecutionCoordinatorFactory as unknown as NodeExecutionCoordinatorFactory<NodeExecutionCoordinator>

@@ -177,6 +177,20 @@ export class LLMExecutor {
 
       const messageStream = streamResult.value;
 
+      // Link external abort signal to MessageStream for fine-grained interruption
+      if (options?.abortSignal) {
+        messageStream.setAbortSignal(options.abortSignal);
+      }
+
+      // Note: MessageStream events can be listened to by callers if needed.
+      // For better observability, callers can attach listeners before awaiting done():
+      // ```typescript
+      // messageStream.on("abort", (event) => {
+      //   // Handle abort event
+      // });
+      // await messageStream.done();
+      // ```
+
       // Wait for the stream to complete
       // The stream processes events internally via event listeners
       await messageStream.done();

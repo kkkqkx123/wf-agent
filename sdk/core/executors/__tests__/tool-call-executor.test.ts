@@ -231,15 +231,19 @@ describe('ToolCallExecutor', () => {
 
       (mockToolRegistry.getTool as any).mockReturnValue(mockTool);
 
-      await expect(
-        executor.executeToolCalls(
-          toolCalls,
-          mockConversationSession as unknown as ConversationSession,
-          'exec-1',
-          'node-1',
-          { abortSignal: abortController.signal }
-        )
-      ).rejects.toThrow();
+      // Should return cancelled results instead of throwing
+      const results = await executor.executeToolCalls(
+        toolCalls,
+        mockConversationSession as unknown as ConversationSession,
+        'exec-1',
+        'node-1',
+        { abortSignal: abortController.signal }
+      );
+      
+      expect(results).toHaveLength(1);
+      expect(results[0].success).toBe(false);
+      expect(results[0].error).toContain('cancelled');
+      expect(results[0].executionTime).toBe(0);
     });
 
     it('should handle invalid JSON arguments', async () => {
@@ -759,15 +763,18 @@ describe('ToolCallExecutor', () => {
       const abortError = createAbortError('Aborted', abortController.signal);
       (mockToolRegistry.execute as any).mockRejectedValue(abortError);
 
-      await expect(
-        executor.executeToolCalls(
-          toolCalls,
-          mockConversationSession as unknown as ConversationSession,
-          'exec-1',
-          'node-1',
-          { abortSignal: abortController.signal }
-        )
-      ).rejects.toThrow('Tool execution interrupted');
+      // Should return paused result instead of throwing
+      const results = await executor.executeToolCalls(
+        toolCalls,
+        mockConversationSession as unknown as ConversationSession,
+        'exec-1',
+        'node-1',
+        { abortSignal: abortController.signal }
+      );
+      
+      expect(results).toHaveLength(1);
+      expect(results[0].success).toBe(false);
+      expect(results[0].error).toContain('paused');
     });
 
     it('should handle STOP interruption during tool execution', async () => {
@@ -796,15 +803,18 @@ describe('ToolCallExecutor', () => {
       const abortError = createAbortError('Aborted', abortController.signal);
       (mockToolRegistry.execute as any).mockRejectedValue(abortError);
 
-      await expect(
-        executor.executeToolCalls(
-          toolCalls,
-          mockConversationSession as unknown as ConversationSession,
-          'exec-1',
-          'node-1',
-          { abortSignal: abortController.signal }
-        )
-      ).rejects.toThrow('Tool execution interrupted');
+      // Should return cancelled result instead of throwing
+      const results = await executor.executeToolCalls(
+        toolCalls,
+        mockConversationSession as unknown as ConversationSession,
+        'exec-1',
+        'node-1',
+        { abortSignal: abortController.signal }
+      );
+      
+      expect(results).toHaveLength(1);
+      expect(results[0].success).toBe(false);
+      expect(results[0].error).toContain('cancelled');
     });
 
     it('should use custom timeout and retry configuration from tool config', async () => {

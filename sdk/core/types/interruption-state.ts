@@ -62,6 +62,9 @@ export class InterruptionState {
   private contextId: string;
   private nodeId: string;
   private createInterruptionError?: (info: InterruptionInfo) => InterruptedException;
+  
+  /** Event listeners for resume notifications */
+  private resumeListeners: Array<() => void> = [];
 
   /**
    * Constructor
@@ -112,12 +115,72 @@ export class InterruptionState {
 
   /**
    * Resume execution
+   * 
+   * This method resets the interruption state and creates a new AbortController.
+   * All registered resume listeners will be notified to refresh their signal references.
+   * 
+   * IMPORTANT: External code should NOT cache AbortSignal references across pause/resume cycles.
+   * Always call getAbortSignal() or getFreshAbortSignal() after resume() to obtain the current signal.
    */
   resume(): void {
     logger.info("Execution resumed", { contextId: this.contextId, nodeId: this.nodeId });
     this.interruptionType = null;
-    // Reset the AbortController
+    
+    // Create a new AbortController for fresh state
+    const oldController = this.abortController;
     this.abortController = new AbortController();
+    
+    // Notify all listeners to refresh their signal references
+    // This prevents stale signal references from causing issues
+    const listeners = [...this.resumeListeners];
+    this.resumeListeners = []; // Clear listeners to prevent memory leaks
+    listeners.forEach(listener => {
+      try {
+        listener();
+      } catch (error) {
+        logger.warn("Error in resume listener", { 
+          contextId: this.contextId, 
+          error: error instanceof Error ? error.message : String(error) 
+        });
+      }
+    });
+    
+    // Help GC by removing references to old controller
+    // Note: The old controller's signal may still be referenced externally,
+    // but we've done our part to notify listeners
+  }
+  
+  /**
+   * Register a callback to be invoked when resume() is called
+   * 
+   * This allows external code to refresh their AbortSignal references
+   * without polling or caching stale signals.
+   * 
+   * @param callback Function to call on resume
+   * @returns Unsubscribe function
+   * 
+   * @example
+   * ```typescript
+   * const unsubscribe = interruptionState.onResumed(() => {
+   *   // Refresh signal reference
+   *   const freshSignal = interruptionState.getAbortSignal();
+   *   // Re-subscribe to events, update references, etc.
+   * });
+   * 
+   * // Later, when no longer needed
+   * unsubscribe();
+   * ```
+   */
+  onResumed(callback: () => void): () => void {
+    this.resumeListeners.push(callback);
+    
+    // Return unsubscribe function
+    return () => {
+      const index = this.resumeListeners.indexOf(callback);
+      if (index !== -1) {
+        this.resumeListeners.splice(index, 1);
+      }
+    };
   }
 
   /**
@@ -129,9 +192,36 @@ export class InterruptionState {
 
   /**
    * Get the AbortSignal
+   * 
+   * IMPORTANT: Do NOT cache this signal across pause/resume cycles.
+   * After calling resume(), you MUST call this method again to get the fresh signal.
+   * 
+   * For better safety, consider using onResumed() to automatically refresh your signal reference:
+   * ```typescript
+   * let signal = interruptionState.getAbortSignal();
+   * const unsubscribe = interruptionState.onResumed(() => {
+   *   signal = interruptionState.getAbortSignal(); // Auto-refresh
+   * });
+   * ```
+   * 
+   * @returns The current AbortSignal
    */
   getAbortSignal(): AbortSignal {
     return this.abortController.signal;
+  }
+
+  /**
+   * Get a fresh AbortSignal (guaranteed to be current)
+   * 
+   * This is an alias for getAbortSignal() but makes it explicit that
+   * you're getting the most recent signal.
+   * 
+   * RECOMMENDED: Use this method after resume() or in conjunction with onResumed().
+   * 
+   * @returns The current AbortSignal
+   */
+  getFreshAbortSignal(): AbortSignal {
+    return this.getAbortSignal();
   }
 
   /**

@@ -27,6 +27,7 @@ import { ExecutionHierarchyManager } from "../../core/execution/execution-hierar
 import type { ExecutionHierarchyRegistry } from "../../core/registry/execution-hierarchy-registry.js";
 import { ToolFailureProtectionState } from "../../core/state-managers/tool-failure-protection-state.js";
 import type { ToolFailureProtectionConfig } from "../../core/state-managers/tool-failure-protection-types.js";
+import type { InterruptionState } from "../../core/types/interruption-state.js";
 
 /**
  * WorkflowExecutionEntity - Workflow Execution Entity
@@ -80,6 +81,12 @@ export class WorkflowExecutionEntity {
 
   /** Execution Hierarchy Manager (unified parent-child relationship management) */
   private hierarchyManager: ExecutionHierarchyManager;
+
+  /** 
+   * Interruption State Manager (optional, should be set by coordinator)
+   * This ensures that getAbortSignal() returns the same signal used by the coordinator
+   */
+  private interruptionState?: InterruptionState;
 
   /**
    * Constructor
@@ -362,9 +369,25 @@ export class WorkflowExecutionEntity {
   // Stop control ============
 
   /**
+   * Set the interruption state manager (called by coordinator after creation)
+   * @param interruptionState The InterruptionState instance to use
+   */
+  setInterruptionState(interruptionState: InterruptionState): void {
+    this.interruptionState = interruptionState;
+  }
+
+  /**
    * Get the abort signal
+   * @deprecated Prefer using the InterruptionState injected into coordinators
+   * This method is kept for backward compatibility with hooks and handlers
    */
   getAbortSignal(): AbortSignal {
+    // If interruptionState is set, use it (preferred)
+    if (this.interruptionState) {
+      return this.interruptionState.getAbortSignal();
+    }
+    
+    // Fallback to legacy abortController for backward compatibility
     if (!this.abortController) {
       this.abortController = new AbortController();
     }

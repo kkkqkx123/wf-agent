@@ -96,6 +96,40 @@ export class MessageStream implements AsyncIterable<InternalStreamEvent> {
   }
 
   /**
+   * Set external AbortSignal to link with internal controller
+   * 
+   * This allows the MessageStream to be aborted by external signals,
+   * such as those from InterruptionState or parent execution contexts.
+   * 
+   * @param signal External AbortSignal to monitor
+   */
+  setAbortSignal(signal: AbortSignal): void {
+    if (!signal) {
+      return;
+    }
+
+    // If already aborted, abort immediately
+    if (signal.aborted) {
+      this.abort();
+      return;
+    }
+
+    // Listen for abort event on external signal
+    const abortHandler = () => {
+      if (!this.aborted && !this.ended) {
+        this.abort();
+      }
+    };
+
+    signal.addEventListener("abort", abortHandler, { once: true });
+
+    // Clean up listener when stream ends
+    this.on("end", () => {
+      signal.removeEventListener("abort", abortHandler);
+    });
+  }
+
+  /**
    * Add an event listener
    * @param event  Event type
    * @param listener  Listener function

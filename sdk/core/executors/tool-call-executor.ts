@@ -159,19 +159,44 @@ export class ToolCallExecutor {
     // Check the interrupt signal.
     if (options?.abortSignal && options.abortSignal.aborted) {
       const result = checkWorkflowInterruption(options.abortSignal);
-      if (result.type === "paused" || result.type === "stopped") {
-        throw new WorkflowExecutionInterruptedException(
-          "Tool execution interrupted",
-          result.type === "paused" ? "PAUSE" : "STOP",
-          result.executionId || executionId || "",
-          result.nodeId || nodeId || "",
-        );
-      }
-      throw new WorkflowExecutionInterruptedException("Tool execution aborted", "STOP");
+      
+      // Return interruption info instead of throwing
+      // This allows callers to handle interruption gracefully
+      logger.info("Tool execution interrupted before starting", {
+        executionId,
+        nodeId,
+        interruptionType: result.type,
+        toolCallCount: toolCalls.length,
+      });
+      
+      // Build cancelled results for all tool calls
+      return toolCalls.map(toolCall => ({
+        toolCallId: toolCall.id,
+        toolId: toolCall.name,
+        success: false,
+        error: `Tool execution ${result.type === "paused" ? "paused" : "cancelled"}: ${result.type}`,
+        executionTime: 0,
+      }));
     }
 
     // Generate a batch ID (used to track this batch of parallel tool calls)
     const batchId = `batch_${generateId()}`;
+
+    // Create a batch-level AbortController for coordinated cancellation
+    // This ensures that if one tool is interrupted, all other tools in the batch can be notified
+    const batchController = new AbortController();
+    
+    // Combine external abort signal with batch controller
+    // If either signals abort, all tools will be notified
+    let combinedSignal: AbortSignal;
+    if (options?.abortSignal) {
+      // Use combineAbortSignals from common-utils if available, otherwise manual combination
+      const { combineAbortSignals } = await import("@wf-agent/common-utils");
+      const result = combineAbortSignals([options.abortSignal, batchController.signal]);
+      combinedSignal = result.signal;
+    } else {
+      combinedSignal = batchController.signal;
+    }
 
     // Call the pre-generated task ID and task information for each tool.
     const taskInfos: Map<string, ToolCallTaskInfo> = new Map();
@@ -189,19 +214,41 @@ export class ToolCallExecutor {
 
     // Use Promise.allSettled to perform all tool calls in parallel
     // Even if some tool calls fail, the execution of other tool calls can continue.
-    const executionPromises = toolCalls.map(toolCall =>
-      this.executeSingleToolCall(
-        toolCall,
-        conversationState,
-        executionId,
-        nodeId,
-        batchId,
-        taskInfos.get(toolCall.id)!,
-        options,
-      ),
-    );
+    const executionPromises = toolCalls.map(async (toolCall) => {
+      try {
+        return await this.executeSingleToolCall(
+          toolCall,
+          conversationState,
+          executionId,
+          nodeId,
+          batchId,
+          taskInfos.get(toolCall.id)!,
+          { ...options, abortSignal: combinedSignal }, // Pass combined signal
+        );
+      } catch (error) {
+        // If a tool fails due to interruption, abort the entire batch
+        if (isAbortError(error)) {
+          logger.info("Tool interrupted, cancelling remaining tools in batch", {
+            batchId,
+            toolCallId: toolCall.id,
+            toolName: toolCall.name,
+          });
+          
+          // Abort the batch controller to notify other tools
+          if (!batchController.signal.aborted) {
+            batchController.abort(error instanceof Error ? error : new Error(String(error)));
+          }
+        }
+        throw error;
+      }
+    });
 
     const settledResults = await Promise.allSettled(executionPromises);
+
+    // Clean up batch controller if not already aborted
+    if (!batchController.signal.aborted) {
+      batchController.abort();
+    }
 
     const successCount = settledResults.filter(
       r => r.status === "fulfilled" && r.value.success,
@@ -577,20 +624,43 @@ export class ToolCallExecutor {
         const error = result.error;
         const errorMessage = error.message;
 
-        // Handle AbortError
+        // Handle AbortError - return interruption result instead of throwing
         if (isAbortError(error)) {
           const interruptionResult = checkWorkflowInterruption(options?.abortSignal);
-          // Only PAUSE or STOP will convert to WorkflowExecutionInterruptedException.
-          if (interruptionResult.type === "paused" || interruptionResult.type === "stopped") {
-            throw new WorkflowExecutionInterruptedException(
-              "Tool execution interrupted",
-              interruptionResult.type === "paused" ? "PAUSE" : "STOP",
-              interruptionResult.executionId || executionId || "",
-              interruptionResult.nodeId || nodeId || "",
-            );
+          
+          // Log interruption for observability
+          logger.info("Tool execution interrupted during execution", {
+            toolCallId: toolCall.id,
+            toolName: toolCall.name,
+            executionId,
+            nodeId,
+            interruptionType: interruptionResult.type,
+          });
+          
+          // Clear operation state on interruption
+          if (hasOperationState && executionRegistry && executionId) {
+            const executionEntity = executionRegistry.get(executionId);
+            executionEntity?.state.clearOperation();
           }
-          // Aborted or continued, with the original error being re-thrown.
-          throw error;
+          
+          // Build interruption result message
+          const interruptionMessage = `Tool execution ${interruptionResult.type === "paused" ? "paused" : "cancelled"}`;
+          const toolMessage = MessageBuilder.buildToolMessage(toolCall.id, {
+            success: false,
+            error: interruptionMessage,
+            executionTime: diffTimestamp(startTime, now()),
+            retryCount: 0,
+          });
+          conversationState.addMessage(toolMessage);
+          
+          // Return interruption result instead of throwing
+          return {
+            toolCallId: toolCall.id,
+            toolId: toolCall.name,
+            success: false,
+            error: interruptionMessage,
+            executionTime: diffTimestamp(startTime, now()),
+          };
         }
 
         // Failed to construct the tool result message using MessageBuilder.

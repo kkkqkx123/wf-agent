@@ -38,3 +38,9 @@ export {
 export * from "./tool-parameters-describer.js";
 export * from "./tool-schema-cleaner.js";
 export * from "./tool-schema-formatter.js";
+
+// Tool declaration formatter (for prompt injection and message conversion)
+export {
+  ToolDeclarationFormatter,
+  type ToolDeclarationOptions,
+} from "./tool-declaration-formatter.js";

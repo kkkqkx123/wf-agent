@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ToolDeclarationFormatter } from '../../src/formatters/tool-declaration-formatter';
+import { ToolDeclarationFormatter } from '../tool-declaration-formatter';
 import type { ToolSchema, LLMToolCall, LLMMessage } from '@wf-agent/types';
 
 describe('ToolDeclarationFormatter', () => {

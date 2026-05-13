@@ -9,7 +9,7 @@ import type { LLMRequest, LLMResult, LLMMessage, LLMToolCall, ToolCallFormat } f
 import type { ToolSchema } from "@wf-agent/types";
 import type { FormatterConfig, BuildRequestResult, ParseStreamChunkResult } from "./types.js";
 import { convertToolsToAnthropicFormat } from "../utils/index.js";
-import { ToolDeclarationFormatter } from "@wf-agent/prompt-templates";
+import { ToolDeclarationFormatter } from "../../utils/tools/index.js";
 import { getToolCallParserOptions } from "./tool-format-selector.js";
 import { ToolCallParser } from "./tool-call-parser.js";
 import { HistoryConverter } from "../../messaging/history-converter.js";

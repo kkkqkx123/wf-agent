@@ -6,7 +6,7 @@
  */
 
 import type { LLMMessage, ToolCallFormat } from '@wf-agent/types';
-import { ToolDeclarationFormatter } from '@wf-agent/prompt-templates';
+import { ToolDeclarationFormatter } from '../utils/tools/index.js';
 import { DEFAULT_XML_TAGS, DEFAULT_JSON_MARKERS } from '@wf-agent/types';
 
 export interface HistoryConversionOptions {

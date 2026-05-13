@@ -21,6 +21,9 @@ import { ToolMetricsCollector } from "./tool-collector.js";
 import { TokenMetricsCollector } from "./token-collector.js";
 import { ErrorMetricsCollector } from "./error-collector.js";
 import { ResourceMetricsCollector } from "./resource-collector.js";
+import { AgentLoopMetricsCollector } from "./agent-loop-collector.js";
+import { TemplateMetricsCollector } from "./template-collector.js";
+import { ConfigMetricsCollector } from "./config-collector.js";
 
 /**
  * Create a counter metric
@@ -124,5 +127,8 @@ export function createMetricsCollectors(config?: MetricCollectorConfig) {
     token: new TokenMetricsCollector(config),
     error: new ErrorMetricsCollector(config),
     resource: new ResourceMetricsCollector(config),
+    agentLoop: new AgentLoopMetricsCollector(config),
+    template: new TemplateMetricsCollector(config),
+    config: new ConfigMetricsCollector(config),
   };
 }

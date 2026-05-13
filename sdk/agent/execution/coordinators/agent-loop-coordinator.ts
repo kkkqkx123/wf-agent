@@ -16,6 +16,8 @@ import { AgentLoopExecutor, type AgentLoopStreamEvent } from "../executors/agent
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import type { GlobalContext } from "../../../core/global-context.js";
 import { AgentLoopStateTransitor } from "./agent-loop-state-transitor.js";
+import type { AgentLoopMetricsCollector } from "../../../core/metrics/agent-loop-collector.js";
+import { now } from "@wf-agent/common-utils";
 
 const logger = createContextualLogger({ component: "AgentLoopCoordinator" });
 
@@ -52,6 +54,7 @@ export class AgentLoopCoordinator {
     private readonly executor: AgentLoopExecutor,
     private readonly globalContext: GlobalContext,
     eventManager?: EventRegistry, // EventRegistry type imported dynamically
+    private readonly metricsCollector?: AgentLoopMetricsCollector,
   ) {
     this.stateTransitor = new AgentLoopStateTransitor(eventManager);
   }
@@ -96,6 +99,11 @@ export class AgentLoopCoordinator {
       toolsCount: config.availableTools?.initial.length || 0,
     });
 
+    // Record execution start metrics
+    if (this.metricsCollector) {
+      this.metricsCollector.recordExecutionStart(entity.id, entity.id);
+    }
+
     // 2. Registering entities
     this.registry.register(entity);
 
@@ -104,9 +112,25 @@ export class AgentLoopCoordinator {
     // 3. Start execution using state transitor
     await this.stateTransitor.startAgentLoop(entity);
 
+    const startTime = now();
+
     try {
       // 4. Execute the loop
       const result = await this.executor.execute(entity);
+
+      const duration = now() - startTime;
+
+      // Record execution complete metrics
+      if (this.metricsCollector) {
+        this.metricsCollector.recordExecutionComplete(
+          entity.id,
+          entity.id,
+          duration,
+          entity.state.currentIteration,
+          entity.state.toolCallCount,
+          result.success,
+        );
+      }
 
       // 5. Update the status using state transitor
       if (result.success) {
@@ -117,6 +141,25 @@ export class AgentLoopCoordinator {
 
       return result;
     } catch (error) {
+      const duration = now() - startTime;
+
+      // Record error metrics
+      if (this.metricsCollector) {
+        this.metricsCollector.recordExecutionComplete(
+          entity.id,
+          entity.id,
+          duration,
+          entity.state.currentIteration,
+          entity.state.toolCallCount,
+          false,
+        );
+        this.metricsCollector.recordError(
+          entity.id,
+          error instanceof Error ? error.name : "UnknownError",
+          entity.state.currentIteration,
+        );
+      }
+
       await this.stateTransitor.failAgentLoop(entity, error);
       return {
         success: false,
@@ -244,6 +287,11 @@ export class AgentLoopCoordinator {
       throw new Error(`AgentLoop is not running: ${id}`);
     }
 
+    // Record pause metrics
+    if (this.metricsCollector) {
+      this.metricsCollector.recordPause(id);
+    }
+
     // Set the pause flag
     entity.interrupt("PAUSE");
     logger.info("Agent Loop pause requested", { agentLoopId: id });
@@ -269,6 +317,13 @@ export class AgentLoopCoordinator {
         currentStatus: entity.getStatus(),
       });
       throw new Error(`AgentLoop is not paused: ${id}`);
+    }
+
+    // Record resume metrics (pause duration tracking would require storing pause start time in entity)
+    if (this.metricsCollector) {
+      // For now, record resume without pause duration
+      // TODO: Store pauseStartTime in entity state to calculate accurate pause duration
+      this.metricsCollector.recordResume(id, 0);
     }
 
     // Reset the interrupt flag

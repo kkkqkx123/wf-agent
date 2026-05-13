@@ -80,6 +80,9 @@ collector.observeSummary("tool.call.duration", 850, {
 - `TokenMetricsCollector` - Token使用指标 ✅ 已实现
 - `ErrorMetricsCollector` - 错误异常指标 ✅ 已实现
 - `ResourceMetricsCollector` - 资源利用指标 ✅ 已实现
+- `AgentLoopMetricsCollector` - Agent Loop 执行指标 ✅ 已实现
+- `TemplateMetricsCollector` - 模板使用指标 ✅ 已实现
+- `ConfigMetricsCollector` - 配置访问指标 ✅ 已实现
 
 ## 快速开始
 
@@ -107,6 +110,9 @@ collectors.token.recordTokenUsage({ /* ... */ });
 collectors.node.recordNodeStart("node-1", "LLM", "wf-123", "exec-456");
 collectors.error.recordError("LLM_ERROR", "exec-456");
 collectors.resource.recordActiveExecutions(5);
+collectors.agentLoop.recordExecutionStart("agent-789", "exec-789");
+collectors.template.recordUsage("system-prompt", { workflow_id: "wf-123" });
+collectors.config.recordAccess("llms.provider.openai", "config");
 ```
 
 ### 基本使用
@@ -331,6 +337,115 @@ resourceCollector.recordEventQueueLength(3);
 const summary = resourceCollector.getResourceSummary();
 ```
 
+### Agent Loop 指标 (AgentLoopMetricsCollector)
+
+用于监控 Agent Loop 的执行生命周期和性能：
+
+```typescript
+import { AgentLoopMetricsCollector } from "@wf-agent/sdk/core/metrics";
+
+const agentLoopCollector = new AgentLoopMetricsCollector();
+
+// 记录执行开始
+agentLoopCollector.recordExecutionStart("agent-123", "exec-456");
+
+// 记录执行完成
+agentLoopCollector.recordExecutionComplete(
+  "agent-123",
+  "exec-456",
+  5000,     // duration in ms
+  10,       // iterations
+  25,       // tool calls
+  true      // success
+);
+
+// 记录迭代
+agentLoopCollector.recordIterationStart("agent-123", 1);
+agentLoopCollector.recordIterationComplete("agent-123", 1, 500, 3);
+
+// 记录暂停/恢复
+agentLoopCollector.recordPause("agent-123");
+agentLoopCollector.recordResume("agent-123", 30000); // 30s pause
+
+// 获取统计信息
+const stats = agentLoopCollector.getAgentLoopStats("agent-123");
+const activeCount = agentLoopCollector.getActiveAgentLoops();
+const avgIterations = agentLoopCollector.getAverageIterations();
+```
+
+### 模板指标 (TemplateMetricsCollector)
+
+用于监控模板的渲染和使用情况：
+
+```typescript
+import { TemplateMetricsCollector } from "@wf-agent/sdk/core/metrics";
+
+const templateCollector = new TemplateMetricsCollector();
+
+// 记录模板使用
+templateCollector.recordUsage("system-prompt", {
+  workflow_id: "wf-123",
+  agent_loop_id: "agent-456",
+});
+
+// 记录渲染完成
+templateCollector.recordRenderComplete(
+  "system-prompt",
+  50,      // render duration in ms
+  true,    // success
+  { workflow_id: "wf-123" }
+);
+
+// 记录缓存命中/未命中
+templateCollector.recordCacheHit("system-prompt");
+templateCollector.recordCacheMiss("system-prompt");
+
+// 获取统计信息
+const stats = templateCollector.getTemplateStats("system-prompt");
+const hitRate = templateCollector.getCacheHitRate("system-prompt");
+const avgDuration = templateCollector.getAverageRenderDuration("system-prompt");
+```
+
+### 配置指标 (ConfigMetricsCollector)
+
+用于监控配置的加载和访问情况：
+
+```typescript
+import { ConfigMetricsCollector } from "@wf-agent/sdk/core/metrics";
+
+const configCollector = new ConfigMetricsCollector();
+
+// 记录配置访问
+configCollector.recordAccess("llms.provider.openai", "config", {
+  workflow_id: "wf-123",
+});
+
+// 记录加载完成
+configCollector.recordLoadComplete(
+  "llms.provider.openai",
+  100,     // load duration in ms
+  true,    // success
+  "config",
+  { workflow_id: "wf-123" }
+);
+
+// 记录缓存命中/未命中
+configCollector.recordCacheHit("llms.provider.openai", "config");
+configCollector.recordCacheMiss("llms.provider.openai", "config");
+
+// 记录验证错误
+configCollector.recordValidationError(
+  "workflow.invalid-node",
+  "schema_validation_failed",
+  "workflow"
+);
+
+// 获取统计信息
+const stats = configCollector.getConfigStats("llms.provider.openai", "config");
+const hitRate = configCollector.getCacheHitRate("llms.provider.openai", "config");
+const avgLoadTime = configCollector.getAverageLoadDuration("llms.provider.openai", "config");
+```
+
 ### 周期性报告
 
 ```typescript
@@ -410,6 +525,44 @@ unsubscribe();
 | `resource.active.executions` | Gauge | 活跃执行数 |
 | `resource.queued.tasks` | Gauge | 排队任务数 |
 | `resource.event.queue.length` | Gauge | 事件队列长度 |
+
+### Agent Loop 指标 (AGENT_LOOP_METRICS)
+
+| 指标名称 | 类型 | 说明 |
+|---------|------|------|
+| `agent_loop.execution.duration` | Histogram | Agent Loop 执行时长 |
+| `agent_loop.execution.count` | Counter | Agent Loop 执行次数 |
+| `agent_loop.active.count` | Gauge | 活跃 Agent Loop 数量 |
+| `agent_loop.iteration.count` | Gauge | 迭代次数 |
+| `agent_loop.iteration.duration` | Histogram | 迭代时长分布 |
+| `agent_loop.iteration.limit_reached` | Counter | 达到最大迭代次数 |
+| `agent_loop.tool_calls.total` | Gauge | 总工具调用数 |
+| `agent_loop.tool_calls.per_iteration` | Gauge | 每次迭代的工具调用数 |
+| `agent_loop.pause.count` | Counter | 暂停次数 |
+| `agent_loop.resume.count` | Counter | 恢复次数 |
+| `agent_loop.pause.duration` | Histogram | 暂停时长分布 |
+| `agent_loop.success.rate` | Gauge | 成功率 |
+| `agent_loop.error.count` | Counter | 错误次数 |
+
+### 模板指标 (TEMPLATE_METRICS)
+
+| 指标名称 | 类型 | 说明 |
+|---------|------|------|
+| `template.usage.count` | Counter | 模板使用次数 |
+| `template.render.duration` | Histogram | 渲染时长分布 |
+| `template.cache.hit_count` | Counter | 缓存命中次数 |
+| `template.cache.miss_count` | Counter | 缓存未命中次数 |
+| `template.error.count` | Counter | 错误次数 |
+
+### 配置指标 (CONFIG_METRICS)
+
+| 指标名称 | 类型 | 说明 |
+|---------|------|------|
+| `config.access.count` | Counter | 配置访问次数 |
+| `config.load.duration` | Histogram | 加载时长分布 |
+| `config.validation_error.count` | Counter | 验证错误次数 |
+| `config.cache.hit_count` | Counter | 缓存命中次数 |
+| `config.cache.miss_count` | Counter | 缓存未命中次数 |
 
 ## 高级用法
 
@@ -625,11 +778,15 @@ try {
 - ✅ `TokenMetricsCollector` - LLM Token使用和成本
 - ✅ `ErrorMetricsCollector` - 错误模式和恢复率
 - ✅ `ResourceMetricsCollector` - 系统资源监控
+- ✅ `AgentLoopMetricsCollector` - Agent Loop 执行生命周期
+- ✅ `TemplateMetricsCollector` - 模板渲染和缓存统计
+- ✅ `ConfigMetricsCollector` - 配置加载和访问统计
 
 下一步可以:
 - 集成到更多执行器和协调器中
 - 实现持久化层(数据库、监控系统)
 - 添加更多高级查询和聚合功能
+- 在模板引擎和配置加载器中集成指标收集
 
 ## 示例代码
 

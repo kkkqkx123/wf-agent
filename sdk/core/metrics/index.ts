@@ -30,6 +30,9 @@ export {
   TOKEN_METRICS,
   ERROR_METRICS,
   RESOURCE_METRICS,
+  AGENT_LOOP_METRICS,
+  TEMPLATE_METRICS,
+  CONFIG_METRICS,
 } from "./constants.js";
 
 // Factory functions
@@ -49,6 +52,9 @@ export { ToolMetricsCollector } from "./tool-collector.js";
 export { TokenMetricsCollector, type TokenUsageData } from "./token-collector.js";
 export { ErrorMetricsCollector } from "./error-collector.js";
 export { ResourceMetricsCollector } from "./resource-collector.js";
+export { AgentLoopMetricsCollector } from "./agent-loop-collector.js";
+export { TemplateMetricsCollector } from "./template-collector.js";
+export { ConfigMetricsCollector } from "./config-collector.js";
 
 // Factory functions for collectors
 export { createMetricsCollectors } from "./factories.js";

@@ -9,7 +9,7 @@ import {
   StatefulExecutor,
   toSdkTool,
   type ToolDefinitionLike,
-} from "@wf-agent/tool-executors";
+} from "@wf-agent/sdk";
 import { createPredefinedTools, type PredefinedToolsOptions } from "@wf-agent/sdk";
 import type { ToolRegistryConfig } from "./types.js";
 import { getOutput } from "../utils/output.js";

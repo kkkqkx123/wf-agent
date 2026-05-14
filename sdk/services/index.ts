@@ -103,6 +103,55 @@ export {
   type FileResult,
 } from './executors/implementations/ripgrep/index.js';
 
+// Tool Executors
+export {
+  // Core interfaces and base classes
+  IToolExecutor,
+  ToolBaseExecutor,
+  ParameterValidator,
+  RetryStrategy,
+  TimeoutController,
+  type ExecutorMetadata,
+} from './executors/index.js';
+
+// REST Executor
+export {
+  RestExecutor,
+  type HttpRequestConfig,
+  type HttpResponse,
+  type RequestInterceptor,
+  type ResponseInterceptor,
+  type ErrorInterceptor,
+  type RestExecutorConfig,
+} from './executors/index.js';
+
+// Stateful Executor
+export {
+  StatefulExecutor,
+  type StatefulExecutorConfig,
+} from './executors/index.js';
+
+// Stateless Executor
+export {
+  StatelessExecutor,
+  FunctionRegistry,
+  type FunctionRegistryItem,
+  type FunctionRegistryConfig,
+} from './executors/index.js';
+
+// Builtin Executor
+export {
+  BuiltinExecutor,
+  type BuiltinExecutorConfig,
+} from './executors/index.js';
+
+// Utility functions
+export {
+  toSdkTool,
+  toSdkTools,
+  type ToolDefinitionLike,
+} from './executors/index.js';
+
 // ============================================================================
 // Search Service
 // ============================================================================

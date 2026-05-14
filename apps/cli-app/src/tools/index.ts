@@ -11,13 +11,13 @@ export type { ToolOutput } from "@wf-agent/types";
 // App-specific type exports
 export type { ToolRegistryConfig } from "./types.js";
 
-// Export tool definition types from tool-executors
-export type { ToolDefinitionLike } from "@wf-agent/tool-executors";
+// Export tool definition types from SDK
+export type { ToolDefinitionLike } from "@wf-agent/sdk";
 
 // Registration Center Export
 export { ToolRegistry, createToolRegistry } from "./registry.js";
 
-// Reusing components for exporting tool-executors
+// Reusing components for exporting from SDK
 export {
   FunctionRegistry,
   StatelessExecutor,
@@ -27,7 +27,7 @@ export {
   RetryStrategy,
   toSdkTool,
   toSdkTools,
-} from "@wf-agent/tool-executors";
+} from "@wf-agent/sdk";
 
 // Import predefined tools from the SDK.
 export {

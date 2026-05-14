@@ -13,12 +13,12 @@ import {
   RuntimeValidationError,
   ConfigurationValidationError,
 } from "@wf-agent/types";
-import type { IToolExecutor } from "@wf-agent/tool-executors";
+import type { IToolExecutor } from "../../services/executors/tools/core/interfaces/IToolExecutor.js";
 import type { ToolExecutionOptions, ToolExecutionResult } from "@wf-agent/types";
-import { StatelessExecutor } from "@wf-agent/tool-executors";
-import { StatefulExecutor } from "@wf-agent/tool-executors";
-import { RestExecutor } from "@wf-agent/tool-executors";
-import { BuiltinExecutor } from "@wf-agent/tool-executors";
+import { StatelessExecutor } from "../../services/executors/tools/stateless/StatelessExecutor.js";
+import { StatefulExecutor } from "../../services/executors/tools/stateful/StatefulExecutor.js";
+import { RestExecutor } from "../../services/executors/tools/rest/RestExecutor.js";
+import { BuiltinExecutor } from "../../services/executors/tools/builtin/BuiltinExecutor.js";
 import { tryCatchAsyncWithSignal, all } from "@wf-agent/common-utils";
 import type { Result } from "@wf-agent/types";
 import { ok, err } from "@wf-agent/common-utils";

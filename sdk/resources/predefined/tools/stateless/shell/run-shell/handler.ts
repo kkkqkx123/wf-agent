@@ -10,7 +10,7 @@
 
 import type { ShellType } from "@wf-agent/sdk/services";
 import { getTerminalService } from "@wf-agent/sdk/services";
-import { TimeoutController } from "@wf-agent/tool-executors";
+import { TimeoutController } from "@wf-agent/sdk/services";
 import type { ToolOutput } from "@wf-agent/types";
 import type { RunShellConfig } from "../../../types.js";
 

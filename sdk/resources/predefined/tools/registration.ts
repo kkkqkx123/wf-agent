@@ -7,7 +7,7 @@
 import type { ToolRegistry } from "../../../core/registry/tool-registry.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import { createPredefinedTools } from "./registry.js";
-import { toSdkTool } from "@wf-agent/tool-executors";
+import { toSdkTool } from "../../../services/executors/tools/utils.js";
 
 const logger = createContextualLogger({ component: "PredefinedTools" });
 

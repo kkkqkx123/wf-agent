@@ -178,7 +178,7 @@ export class ExecutionPool<T> {
     const wrapper: ExecutorWrapper = {
       executorId,
       executor,
-      status: WorkerStatus.IDLE,
+      status: "IDLE" as WorkerStatus,
       lastUsedTime: now(),
     };
 
@@ -213,7 +213,7 @@ export class ExecutionPool<T> {
       }
 
       // Update status
-      wrapper.status = WorkerStatus.BUSY;
+      wrapper.status = "BUSY" as WorkerStatus;
       wrapper.lastUsedTime = now();
       this.busyExecutors.add(executorId);
 
@@ -226,7 +226,7 @@ export class ExecutionPool<T> {
       this.allExecutors.set(wrapper.executorId, wrapper);
 
       // Update status
-      wrapper.status = WorkerStatus.BUSY;
+      wrapper.status = "BUSY" as WorkerStatus;
       wrapper.lastUsedTime = now();
       this.busyExecutors.add(wrapper.executorId);
 
@@ -273,7 +273,7 @@ export class ExecutionPool<T> {
     // Check if there are any pending Promises.
     if (this.waitingPromises.length > 0) {
       const waiting = this.waitingPromises.shift()!;
-      wrapper.status = WorkerStatus.BUSY;
+      wrapper.status = "BUSY" as WorkerStatus;
       wrapper.lastUsedTime = now();
       this.busyExecutors.add(executorId);
       waiting.resolve(wrapper.executor as Executor<T>);
@@ -281,7 +281,7 @@ export class ExecutionPool<T> {
     }
 
     // Add to the idle queue
-    wrapper.status = WorkerStatus.IDLE;
+    wrapper.status = "IDLE" as WorkerStatus;
     wrapper.lastUsedTime = now();
     this.idleExecutors.push(executorId);
 

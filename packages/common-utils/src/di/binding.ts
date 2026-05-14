@@ -8,7 +8,8 @@ import {
   ServiceIdentifier,
 } from "./types.js";
 
-export { BindingType };
+// Re-export types for convenience
+export type { BindingType };
 
 // ============================================================
 // Binding Models
@@ -111,8 +112,8 @@ export class BindingBuilder<T>
     this.binding = {
       id: bindingId,
       serviceId,
-      type: BindingType.INSTANCE,
-      scope: BindingScope.TRANSIENT,
+      type: "instance" as BindingType,
+      scope: "transient" as BindingScope,
     };
   }
 
@@ -122,41 +123,41 @@ export class BindingBuilder<T>
 
   // BindToFluentSyntax
   to(constructor: Constructor<T>): BindInFluentSyntax<T> {
-    this.binding.type = BindingType.INSTANCE;
+    this.binding.type = "instance" as BindingType;
     this.binding.implementation = constructor;
     return this;
   }
 
   toConstantValue(value: T): void {
-    this.binding.type = BindingType.CONSTANT;
+    this.binding.type = "constant" as BindingType;
     this.binding.constantValue = value;
-    this.binding.scope = BindingScope.SINGLETON;
+    this.binding.scope = "singleton" as BindingScope;
   }
 
   toFactory(factory: Factory<T>): void {
-    this.binding.type = BindingType.FACTORY;
+    this.binding.type = "factory" as BindingType;
     this.binding.factory = factory;
   }
 
   toDynamicValue(factory: DynamicValue<T> | DynamicValue<unknown>): BindInFluentSyntax<T> {
-    this.binding.type = BindingType.DYNAMIC;
+    this.binding.type = "dynamic" as BindingType;
     this.binding.dynamicValue = factory as DynamicValue<T>;
     return this;
   }
 
   // BindInFluentSyntax
   inSingletonScope(): BindWhenFluentSyntax<T> {
-    this.binding.scope = BindingScope.SINGLETON;
+    this.binding.scope = "singleton" as BindingScope;
     return this;
   }
 
   inTransientScope(): BindWhenFluentSyntax<T> {
-    this.binding.scope = BindingScope.TRANSIENT;
+    this.binding.scope = "transient" as BindingScope;
     return this;
   }
 
   inScopedScope(): BindWhenFluentSyntax<T> {
-    this.binding.scope = BindingScope.SCOPED;
+    this.binding.scope = "scoped" as BindingScope;
     return this;
   }
 

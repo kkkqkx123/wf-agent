@@ -101,7 +101,7 @@ export function createReadFileHandler(config: ReadFileConfig = {}) {
       if (config.enableIgnore) {
         ignoreController = new IgnoreController({
           cwd: workspaceDir,
-          mode: IgnoreMode.All,
+          mode: "all",
         });
         await ignoreController.initialize();
       }

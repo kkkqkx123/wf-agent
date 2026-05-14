@@ -31,14 +31,14 @@ export class ResolutionEngine {
     container: Container,
   ): T {
     // Checking the singleton cache
-    if (binding.scope === BindingScope.SINGLETON) {
+    if (binding.scope === "singleton") {
       if (this.singletonCache.has(binding.id)) {
         return this.singletonCache.get(binding.id) as T;
       }
     }
 
     // Checking the Scope Cache
-    if (binding.scope === BindingScope.SCOPED) {
+    if (binding.scope === "scoped") {
       if (this.scopedCache.has(binding.id)) {
         return this.scopedCache.get(binding.id) as T;
       }
@@ -48,25 +48,25 @@ export class ResolutionEngine {
     let instance: T;
 
     switch (binding.type) {
-      case BindingType.CONSTANT:
+      case "constant":
         instance = binding.constantValue as T;
         break;
 
-      case BindingType.FACTORY:
+      case "factory":
         if (!binding.factory) {
           throw new Error("Factory binding missing factory function");
         }
         instance = binding.factory(container);
         break;
 
-      case BindingType.DYNAMIC:
+      case "dynamic":
         if (!binding.dynamicValue) {
           throw new Error("Dynamic binding missing dynamic value function");
         }
         instance = binding.dynamicValue(container);
         break;
 
-      case BindingType.INSTANCE:
+      case "instance":
         if (!binding.implementation) {
           throw new Error("Instance binding missing implementation class");
         }
@@ -80,9 +80,9 @@ export class ResolutionEngine {
     }
 
     // Caching singleton/scope instances
-    if (binding.scope === BindingScope.SINGLETON) {
+    if (binding.scope === "singleton") {
       this.singletonCache.set(binding.id, instance);
-    } else if (binding.scope === BindingScope.SCOPED) {
+    } else if (binding.scope === "scoped") {
       this.scopedCache.set(binding.id, instance);
     }
 

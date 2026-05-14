@@ -17,20 +17,13 @@ const logger = createContextualLogger({ component: "IgnoreController" });
 /**
  * Ignore mode options
  */
-export enum IgnoreMode {
-  /** Only use built-in patterns */
-  Builtin = "builtin",
-  /** Only use .gitignore patterns */
-  Gitignore = "gitignore",
-  /** Only use custom ignore patterns */
-  Custom = "custom",
-  /** Use built-in and .gitignore patterns */
-  BuiltinAndGitignore = "builtin-gitignore",
-  /** Use built-in and custom patterns */
-  BuiltinAndCustom = "builtin-custom",
-  /** Use all patterns (built-in, .gitignore, and custom) */
-  All = "all",
-}
+export type IgnoreMode =
+  | "builtin"
+  | "gitignore"
+  | "custom"
+  | "builtin-gitignore"
+  | "builtin-custom"
+  | "all";
 
 /**
  * Configuration options for IgnoreController
@@ -108,7 +101,7 @@ export class IgnoreController {
 
   constructor(config: IgnoreControllerConfig) {
     this.cwd = config.cwd;
-    this.mode = config.mode ?? IgnoreMode.All;
+    this.mode = config.mode ?? "all";
     this.customIgnoreFile = config.customIgnoreFile ?? ".agentignore";
     this.customPatterns = config.customPatterns ?? [];
     this.builtinPatterns = [];
@@ -172,9 +165,9 @@ export class IgnoreController {
    */
   private shouldUseGitignore(): boolean {
     return (
-      this.mode === IgnoreMode.Gitignore ||
-      this.mode === IgnoreMode.BuiltinAndGitignore ||
-      this.mode === IgnoreMode.All
+      this.mode === "gitignore" ||
+      this.mode === "builtin-gitignore" ||
+      this.mode === "all"
     );
   }
 
@@ -183,9 +176,9 @@ export class IgnoreController {
    */
   private shouldUseCustom(): boolean {
     return (
-      this.mode === IgnoreMode.Custom ||
-      this.mode === IgnoreMode.BuiltinAndCustom ||
-      this.mode === IgnoreMode.All
+      this.mode === "custom" ||
+      this.mode === "builtin-custom" ||
+      this.mode === "all"
     );
   }
 
@@ -194,10 +187,10 @@ export class IgnoreController {
    */
   private shouldUseBuiltin(): boolean {
     return (
-      this.mode === IgnoreMode.Builtin ||
-      this.mode === IgnoreMode.BuiltinAndGitignore ||
-      this.mode === IgnoreMode.BuiltinAndCustom ||
-      this.mode === IgnoreMode.All
+      this.mode === "builtin" ||
+      this.mode === "builtin-gitignore" ||
+      this.mode === "builtin-custom" ||
+      this.mode === "all"
     );
   }
 

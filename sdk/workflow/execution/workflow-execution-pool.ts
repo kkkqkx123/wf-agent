@@ -137,7 +137,7 @@ export class WorkflowExecutionPool {
     const wrapper: ExecutorWrapper = {
       executorId,
       executor,
-      status: WorkerStatus.IDLE,
+      status: "IDLE" as WorkerStatus,
       lastUsedTime: now(),
     };
 
@@ -165,7 +165,7 @@ export class WorkflowExecutionPool {
         wrapper.idleTimer = undefined;
       }
 
-      wrapper.status = WorkerStatus.BUSY;
+      wrapper.status = "BUSY" as WorkerStatus;
       wrapper.lastUsedTime = now();
       this.busyExecutors.add(executorId);
 
@@ -176,7 +176,7 @@ export class WorkflowExecutionPool {
       const wrapper = this.createExecutor();
       this.allExecutors.set(wrapper.executorId, wrapper);
 
-      wrapper.status = WorkerStatus.BUSY;
+      wrapper.status = "BUSY" as WorkerStatus;
       wrapper.lastUsedTime = now();
       this.busyExecutors.add(wrapper.executorId);
 
@@ -219,14 +219,14 @@ export class WorkflowExecutionPool {
 
     if (this.waitingPromises.length > 0) {
       const waiting = this.waitingPromises.shift()!;
-      wrapper.status = WorkerStatus.BUSY;
+      wrapper.status = "BUSY" as WorkerStatus;
       wrapper.lastUsedTime = now();
       this.busyExecutors.add(executorId);
       waiting.resolve(wrapper.executor as WorkflowExecutor);
       return;
     }
 
-    wrapper.status = WorkerStatus.IDLE;
+    wrapper.status = "IDLE" as WorkerStatus;
     wrapper.lastUsedTime = now();
     this.idleExecutors.push(executorId);
 

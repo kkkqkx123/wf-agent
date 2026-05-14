@@ -12,24 +12,18 @@ const output = getOutput();
 /**
  * Error type enumeration
  */
-export enum ErrorType {
-  VALIDATION = "VALIDATION_ERROR",
-  FILE_OPERATION = "FILE_ERROR",
-  API = "API_ERROR",
-  NETWORK = "NETWORK_ERROR",
-  TIMEOUT = "TIMEOUT_ERROR",
-  UNKNOWN = "UNKNOWN_ERROR",
-}
+export type ErrorType =
+  | "VALIDATION_ERROR"
+  | "FILE_ERROR"
+  | "API_ERROR"
+  | "NETWORK_ERROR"
+  | "TIMEOUT_ERROR"
+  | "UNKNOWN_ERROR";
 
 /**
  * Error severity level
  */
-export enum ErrorSeverity {
-  LOW = "low",
-  MEDIUM = "medium",
-  HIGH = "high",
-  CRITICAL = "critical",
-}
+export type ErrorSeverity = "low" | "medium" | "high" | "critical";
 
 /**
  * Error context information
@@ -92,37 +86,37 @@ export class CLIErrorHandler {
 
     if (error instanceof ValidationError) {
       message = error.message;
-      type = ErrorType.VALIDATION;
-      severity = ErrorSeverity.LOW;
+      type = "VALIDATION_ERROR" as ErrorType;
+      severity = "low" as ErrorSeverity;
       exitCode = 2;
       suggestions = this.getValidationSuggestions(error);
     } else if (this.isAPIError(error)) {
       message = error.message;
-      type = ErrorType.API;
+      type = "API_ERROR" as ErrorType;
       severity = this.getAPIErrorSeverity(error.statusCode);
       exitCode = 4;
       suggestions = this.getAPISuggestions(error);
     } else if (this.isFileOperationError(error)) {
       message = error.message;
-      type = ErrorType.FILE_OPERATION;
-      severity = ErrorSeverity.MEDIUM;
+      type = "FILE_ERROR" as ErrorType;
+      severity = "medium" as ErrorSeverity;
       exitCode = 3;
       suggestions = this.getFileOperationSuggestions(error);
     } else if (this.isCLIError(error)) {
       message = error.message;
-      type = (ErrorType[error.code as keyof typeof ErrorType] as ErrorType) || ErrorType.UNKNOWN;
-      severity = ErrorSeverity.MEDIUM;
+      type = (error.code as ErrorType) || "UNKNOWN_ERROR";
+      severity = "medium" as ErrorSeverity;
       exitCode = error.exitCode;
     } else if (error instanceof Error) {
       message = error.message;
       type = this.inferErrorType(error);
-      severity = ErrorSeverity.MEDIUM;
+      severity = "medium" as ErrorSeverity;
       exitCode = 1;
       suggestions = this.getGenericSuggestions(error);
     } else {
       message = String(error);
-      type = ErrorType.UNKNOWN;
-      severity = ErrorSeverity.MEDIUM;
+      type = "UNKNOWN_ERROR" as ErrorType;
+      severity = "medium" as ErrorSeverity;
       exitCode = 1;
     }
 
@@ -285,33 +279,33 @@ export class CLIErrorHandler {
     const message = error.message.toLowerCase();
 
     if (message.includes("network") || message.includes("Connect")) {
-      return ErrorType.NETWORK;
+      return "NETWORK_ERROR";
     }
 
     if (message.includes("timeout") || message.includes("Timeout")) {
-      return ErrorType.TIMEOUT;
+      return "TIMEOUT_ERROR";
     }
 
     if (message.includes("file") || message.includes("file")) {
-      return ErrorType.FILE_OPERATION;
+      return "FILE_ERROR";
     }
 
     if (message.includes("api") || message.includes("http")) {
-      return ErrorType.API;
+      return "API_ERROR";
     }
 
-    return ErrorType.UNKNOWN;
+    return "UNKNOWN_ERROR";
   }
 
   /**
    * Get API error severity
    */
   private getAPIErrorSeverity(statusCode?: number): ErrorSeverity {
-    if (!statusCode) return ErrorSeverity.MEDIUM;
+    if (!statusCode) return "medium";
 
-    if (statusCode >= 500) return ErrorSeverity.HIGH;
-    if (statusCode >= 400) return ErrorSeverity.MEDIUM;
-    return ErrorSeverity.LOW;
+    if (statusCode >= 500) return "high";
+    if (statusCode >= 400) return "medium";
+    return "low";
   }
 
   /**

@@ -13,28 +13,12 @@ export type ServiceIdentifier<T = unknown> = symbol | string | (new (...args: un
 /**
  * Binding Scope Types
  */
-export enum BindingScope {
-  /** Each time it parses, a new instance is created. */
-  TRANSIENT = "transient",
-  /** Global Singleton */
-  SINGLETON = "singleton",
-  /** Singleton within the scope */
-  SCOPED = "scoped",
-}
+export type BindingScope = "transient" | "singleton" | "scoped";
 
 /**
  * Binding Type
  */
-export enum BindingType {
-  /** Class instance */
-  INSTANCE = "instance",
-  /** Constant values */
-  CONSTANT = "constant",
-  /** Factory function */
-  FACTORY = "factory",
-  /** Dynamic values */
-  DYNAMIC = "dynamic",
-}
+export type BindingType = "instance" | "constant" | "factory" | "dynamic";
 
 /**
  * Parse the request context.

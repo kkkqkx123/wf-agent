@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { ResolutionEngine } from "../resolver.js";
-import { Binding, BindingType } from "../binding.js";
-import { BindingScope, Request, ServiceIdentifier, Container } from "../types.js";
+import { Binding } from "../binding.js";
+import type { BindingScope, BindingType, Request, ServiceIdentifier, Container } from "../types.js";
 
 // Service identifier for testing
 const IService = Symbol("IService");
@@ -68,8 +68,8 @@ describe("ResolutionEngine", () => {
       const binding: Binding<typeof constantValue> = {
         id: Symbol("binding"),
         serviceId: IService,
-        type: BindingType.CONSTANT,
-        scope: BindingScope.SINGLETON,
+        type: "constant" as BindingType,
+        scope: "singleton" as BindingScope,
         constantValue,
       };
       const request: Request = { serviceId: IService, depth: 0 };
@@ -87,8 +87,8 @@ describe("ResolutionEngine", () => {
       const binding: Binding<typeof factoryValue> = {
         id: Symbol("binding"),
         serviceId: IService,
-        type: BindingType.FACTORY,
-        scope: BindingScope.TRANSIENT,
+        type: "factory" as BindingType,
+        scope: "transient" as BindingScope,
         factory: () => factoryValue,
       };
       const request: Request = { serviceId: IService, depth: 0 };
@@ -106,8 +106,8 @@ describe("ResolutionEngine", () => {
       const binding: Binding<{ dep: Dependency }> = {
         id: Symbol("binding"),
         serviceId: IService,
-        type: BindingType.FACTORY,
-        scope: BindingScope.TRANSIENT,
+        type: "factory" as BindingType,
+        scope: "transient" as BindingScope,
         factory: container => {
           receivedContainer = container;
           return { dep: container.get(IDependency) as Dependency };
@@ -126,8 +126,8 @@ describe("ResolutionEngine", () => {
       const binding: Binding<{}> = {
         id: Symbol("binding"),
         serviceId: IService,
-        type: BindingType.FACTORY,
-        scope: BindingScope.TRANSIENT,
+        type: "factory" as BindingType,
+        scope: "transient" as BindingScope,
       };
       const request: Request = { serviceId: IService, depth: 0 };
       const container = createMockContainer();
@@ -144,8 +144,8 @@ describe("ResolutionEngine", () => {
       const binding: Binding<typeof dynamicValue> = {
         id: Symbol("binding"),
         serviceId: IService,
-        type: BindingType.DYNAMIC,
-        scope: BindingScope.TRANSIENT,
+        type: "dynamic" as BindingType,
+        scope: "transient" as BindingScope,
         dynamicValue: () => dynamicValue,
       };
       const request: Request = { serviceId: IService, depth: 0 };
@@ -163,8 +163,8 @@ describe("ResolutionEngine", () => {
       const binding: Binding<{ dep: Dependency }> = {
         id: Symbol("binding"),
         serviceId: IService,
-        type: BindingType.DYNAMIC,
-        scope: BindingScope.TRANSIENT,
+        type: "dynamic" as BindingType,
+        scope: "transient" as BindingScope,
         dynamicValue: container => {
           receivedContainer = container;
           return { dep: container.get(IDependency) as Dependency };
@@ -183,8 +183,8 @@ describe("ResolutionEngine", () => {
       const binding: Binding<{}> = {
         id: Symbol("binding"),
         serviceId: IService,
-        type: BindingType.DYNAMIC,
-        scope: BindingScope.TRANSIENT,
+        type: "dynamic" as BindingType,
+        scope: "transient" as BindingScope,
       };
       const request: Request = { serviceId: IService, depth: 0 };
       const container = createMockContainer();
@@ -200,8 +200,8 @@ describe("ResolutionEngine", () => {
       const binding: Binding<Dependency> = {
         id: Symbol("binding"),
         serviceId: IDependency,
-        type: BindingType.INSTANCE,
-        scope: BindingScope.TRANSIENT,
+        type: "instance" as BindingType,
+        scope: "transient" as BindingScope,
         implementation: Dependency,
       };
       const request: Request = { serviceId: IDependency, depth: 0 };
@@ -217,8 +217,8 @@ describe("ResolutionEngine", () => {
       const binding: Binding<Service> = {
         id: Symbol("binding"),
         serviceId: IService,
-        type: BindingType.INSTANCE,
-        scope: BindingScope.TRANSIENT,
+        type: "instance" as BindingType,
+        scope: "transient" as BindingScope,
         implementation: Service,
       };
 
@@ -236,8 +236,8 @@ describe("ResolutionEngine", () => {
       const binding: Binding<{}> = {
         id: Symbol("binding"),
         serviceId: IService,
-        type: BindingType.INSTANCE,
-        scope: BindingScope.TRANSIENT,
+        type: "instance" as BindingType,
+        scope: "transient" as BindingScope,
       };
       const request: Request = { serviceId: IService, depth: 0 };
       const container = createMockContainer();
@@ -254,8 +254,8 @@ describe("ResolutionEngine", () => {
       const binding: Binding<Dependency> = {
         id: bindingId,
         serviceId: IDependency,
-        type: BindingType.INSTANCE,
-        scope: BindingScope.SINGLETON,
+        type: "instance" as BindingType,
+        scope: "singleton" as BindingScope,
         implementation: Dependency,
       };
       const request: Request = { serviceId: IDependency, depth: 0 };
@@ -278,8 +278,8 @@ describe("ResolutionEngine", () => {
       const binding: Binding<CountedService> = {
         id: bindingId,
         serviceId: IService,
-        type: BindingType.INSTANCE,
-        scope: BindingScope.SINGLETON,
+        type: "instance" as BindingType,
+        scope: "singleton" as BindingScope,
         implementation: CountedService,
       };
       const request: Request = { serviceId: IService, depth: 0 };
@@ -299,8 +299,8 @@ describe("ResolutionEngine", () => {
       const binding: Binding<Dependency> = {
         id: bindingId,
         serviceId: IDependency,
-        type: BindingType.INSTANCE,
-        scope: BindingScope.SCOPED,
+        type: "instance" as BindingType,
+        scope: "scoped" as BindingScope,
         implementation: Dependency,
       };
       const request: Request = { serviceId: IDependency, depth: 0 };
@@ -317,8 +317,8 @@ describe("ResolutionEngine", () => {
       const binding: Binding<Dependency> = {
         id: bindingId,
         serviceId: IDependency,
-        type: BindingType.INSTANCE,
-        scope: BindingScope.SCOPED,
+        type: "instance" as BindingType,
+        scope: "scoped" as BindingScope,
         implementation: Dependency,
       };
       const request: Request = { serviceId: IDependency, depth: 0 };
@@ -338,8 +338,8 @@ describe("ResolutionEngine", () => {
       const binding: Binding<Dependency> = {
         id: bindingId,
         serviceId: IDependency,
-        type: BindingType.INSTANCE,
-        scope: BindingScope.TRANSIENT,
+        type: "instance" as BindingType,
+        scope: "transient" as BindingScope,
         implementation: Dependency,
       };
       const request: Request = { serviceId: IDependency, depth: 0 };
@@ -364,8 +364,8 @@ describe("ResolutionEngine", () => {
       const binding: Binding<ServiceA> = {
         id: Symbol("binding"),
         serviceId: IService,
-        type: BindingType.INSTANCE,
-        scope: BindingScope.TRANSIENT,
+        type: "instance" as BindingType,
+        scope: "transient" as BindingScope,
         implementation: ServiceA,
       };
 
@@ -400,7 +400,7 @@ describe("ResolutionEngine", () => {
         id: Symbol("binding"),
         serviceId: IService,
         type: "unknown" as BindingType,
-        scope: BindingScope.TRANSIENT,
+        scope: "transient" as BindingScope,
       };
       const request: Request = { serviceId: IService, depth: 0 };
       const container = createMockContainer();
@@ -419,16 +419,16 @@ describe("ResolutionEngine", () => {
       const singletonBinding: Binding<Dependency> = {
         id: singletonBindingId,
         serviceId: Symbol("SingletonService"),
-        type: BindingType.INSTANCE,
-        scope: BindingScope.SINGLETON,
+        type: "instance" as BindingType,
+        scope: "singleton" as BindingScope,
         implementation: Dependency,
       };
 
       const scopedBinding: Binding<Dependency> = {
         id: scopedBindingId,
         serviceId: Symbol("ScopedService"),
-        type: BindingType.INSTANCE,
-        scope: BindingScope.SCOPED,
+        type: "instance" as BindingType,
+        scope: "scoped" as BindingScope,
         implementation: Dependency,
       };
 

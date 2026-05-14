@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { BindingBuilder, BindingType } from "../binding.js";
-import { BindingScope } from "../types.js";
+import { BindingBuilder } from "../binding.js";
+import type { BindingScope, BindingType } from "../types.js";
 
 // Service identifier for testing
 const IService = Symbol.for("IService");
@@ -23,8 +23,8 @@ describe("BindingBuilder", () => {
 
       expect(binding.id).toBe(bindingId);
       expect(binding.serviceId).toBe(IService);
-      expect(binding.type).toBe(BindingType.INSTANCE);
-      expect(binding.scope).toBe(BindingScope.TRANSIENT);
+      expect(binding.type).toBe("instance" as BindingType);
+      expect(binding.scope).toBe("transient" as BindingScope);
     });
   });
 
@@ -36,7 +36,7 @@ describe("BindingBuilder", () => {
       builder.to(TestService);
       const binding = builder.getBinding();
 
-      expect(binding.type).toBe(BindingType.INSTANCE);
+      expect(binding.type).toBe("instance" as BindingType);
       expect(binding.implementation).toBe(TestService);
     });
 
@@ -63,9 +63,9 @@ describe("BindingBuilder", () => {
       builder.toConstantValue(constantValue);
       const binding = builder.getBinding();
 
-      expect(binding.type).toBe(BindingType.CONSTANT);
+      expect(binding.type).toBe("constant" as BindingType);
       expect(binding.constantValue).toBe(constantValue);
-      expect(binding.scope).toBe(BindingScope.SINGLETON);
+      expect(binding.scope).toBe("singleton" as BindingScope);
     });
   });
 
@@ -79,7 +79,7 @@ describe("BindingBuilder", () => {
       builder.toFactory(factory);
       const binding = builder.getBinding();
 
-      expect(binding.type).toBe(BindingType.FACTORY);
+      expect(binding.type).toBe("factory" as BindingType);
       expect(binding.factory).toBe(factory);
     });
   });
@@ -94,7 +94,7 @@ describe("BindingBuilder", () => {
       builder.toDynamicValue(dynamicValue);
       const binding = builder.getBinding();
 
-      expect(binding.type).toBe(BindingType.DYNAMIC);
+      expect(binding.type).toBe("dynamic" as BindingType);
       expect(binding.dynamicValue).toBe(dynamicValue);
     });
 
@@ -118,7 +118,7 @@ describe("BindingBuilder", () => {
       builder.to(TestService).inSingletonScope();
       const binding = builder.getBinding();
 
-      expect(binding.scope).toBe(BindingScope.SINGLETON);
+      expect(binding.scope).toBe("singleton" as BindingScope);
     });
 
     it("inTransientScope() 应该设置为瞬态作用域", () => {
@@ -128,7 +128,7 @@ describe("BindingBuilder", () => {
       builder.to(TestService).inTransientScope();
       const binding = builder.getBinding();
 
-      expect(binding.scope).toBe(BindingScope.TRANSIENT);
+      expect(binding.scope).toBe("transient" as BindingScope);
     });
 
     it("inScopedScope() 应该设置为作用域内单例", () => {
@@ -138,17 +138,17 @@ describe("BindingBuilder", () => {
       builder.to(TestService).inScopedScope();
       const binding = builder.getBinding();
 
-      expect(binding.scope).toBe(BindingScope.SCOPED);
+      expect(binding.scope).toBe("scoped" as BindingScope);
     });
 
     it("inScope() 应该接受自定义作用域", () => {
       const bindingId = Symbol("binding");
       const builder = new BindingBuilder(bindingId, IService);
 
-      builder.to(TestService).inScope(BindingScope.SINGLETON);
+      builder.to(TestService).inScope("singleton" as BindingScope);
       const binding = builder.getBinding();
 
-      expect(binding.scope).toBe(BindingScope.SINGLETON);
+      expect(binding.scope).toBe("singleton" as BindingScope);
     });
   });
 
@@ -175,9 +175,9 @@ describe("BindingBuilder", () => {
 
       const binding = builder.getBinding();
 
-      expect(binding.type).toBe(BindingType.INSTANCE);
+      expect(binding.type).toBe("instance" as BindingType);
       expect(binding.implementation).toBe(TestService);
-      expect(binding.scope).toBe(BindingScope.SINGLETON);
+      expect(binding.scope).toBe("singleton" as BindingScope);
       expect(binding.when).toBe(constraint);
     });
 
@@ -191,9 +191,9 @@ describe("BindingBuilder", () => {
 
       const binding = builder.getBinding();
 
-      expect(binding.type).toBe(BindingType.DYNAMIC);
+      expect(binding.type).toBe("dynamic" as BindingType);
       expect(binding.dynamicValue).toBe(dynamicValue);
-      expect(binding.scope).toBe(BindingScope.SCOPED);
+      expect(binding.scope).toBe("scoped" as BindingScope);
       expect(binding.when).toBe(constraint);
     });
   });

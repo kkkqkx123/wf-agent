@@ -211,7 +211,7 @@ export function createListFilesHandler(config: ReadFileConfig = {}) {
         const workspaceDir = config.workspaceDir ?? process.cwd();
         ignoreController = new IgnoreController({
           cwd: workspaceDir,
-          mode: IgnoreMode.All,
+          mode: "all",
         });
         await ignoreController.initialize();
       }

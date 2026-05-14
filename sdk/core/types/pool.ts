@@ -10,16 +10,9 @@
  */
 
 /**
- * Executor Status (using const enum for better performance)
+ * Executor Status
  */
-export const enum WorkerStatus {
-  /** Free and available for new assignments */
-  IDLE = "IDLE",
-  /** Busy. On a mission. */
-  BUSY = "BUSY",
-  /** Closing... */
-  SHUTTING_DOWN = "SHUTTING_DOWN",
-}
+export type WorkerStatus = "IDLE" | "BUSY" | "SHUTTING_DOWN";
 
 /**
  * Queue Statistics Interface

@@ -22,8 +22,11 @@
  * - Graph-specific features are available through optional dependency injection
  */
 
-import { isAbortError, getErrorOrNew } from "@wf-agent/common-utils";
-import { checkWorkflowInterruption } from "../utils/interruption/index.js";
+import { getErrorOrNew } from "@wf-agent/common-utils";
+import {
+  executeWithInterruptionHandling,
+  checkWorkflowInterruption,
+} from "../utils/interruption/index.js";
 import type { ToolRegistry } from "../registry/tool-registry.js";
 import type { EventRegistry } from "../registry/event-registry.js";
 import type { Tool, ID, Event } from "@wf-agent/types";
@@ -229,7 +232,7 @@ export class ToolCallExecutor {
         );
       } catch (error) {
         // If a tool fails due to interruption, abort the entire batch
-        if (isAbortError(error)) {
+        if (error instanceof Error && error.name === "AbortError") {
           logger.info("Tool interrupted, cancelling remaining tools in batch", {
             batchId,
             toolCallId: toolCall.id,
@@ -238,7 +241,7 @@ export class ToolCallExecutor {
           
           // Abort the batch controller to notify other tools
           if (!batchController.signal.aborted) {
-            batchController.abort(error instanceof Error ? error : new Error(String(error)));
+            batchController.abort(error);
           }
         }
         throw error;
@@ -652,9 +655,9 @@ export class ToolCallExecutor {
         const error = result.error;
         const errorMessage = error.message;
 
-        // Handle AbortError - return interruption result instead of throwing
-        if (isAbortError(error)) {
-          const interruptionResult = checkWorkflowInterruption(options?.abortSignal);
+        // Handle InterruptionError - return interruption result instead of throwing
+        if (error instanceof Error && error.name === "InterruptionError" && "interruption" in error) {
+          const interruptionResult = (error as any).interruption;
           
           // Log interruption for observability
           logger.info("Tool execution interrupted during execution", {
@@ -862,7 +865,7 @@ export class ToolCallExecutor {
       // On exception, clear operation state if interrupted
       if (hasOperationState && executionRegistry && executionId) {
         const executionEntity = executionRegistry.get(executionId);
-        if (isAbortError(error)) {
+        if (error instanceof Error && error.name === "AbortError") {
           // Preserve operation state for resume
           logger.info("Tool execution interrupted, preserving operation state for resume", {
             executionId,

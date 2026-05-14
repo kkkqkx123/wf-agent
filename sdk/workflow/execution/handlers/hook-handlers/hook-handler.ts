@@ -18,6 +18,7 @@ import {
 } from "../../../../core/hooks/index.js";
 import { getErrorOrNew } from "@wf-agent/common-utils";
 import {
+  executeWithInterruptionHandling,
   checkWorkflowInterruption,
   shouldContinue,
   getWorkflowInterruptionDescription,
@@ -150,20 +151,6 @@ export async function executeHook(
 ): Promise<void> {
   const { node, workflowExecutionEntity } = context;
 
-  // Check for interruption before executing hooks
-  const abortSignal = workflowExecutionEntity.getAbortSignal();
-  const interruption = checkWorkflowInterruption(abortSignal);
-  
-  if (!shouldContinue(interruption)) {
-    logger.info("Hook execution interrupted", {
-      executionId: workflowExecutionEntity.id,
-      nodeId: node.id,
-      hookType,
-      interruptionType: interruption.type,
-    });
-    throw new Error(`Hook execution interrupted: ${getWorkflowInterruptionDescription(interruption)}`);
-  }
-
   // Check if the node has a Hook configuration.
   if (!node.hooks || node.hooks.length === 0) {
     return;
@@ -183,21 +170,41 @@ export async function executeHook(
     createEventEmitterHandler(emitEvent),
   ];
 
-  // Execute Hook using a generic framework
-  await executeHooks(
-    hooks,
-    context,
-    buildGraphEvalContext,
-    handlers,
+  const abortSignal = workflowExecutionEntity.getAbortSignal();
+
+  // Execute Hook using unified interruption handling wrapper
+  const result = await executeWithInterruptionHandling(
     async () => {
-      // The event has been processed by createEventEmitterHandler.
+      // Execute Hooks
+      await executeHooks(
+        hooks,
+        context,
+        buildGraphEvalContext,
+        handlers,
+        async () => {
+          // The event has been processed by createEventEmitterHandler.
+        },
+        {
+          parallel: true,
+          continueOnError: true,
+          warnOnConditionFailure: true,
+        },
+      );
     },
-    {
-      parallel: true,
-      continueOnError: true,
-      warnOnConditionFailure: true,
-    },
+    abortSignal,
   );
+
+  // Handle interruption if needed
+  if (!result.success) {
+    const interruption = result.interruption;
+    logger.info("Hook execution interrupted", {
+      executionId: workflowExecutionEntity.id,
+      nodeId: node.id,
+      hookType,
+      interruptionType: interruption.type,
+    });
+    throw new Error(`Hook execution interrupted: ${getWorkflowInterruptionDescription(interruption)}`);
+  }
 }
 
 // Export context builder functions and types

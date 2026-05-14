@@ -19,7 +19,7 @@ import {
   RateLimitError,
 } from "./errors.js";
 import { executeWithRetry, type RetryConfig } from "./retry-handler.js";
-import { CircuitBreaker } from "./circuit-breaker.js";
+import { CircuitBreaker } from "../utils/circuit-breaker.js";
 import { RateLimiter } from "./rate-limiter.js";
 import { isAbortError } from "../error/error-utils.js";
 

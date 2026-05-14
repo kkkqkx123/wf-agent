@@ -231,6 +231,36 @@ export class SqliteConnectionPool {
   }
 
   /**
+   * Get detailed pool statistics with health information
+   * Enhanced version of getStats() with additional metrics
+   */
+  getDetailedStats(): {
+    totalConnections: number;
+    activeConnections: number;
+    connections: Array<{
+      path: string;
+      refCount: number;
+      age: number;
+      isHealthy: boolean;
+      lastHealthCheck?: number;
+    }>;
+  } {
+    const connections = Array.from(this.connections.values()).map(conn => ({
+      path: conn.path,
+      refCount: conn.refCount,
+      age: Date.now() - conn.createdAt,
+      isHealthy: conn.isHealthy,
+      lastHealthCheck: conn.lastHealthCheck,
+    }));
+
+    return {
+      totalConnections: this.connections.size,
+      activeConnections: connections.filter(c => c.refCount > 0).length,
+      connections,
+    };
+  }
+
+  /**
    * Close all connections immediately
    * Use this for cleanup/shutdown
    */

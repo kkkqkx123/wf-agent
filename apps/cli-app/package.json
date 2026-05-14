@@ -37,7 +37,6 @@
     "@wf-agent/common-utils": "workspace:*",
     "@wf-agent/sdk": "workspace:*",
     "@wf-agent/storage": "workspace:*",
-    "@wf-agent/tool-executors": "workspace:*",
     "@wf-agent/types": "workspace:*",
     "commander": "^14.0.3",
     "node-pty": "^1.1.0",

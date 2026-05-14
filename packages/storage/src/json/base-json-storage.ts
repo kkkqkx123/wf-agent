@@ -14,7 +14,7 @@ import {
   decompressBlob,
   type CompressionConfig,
 } from "@wf-agent/common-utils";
-import { LRUCache } from "../utils/lru-cache.js";
+import { LRUCache } from "lru-cache";
 import type { StorageMetrics } from "../types/metrics.js";
 import { DEFAULT_STORAGE_METRICS } from "../types/metrics.js";
 
@@ -77,7 +77,7 @@ interface MetadataIndexEntry<TMetadata> {
  * @template TMetadata Metadata Type
  * @template TSaveOptions Save operation options type (default: void)
  */
-export abstract class BaseJsonStorage<TMetadata, TSaveOptions = void> {
+export abstract class BaseJsonStorage<TMetadata extends {}, TSaveOptions = void> {
   protected metadataIndex: Map<string, MetadataIndexEntry<TMetadata>> = new Map();
   protected initialized: boolean = false;
   protected lockFiles: Map<string, Promise<void>> = new Map();
@@ -90,7 +90,7 @@ export abstract class BaseJsonStorage<TMetadata, TSaveOptions = void> {
     this.lazyMode = config.lazyLoading ?? false;
     if (this.lazyMode) {
       const cacheSize = config.metadataCacheSize ?? 100;
-      this.metadataCache = new LRUCache<string, TMetadata>(cacheSize);
+      this.metadataCache = new LRUCache<string, TMetadata>({ max: cacheSize });
     }
   }
 

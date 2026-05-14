@@ -10,7 +10,11 @@
  * - Reusable across all modules (SDK, Agent, Workflow, etc.)
  */
 
-import { getAbortReason } from "./abort-utils.js";
+import { getAbortReason, createNeverAbortSignal } from "./abort-utils.js";
+import { getGlobalLogger } from "../../logger/global-logger.js";
+
+// Get logger for abort signal utils
+const logger = getGlobalLogger().child("abort-signal-utils", { pkg: "common-utils" });
 
 /**
  * Generic interruption check result
@@ -55,10 +59,12 @@ export function shouldContinue(result: InterruptionCheckResult): boolean {
 /**
  * Check if an interruption has occurred
  * @param result The result of the interruption check
- * @returns Whether an interruption has occurred
+ * @returns Whether an interruption has occurred (with type narrowing)
  */
-export function isInterrupted(result: InterruptionCheckResult): boolean {
-  return result.type !== "continue";
+export function isInterrupted(
+  result: InterruptionCheckResult,
+): result is Extract<InterruptionCheckResult, { type: "aborted" }> {
+  return result.type === "aborted";
 }
 
 /**
@@ -67,51 +73,77 @@ export function isInterrupted(result: InterruptionCheckResult): boolean {
  * @returns Interrupt description string
  */
 export function getInterruptionDescription(result: InterruptionCheckResult): string {
-  switch (result.type) {
-    case "continue":
-      return "Execution continuing";
-    case "aborted":
-      return result.reason ? String(result.reason) : "Operation aborted";
-    default:
-      return "Unknown interruption state";
+  if (result.type === "continue") {
+    return "Execution continuing";
   }
+  // result.type === "aborted"
+  return result.reason ? String(result.reason) : "Operation aborted";
 }
 
 /**
- * Wrap an asynchronous function to automatically handle interruption checks
- * @param fn The asynchronous function
- * @param signal The AbortSignal
- * @returns The function execution result and status
+ * Wrap an asynchronous function with proper interruption support.
+ *
+ * This function ensures that the provided function can be properly interrupted
+ * by passing the AbortSignal to it. The function should respect the signal
+ * and throw AbortError or check signal.aborted when appropriate.
+ *
+ * @param fn The asynchronous function that accepts an AbortSignal
+ * @param signal The AbortSignal for cancellation
+ * @returns Object indicating completion status or interruption
+ *
+ * @example
+ * ```typescript
+ * const result = await withInterruptionCheck(
+ *   (signal) => fetchData(url, { signal }),
+ *   controller.signal
+ * );
+ * ```
  */
 export async function withInterruptionCheck<T>(
-  fn: () => Promise<T>,
+  fn: (signal: AbortSignal) => Promise<T>,
   signal?: AbortSignal,
 ): Promise<
   | { result: T; status: "completed" }
   | { status: "interrupted"; interruption: InterruptionCheckResult }
 > {
-  const interruption = checkInterruption(signal);
-
-  if (!shouldContinue(interruption)) {
+  // Create a never-abort signal if none provided
+  const effectiveSignal = signal ?? createNeverAbortSignal();
+  
+  // Check before execution
+  const preCheck = checkInterruption(effectiveSignal);
+  if (!shouldContinue(preCheck)) {
     return {
       status: "interrupted",
-      interruption,
+      interruption: preCheck,
     };
   }
 
   try {
-    const result = await fn();
+    // Pass signal to fn so it can respond to cancellation
+    const result = await fn(effectiveSignal);
+    
+    // Final check after execution
+    const postCheck = checkInterruption(effectiveSignal);
+    if (!shouldContinue(postCheck)) {
+      return {
+        status: "interrupted",
+        interruption: postCheck,
+      };
+    }
+    
     return {
       result,
       status: "completed",
     };
   } catch (error) {
-    // If an abort error is thrown inside the function, convert it into a return value
-    if (error instanceof Error && error.name === "AbortError") {
-      const interruption = checkInterruption(signal);
+    // Handle abort errors thrown by fn
+    if (
+      effectiveSignal.aborted &&
+      (error instanceof DOMException || (error instanceof Error && error.name === "AbortError"))
+    ) {
       return {
         status: "interrupted",
-        interruption,
+        interruption: checkInterruption(effectiveSignal),
       };
     }
     throw error;
@@ -132,22 +164,49 @@ export async function* withInterruptionCheckIter<T>(
 
   try {
     while (true) {
-      // Check for interrupts
+      // Check for interrupts before fetching next value
       const interruption = checkInterruption(signal);
       if (!shouldContinue(interruption)) {
         yield interruption;
         return;
       }
 
-      const { value, done } = await iterator.next();
+      let nextResult: IteratorResult<T>;
+      try {
+        nextResult = await iterator.next();
+      } catch (error) {
+        // If iterator.next() throws an abort error, handle it
+        if (
+          signal?.aborted &&
+          (error instanceof DOMException || (error instanceof Error && error.name === "AbortError"))
+        ) {
+          yield checkInterruption(signal);
+          return;
+        }
+        throw error;
+      }
+
+      const { value, done } = nextResult;
       if (done) break;
+
+      // Check for interrupts after fetching value (in case signal was aborted during async operation)
+      const postFetchInterruption = checkInterruption(signal);
+      if (!shouldContinue(postFetchInterruption)) {
+        yield postFetchInterruption;
+        return;
+      }
 
       yield value;
     }
   } finally {
     // Make sure to clean up the iterator
-    if (iterator.return) {
-      await iterator.return();
+    try {
+      if (iterator.return) {
+        await iterator.return();
+      }
+    } catch (cleanupError) {
+      // Log cleanup error but don't throw during cleanup phase
+      logger.warn("Failed to cleanup iterator", { error: cleanupError });
     }
   }
 }

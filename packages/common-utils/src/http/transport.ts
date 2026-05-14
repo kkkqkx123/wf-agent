@@ -152,20 +152,35 @@ export class SseTransport implements Transport {
       ...(options?.headers || {}),
     };
 
-    const response = await fetch(fullUrl, {
-      headers,
-    });
+    // Creating an AbortController for timeouts
+    const controller = new AbortController();
+    const timeoutId =
+      options?.timeout || this.timeout
+        ? setTimeout(() => controller.abort(), options?.timeout || this.timeout)
+        : null;
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    try {
+      const response = await fetch(fullUrl, {
+        headers,
+        signal: controller.signal,
+      });
+
+      if (timeoutId) clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      return {
+        data: response.body as T,
+        status: response.status,
+        headers: this.headersToObject(response.headers),
+        requestId: response.headers.get("x-request-id") || undefined,
+      };
+    } catch (error) {
+      if (timeoutId) clearTimeout(timeoutId);
+      throw error;
     }
-
-    return {
-      data: response.body as T,
-      status: response.status,
-      headers: this.headersToObject(response.headers),
-      requestId: response.headers.get("x-request-id") || undefined,
-    };
   }
 
   async *executeStream(url: string, options?: TransportOptions): AsyncIterable<unknown> {
@@ -176,68 +191,83 @@ export class SseTransport implements Transport {
       ...(options?.headers || {}),
     };
 
-    const response = await fetch(fullUrl, {
-      method: options?.method || "GET",
-      headers,
-      body: options?.body ? JSON.stringify(options.body) : undefined,
-    });
-
-    if (!response.body) {
-      throw new Error("Response body is null");
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
+    // Creating an AbortController for timeouts
+    const controller = new AbortController();
+    const timeoutId =
+      options?.timeout || this.timeout
+        ? setTimeout(() => controller.abort(), options?.timeout || this.timeout)
+        : null;
 
     try {
-      while (true) {
-        const { done, value } = await reader.read();
+      const response = await fetch(fullUrl, {
+        method: options?.method || "GET",
+        headers,
+        body: options?.body ? JSON.stringify(options.body) : undefined,
+        signal: controller.signal,
+      });
 
-        if (done) {
-          break;
-        }
+      if (timeoutId) clearTimeout(timeoutId);
 
-        // Adding new data to the buffer
-        buffer += decoder.decode(value, { stream: true });
+      if (!response.body) {
+        throw new Error("Response body is null");
+      }
 
-        // Split buffer contents by line
-        const lines = buffer.split(/\r?\n/);
-        buffer = lines.pop() || ""; // Retain incomplete last line
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
 
-        // Processing each line
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            // This is the SSE data line
-            const data = line.substring(6); // Remove the "data: " prefix
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
 
-            if (data === "[DONE]" || data.trim() === "") {
-              // Special markers indicate end-of-stream or blank lines
-              continue;
-            }
-
-            try {
-              // Trying to parse JSON data
-              yield JSON.parse(data);
-            } catch {
-              // If it's not JSON, treat it as a normal string.
-              yield data;
-            }
+          if (done) {
+            break;
           }
-          // Other SSE fields such as event:, id:, retry: can be handled here
-        }
-      }
 
-      // Processing of the remaining data in the buffer
-      if (buffer.trim()) {
-        try {
-          yield JSON.parse(buffer.trim());
-        } catch {
-          yield buffer.trim();
+          // Adding new data to the buffer
+          buffer += decoder.decode(value, { stream: true });
+
+          // Split buffer contents by line
+          const lines = buffer.split(/\r?\n/);
+          buffer = lines.pop() || ""; // Retain incomplete last line
+
+          // Processing each line
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              // This is the SSE data line
+              const data = line.substring(6); // Remove the "data: " prefix
+
+              if (data === "[DONE]" || data.trim() === "") {
+                // Special markers indicate end-of-stream or blank lines
+                continue;
+              }
+
+              try {
+                // Trying to parse JSON data
+                yield JSON.parse(data);
+              } catch {
+                // If it's not JSON, treat it as a normal string.
+                yield data;
+              }
+            }
+            // Other SSE fields such as event:, id:, retry: can be handled here
+          }
         }
+
+        // Processing of the remaining data in the buffer
+        if (buffer.trim()) {
+          try {
+            yield JSON.parse(buffer.trim());
+          } catch {
+            yield buffer.trim();
+          }
+        }
+      } finally {
+        reader.releaseLock();
       }
-    } finally {
-      reader.releaseLock();
+    } catch (error) {
+      if (timeoutId) clearTimeout(timeoutId);
+      throw error;
     }
   }
 

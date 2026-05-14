@@ -30,7 +30,10 @@ import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import type { MessageStream } from "../../../core/llm/message-stream.js";
 import type { MetricsRegistry } from "../../../core/metrics/metrics-registry.js";
 import { isAbortError } from "@wf-agent/common-utils";
-import { checkWorkflowInterruption } from "../../../core/utils/interruption/index.js";
+import {
+  executeWithInterruptionHandling,
+  checkWorkflowInterruption,
+} from "../../../core/utils/interruption/index.js";
 import { executeAgentHook } from "../handlers/hook-handlers/index.js";
 import {
   handleAgentError,
@@ -124,42 +127,77 @@ export class AgentExecutionCoordinator {
     }
 
     try {
-      while (entity.state.currentIteration < maxIterations) {
-        logger.debug("Starting new iteration", {
-          agentLoopId,
-          iteration: entity.state.currentIteration + 1,
-          maxIterations,
-        });
+      // Use unified interruption handling wrapper for the entire execution loop
+      const result = await executeWithInterruptionHandling(
+        async (signal) => {
+          while (entity.state.currentIteration < maxIterations) {
+            logger.debug("Starting new iteration", {
+              agentLoopId,
+              iteration: entity.state.currentIteration + 1,
+              maxIterations,
+            });
 
-        const interruptionResult = this.checkInterruption(entity);
-        if (interruptionResult) {
-          return interruptionResult;
-        }
+            const iterationResult = await this.executeIteration(
+              entity,
+              conversationManager,
+              toolSchemas,
+              profileId,
+              signal, // Pass abort signal to iteration
+            );
 
-        const result = await this.executeIteration(
-          entity,
-          conversationManager,
-          toolSchemas,
-          profileId,
-        );
+            if (iterationResult.interruption) {
+              return {
+                success: false,
+                iterations: entity.state.currentIteration,
+                toolCallCount: entity.state.toolCallCount,
+                error: `Execution ${iterationResult.interruption}`,
+              };
+            }
 
-        if (result.interruption) {
-          return {
-            success: false,
-            iterations: entity.state.currentIteration,
-            toolCallCount: entity.state.toolCallCount,
-            error: `Execution ${result.interruption}`,
-          };
-        }
+            if (!iterationResult.shouldContinue) {
+              logger.info("Agent Loop execution completed successfully", {
+                agentLoopId,
+                iterations: entity.state.currentIteration,
+                toolCallCount: entity.state.toolCallCount,
+              });
+              
+              // Record agent loop completion in metrics
+              if (this.metricsRegistry) {
+                const duration = Date.now() - startTime;
+                this.metricsRegistry.getCollectors().agent.recordExecutionComplete(
+                  profileId,
+                  {
+                    iterations: entity.state.currentIteration,
+                    toolCallCount: entity.state.toolCallCount,
+                    duration,
+                    success: true,
+                  }
+                );
+              }
+              
+              return {
+                success: true,
+                content: iterationResult.content,
+                iterations: entity.state.currentIteration,
+                toolCallCount: entity.state.toolCallCount,
+              };
+            }
 
-        if (!result.shouldContinue) {
-          logger.info("Agent Loop execution completed successfully", {
+            logger.debug("Iteration completed, continuing", {
+              agentLoopId,
+              iteration: entity.state.currentIteration,
+            });
+          }
+
+          logger.info("Agent Loop reached maximum iterations", {
             agentLoopId,
-            iterations: entity.state.currentIteration,
+            maxIterations,
             toolCallCount: entity.state.toolCallCount,
           });
+
+          entity.state.complete();
           
-          // Record agent loop completion in metrics
+          // Record agent loop completion in metrics (max iterations reached)
           if (this.metricsRegistry) {
             const duration = Date.now() - startTime;
             this.metricsRegistry.getCollectors().agent.recordExecutionComplete(
@@ -175,46 +213,49 @@ export class AgentExecutionCoordinator {
           
           return {
             success: true,
-            content: result.content,
             iterations: entity.state.currentIteration,
             toolCallCount: entity.state.toolCallCount,
+            content: "Reached maximum iterations without final answer.",
           };
+        },
+        entity.getAbortSignal(),
+      );
+
+      // Handle interruption gracefully if needed
+      if (!result.success) {
+        const interruption = result.interruption;
+        const type = interruption.type === "paused" ? "PAUSE" : "STOP";
+        
+        // Update entity status based on interruption type
+        if (type === "PAUSE") {
+          entity.state.pause();
+        } else {
+          entity.state.cancel();
         }
-
-        logger.debug("Iteration completed, continuing", {
-          agentLoopId,
-          iteration: entity.state.currentIteration,
-        });
+        
+        // Record agent loop completion in metrics (interrupted)
+        if (this.metricsRegistry) {
+          const duration = Date.now() - startTime;
+          this.metricsRegistry.getCollectors().agent.recordExecutionComplete(
+            profileId,
+            {
+              iterations: entity.state.currentIteration,
+              toolCallCount: entity.state.toolCallCount,
+              duration,
+              success: false,
+            }
+          );
+        }
+        
+        return {
+          success: false,
+          iterations: entity.state.currentIteration,
+          toolCallCount: entity.state.toolCallCount,
+          error: `Execution ${interruption.type}`,
+        };
       }
 
-      logger.info("Agent Loop reached maximum iterations", {
-        agentLoopId,
-        maxIterations,
-        toolCallCount: entity.state.toolCallCount,
-      });
-
-      entity.state.complete();
-      
-      // Record agent loop completion in metrics (max iterations reached)
-      if (this.metricsRegistry) {
-        const duration = Date.now() - startTime;
-        this.metricsRegistry.getCollectors().agent.recordExecutionComplete(
-          profileId,
-          {
-            iterations: entity.state.currentIteration,
-            toolCallCount: entity.state.toolCallCount,
-            duration,
-            success: true,
-          }
-        );
-      }
-      
-      return {
-        success: true,
-        iterations: entity.state.currentIteration,
-        toolCallCount: entity.state.toolCallCount,
-        content: "Reached maximum iterations without final answer.",
-      };
+      return result.result;
     } catch (error) {
       const standardizedError = await handleAgentError(
         entity,
@@ -342,41 +383,6 @@ export class AgentExecutionCoordinator {
   }
 
   /**
-   * Check interruption signals (sync mode)
-   */
-  private checkInterruption(entity: AgentLoopEntity): AgentLoopResult | null {
-    if (entity.isAborted() || entity.shouldStop()) {
-      logger.info("Agent Loop execution cancelled", {
-        agentLoopId: entity.id,
-        iteration: entity.state.currentIteration,
-      });
-      entity.state.cancel();
-      return {
-        success: false,
-        iterations: entity.state.currentIteration,
-        toolCallCount: entity.state.toolCallCount,
-        error: "Execution cancelled",
-      };
-    }
-
-    if (entity.shouldPause()) {
-      logger.info("Agent Loop execution paused", {
-        agentLoopId: entity.id,
-        iteration: entity.state.currentIteration,
-      });
-      entity.state.pause();
-      return {
-        success: false,
-        iterations: entity.state.currentIteration,
-        toolCallCount: entity.state.toolCallCount,
-        error: "Execution paused",
-      };
-    }
-
-    return null;
-  }
-
-  /**
    * Check interruption signals (stream mode)
    */
   private checkInterruptionStream(
@@ -417,6 +423,7 @@ export class AgentExecutionCoordinator {
     conversationManager: ConversationSession,
     toolSchemas: ToolSchema[] | undefined,
     profileId: string,
+    abortSignal?: AbortSignal,
   ): Promise<{
     success: boolean;
     shouldContinue: boolean;
@@ -434,15 +441,17 @@ export class AgentExecutionCoordinator {
     
     await executeAgentHook(entity, "BEFORE_LLM_CALL", this.emitAgentEvent);
 
-    // Check interruption before LLM call
-    const preLLMInterruption = checkWorkflowInterruption(entity.getAbortSignal());
-    if (preLLMInterruption.type === "paused" || preLLMInterruption.type === "stopped") {
-      logger.info("Interrupted before LLM call", {
-        agentLoopId,
-        iteration: entity.state.currentIteration,
-        interruptionType: preLLMInterruption.type,
-      });
-      return this.handleLLMFailure(entity, preLLMInterruption.type);
+    // Check interruption before LLM call using unified handler
+    if (abortSignal) {
+      const preLLMInterruption = checkWorkflowInterruption(abortSignal);
+      if (preLLMInterruption.type === "paused" || preLLMInterruption.type === "stopped") {
+        logger.info("Interrupted before LLM call", {
+          agentLoopId,
+          iteration: entity.state.currentIteration,
+          interruptionType: preLLMInterruption.type,
+        });
+        return this.handleLLMFailure(entity, preLLMInterruption.type);
+      }
     }
 
     logger.debug("Calling LLM", {
@@ -454,18 +463,20 @@ export class AgentExecutionCoordinator {
     const llmResult = await this.llmExecutor.executeLLMCall(
       conversationManager.getMessages(),
       { prompt: "", profileId, parameters: {}, tools: toolSchemas, stream: false },
-      { abortSignal: entity.getAbortSignal(), executionId: entity.id, nodeId: entity.nodeId },
+      { abortSignal, executionId: entity.id, nodeId: entity.nodeId },
     );
 
-    // Check interruption after LLM call
-    const postLLMInterruption = checkWorkflowInterruption(entity.getAbortSignal());
-    if (postLLMInterruption.type === "paused" || postLLMInterruption.type === "stopped") {
-      logger.info("Interrupted after LLM call", {
-        agentLoopId,
-        iteration: entity.state.currentIteration,
-        interruptionType: postLLMInterruption.type,
-      });
-      return this.handleLLMFailure(entity, postLLMInterruption.type);
+    // Check interruption after LLM call using unified handler
+    if (abortSignal) {
+      const postLLMInterruption = checkWorkflowInterruption(abortSignal);
+      if (postLLMInterruption.type === "paused" || postLLMInterruption.type === "stopped") {
+        logger.info("Interrupted after LLM call", {
+          agentLoopId,
+          iteration: entity.state.currentIteration,
+          interruptionType: postLLMInterruption.type,
+        });
+        return this.handleLLMFailure(entity, postLLMInterruption.type);
+      }
     }
 
     logger.debug("LLM call completed", {

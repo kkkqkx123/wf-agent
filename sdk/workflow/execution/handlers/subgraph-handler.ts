@@ -30,6 +30,7 @@ import {
   checkWorkflowInterruption,
   shouldContinue,
   getWorkflowInterruptionDescription,
+  executeWithInterruptionHandling,
 } from "../../../core/utils/interruption/index.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import { validateAndMapMessageContexts } from "../../validation/utils/message-context-validator.js";
@@ -53,31 +54,53 @@ export async function enterSubgraph(
   input: Record<string, unknown>,
   subgraphNode: StaticNode,
 ): Promise<void> {
-  // Check for interruption before entering subgraph
   const abortSignal = executionEntity.getAbortSignal();
-  const interruption = checkWorkflowInterruption(abortSignal);
-  
-  if (!shouldContinue(interruption)) {
+
+  // Use unified interruption handling wrapper
+  const result = await executeWithInterruptionHandling(
+    async () => {
+      // Enter a new variable scope for isolation
+      // This ensures that variables created in the subgraph don't leak to the parent
+      executionEntity.variableStateManager.enterSubgraphScope();
+      logger.debug("Entered new variable scope for subgraph", {
+        executionId: executionEntity.id,
+        workflowId,
+      });
+
+      try {
+        // Handle message context passing (required)
+        await handleEnterSubgraphMessageContexts(executionEntity, subgraphNode, workflowId);
+
+        await executionEntity.enterSubgraph(workflowId, parentWorkflowId, input);
+      } catch (error) {
+        // Ensure variable scope is cleaned up on error
+        executionEntity.variableStateManager.exitSubgraphScope();
+        logger.debug("Exited variable scope due to error", {
+          executionId: executionEntity.id,
+        });
+        throw error;
+      }
+    },
+    abortSignal,
+  );
+
+  // Handle interruption gracefully
+  if (!result.success) {
+    const interruption = result.interruption;
     logger.info("Subgraph entry interrupted", {
       executionId: executionEntity.id,
       workflowId,
       interruptionType: interruption.type,
     });
+    
+    // Ensure variable scope is cleaned up on interruption
+    executionEntity.variableStateManager.exitSubgraphScope();
+    logger.debug("Exited variable scope due to interruption", {
+      executionId: executionEntity.id,
+    });
+    
     throw new Error(`Subgraph entry interrupted: ${getWorkflowInterruptionDescription(interruption)}`);
   }
-
-  // Enter a new variable scope for isolation
-  // This ensures that variables created in the subgraph don't leak to the parent
-  executionEntity.variableStateManager.enterSubgraphScope();
-  logger.debug("Entered new variable scope for subgraph", {
-    executionId: executionEntity.id,
-    workflowId,
-  });
-
-  // Handle message context passing (required)
-  await handleEnterSubgraphMessageContexts(executionEntity, subgraphNode, workflowId);
-
-  await executionEntity.enterSubgraph(workflowId, parentWorkflowId, input);
 }
 
 /**
@@ -89,33 +112,43 @@ export async function exitSubgraph(
   executionEntity: WorkflowExecutionEntity,
   subgraphNode: StaticNode,
 ): Promise<void> {
-  // Check for interruption before exiting subgraph
   const abortSignal = executionEntity.getAbortSignal();
-  const interruption = checkWorkflowInterruption(abortSignal);
-  
-  if (!shouldContinue(interruption)) {
+
+  // Use unified interruption handling wrapper
+  const result = await executeWithInterruptionHandling(
+    async () => {
+      // NOTE: Variable output mapping is handled by the scope stack mechanism
+      // When we exit the scope, all subgraph-local variables are automatically discarded
+      // If you need to return specific values, use the workflow's output mechanism
+
+      // Handle message context passing (required)
+      await handleExitSubgraphMessageContexts(executionEntity, subgraphNode);
+
+      // Exit the variable scope
+      // This discards all variables created within the subgraph scope
+      executionEntity.variableStateManager.exitSubgraphScope();
+      logger.debug("Exited variable scope for subgraph", {
+        executionId: executionEntity.id,
+      });
+
+      await executionEntity.exitSubgraph();
+    },
+    abortSignal,
+  );
+
+  // Handle interruption gracefully
+  if (!result.success) {
+    const interruption = result.interruption;
     logger.info("Subgraph exit interrupted", {
       executionId: executionEntity.id,
       interruptionType: interruption.type,
     });
+    
+    // Note: Variable scope has already been exited above
+    // No additional cleanup needed
+    
     throw new Error(`Subgraph exit interrupted: ${getWorkflowInterruptionDescription(interruption)}`);
   }
-
-  // NOTE: Variable output mapping is handled by the scope stack mechanism
-  // When we exit the scope, all subgraph-local variables are automatically discarded
-  // If you need to return specific values, use the workflow's output mechanism
-
-  // Handle message context passing (required)
-  await handleExitSubgraphMessageContexts(executionEntity, subgraphNode);
-
-  // Exit the variable scope
-  // This discards all variables created within the subgraph scope
-  executionEntity.variableStateManager.exitSubgraphScope();
-  logger.debug("Exited variable scope for subgraph", {
-    executionId: executionEntity.id,
-  });
-
-  await executionEntity.exitSubgraph();
 }
 
 /**

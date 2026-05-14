@@ -505,9 +505,33 @@ export abstract class BaseSqliteStorage<TMetadataType> {
       db.exec('ANALYZE');
       logger.debug("ANALYZE completed", { table: this.getTableName() });
       
+      // Checkpoint WAL to prevent unbounded growth
+      db.pragma('wal_checkpoint(PASSIVE)');
+      logger.debug("WAL checkpoint completed", { table: this.getTableName() });
+      
       logger.info("Database optimization completed", { table: this.getTableName() });
     } catch (error) {
       return this.handleSqliteError(error, "optimize", {});
+    }
+  }
+
+  /**
+   * Force WAL checkpoint (for maintenance windows)
+   * Uses RESTART mode which blocks writes until complete
+   * Use with caution in production environments
+   */
+  async forceWalCheckpoint(): Promise<void> {
+    const db = this.getDb();
+    
+    try {
+      logger.info("Forcing WAL checkpoint", { table: this.getTableName() });
+      
+      // RESTART checkpoint blocks writes until complete
+      db.pragma('wal_checkpoint(RESTART)');
+      
+      logger.info("WAL checkpoint forced successfully", { table: this.getTableName() });
+    } catch (error) {
+      return this.handleSqliteError(error, "forceWalCheckpoint", {});
     }
   }
 

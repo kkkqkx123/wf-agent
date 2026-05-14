@@ -140,7 +140,7 @@ function renderConditionals(
   // Match {{#if variable}}... {{/if}} pattern
   const ifRegex = /\{\{#if\s+(\S+?)\}\}([\s\S]*?)\{\{\/if\}\}/g;
 
-  return template.replace(ifRegex, (match, variableName, content) => {
+  return template.replace(ifRegex, (_match, variableName, content) => {
     const trimmedName = variableName.trim();
     let value: unknown;
 
@@ -155,7 +155,7 @@ function renderConditionals(
       }
       if (!isSupportedLoopSpecialVar(trimmedName)) {
         throw new TemplateRenderError(
-          `不支持的循环特殊变量 '${trimmedName}'。支持的变量: ${Array.from(SUPPORTED_LOOP_SPECIAL_VARS).join(", ")}`,
+          `Unsupported loop special variables '${trimmedName}'。Supported variables: ${Array.from(SUPPORTED_LOOP_SPECIAL_VARS).join(", ")}`,
           trimmedName,
           "{{#if}}",
         );
@@ -193,7 +193,7 @@ function renderLoops(template: string, variables: Record<string, unknown>): stri
   // Match {{#each array}}... {{/each}} mode
   const eachRegex = /\{\{#each\s+(\S+?)\}\}([\s\S]*?)\{\{\/each\}\}/g;
 
-  return template.replace(eachRegex, (match, variableName, content) => {
+  return template.replace(eachRegex, (_match, variableName, content) => {
     const trimmedName = variableName.trim();
     const value = getVariableValue(trimmedName, variables);
 
@@ -238,10 +238,10 @@ function renderLoops(template: string, variables: Record<string, unknown>): stri
       // 3. Replacement of loop-specific variables
       itemContent = itemContent.replace(
         /\{\{(@[a-zA-Z_][a-zA-Z0-9_]*)\}\}/g,
-        (m: string, varName: string) => {
+        (_m: string, varName: string) => {
           if (!isSupportedLoopSpecialVar(varName)) {
             throw new TemplateRenderError(
-              `不支持的循环特殊变量 '${varName}'。支持的变量: ${Array.from(SUPPORTED_LOOP_SPECIAL_VARS).join(", ")}`,
+              `Unsupported loop special variable '${varName}'. Supported variables: ${Array.from(SUPPORTED_LOOP_SPECIAL_VARS).join(", ")}`,
               varName,
               "{{#each}}",
             );
@@ -300,7 +300,7 @@ function renderSimpleVariables(
       }
       if (!isSupportedLoopSpecialVar(trimmedName)) {
         throw new TemplateRenderError(
-          `不支持的循环特殊变量 '${trimmedName}'。支持的变量: ${Array.from(SUPPORTED_LOOP_SPECIAL_VARS).join(", ")}`,
+          `Unsupported loop special variable '${trimmedName}'. Supported variables: ${Array.from(SUPPORTED_LOOP_SPECIAL_VARS).join(", ")}`,
           trimmedName,
           "variable",
         );
@@ -357,7 +357,7 @@ function checkInvalidSpecialVars(template: string, inLoop: boolean): void {
       }
       if (!isSupportedLoopSpecialVar(variableName)) {
         throw new TemplateRenderError(
-          `不支持的循环特殊变量 '${variableName}'。支持的变量: ${Array.from(SUPPORTED_LOOP_SPECIAL_VARS).join(", ")}`,
+          `Unsupported loop special variable '${variableName}'. Supported variables: ${Array.from(SUPPORTED_LOOP_SPECIAL_VARS).join(", ")}`,
           variableName,
           "variable",
         );
@@ -375,40 +375,40 @@ function checkInvalidSpecialVars(template: string, inLoop: boolean): void {
 }
 
 /**
- * 渲染模板
- * 替换模板中的 {{variable}} 占位符，支持条件和循环
+ * Render template
+ * Replace {{variable}} placeholders in the template, supporting conditions and loops
  * 
- * @param template 模板字符串，包含 {{variable}} 占位符
- * @param variables 变量对象
- * @returns 渲染后的字符串
- * @throws {TemplateRenderError} 当使用不支持的循环特殊变量或在循环外使用特殊变量时抛出
+ * @param template Template string containing {{variable}} placeholders
+ * @param variables Variable object
+ * @returns Rendered string
+ * @throws {TemplateRenderError} Throws when using unsupported loop special variables or special variables outside of loops
  * 
  * @example
  * ```ts
  * const template = 'Hello, {{name}}! Today is {{date}}.';
  * const result = renderTemplate(template, { name: 'Alice', date: '2024-01-01' });
- * // 结果: 'Hello, Alice! Today is 2024-01-01.'
+ * // Result: 'Hello, Alice! Today is 2024-01-01.'
  * ```
  * 
  * @example
  * ```ts
  * const template = 'User: {{user.name}}, Age: {{user.age}}';
  * const result = renderTemplate(template, { user: { name: 'Bob', age: 30 } });
- * // 结果: 'User: Bob, Age: 30'
+ * // Result: 'User: Bob, Age: 30'
  * ```
  * 
- * @example 条件渲染
+ * @example Conditional rendering
  * ```ts
  * const template = '{{#if showName}}Name: {{name}}{{/if}}';
  * const result = renderTemplate(template, { showName: true, name: 'Alice' });
- * // 结果: 'Name: Alice'
+ * // Result: 'Name: Alice'
  * ```
  * 
- * @example 循环渲染
+ * @example Loop rendering
  * ```ts
  * const template = 'Items:{{#each items}} - {{this}}{{/each}}';
  * const result = renderTemplate(template, { items: ['A', 'B', 'C'] });
- * // 结果: 'Items: - A - B - C'
+ * // Result: 'Items: - A - B - C'
  * ```
  */
 export function renderTemplate(template: string, variables: Record<string, unknown>): string {

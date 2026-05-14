@@ -221,13 +221,7 @@ export class LLMExecutionCoordinator {
     const executionEntity = executionRegistry?.get(executionId);
     const abortSignal = executionEntity?.getAbortSignal();
 
-    // Check interruption before starting
-    if (abortSignal) {
-      const interruption = checkWorkflowInterruption(abortSignal);
-      if (!shouldContinue(interruption)) {
-        return interruption;
-      }
-    }
+    // Core coordinator handles interruption internally, no need for pre-check here
 
     // Workflow-specific: Track operation state for mid-node resume
     if (executionEntity) {
@@ -282,7 +276,7 @@ export class LLMExecutionCoordinator {
       };
 
       // Call core coordinator to execute LLM (without tool execution)
-      // Core handles: message management, token tracking, events, LLM call
+      // Core handles: message management, token tracking, events, LLM call, and interruption
       const coreResult = await this.coreCoordinator.executeLLM(
         {
           contextId: executionId,
@@ -295,7 +289,7 @@ export class LLMExecutionCoordinator {
           executeTools: false,  // Don't execute tools, we'll handle them with approval
         },
         conversationState,
-      );;
+      );
 
       // Check if core execution succeeded
       if (!coreResult.success) {
@@ -335,13 +329,7 @@ export class LLMExecutionCoordinator {
           );
         }
 
-        // Check for interruptions before executing the tool call.
-        if (abortSignal) {
-          const interruption = checkWorkflowInterruption(abortSignal);
-          if (!shouldContinue(interruption)) {
-            return interruption;
-          }
-        }
+        // Core coordinator already checked interruption, proceed with tool execution
 
         // Execute tool calls with approval
         await this.executeToolCallsWithApproval(

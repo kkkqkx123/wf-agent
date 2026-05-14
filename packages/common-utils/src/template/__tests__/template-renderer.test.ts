@@ -4,7 +4,7 @@ import {
   renderTemplates,
   validateTemplateVariables,
   TemplateRenderError,
-} from "./template-renderer.js";
+} from "../template-renderer.js";
 
 describe("template-renderer", () => {
   describe("renderTemplate", () => {
@@ -450,17 +450,17 @@ Data:
     describe("Error in looping the special variable", () => {
       it("An error should be thrown when using @index outside of a loop.", () => {
         expect(() => renderTemplate("{{@index}}", {})).toThrow(TemplateRenderError);
-        expect(() => renderTemplate("{{@index}}", {})).toThrow(/只能在.*循环内部使用/);
+        expect(() => renderTemplate("{{@index}}", {})).toThrow(/can only be used inside.*loop/);
       });
 
       it("An error should be thrown when using @first outside of a loop.", () => {
         expect(() => renderTemplate("{{@first}}", {})).toThrow(TemplateRenderError);
-        expect(() => renderTemplate("{{@first}}", {})).toThrow(/只能在.*循环内部使用/);
+        expect(() => renderTemplate("{{@first}}", {})).toThrow(/can only be used inside.*loop/);
       });
 
       it("An error should be thrown when using @last outside of a loop.", () => {
         expect(() => renderTemplate("{{@last}}", {})).toThrow(TemplateRenderError);
-        expect(() => renderTemplate("{{@last}}", {})).toThrow(/只能在.*循环内部使用/);
+        expect(() => renderTemplate("{{@last}}", {})).toThrow(/can only be used inside.*loop/);
       });
 
       it("An error should be thrown when special loop variables that are not supported are encountered.", () => {
@@ -469,7 +469,7 @@ Data:
         ).toThrow(TemplateRenderError);
         expect(() =>
           renderTemplate("{{#each items}}{{@invalid}}{{/each}}", { items: [1, 2] }),
-        ).toThrow(/不支持的循环特殊变量/);
+        ).toThrow(/Unsupported loop special variable/);
       });
 
       it("An error should be thrown when using a special loop variable that is not supported within the condition.", () => {
@@ -482,19 +482,19 @@ Data:
           renderTemplate("{{#each items}}{{#if @invalid}}content{{/if}}{{/each}}", {
             items: [1, 2],
           }),
-        ).toThrow(/不支持的循环特殊变量/);
+        ).toThrow(/Unsupported loop special variable/);
       });
     });
 
     describe("This variable is incorrect.", () => {
       it("An error should be thrown when using `this` outside of a loop.", () => {
         expect(() => renderTemplate("{{this}}", {})).toThrow(TemplateRenderError);
-        expect(() => renderTemplate("{{this}}", {})).toThrow(/只能在.*循环内部使用/);
+        expect(() => renderTemplate("{{this}}", {})).toThrow(/can only be used inside.*loop/);
       });
 
       it("An error should be thrown when using this.property outside of the loop.", () => {
         expect(() => renderTemplate("{{this.name}}", {})).toThrow(TemplateRenderError);
-        expect(() => renderTemplate("{{this.name}}", {})).toThrow(/只能在.*循环内部使用/);
+        expect(() => renderTemplate("{{this.name}}", {})).toThrow(/can only be used inside.*loop/);
       });
 
       it("An error should be thrown when using `this` in a condition outside of the loop.", () => {
@@ -502,7 +502,7 @@ Data:
           TemplateRenderError,
         );
         expect(() => renderTemplate("{{#if this.active}}content{{/if}}", {})).toThrow(
-          /只能在.*循环内部使用/,
+          /can only be used inside.*loop/,
         );
       });
     });

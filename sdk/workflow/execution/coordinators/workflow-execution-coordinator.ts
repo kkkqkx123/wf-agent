@@ -14,6 +14,7 @@ import type { WorkflowNavigator } from "../../builder/workflow-navigator.js";
 import {
   checkWorkflowInterruption,
   shouldContinue,
+  executeWithInterruptionHandling,
 } from "../../../core/utils/interruption/index.js";
 import type { WorkflowInterruptionCheckResult } from "../../../core/utils/interruption/index.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
@@ -51,59 +52,60 @@ export class WorkflowExecutionCoordinator {
    */
   async execute(): Promise<WorkflowExecutionResult> {
     const executionId = this.workflowExecutionEntity.id;
+    const abortSignal = this.interruptionManager.getAbortSignal();
 
-    // Execution process orchestration
-    while (true) {
-      // ✅ Use return-value pattern instead of throwing exceptions
-      const interruption = checkWorkflowInterruption(this.interruptionManager.getAbortSignal());
+    // Use unified interruption handling wrapper
+    const result = await executeWithInterruptionHandling(
+      async (signal) => {
+        // Execution process orchestration
+        while (true) {
+          // Get the current node
+          const currentNodeId = this.workflowExecutionEntity.getCurrentNodeId();
+          if (!currentNodeId) {
+            break;
+          }
 
-      if (!shouldContinue(interruption)) {
-        logger.info("Workflow execution interrupted", {
-          executionId,
-          interruptionType: interruption.type,
-          currentNodeId: this.workflowExecutionEntity.getCurrentNodeId(),
-        });
+          // Get the node object from the graph (already a RuntimeNode after preprocessing)
+          const currentNode = this.navigator.getGraph().getNode(currentNodeId);
+          if (!currentNode) {
+            break;
+          }
 
-        // Handle interruption gracefully
-        return await this.handleInterruptionGracefully(interruption);
-      }
+          // Execute Node with signal (currentNode is already a RuntimeNode)
+          const nodeResult = await this.nodeExecutionCoordinator.executeNode(
+            this.workflowExecutionEntity,
+            currentNode,
+            { abortSignal: signal },
+          );
 
-      // Get the current node
-      const currentNodeId = this.workflowExecutionEntity.getCurrentNodeId();
-      if (!currentNodeId) {
-        break;
-      }
+          // Update node results
+          this.workflowExecutionEntity.addNodeResult(nodeResult);
 
-      // Get the node object from the graph (already a RuntimeNode after preprocessing)
-      const currentNode = this.navigator.getGraph().getNode(currentNodeId);
-      if (!currentNode) {
-        break;
-      }
-
-      // Execute Node (currentNode is already a RuntimeNode)
-      const result = await this.nodeExecutionCoordinator.executeNode(
-        this.workflowExecutionEntity,
-        currentNode,
-      );
-
-      // Update node results
-      this.workflowExecutionEntity.addNodeResult(result);
-
-      // Update the current node ID - Use the navigator to get the next node
-      if (result.status === "COMPLETED") {
-        const nextNode = this.navigator.getNextNode(currentNodeId);
-        if (nextNode && nextNode.nextNodeId) {
-          this.workflowExecutionEntity.setCurrentNodeId(nextNode.nextNodeId);
-        } else {
-          break;
+          // Update the current node ID - Use the navigator to get the next node
+          if (nodeResult.status === "COMPLETED") {
+            const nextNode = this.navigator.getNextNode(currentNodeId);
+            if (nextNode && nextNode.nextNodeId) {
+              this.workflowExecutionEntity.setCurrentNodeId(nextNode.nextNodeId);
+            } else {
+              break;
+            }
+          } else {
+            break;
+          }
         }
-      } else {
-        break;
-      }
+
+        // Build successful execution result
+        return this.buildSuccessResult();
+      },
+      abortSignal,
+    );
+
+    // Handle interruption gracefully if needed
+    if (!result.success) {
+      return await this.handleInterruptionGracefully(result.interruption);
     }
 
-    // Build successful execution result
-    return this.buildSuccessResult();
+    return result.result;
   }
 
   /**

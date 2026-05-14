@@ -15,6 +15,15 @@ export {
 } from "./timestamp-utils.js";
 export { ok, err, tryCatchAsyncWithSignal, all, any, allWithErrors } from "./result-utils.js";
 
+// Circuit Breaker
+export {
+  CircuitBreaker,
+  circuitBreakerDecorator,
+  type CircuitBreakerConfig,
+  type CircuitMetrics,
+  type CircuitState,
+} from "./circuit-breaker.js";
+
 // Tool-related helper functions - Moved to @wf-agent/sdk
 
 // Simple ID generation function (only used inside common-utils)

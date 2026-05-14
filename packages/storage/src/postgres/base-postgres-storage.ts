@@ -707,4 +707,39 @@ export abstract class BasePostgresStorage<TMetadataType> {
    * Delete from client (to be implemented by subclasses)
    */
   protected abstract deleteFromClient(client: PoolClient, id: string): Promise<void>;
+
+  /**
+   * Get connection pool metrics (PostgreSQL only)
+   * Returns null if not using connection pool
+   * 
+   * @returns Pool metrics or null if pool is not available
+   * 
+   * @example
+   * ```typescript
+   * const metrics = await storage.getPoolMetrics();
+   * if (metrics && metrics.utilization > 0.8) {
+   *   logger.warn('Connection pool utilization high', metrics);
+   * }
+   * ```
+   */
+  async getPoolMetrics(): Promise<{ activeConnections: number; idleConnections: number; waitingRequests: number; maxConnections: number; utilization: number } | null> {
+    if (!this.usingPool || !this.connectionPool) {
+      return null;
+    }
+    
+    const stats = this.connectionPool.getPoolStatsFor(this.config.connectionString);
+    if (!stats) {
+      return null;
+    }
+    
+    const active = stats.totalCount - stats.idleCount;
+    
+    return {
+      activeConnections: active,
+      idleConnections: stats.idleCount,
+      waitingRequests: stats.waitingCount,
+      maxConnections: stats.max,
+      utilization: stats.max > 0 ? active / stats.max : 0,
+    };
+  }
 }

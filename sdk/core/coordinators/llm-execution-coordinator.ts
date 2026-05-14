@@ -23,11 +23,10 @@ import { MessageRole } from "@wf-agent/types";
 import { ConversationSession } from "../messaging/conversation-session.js";
 import { ExecutionError } from "@wf-agent/types";
 import {
-  checkInterruption,
-  shouldContinue,
-  getInterruptionDescription,
-} from "@wf-agent/common-utils";
-import type { InterruptionCheckResult } from "@wf-agent/common-utils";
+  executeWithInterruptionHandling,
+  getWorkflowInterruptionDescription,
+} from "../utils/interruption/index.js";
+import type { ExecutionInterruptionCheckResult } from "../utils/interruption/index.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 import { LLMExecutor } from "../executors/llm-executor.js";
 import { ToolCallExecutor } from "../executors/tool-call-executor.js";
@@ -41,6 +40,16 @@ import {
 } from "../utils/event/builders/index.js";
 
 const logger = createContextualLogger();
+
+/**
+ * Custom error to carry interruption information through the call stack
+ */
+class InterruptionError extends Error {
+  constructor(public interruption: ExecutionInterruptionCheckResult) {
+    super("Operation interrupted");
+    this.name = "InterruptionError";
+  }
+}
 
 /**
  * LLM Execution Params
@@ -133,7 +142,7 @@ export class LLMExecutionCoordinator {
     // Check if it's an interruption state
     if (typeof result !== "string") {
       // It's an interruption state
-      const description = getInterruptionDescription(result);
+      const description = getWorkflowInterruptionDescription(result);
       const error = new Error(description);
       // Preserve original interruption info as cause if available
       if (result && typeof result === 'object' && 'reason' in result) {
@@ -173,7 +182,7 @@ export class LLMExecutionCoordinator {
   private async executeSingleLLMCall(
     params: LLMExecutionParams,
     conversationState: ConversationSession,
-  ): Promise<string | InterruptionCheckResult> {
+  ): Promise<string | ExecutionInterruptionCheckResult> {
     const { contextId, prompt, config, tools, abortSignal, eventManager, nodeId, executeTools = true } = params;
 
     const {
@@ -185,171 +194,158 @@ export class LLMExecutionCoordinator {
       tokenLimit,
     } = config;
 
-    // Check interruption
-    if (abortSignal) {
-      const interruption = checkInterruption(abortSignal);
-      if (!shouldContinue(interruption)) {
-        return interruption;
-      }
-    }
+    // Use unified interruption handler for the entire LLM execution flow
+    const result = await executeWithInterruptionHandling(
+      async (signal) => {
+        // Step 1: Add user message
+        const userMessage = {
+          role: "user" as MessageRole,
+          content: prompt,
+        };
+        conversationState.addMessage(userMessage);
 
-    // Step 1: Add user message
-    const userMessage = {
-      role: "user" as MessageRole,
-      content: prompt,
-    };
-    conversationState.addMessage(userMessage);
+        // Trigger message added event
+        if (eventManager) {
+          await this.triggerMessageAddedEvent(eventManager, contextId, userMessage, nodeId);
+        }
 
-    // Trigger message added event
-    if (eventManager) {
-      await this.triggerMessageAddedEvent(eventManager, contextId, userMessage, nodeId);
-    }
-
-    // Prepare tool schemas
-    let availableToolSchemas = tools;
-    if (tools && tools.length > 0) {
-      availableToolSchemas = prepareToolSchemasFromTools(
-        tools as Array<{ id: string; description: string; parameters: unknown }>,
-      );
-    }
-
-    // Check interruption again before LLM call
-    if (abortSignal) {
-      const interruption = checkInterruption(abortSignal);
-      if (!shouldContinue(interruption)) {
-        return interruption;
-      }
-    }
-
-    // Execute LLM call
-    const llmResult = await this.llmExecutor.executeLLMCall(
-      conversationState.getMessages(),
-      {
-        prompt,
-        profileId: profileId || "DEFAULT",
-        parameters: parameters || {},
-        tools: availableToolSchemas as ToolSchema[],
-      },
-      { abortSignal, executionId: contextId, nodeId },
-    );
-
-    // Check if it's an interruption state
-    if (!llmResult.success) {
-      return (llmResult as { success: false; interruption: InterruptionCheckResult }).interruption;
-    }
-
-    const result = llmResult.result;
-
-    // Update Token usage statistics
-    if (result.usage) {
-      conversationState.updateTokenUsage(result.usage as LLMUsage);
-      
-      // Record token metrics
-      if (this.tokenMetricsCollector && result.usage) {
-        const usage = result.usage as any;
-        this.tokenMetricsCollector.recordTokenUsage({
-          profileId: params.config.profileId || "DEFAULT",
-          executionId: params.contextId,
-          nodeId: params.nodeId,
-          totalTokens: usage.totalTokens || 0,
-          promptTokens: usage.promptTokens || 0,
-          completionTokens: usage.completionTokens || 0,
-          cost: usage.totalCost,
-        });
-      }
-    }
-
-    // Finalize current request Token statistics
-    conversationState.finalizeCurrentRequest();
-
-    // Check Token usage warning AFTER updating with new usage
-    // Note: enableTokenTracking controls whether to check token limits and trigger warnings,
-    // but token usage is always updated regardless of this setting
-    if (enableTokenTracking !== false && eventManager) {
-      const tokenUsage = conversationState.getTokenUsage();
-      if (tokenUsage) {
-        const limit = tokenLimit || 100000;
-        const threshold = tokenWarningThreshold || 80;
-        const usagePercentage = (tokenUsage.totalTokens / limit) * 100;
-
-        // Trigger warning when usage exceeds threshold
-        if (usagePercentage > threshold) {
-          await this.triggerTokenWarningEvent(
-            eventManager,
-            contextId,
-            tokenUsage.totalTokens,
-            limit,
-            usagePercentage,
+        // Prepare tool schemas
+        let availableToolSchemas = tools;
+        if (tools && tools.length > 0) {
+          availableToolSchemas = prepareToolSchemasFromTools(
+            tools as Array<{ id: string; description: string; parameters: unknown }>,
           );
         }
-      }
-    }
 
-    // Add LLM response to conversation history
-    const assistantMessage = {
-      role: "assistant" as MessageRole,
-      content: result.content,
-      toolCalls: result.toolCalls?.map((tc: { id: string; name: string; arguments: string }) => ({
-        id: tc.id,
-        type: "function" as const,
-        function: {
-          name: tc.name,
-          arguments: tc.arguments,
-        },
-      })),
-    };
-    conversationState.addMessage(assistantMessage);
-
-    // Trigger message added event
-    if (eventManager) {
-      await this.triggerMessageAddedEvent(eventManager, contextId, assistantMessage, nodeId);
-    }
-
-    // Check if there are tool calls and should execute them
-    if (result.toolCalls && result.toolCalls.length > 0 && executeTools) {
-      // Validate single response tool call count
-      const maxToolsPerResponse = maxToolCallsPerRequest ?? 3;
-      if (result.toolCalls.length > maxToolsPerResponse) {
-        throw new ExecutionError(
-          `LLM returned ${result.toolCalls.length} tool calls, ` +
-            `exceeds limit of ${maxToolsPerResponse}. ` +
-            `Configure maxToolCallsPerRequest to adjust this limit.`,
-          nodeId,
+        // Execute LLM call with signal
+        const llmResult = await this.llmExecutor.executeLLMCall(
+          conversationState.getMessages(),
+          {
+            prompt,
+            profileId: profileId || "DEFAULT",
+            parameters: parameters || {},
+            tools: availableToolSchemas as ToolSchema[],
+          },
+          { abortSignal: signal, executionId: contextId, nodeId },
         );
-      }
 
-      // Check interruption before tool call execution
-      if (abortSignal) {
-        const interruption = checkInterruption(abortSignal);
-        if (!shouldContinue(interruption)) {
-          return interruption;
+        // Check if it's an interruption state
+        if (!llmResult.success) {
+          // Throw to be caught by executeWithInterruptionHandling
+          throw new InterruptionError(llmResult.interruption);
         }
-      }
 
-      // Execute tool calls (pass AbortSignal)
-      await this.toolCallExecutor.executeToolCalls(
-        result.toolCalls,
-        conversationState,
-        contextId,
-        nodeId || "",
-        { abortSignal },
-      );
+        const llmResponse = llmResult.result;
+
+        // Update Token usage statistics
+        if (llmResponse.usage) {
+          conversationState.updateTokenUsage(llmResponse.usage as LLMUsage);
+          
+          // Record token metrics
+          if (this.tokenMetricsCollector && llmResponse.usage) {
+            const usage = llmResponse.usage as any;
+            this.tokenMetricsCollector.recordTokenUsage({
+              profileId: params.config.profileId || "DEFAULT",
+              executionId: params.contextId,
+              nodeId: params.nodeId,
+              totalTokens: usage.totalTokens || 0,
+              promptTokens: usage.promptTokens || 0,
+              completionTokens: usage.completionTokens || 0,
+              cost: usage.totalCost,
+            });
+          }
+        }
+
+        // Finalize current request Token statistics
+        conversationState.finalizeCurrentRequest();
+
+        // Check Token usage warning AFTER updating with new usage
+        if (enableTokenTracking !== false && eventManager) {
+          const tokenUsage = conversationState.getTokenUsage();
+          if (tokenUsage) {
+            const limit = tokenLimit || 100000;
+            const threshold = tokenWarningThreshold || 80;
+            const usagePercentage = (tokenUsage.totalTokens / limit) * 100;
+
+            if (usagePercentage > threshold) {
+              await this.triggerTokenWarningEvent(
+                eventManager,
+                contextId,
+                tokenUsage.totalTokens,
+                limit,
+                usagePercentage,
+              );
+            }
+          }
+        }
+
+        // Add LLM response to conversation history
+        const assistantMessage = {
+          role: "assistant" as MessageRole,
+          content: llmResponse.content,
+          toolCalls: llmResponse.toolCalls?.map((tc: { id: string; name: string; arguments: string }) => ({
+            id: tc.id,
+            type: "function" as const,
+            function: {
+              name: tc.name,
+              arguments: tc.arguments,
+            },
+          })),
+        };
+        conversationState.addMessage(assistantMessage);
+
+        // Trigger message added event
+        if (eventManager) {
+          await this.triggerMessageAddedEvent(eventManager, contextId, assistantMessage, nodeId);
+        }
+
+        // Check if there are tool calls and should execute them
+        if (llmResponse.toolCalls && llmResponse.toolCalls.length > 0 && executeTools) {
+          // Validate single response tool call count
+          const maxToolsPerResponse = maxToolCallsPerRequest ?? 3;
+          if (llmResponse.toolCalls.length > maxToolsPerResponse) {
+            throw new ExecutionError(
+              `LLM returned ${llmResponse.toolCalls.length} tool calls, ` +
+                `exceeds limit of ${maxToolsPerResponse}. ` +
+                `Configure maxToolCallsPerRequest to adjust this limit.`,
+              nodeId,
+            );
+          }
+
+          // Execute tool calls with signal
+          await this.toolCallExecutor.executeToolCalls(
+            llmResponse.toolCalls,
+            conversationState,
+            contextId,
+            nodeId || "",
+            { abortSignal: signal },
+          );
+        }
+
+        // Trigger conversation state changed event
+        if (eventManager) {
+          const finalTokenUsage = conversationState.getTokenUsage();
+          await this.triggerConversationStateChangedEvent(
+            eventManager,
+            contextId,
+            conversationState.getMessages().length,
+            finalTokenUsage?.totalTokens || 0,
+            nodeId,
+          );
+        }
+
+        // Return final content
+        return llmResponse.content;
+      },
+      abortSignal,
+    );
+
+    // Handle result
+    if (!result.success) {
+      return result.interruption;
     }
 
-    // Trigger conversation state changed event
-    if (eventManager) {
-      const finalTokenUsage = conversationState.getTokenUsage();
-      await this.triggerConversationStateChangedEvent(
-        eventManager,
-        contextId,
-        conversationState.getMessages().length,
-        finalTokenUsage?.totalTokens || 0,
-        nodeId,
-      );
-    }
-
-    // Return final content
-    return result.content;
+    return result.result;
   }
 
   /**

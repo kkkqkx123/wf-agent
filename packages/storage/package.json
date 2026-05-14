@@ -28,6 +28,7 @@
     "@wf-agent/types": "workspace:*",
     "@wf-agent/common-utils": "workspace:*",
     "better-sqlite3": "^12.10.0",
+    "lru-cache": "^11.3.6",
     "pg": "^8.20.0",
     "pg-pool": "^3.13.0"
   },

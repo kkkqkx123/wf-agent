@@ -125,10 +125,8 @@ export class GracefulShutdownController {
         }),
       ]);
 
-      const _duration = Date.now() - startTime;
       process.exit(0);
     } catch {
-      const _duration = Date.now() - startTime;
       process.exit(1);
     }
   }

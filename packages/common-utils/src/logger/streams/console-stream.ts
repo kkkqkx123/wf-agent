@@ -36,10 +36,10 @@ const LEVEL_COLORS: Record<string, string> = {
 /**
  * Format log entries as plain text.
  */
-function formatPretty(entry: LogEntry, pretty: boolean): string {
+function formatPretty(entry: LogEntry, pretty: boolean, showTimestamp: boolean): string {
   const { level, message, timestamp, context, ...rest } = entry;
 
-  const timestampStr = timestamp ? `[${timestamp}] ` : "";
+  const timestampStr = showTimestamp && timestamp ? `[${timestamp}] ` : "";
   const levelStr = pretty
     ? `${LEVEL_COLORS[level] || COLORS.white}[${level.toUpperCase()}]${COLORS.reset} `
     : `[${level.toUpperCase()}] `;
@@ -79,7 +79,7 @@ export class ConsoleStream implements LogStream {
       console.log(JSON.stringify(entry));
     } else {
       // Output in plain text:
-      const formatted = formatPretty(entry, this.pretty);
+      const formatted = formatPretty(entry, this.pretty, this.timestamp);
 
       // Select the console method based on the level.
       switch (entry.level) {

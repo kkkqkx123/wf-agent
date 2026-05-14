@@ -16,20 +16,19 @@
 /**
  * Agent Loop Execution Status Enumeration
  */
-export enum AgentLoopStatus {
-  /** Created, not started */
-  CREATED = "CREATED",
-  /** Currently executing */
-  RUNNING = "RUNNING",
-  /** Paused (can be resumed) */
-  PAUSED = "PAUSED",
-  /** Completed successfully */
-  COMPLETED = "COMPLETED",
-  /** Failed with error */
-  FAILED = "FAILED",
-  /** Cancelled by user or system */
-  CANCELLED = "CANCELLED",
-}
+export const AgentLoopStatus = {
+  CREATED: "CREATED",
+  RUNNING: "RUNNING",
+  PAUSED: "PAUSED",
+  COMPLETED: "COMPLETED",
+  FAILED: "FAILED",
+  CANCELLED: "CANCELLED",
+} as const;
+
+/**
+ * Agent Loop Execution Status Type
+ */
+export type AgentLoopStatus = typeof AgentLoopStatus[keyof typeof AgentLoopStatus];
 
 // =============================================================================
 // Execution Records

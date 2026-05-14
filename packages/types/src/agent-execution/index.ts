@@ -69,8 +69,8 @@ export type {
 export type { AgentHook, AgentHookType } from "./hooks.js";
 
 // Events
-export { AgentStreamEventType } from "./event.js";
 export type {
+  AgentStreamEventType,
   AgentStreamEvent,
   AgentStartEvent,
   AgentEndEvent,

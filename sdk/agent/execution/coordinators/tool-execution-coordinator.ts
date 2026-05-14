@@ -237,7 +237,7 @@ export class ToolExecutionCoordinator {
       await executeAgentHook(entity, "BEFORE_TOOL_CALL", this.emitAgentEvent.bind(this), toolCallInfo);
 
       const startEvent: AgentStreamEvent = {
-        type: AgentStreamEventType.TOOL_EXECUTION_START,
+        type: "tool_execution_start",
         timestamp: Date.now(),
         agentLoopId,
         toolCallId: result.toolCallId,
@@ -258,7 +258,7 @@ export class ToolExecutionCoordinator {
         });
 
         const endEvent: AgentStreamEvent = {
-          type: AgentStreamEventType.TOOL_EXECUTION_END,
+          type: "tool_execution_end",
           timestamp: Date.now(),
           agentLoopId,
           toolCallId: result.toolCallId,
@@ -281,7 +281,7 @@ export class ToolExecutionCoordinator {
         });
 
         const endEvent: AgentStreamEvent = {
-          type: AgentStreamEventType.TOOL_EXECUTION_END,
+          type: "tool_execution_end",
           timestamp: Date.now(),
           agentLoopId,
           toolCallId: result.toolCallId,

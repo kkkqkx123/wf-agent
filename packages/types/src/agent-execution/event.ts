@@ -30,67 +30,40 @@ import type { AgentHookType } from "./hooks.js";
  *
  * Enhanced with fine-grained events for better observability
  */
-export enum AgentStreamEventType {
+export type AgentStreamEventType =
   // ========== Agent Lifecycle ==========
-  /** Agent started processing */
-  AGENT_START = "agent_start",
-  /** Agent completed processing */
-  AGENT_END = "agent_end",
-
+  | "agent_start"
+  | "agent_end"
   // ========== Turn Lifecycle (one LLM call + tool executions) ==========
-  /** Turn started (new iteration) */
-  TURN_START = "turn_start",
-  /** Turn completed */
-  TURN_END = "turn_end",
-
+  | "turn_start"
+  | "turn_end"
   // ========== Message Lifecycle ==========
-  /** Message started (user/assistant/toolResult) */
-  MESSAGE_START = "message_start",
-  /** Message updated (streaming delta) */
-  MESSAGE_UPDATE = "message_update",
-  /** Message completed */
-  MESSAGE_END = "message_end",
-
+  | "message_start"
+  | "message_update"
+  | "message_end"
   // ========== Tool Execution Lifecycle ==========
-  /** Tool execution started */
-  TOOL_EXECUTION_START = "tool_execution_start",
-  /** Tool execution progress update */
-  TOOL_EXECUTION_UPDATE = "tool_execution_update",
-  /** Tool execution completed */
-  TOOL_EXECUTION_END = "tool_execution_end",
-
+  | "tool_execution_start"
+  | "tool_execution_update"
+  | "tool_execution_end"
   // ========== Iteration ==========
-  /** Iteration started */
-  ITERATION_START = "iteration_start",
-  /** Iteration completed */
-  ITERATION_COMPLETE = "iteration_complete",
-
+  | "iteration_start"
+  | "iteration_complete"
   // ========== Error ==========
-  /** Error occurred */
-  ERROR = "agent_error",
-
+  | "agent_error"
   // ========== Steering & Follow-up ==========
-  /** Steering message injected */
-  STEERING_INJECTED = "steering_injected",
-  /** Follow-up message queued */
-  FOLLOWUP_QUEUED = "followup_queued",
-
+  | "steering_injected"
+  | "followup_queued"
   // ========== Hook Events ==========
-  /** Hook triggered event */
-  HOOK_TRIGGERED = "hook_triggered",
-
+  | "hook_triggered"
   // ========== Interruption Events ==========
-  /** Agent execution paused */
-  AGENT_PAUSED = "agent_paused",
-  /** Agent execution cancelled/stopped */
-  AGENT_CANCELLED = "agent_cancelled",
-}
+  | "agent_paused"
+  | "agent_cancelled";
 
 /**
  * Agent Start Event
  */
 export interface AgentStartEvent {
-  type: AgentStreamEventType.AGENT_START;
+  type: "agent_start";
   timestamp: number;
   /** Agent loop ID */
   agentLoopId: string;
@@ -104,7 +77,7 @@ export interface AgentStartEvent {
  * Agent End Event
  */
 export interface AgentEndEvent {
-  type: AgentStreamEventType.AGENT_END;
+  type: "agent_end";
   timestamp: number;
   /** Agent loop ID */
   agentLoopId: string;
@@ -124,7 +97,7 @@ export interface AgentEndEvent {
  * Turn Start Event
  */
 export interface TurnStartEvent {
-  type: AgentStreamEventType.TURN_START;
+  type: "turn_start";
   timestamp: number;
   /** Agent loop ID */
   agentLoopId: string;
@@ -136,7 +109,7 @@ export interface TurnStartEvent {
  * Turn End Event
  */
 export interface TurnEndEvent {
-  type: AgentStreamEventType.TURN_END;
+  type: "turn_end";
   timestamp: number;
   /** Agent loop ID */
   agentLoopId: string;
@@ -152,7 +125,7 @@ export interface TurnEndEvent {
  * Message Start Event
  */
 export interface MessageStartEvent {
-  type: AgentStreamEventType.MESSAGE_START;
+  type: "message_start";
   timestamp: number;
   /** Agent loop ID */
   agentLoopId: string;
@@ -164,7 +137,7 @@ export interface MessageStartEvent {
  * Message Update Event (streaming delta)
  */
 export interface MessageUpdateEvent {
-  type: AgentStreamEventType.MESSAGE_UPDATE;
+  type: "message_update";
   timestamp: number;
   /** Agent loop ID */
   agentLoopId: string;
@@ -176,7 +149,7 @@ export interface MessageUpdateEvent {
  * Message End Event
  */
 export interface MessageEndEvent {
-  type: AgentStreamEventType.MESSAGE_END;
+  type: "message_end";
   timestamp: number;
   /** Agent loop ID */
   agentLoopId: string;
@@ -188,7 +161,7 @@ export interface MessageEndEvent {
  * Tool Execution Start Event
  */
 export interface ToolExecutionStartEvent {
-  type: AgentStreamEventType.TOOL_EXECUTION_START;
+  type: "tool_execution_start";
   timestamp: number;
   /** Agent loop ID */
   agentLoopId: string;
@@ -206,7 +179,7 @@ export interface ToolExecutionStartEvent {
  * Tool Execution Update Event (streaming progress)
  */
 export interface ToolExecutionUpdateEvent {
-  type: AgentStreamEventType.TOOL_EXECUTION_UPDATE;
+  type: "tool_execution_update";
   timestamp: number;
   /** Agent loop ID */
   agentLoopId: string;
@@ -220,7 +193,7 @@ export interface ToolExecutionUpdateEvent {
  * Tool Execution End Event
  */
 export interface ToolExecutionEndEvent {
-  type: AgentStreamEventType.TOOL_EXECUTION_END;
+  type: "tool_execution_end";
   timestamp: number;
   /** Agent loop ID */
   agentLoopId: string;
@@ -238,7 +211,7 @@ export interface ToolExecutionEndEvent {
  * Iteration Start Event
  */
 export interface IterationStartEvent {
-  type: AgentStreamEventType.ITERATION_START;
+  type: "iteration_start";
   timestamp: number;
   /** Agent loop ID */
   agentLoopId: string;
@@ -250,7 +223,7 @@ export interface IterationStartEvent {
  * Iteration Complete Event
  */
 export interface IterationCompleteEvent {
-  type: AgentStreamEventType.ITERATION_COMPLETE;
+  type: "iteration_complete";
   timestamp: number;
   /** Agent loop ID */
   agentLoopId: string;
@@ -266,7 +239,7 @@ export interface IterationCompleteEvent {
  * Error Event
  */
 export interface AgentErrorEvent {
-  type: AgentStreamEventType.ERROR;
+  type: "agent_error";
   timestamp: number;
   /** Agent loop ID */
   agentLoopId: string;
@@ -282,7 +255,7 @@ export interface AgentErrorEvent {
  * Steering Injected Event
  */
 export interface SteeringInjectedEvent {
-  type: AgentStreamEventType.STEERING_INJECTED;
+  type: "steering_injected";
   timestamp: number;
   /** Agent loop ID */
   agentLoopId: string;
@@ -296,7 +269,7 @@ export interface SteeringInjectedEvent {
  * Follow-up Queued Event
  */
 export interface FollowupQueuedEvent {
-  type: AgentStreamEventType.FOLLOWUP_QUEUED;
+  type: "followup_queued";
   timestamp: number;
   /** Agent loop ID */
   agentLoopId: string;
@@ -313,7 +286,7 @@ export interface FollowupQueuedEvent {
 export interface AgentHookTriggeredEvent {
   /** Unique event identifier */
   id: ID;
-  type: AgentStreamEventType.HOOK_TRIGGERED;
+  type: "hook_triggered";
   timestamp: number;
   /** Agent loop ID */
   agentLoopId: ID;
@@ -346,7 +319,7 @@ export interface AgentHookTriggeredEvent {
  * Emitted when agent execution is paused by user request.
  */
 export interface AgentPausedEvent {
-  type: AgentStreamEventType.AGENT_PAUSED;
+  type: "agent_paused";
   timestamp: number;
   /** Agent loop ID */
   agentLoopId: ID;
@@ -370,7 +343,7 @@ export interface AgentPausedEvent {
  * Emitted when agent execution is cancelled/stopped by user request.
  */
 export interface AgentCancelledEvent {
-  type: AgentStreamEventType.AGENT_CANCELLED;
+  type: "agent_cancelled";
   timestamp: number;
   /** Agent loop ID */
   agentLoopId: ID;

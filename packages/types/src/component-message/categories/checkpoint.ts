@@ -7,19 +7,17 @@
 /**
  * Checkpoint Message Type
  */
-export enum CheckpointMessageType {
-  /** Checkpoint created */
-  CREATE = "checkpoint.create",
+export const CheckpointMessageType = {
+  CREATE: "checkpoint.create",
+  RESTORE: "checkpoint.restore",
+  DELETE: "checkpoint.delete",
+  FAIL: "checkpoint.fail",
+} as const;
 
-  /** Checkpoint restored */
-  RESTORE = "checkpoint.restore",
-
-  /** Checkpoint deleted */
-  DELETE = "checkpoint.delete",
-
-  /** Checkpoint failed */
-  FAIL = "checkpoint.fail",
-}
+/**
+ * Checkpoint Message Type
+ */
+export type CheckpointMessageType = typeof CheckpointMessageType[keyof typeof CheckpointMessageType];
 
 /**
  * Checkpoint Create Data

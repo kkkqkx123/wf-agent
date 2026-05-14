@@ -96,8 +96,8 @@ export class DashboardScreen implements Screen {
       {
         categories: [MessageCategory.AGENT],
         types: [
-          AgentMessageType.START,
-          AgentMessageType.END,
+          AgentMessageType.AGENT_START,
+          AgentMessageType.AGENT_END,
         ],
       },
       (message) => this.handleAgentMessage(message)
@@ -109,8 +109,8 @@ export class DashboardScreen implements Screen {
       {
         categories: [MessageCategory.WORKFLOW_EXECUTION],
         types: [
-          WorkflowExecutionMessageType.START,
-          WorkflowExecutionMessageType.END,
+          WorkflowExecutionMessageType.EXECUTION_START,
+          WorkflowExecutionMessageType.EXECUTION_END,
         ],
       },
       (message) => this.handleWorkflowMessage(message)
@@ -122,9 +122,9 @@ export class DashboardScreen implements Screen {
    * Handle agent lifecycle messages
    */
   private handleAgentMessage(message: BaseComponentMessage) {
-    if (message.type === AgentMessageType.START) {
+    if (message.type === AgentMessageType.AGENT_START) {
       this.activeAgents++;
-    } else if (message.type === AgentMessageType.END) {
+    } else if (message.type === AgentMessageType.AGENT_END) {
       this.activeAgents--;
     }
     this.updateStatusPanel();
@@ -134,9 +134,9 @@ export class DashboardScreen implements Screen {
    * Handle workflow execution messages
    */
   private handleWorkflowMessage(message: BaseComponentMessage) {
-    if (message.type === WorkflowExecutionMessageType.START) {
+    if (message.type === WorkflowExecutionMessageType.EXECUTION_START) {
       this.runningThreads++;
-    } else if (message.type === WorkflowExecutionMessageType.END) {
+    } else if (message.type === WorkflowExecutionMessageType.EXECUTION_END) {
       this.runningThreads--;
     }
     this.updateStatusPanel();

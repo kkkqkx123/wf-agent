@@ -7,19 +7,17 @@
 /**
  * Human Relay Message Type
  */
-export enum HumanRelayMessageType {
-  /** Human relay request */
-  REQUEST = "human_relay.request",
+export const HumanRelayMessageType = {
+  REQUEST: "human_relay.request",
+  RESPONSE: "human_relay.response",
+  TIMEOUT: "human_relay.timeout",
+  CANCEL: "human_relay.cancel",
+} as const;
 
-  /** Human relay response */
-  RESPONSE = "human_relay.response",
-
-  /** Human relay timeout */
-  TIMEOUT = "human_relay.timeout",
-
-  /** Human relay cancelled */
-  CANCEL = "human_relay.cancel",
-}
+/**
+ * Human Relay Message Type
+ */
+export type HumanRelayMessageType = typeof HumanRelayMessageType[keyof typeof HumanRelayMessageType];
 
 /**
  * Human Relay Request Data

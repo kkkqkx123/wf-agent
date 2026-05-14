@@ -8,22 +8,18 @@
  * Output Target
  * Specifies where a message should be delivered.
  */
-export enum OutputTarget {
-  /** Terminal User Interface display */
-  TUI = "tui",
+export const OutputTarget = {
+  TUI: "tui",
+  FILE_FUNCTIONAL: "file_functional",
+  FILE_DISPLAY: "file_display",
+  EVENT_BUS: "event_bus",
+  NONE: "none",
+} as const;
 
-  /** Functional file (for program-to-program exchange, e.g., human-relay files) */
-  FILE_FUNCTIONAL = "file_functional",
-
-  /** Display file (for human reading, e.g., output.md) */
-  FILE_DISPLAY = "file_display",
-
-  /** Internal event bus (for backward compatibility with Event system) */
-  EVENT_BUS = "event_bus",
-
-  /** No output (suppress message) */
-  NONE = "none",
-}
+/**
+ * Output Target Type
+ */
+export type OutputTarget = typeof OutputTarget[keyof typeof OutputTarget];
 
 /**
  * Aggregation Level

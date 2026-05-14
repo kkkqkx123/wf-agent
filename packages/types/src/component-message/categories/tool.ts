@@ -7,19 +7,17 @@
 /**
  * Tool Message Type
  */
-export enum ToolMessageType {
-  /** Tool call started */
-  CALL_START = "tool.call_start",
+export const ToolMessageType = {
+  CALL_START: "tool.call_start",
+  CALL_END: "tool.call_end",
+  RESULT: "tool.result",
+  ERROR: "tool.error",
+} as const;
 
-  /** Tool call ended */
-  CALL_END = "tool.call_end",
-
-  /** Tool result received */
-  RESULT = "tool.result",
-
-  /** Tool error */
-  ERROR = "tool.error",
-}
+/**
+ * Tool Message Type
+ */
+export type ToolMessageType = typeof ToolMessageType[keyof typeof ToolMessageType];
 
 /**
  * Tool Call Start Data

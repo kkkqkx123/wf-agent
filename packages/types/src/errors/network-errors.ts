@@ -13,26 +13,16 @@ import { SDKError, ErrorSeverity } from "./base.js";
  *
  * Used to distinguish between different types of LLM errors for error handling and retry decisions
  */
-export enum LLMErrorType {
-  /** Configuration error - should not retry */
-  CONFIG_ERROR = "CONFIG_ERROR",
-  /** Network error - retryable */
-  NETWORK_ERROR = "NETWORK_ERROR",
-  /** API error - retryable */
-  API_ERROR = "API_ERROR",
-  /** Parsing error - should not retry */
-  PARSE_ERROR = "PARSE_ERROR",
-  /** Timeout error - retryable */
-  TIMEOUT_ERROR = "TIMEOUT_ERROR",
-  /** User canceled - should not be retried */
-  CANCELLED_ERROR = "CANCELLED_ERROR",
-  /** Current Limit Error - Retryable (with delay) */
-  RATE_LIMIT_ERROR = "RATE_LIMIT_ERROR",
-  /** Validation error - should not retry */
-  VALIDATION_ERROR = "VALIDATION_ERROR",
-  /** Unknown error - retryable by default */
-  UNKNOWN_ERROR = "UNKNOWN_ERROR",
-}
+export type LLMErrorType =
+  | "CONFIG_ERROR"
+  | "NETWORK_ERROR"
+  | "API_ERROR"
+  | "PARSE_ERROR"
+  | "TIMEOUT_ERROR"
+  | "CANCELLED_ERROR"
+  | "RATE_LIMIT_ERROR"
+  | "VALIDATION_ERROR"
+  | "UNKNOWN_ERROR";
 
 /**
  * Network Error Type
@@ -138,26 +128,26 @@ export class LLMError extends HttpError {
         errorMessage.includes("abort") ||
         errorMessage.includes("cancel")
       ) {
-        return LLMErrorType.CANCELLED_ERROR;
+        return "CANCELLED_ERROR";
       }
     }
 
     // Inferred from HTTP status code
     if (statusCode) {
       if (statusCode === 429) {
-        return LLMErrorType.RATE_LIMIT_ERROR;
+        return "RATE_LIMIT_ERROR";
       }
       if (statusCode === 401 || statusCode === 403) {
-        return LLMErrorType.CONFIG_ERROR;
+        return "CONFIG_ERROR";
       }
       if (statusCode === 400) {
-        return LLMErrorType.VALIDATION_ERROR;
+        return "VALIDATION_ERROR";
       }
       if (statusCode >= 500) {
-        return LLMErrorType.API_ERROR;
+        return "API_ERROR";
       }
       if (statusCode >= 400) {
-        return LLMErrorType.API_ERROR;
+        return "API_ERROR";
       }
     }
 
@@ -165,11 +155,11 @@ export class LLMError extends HttpError {
     if (cause) {
       const errorName = cause.name?.toLowerCase() || "";
       if (errorName.includes("timeout")) {
-        return LLMErrorType.TIMEOUT_ERROR;
+        return "TIMEOUT_ERROR";
       }
     }
 
-    return LLMErrorType.UNKNOWN_ERROR;
+    return "UNKNOWN_ERROR";
   }
 
   /**
@@ -179,16 +169,16 @@ export class LLMError extends HttpError {
    */
   isRetryable(): boolean {
     switch (this.type) {
-      case LLMErrorType.CONFIG_ERROR:
-      case LLMErrorType.PARSE_ERROR:
-      case LLMErrorType.CANCELLED_ERROR:
-      case LLMErrorType.VALIDATION_ERROR:
+      case "CONFIG_ERROR":
+      case "PARSE_ERROR":
+      case "CANCELLED_ERROR":
+      case "VALIDATION_ERROR":
         return false;
-      case LLMErrorType.NETWORK_ERROR:
-      case LLMErrorType.API_ERROR:
-      case LLMErrorType.TIMEOUT_ERROR:
-      case LLMErrorType.RATE_LIMIT_ERROR:
-      case LLMErrorType.UNKNOWN_ERROR:
+      case "NETWORK_ERROR":
+      case "API_ERROR":
+      case "TIMEOUT_ERROR":
+      case "RATE_LIMIT_ERROR":
+      case "UNKNOWN_ERROR":
         return true;
       default:
         return true;
@@ -201,7 +191,7 @@ export class LLMError extends HttpError {
    * For flow-limiting errors, a longer delay is recommended
    */
   getRetryDelay(): number {
-    if (this.type === LLMErrorType.RATE_LIMIT_ERROR) {
+    if (this.type === "RATE_LIMIT_ERROR") {
       // Error in limiting flow: suggest waiting longer
       return 5000;
     }
@@ -210,11 +200,11 @@ export class LLMError extends HttpError {
 
   protected override getDefaultSeverity(): ErrorSeverity {
     // Configuration errors and authentication errors are serious errors
-    if (this.type === LLMErrorType.CONFIG_ERROR || this.type === LLMErrorType.VALIDATION_ERROR) {
+    if (this.type === "CONFIG_ERROR" || this.type === "VALIDATION_ERROR") {
       return "error";
     }
     // User cancelation is the information level
-    if (this.type === LLMErrorType.CANCELLED_ERROR) {
+    if (this.type === "CANCELLED_ERROR") {
       return "info";
     }
     // Other errors default to warning level

@@ -7,8 +7,8 @@
 import type {
   CreateMessageInput,
   EntityIdentity,
-  MessageCategory,
   MessageLevel,
+  MessageCategory,
 } from "@wf-agent/types";
 import {
   MessageCategory as MsgCategory,

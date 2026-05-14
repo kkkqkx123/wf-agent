@@ -54,7 +54,7 @@ export const buildAgentHookTriggeredEvent = (params: {
   metadata?: Metadata;
 }): AgentHookTriggeredEvent => ({
   id: generateId(),
-  type: "hook_triggered" as AgentStreamEventType.HOOK_TRIGGERED,
+  type: "hook_triggered",
   timestamp: now(),
   agentLoopId: params.agentLoopId,
   hookType: params.hookType,

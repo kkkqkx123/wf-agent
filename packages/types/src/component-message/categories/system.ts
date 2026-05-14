@@ -7,19 +7,17 @@
 /**
  * System Message Type
  */
-export enum SystemMessageType {
-  /** System startup */
-  STARTUP = "system.startup",
+export const SystemMessageType = {
+  STARTUP: "system.startup",
+  SHUTDOWN: "system.shutdown",
+  CONFIG_CHANGE: "system.config_change",
+  ERROR: "system.error",
+} as const;
 
-  /** System shutdown */
-  SHUTDOWN = "system.shutdown",
-
-  /** Configuration change */
-  CONFIG_CHANGE = "system.config_change",
-
-  /** System error */
-  ERROR = "system.error",
-}
+/**
+ * System Message Type
+ */
+export type SystemMessageType = typeof SystemMessageType[keyof typeof SystemMessageType];
 
 /**
  * System Startup Data

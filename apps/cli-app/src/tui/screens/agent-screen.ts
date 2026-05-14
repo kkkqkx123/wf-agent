@@ -78,11 +78,11 @@ export class AgentScreen implements Screen {
         {
           categories: [MessageCategory.AGENT],
           types: [
-            AgentMessageType.START,
-            AgentMessageType.END,
-            AgentMessageType.PAUSE,
-            AgentMessageType.RESUME,
-            AgentMessageType.CANCEL,
+            AgentMessageType.AGENT_START,
+            AgentMessageType.AGENT_END,
+            AgentMessageType.AGENT_PAUSE,
+            AgentMessageType.AGENT_RESUME,
+            AgentMessageType.AGENT_CANCEL,
           ],
         },
         (message) => this.handleAgentLifecycleMessage(message)
@@ -132,13 +132,13 @@ export class AgentScreen implements Screen {
    */
   private handleAgentMessage(message: BaseComponentMessage) {
     switch (message.type) {
-      case AgentMessageType.START:
+      case AgentMessageType.AGENT_START:
         this.handleAgentLifecycleMessage(message);
         break;
-      case AgentMessageType.END:
-      case AgentMessageType.PAUSE:
-      case AgentMessageType.RESUME:
-      case AgentMessageType.CANCEL:
+      case AgentMessageType.AGENT_END:
+      case AgentMessageType.AGENT_PAUSE:
+      case AgentMessageType.AGENT_RESUME:
+      case AgentMessageType.AGENT_CANCEL:
         this.handleAgentLifecycleMessage(message);
         break;
       case AgentMessageType.ITERATION_START:
@@ -160,7 +160,7 @@ export class AgentScreen implements Screen {
    */
   private handleAgentLifecycleMessage(message: BaseComponentMessage) {
     switch (message.type) {
-      case AgentMessageType.START:
+      case AgentMessageType.AGENT_START:
         {
           const startData = message.data as AgentStartData;
           this.currentAgentId = startData.loopId;
@@ -170,7 +170,7 @@ export class AgentScreen implements Screen {
         }
         break;
 
-      case AgentMessageType.END:
+      case AgentMessageType.AGENT_END:
         {
           const endData = message.data as AgentEndData;
           this.isRunning = false;
@@ -182,17 +182,17 @@ export class AgentScreen implements Screen {
         }
         break;
 
-      case AgentMessageType.PAUSE:
+      case AgentMessageType.AGENT_PAUSE:
         this.updateStatus("paused");
         this.appendLog("Agent paused", "system");
         break;
 
-      case AgentMessageType.RESUME:
+      case AgentMessageType.AGENT_RESUME:
         this.updateStatus("running");
         this.appendLog("Agent resumed", "system");
         break;
 
-      case AgentMessageType.CANCEL:
+      case AgentMessageType.AGENT_CANCEL:
         this.isRunning = false;
         this.updateStatus("idle");
         this.appendLog("Agent cancelled", "system");

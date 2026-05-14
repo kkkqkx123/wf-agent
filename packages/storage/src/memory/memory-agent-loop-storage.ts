@@ -42,7 +42,7 @@ export class MemoryAgentLoopStorage
       updatedAt: Date.now(),
     };
 
-    if (status === AgentLoopStatus.COMPLETED || status === AgentLoopStatus.FAILED || status === AgentLoopStatus.CANCELLED) {
+    if (status === "COMPLETED" || status === "FAILED" || status === "CANCELLED") {
       updatedMetadata.completedAt = Date.now();
     }
 
@@ -79,7 +79,7 @@ export class MemoryAgentLoopStorage
     const stats: Record<string, number> = {};
 
     // Initialize all statuses to 0
-    Object.values(AgentLoopStatus).forEach(status => {
+    (["CREATED", "RUNNING", "PAUSED", "COMPLETED", "FAILED", "CANCELLED"] as const).forEach(status => {
       stats[status] = 0;
     });
 

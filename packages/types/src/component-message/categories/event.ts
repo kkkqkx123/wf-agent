@@ -7,19 +7,17 @@
 /**
  * Event Message Type
  */
-export enum EventMessageType {
-  /** Event triggered */
-  TRIGGER = "event.trigger",
+export const EventMessageType = {
+  TRIGGER: "event.trigger",
+  PROCESS_START: "event.process_start",
+  PROCESS_END: "event.process_end",
+  CUSTOM: "event.custom",
+} as const;
 
-  /** Event processing started */
-  PROCESS_START = "event.process_start",
-
-  /** Event processing completed */
-  PROCESS_END = "event.process_end",
-
-  /** Custom event */
-  CUSTOM = "event.custom",
-}
+/**
+ * Event Message Type
+ */
+export type EventMessageType = typeof EventMessageType[keyof typeof EventMessageType];
 
 /**
  * Event Trigger Data

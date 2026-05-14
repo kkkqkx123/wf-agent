@@ -7,22 +7,18 @@
 /**
  * Subgraph Message Type
  */
-export enum SubgraphMessageType {
-  /** Subgraph started */
-  START = "subgraph.start",
+export const SubgraphMessageType = {
+  START: "subgraph.start",
+  END: "subgraph.end",
+  CONTEXT_INHERIT: "subgraph.context.inherit",
+  CONTEXT_RETURN: "subgraph.context.return",
+  STATE_SYNC: "subgraph.state.sync",
+} as const;
 
-  /** Subgraph ended */
-  END = "subgraph.end",
-
-  /** Context inherited from parent */
-  CONTEXT_INHERIT = "subgraph.context.inherit",
-
-  /** Context returned to parent */
-  CONTEXT_RETURN = "subgraph.context.return",
-
-  /** State synchronized with parent */
-  STATE_SYNC = "subgraph.state.sync",
-}
+/**
+ * Subgraph Message Type
+ */
+export type SubgraphMessageType = typeof SubgraphMessageType[keyof typeof SubgraphMessageType];
 
 /**
  * Subgraph Start Data

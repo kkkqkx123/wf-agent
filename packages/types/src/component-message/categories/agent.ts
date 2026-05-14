@@ -7,83 +7,43 @@
 /**
  * Agent Message Type
  */
-export enum AgentMessageType {
+export const AgentMessageType = {
   // Lifecycle
-  /** Agent started */
-  START = "agent.start",
-
-  /** Agent paused */
-  PAUSE = "agent.pause",
-
-  /** Agent resumed */
-  RESUME = "agent.resume",
-
-  /** Agent ended */
-  END = "agent.end",
-
-  /** Agent cancelled */
-  CANCEL = "agent.cancel",
-
+  AGENT_START: "agent.start",
+  AGENT_PAUSE: "agent.pause",
+  AGENT_RESUME: "agent.resume",
+  AGENT_END: "agent.end",
+  AGENT_CANCEL: "agent.cancel",
   // Iteration
-  /** Iteration started */
-  ITERATION_START = "agent.iteration.start",
-
-  /** Iteration ended */
-  ITERATION_END = "agent.iteration.end",
-
-  /** Iteration limit reached */
-  ITERATION_LIMIT = "agent.iteration.limit",
-
+  ITERATION_START: "agent.iteration.start",
+  ITERATION_END: "agent.iteration.end",
+  ITERATION_LIMIT: "agent.iteration.limit",
   // LLM Interaction
-  /** LLM request sent */
-  LLM_REQUEST = "agent.llm.request",
-
-  /** LLM stream chunk received */
-  LLM_STREAM = "agent.llm.stream",
-
-  /** LLM response completed */
-  LLM_RESPONSE = "agent.llm.response",
-
-  /** LLM error */
-  LLM_ERROR = "agent.llm.error",
-
+  LLM_REQUEST: "agent.llm.request",
+  LLM_STREAM: "agent.llm.stream",
+  LLM_RESPONSE: "agent.llm.response",
+  LLM_ERROR: "agent.llm.error",
   // Tool Execution
-  /** Tool call started */
-  TOOL_CALL_START = "agent.tool.call_start",
-
-  /** Tool call ended */
-  TOOL_CALL_END = "agent.tool.call_end",
-
-  /** Tool result received */
-  TOOL_RESULT = "agent.tool.result",
-
-  /** Tool error */
-  TOOL_ERROR = "agent.tool.error",
-
+  TOOL_CALL_START: "agent.tool.call_start",
+  TOOL_CALL_END: "agent.tool.call_end",
+  TOOL_RESULT: "agent.tool.result",
+  TOOL_ERROR: "agent.tool.error",
   // Human Relay
-  /** Human relay request */
-  HUMAN_RELAY_REQUEST = "agent.human_relay.request",
-
-  /** Human relay response */
-  HUMAN_RELAY_RESPONSE = "agent.human_relay.response",
-
-  /** Human relay timeout */
-  HUMAN_RELAY_TIMEOUT = "agent.human_relay.timeout",
-
-  /** Human relay cancelled */
-  HUMAN_RELAY_CANCEL = "agent.human_relay.cancel",
-
+  HUMAN_RELAY_REQUEST: "agent.human_relay.request",
+  HUMAN_RELAY_RESPONSE: "agent.human_relay.response",
+  HUMAN_RELAY_TIMEOUT: "agent.human_relay.timeout",
+  HUMAN_RELAY_CANCEL: "agent.human_relay.cancel",
   // Checkpoint
-  /** Checkpoint created */
-  CHECKPOINT_CREATE = "agent.checkpoint.create",
-
-  /** Checkpoint restored */
-  CHECKPOINT_RESTORE = "agent.checkpoint.restore",
-
+  CHECKPOINT_CREATE: "agent.checkpoint.create",
+  CHECKPOINT_RESTORE: "agent.checkpoint.restore",
   // Message History
-  /** Message added to history */
-  MESSAGE_ADD = "agent.message.add",
-}
+  MESSAGE_ADD: "agent.message.add",
+} as const;
+
+/**
+ * Agent Message Type
+ */
+export type AgentMessageType = typeof AgentMessageType[keyof typeof AgentMessageType];
 
 /**
  * Agent Start Data

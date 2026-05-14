@@ -89,8 +89,8 @@ export class WorkflowScreen implements Screen {
       {
         categories: [MessageCategory.WORKFLOW_EXECUTION],
         types: [
-          WorkflowExecutionMessageType.START,
-          WorkflowExecutionMessageType.END,
+          WorkflowExecutionMessageType.EXECUTION_START,
+          WorkflowExecutionMessageType.EXECUTION_END,
         ],
       },
       (message) => this.handleWorkflowMessage(message)
@@ -133,9 +133,9 @@ export class WorkflowScreen implements Screen {
    * Handle workflow lifecycle messages
    */
   private handleWorkflowMessage(message: BaseComponentMessage) {
-    if (message.type === WorkflowExecutionMessageType.START) {
+    if (message.type === WorkflowExecutionMessageType.EXECUTION_START) {
       this.appendLog("Workflow execution started", "system");
-    } else if (message.type === WorkflowExecutionMessageType.END) {
+    } else if (message.type === WorkflowExecutionMessageType.EXECUTION_END) {
       this.appendLog("Workflow execution ended", "system");
     }
   }

@@ -60,7 +60,7 @@ export type {
 } from "../agent-execution/context.js";
 
 // Event Types
-export { AgentStreamEventType } from "../agent-execution/event.js";
+export type { AgentStreamEventType } from "../agent-execution/event.js";
 export type {
   AgentStreamEvent,
   AgentStartEvent,

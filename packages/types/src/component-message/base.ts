@@ -18,31 +18,21 @@ export type ComponentMessageId = string;
 /**
  * Message Category - 8 major categories
  */
-export enum MessageCategory {
-  /** System-level messages (startup, shutdown, config changes) */
-  SYSTEM = "system",
+export const MessageCategory = {
+  SYSTEM: "system",
+  WORKFLOW_EXECUTION: "workflow_execution",
+  AGENT: "agent",
+  TOOL: "tool",
+  HUMAN_RELAY: "human_relay",
+  SUBGRAPH: "subgraph",
+  CHECKPOINT: "checkpoint",
+  EVENT: "event",
+} as const;
 
-  /** Workflow execution messages (lifecycle, nodes, workflow) */
-  WORKFLOW_EXECUTION = "workflow_execution",
-
-  /** Agent loop messages (iterations, LLM interaction, tools) */
-  AGENT = "agent",
-
-  /** Tool execution messages */
-  TOOL = "tool",
-
-  /** Human relay messages (request/response for human intervention) */
-  HUMAN_RELAY = "human_relay",
-
-  /** Subgraph messages (nested workflow execution) */
-  SUBGRAPH = "subgraph",
-
-  /** Checkpoint messages (create, restore, delete) */
-  CHECKPOINT = "checkpoint",
-
-  /** Custom event messages */
-  EVENT = "event",
-}
+/**
+ * Message Category Type
+ */
+export type MessageCategory = typeof MessageCategory[keyof typeof MessageCategory];
 
 /**
  * Message Level

@@ -432,11 +432,11 @@ export class PostgresAgentLoopStorage
       const now = Date.now();
       
       // If status is completed, set completed_at
-      const completedUpdate = status === AgentLoopStatus.COMPLETED
+      const completedUpdate = status === "COMPLETED"
         ? ', completed_at = TO_TIMESTAMP($2)'
         : '';
       
-      const params = status === AgentLoopStatus.COMPLETED
+      const params = status === "COMPLETED"
         ? [status, now / 1000, agentLoopId]
         : [status, agentLoopId];
 

@@ -835,7 +835,7 @@ export class AgentExecutionCoordinator {
     initialMessageCount: number,
   ): AgentStreamEvent {
     return {
-      type: AgentStreamEventType.AGENT_START,
+      type: "agent_start",
       timestamp: Date.now(),
       agentLoopId,
       maxIterations,
@@ -851,7 +851,7 @@ export class AgentExecutionCoordinator {
     success: boolean,
   ): AgentStreamEvent {
     return {
-      type: AgentStreamEventType.AGENT_END,
+      type: "agent_end",
       timestamp: Date.now(),
       agentLoopId,
       messages,
@@ -867,7 +867,7 @@ export class AgentExecutionCoordinator {
     shouldContinue: boolean,
   ): AgentStreamEvent {
     return {
-      type: AgentStreamEventType.ITERATION_COMPLETE,
+      type: "iteration_complete",
       timestamp: Date.now(),
       agentLoopId,
       iteration,
@@ -877,7 +877,7 @@ export class AgentExecutionCoordinator {
 
   private createIterationStartEvent(agentLoopId: string, iteration: number): AgentStreamEvent {
     return {
-      type: AgentStreamEventType.ITERATION_START,
+      type: "iteration_start",
       timestamp: Date.now(),
       agentLoopId,
       iteration,
@@ -891,7 +891,7 @@ export class AgentExecutionCoordinator {
     context: string,
   ): AgentStreamEvent {
     return {
-      type: AgentStreamEventType.ERROR,
+      type: "agent_error",
       timestamp: Date.now(),
       agentLoopId,
       error,
@@ -947,13 +947,13 @@ export class AgentExecutionCoordinator {
     };
 
     switch (event.type) {
-      case AgentStreamEventType.AGENT_START:
+      case "agent_start":
         return buildAgentStartedEvent({
           ...baseData,
           maxIterations: event.maxIterations,
           initialMessageCount: event.initialMessageCount,
         });
-      case AgentStreamEventType.AGENT_END:
+      case "agent_end":
         return buildAgentCompletedEvent({
           ...baseData,
           iterations: event.iterations,
@@ -961,21 +961,21 @@ export class AgentExecutionCoordinator {
           success: event.success,
           error: event.success ? undefined : event.error,
         });
-      case AgentStreamEventType.ITERATION_COMPLETE:
+      case "iteration_complete":
         return buildAgentIterationCompletedEvent({
           ...baseData,
           iteration: event.iteration,
           toolCallCount: 0,
           shouldContinue: event.shouldContinue,
         });
-      case AgentStreamEventType.TOOL_EXECUTION_START:
+      case "tool_execution_start":
         return buildAgentToolExecutionStartedEvent({
           ...baseData,
           toolCallId: event.toolCallId,
           toolName: event.toolName,
           iteration: event.iteration,
         });
-      case AgentStreamEventType.TOOL_EXECUTION_END:
+      case "tool_execution_end":
         return buildAgentToolExecutionCompletedEvent({
           ...baseData,
           toolCallId: event.toolCallId,
@@ -985,7 +985,7 @@ export class AgentExecutionCoordinator {
           error: event.result.success ? undefined : event.result.error,
           iteration: entity.state.currentIteration,
         });
-      case AgentStreamEventType.ERROR:
+      case "agent_error":
         return null;
       default:
         return null;

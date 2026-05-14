@@ -7,83 +7,43 @@
 /**
  * Workflow Execution Message Type
  */
-export enum WorkflowExecutionMessageType {
+export const WorkflowExecutionMessageType = {
   // Lifecycle
-  /** Workflow execution started */
-  START = "workflow.execution.start",
-
-  /** Workflow execution paused */
-  PAUSE = "workflow.execution.pause",
-
-  /** Workflow execution resumed */
-  RESUME = "workflow.execution.resume",
-
-  /** Workflow execution ended */
-  END = "workflow.execution.end",
-
-  /** Workflow execution cancelled */
-  CANCEL = "workflow.execution.cancel",
-
+  EXECUTION_START: "workflow.execution.start",
+  EXECUTION_PAUSE: "workflow.execution.pause",
+  EXECUTION_RESUME: "workflow.execution.resume",
+  EXECUTION_END: "workflow.execution.end",
+  EXECUTION_CANCEL: "workflow.execution.cancel",
   // Node Execution
-  /** Node execution started */
-  NODE_START = "workflow.execution.node.start",
-
-  /** Node execution completed */
-  NODE_END = "workflow.execution.node.end",
-
-  /** Node execution failed */
-  NODE_ERROR = "workflow.execution.node.error",
-
-  /** Node execution skipped */
-  NODE_SKIP = "workflow.execution.node.skip",
-
+  NODE_START: "workflow.execution.node.start",
+  NODE_END: "workflow.execution.node.end",
+  NODE_ERROR: "workflow.execution.node.error",
+  NODE_SKIP: "workflow.execution.node.skip",
   // Workflow State
-  /** Workflow started */
-  WORKFLOW_START = "workflow.execution.workflow.start",
-
-  /** Workflow ended */
-  WORKFLOW_END = "workflow.execution.workflow.end",
-
-  /** Workflow checkpoint created */
-  WORKFLOW_CHECKPOINT = "workflow.execution.workflow.checkpoint",
-
+  WORKFLOW_START: "workflow.execution.workflow.start",
+  WORKFLOW_END: "workflow.execution.workflow.end",
+  WORKFLOW_CHECKPOINT: "workflow.execution.workflow.checkpoint",
   // Variable Operations
-  /** Variable set */
-  VARIABLE_SET = "workflow.execution.variable.set",
-
-  /** Variable get */
-  VARIABLE_GET = "workflow.execution.variable.get",
-
+  VARIABLE_SET: "workflow.execution.variable.set",
+  VARIABLE_GET: "workflow.execution.variable.get",
   // Parallel Execution (Fork/Join)
-  /** Fork started */
-  FORK_START = "workflow.execution.fork.start",
-
-  /** Fork branch started */
-  FORK_BRANCH_START = "workflow.execution.fork.branch_start",
-
-  /** Fork branch ended */
-  FORK_BRANCH_END = "workflow.execution.fork.branch_end",
-
-  /** Join waiting for branches */
-  JOIN_WAIT = "workflow.execution.join.wait",
-
-  /** Join completed */
-  JOIN_COMPLETE = "workflow.execution.join.complete",
-
+  FORK_START: "workflow.execution.fork.start",
+  FORK_BRANCH_START: "workflow.execution.fork.branch_start",
+  FORK_BRANCH_END: "workflow.execution.fork.branch_end",
+  JOIN_WAIT: "workflow.execution.join.wait",
+  JOIN_COMPLETE: "workflow.execution.join.complete",
   // Agent Node Call
-  /** Agent node called */
-  AGENT_CALL = "workflow.execution.agent.call",
-
-  /** Agent node returned */
-  AGENT_RETURN = "workflow.execution.agent.return",
-
+  AGENT_CALL: "workflow.execution.agent.call",
+  AGENT_RETURN: "workflow.execution.agent.return",
   // Subgraph Call
-  /** Subgraph called */
-  SUBGRAPH_CALL = "workflow.execution.subgraph.call",
+  SUBGRAPH_CALL: "workflow.execution.subgraph.call",
+  SUBGRAPH_RETURN: "workflow.execution.subgraph.return",
+} as const;
 
-  /** Subgraph returned */
-  SUBGRAPH_RETURN = "workflow.execution.subgraph.return",
-}
+/**
+ * Workflow Execution Message Type
+ */
+export type WorkflowExecutionMessageType = typeof WorkflowExecutionMessageType[keyof typeof WorkflowExecutionMessageType];
 
 /**
  * Workflow Execution Start Data

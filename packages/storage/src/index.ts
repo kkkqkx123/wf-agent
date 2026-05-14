@@ -16,6 +16,7 @@
  * Supported storage backends:
  * - JSON file storage
  * - SQLite database storage
+ * - PostgreSQL database storage
  */
 
 // Logger Export
@@ -29,6 +30,9 @@ export * from "./json/index.js";
 
 // SQLite Storage Implementation
 export * from "./sqlite/index.js";
+
+// PostgreSQL Storage Implementation
+export * from "./postgres/index.js";
 
 // In-Memory Storage Implementation (for testing)
 export * from "./memory/index.js";

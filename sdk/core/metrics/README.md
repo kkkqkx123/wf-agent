@@ -2,25 +2,25 @@
 
 ## 概述
 
-通用指标系统为工作流引擎提供统一的指标收集、聚合和查询框架。它支持多种指标类型(计数器、仪表盘、直方图、摘要),并允许按不同维度(工作流、节点、工具等)进行分组和过滤。
+通用指标系统为工作流引擎提供统一的指标收集、聚合和查询框架。它支持多种指标类型（计数器、仪表盘、直方图、摘要），并允许按不同维度（工作流、Agent Loop、节点、工具、模板、配置等）进行分组和过滤。
 
 ## 设计目标
 
-- ✅ **统一接口**:所有指标类型遵循相同的采集和查询模式
-- ✅ **可扩展性**:支持自定义指标类型和维度
-- ✅ **低开销**:异步批量上报,避免影响主流程性能
-- ✅ **多维度**:支持按 execution/workflow/node/tool 等维度聚合
-- ✅ **时序支持**:内置时间序列数据管理
+- ✅ **统一接口**：所有指标类型遵循相同的采集和查询模式
+- ✅ **可扩展性**：支持自定义指标类型和维度
+- ✅ **低开销**：异步批量上报，避免影响主流程性能
+- ✅ **多维度**：支持按 execution/workflow/agent_loop/node/tool/template/config 等维度聚合
+- ✅ **时序支持**：内置时间序列数据管理
 
 ## 核心概念
 
 ### 1. 指标类型 (Metric Types)
 
 #### Counter (计数器)
-单调递增的计数器,用于统计事件发生次数。
+单调递增的计数器，用于统计事件发生次数。
 
 ```typescript
-// 示例:工作流执行次数
+// 示例：工作流执行次数
 collector.incrementCounter("workflow.execution.count", {
   workflow_id: "wf-123",
   status: "completed"
@@ -28,18 +28,18 @@ collector.incrementCounter("workflow.execution.count", {
 ```
 
 #### Gauge (仪表盘)
-可增可减的数值,用于表示当前状态。
+可增可减的数值，用于表示当前状态。
 
 ```typescript
-// 示例:活跃执行数
+// 示例：活跃执行数
 collector.setGauge("resource.active.executions", 42);
 ```
 
 #### Histogram (直方图)
-跟踪值分布,用于延迟、响应时间等统计分析。
+跟踪值分布，用于延迟、响应时间等统计分析。
 
 ```typescript
-// 示例:节点执行时长分布
+// 示例：节点执行时长分布
 collector.observeHistogram("node.execution.duration", 1250, {
   node_type: "LLM",
   success: "true"
@@ -47,10 +47,10 @@ collector.observeHistogram("node.execution.duration", 1250, {
 ```
 
 #### Summary (摘要)
-提供百分位计算(p95, p99等)。
+提供百分位计算（p95, p99等）。
 
 ```typescript
-// 示例:P95响应时间
+// 示例：P95响应时间
 collector.observeSummary("tool.call.duration", 850, {
   tool_id: "search-api"
 });
@@ -58,39 +58,36 @@ collector.observeSummary("tool.call.duration", 850, {
 
 ### 2. 标签 (Labels)
 
-标签是键值对,用于对指标进行分组和过滤:
+标签是键值对，用于对指标进行分组和过滤：
 
 ```typescript
 {
   workflow_id: "wf-123",
-  execution_id: "exec-456",
+  agent_loop_id: "agent-456",
+  execution_id: "exec-789",
   node_type: "LLM",
   success: "true"
 }
 ```
 
-### 3. 指标收集器 (Metric Collector)
+### 3. 指标收集器 (Metric Collectors)
 
-每个组件应有自己的收集器实现:
+系统提供以下专用收集器：
 
 - `WorkflowMetricsCollector` - 工作流执行指标
-- `EventMetricsCollector` - 事件统计指标（替代旧的 MetricsAggregator）
-- `NodeMetricsCollector` - 节点执行指标 ✅ 已实现
-- `ToolMetricsCollector` - 工具调用指标 ✅ 已实现
-- `TokenMetricsCollector` - Token使用指标 ✅ 已实现
-- `ErrorMetricsCollector` - 错误异常指标 ✅ 已实现
-- `ResourceMetricsCollector` - 资源利用指标 ✅ 已实现
-- `AgentLoopMetricsCollector` - Agent Loop 执行指标 ✅ 已实现
-- `TemplateMetricsCollector` - 模板使用指标 ✅ 已实现
-- `ConfigMetricsCollector` - 配置访问指标 ✅ 已实现
+- `AgentLoopMetricsCollector` - Agent Loop 执行指标
+- `NodeMetricsCollector` - 节点执行指标
+- `ToolMetricsCollector` - 工具调用指标
+- `TokenMetricsCollector` - Token 使用指标
+- `TemplateMetricsCollector` - 模板渲染和缓存统计
+- `ConfigMetricsCollector` - 配置加载和访问统计
+- `ErrorMetricsCollector` - 错误异常指标
+- `ResourceMetricsCollector` - 资源利用指标
+- `EventMetricsCollector` - 事件统计指标
 
 ## 快速开始
 
-### 安装
-
-指标系统已集成在 SDK 中,无需额外安装。
-
-### 使用工厂函数创建所有收集器 (推荐)
+### 使用工厂函数创建所有收集器（推荐）
 
 ```typescript
 import { createMetricsCollectors } from "@wf-agent/sdk/core/metrics";
@@ -105,17 +102,17 @@ const collectors = createMetricsCollectors({
 
 // 访问各个收集器
 collectors.workflow.recordExecutionStart("wf-123", "exec-456");
+collectors.agentLoop.recordExecutionStart("agent-789", "exec-789");
 collectors.tool.recordToolCallStart("search-api", "exec-456");
 collectors.token.recordTokenUsage({ /* ... */ });
 collectors.node.recordNodeStart("node-1", "LLM", "wf-123", "exec-456");
-collectors.error.recordError("LLM_ERROR", "exec-456");
-collectors.resource.recordActiveExecutions(5);
-collectors.agentLoop.recordExecutionStart("agent-789", "exec-789");
 collectors.template.recordUsage("system-prompt", { workflow_id: "wf-123" });
 collectors.config.recordAccess("llms.provider.openai", "config");
+collectors.error.recordError("LLM_ERROR", "exec-456");
+collectors.resource.recordActiveExecutions(5);
 ```
 
-### 基本使用
+### 基本使用示例
 
 ```typescript
 import { WorkflowMetricsCollector } from "@wf-agent/sdk/core/metrics";
@@ -128,7 +125,6 @@ const collector = new WorkflowMetricsCollector({
 
 // 2. 记录指标
 collector.recordExecutionStart("wf-123", "exec-456");
-
 collector.recordNodeExecution(
   "wf-123",
   "exec-456",
@@ -137,7 +133,6 @@ collector.recordNodeExecution(
   1200,  // duration in ms
   true   // success
 );
-
 collector.recordExecutionComplete(
   "wf-123",
   "exec-456",
@@ -154,192 +149,46 @@ console.log("Total metrics:", stats.totalCount);
 collector.dispose();
 ```
 
-### 事件统计 (EventMetricsCollector)
+## 各收集器使用指南
 
-用于跨执行的事件统计，替代旧的 `MetricsAggregator`：
+### Workflow 指标
 
-```typescript
-import { EventMetricsCollector } from "@wf-agent/sdk/core/metrics";
-
-// 1. 创建事件收集器
-const eventCollector = new EventMetricsCollector({
-  bufferSize: 100,
-  enablePeriodicReporting: true,
-  reportingInterval: 5000,
-});
-
-// 2. 记录事件
-eventCollector.recordEvent('NODE_COMPLETED', 'exec-123', {
-  workflow_id: 'wf-456',
-  node_id: 'node-1',
-  node_type: 'LLM',
-});
-
-eventCollector.recordEvent('TOOL_EXECUTED', 'exec-123', {
-  workflow_id: 'wf-456',
-  tool_name: 'search-api',
-});
-
-// 3. 查询统计
-const stats = eventCollector.getStatistics('NODE_COMPLETED');
-console.log(`Total NODE_COMPLETED events: ${stats?.count}`);
-
-// 4. 按执行清理
-eventCollector.cleanupExecution('exec-123');
-
-// 5. 订阅周期性报告
-const unsubscribe = eventCollector.onReport((report) => {
-  console.log('Total events:', report.summary.totalMetrics);
-});
-
-// 6. 清理
-unsubscribe();
-eventCollector.dispose();
-```
-
-### 工具调用指标 (ToolMetricsCollector)
-
-用于监控工具调用的性能和成功率：
+监控工作流的执行生命周期和性能：
 
 ```typescript
-import { ToolMetricsCollector } from "@wf-agent/sdk/core/metrics";
+import { WorkflowMetricsCollector } from "@wf-agent/sdk/core/metrics";
 
-const toolCollector = new ToolMetricsCollector();
+const workflowCollector = new WorkflowMetricsCollector();
 
-// 记录工具调用开始
-toolCollector.recordToolCallStart('search-api', 'exec-123');
+// 记录执行开始
+workflowCollector.recordExecutionStart("wf-123", "exec-456");
 
-// 记录工具调用完成
-toolCollector.recordToolCallComplete(
-  'search-api',
-  'exec-123',
-  850,  // duration in ms
-  true, // success
-  256,  // parameter size in bytes
-  1024  // result size in bytes
+// 记录执行完成
+workflowCollector.recordExecutionComplete(
+  "wf-123",
+  "exec-456",
+  2500,     // duration in ms
+  5,        // node count
+  true      // success
 );
 
-// 查询工具性能
-const stats = toolCollector.getToolStats('search-api');
-const summary = toolCollector.getToolPerformanceSummary();
-```
-
-### Token使用指标 (TokenMetricsCollector)
-
-用于跟踪LLM的Token使用和成本：
-
-```typescript
-import { TokenMetricsCollector } from "@wf-agent/sdk/core/metrics";
-
-const tokenCollector = new TokenMetricsCollector();
-
-// 记录Token使用
-tokenCollector.recordTokenUsage({
-  profileId: 'gpt-4',
-  executionId: 'exec-123',
-  nodeId: 'node-1',
-  totalTokens: 1500,
-  promptTokens: 1000,
-  completionTokens: 500,
-  cost: 0.045, // USD
-});
-
-// 获取Token使用摘要
-const summary = tokenCollector.getTokenUsageSummary();
-console.log('Total tokens:', summary.totalTokens);
-console.log('Total cost:', summary.totalCost);
-
-// 获取每个profile的平均Token使用
-const averages = tokenCollector.getAverageTokensPerRequest();
-```
-
-### 节点执行指标 (NodeMetricsCollector)
-
-用于监控工作流节点的执行情况：
-
-```typescript
-import { NodeMetricsCollector } from "@wf-agent/sdk/core/metrics";
-
-const nodeCollector = new NodeMetricsCollector();
-
-// 记录节点开始
-nodeCollector.recordNodeStart('node-1', 'LLM', 'wf-123', 'exec-456');
-
-// 记录节点完成
-nodeCollector.recordNodeComplete(
-  'node-1',
-  'LLM',
-  'wf-123',
-  'exec-456',
-  1200,  // duration in ms
-  true,  // success
-  512,   // input size
-  1024   // output size
+// 记录节点执行
+workflowCollector.recordNodeExecution(
+  "wf-123",
+  "exec-456",
+  "node-1",
+  "LLM",
+  1200,     // duration
+  true      // success
 );
 
-// 记录节点重试
-nodeCollector.recordNodeRetry('node-1', 'LLM', 'wf-123', 1);
-
-// 获取节点性能摘要
-const performance = nodeCollector.getNodePerformanceByType();
+// 获取统计信息
+const stats = workflowCollector.getWorkflowStats("wf-123");
 ```
 
-### 错误指标 (ErrorMetricsCollector)
+### Agent Loop 指标
 
-用于跟踪和分析错误模式：
-
-```typescript
-import { ErrorMetricsCollector } from "@wf-agent/sdk/core/metrics";
-
-const errorCollector = new ErrorMetricsCollector();
-
-// 记录错误
-errorCollector.recordError(
-  'LLM_ERROR',
-  'exec-123',
-  'node-1',
-  'Rate limit exceeded'
-);
-
-// 记录错误恢复
-errorCollector.recordErrorRecovery('LLM_ERROR', 'exec-123');
-
-// 获取错误摘要
-const summary = errorCollector.getErrorSummary();
-console.log('Total errors:', summary.totalErrors);
-console.log('Top errors:', summary.topErrors);
-```
-
-### 资源指标 (ResourceMetricsCollector)
-
-用于监控系统资源使用情况：
-
-```typescript
-import { ResourceMetricsCollector } from "@wf-agent/sdk/core/metrics";
-
-const resourceCollector = new ResourceMetricsCollector();
-
-// 记录资源快照
-resourceCollector.recordResourceSnapshot({
-  memoryUsageMB: 256.5,
-  activeExecutions: 5,
-  queuedTasks: 12,
-  eventQueueLength: 3,
-});
-
-// 或者单独记录
-resourceCollector.recordMemoryUsage(256.5, 'executor');
-resourceCollector.recordActiveExecutions(5);
-resourceCollector.recordQueuedTasks(12, 'workflow');
-resourceCollector.recordEventQueueLength(3);
-
-// 获取资源摘要
-const summary = resourceCollector.getResourceSummary();
-```
-
-### Agent Loop 指标 (AgentLoopMetricsCollector)
-
-用于监控 Agent Loop 的执行生命周期和性能：
+监控 Agent Loop 的执行生命周期、迭代和工具调用：
 
 ```typescript
 import { AgentLoopMetricsCollector } from "@wf-agent/sdk/core/metrics";
@@ -373,9 +222,96 @@ const activeCount = agentLoopCollector.getActiveAgentLoops();
 const avgIterations = agentLoopCollector.getAverageIterations();
 ```
 
-### 模板指标 (TemplateMetricsCollector)
+### Node 指标
 
-用于监控模板的渲染和使用情况：
+监控工作流节点的执行情况：
+
+```typescript
+import { NodeMetricsCollector } from "@wf-agent/sdk/core/metrics";
+
+const nodeCollector = new NodeMetricsCollector();
+
+// 记录节点开始
+nodeCollector.recordNodeStart('node-1', 'LLM', 'wf-123', 'exec-456');
+
+// 记录节点完成
+nodeCollector.recordNodeComplete(
+  'node-1',
+  'LLM',
+  'wf-123',
+  'exec-456',
+  1200,  // duration in ms
+  true,  // success
+  512,   // input size
+  1024   // output size
+);
+
+// 记录节点重试
+nodeCollector.recordNodeRetry('node-1', 'LLM', 'wf-123', 1);
+
+// 获取节点性能摘要
+const performance = nodeCollector.getNodePerformanceByType();
+```
+
+### Tool 指标
+
+监控工具调用的性能和成功率：
+
+```typescript
+import { ToolMetricsCollector } from "@wf-agent/sdk/core/metrics";
+
+const toolCollector = new ToolMetricsCollector();
+
+// 记录工具调用开始
+toolCollector.recordToolCallStart('search-api', 'exec-123');
+
+// 记录工具调用完成
+toolCollector.recordToolCallComplete(
+  'search-api',
+  'exec-123',
+  850,  // duration in ms
+  true, // success
+  256,  // parameter size in bytes
+  1024  // result size in bytes
+);
+
+// 查询工具性能
+const stats = toolCollector.getToolStats('search-api');
+const summary = toolCollector.getToolPerformanceSummary();
+```
+
+### Token 指标
+
+跟踪 LLM 的 Token 使用和成本：
+
+```typescript
+import { TokenMetricsCollector } from "@wf-agent/sdk/core/metrics";
+
+const tokenCollector = new TokenMetricsCollector();
+
+// 记录 Token 使用
+tokenCollector.recordTokenUsage({
+  profileId: 'gpt-4',
+  executionId: 'exec-123',
+  nodeId: 'node-1',
+  totalTokens: 1500,
+  promptTokens: 1000,
+  completionTokens: 500,
+  cost: 0.045, // USD
+});
+
+// 获取 Token 使用摘要
+const summary = tokenCollector.getTokenUsageSummary();
+console.log('Total tokens:', summary.totalTokens);
+console.log('Total cost:', summary.totalCost);
+
+// 获取每个 profile 的平均 Token 使用
+const averages = tokenCollector.getAverageTokensPerRequest();
+```
+
+### Template 指标
+
+监控模板的渲染和使用情况：
 
 ```typescript
 import { TemplateMetricsCollector } from "@wf-agent/sdk/core/metrics";
@@ -406,9 +342,9 @@ const hitRate = templateCollector.getCacheHitRate("system-prompt");
 const avgDuration = templateCollector.getAverageRenderDuration("system-prompt");
 ```
 
-### 配置指标 (ConfigMetricsCollector)
+### Config 指标
 
-用于监控配置的加载和访问情况：
+监控配置的加载和访问情况：
 
 ```typescript
 import { ConfigMetricsCollector } from "@wf-agent/sdk/core/metrics";
@@ -446,29 +382,95 @@ const hitRate = configCollector.getCacheHitRate("llms.provider.openai", "config"
 const avgLoadTime = configCollector.getAverageLoadDuration("llms.provider.openai", "config");
 ```
 
-### 周期性报告
+### Error 指标
+
+跟踪和分析错误模式：
 
 ```typescript
-const collector = new WorkflowMetricsCollector({
+import { ErrorMetricsCollector } from "@wf-agent/sdk/core/metrics";
+
+const errorCollector = new ErrorMetricsCollector();
+
+// 记录错误
+errorCollector.recordError(
+  'LLM_ERROR',
+  'exec-123',
+  'node-1',
+  'Rate limit exceeded'
+);
+
+// 记录错误恢复
+errorCollector.recordErrorRecovery('LLM_ERROR', 'exec-123');
+
+// 获取错误摘要
+const summary = errorCollector.getErrorSummary();
+console.log('Total errors:', summary.totalErrors);
+console.log('Top errors:', summary.topErrors);
+```
+
+### Resource 指标
+
+监控系统资源使用情况：
+
+```typescript
+import { ResourceMetricsCollector } from "@wf-agent/sdk/core/metrics";
+
+const resourceCollector = new ResourceMetricsCollector();
+
+// 记录资源快照
+resourceCollector.recordResourceSnapshot({
+  memoryUsageMB: 256.5,
+  activeExecutions: 5,
+  queuedTasks: 12,
+  eventQueueLength: 3,
+});
+
+// 或者单独记录
+resourceCollector.recordMemoryUsage(256.5, 'executor');
+resourceCollector.recordActiveExecutions(5);
+resourceCollector.recordQueuedTasks(12, 'workflow');
+resourceCollector.recordEventQueueLength(3);
+
+// 获取资源摘要
+const summary = resourceCollector.getResourceSummary();
+```
+
+### Event 指标
+
+用于跨执行的事件统计：
+
+```typescript
+import { EventMetricsCollector } from "@wf-agent/sdk/core/metrics";
+
+const eventCollector = new EventMetricsCollector({
+  bufferSize: 100,
   enablePeriodicReporting: true,
-  reportingInterval: 10000, // 每10秒生成报告
+  reportingInterval: 5000,
 });
 
-// 订阅报告
-const unsubscribe = collector.onReport((report) => {
-  console.log("📊 Report:", report.summary);
-  console.log("Top metrics:", report.topMetrics);
+// 记录事件
+eventCollector.recordEvent('NODE_COMPLETED', 'exec-123', {
+  workflow_id: 'wf-456',
+  node_id: 'node-1',
+  node_type: 'LLM',
 });
 
-// ... 执行业务逻辑 ...
+// 查询统计
+const stats = eventCollector.getStatistics('NODE_COMPLETED');
+console.log(`Total NODE_COMPLETED events: ${stats?.count}`);
 
-// 取消订阅
-unsubscribe();
+// 按执行清理
+eventCollector.cleanupExecution('exec-123');
+
+// 订阅周期性报告
+const unsubscribe = eventCollector.onReport((report) => {
+  console.log('Total events:', report.summary.totalMetrics);
+});
 ```
 
 ## 预定义指标
 
-### 工作流指标 (WORKFLOW_METRICS)
+### WORKFLOW_METRICS
 
 | 指标名称 | 类型 | 说明 |
 |---------|------|------|
@@ -478,55 +480,7 @@ unsubscribe();
 | `workflow.error.count` | Counter | 错误次数 |
 | `workflow.success.rate` | Gauge | 成功率 |
 
-### 节点指标 (NODE_METRICS)
-
-| 指标名称 | 类型 | 说明 |
-|---------|------|------|
-| `node.execution.duration` | Histogram | 节点执行时长 |
-| `node.execution.count` | Counter | 节点执行次数 |
-| `node.retry.count` | Counter | 重试次数 |
-| `node.error.count` | Counter | 错误次数 |
-| `node.input.size` | Gauge | 输入大小 |
-| `node.output.size` | Gauge | 输出大小 |
-
-### 工具指标 (TOOL_METRICS)
-
-| 指标名称 | 类型 | 说明 |
-|---------|------|------|
-| `tool.call.duration` | Histogram | 工具调用时长 |
-| `tool.call.count` | Counter | 工具调用次数 |
-| `tool.error.count` | Counter | 工具错误次数 |
-| `tool.parameter.size` | Gauge | 参数大小 |
-| `tool.result.size` | Gauge | 结果大小 |
-
-### Token指标 (TOKEN_METRICS)
-
-| 指标名称 | 类型 | 说明 |
-|---------|------|------|
-| `token.usage.total` | Counter | 总Token数 |
-| `token.usage.prompt` | Counter | Prompt Token数 |
-| `token.usage.completion` | Counter | Completion Token数 |
-| `token.cost.total` | Counter | 总成本 |
-| `token.request.count` | Counter | 请求次数 |
-
-### 错误指标 (ERROR_METRICS)
-
-| 指标名称 | 类型 | 说明 |
-|---------|------|------|
-| `error.occurrence.count` | Counter | 错误发生次数 |
-| `error.recovery.rate` | Gauge | 恢复率 |
-| `error.affected.executions` | Gauge | 受影响的执行数 |
-
-### 资源指标 (RESOURCE_METRICS)
-
-| 指标名称 | 类型 | 说明 |
-|---------|------|------|
-| `resource.memory.usage` | Gauge | 内存使用 |
-| `resource.active.executions` | Gauge | 活跃执行数 |
-| `resource.queued.tasks` | Gauge | 排队任务数 |
-| `resource.event.queue.length` | Gauge | 事件队列长度 |
-
-### Agent Loop 指标 (AGENT_LOOP_METRICS)
+### AGENT_LOOP_METRICS
 
 | 指标名称 | 类型 | 说明 |
 |---------|------|------|
@@ -544,7 +498,38 @@ unsubscribe();
 | `agent_loop.success.rate` | Gauge | 成功率 |
 | `agent_loop.error.count` | Counter | 错误次数 |
 
-### 模板指标 (TEMPLATE_METRICS)
+### NODE_METRICS
+
+| 指标名称 | 类型 | 说明 |
+|---------|------|------|
+| `node.execution.duration` | Histogram | 节点执行时长 |
+| `node.execution.count` | Counter | 节点执行次数 |
+| `node.retry.count` | Counter | 重试次数 |
+| `node.error.count` | Counter | 错误次数 |
+| `node.input.size` | Gauge | 输入大小 |
+| `node.output.size` | Gauge | 输出大小 |
+
+### TOOL_METRICS
+
+| 指标名称 | 类型 | 说明 |
+|---------|------|------|
+| `tool.call.duration` | Histogram | 工具调用时长 |
+| `tool.call.count` | Counter | 工具调用次数 |
+| `tool.error.count` | Counter | 工具错误次数 |
+| `tool.parameter.size` | Gauge | 参数大小 |
+| `tool.result.size` | Gauge | 结果大小 |
+
+### TOKEN_METRICS
+
+| 指标名称 | 类型 | 说明 |
+|---------|------|------|
+| `token.usage.total` | Counter | 总 Token 数 |
+| `token.usage.prompt` | Counter | Prompt Token 数 |
+| `token.usage.completion` | Counter | Completion Token 数 |
+| `token.cost.total` | Counter | 总成本 |
+| `token.request.count` | Counter | 请求次数 |
+
+### TEMPLATE_METRICS
 
 | 指标名称 | 类型 | 说明 |
 |---------|------|------|
@@ -554,7 +539,7 @@ unsubscribe();
 | `template.cache.miss_count` | Counter | 缓存未命中次数 |
 | `template.error.count` | Counter | 错误次数 |
 
-### 配置指标 (CONFIG_METRICS)
+### CONFIG_METRICS
 
 | 指标名称 | 类型 | 说明 |
 |---------|------|------|
@@ -563,6 +548,23 @@ unsubscribe();
 | `config.validation_error.count` | Counter | 验证错误次数 |
 | `config.cache.hit_count` | Counter | 缓存命中次数 |
 | `config.cache.miss_count` | Counter | 缓存未命中次数 |
+
+### ERROR_METRICS
+
+| 指标名称 | 类型 | 说明 |
+|---------|------|------|
+| `error.occurrence.count` | Counter | 错误发生次数 |
+| `error.recovery.rate` | Gauge | 恢复率 |
+| `error.affected.executions` | Gauge | 受影响的执行数 |
+
+### RESOURCE_METRICS
+
+| 指标名称 | 类型 | 说明 |
+|---------|------|------|
+| `resource.memory.usage` | Gauge | 内存使用 |
+| `resource.active.executions` | Gauge | 活跃执行数 |
+| `resource.queued.tasks` | Gauge | 排队任务数 |
+| `resource.event.queue.length` | Gauge | 事件队列长度 |
 
 ## 高级用法
 
@@ -640,67 +642,24 @@ console.log("Total metrics:", result.totalCount);
 console.log("Aggregated data:", result.metrics);
 ```
 
-## 与旧 MetricsAggregator 的关系
+### 周期性报告
 
-### 迁移完成
-
-**旧的 `MetricsAggregator` 已被完全替换为 `EventMetricsCollector`**
-
-- ✅ `MetricsAggregator` 已删除
-- ✅ `EventMetricsCollector` 提供相同功能并扩展了新能力
-- ✅ `EventRegistry` 已更新使用新的收集器
-- ✅ API 保持向后兼容（`getStatistics()`, `generateSummary()` 等方法）
-
-### 主要改进
-
-| 特性 | 旧 MetricsAggregator | 新 EventMetricsCollector |
-|-----|---------------------|-------------------------|
-| 基础架构 | 独立实现 | 基于 Universal Metrics 系统 |
-| 指标类型 | 仅计数器 | Counter + 支持其他类型扩展 |
-| 维度标签 | executionId + eventType | 任意标签组合 (workflow_id, node_type, tool_name等) |
-| 查询能力 | 基础统计 | 高级过滤和聚合 |
-| 周期性报告 | onSummary | onReport (统一接口) |
-| 可扩展性 | 有限 | 高度可扩展，可与其他收集器集成 |
-
-### 迁移指南
-
-如果你之前使用了 `MetricsAggregator`，现在应该使用 `EventMetricsCollector`：
-
-**旧代码:**
 ```typescript
-import { MetricsAggregator } from "@wf-agent/sdk/core/registry";
-
-const aggregator = new MetricsAggregator();
-aggregator.record({
-  executionId: 'exec-1',
-  eventType: 'NODE_COMPLETED',
-  timestamp: Date.now(),
+const collector = new WorkflowMetricsCollector({
+  enablePeriodicReporting: true,
+  reportingInterval: 10000, // 每10秒生成报告
 });
 
-const stats = aggregator.getStatistics('NODE_COMPLETED');
-```
-
-**新代码:**
-```typescript
-import { EventMetricsCollector } from "@wf-agent/sdk/core/metrics";
-
-const collector = new EventMetricsCollector();
-collector.recordEvent('NODE_COMPLETED', 'exec-1', {
-  workflow_id: 'wf-123',
-  node_type: 'LLM',
+// 订阅报告
+const unsubscribe = collector.onReport((report) => {
+  console.log("📊 Report:", report.summary);
+  console.log("Top metrics:", report.topMetrics);
 });
 
-const stats = collector.getStatistics('NODE_COMPLETED');
-```
+// ... 执行业务逻辑 ...
 
-**从 EventRegistry 获取:**
-```typescript
-// 旧方式 (已移除)
-// const aggregator = eventRegistry.getMetricsAggregator();
-
-// 新方式
-const collector = eventRegistry.getMetricsCollector();
-const stats = collector.getStatistics('NODE_COMPLETED');
+// 取消订阅
+unsubscribe();
 ```
 
 ## 最佳实践
@@ -714,20 +673,20 @@ const stats = collector.getStatistics('NODE_COMPLETED');
 
 ### 2. 合理使用标签
 
-✅ 好的做法:
+✅ 好的做法：
 ```typescript
 { workflow_id: "wf-123", node_type: "LLM" }
 ```
 
-❌ 避免高基数标签:
+❌ 避免高基数标签：
 ```typescript
 { execution_id: "exec-unique-uuid-every-time" } // 会导致内存爆炸
 ```
 
 ### 3. 控制缓冲区大小
 
-- 高频指标:较小的 `bufferSize`(50-100)
-- 低频指标:较大的 `bufferSize`(500-1000)
+- 高频指标：较小的 `bufferSize`（50-100）
+- 低频指标：较大的 `bufferSize`（500-1000）
 
 ### 4. 定期清理
 
@@ -760,41 +719,43 @@ try {
 
 ### CPU 开销
 
-- 指标记录:~0.01ms/次
-- 查询聚合:取决于数据量,通常 < 1ms
-- 周期性报告:< 5ms
+- 指标记录：~0.01ms/次
+- 查询聚合：取决于数据量，通常 < 1ms
+- 周期性报告：< 5ms
 
 ### I/O 开销
 
-- 异步批量刷新,不阻塞主线程
+- 异步批量刷新，不阻塞主线程
 - 建议 `flushInterval` ≥ 5000ms
 
 ## 未来扩展
 
-所有核心收集器已实现完成:
+所有核心收集器已实现完成：
 
+- ✅ `WorkflowMetricsCollector` - 工作流执行指标
+- ✅ `AgentLoopMetricsCollector` - Agent Loop 执行生命周期
 - ✅ `NodeMetricsCollector` - 节点级详细指标
 - ✅ `ToolMetricsCollector` - 工具调用性能分析
-- ✅ `TokenMetricsCollector` - LLM Token使用和成本
-- ✅ `ErrorMetricsCollector` - 错误模式和恢复率
-- ✅ `ResourceMetricsCollector` - 系统资源监控
-- ✅ `AgentLoopMetricsCollector` - Agent Loop 执行生命周期
+- ✅ `TokenMetricsCollector` - LLM Token 使用和成本
 - ✅ `TemplateMetricsCollector` - 模板渲染和缓存统计
 - ✅ `ConfigMetricsCollector` - 配置加载和访问统计
+- ✅ `ErrorMetricsCollector` - 错误模式和恢复率
+- ✅ `ResourceMetricsCollector` - 系统资源监控
+- ✅ `EventMetricsCollector` - 事件统计指标
 
-下一步可以:
-- 集成到更多执行器和协调器中
-- 实现持久化层(数据库、监控系统)
-- 添加更多高级查询和聚合功能
+下一步可以：
 - 在模板引擎和配置加载器中集成指标收集
+- 实现持久化层（数据库、监控系统如 Prometheus/Grafana）
+- 添加更多高级查询和聚合功能
+- 基于指标设置告警规则
 
 ## 示例代码
 
-查看完整示例:
+查看完整示例：
 - [examples.ts](./examples.ts) - 通用指标使用示例集合
 - [__examples__/event-collector-example.ts](__examples__/event-collector-example.ts) - EventMetricsCollector 使用示例
 
-运行示例:
+运行示例：
 ```bash
 cd sdk
 npx tsx core/metrics/examples.ts

@@ -3,8 +3,8 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { AgentScreen } from "../../../src/tui/screens/agent-screen.js";
-import { Container, Box, Text, Input } from "../../../src/tui/core/index.js";
+import { AgentScreen } from "../agent-screen.js";
+import { Container, Box, Text, Input } from "../../index.js";
 
 // Mock the AgentLoopAdapter - vi.mock is hoisted, so we need to use a pattern that works
 const mockExecuteAgentLoopStream = vi.fn();

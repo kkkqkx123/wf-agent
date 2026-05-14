@@ -175,7 +175,7 @@ describe("Logger Module Integration Tests", () => {
       
       expect(consoleOutput.length).toBe(1);
       // Should be valid JSON
-      const parsed = JSON.parse(consoleOutput[0]);
+      const parsed = JSON.parse(consoleOutput[0]!);
       expect(parsed.message).toBe("json message");
       expect(parsed.level).toBe("info");
     });
@@ -651,7 +651,7 @@ describe("Logger Module Integration Tests", () => {
       logger.info(longMessage);
       
       expect(consoleOutput.length).toBe(1);
-      expect(consoleOutput[0].length).toBeGreaterThan(1000);
+      expect(consoleOutput[0]!.length).toBeGreaterThan(1000);
     });
 
     it("should handle special characters in messages", () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from "vitest";
-import { CLIRunner, TestHelper, createTestHelper, TestLogger } from "../utils";
+import { CLIRunner, TestHelper, createTestHelper, TestLogger } from "../utils/index.js";
 import { resolve } from "path";
 
 describe("Test Framework Validation", () => {

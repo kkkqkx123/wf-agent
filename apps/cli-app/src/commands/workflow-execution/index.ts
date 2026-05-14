@@ -9,6 +9,7 @@ import { formatWorkflowExecution, formatWorkflowExecutionList } from "../../util
 import type { CommandOptions } from "../../types/cli-types.js";
 import { handleError } from "../../utils/error-handler.js";
 import { CLIValidationError } from "../../types/cli-types.js";
+import { getSDKInstance } from "../../index.js";
 
 // Add import statements
 import { TerminalManager } from "../../services/terminal/terminal-manager.js";
@@ -29,7 +30,11 @@ function getTerminalManager(): TerminalManager {
 
 function getTaskExecutor(): TaskExecutor {
   if (!taskExecutor) {
-    taskExecutor = new TaskExecutor();
+    const sdk = getSDKInstance();
+    if (!sdk) {
+      throw new Error("SDK instance not initialized. Make sure the CLI app has started.");
+    }
+    taskExecutor = new TaskExecutor(sdk);
   }
   return taskExecutor;
 }

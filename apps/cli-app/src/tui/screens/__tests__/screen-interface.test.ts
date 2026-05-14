@@ -3,8 +3,8 @@
  */
 
 import { describe, it, expect } from "vitest";
-import type { Screen } from "../../../src/tui/screens/screen.js";
-import { DashboardScreen, WorkflowScreen, AgentScreen } from "../../../src/tui/screens/index.js";
+import type { Screen } from "../screen.js";
+import { DashboardScreen, WorkflowScreen, AgentScreen } from "../index.js";
 
 describe("Screen Interface", () => {
   describe("type definition", () => {

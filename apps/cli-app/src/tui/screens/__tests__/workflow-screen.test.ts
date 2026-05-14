@@ -3,8 +3,8 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { WorkflowScreen } from "../../../src/tui/screens/workflow-screen.js";
-import { Container, Box, Text, SelectList } from "../../../src/tui/core/index.js";
+import { WorkflowScreen } from "..//workflow-screen.js";
+import { Container, Box, Text, SelectList } from "../../index.js";
 
 // Mock the WorkflowAdapter - vi.mock is hoisted
 const mockListWorkflows = vi.fn();

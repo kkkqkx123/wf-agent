@@ -52,6 +52,13 @@ function createMockContainer(resolveMap: Map<ServiceIdentifier, unknown> = new M
       }
       return value as T;
     },
+    createChild: () => createMockContainer(resolveMap),
+    clearScopedCache: () => {},
+    clearAllCaches: () => {},
+    bind: <T>() => {
+      throw new Error("Not implemented in mock container");
+    },
+    addBinding: () => {},
   };
 }
 

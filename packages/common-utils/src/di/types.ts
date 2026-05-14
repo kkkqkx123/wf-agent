@@ -43,8 +43,9 @@ export interface Injectable {
 
 /**
  * Constructor type
+ * Uses a more flexible definition to accept constructors with any parameter types
  */
-export type Constructor<T = object> = new (...args: unknown[]) => T;
+export type Constructor<T = object> = new (...args: any[]) => T;
 
 /**
  * Container Interface

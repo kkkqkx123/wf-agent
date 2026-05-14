@@ -123,7 +123,7 @@ modular-agent-framework/
 
 - **Unit tests**: In `__tests__` folders of current path
   (Example: source code in `<path>/file.ts` , then test file in `<path>/__tests__/file.test.ts`)
-  Note: TypeScript automatically validates internal types during unit test execution.
+  Note: Avoid deep relavant path import
 
 - **Integration tests**: In `__tests__` folders of current package root
   (Example: source code in `<package>/`, then test file in `<package>/__tests__/<domain>[optional]/feature.int.test.ts`)

@@ -1,5 +1,16 @@
 /**
  * Legacy terminal sequence handling and xterm modifyOtherKeys support.
+ *
+ * This module provides compatibility layers for terminals that don't support
+ * the modern Kitty keyboard protocol. It handles:
+ *
+ * 1. Legacy escape sequences (CSI, SS3) from traditional terminals
+ * 2. xterm modifyOtherKeys protocol (fallback when Kitty is unavailable)
+ * 3. Terminal-specific quirks (e.g., Windows Terminal Backspace behavior)
+ *
+ * These functions are actively used by matching.ts and parsing.ts to ensure
+ * cross-terminal compatibility. Do not remove this module - it's essential
+ * for supporting older terminals and SSH sessions.
  */
 
 import {

@@ -78,7 +78,7 @@ describe("parseValue", () => {
       // These are the limitations of the current implementation.
       const result = parseValue("[['a', 'b'], ['c', 'd']]");
       expect(Array.isArray(result)).toBe(true);
-      expect(result.length).toBe(4);
+      expect((result as any[]).length).toBe(4);
     });
   });
 

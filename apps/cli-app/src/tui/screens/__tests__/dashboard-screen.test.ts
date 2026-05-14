@@ -3,8 +3,8 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { DashboardScreen } from "../../../src/tui/screens/dashboard-screen.js";
-import { Container, Box, Text, SelectList } from "../../../src/tui/core/index.js";
+import { DashboardScreen } from "../dashboard-screen.js";
+import { Container, Box, Text, SelectList } from "../../index.js";
 
 describe("DashboardScreen", () => {
   let screen: DashboardScreen;

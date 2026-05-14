@@ -186,8 +186,8 @@ describe("IterationPanel Component", () => {
         lines.findIndex(line => line.includes(`Iteration ${num}`))
       );
       
-      expect(indices[0]).toBeLessThan(indices[1]);
-      expect(indices[1]).toBeLessThan(indices[2]);
+      expect(indices[0]!).toBeLessThan(indices[1]!);
+      expect(indices[1]!).toBeLessThan(indices[2]!);
     });
 
     it("should display duration for completed iterations", () => {

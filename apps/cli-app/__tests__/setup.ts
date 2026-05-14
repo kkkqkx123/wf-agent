@@ -2,6 +2,10 @@ import { beforeAll, afterAll } from "vitest";
 import { mkdirSync } from "fs";
 import { resolve } from "path";
 
+// Set environment variables to prevent CLI parsing during tests
+process.env["CLI_MODE"] = "programmatic";
+process.env["TEST_MODE"] = "true";
+
 // Set the root directory for test output.
 const TEST_OUTPUT_DIR = resolve(__dirname, "../outputs");
 (globalThis as unknown as { TEST_OUTPUT_DIR: string }).TEST_OUTPUT_DIR = TEST_OUTPUT_DIR;

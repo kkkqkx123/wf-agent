@@ -314,8 +314,8 @@ describe("Message Routing Integration", () => {
         setTimeout(() => {
           expect(sessionMessages.get("session-A")?.length).toBe(1);
           expect(sessionMessages.get("session-B")?.length).toBe(1);
-          expect(sessionMessages.get("session-A")?.[0].data).toEqual({ chunk: "Session A" });
-          expect(sessionMessages.get("session-B")?.[0].data).toEqual({ chunk: "Session B" });
+          expect(sessionMessages.get("session-A")?.[0]!.data).toEqual({ chunk: "Session A" });
+          expect(sessionMessages.get("session-B")?.[0]!.data).toEqual({ chunk: "Session B" });
           resolve(undefined);
         }, 100);
       });

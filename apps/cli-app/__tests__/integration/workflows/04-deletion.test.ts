@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from "vitest";
-import { CLIRunner, TestHelper, createTestHelper, TestLogger } from "../../utils";
-import { createWorkflowTestHelper, WorkflowTestHelper } from "../../helpers/workflow-test-helpers";
+import { CLIRunner, TestHelper, createTestHelper, TestLogger } from "../../utils/index.js";
+import { createWorkflowTestHelper, WorkflowTestHelper } from "../../helpers/workflow-test-helpers.js";
 import { resolve } from "path";
 
 describe("Workflow Deletion Tests", () => {

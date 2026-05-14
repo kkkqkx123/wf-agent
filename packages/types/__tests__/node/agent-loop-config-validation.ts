@@ -12,7 +12,7 @@ const inlineConfigExample: AgentLoopNodeConfig = {
   inlineConfig: {
     profileId: "gpt-4",
     maxIterations: 10,
-    systemPrompt: "You are a helpful assistant.",
+    initialContextRefs: ["system", "task-spec"],
     availableTools: {
       initial: ["read_file", "write_file"],
     },

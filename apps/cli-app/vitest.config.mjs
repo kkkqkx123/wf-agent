@@ -15,6 +15,9 @@ export default defineConfig({
     // 排除文件
     exclude: ["node_modules", "dist", "coverage", "**/*.d.ts"],
 
+    // Setup files
+    setupFiles: ["./__tests__/setup.ts"],
+
     // 覆盖率配置
     coverage: {
       provider: "v8",

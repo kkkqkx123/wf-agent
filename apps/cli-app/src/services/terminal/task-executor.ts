@@ -8,7 +8,6 @@ import { randomUUID } from "crypto";
 import * as pty from "node-pty";
 import { getOutput } from "../../utils/output.js";
 import type { TerminalSession, TaskExecutionResult, TaskStatus } from "./types.js";
-import { getSDKInstance } from "../../index.js";
 
 const output = getOutput();
 
@@ -31,12 +30,11 @@ export class TaskExecutor {
   /** SDK instance */
   private sdk: SDKInstance;
 
-  constructor() {
-    const sdk = getSDKInstance();
-    if (!sdk) {
-      throw new Error("SDK instance not initialized. Make sure the CLI app has started.");
+  constructor(sdkInstance: SDKInstance) {
+    if (!sdkInstance) {
+      throw new Error("SDK instance is required. Please provide a valid SDK instance.");
     }
-    this.sdk = sdk;
+    this.sdk = sdkInstance;
   }
 
   /**

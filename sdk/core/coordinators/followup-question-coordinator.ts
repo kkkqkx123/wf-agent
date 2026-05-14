@@ -6,6 +6,7 @@
 
 import type { EventRegistry } from "../registry/event-registry.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
+import { generateId } from "../../utils/id-utils.js";
 import type { 
   FollowupQuestionRequestData,
   FollowupQuestionResponseData 
@@ -88,13 +89,14 @@ export class FollowupQuestionCoordinator {
    */
   private async emitSuccess(executionId: string, nodeId: string, responseData: FollowupQuestionResponseData): Promise<void> {
     const successEvent = {
+      id: generateId(),
       type: "FOLLOWUP_QUESTION_RESPONSE",
       executionId,
       nodeId,
       timestamp: Date.now(),
       data: responseData,
     };
-    await this.eventManager.emit(successEvent as any);
+    await this.eventManager.emit(successEvent as unknown as import("@wf-agent/types").BaseEvent);
     this.logger.info(`Emitted follow-up question response for execution ${executionId}`);
   }
 
@@ -103,6 +105,7 @@ export class FollowupQuestionCoordinator {
    */
   private async emitFailure(executionId: string, nodeId: string, reason: string): Promise<void> {
     const failureEvent = {
+      id: generateId(),
       type: "FOLLOWUP_QUESTION_RESPONSE",
       executionId,
       nodeId,
@@ -113,7 +116,7 @@ export class FollowupQuestionCoordinator {
         error: reason,
       },
     };
-    await this.eventManager.emit(failureEvent as any);
+    await this.eventManager.emit(failureEvent as unknown as import("@wf-agent/types").BaseEvent);
     this.logger.warn(`Emitted follow-up question failure for execution ${executionId}: ${reason}`);
   }
 

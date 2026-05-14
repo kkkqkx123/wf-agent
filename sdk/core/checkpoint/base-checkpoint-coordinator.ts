@@ -37,7 +37,7 @@ const logger = createContextualLogger({ component: "BaseCheckpointCoordinator" }
  * @template TState - The state snapshot type
  */
 export abstract class BaseCheckpointCoordinator<
-  TCheckpoint extends BaseCheckpoint<any, any>,
+  TCheckpoint extends BaseCheckpoint<unknown, unknown>,
   TEntity extends CheckpointableEntity,
   TState
 > {

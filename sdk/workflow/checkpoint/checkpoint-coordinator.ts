@@ -188,8 +188,8 @@ export class CheckpointCoordinator {
 
         // Calculate the difference
         const delta = CheckpointCoordinator.diffCalculator.calculateDelta(
-          previousState,
-          currentState,
+          previousState as unknown as Record<string, unknown>,
+          currentState as unknown as Record<string, unknown>,
         );
 
         // Find the baseline checkpoint ID
@@ -416,7 +416,7 @@ export class CheckpointCoordinator {
     // Convert from CheckpointVariableState back to VariableManager format
     const globalMap = new Map();
     const executionMap = new Map();
-    const scopeStack: Map<string, any>[] = [];
+    const scopeStack: Array<Map<string, { definition: import("@wf-agent/types").VariableDefinition; value: unknown }>> = [];
     
     const variableState = workflowExecutionState.variableState;
     

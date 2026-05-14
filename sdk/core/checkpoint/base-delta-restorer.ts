@@ -24,7 +24,7 @@ const logger = createContextualLogger({ component: "BaseDeltaRestorer" });
  * @template TState - The state snapshot type
  */
 export class BaseDeltaRestorer<
-  TCheckpoint extends BaseCheckpoint<any, any>,
+  TCheckpoint extends BaseCheckpoint<unknown, unknown>,
   TState
 > {
   private diffCalculator: BaseDiffCalculator;
@@ -101,8 +101,8 @@ export class BaseDeltaRestorer<
 
       // Apply delta to current snapshot
       currentSnapshot = this.diffCalculator.applyDelta(
-        currentSnapshot as Record<string, any>,
-        deltaCheckpoint.delta
+        currentSnapshot as Record<string, unknown>,
+        deltaCheckpoint.delta as Record<string, { from: unknown; to: unknown }>
       ) as TState;
 
       logger.debug("Applied delta", {

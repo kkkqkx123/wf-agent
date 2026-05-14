@@ -22,11 +22,11 @@ export class BaseDiffCalculator {
    * @param current Current state
    * @returns Delta object containing only changed fields
    */
-  calculateDelta<T extends Record<string, any>>(
+  calculateDelta<T extends Record<string, unknown>>(
     previous: T,
     current: T
-  ): Record<string, { from: any; to: any }> {
-    const delta: Record<string, { from: any; to: any }> = {};
+  ): Record<string, { from: unknown; to: unknown }> {
+    const delta: Record<string, { from: unknown; to: unknown }> = {};
 
     // Compare all keys in current state
     for (const key of Object.keys(current)) {
@@ -65,19 +65,19 @@ export class BaseDiffCalculator {
    * @param delta Delta to apply
    * @returns New state snapshot with delta applied
    */
-  applyDelta<T extends Record<string, any>>(
+  applyDelta<T extends Record<string, unknown>>(
     base: T,
-    delta: Record<string, { from: any; to: any }>
+    delta: Record<string, { from: unknown; to: unknown }>
   ): T {
     const result = { ...base } as T;
 
     for (const [key, change] of Object.entries(delta)) {
       if (change.to === undefined) {
         // Delete field
-        delete (result as any)[key];
+        delete (result as Record<string, unknown>)[key];
       } else {
         // Update field
-        (result as any)[key] = change.to;
+        (result as Record<string, unknown>)[key] = change.to;
       }
     }
 
@@ -90,7 +90,7 @@ export class BaseDiffCalculator {
    * @param b Second value
    * @returns True if values are deeply equal
    */
-  private deepEqual(a: any, b: any): boolean {
+  private deepEqual(a: unknown, b: unknown): boolean {
     // Primitive types and null/undefined
     if (a === b) return true;
     if (a == null || b == null) return false;
@@ -110,7 +110,7 @@ export class BaseDiffCalculator {
       if (keysA.length !== keysB.length) return false;
 
       return keysA.every(key => 
-        keysB.includes(key) && this.deepEqual(a[key], b[key])
+        keysB.includes(key) && this.deepEqual((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key])
       );
     }
 

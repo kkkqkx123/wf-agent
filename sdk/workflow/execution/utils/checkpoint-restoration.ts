@@ -113,21 +113,21 @@ export async function restoreWorkflowFromCheckpoint(
 
     // Restore complete workflow state from checkpoint snapshot
     // Note: This uses the same logic as CheckpointCoordinator.restoreFromCheckpoint()
-    const checkpointData = checkpoint as import("@wf-agent/types").FullCheckpoint<any>;
+    const checkpointData = checkpoint as import("@wf-agent/types").FullCheckpoint<import("@wf-agent/types").WorkflowExecutionStateSnapshot>;
     const workflowExecutionState = checkpointData.snapshot;
     
-    if (workflowExecutionState && workflowExecutionState.variableScopes) {
-      const globalMap = new Map();
-      const executionMap = new Map();
-      const scopeStack: Map<string, any>[] = [];
+    if (workflowExecutionState && workflowExecutionState.variableState) {
+      const globalMap = new Map<string, { definition: import("@wf-agent/types").VariableDefinition; value: unknown }>();
+      const executionMap = new Map<string, { definition: import("@wf-agent/types").VariableDefinition; value: unknown }>();
+      const scopeStack: Array<Map<string, { definition: import("@wf-agent/types").VariableDefinition; value: unknown }>> = [];
       
-      const scopes = workflowExecutionState.variableScopes;
+      const scopes = workflowExecutionState.variableState;
       
       // Restore global variables
       if (scopes.global) {
         for (const [name, value] of Object.entries(scopes.global)) {
           globalMap.set(name, {
-            definition: { name, type: typeof value, value, scope: 'global' as const },
+            definition: { name, type: typeof value as import("@wf-agent/types").VariableValueType, value, scope: 'global' as const, readonly: false },
             value,
           });
         }
@@ -137,19 +137,19 @@ export async function restoreWorkflowFromCheckpoint(
       if (scopes.execution) {
         for (const [name, value] of Object.entries(scopes.execution)) {
           executionMap.set(name, {
-            definition: { name, type: typeof value, value, scope: 'execution' as const },
+            definition: { name, type: typeof value as import("@wf-agent/types").VariableValueType, value, scope: 'execution' as const, readonly: false },
             value,
           });
         }
       }
       
       // Restore subgraph scopes (scopeStack)
-      if (scopes.subgraph && Array.isArray(scopes.subgraph)) {
-        for (const scopeObj of scopes.subgraph) {
+      if (scopes.scopeStack && Array.isArray(scopes.scopeStack)) {
+        for (const scopeObj of scopes.scopeStack) {
           const scopeMap = new Map();
           for (const [name, value] of Object.entries(scopeObj)) {
             scopeMap.set(name, {
-              definition: { name, type: typeof value, value, scope: 'subgraph' as const },
+              definition: { name, type: typeof value as import("@wf-agent/types").VariableValueType, value, scope: 'subgraph' as const, readonly: false },
               value,
             });
           }

@@ -273,7 +273,7 @@ export const ConversationSession: ServiceIdentifier<ConversationSessionType> = S
  * VariableManager - Unified Variable State Manager
  * Manages variable definitions, values, and scope stacks in a single Map structure
  */
-export const VariableManager: ServiceIdentifier<any> = Symbol("VariableManager");
+export const VariableManager: ServiceIdentifier<import("../../workflow/state-managers/variable-manager.js").VariableManager> = Symbol("VariableManager");
 
 /**
  * TriggerState - Trigger State Manager

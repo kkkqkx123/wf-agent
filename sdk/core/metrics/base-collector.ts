@@ -393,7 +393,7 @@ export abstract class BaseMetricCollector implements MetricCollector {
       timestamp: now(),
       summary: {
         totalMetrics: this.metricsBuffer.length,
-        byType: byType as any,
+        byType: byType as Record<string, number>,
         byCategory,
       },
       topMetrics: sortedMetrics,

@@ -513,7 +513,7 @@ export function configureContainerBindings(
   container
     .bind(Identifiers.VariableCoordinator)
     .toDynamicValue((c: IContainer): VariableCoordinator => {
-      const managerFactory = c.get(Identifiers.VariableManager) as { create: () => VariableManager };
+      const managerFactory = c.get(Identifiers.VariableManager) as unknown as { create: () => VariableManager };
       const manager = managerFactory.create();
       const eventManager = c.get(Identifiers.EventRegistry) as EventRegistry;
       return new VariableCoordinator(manager, eventManager);

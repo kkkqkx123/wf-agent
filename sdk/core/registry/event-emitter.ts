@@ -71,7 +71,7 @@ export class ExecutionEventEmitter {
   /** Execution ID this emitter belongs to */
   public readonly executionId: string;
   
-  private listeners: Map<string, ListenerWrapper<any>[]> = new Map();
+  private listeners: Map<string, Array<ListenerWrapper<unknown>>> = new Map();
   private metrics: Map<string, Map<string, ListenerMetrics>> = new Map();
   private isDisposed: boolean = false;
 
@@ -122,7 +122,7 @@ export class ExecutionEventEmitter {
       this.listeners.set(eventType, []);
     }
 
-    this.listeners.get(eventType)!.push(wrapper);
+    (this.listeners.get(eventType)! as Array<ListenerWrapper<T>>).push(wrapper);
 
     // Initialize metrics
     if (!this.metrics.has(eventType)) {
@@ -344,7 +344,7 @@ export class ExecutionEventEmitter {
     if (errors.length > 0) {
       const errorMessage = `${errors.length} listener(s) failed for event ${event.type}`;
       const aggregatedError = new Error(errorMessage);
-      (aggregatedError as any).causes = errors;
+      (aggregatedError as Error & { causes: Error[] }).causes = errors;
       throw aggregatedError;
     }
   }

@@ -6,8 +6,6 @@
 import type {
   Checkpoint,
   CheckpointStorageMetadata,
-  CleanupPolicy,
-  CleanupResult,
 } from "@wf-agent/types";
 import type { CheckpointStorageAdapter as StorageAdapter } from "@wf-agent/storage";
 import type { EventRegistry } from "../../core/registry/event-registry.js";
@@ -15,7 +13,6 @@ import { BaseCheckpointStateManager } from "../../core/checkpoint/base-checkpoin
 import {
   buildCheckpointCreatedEvent,
   buildCheckpointFailedEvent,
-  buildCheckpointDeletedEvent,
 } from "../execution/utils/event/index.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 import type { CheckpointOptions } from "./checkpoint-coordinator.js";
@@ -36,7 +33,7 @@ export class CheckpointState extends BaseCheckpointStateManager<Checkpoint> {
   constructor(
     storageAdapter: StorageAdapter,
     eventManager?: EventRegistry,
-    _cleanupScheduler?: any // Kept for backward compatibility
+    _cleanupScheduler?: unknown // Kept for backward compatibility
   ) {
     // Adapt storage adapter to the expected interface
     const adaptedAdapter = {
@@ -146,7 +143,7 @@ export class CheckpointState extends BaseCheckpointStateManager<Checkpoint> {
   // Abstract Methods Implementation
   // ============================================================================
 
-  protected extractStorageMetadata(checkpoint: Checkpoint): unknown {
+  protected extractStorageMetadata(checkpoint: Checkpoint): CheckpointStorageMetadata {
     return {
       executionId: checkpoint.executionId,
       workflowId: checkpoint.workflowId,

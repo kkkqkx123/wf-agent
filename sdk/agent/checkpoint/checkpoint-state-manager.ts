@@ -5,7 +5,7 @@
  * Extends BaseCheckpointStateManager with agent-specific event building and metadata extraction.
  */
 
-import type { CleanupPolicy, CleanupResult } from "@wf-agent/types";
+import type { CleanupPolicy, CleanupResult, CheckpointStorageMetadata } from "@wf-agent/types";
 import type { AgentLoopCheckpoint, AgentCheckpointMetadata } from "@wf-agent/types";
 import type { EventRegistry } from "../../core/registry/event-registry.js";
 import type { AgentLoopCheckpointStorageAdapter as StorageAdapter } from "@wf-agent/storage";
@@ -119,12 +119,15 @@ export class AgentLoopCheckpointStateManager extends BaseCheckpointStateManager<
   // Abstract Methods Implementation
   // ============================================================================
 
-  protected extractStorageMetadata(checkpoint: AgentLoopCheckpoint): unknown {
+  protected extractStorageMetadata(checkpoint: AgentLoopCheckpoint): CheckpointStorageMetadata {
     return {
-      agentLoopId: checkpoint.agentLoopId,
+      executionId: checkpoint.agentLoopId,
+      workflowId: checkpoint.agentLoopId,
       timestamp: checkpoint.timestamp,
-      type: checkpoint.type,
-      version: 1,
+      customFields: {
+        type: checkpoint.type,
+        version: 1,
+      },
     };
   }
 

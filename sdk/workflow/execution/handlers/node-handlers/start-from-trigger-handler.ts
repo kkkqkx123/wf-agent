@@ -3,7 +3,7 @@
  * Responsible for initializing the trigger sub-workflow and receiving input data from the main workflow execution
  */
 
-import type { RuntimeNode, LLMMessage, WorkflowStartConfig } from "@wf-agent/types";
+import type { RuntimeNode, LLMMessage, WorkflowStartConfig, MessageContextRegistry, WorkflowExecution } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import { now } from "@wf-agent/common-utils";
 import type { ConversationSession } from "../../../../core/messaging/conversation-session.js";
@@ -130,7 +130,7 @@ export async function startFromTriggerHandler(
   if (config?.messageInputs && config.messageInputs.length > 0) {
     // Access the message context registry from workflowExecution
     const workflowExecution = workflowExecutionEntity.getExecution();
-    const registry = (workflowExecution as any).messageContextRegistry;
+    const registry = (workflowExecution as WorkflowExecution & { messageContextRegistry?: MessageContextRegistry }).messageContextRegistry;
     
     if (registry) {
       for (const inputDef of config.messageInputs) {
@@ -166,7 +166,7 @@ export async function startFromTriggerHandler(
           messages: [...messages],  // Shallow copy
           createdAt: Date.now(),
           updatedAt: Date.now(),
-          metadata: { sourceContext: externalName },
+          metadata: { sourceContext: externalName } as Record<string, unknown>,
         });
       }
     }

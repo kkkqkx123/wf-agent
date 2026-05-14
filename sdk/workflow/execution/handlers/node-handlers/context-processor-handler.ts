@@ -15,7 +15,7 @@
  * - Batch Management: Control message visibility via startNewBatch() and rollbackToBatch()
  */
 
-import type { RuntimeNode, ContextProcessorNodeConfig, NamedMessageContext } from "@wf-agent/types";
+import type { RuntimeNode, ContextProcessorNodeConfig, NamedMessageContext, MessageContextRegistry, LLMMessage } from "@wf-agent/types";
 import type { WorkflowExecution } from "@wf-agent/types";
 import { RuntimeValidationError } from "@wf-agent/types";
 import { now, getErrorOrNew } from "@wf-agent/common-utils";
@@ -99,7 +99,7 @@ function getOrCreateNamedContext(
   workflowExecution: WorkflowExecution,
   contextId: string,
 ): NamedMessageContext {
-  const registry = (workflowExecution as any).messageContextRegistry;
+  const registry = (workflowExecution as WorkflowExecution & { messageContextRegistry?: MessageContextRegistry }).messageContextRegistry;
   
   if (!registry) {
     throw new RuntimeValidationError("MessageContextRegistry not found in execution context", {
@@ -219,9 +219,9 @@ export async function contextProcessorHandler(
 
   // 6. Save processed messages back to target context
   const processedMessages = targetConversationManager.getMessages();
-  const registry = (workflowExecution as any).messageContextRegistry;
+  const registry = (workflowExecution as WorkflowExecution & { messageContextRegistry?: MessageContextRegistry }).messageContextRegistry;
   if (registry) {
-    registry.update(targetContextId, processedMessages as any);
+    registry.update(targetContextId, processedMessages as LLMMessage[]);
   }
 
   // 7. Get the number of processed messages

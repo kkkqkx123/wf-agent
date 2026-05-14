@@ -13,8 +13,7 @@
  * - This eliminates data redundancy and synchronization issues
  */
 
-import type { WorkflowGraph } from "@wf-agent/types";
-import type { WorkflowExecution, WorkflowExecutionOptions, WorkflowConfig } from "@wf-agent/types";
+import type { WorkflowGraph, WorkflowExecution, WorkflowExecutionOptions, WorkflowConfig, MessageContextRegistry } from "@wf-agent/types";
 import { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
 import { WorkflowExecutionState } from "../../state-managers/workflow-execution-state.js";
 import { ExecutionState } from "../../state-managers/execution-state.js";
@@ -267,7 +266,7 @@ export class WorkflowExecutionBuilder {
     initializeExecutionContext(messageContextRegistry, workflowConfig);
     
     // Attach registry to workflow execution for handlers to access
-    (workflowExecution as any).messageContextRegistry = messageContextRegistry;
+    (workflowExecution as WorkflowExecution & { messageContextRegistry?: MessageContextRegistry }).messageContextRegistry = messageContextRegistry;
 
     // Step 8: Create ConversationSession
     const conversationManager = new ConversationSession({

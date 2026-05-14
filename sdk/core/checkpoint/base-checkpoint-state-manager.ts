@@ -5,7 +5,7 @@
  * Subclasses only need to implement event building for their specific checkpoint types.
  */
 
-import type { BaseCheckpoint, CheckpointMetadata, CleanupPolicy, CleanupResult } from "@wf-agent/types";
+import type { BaseCheckpoint, CleanupPolicy, CleanupResult, CheckpointStorageMetadata } from "@wf-agent/types";
 import type { EventRegistry } from "../registry/event-registry.js";
 import { StateCodec } from "@wf-agent/common-utils";
 import { createCleanupStrategy } from "../utils/checkpoint/cleanup-policy.js";
@@ -23,7 +23,7 @@ const logger = createContextualLogger({ component: "BaseCheckpointStateManager" 
  * @template TCheckpoint - The specific checkpoint type (e.g., Workflow Checkpoint or Agent Loop Checkpoint)
  */
 export abstract class BaseCheckpointStateManager<
-  TCheckpoint extends BaseCheckpoint<any, any>
+  TCheckpoint extends BaseCheckpoint<unknown, unknown>
 > {
   protected storageAdapter: CheckpointStorageAdapter<TCheckpoint>;
   protected eventManager?: EventRegistry;
@@ -63,7 +63,7 @@ export abstract class BaseCheckpointStateManager<
       // Emit created event (implemented by subclass)
       if (this.eventManager) {
         const createdEvent = this.buildCreatedEvent(checkpoint);
-        await this.eventManager.emit(createdEvent as any);
+        await this.eventManager.emit(createdEvent as import("@wf-agent/types").BaseEvent);
       }
 
       logger.info("Checkpoint created", {
@@ -87,7 +87,7 @@ export abstract class BaseCheckpointStateManager<
       // Emit failed event (implemented by subclass)
       if (this.eventManager) {
         const failedEvent = this.buildFailedEvent(checkpoint.id, error);
-        await this.eventManager.emit(failedEvent as any);
+        await this.eventManager.emit(failedEvent as import("@wf-agent/types").BaseEvent);
       }
 
       throw error;
@@ -132,7 +132,7 @@ export abstract class BaseCheckpointStateManager<
       // Emit deleted event (implemented by subclass)
       if (this.eventManager) {
         const deletedEvent = this.buildDeletedEvent(checkpointId);
-        await this.eventManager.emit(deletedEvent as any);
+        await this.eventManager.emit(deletedEvent as import("@wf-agent/types").BaseEvent);
       }
     } catch (error) {
       logger.error("Failed to delete checkpoint", {
@@ -174,7 +174,7 @@ export abstract class BaseCheckpointStateManager<
     const checkpointIds = await this.storageAdapter.list();
     const checkpointInfoArray: Array<{
       checkpointId: string;
-      metadata: any;
+      metadata: CheckpointStorageMetadata;
     }> = [];
 
     for (const checkpointId of checkpointIds) {
@@ -197,7 +197,7 @@ export abstract class BaseCheckpointStateManager<
     // Execute cleanup strategy
     const strategy = createCleanupStrategy(this.cleanupPolicy, this.checkpointSizes);
     const toDeleteIds = strategy.execute(
-      checkpointInfoArray as any // Type compatibility handled internally
+      checkpointInfoArray
     );
 
     // Delete checkpoints
@@ -261,7 +261,7 @@ export abstract class BaseCheckpointStateManager<
    * @param checkpoint The checkpoint
    * @returns Storage metadata
    */
-  protected abstract extractStorageMetadata(checkpoint: TCheckpoint): unknown;
+  protected abstract extractStorageMetadata(checkpoint: TCheckpoint): CheckpointStorageMetadata;
 
   /**
    * Build checkpoint created event

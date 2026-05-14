@@ -380,10 +380,10 @@ export class WorkflowGraphBuilder {
       
       // Transform START -> SUBGRAPH_START and END -> SUBGRAPH_END
       if (node.type === "START") {
-        const startConfig = node.config as any;
-        const subgraphStartConfig: any = {
-          variableInputs: startConfig.variableInputs,
-          messageInputs: startConfig.messageInputs,
+        const startConfig = node.config as Record<string, unknown>;
+        const subgraphStartConfig: Record<string, unknown> = {
+          variableInputs: startConfig['variableInputs'],
+          messageInputs: startConfig['messageInputs'],
           originalSubgraphNodeId: subgraphNodeId,
           namespace: options.nodeIdPrefix,
           depth: options.depth,
@@ -394,11 +394,11 @@ export class WorkflowGraphBuilder {
         if (subgraphNode) {
           const subgraphConfig = subgraphNode.originalNode?.config as Record<string, unknown>;
           if (subgraphConfig && subgraphConfig['variableInputs']) {
-            subgraphStartConfig.variableInputs = subgraphConfig['variableInputs'];
+            subgraphStartConfig['variableInputs'] = subgraphConfig['variableInputs'];
             logger.debug("Transferred variableInputs from SUBGRAPH node to SUBGRAPH_START node", {
               subgraphNodeId,
               startNodeId: newId,
-              inputCount: (subgraphConfig['variableInputs'] as Array<any>).length,
+              inputCount: (subgraphConfig['variableInputs'] as Array<Record<string, unknown>>).length,
             });
           }
         }
@@ -414,10 +414,10 @@ export class WorkflowGraphBuilder {
         };
         
       } else if (node.type === "END") {
-        const endConfig = node.config as any;
-        const subgraphEndConfig: any = {
-          variableOutputs: endConfig.variableOutputs,
-          messageOutputs: endConfig.messageOutputs,
+        const endConfig = node.config as Record<string, unknown>;
+        const subgraphEndConfig: Record<string, unknown> = {
+          variableOutputs: endConfig['variableOutputs'],
+          messageOutputs: endConfig['messageOutputs'],
           originalSubgraphNodeId: subgraphNodeId,
           namespace: options.nodeIdPrefix,
           depth: options.depth,

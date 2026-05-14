@@ -10,7 +10,7 @@
  * - Supports referencing predefined prompt templates via templateId
  */
 
-import type { RuntimeNode, LLMNodeConfig, NamedMessageContext } from "@wf-agent/types";
+import type { RuntimeNode, LLMNodeConfig, NamedMessageContext, MessageContextRegistry } from "@wf-agent/types";
 import type { WorkflowExecution, LLMMessage } from "@wf-agent/types";
 import type { HumanRelayHandler } from "@wf-agent/types";
 import { ExecutionError, RuntimeValidationError } from "@wf-agent/types";
@@ -63,7 +63,7 @@ function collectMessagesFromContexts(
   workflowExecution: WorkflowExecution,
 ): LLMMessage[] {
   // Get MessageContextRegistry from execution context
-  const registry = (workflowExecution as any).messageContextRegistry;
+  const registry = (workflowExecution as WorkflowExecution & { messageContextRegistry?: MessageContextRegistry }).messageContextRegistry;
   
   if (!registry) {
     throw new RuntimeValidationError("MessageContextRegistry not found in execution context", {
@@ -152,7 +152,7 @@ export async function llmHandler(
 
     // 6. Append response to output context if specified
     if (result.success && config.outputContext) {
-      const registry = (workflowExecution as any).messageContextRegistry;
+      const registry = (workflowExecution as WorkflowExecution & { messageContextRegistry?: MessageContextRegistry }).messageContextRegistry;
       if (registry) {
         const outputContextId = config.outputContext;
         const existingContext = registry.get(outputContextId);

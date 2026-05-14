@@ -6,7 +6,7 @@
  */
 
 import type { Script, ScriptExecutionOptions, ScriptExecutionResult } from "@wf-agent/types";
-import { getTerminalService } from "../../services/terminal/index.js";
+import { getTerminalService, type TerminalService } from "../../services/terminal/index.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "ScriptExecutor" });
@@ -18,9 +18,9 @@ const logger = createContextualLogger({ component: "ScriptExecutor" });
  * All scripts are treated as shell commands - no type distinctions needed.
  */
 export class ScriptExecutor {
-  private terminalService;
+  private terminalService: TerminalService;
 
-  constructor(terminalService?: any) {
+  constructor(terminalService?: TerminalService) {
     // Allow injection for testing, otherwise use default
     this.terminalService = terminalService || getTerminalService();
   }

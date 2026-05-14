@@ -5,7 +5,7 @@
  * This handler now handles both variable callbacks and message context outputs.
  */
 
-import type { RuntimeNode } from "@wf-agent/types";
+import type { RuntimeNode, MessageContextRegistry, WorkflowExecution } from "@wf-agent/types";
 import type { ContinueFromTriggerNodeConfig } from "@wf-agent/types";
 import { now } from "@wf-agent/common-utils";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
@@ -70,8 +70,8 @@ export async function continueFromTriggerHandler(
     const mainWorkflowExecution = mainWorkflowExecutionEntity.getExecution();
     
     // Access message context registries
-    const registry = (workflowExecution as any).messageContextRegistry;
-    const parentRegistry = (mainWorkflowExecution as any).messageContextRegistry;
+    const registry = (workflowExecution as WorkflowExecution & { messageContextRegistry?: MessageContextRegistry }).messageContextRegistry;
+    const parentRegistry = (mainWorkflowExecution as WorkflowExecution & { messageContextRegistry?: MessageContextRegistry }).messageContextRegistry;
     
     if (registry && parentRegistry) {
       for (const outputDef of config.messageOutputs) {
@@ -90,7 +90,7 @@ export async function continueFromTriggerHandler(
             metadata: {
               ...context.metadata,
               sourceWorkflow: workflowExecutionEntity.getWorkflowId(),
-            },
+            } as Record<string, unknown>,
           });
         }
       }

@@ -477,12 +477,12 @@ export class SDKInstance {
         );
         
         const shutdownManager = new GracefulShutdownManager(
-          workflowExecutionRegistry as any,
+          workflowExecutionRegistry,
           {
-            workflowExecutionRegistry: workflowExecutionRegistry as any,
-            checkpointStateManager: checkpointState as any,
-            workflowRegistry: workflowRegistry as any,
-            workflowGraphRegistry: workflowGraphRegistry as any,
+            workflowExecutionRegistry,
+            checkpointStateManager: checkpointState,
+            workflowRegistry,
+            workflowGraphRegistry,
             // stateCoordinatorMap is optional and not registered in container
             stateCoordinatorMap: undefined,
           },

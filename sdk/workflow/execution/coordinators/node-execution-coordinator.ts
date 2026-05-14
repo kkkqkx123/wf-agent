@@ -16,7 +16,7 @@
  */
 
 import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
-import type { RuntimeNode, WorkflowNode } from "@wf-agent/types";
+import type { RuntimeNode, WorkflowNode, StaticNode } from "@wf-agent/types";
 import type {
   NodeExecutionResult,
   Event,
@@ -295,7 +295,7 @@ export class NodeExecutionCoordinator {
     const abortSignal = this.interruptionManager.getAbortSignal();
     const workflowId = workflowExecutionEntity.getWorkflowId();
 
-    logger.debug("Starting node execution", { executionId, nodeId, nodeType, nodeName: (node as WorkflowNode).name || (node as RuntimeNode).originalNode?.name });
+    logger.debug("Starting node execution", { executionId, nodeId, nodeType, nodeName: (node as WorkflowNode).name || ((node as RuntimeNode) as WorkflowNode).originalNode?.name });
 
     // Record node execution start in metrics
     this.metricsRegistry.getCollectors().node.recordNodeExecutionStart(
@@ -360,7 +360,9 @@ export class NodeExecutionCoordinator {
           triggerType: "NODE_BEFORE_EXECUTE" as const,
           nodeId,
         };
-        const layers = buildNodeCheckpointLayers(this.globalCheckpointConfig, node as any, context);
+        // Convert to StaticNode for checkpoint config resolution
+        const staticNode = ('originalNode' in node ? (node as WorkflowNode).originalNode : node) as StaticNode | undefined;
+        const layers = buildNodeCheckpointLayers(this.globalCheckpointConfig, staticNode, context);
         const configResult = resolveCheckpointConfig(layers, context);
 
         if (configResult.shouldCreate) {
@@ -370,7 +372,7 @@ export class NodeExecutionCoordinator {
               {
                 workflowExecutionId: workflowExecutionEntity.id,
                 nodeId,
-                description: configResult.description || `Before node: ${(node as WorkflowNode).name || (node as RuntimeNode).originalNode?.name}`,
+                description: configResult.description || `Before node: ${(node as WorkflowNode).name || ((node as RuntimeNode) as WorkflowNode).originalNode?.name}`,
               },
               this.checkpointDependencies,
             );
@@ -397,7 +399,7 @@ export class NodeExecutionCoordinator {
           {
             workflowExecution: workflowExecutionEntity.getWorkflowExecutionData(),
             workflowExecutionEntity,
-            node: node as any,
+            node: ('originalNode' in node ? (node as WorkflowNode).originalNode : node) as StaticNode,
             checkpointDependencies: this.checkpointDependencies,
           },
           "BEFORE_EXECUTE",
@@ -437,7 +439,7 @@ export class NodeExecutionCoordinator {
           {
             workflowExecution: workflowExecutionEntity.getWorkflowExecutionData(),
             workflowExecutionEntity,
-            node: node as any,
+            node: ('originalNode' in node ? (node as WorkflowNode).originalNode : node) as StaticNode,
             result: nodeResult,
             checkpointDependencies: this.checkpointDependencies,
           },
@@ -452,7 +454,9 @@ export class NodeExecutionCoordinator {
           triggerType: "NODE_AFTER_EXECUTE" as const,
           nodeId,
         };
-        const layers = buildNodeCheckpointLayers(this.globalCheckpointConfig, node as any, context);
+        // Convert to StaticNode for checkpoint config resolution
+        const staticNode = ('originalNode' in node ? (node as WorkflowNode).originalNode : node) as StaticNode | undefined;
+        const layers = buildNodeCheckpointLayers(this.globalCheckpointConfig, staticNode, context);
         const configResult = resolveCheckpointConfig(layers, context);
 
         if (configResult.shouldCreate) {
@@ -462,7 +466,7 @@ export class NodeExecutionCoordinator {
               {
                 workflowExecutionId: workflowExecutionEntity.id,
                 nodeId,
-                description: configResult.description || `After node: ${(node as WorkflowNode).name || (node as RuntimeNode).originalNode?.name}`,
+                description: configResult.description || `After node: ${(node as WorkflowNode).name || ((node as RuntimeNode) as WorkflowNode).originalNode?.name}`,
               },
               this.checkpointDependencies,
             );
@@ -555,7 +559,7 @@ export class NodeExecutionCoordinator {
       internalMetadata?: Record<string, unknown>;
       workflowId: string;
       parentWorkflowId?: string;
-      originalNode?: any; // Original SUBGRAPH node
+      originalNode?: StaticNode; // Original SUBGRAPH node
     },
   ): Promise<void> {
     const executionId = workflowExecutionEntity.id;
@@ -569,7 +573,9 @@ export class NodeExecutionCoordinator {
       // Enter the subgraph
       const input = getSubgraphInput(workflowExecutionEntity);
       // Pass the original SUBGRAPH node for message context handling
-      await enterSubgraph(workflowExecutionEntity, graphNode.workflowId, graphNode.parentWorkflowId!, input, graphNode.originalNode);
+      if (graphNode.originalNode) {
+        await enterSubgraph(workflowExecutionEntity, graphNode.workflowId, graphNode.parentWorkflowId!, input, graphNode.originalNode);
+      }
 
       // Trigger the start event of the subgraph
       const subgraphStartedEvent = workflowExecutionEntity.buildEvent(buildSubgraphStartedEvent, {
@@ -599,7 +605,9 @@ export class NodeExecutionCoordinator {
         await emit(this.eventManager, subgraphCompletedEvent);
 
         // Pass the original SUBGRAPH node for message context handling
-        await exitSubgraph(workflowExecutionEntity, graphNode.originalNode);
+        if (graphNode.originalNode) {
+          await exitSubgraph(workflowExecutionEntity, graphNode.originalNode);
+        }
       }
     }
   }

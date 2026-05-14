@@ -6,7 +6,7 @@
  * Supports referencing named message contexts via initialContextRefs.
  */
 
-import type { RuntimeNode, WorkflowExecution, AgentLoopNodeConfig, LLMMessage, NamedMessageContext } from "@wf-agent/types";
+import type { RuntimeNode, WorkflowExecution, AgentLoopNodeConfig, LLMMessage, MessageContextRegistry } from "@wf-agent/types";
 import { ExecutionError, RuntimeValidationError } from "@wf-agent/types";
 import { now, diffTimestamp, getErrorOrNew } from "@wf-agent/common-utils";
 
@@ -74,7 +74,7 @@ function collectInitialMessages(
   config: AgentLoopNodeConfig,
   workflowExecution: WorkflowExecution,
 ): LLMMessage[] {
-  const registry = (workflowExecution as any).messageContextRegistry;
+  const registry = (workflowExecution as WorkflowExecution & { messageContextRegistry?: MessageContextRegistry }).messageContextRegistry;
   
   if (!registry) {
     throw new RuntimeValidationError("MessageContextRegistry not found in execution context", {

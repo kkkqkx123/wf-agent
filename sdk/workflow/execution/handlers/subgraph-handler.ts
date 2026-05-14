@@ -24,7 +24,7 @@
  */
 
 import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
-import type { StaticNode, WorkflowStartConfig, SubgraphNodeConfig, NamedMessageContext } from "@wf-agent/types";
+import type { StaticNode, WorkflowNode, WorkflowStartConfig, SubgraphNodeConfig, NamedMessageContext, MessageContextRegistry, WorkflowExecution } from "@wf-agent/types";
 import { now } from "@wf-agent/common-utils";
 import {
   checkWorkflowInterruption,
@@ -132,8 +132,8 @@ async function handleEnterSubgraphMessageContexts(
   subgraphWorkflowId: string,
 ): Promise<void> {
   // Access the MessageContextRegistry attached to workflowExecution
-  const workflowExecution = (executionEntity as any).workflowExecution;
-  const registry = workflowExecution?.messageContextRegistry;
+  const workflowExecution = executionEntity.getWorkflowExecutionData() as WorkflowExecution & { messageContextRegistry?: MessageContextRegistry };
+  const registry = workflowExecution.messageContextRegistry;
   
   if (!registry) {
     throw new Error(
@@ -161,7 +161,8 @@ async function handleEnterSubgraphMessageContexts(
   }
 
   // Validate and get mapping (this will throw if validation fails)
-  const mappingResult = validateAndMapMessageContexts(subgraphNode, startNode as any);
+  const startNodeAsStatic = ('originalNode' in startNode ? (startNode as WorkflowNode).originalNode : startNode) as StaticNode;
+  const mappingResult = validateAndMapMessageContexts(subgraphNode, startNodeAsStatic);
   
   if (mappingResult.isErr()) {
     const errorMessages = mappingResult.error.map(e => e.message).join('; ');
@@ -171,7 +172,7 @@ async function handleEnterSubgraphMessageContexts(
   }
 
   const mapping = mappingResult.value;
-  const startConfig = (startNode as any).config as unknown as WorkflowStartConfig;
+  const startConfig = startNode.config as WorkflowStartConfig;
 
   // Copy input contexts from parent to subgraph
   for (const [parentContextId, internalName] of mapping.inputMapping) {
@@ -192,10 +193,10 @@ async function handleEnterSubgraphMessageContexts(
       }
       
       // Optional input with default messages
-      if (inputDef && (inputDef as any).defaultMessages) {
+      if (inputDef && 'defaultMessages' in inputDef && inputDef.defaultMessages) {
         const defaultContext: NamedMessageContext = {
           id: internalName,
-          messages: (inputDef as any).defaultMessages,
+          messages: inputDef.defaultMessages,
           createdAt: now(),
           updatedAt: now(),
           metadata: {
@@ -220,7 +221,7 @@ async function handleEnterSubgraphMessageContexts(
         ...parentContext.metadata,
         sourceContext: parentContextId,
         passedFromParent: true,
-      } as any,
+      } as Record<string, unknown>,
     };
     
     registry.register(copiedContext);
@@ -244,8 +245,8 @@ async function handleExitSubgraphMessageContexts(
   subgraphNode: StaticNode,
 ): Promise<void> {
   // Access the MessageContextRegistry attached to workflowExecution
-  const workflowExecution = (executionEntity as any).workflowExecution;
-  const registry = workflowExecution?.messageContextRegistry;
+  const workflowExecution = executionEntity.getWorkflowExecutionData() as WorkflowExecution & { messageContextRegistry?: MessageContextRegistry };
+  const registry = workflowExecution.messageContextRegistry;
   
   if (!registry) {
     throw new Error(
@@ -280,7 +281,8 @@ async function handleExitSubgraphMessageContexts(
   }
 
   // Validate and get mapping (this will throw if validation fails)
-  const mappingResult = validateAndMapMessageContexts(subgraphNode, startNode as any);
+  const startNodeAsStatic = ('originalNode' in startNode ? (startNode as WorkflowNode).originalNode : startNode) as StaticNode;
+  const mappingResult = validateAndMapMessageContexts(subgraphNode, startNodeAsStatic);
   
   if (mappingResult.isErr()) {
     const errorMessages = mappingResult.error.map(e => e.message).join('; ');
@@ -319,7 +321,7 @@ async function handleExitSubgraphMessageContexts(
         metadata: {
           description: `Output from subgraph '${subgraphContext.workflowId}'`,
           sourceSubgraph: subgraphContext.workflowId,
-        } as any,
+        } as Record<string, unknown>,
       });
       
       logger.debug(`Created new context '${parentContextId}' from subgraph output '${internalName}'`, {

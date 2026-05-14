@@ -136,6 +136,10 @@ export class WorkflowExecutionEntity {
     return this.workflowExecution.workflowId;
   }
 
+  getWorkflowVersion(): string {
+    return this.workflowExecution.workflowVersion || 'unknown';
+  }
+
   getStatus(): WorkflowExecutionStatus {
     return this.state.status;
   }

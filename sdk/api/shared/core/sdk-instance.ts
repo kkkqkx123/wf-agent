@@ -623,6 +623,14 @@ export class SDKInstance {
     return this.apiFactory.createEventAPI();
   }
 
+  /**
+   * Get the metrics API
+   */
+  get metrics() {
+    this.ensureReady();
+    return this.apiFactory.createMetricsAPI();
+  }
+
   // ============================================================================
   // Builder Factory Methods
   // ============================================================================

@@ -31,6 +31,7 @@ import type { ExecutionHierarchyRegistry } from "../../../core/registry/executio
 import { restoreWorkflowFromCheckpoint } from "../utils/checkpoint-restoration.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import { PauseTimeoutManager } from "../utils/pause-timeout-manager.js";
+import type { MetricsRegistry } from "../../../core/metrics/metrics-registry.js";
 
 const logger = createContextualLogger({ component: "WorkflowLifecycleCoordinator" });
 
@@ -48,7 +49,12 @@ export class WorkflowLifecycleCoordinator {
     private readonly workflowExecutionBuilder: WorkflowExecutionBuilder,
     private readonly workflowExecutor: WorkflowExecutor,
     private readonly globalContext: GlobalContext,
-  ) {}
+  ) {
+    // Get metrics registry from global context
+    this.metricsRegistry = this.globalContext.metricsRegistry;
+  }
+
+  private readonly metricsRegistry: MetricsRegistry;
 
   /**
    * Initialize pause timeout manager (optional)
@@ -80,8 +86,22 @@ export class WorkflowLifecycleCoordinator {
    * @returns: Execution result
    */
   async execute(workflowId: string, options: WorkflowExecutionOptions = {}): Promise<WorkflowExecutionResult> {
+    const startTime = Date.now();
+    
     // Step 1: Construct the WorkflowExecutionEntity
     const { workflowExecutionEntity } = await this.workflowExecutionBuilder.build(workflowId, options);
+    const executionId = workflowExecutionEntity.id;
+    const workflowVersion = workflowExecutionEntity.getWorkflowVersion();
+
+    // Record workflow execution start in metrics
+    this.metricsRegistry.getCollectors().workflow.recordExecutionStart(
+      workflowId,
+      executionId,
+      {
+        version: workflowVersion,
+        executionType: 'MAIN',
+      }
+    );
 
     // Step 2: Register WorkflowExecutionEntity
     this.workflowExecutionRegistry.register(workflowExecutionEntity);
@@ -97,10 +117,12 @@ export class WorkflowLifecycleCoordinator {
 
     // Step 4: Execute the Workflow
     const result = await this.workflowExecutor.executeWorkflow(workflowExecutionEntity);
+    const duration = Date.now() - startTime;
 
     // Step 5: Update the workflow execution status based on the execution results.
     const status = result.metadata?.status;
     const isSuccess = status === "COMPLETED";
+    const nodeCount = workflowExecutionEntity.getNodeResults().length;
 
     if (isSuccess) {
       await this.workflowStateTransitor.completeWorkflowExecution(workflowExecutionEntity, result);
@@ -111,6 +133,25 @@ export class WorkflowLifecycleCoordinator {
         errors.length > 0 ? (errors[errors.length - 1] as Error) : new Error("Execution failed");
       await this.workflowStateTransitor.failWorkflowExecution(workflowExecutionEntity, lastError);
     }
+
+    // Record workflow execution completion in metrics
+    let errorType: string | undefined;
+    if (!isSuccess && result.metadata.errorCount > 0) {
+      const errors = workflowExecutionEntity.getErrors();
+      const lastError = errors.length > 0 ? errors[errors.length - 1] : null;
+      errorType = lastError instanceof Error ? lastError.name : 'unknown';
+    }
+    
+    this.metricsRegistry.getCollectors().workflow.recordExecutionComplete(
+      workflowId,
+      executionId,
+      {
+        success: isSuccess,
+        duration,
+        nodeCount,
+        errorType,
+      }
+    );
 
     // Step 6: Cleanup execution-scoped event listeners
     const cleanedCount = this.globalContext.eventRegistry.cleanupExecutionListeners(workflowExecutionEntity.id);

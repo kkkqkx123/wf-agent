@@ -21,6 +21,7 @@ import { TriggerResourceAPI } from "../../workflow/resources/triggers/trigger-re
 import { VariableResourceAPI } from "../../workflow/resources/variables/variable-resource-api.js";
 import { MessageResourceAPI } from "../../workflow/resources/messages/message-resource-api.js";
 import { SkillRegistryAPI } from "../resources/skills/skill-registry-api.js";
+import { MetricsResourceAPI } from "../resources/metrics/metrics-resource-api.js";
 import { APIDependencyManager } from "./sdk-dependencies.js";
 
 /**
@@ -55,6 +56,8 @@ export interface AllAPIs {
   messages: MessageResourceAPI;
   /** Skill API */
   skills: SkillRegistryAPI;
+  /** Metrics API */
+  metrics: MetricsResourceAPI;
 }
 
 /**
@@ -224,6 +227,14 @@ export class APIFactory {
   }
 
   /**
+   * Create a Metrics API
+   * @returns MetricsResourceAPI instance
+   */
+  public createMetricsAPI(): MetricsResourceAPI {
+    return this.createAPI("metrics", MetricsResourceAPI);
+  }
+
+  /**
    * Create all API instances
    * @returns All API instances
    */
@@ -243,6 +254,7 @@ export class APIFactory {
       variables: this.createVariableAPI(),
       messages: this.createMessageAPI(),
       skills: this.createSkillAPI(),
+      metrics: this.createMetricsAPI(),
     };
   }
 

@@ -99,6 +99,15 @@ export {
 export { ReadonlyResourceAPI, CrudResourceAPI } from "./shared/resources/generic-resource-api.js";
 export { createSharedResourceAPIs, type SharedResourceAPIs } from "./shared/resources/index.js";
 
+// Metrics Resource API
+export {
+  MetricsResourceAPI,
+  type WorkflowMetricsQuery,
+  type NodeMetricsQuery,
+  type AgentMetricsQuery,
+  type MetricsExportFormat,
+} from "./shared/resources/metrics/metrics-resource-api.js";
+
 // ============================================================================
 // Workflow - Resource Management API (CRUD Operations)
 // ============================================================================

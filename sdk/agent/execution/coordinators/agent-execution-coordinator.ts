@@ -23,12 +23,12 @@ import type {
   Event as RegistryEvent,
   LLMResult,
 } from "@wf-agent/types";
-import { AgentStreamEventType } from "@wf-agent/types";
 import type { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import type { ConversationSession } from "../../../core/messaging/conversation-session.js";
 import type { LLMExecutor } from "../../../core/executors/llm-executor.js";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import type { MessageStream } from "../../../core/llm/message-stream.js";
+import type { MetricsRegistry } from "../../../core/metrics/metrics-registry.js";
 import { isAbortError } from "@wf-agent/common-utils";
 import { checkWorkflowInterruption } from "../../../core/utils/interruption/index.js";
 import { executeAgentHook } from "../handlers/hook-handlers/index.js";
@@ -65,6 +65,8 @@ export interface AgentExecutionCoordinatorDependencies {
   emitAgentEvent: (event: AgentHookTriggeredEvent) => Promise<void>;
   /** Event Registry (optional) */
   eventManager?: EventRegistry;
+  /** Metrics Registry (optional) */
+  metricsRegistry?: MetricsRegistry;
 }
 
 /**
@@ -82,12 +84,14 @@ export class AgentExecutionCoordinator {
   private readonly toolExecutionCoordinator: ToolExecutionCoordinator;
   private readonly emitAgentEvent: (event: AgentHookTriggeredEvent) => Promise<void>;
   private readonly eventManager?: EventRegistry;
+  private readonly metricsRegistry?: MetricsRegistry;
 
   constructor(deps: AgentExecutionCoordinatorDependencies) {
     this.llmExecutor = deps.llmExecutor;
     this.toolExecutionCoordinator = deps.toolExecutionCoordinator;
     this.emitAgentEvent = deps.emitAgentEvent;
     this.eventManager = deps.eventManager;
+    this.metricsRegistry = deps.metricsRegistry;
   }
 
   /**
@@ -108,6 +112,16 @@ export class AgentExecutionCoordinator {
     maxIterations: number,
   ): Promise<AgentLoopResult> {
     const agentLoopId = entity.id;
+    const startTime = Date.now();
+
+    // Record agent loop execution start in metrics
+    if (this.metricsRegistry) {
+      this.metricsRegistry.getCollectors().agent.recordExecutionStart(
+        profileId,
+        entity.config.agentConfigId || 'unknown',
+        agentLoopId
+      );
+    }
 
     try {
       while (entity.state.currentIteration < maxIterations) {
@@ -144,6 +158,21 @@ export class AgentExecutionCoordinator {
             iterations: entity.state.currentIteration,
             toolCallCount: entity.state.toolCallCount,
           });
+          
+          // Record agent loop completion in metrics
+          if (this.metricsRegistry) {
+            const duration = Date.now() - startTime;
+            this.metricsRegistry.getCollectors().agent.recordExecutionComplete(
+              profileId,
+              {
+                iterations: entity.state.currentIteration,
+                toolCallCount: entity.state.toolCallCount,
+                duration,
+                success: true,
+              }
+            );
+          }
+          
           return {
             success: true,
             content: result.content,
@@ -165,6 +194,21 @@ export class AgentExecutionCoordinator {
       });
 
       entity.state.complete();
+      
+      // Record agent loop completion in metrics (max iterations reached)
+      if (this.metricsRegistry) {
+        const duration = Date.now() - startTime;
+        this.metricsRegistry.getCollectors().agent.recordExecutionComplete(
+          profileId,
+          {
+            iterations: entity.state.currentIteration,
+            toolCallCount: entity.state.toolCallCount,
+            duration,
+            success: true,
+          }
+        );
+      }
+      
       return {
         success: true,
         iterations: entity.state.currentIteration,
@@ -179,6 +223,20 @@ export class AgentExecutionCoordinator {
         undefined,
         this.eventManager,
       );
+
+      // Record agent loop failure in metrics
+      if (this.metricsRegistry) {
+        const duration = Date.now() - startTime;
+        this.metricsRegistry.getCollectors().agent.recordExecutionComplete(
+          profileId,
+          {
+            iterations: entity.state.currentIteration,
+            toolCallCount: entity.state.toolCallCount,
+            duration,
+            success: false,
+          }
+        );
+      }
 
       return {
         success: false,

@@ -32,6 +32,9 @@ import {
   type SkillLoadOptions,
 } from "./skills/skill-registry-api.js";
 
+// Metrics Resource Management
+import { MetricsResourceAPI } from "./metrics/metrics-resource-api.js";
+
 // Dependency Management
 import type { APIDependencyManager } from "../core/sdk-dependencies.js";
 
@@ -49,6 +52,7 @@ export { ToolRegistryAPI };
 export { ScriptRegistryAPI };
 export { LLMProfileRegistryAPI };
 export { SkillRegistryAPI, type SkillFilter, type SkillLoadOptions };
+export { MetricsResourceAPI };
 
 /**
  * Create a factory function for shared resource management API instances
@@ -61,6 +65,7 @@ export function createSharedResourceAPIs(dependencies: APIDependencyManager) {
     scripts: new ScriptRegistryAPI(dependencies),
     profiles: new LLMProfileRegistryAPI(),
     skills: new SkillRegistryAPI(dependencies),
+    metrics: new MetricsResourceAPI(dependencies),
   };
 }
 

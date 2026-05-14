@@ -25,6 +25,7 @@ import type { SkillRegistry } from "../../../core/registry/skill-registry.js";
 import type { SkillLoader } from "../../../core/utils/skill-loader.js";
 import type { AgentLoopRegistry } from "../../../agent/stores/agent-loop-registry.js";
 import type { AgentLoopCoordinator } from "../../../agent/execution/coordinators/agent-loop-coordinator.js";
+import type { MetricsRegistry } from "../../../core/metrics/metrics-registry.js";
 import type { ServiceIdentifier } from "@wf-agent/common-utils";
 
 /**
@@ -171,5 +172,14 @@ export class APIDependencyManager {
    */
   getGlobalContext(): import("../../../core/global-context.js").GlobalContext {
     return this.globalContext;
+  }
+
+  /**
+   * Get the Metrics Registry
+   */
+  getMetricsRegistry(): MetricsRegistry {
+    return this.globalContext.container.get(
+      Identifiers.MetricsRegistry as ServiceIdentifier<MetricsRegistry>,
+    );
   }
 }

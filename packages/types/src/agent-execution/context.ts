@@ -84,6 +84,9 @@ export type ConvertToLlmFn = (messages: LLMMessage[]) => LLMMessage[];
  * - Hooks use AgentHook with Condition objects instead of string expressions
  */
 export interface AgentLoopRuntimeConfig {
+  /** Agent Config ID - unique identifier for the agent configuration */
+  agentConfigId?: ID;
+
   /** LLM Profile ID */
   profileId?: ID;
 

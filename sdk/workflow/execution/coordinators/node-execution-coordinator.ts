@@ -68,6 +68,7 @@ import {
 } from "../../../core/utils/interruption/index.js";
 import { NodeHandlerContextFactory } from "../factories/node-handler-context-factory.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
+import type { MetricsRegistry } from "../../../core/metrics/metrics-registry.js";
 
 const logger = createContextualLogger({ operation: "node-execution-coordinator" });
 
@@ -140,6 +141,9 @@ export class NodeExecutionCoordinator {
   // Processor Context Factory
   private handlerContextFactory: NodeHandlerContextFactory;
 
+  // Metrics Registry
+  private metricsRegistry: MetricsRegistry;
+
   constructor(config: NodeExecutionCoordinatorConfig) {
     // Core Dependencies
     this.globalContext = config.globalContext;
@@ -154,6 +158,9 @@ export class NodeExecutionCoordinator {
     // Interrupt detection-related
     this.workflowExecutionRegistry = config.workflowExecutionRegistry;
     this.interruptionDetector = config.interruptionDetector;
+
+    // Get metrics registry from global context
+    this.metricsRegistry = this.globalContext.metricsRegistry;
 
     // Create a processor context factory
     this.handlerContextFactory = new NodeHandlerContextFactory({
@@ -286,8 +293,16 @@ export class NodeExecutionCoordinator {
     const nodeType = node.type;
     const executionId = workflowExecutionEntity.id;
     const abortSignal = this.interruptionManager.getAbortSignal();
+    const workflowId = workflowExecutionEntity.getWorkflowId();
 
     logger.debug("Starting node execution", { executionId, nodeId, nodeType, nodeName: (node as WorkflowNode).name || (node as RuntimeNode).originalNode?.name });
+
+    // Record node execution start in metrics
+    this.metricsRegistry.getCollectors().node.recordNodeExecutionStart(
+      nodeId,
+      nodeType,
+      workflowId
+    );
 
     // Use the return value tagging system to check for interruptions.
     const interruption = checkWorkflowInterruption(abortSignal);
@@ -392,7 +407,21 @@ export class NodeExecutionCoordinator {
 
       // Step 4: Execute node logic
       logger.debug("Executing node logic", { executionId, nodeId, nodeType });
+      const nodeStartTime = now();
       const nodeResult = await this.executeNodeLogic(workflowExecutionEntity, node);
+      const nodeDuration = diffTimestamp(nodeStartTime, now());
+
+      // Record node execution completion in metrics
+      this.metricsRegistry.getCollectors().node.recordNodeExecution(
+        nodeId,
+        nodeType,
+        workflowId,
+        {
+          success: nodeResult.status === 'COMPLETED',
+          duration: nodeDuration,
+          errorType: nodeResult.status === 'FAILED' ? (nodeResult.error instanceof Error ? nodeResult.error.name : 'unknown') : undefined,
+        }
+      );
 
       // Step 5: Record the results of node execution
       workflowExecutionEntity.addNodeResult(nodeResult);

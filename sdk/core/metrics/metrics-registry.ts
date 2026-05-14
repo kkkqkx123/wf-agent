@@ -33,7 +33,7 @@ export class MetricsRegistry {
 
   constructor(
     private globalContext: GlobalContext,
-    config?: MetricsManagerConfig
+    config?: MetricsRegistryConfig
   ) {
     this.workflowMetrics = new WorkflowMetricsCollector(config?.workflowMetrics);
     this.nodeMetrics = new NodeMetricsCollector(config?.nodeMetrics);

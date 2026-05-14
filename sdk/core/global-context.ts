@@ -36,6 +36,7 @@ import type { WorkflowExecutionCoordinator } from "../workflow/execution/coordin
 import type { WorkflowStateTransitor } from "../workflow/execution/coordinators/workflow-state-transitor.js";
 import type { CheckpointCoordinator } from "../workflow/checkpoint/checkpoint-coordinator.js";
 import type { WorkflowExecutionEntity } from "../workflow/entities/workflow-execution-entity.js";
+import type { MetricsRegistry } from "./metrics/metrics-registry.js";
 
 /**
  * Global Context Class
@@ -52,6 +53,7 @@ export class GlobalContext {
   private _llmExecutor?: LLMExecutor;
   private _toolCallExecutor?: ToolCallExecutor;
   private _workflowExecutor?: WorkflowExecutor;
+  private _metricsRegistry?: MetricsRegistry;
   
   /**
    * Create a new GlobalContext instance
@@ -124,6 +126,13 @@ export class GlobalContext {
       this._workflowExecutor = this.container.get(Identifiers.WorkflowExecutor as ServiceIdentifier<WorkflowExecutor>);
     }
     return this._workflowExecutor;
+  }
+  
+  get metricsRegistry(): MetricsRegistry {
+    if (!this._metricsRegistry) {
+      this._metricsRegistry = this.container.get(Identifiers.MetricsRegistry as ServiceIdentifier<MetricsRegistry>);
+    }
+    return this._metricsRegistry;
   }
   
   /**

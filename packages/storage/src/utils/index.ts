@@ -10,3 +10,7 @@ export {
   type CleanupStateManager,
   DEFAULT_CLEANUP_SCHEDULER_CONFIG,
 } from "./cleanup-scheduler.js";
+export {
+  convertToPostgresBaseConfig,
+  convertToSqliteBaseConfig,
+} from "./config-helpers.js";

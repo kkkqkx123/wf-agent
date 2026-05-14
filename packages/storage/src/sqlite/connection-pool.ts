@@ -18,10 +18,12 @@ export interface ConnectionPoolConfig {
   enableWAL?: boolean;
   /** Timeout for acquiring connection in milliseconds (default: 5000) */
   acquireTimeoutMs?: number;
-  /** Enable connection health checks */
+  /** Enable connection health checks (default: true) */
   enableHealthCheck?: boolean;
   /** Health check interval in milliseconds (default: 60000) */
   healthCheckIntervalMs?: number;
+  /** Busy timeout in milliseconds for handling database locks (default: 5000) */
+  busyTimeout?: number;
 }
 
 /**
@@ -50,8 +52,9 @@ export class SqliteConnectionPool {
       maxConnections: config.maxConnections ?? 1, // SQLite typically uses 1 connection
       enableWAL: config.enableWAL ?? true,
       acquireTimeoutMs: config.acquireTimeoutMs ?? 5000,
-      enableHealthCheck: config.enableHealthCheck ?? false,
+      enableHealthCheck: config.enableHealthCheck ?? true, // Changed: default to true for better reliability
       healthCheckIntervalMs: config.healthCheckIntervalMs ?? 60000,
+      busyTimeout: config.busyTimeout ?? 5000, // Added: busy timeout for lock handling
     };
   }
 
@@ -93,6 +96,10 @@ export class SqliteConnectionPool {
     logger.debug("Creating new SQLite connection", { dbPath });
     const db = new Database(dbPath);
 
+    // Set busy timeout to prevent indefinite blocking on locked databases
+    db.pragma(`busy_timeout = ${this.config.busyTimeout}`);
+    logger.debug("Set busy timeout", { dbPath, timeout: this.config.busyTimeout });
+
     // Configure connection
     if (this.config.enableWAL) {
       db.pragma("journal_mode = WAL");
@@ -120,6 +127,7 @@ export class SqliteConnectionPool {
     logger.info("SQLite connection created and pooled", {
       dbPath,
       walMode: this.config.enableWAL,
+      busyTimeout: this.config.busyTimeout,
     });
 
     return db;

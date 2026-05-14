@@ -39,9 +39,37 @@ export interface SqliteStorageConfig {
 }
 
 /**
+ * PostgreSQL Storage Configuration
+ */
+export interface PostgresStorageConfig {
+  /** Database host */
+  host: string;
+  /** Database port (default: 5432) */
+  port?: number;
+  /** Database user */
+  username: string;
+  /** Database password */
+  password: string;
+  /** Database name */
+  database: string;
+  /** Enable SSL connection (default: false) */
+  ssl?: boolean;
+  /** Maximum pool size (default: 20) */
+  poolSize?: number;
+  /** Minimum idle connections (default: 1) */
+  minConnections?: number;
+  /** Idle connection timeout in ms (default: 30000) */
+  idleTimeout?: number;
+  /** Connection timeout in ms (default: 5000) */
+  connectionTimeout?: number;
+  /** Maximum uses per connection before recycle (default: Infinity) */
+  maxUses?: number;
+}
+
+/**
  * Storage Type
  */
-export type StorageType = "json" | "sqlite" | "memory";
+export type StorageType = "json" | "sqlite" | "postgres" | "memory";
 
 /**
  * Storage Configuration
@@ -50,4 +78,5 @@ export interface StorageConfig {
   type: StorageType;
   json?: JsonStorageConfig;
   sqlite?: SqliteStorageConfig;
+  postgres?: PostgresStorageConfig;
 }

@@ -80,10 +80,10 @@ export interface HumanRelayContext {
  */
 export interface HumanRelayHandler {
   /**
-   * 处理 HumanRelay 请求
-   * @param request HumanRelay 请求
-   * @param context HumanRelay 上下文
-   * @returns HumanRelay 响应
+   * Processing HumanRelay Request
+   * @param request HumanRelay Request
+   * @param context HumanRelay Context
+   * @returns HumanRelay Response
    */
   handle(request: HumanRelayRequest, context: HumanRelayContext): Promise<HumanRelayResponse>;
 }

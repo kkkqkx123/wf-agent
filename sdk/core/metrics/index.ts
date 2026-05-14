@@ -45,9 +45,9 @@ export {
 
 // Collectors
 export { BaseMetricCollector } from "./base-collector.js";
-export { WorkflowMetricsCollector } from "./workflow-collector.js";
+export { WorkflowMetricsCollector as LegacyWorkflowMetricsCollector } from "./workflow-collector.js";
 export { EventMetricsCollector, type EventMetricLabels, type AggregatedEventStat, type EventMetricsSummary } from "./event-collector.js";
-export { NodeMetricsCollector } from "./node-collector.js";
+export { NodeMetricsCollector as LegacyNodeMetricsCollector } from "./node-collector.js";
 export { ToolMetricsCollector } from "./tool-collector.js";
 export { TokenMetricsCollector, type TokenUsageData } from "./token-collector.js";
 export { ErrorMetricsCollector } from "./error-collector.js";
@@ -55,6 +55,12 @@ export { ResourceMetricsCollector } from "./resource-collector.js";
 export { AgentLoopMetricsCollector } from "./agent-loop-collector.js";
 export { TemplateMetricsCollector } from "./template-collector.js";
 export { ConfigMetricsCollector } from "./config-collector.js";
+
+// New Enhanced Collectors (Phase 1 Implementation)
+export { WorkflowMetricsCollector } from "./workflow-metrics-collector.js";
+export { NodeMetricsCollector } from "./node-metrics-collector.js";
+export { AgentMetricsCollector } from "./agent-metrics-collector.js";
+export { MetricsRegistry, type MetricsRegistryConfig } from "./metrics-registry.js";
 
 // Factory functions for collectors
 export { createMetricsCollectors } from "./factories.js";

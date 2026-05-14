@@ -60,6 +60,7 @@ import type {
   AgentLoopStorageAdapter as AgentLoopStorageAdapterType,
   AgentLoopCheckpointStorageAdapter as AgentLoopCheckpointStorageAdapterType,
 } from "@wf-agent/storage";
+import type { MetricsRegistry as MetricsRegistryType } from "../metrics/metrics-registry.js";
 
 // ============================================================
 // Storage Layer Service
@@ -404,3 +405,13 @@ export const AgentLoopStorageAdapter: ServiceIdentifier<AgentLoopStorageAdapterT
  * Provides agent loop checkpoint persistence operations
  */
 export const AgentLoopCheckpointStorageAdapter: ServiceIdentifier<AgentLoopCheckpointStorageAdapterType> = Symbol("AgentLoopCheckpointStorageAdapter");
+
+// ============================================================
+// Metrics Services
+// ============================================================
+
+/**
+ * MetricsRegistry - Metrics Registry
+ * Manages all metrics collectors and provides centralized access
+ */
+export const MetricsRegistry: ServiceIdentifier<MetricsRegistryType> = Symbol("MetricsRegistry");

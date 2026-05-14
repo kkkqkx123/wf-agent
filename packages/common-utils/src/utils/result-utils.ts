@@ -24,7 +24,7 @@ export function ok<T, E = Error>(value: T): Ok<T, E> {
     andThen(fn) {
       return fn(this.value);
     },
-  };
+  } as Ok<T, E>;
 }
 
 /**
@@ -54,7 +54,7 @@ export function err<E>(error: E): Err<E> {
     orElse(fn) {
       return fn(this.error);
     },
-  };
+  } as Err<E>;
 }
 
 /**

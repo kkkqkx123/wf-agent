@@ -11,6 +11,7 @@ import type { PreprocessValidationResult, SubgraphMergeLog } from "../workflow/p
 import type { WorkflowTrigger } from "../trigger/index.js";
 import type { VariableDefinition } from "../workflow-execution/variables.js";
 import type { AvailableTools } from "../available-tools.js";
+import type { StaticNode } from "../node/index.js";
 
 /**
  * Workflow Graph Interface
@@ -21,11 +22,17 @@ export interface WorkflowGraph extends WorkflowGraphStructure {
   /** ID mapping table (temporary data for build phase) */
   idMapping: IdMapping;
 
-  /** Pre-processed node configuration (with updated ID references) */
-  nodeConfigs: Map<ID, unknown>;
+  /** 
+   * Pre-processed node configuration (with updated ID references)
+   * Maps node ID to its static node configuration with resolved references
+   */
+  nodeConfigs: Map<ID, StaticNode>;
 
-  /** Preprocessed Trigger Configuration (with updated ID references) */
-  triggerConfigs: Map<ID, unknown>;
+  /** 
+   * Preprocessed Trigger Configuration (with updated ID references)
+   * Maps trigger ID to its workflow trigger configuration
+   */
+  triggerConfigs: Map<ID, WorkflowTrigger>;
 
   /** Sub-workflow relationships */
   subgraphRelationships: SubgraphRelationship[];

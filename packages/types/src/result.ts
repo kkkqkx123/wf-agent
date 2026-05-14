@@ -20,7 +20,7 @@ export interface Ok<T, E = Error> {
   isErr(): this is Err<E>;
   unwrap(): T;
   unwrapOrElse(fn: (error: never) => T): T;
-  andThen<U>(fn: (value: T) => Result<U, E>): Result<U, E>;
+  andThen<U, F = E>(fn: (value: T) => Result<U, F>): Result<U, F>;
 }
 
 /**
@@ -33,6 +33,6 @@ export interface Err<E> {
   isErr(): this is Err<E>;
   unwrap(): never;
   unwrapOrElse<T>(fn: (error: E) => T): T;
-  andThen<U>(fn: (value: never) => Result<U, E>): Result<U, E>;
+  andThen<U, F = E>(fn: (value: never) => Result<U, F>): Result<U, F>;
   orElse<T, F>(fn: (error: E) => Result<T, F>): Result<T, F>;
 }

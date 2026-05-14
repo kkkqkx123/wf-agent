@@ -41,6 +41,7 @@ export function validateWorkflow(
   const result = workflowValidator.validate(workflow);
 
   // Use `andThen` for type conversion
+  // ConfigurationValidationError[] is assignable to ValidationError[] (subtype relationship)
   return result.andThen(() => ok(config)) as Result<ParsedConfig<"workflow">, ValidationError[]>;
 }
 

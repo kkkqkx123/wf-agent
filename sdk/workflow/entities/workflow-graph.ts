@@ -17,6 +17,7 @@ import type {
   VariableDefinition,
   StaticNodeType,
   EdgeType,
+  StaticNode,
 } from "@wf-agent/types";
 import { WorkflowGraphData } from "./workflow-graph-data.js";
 
@@ -29,11 +30,17 @@ export class WorkflowGraph extends WorkflowGraphData implements WorkflowGraphTyp
   /** ID Mapping Table (Temporary Data during the Construction Phase) */
   public idMapping: IdMapping;
 
-  /** Preprocessed node configuration (ID references have been updated) */
-  public nodeConfigs: Map<ID, unknown>;
+  /** 
+   * Preprocessed node configurations (ID references have been updated)
+   * Maps node ID to its static node configuration with resolved references
+   */
+  public nodeConfigs: Map<ID, StaticNode>;
 
-  /** Processed trigger configuration (ID references have been updated). */
-  public triggerConfigs: Map<ID, unknown>;
+  /** 
+   * Processed trigger configurations (ID references have been updated)
+   * Maps trigger ID to its workflow trigger configuration
+   */
+  public triggerConfigs: Map<ID, WorkflowTrigger>;
 
   /** Sub-workflow relationships */
   public subgraphRelationships: SubgraphRelationship[];
@@ -83,8 +90,8 @@ export class WorkflowGraph extends WorkflowGraphData implements WorkflowGraphTyp
       reverseEdgeIds: new Map(),
       subgraphNamespaces: new Map(),
     };
-    this.nodeConfigs = new Map();
-    this.triggerConfigs = new Map();
+    this.nodeConfigs = new Map<ID, StaticNode>();
+    this.triggerConfigs = new Map<ID, WorkflowTrigger>();
     this.subgraphRelationships = [];
 
     // Initialize preprocessing metadata
@@ -135,5 +142,84 @@ export class WorkflowGraph extends WorkflowGraphData implements WorkflowGraphTyp
     this.workflowVersion = "1.0.0";
     this.hasSubgraphs = false;
     this.subworkflowIds = new Set();
+  }
+
+  /**
+   * Get node configuration by ID
+   * @param nodeId - Node ID
+   * @returns Static node configuration or undefined if not found
+   */
+  public getNodeConfig(nodeId: ID): StaticNode | undefined {
+    return this.nodeConfigs.get(nodeId);
+  }
+
+  /**
+   * Get node configuration by type with type guard
+   * @param nodeId - Node ID
+   * @param nodeType - Expected static node type
+   * @returns Typed static node configuration or undefined if not found or type mismatch
+   */
+  public getNodeConfigByType<T extends StaticNodeType>(
+    nodeId: ID,
+    nodeType: T,
+  ): Extract<StaticNode, { type: T }> | undefined {
+    const config = this.nodeConfigs.get(nodeId);
+    if (config && config.type === nodeType) {
+      return config as Extract<StaticNode, { type: T }>;
+    }
+    return undefined;
+  }
+
+  /**
+   * Check if a node exists and is of specific type
+   * @param nodeId - Node ID
+   * @param nodeType - Static node type to check
+   * @returns True if node exists and matches the type
+   */
+  public isNodeOfType(nodeId: ID, nodeType: StaticNodeType): boolean {
+    const config = this.nodeConfigs.get(nodeId);
+    return config !== undefined && config.type === nodeType;
+  }
+
+  /**
+   * Get all nodes of a specific type
+   * @param nodeType - Static node type to filter
+   * @returns Array of node IDs matching the type
+   */
+  public getNodeIdsByType(nodeType: StaticNodeType): ID[] {
+    const nodeIds: ID[] = [];
+    for (const [nodeId, config] of this.nodeConfigs.entries()) {
+      if (config.type === nodeType) {
+        nodeIds.push(nodeId);
+      }
+    }
+    return nodeIds;
+  }
+
+  /**
+   * Get trigger configuration by ID
+   * @param triggerId - Trigger ID
+   * @returns Workflow trigger configuration or undefined if not found
+   */
+  public getTriggerConfig(triggerId: ID): WorkflowTrigger | undefined {
+    return this.triggerConfigs.get(triggerId);
+  }
+
+  /**
+   * Add or update node configuration
+   * @param nodeId - Node ID
+   * @param config - Static node configuration
+   */
+  public setNodeConfig(nodeId: ID, config: StaticNode): void {
+    this.nodeConfigs.set(nodeId, config);
+  }
+
+  /**
+   * Add or update trigger configuration
+   * @param triggerId - Trigger ID
+   * @param config - Workflow trigger configuration
+   */
+  public setTriggerConfig(triggerId: ID, config: WorkflowTrigger): void {
+    this.triggerConfigs.set(triggerId, config);
   }
 }

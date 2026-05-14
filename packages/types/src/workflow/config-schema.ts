@@ -62,7 +62,7 @@ export const VariableDefinitionSchema: z.ZodType<VariableDefinition> = z.object(
  * Legacy: Workflow Variable Schema
  * @deprecated Use VariableDefinitionSchema instead
  */
-export const WorkflowVariableSchema: z.ZodType<any> = z.object({
+export const WorkflowVariableSchema = z.object({
   name: z.string().min(1, "Variable name is required"),
   type: variableValueTypeSchema,
   defaultValue: z.any().optional(),
@@ -186,7 +186,7 @@ export function isVariableDefinition(value: unknown): value is VariableDefinitio
  * Legacy: Check if a value is a valid WorkflowVariable
  * @deprecated Use isVariableDefinition instead
  */
-export function isWorkflowVariable(value: unknown): value is any {
+export function isWorkflowVariable(value: unknown): value is Record<string, unknown> {
   try {
     WorkflowVariableSchema.parse(value);
     return true;

@@ -2,7 +2,6 @@
  * Graph Analysis Result Type Definition
  */
 
-import { StaticNodeType } from "../node/index.js";
 import type { EdgeType } from "../edge.js";
 import type {
   CycleDetectionResult,

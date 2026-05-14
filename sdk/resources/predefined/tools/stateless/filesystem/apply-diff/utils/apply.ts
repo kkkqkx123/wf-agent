@@ -56,12 +56,12 @@ export function applyBlock(
   block: SearchReplaceBlock,
   delta: number,
 ): { success: true; lines: string[]; delta: number } | BlockApplyResult {
-  let { searchContent, replaceContent } = block;
-  let startLine = block.startLine ? block.startLine + delta : 0;
+  const { searchContent, replaceContent } = block;
+  const startLine = block.startLine ? block.startLine + delta : 0;
 
   // Split content into lines
-  let searchLines = searchContent === "" ? [] : searchContent.split(/\r?\n/);
-  let replaceLines = replaceContent === "" ? [] : replaceContent.split(/\r?\n/);
+  const searchLines = searchContent === "" ? [] : searchContent.split(/\r?\n/);
+  const replaceLines = replaceContent === "" ? [] : replaceContent.split(/\r?\n/);
 
   // Validate non-empty search
   if (searchLines.length === 0) {
@@ -75,7 +75,7 @@ export function applyBlock(
 
   // Determine search bounds
   let searchStartIndex = 0;
-  let searchEndIndex = resultLines.length;
+  const searchEndIndex = resultLines.length;
 
   // If startLine provided, use it as the starting point
   if (startLine > 0) {

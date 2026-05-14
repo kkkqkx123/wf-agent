@@ -1,5 +1,5 @@
-import { Binding, BindingType } from "./binding.js";
-import { BindingScope, Container, Constructor, Request, ServiceIdentifier } from "./types.js";
+import { Binding } from "./binding.js";
+import { Container, Constructor, Request, ServiceIdentifier } from "./types.js";
 
 // ============================================================
 // parsing engine

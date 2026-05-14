@@ -77,7 +77,7 @@ function collectMessagesFromContexts(
     ? config.contextRefs 
     : ['current'];
 
-  let allMessages: LLMMessage[] = [];
+  const allMessages: LLMMessage[] = [];
   
   for (const contextId of contextRefs) {
     const namedContext = registry.get(contextId);

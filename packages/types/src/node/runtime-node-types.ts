@@ -12,7 +12,6 @@
  * 3. All nodes gain runtime-specific context properties
  */
 
-import type { ID } from "../common.js";
 import type { NodeIdentity, NodeExecutionConfig, RuntimeNodeContext } from "./shared-node-types.js";
 
 // Import configuration types (most are shared between static and runtime)

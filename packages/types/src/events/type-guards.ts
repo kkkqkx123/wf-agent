@@ -73,9 +73,7 @@ import type {
   HumanRelayRespondedEvent,
   HumanRelayFailedEvent,
   ToolApprovalRequestedEvent,
-  ToolApprovalFailedEvent,
   FollowupQuestionRequestedEvent,
-  FollowupQuestionFailedEvent,
 } from "./interaction-events.js";
 import type {
   SubgraphStartedEvent,

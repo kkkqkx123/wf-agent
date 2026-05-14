@@ -154,8 +154,6 @@ export class PostgresWorkflowExecutionStorage
     data: Uint8Array,
     metadata: WorkflowExecutionStorageMetadata
   ): Promise<void> {
-    const now = Date.now();
-
     // Get compression config
     const config = selectCompressionStrategy(data);
 
@@ -314,7 +312,7 @@ export class PostgresWorkflowExecutionStorage
 
       // Build dynamic query based on filters
       const conditions: string[] = [];
-      const params: any[] = [];
+      const params: Array<string | number | string[]> = [];
       let paramIndex = 1;
 
       if (options?.workflowId) {

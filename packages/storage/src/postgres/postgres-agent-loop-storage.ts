@@ -303,7 +303,7 @@ export class PostgresAgentLoopStorage
 
       // Build dynamic query based on filters
       const conditions: string[] = [];
-      const params: any[] = [];
+      const params: Array<string | number | string[]> = [];
       let paramIndex = 1;
 
       if (options?.status) {
@@ -498,7 +498,7 @@ export class PostgresAgentLoopStorage
       );
 
       const byStatus: Record<string, number> = {};
-      statusResult.rows.forEach((row: any) => {
+      statusResult.rows.forEach((row) => {
         byStatus[row.status] = parseInt(row.count, 10);
       });
 

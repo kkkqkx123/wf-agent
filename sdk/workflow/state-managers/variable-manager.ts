@@ -192,7 +192,7 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
       freeze: definition.freeze 
     });
 
-    let value = definition.value;
+    const value = definition.value;
     
     // Auto-freeze if specified in definition
     if (definition.freeze && typeof value === 'object' && value !== null && !Object.isFrozen(value)) {

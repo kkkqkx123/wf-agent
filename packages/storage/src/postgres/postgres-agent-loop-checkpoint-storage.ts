@@ -286,7 +286,7 @@ export class PostgresAgentLoopCheckpointStorage
 
       // Build dynamic query based on filters
       const conditions: string[] = [];
-      const params: any[] = [];
+      const params: Array<string | number | string[]> = [];
       let paramIndex = 1;
 
       if (options?.agentLoopId) {
@@ -404,7 +404,7 @@ export class PostgresAgentLoopCheckpointStorage
 
       // Build dynamic query based on filters
       const conditions: string[] = ['agent_loop_id = $1'];
-      const params: any[] = [agentLoopId];
+      const params: Array<string | number | string[]> = [agentLoopId];
       let paramIndex = 2;
 
       if (options?.type) {

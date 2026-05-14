@@ -72,15 +72,8 @@ export class GracefulShutdownController {
    */
   start(): void {
     if (!this.options.enabled) {
-      console.log('Graceful shutdown controller is disabled');
       return;
     }
-
-    const platformInfo = this.signalHandler.getPlatformInfo();
-    console.log(
-      `Starting graceful shutdown controller on ${platformInfo.platform}. ` +
-      `Supported signals: ${platformInfo.available.join(', ')}`
-    );
 
     this.signalHandler.register(async (signal) => {
       await this.handleShutdown(signal);
@@ -114,16 +107,12 @@ export class GracefulShutdownController {
    */
   private async handleShutdown(signal: string): Promise<void> {
     if (this.isShuttingDown) {
-      console.warn(`Shutdown already in progress, ignoring ${signal}`);
       return;
     }
 
     this.isShuttingDown = true;
     const startTime = Date.now();
     const deadline = new Date(startTime + this.options.timeoutMs);
-
-    console.log(`Received ${signal}, initiating graceful shutdown...`);
-    console.log(`Shutdown deadline: ${deadline.toISOString()} (${this.options.timeoutMs}ms timeout)`);
 
     try {
       // Execute shutdown handler with timeout
@@ -136,12 +125,10 @@ export class GracefulShutdownController {
         }),
       ]);
 
-      const duration = Date.now() - startTime;
-      console.log(`Graceful shutdown completed successfully in ${duration}ms`);
+      const _duration = Date.now() - startTime;
       process.exit(0);
-    } catch (error) {
-      const duration = Date.now() - startTime;
-      console.error(`Graceful shutdown failed after ${duration}ms:`, error);
+    } catch {
+      const _duration = Date.now() - startTime;
       process.exit(1);
     }
   }
@@ -168,25 +155,20 @@ export class GracefulShutdownController {
 export function createSequentialShutdownHandler(
   cleanupFunctions: Array<() => Promise<void>>
 ): (signal: string, deadline: Date) => Promise<void> {
-  return async (signal: string, deadline: Date) => {
-    console.log(`Executing ${cleanupFunctions.length} cleanup functions...`);
+  return async (_signal: string, deadline: Date) => {
     
     for (let i = 0; i < cleanupFunctions.length; i++) {
       // Check if we're past the deadline
       if (Date.now() > deadline.getTime()) {
-        console.warn(`Shutdown deadline exceeded, skipping remaining ${cleanupFunctions.length - i} cleanup functions`);
         break;
       }
 
       const func = cleanupFunctions[i];
       try {
-        console.log(`Executing cleanup function ${i + 1}/${cleanupFunctions.length}`);
         if (func) {
           await func();
         }
-        console.log(`Cleanup function ${i + 1} completed`);
-      } catch (error) {
-        console.error(`Cleanup function ${i + 1} failed:`, error);
+      } catch {
         // Continue with remaining cleanup functions even if one fails
       }
     }

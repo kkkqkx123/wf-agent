@@ -96,9 +96,8 @@ export class StateCodec {
       if (data.length > 2 && data[0] === 0x1f && data[1] === 0x8b) {
         try {
           bytes = await decompressBlob(data, "gzip");
-        } catch (error) {
+        } catch {
           // If decompression fails, assume data is not compressed
-          console.warn("Failed to decompress data, treating as uncompressed", error);
         }
       }
 

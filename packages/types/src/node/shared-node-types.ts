@@ -75,7 +75,7 @@ export interface RuntimeNodeContext {
   internalMetadata?: Record<string, unknown>;
   
   /** Reference back to the original static node definition */
-  originalNode?: any;
+  originalNode?: unknown;
   
   /** Workflow context information */
   workflowId: ID;

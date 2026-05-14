@@ -88,7 +88,7 @@ function collectInitialMessages(
     ? config.inlineConfig.initialContextRefs
     : ['current'];
 
-  let allMessages: LLMMessage[] = [];
+  const allMessages: LLMMessage[] = [];
   
   for (const contextId of contextRefs) {
     const namedContext = registry.get(contextId);

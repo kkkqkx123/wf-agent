@@ -157,8 +157,6 @@ export class PostgresTaskStorage
     data: Uint8Array,
     metadata: TaskStorageMetadata
   ): Promise<void> {
-    const now = Date.now();
-
     // Calculate execution duration if both start and complete times are available
     const executionDuration =
       metadata.completeTime && metadata.startTime
@@ -327,7 +325,7 @@ export class PostgresTaskStorage
 
       // Build dynamic query based on filters
       const conditions: string[] = [];
-      const params: any[] = [];
+      const params: Array<string | number | string[]> = [];
       let paramIndex = 1;
 
       if (options?.executionId) {
@@ -498,7 +496,7 @@ export class PostgresTaskStorage
 
     try {
       const conditions: string[] = [];
-      const params: any[] = [];
+      const params: Array<string | number> = [];
       let paramIndex = 1;
 
       if (options?.workflowId) {
@@ -545,7 +543,7 @@ export class PostgresTaskStorage
         TIMEOUT: 0,
       };
 
-      statusResult.rows.forEach((row: any) => {
+      statusResult.rows.forEach((row) => {
         const status = row.status as TaskStatus;
         if (status in byStatus) {
           byStatus[status] = parseInt(row.count, 10);
@@ -562,7 +560,7 @@ export class PostgresTaskStorage
       );
 
       const byWorkflow: Record<string, number> = {};
-      workflowResult.rows.forEach((row: any) => {
+      workflowResult.rows.forEach((row) => {
         byWorkflow[row.workflow_id] = parseInt(row.count, 10);
       });
 

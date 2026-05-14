@@ -92,19 +92,19 @@ export function createPlatformSignalHandler(): PlatformSignalHandler {
         const listener = async () => {
           try {
             await handler(signal);
-          } catch (error) {
-            console.error(`Error in signal handler for ${signal}:`, error);
+          } catch {
+            // Error handling in signal handlers
           }
         };
 
-        process.on(signal as any, listener);
+        process.on(signal as NodeJS.Signals, listener);
         registeredHandlers.push([signal, listener]);
       }
     },
 
     unregister() {
       for (const [signal, listener] of registeredHandlers) {
-        process.removeListener(signal, listener as any);
+        process.removeListener(signal as NodeJS.Signals, listener);
       }
       registeredHandlers.length = 0;
     },

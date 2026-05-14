@@ -23,12 +23,6 @@ import { createModuleLogger } from "../logger.js";
 const logger = createModuleLogger("postgres-checkpoint-storage");
 
 /**
- * Default pagination limits
- */
-const DEFAULT_PAGE_LIMIT = 100;
-const MAX_PAGE_LIMIT = 1000;
-
-/**
  * PostgreSQL Checkpoint Storage
  * Implementing the CheckpointStorageAdapter interface with metadata-BLOB separation
  */
@@ -162,9 +156,8 @@ export class PostgresCheckpointStorage
     checkpointId: string,
     data: Uint8Array,
     metadata: CheckpointStorageMetadata,
-    options?: CheckpointOptions
+    _options?: CheckpointOptions
   ): Promise<void> {
-    const now = Date.now();
 
     // Get adaptive compression config
     const config = selectCompressionStrategy(data);
@@ -310,7 +303,7 @@ export class PostgresCheckpointStorage
 
       // Build dynamic query based on filters
       const conditions: string[] = [];
-      const params: any[] = [];
+      const params: Array<string | number> = [];
       let paramIndex = 1;
 
       if (options?.executionId) {

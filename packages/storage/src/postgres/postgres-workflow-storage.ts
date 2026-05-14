@@ -198,8 +198,6 @@ export class PostgresWorkflowStorage
     data: Uint8Array,
     metadata: WorkflowStorageMetadata
   ): Promise<void> {
-    const now = Date.now();
-
     // Get compression config
     const config = selectCompressionStrategy(data);
 
@@ -358,7 +356,7 @@ export class PostgresWorkflowStorage
 
       // Build dynamic query based on filters
       const conditions: string[] = [];
-      const params: any[] = [];
+      const params: Array<string | number | boolean | string[]> = [];
       let paramIndex = 1;
 
       if (options?.name) {
@@ -525,7 +523,7 @@ export class PostgresWorkflowStorage
 
     try {
       const updates: string[] = ['updated_at = NOW()'];
-      const params: any[] = [];
+      const params: Array<string | boolean | undefined> = [];
       let paramIndex = 1;
 
       if (metadata.name !== undefined) {

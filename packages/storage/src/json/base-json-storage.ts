@@ -17,7 +17,6 @@ import {
 import { LRUCache } from "../utils/lru-cache.js";
 import type { StorageMetrics } from "../types/metrics.js";
 import { DEFAULT_STORAGE_METRICS } from "../types/metrics.js";
-import type { CheckpointOptions } from "../types/checkpoint-options.js";
 
 const logger = createModuleLogger("json-storage");
 
@@ -409,7 +408,7 @@ export abstract class BaseJsonStorage<TMetadata, TSaveOptions = void> {
       await fs.writeFile(metadataPath, jsonContent, "utf-8");
 
       // If sync mode is enabled, ensure data is flushed to disk
-      if ((options as any)?.sync) {
+      if ((options as { sync?: boolean })?.sync) {
         try {
           // Open files and sync to ensure data is persisted
           const metadataFd = await fs.open(metadataPath, 'r');

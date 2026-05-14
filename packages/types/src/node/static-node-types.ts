@@ -10,7 +10,6 @@
  * After preprocessing, they are expanded and replaced with their internal nodes.
  */
 
-import type { ID } from "../common.js";
 import type { NodeIdentity, StaticNodeDisplayProps, NodeExecutionConfig } from "./shared-node-types.js";
 
 // Import all node configuration types

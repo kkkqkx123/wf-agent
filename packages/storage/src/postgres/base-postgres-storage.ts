@@ -179,7 +179,6 @@ export abstract class BasePostgresStorage<TMetadataType> {
     const client = await this.getClient();
     
     try {
-      const currentVersion = this.getCurrentSchemaVersion();
       const targetVersion = this.config.schemaVersion ?? 1;
 
       // Create schema version tracking table if it doesn't exist

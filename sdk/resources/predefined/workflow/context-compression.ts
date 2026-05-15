@@ -5,7 +5,7 @@
  * Combines the definition layer with the execution layer, simplifying the architecture
  */
 
-import type { WorkflowTemplate, StaticNode, Edge, TruncateMessageOperation } from "@wf-agent/types";
+import type { WorkflowTemplate, StaticNode, Edge } from "@wf-agent/types";
 import { now, generateId } from "@wf-agent/common-utils";
 import type { WorkflowRegistry } from "../../../workflow/stores/workflow-registry.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
@@ -27,7 +27,7 @@ Requirements:
 2. retain requirements or constraints explicitly specified by the user
 3. remove redundant greetings, transition statements and repetitive information
 4. if code snippets exist, retain the description of their function and purpose, and may omit implementation details
-5. limit the length of the summary to 30% of the original length
+5. limit the length of the summary to 20% of the original length
 
 Please output the summary directly without any prefixes or explanations.;`;
 
@@ -46,70 +46,76 @@ export interface ContextCompressionConfig {
 /**
  * Create a predefined context compression workflow
  */
-export function createContextCompressionWorkflow(_compressionPrompt?: string): WorkflowTemplate {
+export function createContextCompressionWorkflow(
+  compressionPrompt?: string,
+  config: ContextCompressionConfig = {},
+): WorkflowTemplate {
   const currentTime = now();
 
-  const startNodeId = generateId();
-  const llmNodeId = generateId();
-  const processorNodeId = generateId();
-  const endNodeId = generateId();
+  // Use semantic variable names for better code readability
+  const compressionStartId = generateId();
+  const compressionLlmId = generateId();
+  const compressionEndId = generateId();
 
   const nodes: StaticNode[] = [
     {
-      id: startNodeId,
+      id: compressionStartId,
       type: "START_FROM_TRIGGER",
       name: "Start Compression",
       description: "Receive the full context passed in by the main workflow execution",
-      config: {},
+      config: {
+        messageInputs: [
+          {
+            externalName: "conversationHistory",
+            internalName: "current",
+            required: true,
+            description: "Full conversation history to be compressed",
+          },
+        ],
+      },
     },
     {
-      id: llmNodeId,
+      id: compressionLlmId,
       type: "LLM",
       name: "Compress Context",
-      description: "Using LLM to compress dialog history",
+      description: "Using LLM to compress dialog history with custom prompt",
       config: {
         profileId: "DEFAULT",
         contextRefs: ["current"],
+        outputContext: "compressed",
+        parameters: {
+          systemPrompt: compressionPrompt || DEFAULT_COMPRESSION_PROMPT,
+        },
       },
     },
     {
-      id: processorNodeId,
-      type: "CONTEXT_PROCESSOR",
-      name: "Extract Result",
-      description: "Preserve LLM compression results, truncate the original context",
-      config: {
-        operationConfig: {
-          operation: "TRUNCATE",
-          strategy: { type: "KEEP_LAST", count: 1 },
-        } as TruncateMessageOperation,
-      },
-    },
-    {
-      id: endNodeId,
+      id: compressionEndId,
       type: "CONTINUE_FROM_TRIGGER",
       name: "Complete Compression",
       description: "Passes compression results back to the main workflow execution",
-      config: {},
+      config: {
+        messageOutputs: [
+          {
+            internalName: "compressed",
+            externalName: "current",
+            description: "Compressed conversation summary",
+          },
+        ],
+      },
     },
   ];
 
   const edges: Edge[] = [
     {
       id: generateId(),
-      sourceNodeId: startNodeId,
-      targetNodeId: llmNodeId,
+      sourceNodeId: compressionStartId,
+      targetNodeId: compressionLlmId,
       type: "DEFAULT",
     },
     {
       id: generateId(),
-      sourceNodeId: llmNodeId,
-      targetNodeId: processorNodeId,
-      type: "DEFAULT",
-    },
-    {
-      id: generateId(),
-      sourceNodeId: processorNodeId,
-      targetNodeId: endNodeId,
+      sourceNodeId: compressionLlmId,
+      targetNodeId: compressionEndId,
       type: "DEFAULT",
     },
   ];
@@ -120,14 +126,14 @@ export function createContextCompressionWorkflow(_compressionPrompt?: string): W
   return {
     id: CONTEXT_COMPRESSION_WORKFLOW_ID,
     name: "Context Compression Workflow",
-    type: "TRIGGERED_SUBWORKFLOW",
+    type: "TRIGGERED_SUBWORKFLOW" as const,
     description: "LLM-based context compression workflow to compress dialog history into summaries",
     nodes,
     edges,
     triggeredSubworkflowConfig: {
       enableCheckpoints: false,
-      timeout: 60000,
-      maxRetries: 0,
+      timeout: config.timeout ?? 60000,
+      maxRetries: config.maxTriggers ?? 0,
     },
     metadata: {
       category: "system",
@@ -146,7 +152,7 @@ export function createContextCompressionWorkflow(_compressionPrompt?: string): W
 export function createCustomContextCompressionWorkflow(
   config: ContextCompressionConfig = {},
 ): WorkflowTemplate {
-  return createContextCompressionWorkflow(config.compressionPrompt);
+  return createContextCompressionWorkflow(config.compressionPrompt, config);
 }
 
 /**

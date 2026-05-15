@@ -90,8 +90,8 @@ export class AgentLoopCheckpointStateManager extends BaseCheckpointStateManager<
    *
    * @returns Cleanup results
    */
-  override async executeCleanup(): Promise<CleanupResult> {
-    return await super.executeCleanup();
+  override async executeCleanupForEntity(entityId: string, entityType: string): Promise<CleanupResult> {
+    return await super.executeCleanupForEntity(entityId, entityType);
   }
 
   /**

@@ -9,6 +9,7 @@ import type {
   WorkflowStorageAdapter,
   WorkflowExecutionStorageAdapter,
   TaskStorageAdapter,
+  AgentLoopStorageAdapter,
 } from "@wf-agent/storage";
 import type { CustomTriggerHandler } from "../../../core/registry/custom-handler-registry.js";
 
@@ -229,6 +230,8 @@ export interface SDKOptions {
   taskStorageAdapter?: TaskStorageAdapter;
   /** Workflow execution storage adapter interface (implemented by the application layer) */
   workflowExecutionStorageAdapter?: WorkflowExecutionStorageAdapter;
+  /** Agent loop checkpoint storage adapter interface (implemented by the application layer) */
+  agentLoopCheckpointStorageAdapter?: AgentLoopStorageAdapter;
   /** Whether to enable verification */
   enableValidation?: boolean;
   /** Detailed validation configuration */

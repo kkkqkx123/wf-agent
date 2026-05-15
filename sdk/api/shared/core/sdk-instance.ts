@@ -72,7 +72,7 @@ export class SDKInstance {
       task: options?.taskStorageAdapter,
       workflow: options?.workflowStorageAdapter,
       workflowExecution: options?.workflowExecutionStorageAdapter,
-      agentLoopCheckpoint: options?.agentLoopCheckpointStorageAdapter,
+      agentLoop: options?.agentLoopCheckpointStorageAdapter,
     });
     this.containerId = containerId;
     
@@ -240,7 +240,7 @@ export class SDKInstance {
       task: !!this.config?.taskStorageAdapter,
       workflow: !!this.config?.workflowStorageAdapter,
       workflowExecution: !!this.config?.workflowExecutionStorageAdapter,
-      agentLoopCheckpoint: !!this.config?.agentLoopCheckpointStorageAdapter,
+      agentLoop: !!this.config?.agentLoopCheckpointStorageAdapter,
     });
     
     // Preload lazy-loaded modules (TomlParserManager)

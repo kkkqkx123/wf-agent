@@ -24,6 +24,67 @@ import type {
 
 const logger = createContextualLogger({ operation: "BaseMetricCollector" });
 
+// =============================================================================
+// Internal State Types
+// =============================================================================
+
+/**
+ * Histogram state for cumulative bucket counts
+ */
+interface HistogramState {
+  buckets: Map<number, number>; // upperBound -> cumulative count
+  sum: number;
+  count: number;
+  lastUpdate: number;
+}
+
+/**
+ * Summary state for sliding window percentiles
+ */
+interface SummaryState {
+  ringBuffer: Float64Array; // Fixed-size circular buffer
+  bufferSize: number;
+  writeIndex: number;
+  filledCount: number;
+  sum: number;
+  count: number;
+  lastUpdate: number;
+}
+
+/**
+ * Internal self-monitoring metrics
+ */
+interface CollectorInternalMetrics {
+  // Buffer state
+  bufferSize: number;
+  bufferUtilization: number;
+  
+  // Operation counts
+  recordCount: number;
+  flushCount: number;
+  queryCount: number;
+  
+  // Performance metrics
+  avgFlushDuration: number;
+  avgQueryDuration: number;
+  lastFlushDuration: number;
+  
+  // Cleanup statistics
+  cleanupCount: number;
+  expiredMetricsRemoved: number;
+  lastCleanupTime: number;
+  
+  // Error counts
+  flushErrorCount: number;
+  reportErrorCount: number;
+  
+  // Subscription stats
+  activeSubscriptions: number;
+  
+  // Memory estimate (bytes)
+  estimatedMemoryUsage: number;
+}
+
 /**
  * Base implementation of MetricCollector
  * Provides common functionality that can be extended by specific collectors
@@ -41,6 +102,39 @@ export abstract class BaseMetricCollector implements MetricCollector {
   private cleanupTimer?: NodeJS.Timeout;
   private isFlushing: boolean = false;
   private nextSubscriptionId: number = 0;
+  
+  // Histogram state management for cumulative bucket counts
+  private histogramStates: Map<string, HistogramState> = new Map();
+  
+  // Summary state management for sliding window percentiles
+  private summaryStates: Map<string, SummaryState> = new Map();
+  
+  // Internal self-monitoring metrics
+  private internalMetrics: CollectorInternalMetrics = {
+    bufferSize: 0,
+    bufferUtilization: 0,
+    recordCount: 0,
+    flushCount: 0,
+    queryCount: 0,
+    avgFlushDuration: 0,
+    avgQueryDuration: 0,
+    lastFlushDuration: 0,
+    cleanupCount: 0,
+    expiredMetricsRemoved: 0,
+    lastCleanupTime: 0,
+    flushErrorCount: 0,
+    reportErrorCount: 0,
+    activeSubscriptions: 0,
+    estimatedMemoryUsage: 0,
+  };
+  
+  // Standard histogram buckets (Prometheus default)
+  private static readonly DEFAULT_HISTOGRAM_BUCKETS = [
+    0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, Infinity
+  ];
+  
+  // Default summary window size
+  private static readonly DEFAULT_SUMMARY_WINDOW_SIZE = 1000;
 
   constructor(config?: MetricCollectorConfig) {
     this.config = {
@@ -78,6 +172,13 @@ export abstract class BaseMetricCollector implements MetricCollector {
 
     // Add to buffer
     this.metricsBuffer.push(metric);
+    
+    // Update internal metrics
+    this.internalMetrics.recordCount += 1;
+    this.internalMetrics.bufferSize = this.metricsBuffer.length;
+    this.internalMetrics.bufferUtilization = 
+      this.metricsBuffer.length / this.config.bufferSize;
+    this.updateMemoryEstimate();
 
     // Check if buffer needs flushing
     if (this.metricsBuffer.length >= this.config.bufferSize) {
@@ -120,47 +221,85 @@ export abstract class BaseMetricCollector implements MetricCollector {
   }
 
   /**
-   * Record a histogram observation
-   * Note: This creates a basic histogram entry. For proper cumulative histograms,
-   * subclasses should override this method to maintain bucket state.
+   * Record a histogram observation with cumulative bucket counts
    */
   observeHistogram(
     metricName: string,
     value: number,
     labels?: Record<string, string>,
   ): void {
+    const key = this.getHistogramKey(metricName, labels);
+    let state = this.histogramStates.get(key);
+    
+    if (!state) {
+      state = this.initializeHistogramState();
+      this.histogramStates.set(key, state);
+    }
+    
+    // Update cumulative buckets
+    for (const bound of state.buckets.keys()) {
+      if (value <= bound) {
+        state.buckets.set(bound, state.buckets.get(bound)! + 1);
+      }
+    }
+    
+    state.sum += value;
+    state.count += 1;
+    state.lastUpdate = now();
+    
+    // Serialize buckets for the metric record
+    const buckets = this.serializeBuckets(state.buckets);
+    
     const metric = {
       metricName,
       metricType: "histogram" as const,
       timestamp: now(),
       labels: labels || {},
       value,
-      buckets: [], // Empty buckets - subclasses should provide proper implementation
-      sum: value,
-      count: 1,
+      buckets,
+      sum: state.sum,
+      count: state.count,
     };
     this.record(metric);
   }
 
   /**
-   * Record a summary observation
-   * Note: This creates a basic summary entry. For proper percentile calculations,
-   * subclasses should override this method to maintain observation history.
+   * Record a summary observation with sliding window percentiles
    */
   observeSummary(
     metricName: string,
     value: number,
     labels?: Record<string, string>,
   ): void {
+    const key = this.getSummaryKey(metricName, labels);
+    let state = this.summaryStates.get(key);
+    
+    if (!state) {
+      state = this.initializeSummaryState();
+      this.summaryStates.set(key, state);
+    }
+    
+    // Write to ring buffer (circular)
+    state.ringBuffer[state.writeIndex] = value;
+    state.writeIndex = (state.writeIndex + 1) % state.bufferSize;
+    state.filledCount = Math.min(state.filledCount + 1, state.bufferSize);
+    
+    state.sum += value;
+    state.count += 1;
+    state.lastUpdate = now();
+    
+    // Calculate percentiles from current window
+    const percentiles = this.calculatePercentiles(state);
+    
     const metric = {
       metricName,
       metricType: "summary" as const,
       timestamp: now(),
       labels: labels || {},
       value,
-      percentiles: [], // Empty percentiles - subclasses should provide proper implementation
-      sum: value,
-      count: 1,
+      percentiles,
+      sum: state.sum,
+      count: state.count,
     };
     this.record(metric);
   }
@@ -215,6 +354,10 @@ export abstract class BaseMetricCollector implements MetricCollector {
     const aggregated = this.aggregateMetrics(filtered);
 
     const queryTime = now() - startTime;
+    
+    // Update internal metrics
+    this.internalMetrics.queryCount += 1;
+    this.updateInternalAverage('avgQueryDuration', queryTime);
 
     return {
       totalCount: filtered.length,
@@ -240,6 +383,7 @@ export abstract class BaseMetricCollector implements MetricCollector {
     };
 
     this.reportCallbacks.push(subscription);
+    this.internalMetrics.activeSubscriptions = this.reportCallbacks.length;
 
     // Start periodic reporting if this is the first subscription
     if (this.reportCallbacks.length === 1) {
@@ -257,6 +401,7 @@ export abstract class BaseMetricCollector implements MetricCollector {
           clearInterval(sub.timer);
         }
         this.reportCallbacks.splice(index, 1);
+        this.internalMetrics.activeSubscriptions = this.reportCallbacks.length;
         
         // Stop periodic reporting if no more subscriptions
         if (this.reportCallbacks.length === 0) {
@@ -271,9 +416,17 @@ export abstract class BaseMetricCollector implements MetricCollector {
    */
   clear(): void {
     this.metricsBuffer = [];
+    this.histogramStates.clear();
+    this.summaryStates.clear();
     this.stopPeriodicFlush();
     this.stopPeriodicCleanup();
     this.stopPeriodicReporting();
+    
+    // Reset internal metrics (keep counts, reset current state)
+    this.internalMetrics.bufferSize = 0;
+    this.internalMetrics.bufferUtilization = 0;
+    this.internalMetrics.estimatedMemoryUsage = 0;
+    
     logger.info("Metrics cleared");
   }
 
@@ -305,9 +458,209 @@ export abstract class BaseMetricCollector implements MetricCollector {
    */
   abstract toJSON(): Record<string, unknown>;
 
+  /**
+   * Get internal monitoring metrics
+   * @returns Current internal metrics snapshot
+   */
+  getInternalMetrics(): CollectorInternalMetrics {
+    return { ...this.internalMetrics };
+  }
+  
+  /**
+   * Export internal metrics in Prometheus format
+   * @returns Array of formatted metric lines
+   */
+  exportInternalMetrics(): string[] {
+    const metrics: string[] = [];
+    const m = this.internalMetrics;
+    const collectorName = this.constructor.name;
+    
+    // Buffer size
+    metrics.push(`# HELP metrics_buffer_size Current buffer size`);
+    metrics.push(`# TYPE metrics_buffer_size gauge`);
+    metrics.push(`metrics_buffer_size{collector="${collectorName}"} ${m.bufferSize}`);
+    
+    // Buffer utilization
+    metrics.push(`# HELP metrics_buffer_utilization Buffer utilization ratio (0-1)`);
+    metrics.push(`# TYPE metrics_buffer_utilization gauge`);
+    metrics.push(`metrics_buffer_utilization{collector="${collectorName}"} ${m.bufferUtilization.toFixed(3)}`);
+    
+    // Record count
+    metrics.push(`# HELP metrics_record_total Total records`);
+    metrics.push(`# TYPE metrics_record_total counter`);
+    metrics.push(`metrics_record_total{collector="${collectorName}"} ${m.recordCount}`);
+    
+    // Flush statistics
+    metrics.push(`# HELP metrics_flush_total Total flush operations`);
+    metrics.push(`# TYPE metrics_flush_total counter`);
+    metrics.push(`metrics_flush_total{collector="${collectorName}"} ${m.flushCount}`);
+    
+    metrics.push(`# HELP metrics_flush_error_total Total flush errors`);
+    metrics.push(`# TYPE metrics_flush_error_total counter`);
+    metrics.push(`metrics_flush_error_total{collector="${collectorName}"} ${m.flushErrorCount}`);
+    
+    metrics.push(`# HELP metrics_flush_duration_seconds Average flush duration`);
+    metrics.push(`# TYPE metrics_flush_duration_seconds gauge`);
+    metrics.push(`metrics_flush_duration_seconds{collector="${collectorName}"} ${(m.avgFlushDuration / 1000).toFixed(3)}`);
+    
+    // Query statistics
+    metrics.push(`# HELP metrics_query_total Total query operations`);
+    metrics.push(`# TYPE metrics_query_total counter`);
+    metrics.push(`metrics_query_total{collector="${collectorName}"} ${m.queryCount}`);
+    
+    metrics.push(`# HELP metrics_query_duration_seconds Average query duration`);
+    metrics.push(`# TYPE metrics_query_duration_seconds gauge`);
+    metrics.push(`metrics_query_duration_seconds{collector="${collectorName}"} ${(m.avgQueryDuration / 1000).toFixed(3)}`);
+    
+    // Cleanup statistics
+    metrics.push(`# HELP metrics_cleanup_total Total cleanup operations`);
+    metrics.push(`# TYPE metrics_cleanup_total counter`);
+    metrics.push(`metrics_cleanup_total{collector="${collectorName}"} ${m.cleanupCount}`);
+    
+    metrics.push(`# HELP metrics_cleanup_removed_total Total expired metrics removed`);
+    metrics.push(`# TYPE metrics_cleanup_removed_total counter`);
+    metrics.push(`metrics_cleanup_removed_total{collector="${collectorName}"} ${m.expiredMetricsRemoved}`);
+    
+    // Subscriptions
+    metrics.push(`# HELP metrics_active_subscriptions Active report subscriptions`);
+    metrics.push(`# TYPE metrics_active_subscriptions gauge`);
+    metrics.push(`metrics_active_subscriptions{collector="${collectorName}"} ${m.activeSubscriptions}`);
+    
+    // Memory estimate
+    metrics.push(`# HELP metrics_memory_estimate_bytes Estimated memory usage`);
+    metrics.push(`# TYPE metrics_memory_estimate_bytes gauge`);
+    metrics.push(`metrics_memory_estimate_bytes{collector="${collectorName}"} ${m.estimatedMemoryUsage}`);
+    
+    return metrics;
+  }
+
   // =============================================================================
   // Protected Helper Methods
   // =============================================================================
+
+  /**
+   * Get histogram state key
+   */
+  protected getHistogramKey(metricName: string, labels?: Record<string, string>): string {
+    return `${metricName}:${JSON.stringify(labels || {})}`;
+  }
+  
+  /**
+   * Initialize histogram state with default buckets
+   */
+  protected initializeHistogramState(): HistogramState {
+    const buckets = new Map<number, number>();
+    for (const bound of BaseMetricCollector.DEFAULT_HISTOGRAM_BUCKETS) {
+      buckets.set(bound, 0);
+    }
+    return { buckets, sum: 0, count: 0, lastUpdate: 0 };
+  }
+  
+  /**
+   * Serialize histogram buckets to array
+   */
+  protected serializeBuckets(buckets: Map<number, number>): Array<{ upperBound: number; count: number }> {
+    return Array.from(buckets.entries())
+      .map(([upperBound, count]) => ({ upperBound, count }))
+      .sort((a, b) => a.upperBound - b.upperBound);
+  }
+  
+  /**
+   * Get summary state key
+   */
+  protected getSummaryKey(metricName: string, labels?: Record<string, string>): string {
+    return `${metricName}:${JSON.stringify(labels || {})}`;
+  }
+  
+  /**
+   * Initialize summary state with sliding window
+   */
+  protected initializeSummaryState(windowSize?: number): SummaryState {
+    const size = windowSize || BaseMetricCollector.DEFAULT_SUMMARY_WINDOW_SIZE;
+    return {
+      ringBuffer: new Float64Array(size),
+      bufferSize: size,
+      writeIndex: 0,
+      filledCount: 0,
+      sum: 0,
+      count: 0,
+      lastUpdate: 0,
+    };
+  }
+  
+  /**
+   * Calculate percentiles from summary state
+   */
+  protected calculatePercentiles(
+    state: SummaryState,
+    targets: number[] = [0.5, 0.9, 0.95, 0.99]
+  ): Array<{ percentile: number; value: number }> {
+    if (state.filledCount === 0) {
+      return targets.map(p => ({ percentile: p, value: 0 }));
+    }
+    
+    // Extract valid data from ring buffer
+    const values = new Float64Array(state.filledCount);
+    for (let i = 0; i < state.filledCount; i++) {
+      const idx = (state.writeIndex + i) % state.bufferSize;
+      const val = state.ringBuffer[idx];
+      if (val !== undefined) {
+        values[i] = val;
+      }
+    }
+    
+    // Sort for percentile calculation
+    values.sort();
+    
+    // Calculate percentiles
+    return targets.map(p => ({
+      percentile: p,
+      value: this.getPercentileValue(values, p),
+    }));
+  }
+  
+  /**
+   * Get value at specific percentile from sorted array
+   */
+  protected getPercentileValue(sortedValues: Float64Array, percentile: number): number {
+    if (sortedValues.length === 0) return 0;
+    
+    const index = percentile * (sortedValues.length - 1);
+    const lower = Math.floor(index);
+    const upper = Math.ceil(index);
+    
+    if (lower === upper || upper >= sortedValues.length) {
+      return sortedValues[lower] ?? 0;
+    }
+    
+    // Linear interpolation
+    const weight = index - lower;
+    const lowerVal = sortedValues[lower] ?? 0;
+    const upperVal = sortedValues[upper] ?? 0;
+    return lowerVal * (1 - weight) + upperVal * weight;
+  }
+  
+  /**
+   * Update internal metrics averages
+   */
+  protected updateInternalAverage(field: keyof CollectorInternalMetrics, value: number): void {
+    const currentAvg = this.internalMetrics[field] as number;
+    const count = field === 'avgFlushDuration' 
+      ? this.internalMetrics.flushCount 
+      : this.internalMetrics.queryCount;
+    
+    if (count > 0) {
+      this.internalMetrics[field] = currentAvg + (value - currentAvg) / count;
+    }
+  }
+  
+  /**
+   * Update memory usage estimate
+   */
+  protected updateMemoryEstimate(): void {
+    // Rough estimate: ~500 bytes per metric
+    this.internalMetrics.estimatedMemoryUsage = this.metricsBuffer.length * 500;
+  }
 
   /**
    * Aggregate metrics by name and labels
@@ -468,12 +821,20 @@ export abstract class BaseMetricCollector implements MetricCollector {
       // Prevent concurrent flushes
       if (!this.isFlushing) {
         this.isFlushing = true;
+        const startTime = now();
         this.flush()
-          .finally(() => {
-            this.isFlushing = false;
+          .then(() => {
+            const duration = now() - startTime;
+            this.internalMetrics.flushCount += 1;
+            this.internalMetrics.lastFlushDuration = duration;
+            this.updateInternalAverage('avgFlushDuration', duration);
           })
           .catch((error) => {
             logger.error("Periodic flush failed", { error });
+            this.internalMetrics.flushErrorCount += 1;
+          })
+          .finally(() => {
+            this.isFlushing = false;
           });
       }
     }, this.config.flushInterval);
@@ -537,6 +898,10 @@ export abstract class BaseMetricCollector implements MetricCollector {
     
     const removedCount = originalCount - this.metricsBuffer.length;
     if (removedCount > 0) {
+      this.internalMetrics.cleanupCount += 1;
+      this.internalMetrics.expiredMetricsRemoved += removedCount;
+      this.internalMetrics.lastCleanupTime = now();
+      
       logger.debug("Cleaned up expired metrics", { 
         removedCount, 
         remainingCount: this.metricsBuffer.length 

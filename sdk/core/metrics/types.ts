@@ -199,11 +199,40 @@ export interface MetricCollectorConfig {
 export type MetricReportCallback = (report: MetricReport) => void | Promise<void>;
 
 /**
+ * Trend data point for time series analysis
+ */
+export interface TrendDataPoint {
+  /** Timestamp of the data point */
+  timestamp: number;
+  /** Value at this timestamp */
+  value: number;
+}
+
+/**
+ * Trend information for a metric
+ */
+export interface MetricTrend {
+  /** Metric name */
+  metricName: string;
+  /** Time series data points */
+  dataPoints: TrendDataPoint[];
+  /** Calculated trend direction */
+  trend: "increasing" | "decreasing" | "stable";
+  /** Percentage change over the time range */
+  changePercent?: number;
+}
+
+/**
  * Metric report generated periodically
  */
 export interface MetricReport {
   /** Report generation timestamp */
   timestamp: number;
+  /** Time range covered by this report (if specified) */
+  timeRange?: {
+    from: number;
+    to: number;
+  };
   /** Summary statistics */
   summary: {
     totalMetrics: number;
@@ -222,6 +251,8 @@ export interface MetricReport {
     description: string;
     severity: "low" | "medium" | "high";
   }>;
+  /** Trend analysis (if includeTrends was true) */
+  trends?: MetricTrend[];
 }
 
 /**

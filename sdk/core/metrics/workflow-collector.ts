@@ -103,6 +103,8 @@ export class WorkflowMetricsCollector extends BaseMetricCollector {
    */
   getWorkflowUsageStats(workflowId?: string): {
     totalExecutions: number;
+    successCount: number;
+    failureCount: number;
     successRate: number;
     avgDuration: number;
     p95Duration: number;
@@ -176,6 +178,8 @@ export class WorkflowMetricsCollector extends BaseMetricCollector {
 
     return {
       totalExecutions,
+      successCount,
+      failureCount,
       successRate,
       avgDuration,
       p95Duration,
@@ -245,7 +249,7 @@ export class WorkflowMetricsCollector extends BaseMetricCollector {
           if (labels.workflow_id && workflows.has(labels.workflow_id)) {
             workflows.get(labels.workflow_id)!.success += labelAgg.value;
           }
-        } catch (error) {
+        } catch (_error) {
           // Ignore parsing errors
         }
       }

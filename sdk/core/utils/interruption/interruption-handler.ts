@@ -89,7 +89,7 @@ export async function executeWithInterruptionHandling<T>(
     if (error instanceof Error && error.name === "InterruptionError" && "interruption" in error) {
       return {
         success: false,
-        interruption: (error as any).interruption,
+        interruption: (error as Error & { interruption?: ExecutionInterruptionCheckResult }).interruption!,
       };
     }
 

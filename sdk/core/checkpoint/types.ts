@@ -6,14 +6,14 @@ import type { BaseCheckpoint } from "@wf-agent/types";
 
 /**
  * Storage adapter interface for checkpoint persistence
+ * 
+ * Note: This adapter works with serialized data (Uint8Array).
+ * Serialization/deserialization is handled externally by StateCodec.
+ * The adapter is agnostic to the specific checkpoint type.
  */
-export interface CheckpointStorageAdapter<
-  TState = unknown,
-  TMetadata = unknown,
-  TCheckpoint extends BaseCheckpoint<TState, TMetadata> = BaseCheckpoint<TState, TMetadata>
-> {
+export interface CheckpointStorageAdapter<TMetadata = unknown> {
   save(id: string, data: Uint8Array, metadata: TMetadata): Promise<void>;
-  load(id: string): Promise<{ data: Uint8Array; metadata: TMetadata } | null>;
+  load(id: string): Promise<Uint8Array | null>;
   delete(id: string): Promise<void>;
   list(options?: { parentId?: string; limit?: number }): Promise<string[]>;
   initialize?(): Promise<void>;

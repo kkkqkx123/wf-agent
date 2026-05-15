@@ -360,12 +360,17 @@ export class EventMetricsCollector extends BaseMetricCollector {
     const summary = this.generateSummary();
     
     // Convert Map to plain object for JSON serialization
-    const byEventTypeObj: Record<string, any> = {};
+    const byEventTypeObj: Record<string, {
+      count: number;
+      lastSeen: number;
+      firstSeen: number;
+      byExecution: Record<string, number>;
+    }> = {};
     for (const [eventType, stat] of summary.byEventType.entries()) {
       byEventTypeObj[eventType] = {
         count: stat.count,
-        lastSeen: stat.lastSeen,
-        firstSeen: stat.firstSeen,
+        lastSeen: stat.lastSeen ?? 0,
+        firstSeen: stat.firstSeen ?? 0,
         byExecution: Object.fromEntries(stat.byExecution)
       };
     }

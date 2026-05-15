@@ -13,7 +13,7 @@ import {
 } from "../../validation/validation-strategy.js";
 
 import type { SkillMetadata, SkillMatchResult, SkillResourceType, Skill } from "@wf-agent/types";
-import { NotFoundError, ExecutionError } from "@wf-agent/types";
+import { NotFoundError, ExecutionError, SDKError } from "@wf-agent/types";
 import { ReadonlyResourceAPI } from "../generic-resource-api.js";
 import type { APIDependencyManager } from "../../core/sdk-dependencies.js";
 import type { ExecutionResult } from "../../types/execution-result.js";
@@ -343,13 +343,13 @@ export class SkillRegistryAPI extends ReadonlyResourceAPI<SkillMetadata, string,
       return success(undefined, 0);
     } catch (error) {
       const sdkError = error instanceof Error 
-        ? new (await import("@wf-agent/types")).SDKError(
+        ? new SDKError(
             error.message,
             "error",
             undefined,
             error
           )
-        : new (await import("@wf-agent/types")).SDKError(
+        : new SDKError(
             String(error),
             "error"
           );

@@ -15,15 +15,12 @@ import type { WorkflowExecution, LLMMessage } from "@wf-agent/types";
 import type { HumanRelayHandler } from "@wf-agent/types";
 import { ExecutionError, RuntimeValidationError } from "@wf-agent/types";
 import { now, diffTimestamp, getErrorOrNew } from "@wf-agent/common-utils";
-import { createContextualLogger } from "../../../../utils/contextual-logger.js";
 import { LLMExecutionCoordinator } from "../../coordinators/llm-execution-coordinator.js";
 import { LLMWrapper } from "../../../../core/llm/wrapper.js";
 import { executeHumanRelay } from "../human-relay-handler.js";
 import type { EventRegistry } from "../../../../core/registry/event-registry.js";
 import type { ConversationSession } from "../../../../core/messaging/conversation-session.js";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
-
-const logger = createContextualLogger({ component: "LLMHandler" });
 
 /**
  * LLM node execution results

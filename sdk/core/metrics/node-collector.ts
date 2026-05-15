@@ -185,7 +185,7 @@ export class NodeMetricsCollector extends BaseMetricCollector {
             }
             result[nodeType].totalCount += labelAgg.value;
           }
-        } catch (error) {
+        } catch (_error) {
           // Ignore
         }
       }
@@ -208,7 +208,7 @@ export class NodeMetricsCollector extends BaseMetricCollector {
               result[nodeType].successCount += labelAgg.value;
             }
           }
-        } catch (error) {
+        } catch (_error) {
           // Ignore
         }
       }

@@ -12,6 +12,7 @@ import type { EventRegistry } from "../../core/registry/event-registry.js";
 import { BaseCheckpointStateManager } from "../../core/checkpoint/base-checkpoint-state-manager.js";
 import {
   buildCheckpointCreatedEvent,
+  buildCheckpointDeletedEvent,
   buildCheckpointFailedEvent,
 } from "../execution/utils/event/index.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
@@ -117,26 +118,14 @@ export class CheckpointState extends BaseCheckpointStateManager<Checkpoint> {
   /**
    * Delete a checkpoint
    * @param checkpointId Checkpoint ID
-   * @param reason Reason for deletion - kept for backward compatibility but not used
+   * @param reason Reason for deletion (manual, cleanup, or policy)
    */
   override async delete(
     checkpointId: string,
-    _reason: "manual" | "cleanup" | "policy" = "manual"
+    reason: "manual" | "cleanup" | "policy" = "manual"
   ): Promise<void> {
     // Call parent implementation which handles deletion and events
-    await super.delete(checkpointId);
-  }
-
-  /**
-   * Create a node-level checkpoint
-   * @param checkpointData Checkpoint data
-   * @param nodeId Node ID
-   * @returns Checkpoint ID
-   */
-  async createNodeCheckpoint(checkpointData: Checkpoint, nodeId: string): Promise<string> {
-    // This method is deprecated - use createCheckpoint with metadata instead
-    logger.warn("createNodeCheckpoint is deprecated, use createCheckpoint with metadata");
-    return this.create(checkpointData);
+    await super.delete(checkpointId, reason);
   }
 
   // ============================================================================
@@ -162,22 +151,40 @@ export class CheckpointState extends BaseCheckpointStateManager<Checkpoint> {
     });
   }
 
-  protected buildDeletedEvent(checkpointId: string): unknown {
-    // Deleted event needs executionId, which we don't have here
-    // Return a minimal event structure
-    return {
-      type: "CHECKPOINT_DELETED" as const,
-      data: { checkpointId },
-      timestamp: Date.now(),
-    };
+  protected async buildDeletedEvent(
+    checkpointId: string,
+    reason?: "manual" | "cleanup" | "policy"
+  ): Promise<unknown> {
+    // Try to get executionId from the checkpoint before deletion
+    let executionId = "";
+    try {
+      const checkpoint = await this.get(checkpointId);
+      if (checkpoint) {
+        executionId = checkpoint.executionId;
+      }
+    } catch (error) {
+      logger.warn("Failed to fetch checkpoint for deleted event", {
+        checkpointId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    return buildCheckpointDeletedEvent({
+      executionId,
+      checkpointId,
+      reason,
+    });
   }
 
-  protected buildFailedEvent(checkpointId: string, error: unknown): unknown {
+  protected buildFailedEvent(
+    checkpointId: string,
+    error: unknown,
+    operation: "create" | "restore" | "delete" = "create"
+  ): unknown {
     const errorMessage = error instanceof Error ? error : new Error(String(error));
-    // Since we don't have context about which operation failed, we default to "create"
     return buildCheckpointFailedEvent({
-      executionId: "", // We don't have executionId here
-      operation: "create", // Default to create since most failures happen during creation
+      executionId: "", // We don't have executionId in error context
+      operation,
       error: errorMessage,
       checkpointId,
     });

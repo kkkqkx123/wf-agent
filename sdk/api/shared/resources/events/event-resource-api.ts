@@ -18,96 +18,9 @@ import type { Timestamp } from "@wf-agent/types";
 import { DispatchEventCommand } from "../../operations/events/dispatch-event-command.js";
 import type { APIDependencyManager } from "../../core/sdk-dependencies.js";
 import { CommandExecutor } from "../../common/command-executor.js";
+import { createContextualLogger } from "../../../../utils/contextual-logger.js";
 
-/**
- * All event types list
- * Used to listen to all events
- */
-const ALL_EVENT_TYPES: EventType[] = [
-  // Workflow Execution events
-  "WORKFLOW_EXECUTION_STARTED",
-  "WORKFLOW_EXECUTION_COMPLETED",
-  "WORKFLOW_EXECUTION_FAILED",
-  "WORKFLOW_EXECUTION_PAUSED",
-  "WORKFLOW_EXECUTION_RESUMED",
-  "WORKFLOW_EXECUTION_CANCELLED",
-  "WORKFLOW_EXECUTION_STATE_CHANGED",
-  "WORKFLOW_EXECUTION_FORK_STARTED",
-  "WORKFLOW_EXECUTION_FORK_COMPLETED",
-  "WORKFLOW_EXECUTION_JOIN_STARTED",
-  "WORKFLOW_EXECUTION_JOIN_CONDITION_MET",
-  "WORKFLOW_EXECUTION_COPY_STARTED",
-  "WORKFLOW_EXECUTION_COPY_COMPLETED",
-  // Node events
-  "NODE_STARTED",
-  "NODE_COMPLETED",
-  "NODE_FAILED",
-  "NODE_CUSTOM_EVENT",
-  // Token events
-  "TOKEN_LIMIT_EXCEEDED",
-  "TOKEN_USAGE_WARNING",
-  // Context compression events
-  "CONTEXT_COMPRESSION_REQUESTED",
-  "CONTEXT_COMPRESSION_COMPLETED",
-  // Message events
-  "MESSAGE_ADDED",
-  // Tool events
-  "TOOL_CALL_STARTED",
-  "TOOL_CALL_COMPLETED",
-  "TOOL_CALL_FAILED",
-  "TOOL_ADDED",
-  // Conversation events
-  "CONVERSATION_STATE_CHANGED",
-  // Error events
-  "ERROR",
-  // Checkpoint events
-  "CHECKPOINT_CREATED",
-  "CHECKPOINT_RESTORED",
-  "CHECKPOINT_DELETED",
-  "CHECKPOINT_FAILED",
-  // Subgraph events
-  "SUBGRAPH_STARTED",
-  "SUBGRAPH_COMPLETED",
-  "TRIGGERED_SUBGRAPH_STARTED",
-  "TRIGGERED_SUBGRAPH_COMPLETED",
-  "TRIGGERED_SUBGRAPH_FAILED",
-  // Variable events
-  "VARIABLE_CHANGED",
-  // Tool approval events (specialized)
-  "TOOL_APPROVAL_REQUESTED",
-  "TOOL_APPROVAL_RESPONDED",
-  "TOOL_APPROVAL_FAILED",
-  // Follow-up question events (specialized)
-  "FOLLOWUP_QUESTION_REQUESTED",
-  "FOLLOWUP_QUESTION_RESPONDED",
-  "FOLLOWUP_QUESTION_FAILED",
-  // HumanRelay events
-  "HUMAN_RELAY_REQUESTED",
-  "HUMAN_RELAY_RESPONDED",
-  "HUMAN_RELAY_FAILED",
-  // LLM stream events
-  "LLM_STREAM_ABORTED",
-  "LLM_STREAM_ERROR",
-  // Agent events
-  "AGENT_HOOK_TRIGGERED",
-  // Skill events
-  "SKILL_LOAD_STARTED",
-  "SKILL_LOAD_COMPLETED",
-  "SKILL_LOAD_FAILED",
-  // Agent lifecycle events
-  "AGENT_STARTED",
-  "AGENT_COMPLETED",
-  "AGENT_TURN_STARTED",
-  "AGENT_TURN_COMPLETED",
-  "AGENT_MESSAGE_STARTED",
-  "AGENT_MESSAGE_COMPLETED",
-  "AGENT_TOOL_EXECUTION_STARTED",
-  "AGENT_TOOL_EXECUTION_COMPLETED",
-  "AGENT_ITERATION_COMPLETED",
-  // Agent interruption events
-  "AGENT_PAUSED",
-  "AGENT_CANCELLED",
-];
+const logger = createContextualLogger({ component: "EventResourceAPI" });
 
 /**
  * Event filter
@@ -271,7 +184,7 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
     if (removedCount > 0) {
       // Log cleanup in development/debug mode
       if (process.env['NODE_ENV'] !== 'production') {
-        console.debug(`Cleaned up ${removedCount} expired events`);
+        logger.debug(`Cleaned up ${removedCount} expired events`);
       }
     }
   }

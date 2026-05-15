@@ -28,7 +28,7 @@ import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-
 import type { GlobalContext } from "../../../core/global-context.js";
 import * as Identifiers from "../../../core/di/service-identifiers.js";
 import type { ExecutionHierarchyRegistry } from "../../../core/registry/execution-hierarchy-registry.js";
-import { restoreWorkflowFromCheckpoint } from "../utils/checkpoint-restoration.js";
+import { CheckpointCoordinator } from "../../checkpoint/checkpoint-coordinator.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import { PauseTimeoutManager } from "../utils/pause-timeout-manager.js";
 import type { MetricsRegistry } from "../../../core/metrics/metrics-registry.js";
@@ -207,11 +207,6 @@ export class WorkflowLifecycleCoordinator {
    * @throws: NotFoundError: The workflow execution context does not exist.
    */
   async resumeWorkflowExecution(executionId: string): Promise<WorkflowExecutionResult> {
-    const workflowExecutionEntity = this.workflowExecutionRegistry.get(executionId);
-    if (!workflowExecutionEntity) {
-      throw new WorkflowExecutionNotFoundError(`WorkflowExecutionEntity not found`, executionId);
-    }
-
     logger.info("Resuming workflow execution", { executionId });
 
     // Stop pause timeout monitoring (if enabled)
@@ -220,21 +215,52 @@ export class WorkflowLifecycleCoordinator {
       logger.debug("Stopped pause timeout monitoring", { executionId });
     }
 
-    // 1. Restore from last checkpoint
-    const restored = await restoreWorkflowFromCheckpoint(
-      executionId,
-      workflowExecutionEntity,
-      this.workflowExecutionRegistry,
-      this.globalContext,
-    );
+    // Restore from last checkpoint using CheckpointCoordinator
+    const checkpointDeps = {
+      workflowExecutionRegistry: this.workflowExecutionRegistry,
+      checkpointStateManager: this.globalContext.container.get(Identifiers.CheckpointState),
+      workflowRegistry: this.globalContext.container.get(Identifiers.WorkflowRegistry),
+      workflowGraphRegistry: this.globalContext.container.get(Identifiers.WorkflowGraphRegistry),
+      hierarchyRegistry: this.globalContext.container.get(Identifiers.ExecutionHierarchyRegistry),
+    };
 
-    if (restored) {
+    // Find the latest checkpoint for this execution
+    const checkpointStateManager = checkpointDeps.checkpointStateManager;
+    const checkpointIds = await checkpointStateManager.list({
+      parentId: executionId,
+      limit: 1,
+    });
+
+    let workflowExecutionEntity: import("../../entities/workflow-execution-entity.js").WorkflowExecutionEntity;
+
+    if (checkpointIds.length > 0 && checkpointIds[0]) {
+      const latestCheckpointId = checkpointIds[0];
+      logger.info("Restoring from checkpoint", {
+        executionId,
+        checkpointId: latestCheckpointId,
+      });
+
+      // Use CheckpointCoordinator to restore from checkpoint
+      // This will create a new WorkflowExecutionEntity and register it in the registry
+      const { workflowExecutionEntity: restoredEntity } = await CheckpointCoordinator.restoreFromCheckpoint(
+        latestCheckpointId,
+        checkpointDeps,
+      );
+
+      workflowExecutionEntity = restoredEntity;
+
       logger.info("Workflow restored from checkpoint", {
         executionId,
         restoredNodeId: workflowExecutionEntity.getCurrentNodeId(),
-        checkpointId: restored.checkpointId,
+        checkpointId: latestCheckpointId,
       });
     } else {
+      // No checkpoint found, get existing entity from registry
+      const existingEntity = this.workflowExecutionRegistry.get(executionId);
+      if (!existingEntity) {
+        throw new WorkflowExecutionNotFoundError(`WorkflowExecutionEntity not found`, executionId);
+      }
+      workflowExecutionEntity = existingEntity;
       logger.warn("No checkpoint found, resuming from start", { executionId });
     }
 

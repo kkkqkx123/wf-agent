@@ -305,7 +305,8 @@ export class TemplateMetricsCollector extends BaseMetricCollector {
               templatesData[templateId] = {};
             }
             
-            (templatesData[templateId] as any)[metricName] = labelAgg.value;
+            const templateData = templatesData[templateId] as Record<string, number>;
+            templateData[metricName] = labelAgg.value;
           } catch (error) {
             logger.warn("Failed to parse label key", { labelKey, error });
           }

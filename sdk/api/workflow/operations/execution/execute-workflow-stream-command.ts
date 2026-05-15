@@ -26,6 +26,7 @@ import {
 import type { WorkflowExecutionOptions, BaseEvent } from "@wf-agent/types";
 import { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
 import type { WorkflowExecutionBuildResult } from "../../../../workflow/execution/factories/workflow-execution-builder.js";
+import * as ServiceIdentifiers from "../../../../core/di/service-identifiers.js";
 
 /**
  * Execute workflow stream command parameters
@@ -167,9 +168,8 @@ export class ExecuteWorkflowStreamCommand extends BaseCommand<AsyncGenerator<Bas
    * Get WorkflowExecutionBuilder instance
    */
   private async getWorkflowExecutionBuilder() {
-    const Identifiers = await import("../../../../core/di/service-identifiers.js");
     const globalContext = this.dependencies.getGlobalContext();
-    return globalContext.container.get(Identifiers.WorkflowExecutionBuilder);
+    return globalContext.container.get(ServiceIdentifiers.WorkflowExecutionBuilder);
   }
 
   validate(): CommandValidationResult {

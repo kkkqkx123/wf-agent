@@ -599,6 +599,8 @@ export class LLMExecutionCoordinator {
     const toolCallName = request.toolCall.function?.name || "";
     const toolCallArgs = request.toolCall.function?.arguments || "{}";
 
+    logger.debug('Requesting tool approval', { toolCallName, toolCallArgs });
+
     // Call the approval flow which returns ToolApprovalResult
     const result = await this.requestToolApproval(
       request.toolCall as import("@wf-agent/types").LLMToolCall,

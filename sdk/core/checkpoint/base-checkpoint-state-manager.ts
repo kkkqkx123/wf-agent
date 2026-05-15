@@ -25,14 +25,14 @@ const logger = createContextualLogger({ component: "BaseCheckpointStateManager" 
 export abstract class BaseCheckpointStateManager<
   TCheckpoint extends BaseCheckpoint<unknown, unknown>
 > {
-  protected storageAdapter: CheckpointStorageAdapter<TCheckpoint>;
+  protected storageAdapter: CheckpointStorageAdapter;
   protected eventManager?: EventRegistry;
   protected cleanupPolicy?: CleanupPolicy;
   protected codec: StateCodec;
   protected checkpointSizes: Map<string, number> = new Map();
 
   constructor(
-    storageAdapter: CheckpointStorageAdapter<TCheckpoint>,
+    storageAdapter: CheckpointStorageAdapter,
     eventManager?: EventRegistry,
     cleanupPolicy?: CleanupPolicy
   ) {
@@ -86,7 +86,7 @@ export abstract class BaseCheckpointStateManager<
 
       // Emit failed event (implemented by subclass)
       if (this.eventManager) {
-        const failedEvent = this.buildFailedEvent(checkpoint.id, error);
+        const failedEvent = this.buildFailedEvent(checkpoint.id, error, "create");
         await this.eventManager.emit(failedEvent as import("@wf-agent/types").BaseEvent);
       }
 
@@ -121,17 +121,18 @@ export abstract class BaseCheckpointStateManager<
   /**
    * Delete a checkpoint
    * @param checkpointId Checkpoint ID
+   * @param reason Reason for deletion (manual, cleanup, or policy)
    */
-  async delete(checkpointId: string): Promise<void> {
+  async delete(checkpointId: string, reason: "manual" | "cleanup" | "policy" = "manual"): Promise<void> {
     try {
       await this.storageAdapter.delete(checkpointId);
       this.checkpointSizes.delete(checkpointId);
 
-      logger.info("Checkpoint deleted", { checkpointId });
+      logger.info("Checkpoint deleted", { checkpointId, reason });
 
       // Emit deleted event (implemented by subclass)
       if (this.eventManager) {
-        const deletedEvent = this.buildDeletedEvent(checkpointId);
+        const deletedEvent = await this.buildDeletedEvent(checkpointId, reason);
         await this.eventManager.emit(deletedEvent as import("@wf-agent/types").BaseEvent);
       }
     } catch (error) {
@@ -273,15 +274,24 @@ export abstract class BaseCheckpointStateManager<
   /**
    * Build checkpoint deleted event
    * @param checkpointId The deleted checkpoint ID
-   * @returns Event object
+   * @param reason Reason for deletion
+   * @returns Event object (can be Promise for async implementations)
    */
-  protected abstract buildDeletedEvent(checkpointId: string): unknown;
+  protected abstract buildDeletedEvent(
+    checkpointId: string,
+    reason?: "manual" | "cleanup" | "policy"
+  ): unknown | Promise<unknown>;
 
   /**
    * Build checkpoint failed event
    * @param checkpointId The failed checkpoint ID
    * @param error The error
+   * @param operation The operation that failed (create, restore, delete)
    * @returns Event object
    */
-  protected abstract buildFailedEvent(checkpointId: string, error: unknown): unknown;
+  protected abstract buildFailedEvent(
+    checkpointId: string,
+    error: unknown,
+    operation?: "create" | "restore" | "delete"
+  ): unknown;
 }

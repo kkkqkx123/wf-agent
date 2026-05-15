@@ -22,7 +22,7 @@
  * - Graph-specific features are available through optional dependency injection
  */
 
-import { getErrorOrNew } from "@wf-agent/common-utils";
+import { getErrorOrNew, combineAbortSignals } from "@wf-agent/common-utils";
 import {
   checkWorkflowInterruption,
   type ExecutionInterruptionCheckResult,
@@ -195,8 +195,6 @@ export class ToolCallExecutor {
     // If either signals abort, all tools will be notified
     let combinedSignal: AbortSignal;
     if (options?.abortSignal) {
-      // Use combineAbortSignals from common-utils if available, otherwise manual combination
-      const { combineAbortSignals } = await import("@wf-agent/common-utils");
       const result = combineAbortSignals([options.abortSignal, batchController.signal]);
       combinedSignal = result.signal;
     } else {

@@ -101,11 +101,18 @@ export class ToolMetricsCollector extends BaseMetricCollector {
     errorType: string,
     errorMessage?: string,
   ): void {
-    this.incrementCounter(TOOL_METRICS.ERROR_COUNT, {
+    const labels: Record<string, string> = {
       tool_id: toolId,
       execution_id: executionId,
       error_type: errorType,
-    });
+    };
+
+    if (errorMessage) {
+      // Truncate long messages to avoid excessive label size
+      labels['error_message'] = errorMessage.length > 200 ? errorMessage.substring(0, 200) + '...' : errorMessage;
+    }
+
+    this.incrementCounter(TOOL_METRICS.ERROR_COUNT, labels);
   }
 
   /**

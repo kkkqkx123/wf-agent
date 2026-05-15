@@ -161,8 +161,6 @@ export function createAskFollowupQuestionHandler() {
       // Format tool result for LLM
       const formattedResult = formatUserResponse(questions, userAnswers, additionalInfoLabel);
 
-      const executionTime = diffTimestamp(startTime, now());
-
       return {
         success: true,
         content: formattedResult,
@@ -223,12 +221,12 @@ async function waitForInteractionResponse(
     // Use new EventEmitter API
     const emitter = eventManager.getEmitter(executionId);
     
-    const unsubscribe = emitter.on("FOLLOWUP_QUESTION_RESPONDED", (event: any) => {
+    const unsubscribe = emitter.on("FOLLOWUP_QUESTION_RESPONDED", (event: import("@wf-agent/types").FollowupQuestionRespondedEvent) => {
       if (event.interactionId === interactionId && !resolved) {
         resolved = true;
         if (timeoutId) clearTimeout(timeoutId);
         unsubscribe(); // Unsubscribe using the returned function
-        resolve(event);
+        resolve({ inputData: { answers: event.answers, additionalInfo: event.additionalInfo } });
       }
     });
 

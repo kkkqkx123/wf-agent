@@ -71,11 +71,8 @@ export function applyBlock(
     };
   }
 
-  const searchChunk = searchLines.join("\n");
-
   // Determine search bounds
   let searchStartIndex = 0;
-  const searchEndIndex = resultLines.length;
 
   // If startLine provided, use it as the starting point
   if (startLine > 0) {

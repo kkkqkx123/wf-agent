@@ -15,9 +15,6 @@ import {
   executeWithInterruptionHandling,
 } from "../../../core/utils/interruption/index.js";
 import type { WorkflowInterruptionCheckResult } from "../../../core/utils/interruption/index.js";
-import { createContextualLogger } from "../../../utils/contextual-logger.js";
-
-const logger = createContextualLogger({ component: "workflow-execution-coordinator" });
 
 /**
  * WorkflowExecutionCoordinator - Workflow Execution Coordinator
@@ -49,7 +46,6 @@ export class WorkflowExecutionCoordinator {
    * @returns The result of the workflow execution
    */
   async execute(): Promise<WorkflowExecutionResult> {
-    const executionId = this.workflowExecutionEntity.id;
     const abortSignal = this.interruptionManager.getAbortSignal();
 
     // Use unified interruption handling wrapper

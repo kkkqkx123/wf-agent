@@ -47,6 +47,11 @@ export class ErrorMetricsCollector extends BaseMetricCollector {
       labels['node_id'] = nodeId;
     }
 
+    if (errorMessage) {
+      // Truncate long messages to avoid excessive label size
+      labels['error_message'] = errorMessage.length > 200 ? errorMessage.substring(0, 200) + '...' : errorMessage;
+    }
+
     this.incrementCounter(ERROR_METRICS.OCCURRENCE_COUNT, labels);
   }
 

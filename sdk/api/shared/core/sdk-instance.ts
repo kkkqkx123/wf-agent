@@ -26,10 +26,13 @@ import { registerPredefinedPromptTemplates } from "../../../resources/predefined
 import { registerAllPredefinedContent } from "../../../resources/predefined/registration.js";
 import { TomlParserManager } from "../../../utils/toml-parser-manager.js";
 import { createRotatingFileStream, createConsoleStream, createMultistream } from "@wf-agent/common-utils";
-import type { HumanRelayHandler, LLMProfile } from "@wf-agent/types";
+import type { HumanRelayHandler, LLMProfile, SDKError } from "@wf-agent/types";
+import { SDKError as SDKErrorClass } from "@wf-agent/types";
 import type { LogStream, LogLevel } from "@wf-agent/common-utils";
 import { WorkflowBuilder } from "../../workflow/builders/workflow-builder.js";
 import { NodeBuilder } from "../../workflow/builders/node-builder.js";
+import { McpServerRegistry } from "../../../services/mcp/server-registry.js";
+import { getCustomHandlerRegistry } from "../../../core/registry/custom-handler-registry.js";
 import { NodeTemplateBuilder } from "../../workflow/builders/node-template-builder.js";
 import { TriggerTemplateBuilder } from "../../workflow/builders/trigger-template-builder.js";
 import type { BaseCommand } from "../types/command.js";
@@ -247,7 +250,6 @@ export class SDKInstance {
     // Configure MCP if enabled
     if (this.config?.mcp) {
       try {
-        const { McpServerRegistry } = await import("../../../services/mcp/server-registry.js");
         McpServerRegistry.setOptions({
           mcpEnabled: this.config.mcp.enabled ?? true,
           maxErrorHistory: this.config.mcp.maxErrorHistory,
@@ -277,8 +279,7 @@ export class SDKInstance {
     // Configure Skill registry if paths are provided
     if (this.config?.skills?.paths && this.config.skills.paths.length > 0) {
       try {
-        const { SkillRegistry } = await import("../../../core/di/service-identifiers.js");
-        const skillRegistry = this.globalContext.container.get(SkillRegistry);
+        const skillRegistry = this.globalContext.container.get(ServiceIdentifiers.SkillRegistry);
         
         for (const skillPath of this.config.skills.paths) {
           await skillRegistry.scanSkills(skillPath);
@@ -295,7 +296,6 @@ export class SDKInstance {
     // Configure custom trigger handlers if provided
     if (this.config?.customTriggerHandlers) {
       try {
-        const { getCustomHandlerRegistry } = await import("../../../core/registry/custom-handler-registry.js");
         const customHandlerRegistry = getCustomHandlerRegistry();
         
         for (const [name, handler] of Object.entries(this.config.customTriggerHandlers)) {
@@ -757,7 +757,7 @@ export class SDKInstance {
     if (!validation.valid) {
       logger.warn('Command validation failed', { errors: validation.errors });
       return failure(
-        new (await import("@wf-agent/types")).SDKError(
+        new SDKErrorClass(
           `Command validation failed: ${validation.errors.join(', ')}`,
           "error"
         ),

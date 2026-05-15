@@ -35,10 +35,10 @@ export class AgentLoopCheckpointStateManager extends BaseCheckpointStateManager<
       },
       list: async (options?: { parentId?: string; limit?: number }) => {
         // Convert base options to agent-specific options
-        const agentOptions = options?.parentId
+        const agentOptions: import("@wf-agent/types").AgentCheckpointListOptions = options?.parentId
           ? { agentLoopId: options.parentId, limit: options.limit }
           : { limit: options?.limit };
-        return await storageAdapter.list(agentOptions as any);
+        return await storageAdapter.list(agentOptions);
       },
       initialize: storageAdapter.initialize?.bind(storageAdapter),
       close: storageAdapter.close?.bind(storageAdapter),
@@ -75,7 +75,7 @@ export class AgentLoopCheckpointStateManager extends BaseCheckpointStateManager<
    * @param options Filter options
    * @returns Array of checkpoint IDs
    */
-  override async list(options?: any): Promise<string[]> {
+  override async list(options?: import("@wf-agent/types").AgentCheckpointListOptions): Promise<string[]> {
     return await super.list(options);
   }
 
@@ -83,9 +83,10 @@ export class AgentLoopCheckpointStateManager extends BaseCheckpointStateManager<
    * Delete a checkpoint (alias for delete)
    *
    * @param checkpointId The checkpoint ID to delete
+   * @param reason Reason for deletion (manual, cleanup, or policy)
    */
-  async deleteCheckpoint(checkpointId: string): Promise<void> {
-    await super.delete(checkpointId);
+  async deleteCheckpoint(checkpointId: string, reason: "manual" | "cleanup" | "policy" = "manual"): Promise<void> {
+    await super.delete(checkpointId, reason);
   }
 
   /**
@@ -147,19 +148,26 @@ export class AgentLoopCheckpointStateManager extends BaseCheckpointStateManager<
     };
   }
 
-  protected buildDeletedEvent(checkpointId: string): unknown {
+  protected buildDeletedEvent(
+    checkpointId: string,
+    reason?: "manual" | "cleanup" | "policy"
+  ): unknown {
     return {
       id: generateId(),
       type: "CHECKPOINT_DELETED",
       timestamp: Date.now(),
       data: {
         checkpointId,
-        reason: "cleanup",
+        reason: reason || "cleanup",
       },
     };
   }
 
-  protected buildFailedEvent(checkpointId: string, error: unknown): unknown {
+  protected buildFailedEvent(
+    checkpointId: string,
+    error: unknown,
+    operation: "create" | "restore" | "delete" = "create"
+  ): unknown {
     const errorMessage = error instanceof Error ? error.message : String(error);
     const errorStack = error instanceof Error ? error.stack : undefined;
 
@@ -169,7 +177,7 @@ export class AgentLoopCheckpointStateManager extends BaseCheckpointStateManager<
       timestamp: Date.now(),
       data: {
         checkpointId,
-        operation: "create",
+        operation,
         error: errorMessage,
         stackTrace: errorStack,
       },

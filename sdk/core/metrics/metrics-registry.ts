@@ -157,9 +157,10 @@ export class MetricsRegistry {
     includeTrends?: boolean;
   }): Promise<MetricReport> {
     const timestamp = Date.now();
+    const timeRange = options?.timeRange;
 
-    // Calculate total metrics and byType statistics
-    const { totalMetrics, byType } = this.calculateGlobalStats();
+    // Calculate total metrics and byType statistics with optional time range filter
+    const { totalMetrics, byType } = this.calculateGlobalStats(timeRange);
 
     // Gather summary statistics from key collectors
     const workflowStats = this.getWorkflowCollector()?.getWorkflowUsageStats();
@@ -182,15 +183,35 @@ export class MetricsRegistry {
       byCategory['node'] = Object.values(nodeStats).reduce((sum, s) => sum + s.totalCount, 0);
     }
 
+    // Get top metrics with optional time range filter
+    const topMetrics = this.getTopMetricsAcrossCollectors(10, timeRange);
+
+    // Detect anomalies
+    const anomalies = this.detectAnomalies();
+
+    // Calculate trends if requested
+    let trends: Array<{
+      metricName: string;
+      dataPoints: Array<{ timestamp: number; value: number }>;
+      trend: "increasing" | "decreasing" | "stable";
+      changePercent?: number;
+    }> | undefined;
+
+    if (options?.includeTrends && timeRange) {
+      trends = this.calculateTrends(timeRange);
+    }
+
     const report: MetricReport = {
       timestamp,
+      timeRange,
       summary: {
         totalMetrics,
         byType,
         byCategory,
       },
-      topMetrics: this.getTopMetricsAcrossCollectors(10),
-      anomalies: this.detectAnomalies(),
+      topMetrics,
+      anomalies,
+      trends,
     };
 
     // Notify subscribers
@@ -301,7 +322,7 @@ export class MetricsRegistry {
   /**
    * Calculate global statistics across all collectors
    */
-  private calculateGlobalStats(): { 
+  private calculateGlobalStats(timeRange?: { from: number; to: number }): { 
     totalMetrics: number;
     byType: Record<MetricType, number>;
   } {
@@ -315,8 +336,12 @@ export class MetricsRegistry {
 
     for (const [name, collector] of this.collectors.entries()) {
       try {
-        // Query all metrics from this collector
-        const result = collector.query({});
+        // Query metrics with optional time range filter
+        const filter: import('./types.js').MetricFilter = {};
+        if (timeRange) {
+          filter.timeRange = timeRange;
+        }
+        const result = collector.query(filter);
         totalMetrics += result.totalCount;
 
         // Count by type
@@ -334,7 +359,10 @@ export class MetricsRegistry {
   /**
    * Get top metrics across all collectors
    */
-  private getTopMetricsAcrossCollectors(limit: number): Array<{
+  private getTopMetricsAcrossCollectors(
+    limit: number,
+    timeRange?: { from: number; to: number }
+  ): Array<{
     metricName: string;
     value: number;
     labels: Record<string, string>;
@@ -349,7 +377,11 @@ export class MetricsRegistry {
     // Gather top metrics from each collector
     for (const [name, collector] of this.collectors.entries()) {
       try {
-        const result = collector.query({ limit: 5 });
+        const filter: import('./types.js').MetricFilter = { limit: 5 };
+        if (timeRange) {
+          filter.timeRange = timeRange;
+        }
+        const result = collector.query(filter);
         for (const metric of result.metrics.values()) {
           if (typeof metric.value === 'number' && metric.value > 0) {
             allMetrics.push({
@@ -414,5 +446,95 @@ export class MetricsRegistry {
     }
 
     return anomalies;
+  }
+
+  /**
+   * Calculate trends for key metrics over a time range
+   */
+  private calculateTrends(timeRange: { from: number; to: number }): Array<{
+    metricName: string;
+    dataPoints: Array<{ timestamp: number; value: number }>;
+    trend: "increasing" | "decreasing" | "stable";
+    changePercent?: number;
+  }> {
+    const trends: Array<{
+      metricName: string;
+      dataPoints: Array<{ timestamp: number; value: number }>;
+      trend: "increasing" | "decreasing" | "stable";
+      changePercent?: number;
+    }> = [];
+
+    // Key metrics to track for trends
+    const keyMetrics = [
+      'workflow.execution.count',
+      'workflow.execution.duration',
+      'node.execution.count',
+      'agent.iteration.count',
+      'event.processed.count',
+      'tool.invocation.count',
+      'token.usage.total',
+      'error.occurrence.count',
+    ];
+
+    for (const collector of this.collectors.values()) {
+      try {
+        for (const metricName of keyMetrics) {
+          // Query metrics within the time range
+          const result = collector.query({
+            metricName,
+            timeRange,
+          });
+
+          if (result.metrics.size === 0) continue;
+
+          // Collect data points from the metrics
+          const dataPoints: Array<{ timestamp: number; value: number }> = [];
+          
+          for (const [name, aggregated] of result.metrics.entries()) {
+            if (aggregated.timeSeries && aggregated.timeSeries.length > 0) {
+              dataPoints.push(...aggregated.timeSeries);
+            } else if (typeof aggregated.value === 'number') {
+              // If no time series, use the aggregated value with current timestamp
+              dataPoints.push({
+                timestamp: Date.now(),
+                value: aggregated.value,
+              });
+            }
+          }
+
+          if (dataPoints.length < 2) continue;
+
+          // Sort by timestamp
+          dataPoints.sort((a, b) => a.timestamp - b.timestamp);
+
+          // Calculate trend - safe access after length check
+          const firstValue = dataPoints[0]!.value;
+          const lastValue = dataPoints[dataPoints.length - 1]!.value;
+          const changePercent = firstValue !== 0 
+            ? ((lastValue - firstValue) / Math.abs(firstValue)) * 100 
+            : 0;
+
+          let trend: "increasing" | "decreasing" | "stable";
+          if (Math.abs(changePercent) < 5) {
+            trend = "stable";
+          } else if (changePercent > 0) {
+            trend = "increasing";
+          } else {
+            trend = "decreasing";
+          }
+
+          trends.push({
+            metricName,
+            dataPoints,
+            trend,
+            changePercent,
+          });
+        }
+      } catch (error) {
+        logger.warn(`Failed to calculate trends for collector`, { error });
+      }
+    }
+
+    return trends;
   }
 }

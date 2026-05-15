@@ -46,7 +46,7 @@ export interface ContextCompressionConfig {
 /**
  * Create a predefined context compression workflow
  */
-export function createContextCompressionWorkflow(compressionPrompt?: string): WorkflowTemplate {
+export function createContextCompressionWorkflow(_compressionPrompt?: string): WorkflowTemplate {
   const currentTime = now();
 
   const startNodeId = generateId();

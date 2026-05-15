@@ -18,6 +18,9 @@
 import type { WorkflowExecutionEntity } from "../../entities/index.js";
 import type { WorkflowStateCoordinator } from "../../state-managers/workflow-state-coordinator.js";
 import type { ConversationSession } from "../../../core/messaging/conversation-session.js";
+import { createContextualLogger } from "../../../utils/contextual-logger.js";
+
+const logger = createContextualLogger({ component: "TriggeredSubworkflowHandler" });
 import type { ExecuteTriggeredSubgraphActionConfig } from "@wf-agent/types";
 import { getErrorOrNew, now } from "@wf-agent/common-utils";
 import { TaskRegistry, type TaskManager } from "../../stores/task/task-registry.js";
@@ -228,7 +231,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
       // Map message contexts (future: integrate with message reference architecture)
       if (config.inputMapping.messageContexts) {
         // TODO: Implement message context mapping using new reference architecture
-        console.warn('Message context mapping not yet implemented');
+        logger.warn('Message context mapping not yet implemented');
       }
       
       // Add additional static parameters

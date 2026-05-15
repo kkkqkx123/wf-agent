@@ -37,8 +37,6 @@ export interface BaseSqliteStorageConfig {
   verifyIntegrity?: boolean;
   /** Verify integrity every Nth load operation (default: 100, only used when verifyIntegrity is true) */
   integrityCheckFrequency?: number;
-  /** Schema version for migration support (default: 1) */
-  schemaVersion?: number;
 }
 
 /**
@@ -130,7 +128,6 @@ export abstract class BaseSqliteStorage<TMetadataType> {
         dbPath: this.config.dbPath,
         tableName: this.getTableName(),
         usingPool: this.usingPool,
-        schemaVersion: this.getCurrentSchemaVersion(),
       });
     } catch (error) {
       this.initialized = false;
@@ -165,88 +162,14 @@ export abstract class BaseSqliteStorage<TMetadataType> {
   }
 
   /**
-   * Initialize or migrate database schema
+   * Initialize database schema
    */
   private async initializeSchema(): Promise<void> {
-    const db = this.getDb();
-    const targetVersion = this.config.schemaVersion ?? 1;
-
-    // Create schema version tracking table if it doesn't exist
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS _schema_versions (
-        table_name TEXT PRIMARY KEY,
-        version INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
-      )
-    `);
-
-    // Get current version for this table
-    const versionRow = db.prepare(
-      'SELECT version FROM _schema_versions WHERE table_name = ?'
-    ).get(this.getTableName()) as { version: number } | undefined;
-
-    const installedVersion = versionRow?.version ?? 0;
-
-    if (installedVersion === 0) {
-      // Fresh installation - create tables
-      logger.info("Creating new schema", { 
-        table: this.getTableName(), 
-        version: targetVersion 
-      });
-      this.createTableSchema();
-      
-      // Record version
-      db.prepare(
-        'INSERT INTO _schema_versions (table_name, version, updated_at) VALUES (?, ?, ?)'
-      ).run(this.getTableName(), targetVersion, Date.now());
-    } else if (installedVersion < targetVersion) {
-      // Migration needed
-      logger.info("Migrating schema", { 
-        table: this.getTableName(), 
-        fromVersion: installedVersion, 
-        toVersion: targetVersion 
-      });
-      await this.migrateSchema(installedVersion, targetVersion);
-      
-      // Update version
-      db.prepare(
-        'UPDATE _schema_versions SET version = ?, updated_at = ? WHERE table_name = ?'
-      ).run(targetVersion, Date.now(), this.getTableName());
-    } else if (installedVersion > targetVersion) {
-      logger.warn("Database schema version is newer than expected", {
-        table: this.getTableName(),
-        installedVersion,
-        targetVersion,
-      });
-    } else {
-      logger.debug("Schema is up to date", { 
-        table: this.getTableName(), 
-        version: installedVersion 
-      });
-    }
-  }
-
-  /**
-   * Get current schema version
-   */
-  protected getCurrentSchemaVersion(): number {
-    return this.config.schemaVersion ?? 1;
-  }
-
-  /**
-   * Migrate schema from one version to another
-   * Override this method in subclasses to implement custom migrations
-   * @param fromVersion Current schema version
-   * @param toVersion Target schema version
-   */
-  protected async migrateSchema(fromVersion: number, toVersion: number): Promise<void> {
-    // Default implementation does nothing
-    // Subclasses should override to implement actual migrations
-    logger.warn("Schema migration not implemented", {
-      table: this.getTableName(),
-      fromVersion,
-      toVersion,
-    });
+    // Create tables (IF NOT EXISTS ensures idempotency)
+    logger.info("Initializing schema", { table: this.getTableName() });
+    this.createTableSchema();
+    
+    logger.debug("Schema initialized", { table: this.getTableName() });
   }
 
   /**

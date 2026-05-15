@@ -50,16 +50,15 @@ export class PostgresCheckpointStorage
 
   /**
    * Create table structure with metadata-BLOB separation
+   * Optimized for entity-based queries with composite indexes
    */
   protected async createTableSchema(client: PoolClient): Promise<void> {
     // Layer 1: Metadata table (frequent queries, no BLOB)
     await client.query(`
       CREATE TABLE IF NOT EXISTS checkpoint_metadata (
         id TEXT PRIMARY KEY,
-        execution_id TEXT,
-        workflow_id TEXT,
-        entity_type TEXT,
-        entity_id TEXT,
+        entity_type TEXT NOT NULL,
+        entity_id TEXT NOT NULL,
         timestamp BIGINT NOT NULL,
         checkpoint_type TEXT,
         base_checkpoint_id TEXT,
@@ -89,33 +88,34 @@ export class PostgresCheckpointStorage
       )
     `);
 
-    // Create indexes for optimized queries
+    // ========================================================================
+    // Optimized Indexes for Entity-Based Queries
+    // ========================================================================
+    
+    // Primary composite index: entity lookup with timestamp ordering
+    // Supports: listByEntityWithMetadata, getLatestByEntity, cleanup by entity
     await client.query(
-      'CREATE INDEX IF NOT EXISTS idx_cp_meta_execution ON checkpoint_metadata(execution_id)'
-    );
-    await client.query(
-      'CREATE INDEX IF NOT EXISTS idx_cp_meta_workflow ON checkpoint_metadata(workflow_id)'
-    );
-    await client.query(
-      'CREATE INDEX IF NOT EXISTS idx_cp_meta_entity_type ON checkpoint_metadata(entity_type)'
-    );
-    await client.query(
-      'CREATE INDEX IF NOT EXISTS idx_cp_meta_entity_id ON checkpoint_metadata(entity_id)'
-    );
-    await client.query(
-      'CREATE INDEX IF NOT EXISTS idx_cp_meta_timestamp ON checkpoint_metadata(timestamp)'
-    );
-    await client.query(
-      'CREATE INDEX IF NOT EXISTS idx_cp_meta_type ON checkpoint_metadata(checkpoint_type)'
-    );
-    await client.query(
-      'CREATE INDEX IF NOT EXISTS idx_cp_meta_exec_ts ON checkpoint_metadata(execution_id, timestamp)'
-    );
-    await client.query(
-      'CREATE INDEX IF NOT EXISTS idx_cp_meta_entity_ts ON checkpoint_metadata(entity_type, entity_id, timestamp)'
+      'CREATE INDEX IF NOT EXISTS idx_checkpoint_entity_timestamp ON checkpoint_metadata(entity_type, entity_id, timestamp DESC)'
     );
 
-    logger.debug('Checkpoint schema created');
+    // Timestamp-only index: time-based cleanup and range queries
+    await client.query(
+      'CREATE INDEX IF NOT EXISTS idx_checkpoint_timestamp ON checkpoint_metadata(timestamp)'
+    );
+
+    // Checkpoint type index: filter by FULL/DELTA
+    await client.query(
+      'CREATE INDEX IF NOT EXISTS idx_checkpoint_type ON checkpoint_metadata(checkpoint_type)'
+    );
+
+    // Hash index: deduplication detection
+    await client.query(
+      'CREATE INDEX IF NOT EXISTS idx_checkpoint_blob_hash ON checkpoint_metadata(blob_hash)'
+    );
+
+    logger.debug('Created optimized indexes for entity-based queries', {
+      table: this.getTableName()
+    });
   }
 
   /**
@@ -137,8 +137,19 @@ export class PostgresCheckpointStorage
       try {
         await this.saveToClient(client, checkpointId, data, metadata, options);
         
-        // Commit transaction
-        await client.query('COMMIT');
+        // If sync mode is enabled, ensure data is flushed to disk
+        if (options?.sync) {
+          await client.query('COMMIT');
+          // PostgreSQL automatically flushes on COMMIT, but we can force a sync point
+          await client.query('SELECT pg_sync()');
+          logger.debug('Synchronous checkpoint saved with explicit sync', { 
+            checkpointId, 
+            size: data.length 
+          });
+        } else {
+          // Commit transaction
+          await client.query('COMMIT');
+        }
 
         const elapsed = Date.now() - startTime;
         this.updateMetric('save', elapsed, data.length);
@@ -149,11 +160,17 @@ export class PostgresCheckpointStorage
         });
       } catch (error) {
         // Rollback on error
-        await client.query('ROLLBACK');
+        await client.query('ROLLBACK').catch(rollbackError => {
+          logger.error('Failed to rollback transaction', { 
+            checkpointId,
+            rollbackError: (rollbackError as Error).message 
+          });
+        });
         throw error;
       }
     } catch (error) {
-      return this.handlePostgresError(error, 'save', { checkpointId });
+      this.handlePostgresError(error, 'save', { checkpointId });
+      throw error;
     } finally {
       this.releaseClient(client);
     }
@@ -273,7 +290,8 @@ export class PostgresCheckpointStorage
 
       return data;
     } catch (error) {
-      return this.handlePostgresError(error, 'load', { checkpointId });
+      this.handlePostgresError(error, 'load', { checkpointId });
+      throw error;
     } finally {
       this.releaseClient(client);
     }
@@ -289,7 +307,8 @@ export class PostgresCheckpointStorage
       await this.deleteFromClient(client, checkpointId);
       logger.debug('Checkpoint deleted', { checkpointId });
     } catch (error) {
-      return this.handlePostgresError(error, 'delete', { checkpointId });
+      this.handlePostgresError(error, 'delete', { checkpointId });
+      throw error;
     } finally {
       this.releaseClient(client);
     }
@@ -382,7 +401,8 @@ export class PostgresCheckpointStorage
 
       return ids;
     } catch (error) {
-      return this.handlePostgresError(error, 'list', { options });
+      this.handlePostgresError(error, 'list', { options });
+      throw error;
     } finally {
       this.releaseClient(client);
     }
@@ -401,7 +421,8 @@ export class PostgresCheckpointStorage
       );
       return result.rows.length > 0;
     } catch (error) {
-      return this.handlePostgresError(error, 'exists', { checkpointId });
+      this.handlePostgresError(error, 'exists', { checkpointId });
+      throw error;
     } finally {
       this.releaseClient(client);
     }
@@ -436,7 +457,8 @@ export class PostgresCheckpointStorage
 
       return metadata;
     } catch (error) {
-      return this.handlePostgresError(error, 'getMetadata', { checkpointId });
+      this.handlePostgresError(error, 'getMetadata', { checkpointId });
+      throw error;
     } finally {
       this.releaseClient(client);
     }
@@ -533,7 +555,8 @@ export class PostgresCheckpointStorage
 
       return items;
     } catch (error) {
-      return this.handlePostgresError(error, 'listWithMetadata', { options });
+      this.handlePostgresError(error, 'listWithMetadata', { options });
+      throw error;
     } finally {
       this.releaseClient(client);
     }
@@ -558,7 +581,8 @@ export class PostgresCheckpointStorage
 
       return result.rowCount || 0;
     } catch (error) {
-      return this.handlePostgresError(error, 'deleteByExecution', { executionId });
+      this.handlePostgresError(error, 'deleteByExecution', { executionId });
+      throw error;
     } finally {
       this.releaseClient(client);
     }
@@ -581,7 +605,8 @@ export class PostgresCheckpointStorage
 
       return result.rows.length > 0 ? result.rows[0].id : null;
     } catch (error) {
-      return this.handlePostgresError(error, 'getLatestCheckpoint', { executionId });
+      this.handlePostgresError(error, 'getLatestCheckpoint', { executionId });
+      throw error;
     } finally {
       this.releaseClient(client);
     }
@@ -598,7 +623,8 @@ export class PostgresCheckpointStorage
       await client.query('DELETE FROM checkpoint_metadata');
       logger.info('All checkpoints cleared');
     } catch (error) {
-      return this.handlePostgresError(error, 'clear', {});
+      this.handlePostgresError(error, 'clear', {});
+      throw error;
     } finally {
       this.releaseClient(client);
     }
@@ -636,11 +662,16 @@ export class PostgresCheckpointStorage
           totalTimeMs: elapsed,
         });
       } catch (error) {
-        await client.query('ROLLBACK');
+        await client.query('ROLLBACK').catch(rollbackError => {
+          logger.error('Failed to rollback batch transaction', { 
+            rollbackError: (rollbackError as Error).message 
+          });
+        });
         throw error;
       }
     } catch (error) {
-      return this.handlePostgresError(error, 'saveBatch', { count: items.length });
+      this.handlePostgresError(error, 'saveBatch', { count: items.length });
+      throw error;
     } finally {
       this.releaseClient(client);
     }
@@ -692,7 +723,8 @@ export class PostgresCheckpointStorage
 
       return results;
     } catch (error) {
-      return this.handlePostgresError(error, 'loadBatch', { count: ids.length });
+      this.handlePostgresError(error, 'loadBatch', { count: ids.length });
+      throw error;
     } finally {
       this.releaseClient(client);
     }
@@ -725,48 +757,42 @@ export class PostgresCheckpointStorage
           count: ids.length,
         });
       } catch (error) {
-        await client.query('ROLLBACK');
+        await client.query('ROLLBACK').catch(rollbackError => {
+          logger.error('Failed to rollback batch delete transaction', { 
+            rollbackError: (rollbackError as Error).message 
+          });
+        });
         throw error;
       }
     } catch (error) {
-      return this.handlePostgresError(error, 'deleteBatch', { count: ids.length });
+      this.handlePostgresError(error, 'deleteBatch', { count: ids.length });
+      throw error;
     } finally {
       this.releaseClient(client);
     }
   }
 
   /**
-   * List checkpoints for a specific entity
+   * List checkpoints for a specific entity with metadata
+   * Optimized for entity-level queries using database indexes
    */
-  async listByEntity(
+  async listByEntityWithMetadata(
     entityId: string,
-    entityType?: string,
-    options?: Omit<CheckpointStorageListOptions, 'executionId' | 'workflowId'>
-  ): Promise<string[]> {
+    entityType: string,
+    options?: { limit?: number; offset?: number }
+  ): Promise<Array<{ id: string; metadata: CheckpointStorageMetadata }>> {
     const client = await this.getClient();
 
     try {
-      let sql = `SELECT id FROM checkpoint_metadata WHERE entity_id = $1`;
-      const params: any[] = [entityId];
-
-      if (entityType) {
-        sql += ` AND entity_type = $${params.length + 1}`;
-        params.push(entityType);
-      }
-
-      // Add additional filters from options
-      if (options?.tags && options.tags.length > 0) {
-        sql += ` AND tags LIKE $${params.length + 1}`;
-        params.push(`%${options.tags[0]}%`);
-      }
-
-      if (options?.type) {
-        sql += ` AND checkpoint_type = $${params.length + 1}`;
-        params.push(options.type);
-      }
-
-      // Sort by timestamp descending
-      sql += " ORDER BY timestamp DESC";
+      let sql = `
+        SELECT id, entity_type, entity_id, timestamp, checkpoint_type,
+               base_checkpoint_id, previous_checkpoint_id, message_count,
+               variable_count, blob_size, blob_hash, tags, custom_fields
+        FROM checkpoint_metadata
+        WHERE entity_id = $1 AND entity_type = $2
+        ORDER BY timestamp DESC
+      `;
+      const params: any[] = [entityId, entityType];
 
       // Pagination
       if (options?.limit !== undefined) {
@@ -780,59 +806,170 @@ export class PostgresCheckpointStorage
       }
 
       const result = await client.query(sql, params);
-      return result.rows.map((row: any) => row.id);
+      
+      return result.rows.map((row: any) => ({
+        id: row.id,
+        metadata: {
+          entityType: row.entity_type,
+          entityId: row.entity_id,
+          timestamp: parseInt(row.timestamp),
+          customFields: {
+            checkpointType: row.checkpoint_type,
+            baseCheckpointId: row.base_checkpoint_id,
+            previousCheckpointId: row.previous_checkpoint_id,
+            messageCount: row.message_count,
+            variableCount: row.variable_count,
+            blobSize: row.blob_size,
+            blobHash: row.blob_hash,
+          },
+          tags: row.tags ? JSON.parse(row.tags) : undefined,
+        }
+      }));
     } catch (error) {
-      return this.handlePostgresError(error, 'listByEntity', { entityId, entityType });
+      this.handlePostgresError(error, 'listByEntityWithMetadata', { entityId, entityType });
+      throw error;
     } finally {
       this.releaseClient(client);
     }
   }
 
   /**
-   * Get the latest checkpoint for a specific entity
+   * Get the latest N checkpoints for a specific entity
+   * Optimized for quick recovery scenarios
    */
-  async getLatestByEntity(entityId: string, entityType?: string): Promise<string | null> {
+  async getLatestByEntity(
+    entityId: string,
+    entityType: string,
+    count: number = 1,
+    includeData: boolean = false
+  ): Promise<Array<{ id: string; metadata: CheckpointStorageMetadata; data?: Uint8Array }>> {
     const client = await this.getClient();
 
     try {
-      let sql = `SELECT id FROM checkpoint_metadata WHERE entity_id = $1`;
-      const params: any[] = [entityId];
+      // First, get metadata
+      const metadataSql = `
+        SELECT id, entity_type, entity_id, timestamp, checkpoint_type,
+               base_checkpoint_id, previous_checkpoint_id, message_count,
+               variable_count, blob_size, blob_hash, tags, custom_fields
+        FROM checkpoint_metadata
+        WHERE entity_id = $1 AND entity_type = $2
+        ORDER BY timestamp DESC
+        LIMIT $3
+      `;
+      
+      const metadataResult = await client.query(metadataSql, [entityId, entityType, count]);
+      
+      const results: Array<{ id: string; metadata: CheckpointStorageMetadata; data?: Uint8Array }> = [];
 
-      if (entityType) {
-        sql += ` AND entity_type = $${params.length + 1}`;
-        params.push(entityType);
+      for (const row of metadataResult.rows) {
+        const result: { id: string; metadata: CheckpointStorageMetadata; data?: Uint8Array } = {
+          id: row.id,
+          metadata: {
+            entityType: row.entity_type,
+            entityId: row.entity_id,
+            timestamp: parseInt(row.timestamp),
+            customFields: {
+              checkpointType: row.checkpoint_type,
+              baseCheckpointId: row.base_checkpoint_id,
+              previousCheckpointId: row.previous_checkpoint_id,
+              messageCount: row.message_count,
+              variableCount: row.variable_count,
+              blobSize: row.blob_size,
+              blobHash: row.blob_hash,
+            },
+            tags: row.tags ? JSON.parse(row.tags) : undefined,
+          }
+        };
+
+        // Optionally load BLOB data
+        if (includeData) {
+          const blobSql = `SELECT blob_data FROM checkpoint_blob WHERE checkpoint_id = $1`;
+          const blobResult = await client.query(blobSql, [row.id]);
+          
+          if (blobResult.rows.length > 0) {
+            result.data = blobResult.rows[0].blob_data;
+          }
+        }
+
+        results.push(result);
       }
 
-      sql += " ORDER BY timestamp DESC LIMIT 1";
-
-      const result = await client.query(sql, params);
-      return result.rows.length > 0 ? result.rows[0].id : null;
+      return results;
     } catch (error) {
-      return this.handlePostgresError(error, 'getLatestByEntity', { entityId, entityType });
+      this.handlePostgresError(error, 'getLatestByEntity', { entityId, entityType });
+      throw error;
     } finally {
       this.releaseClient(client);
     }
   }
 
   /**
-   * Delete all checkpoints for a specific entity
+   * Delete checkpoints for a specific entity with advanced options
+   * Supports batch deletion with retention policies
    */
-  async deleteByEntity(entityId: string, entityType?: string): Promise<number> {
+  async deleteByEntity(
+    entityId: string,
+    entityType: string,
+    options?: {
+      keepLatest?: number;
+      olderThan?: number;
+    }
+  ): Promise<number> {
     const client = await this.getClient();
 
     try {
-      let sql = `DELETE FROM checkpoint_metadata WHERE entity_id = $1`;
-      const params: any[] = [entityId];
+      // Build query to find checkpoints to delete
+      let selectSql = `
+        SELECT id FROM checkpoint_metadata
+        WHERE entity_id = $1 AND entity_type = $2
+      `;
+      const params: any[] = [entityId, entityType];
 
-      if (entityType) {
-        sql += ` AND entity_type = $${params.length + 1}`;
-        params.push(entityType);
+      // Add time-based filter
+      if (options?.olderThan) {
+        selectSql += ` AND timestamp < $${params.length + 1}`;
+        params.push(options.olderThan);
       }
 
-      const result = await client.query(sql, params);
-      return parseInt(result.rowCount?.toString() || '0');
+      // Order by timestamp descending
+      selectSql += ` ORDER BY timestamp DESC`;
+
+      // Skip the latest N checkpoints if specified
+      if (options?.keepLatest && options.keepLatest > 0) {
+        selectSql += ` LIMIT ALL OFFSET $${params.length + 1}`;
+        params.push(options.keepLatest);
+      }
+
+      // Get IDs to delete
+      const selectResult = await client.query(selectSql, params);
+      const idsToDelete = selectResult.rows.map((row: any) => row.id);
+
+      if (idsToDelete.length === 0) {
+        return 0;
+      }
+
+      // Batch delete using IN clause
+      const placeholders = idsToDelete.map((_, i) => `$${i + 3}`).join(',');
+      const deleteSql = `
+        DELETE FROM checkpoint_metadata
+        WHERE id IN (${placeholders})
+      `;
+      
+      const deleteParams = [entityId, entityType, ...idsToDelete];
+      const deleteResult = await client.query(deleteSql, deleteParams);
+
+      const deletedCount = parseInt(deleteResult.rowCount?.toString() || '0');
+
+      logger.info('Deleted checkpoints by entity', {
+        entityId,
+        entityType,
+        deletedCount
+      });
+
+      return deletedCount;
     } catch (error) {
-      return this.handlePostgresError(error, 'deleteByEntity', { entityId, entityType });
+      this.handlePostgresError(error, 'deleteByEntity', { entityId, entityType });
+      throw error;
     } finally {
       this.releaseClient(client);
     }

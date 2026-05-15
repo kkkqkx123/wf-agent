@@ -23,18 +23,21 @@ const logger = createContextualLogger({ operation: "checkpoint-state-manager" })
 /**
  * Checkpoint State Manager
  * Extends BaseCheckpointStateManager with workflow-specific event building and metadata extraction.
+ * Entity-based design for efficient checkpoint management.
  */
 export class CheckpointState extends BaseCheckpointStateManager<Checkpoint> {
+  private readonly workflowExecutionId: string;
+
   /**
    * Constructor
+   * @param workflowExecutionId Workflow execution ID (required for entity binding)
    * @param storageAdapter Storage adapter interface (implemented by the application layer)
    * @param eventManager Event manager (optional)
-   * @param cleanupScheduler Background cleanup scheduler (optional) - kept for backward compatibility but not used
    */
   constructor(
+    workflowExecutionId: string,
     storageAdapter: StorageAdapter,
-    eventManager?: EventRegistry,
-    _cleanupScheduler?: unknown // Kept for backward compatibility
+    eventManager?: EventRegistry
   ) {
     // Adapt storage adapter to the expected interface
     const adaptedAdapter = {
@@ -53,33 +56,54 @@ export class CheckpointState extends BaseCheckpointStateManager<Checkpoint> {
       listWithMetadata: async (options?: any) => {
         return await storageAdapter.listWithMetadata(options);
       },
+      listByEntityWithMetadata: async (entityId: string, entityType: string, options?: any) => {
+        // Type assertion needed until @wf-agent/storage types are updated
+        return await (storageAdapter as any).listByEntityWithMetadata(entityId, entityType, options);
+      },
+      getLatestByEntity: async (entityId: string, entityType: string, count?: number, includeData?: boolean) => {
+        return await (storageAdapter as any).getLatestByEntity(entityId, entityType, count, includeData);
+      },
+      deleteByEntity: async (entityId: string, entityType: string, options?: any) => {
+        return await (storageAdapter as any).deleteByEntity(entityId, entityType, options);
+      },
       initialize: storageAdapter.initialize?.bind(storageAdapter),
       close: storageAdapter.close?.bind(storageAdapter),
     };
 
     super(adaptedAdapter, eventManager);
+
+    if (!workflowExecutionId) {
+      throw new Error('workflowExecutionId is required for CheckpointState');
+    }
+    this.workflowExecutionId = workflowExecutionId;
   }
 
 
 
   /**
    * Clean up all checkpoints for the specified workflow execution
+   * Optimized to use entity-level batch deletion
    *
-   * @param workflowExecutionId WorkflowExecution ID
+   * @param workflowExecutionId WorkflowExecution ID (optional, defaults to constructor value)
    * @returns Number of checkpoints deleted
    */
-  async cleanupWorkflowExecutionCheckpoints(workflowExecutionId: string): Promise<number> {
-    logger.info("Cleaning up workflow execution checkpoints", { workflowExecutionId });
+  async cleanupWorkflowExecutionCheckpoints(workflowExecutionId?: string): Promise<number> {
+    const targetId = workflowExecutionId || this.workflowExecutionId;
+    
+    logger.info("Cleaning up workflow execution checkpoints", { workflowExecutionId: targetId });
 
-    const checkpointIds = await this.list({ parentId: workflowExecutionId });
+    // Use optimized entity-level batch deletion
+    const deletedCount = await (this.storageAdapter as any).deleteByEntity(
+      targetId,
+      'workflow'
+    );
 
-    for (const checkpointId of checkpointIds) {
-      await this.delete(checkpointId);
-    }
+    logger.info("Workflow execution checkpoints cleaned up", { 
+      workflowExecutionId: targetId, 
+      deletedCount 
+    });
 
-    logger.info("Workflow execution checkpoints cleaned up", { workflowExecutionId, deletedCount: checkpointIds.length });
-
-    return checkpointIds.length;
+    return deletedCount;
   }
 
   /**
@@ -89,8 +113,14 @@ export class CheckpointState extends BaseCheckpointStateManager<Checkpoint> {
    * @returns Checkpoint ID
    */
   override async create(checkpointData: Checkpoint, _options?: CheckpointOptions): Promise<string> {
-    // Call parent implementation which handles serialization, saving, events, and cleanup
-    return await super.create(checkpointData);
+    const id = await super.create(checkpointData);
+    
+    // Execute entity-specific cleanup after saving
+    if (this.cleanupPolicy) {
+      await this.executeCleanupForEntity(this.workflowExecutionId, 'workflow');
+    }
+    
+    return id;
   }
 
   /**
@@ -137,8 +167,8 @@ export class CheckpointState extends BaseCheckpointStateManager<Checkpoint> {
 
   protected extractStorageMetadata(checkpoint: Checkpoint): CheckpointStorageMetadata {
     return {
-      executionId: checkpoint.executionId,
-      workflowId: checkpoint.workflowId,
+      entityType: 'workflow',
+      entityId: checkpoint.executionId || this.workflowExecutionId,
       timestamp: checkpoint.timestamp,
       tags: checkpoint.metadata?.tags,
       customFields: checkpoint.metadata?.customFields,

@@ -132,61 +132,86 @@ export class JsonCheckpointStorage
   }
 
   /**
-   * List checkpoints for a specific entity
+   * List checkpoints for a specific entity with metadata
    */
-  async listByEntity(
+  async listByEntityWithMetadata(
     entityId: string,
-    entityType?: string,
-    options?: Omit<CheckpointStorageListOptions, 'executionId' | 'workflowId'>
-  ): Promise<string[]> {
+    entityType: string,
+    options?: { limit?: number; offset?: number }
+  ): Promise<Array<{ id: string; metadata: CheckpointStorageMetadata }>> {
     this.ensureInitialized();
 
-    let ids = this.getAllIds().filter(id => {
-      const entry = this["metadataIndex"].get(id);
-      if (!entry) return false;
-      
-      const metadata = entry.metadata;
-      if (metadata.entityId !== entityId) return false;
-      if (entityType && metadata.entityType !== entityType) return false;
-      
-      return true;
-    });
+    const items = this.getAllIds()
+      .map(id => {
+        const entry = this["metadataIndex"].get(id);
+        if (!entry) return null;
+        
+        const metadata = entry.metadata;
+        if (metadata.entityId !== entityId || metadata.entityType !== entityType) {
+          return null;
+        }
+        
+        return { id, metadata };
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null);
 
     // Sort by timestamp descending
-    ids.sort((a, b) => {
-      const metaA = this["metadataIndex"].get(a)?.metadata;
-      const metaB = this["metadataIndex"].get(b)?.metadata;
-      return (metaB?.timestamp ?? 0) - (metaA?.timestamp ?? 0);
-    });
+    items.sort((a, b) => (b.metadata.timestamp ?? 0) - (a.metadata.timestamp ?? 0));
 
     // Pagination
     const offset = options?.offset ?? 0;
-    const limit = options?.limit ?? ids.length;
+    const limit = options?.limit ?? items.length;
 
-    return ids.slice(offset, offset + limit);
+    return items.slice(offset, offset + limit);
   }
 
   /**
-   * Get the latest checkpoint for a specific entity
+   * Get the latest N checkpoints for a specific entity
    */
-  async getLatestByEntity(entityId: string, entityType?: string): Promise<string | null> {
-    this.ensureInitialized();
-
-    const ids = await this.listByEntity(entityId, entityType, { limit: 1 });
-    return ids.length > 0 ? ids[0]! : null;
+  async getLatestByEntity(
+    entityId: string,
+    entityType: string,
+    count: number = 1,
+    includeData: boolean = false
+  ): Promise<Array<{ id: string; metadata: CheckpointStorageMetadata; data?: Uint8Array }>> {
+    const list = await this.listByEntityWithMetadata(entityId, entityType, { limit: count });
+    
+    const results: Array<{ id: string; metadata: CheckpointStorageMetadata; data?: Uint8Array }> = [];
+    
+    for (const item of list) {
+      const result: any = { id: item.id, metadata: item.metadata };
+      if (includeData) {
+        result.data = await this.load(item.id);
+      }
+      results.push(result);
+    }
+    
+    return results;
   }
 
   /**
-   * Delete all checkpoints for a specific entity
+   * Delete checkpoints for a specific entity with advanced options
    */
-  async deleteByEntity(entityId: string, entityType?: string): Promise<number> {
-    this.ensureInitialized();
-
-    const ids = await this.listByEntity(entityId, entityType);
+  async deleteByEntity(
+    entityId: string,
+    entityType: string,
+    options?: { keepLatest?: number; olderThan?: number }
+  ): Promise<number> {
+    let list = await this.listByEntityWithMetadata(entityId, entityType);
+    
+    // Apply time-based filter
+    if (options?.olderThan) {
+      list = list.filter(item => (item.metadata.timestamp ?? 0) < options.olderThan!);
+    }
+    
+    // Apply keepLatest filter
+    if (options?.keepLatest && options.keepLatest > 0) {
+      list = list.slice(options.keepLatest);
+    }
+    
     let deletedCount = 0;
-
-    for (const id of ids) {
-      await this.delete(id);
+    for (const item of list) {
+      await this.delete(item.id);
       deletedCount++;
     }
 

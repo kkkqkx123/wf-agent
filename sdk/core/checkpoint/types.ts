@@ -10,7 +10,7 @@ import type { BaseCheckpoint } from "@wf-agent/types";
  * Note: This adapter works with serialized data (Uint8Array).
  * Serialization/deserialization is handled externally by StateCodec.
  * The adapter is agnostic to the specific checkpoint type.
- * Supports multiple entity types (workflow, agent, task) through metadata fields.
+ * Entity-based design for efficient checkpoint management.
  */
 export interface CheckpointStorageAdapter<TMetadata = unknown> {
   save(id: string, data: Uint8Array, metadata: TMetadata): Promise<void>;
@@ -26,17 +26,43 @@ export interface CheckpointStorageAdapter<TMetadata = unknown> {
     metadata: TMetadata;
   }>>;
   /**
-   * List checkpoints for a specific entity
+   * List checkpoints for a specific entity with metadata
+   * Optimized for entity-level queries using database indexes
    */
-  listByEntity?(entityId: string, entityType?: string, options?: any): Promise<string[]>;
+  listByEntityWithMetadata(
+    entityId: string,
+    entityType: string,
+    options?: { limit?: number; offset?: number }
+  ): Promise<Array<{
+    id: string;
+    metadata: TMetadata;
+  }>>;
   /**
-   * Get the latest checkpoint for a specific entity
+   * Get the latest N checkpoints for a specific entity
+   * Optimized for quick recovery scenarios
    */
-  getLatestByEntity?(entityId: string, entityType?: string): Promise<string | null>;
+  getLatestByEntity(
+    entityId: string,
+    entityType: string,
+    count?: number,
+    includeData?: boolean
+  ): Promise<Array<{
+    id: string;
+    metadata: TMetadata;
+    data?: Uint8Array;
+  }>>;
   /**
-   * Delete all checkpoints for a specific entity
+   * Delete checkpoints for a specific entity with advanced options
+   * Supports batch deletion with retention policies
    */
-  deleteByEntity?(entityId: string, entityType?: string): Promise<number>;
+  deleteByEntity(
+    entityId: string,
+    entityType: string,
+    options?: {
+      keepLatest?: number;
+      olderThan?: number;
+    }
+  ): Promise<number>;
   initialize?(): Promise<void>;
   close?(): Promise<void>;
 }

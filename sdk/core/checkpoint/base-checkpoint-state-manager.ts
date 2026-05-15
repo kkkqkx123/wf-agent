@@ -71,10 +71,8 @@ export abstract class BaseCheckpointStateManager<
         dataSize: serializedData.length,
       });
 
-      // Execute cleanup policy if configured
-      if (this.cleanupPolicy) {
-        await this.executeCleanup();
-      }
+      // Note: Cleanup is now handled by subclasses using executeCleanupForEntity(entityId, entityType)
+      // This allows entity-specific cleanup instead of global cleanup
 
       return checkpoint.id;
     } catch (error) {
@@ -154,38 +152,59 @@ export abstract class BaseCheckpointStateManager<
   }
 
   /**
-   * Execute cleanup policy
+   * Execute cleanup policy for a specific entity
+   * Optimized to only scan and clean checkpoints belonging to the specified entity
+   * 
+   * @param entityId The entity ID
+   * @param entityType The entity type ('workflow', 'agent', 'task')
+   * @param policy Optional cleanup policy (overrides default if provided)
    * @returns Cleanup result
    */
-  async executeCleanup(): Promise<CleanupResult> {
-    if (!this.cleanupPolicy) {
+  async executeCleanupForEntity(
+    entityId: string,
+    entityType: string,
+    policy?: CleanupPolicy
+  ): Promise<CleanupResult> {
+    const targetPolicy = policy || this.cleanupPolicy;
+    
+    if (!targetPolicy) {
       return {
         deletedCheckpointIds: [],
         deletedCount: 0,
         freedSpaceBytes: 0,
-        remainingCount: await this.storageAdapter.list().then(ids => ids.length),
+        remainingCount: 0,
       };
     }
 
-    logger.info("Executing cleanup policy", {
-      policy: this.cleanupPolicy.type,
+    logger.info("Executing cleanup policy for entity", {
+      entityId,
+      entityType,
+      policy: targetPolicy.type,
     });
 
-    // Load all checkpoints metadata for cleanup evaluation (without loading BLOB data)
-    const checkpointInfoArray = await this.storageAdapter.listWithMetadata();
+    // Load only this entity's checkpoints metadata (optimized query using indexes)
+    const checkpointInfoArray = await this.storageAdapter.listByEntityWithMetadata(
+      entityId,
+      entityType
+    );
 
     // Update checkpoint sizes from metadata if available
     for (const info of checkpointInfoArray) {
-      // Try to get size from custom fields or use default
-      const size = (info.metadata.customFields as any)?.blobSize || 0;
+      const size = (info.metadata as any).customFields?.blobSize || 0;
       if (size > 0) {
-        this.checkpointSizes.set(info.checkpointId, size);
+        this.checkpointSizes.set(info.id, size);
       }
     }
 
+    // Convert to CheckpointInfo format for strategy
+    const checkpointInfo: import("@wf-agent/types").CheckpointInfo[] = checkpointInfoArray.map((info: any) => ({
+      checkpointId: info.id,
+      metadata: info.metadata,
+    }));
+
     // Execute cleanup strategy
-    const strategy = createCleanupStrategy(this.cleanupPolicy, this.checkpointSizes);
-    const toDeleteIds = strategy.execute(checkpointInfoArray);
+    const strategy = createCleanupStrategy(targetPolicy, this.checkpointSizes);
+    const toDeleteIds = strategy.execute(checkpointInfo);
 
     // Delete checkpoints
     let freedSpaceBytes = 0;
@@ -203,9 +222,11 @@ export abstract class BaseCheckpointStateManager<
       }
     }
 
-    const remainingCount = await this.storageAdapter.list().then(ids => ids.length);
+    const remainingCount = checkpointInfoArray.length - toDeleteIds.length;
 
-    logger.info("Cleanup completed", {
+    logger.info("Entity cleanup completed", {
+      entityId,
+      entityType,
       deletedCount: toDeleteIds.length,
       freedSpaceBytes,
       remainingCount,

@@ -46,6 +46,7 @@ export class SqliteCheckpointStorage
 
   /**
    * Create table structure with metadata-BLOB separation
+   * Optimized for entity-based queries with composite indexes
    */
   protected createTableSchema(): void {
     const db = this.getDb();
@@ -54,10 +55,8 @@ export class SqliteCheckpointStorage
     db.exec(`
       CREATE TABLE IF NOT EXISTS checkpoint_metadata (
         id TEXT PRIMARY KEY,
-        execution_id TEXT,
-        workflow_id TEXT,
-        entity_type TEXT,
-        entity_id TEXT,
+        entity_type TEXT NOT NULL,
+        entity_id TEXT NOT NULL,
         timestamp INTEGER NOT NULL,
         checkpoint_type TEXT,
         base_checkpoint_id TEXT,
@@ -68,8 +67,8 @@ export class SqliteCheckpointStorage
         blob_hash TEXT,
         tags TEXT CHECK(length(tags) <= 4096),
         custom_fields TEXT CHECK(length(custom_fields) <= 8192),
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
+        created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+        updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
       )
     `);
 
@@ -88,34 +87,38 @@ export class SqliteCheckpointStorage
       )
     `);
 
-    // Create indexes for optimized queries
+    // ========================================================================
+    // Optimized Indexes for Entity-Based Queries
+    // ========================================================================
+    
+    // Primary composite index: entity lookup with timestamp ordering
+    // Supports: listByEntityWithMetadata, getLatestByEntity, cleanup by entity
     db.exec(
-      `CREATE INDEX IF NOT EXISTS idx_checkpoint_meta_execution_id ON checkpoint_metadata(execution_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_checkpoint_entity_timestamp 
+       ON checkpoint_metadata(entity_type, entity_id, timestamp DESC)`
     );
+
+    // Timestamp-only index: time-based cleanup and range queries
     db.exec(
-      `CREATE INDEX IF NOT EXISTS idx_checkpoint_meta_workflow_id ON checkpoint_metadata(workflow_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_checkpoint_timestamp 
+       ON checkpoint_metadata(timestamp)`
     );
+
+    // Checkpoint type index: filter by FULL/DELTA
     db.exec(
-      `CREATE INDEX IF NOT EXISTS idx_checkpoint_meta_entity_type ON checkpoint_metadata(entity_type)`,
+      `CREATE INDEX IF NOT EXISTS idx_checkpoint_type 
+       ON checkpoint_metadata(checkpoint_type)`
     );
+
+    // Hash index: deduplication detection
     db.exec(
-      `CREATE INDEX IF NOT EXISTS idx_checkpoint_meta_entity_id ON checkpoint_metadata(entity_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_checkpoint_blob_hash 
+       ON checkpoint_metadata(blob_hash)`
     );
-    db.exec(
-      `CREATE INDEX IF NOT EXISTS idx_checkpoint_meta_timestamp ON checkpoint_metadata(timestamp)`,
-    );
-    db.exec(
-      `CREATE INDEX IF NOT EXISTS idx_checkpoint_meta_type ON checkpoint_metadata(checkpoint_type)`,
-    );
-    db.exec(
-      `CREATE INDEX IF NOT EXISTS idx_checkpoint_meta_execution_timestamp ON checkpoint_metadata(execution_id, timestamp)`,
-    );
-    db.exec(
-      `CREATE INDEX IF NOT EXISTS idx_checkpoint_meta_workflow_timestamp ON checkpoint_metadata(workflow_id, timestamp)`,
-    );
-    db.exec(
-      `CREATE INDEX IF NOT EXISTS idx_checkpoint_meta_entity_timestamp ON checkpoint_metadata(entity_type, entity_id, timestamp)`,
-    );
+
+    logger.debug('Created optimized indexes for entity-based queries', {
+      table: this.getTableName()
+    });
   }
 
   /**
@@ -282,6 +285,7 @@ export class SqliteCheckpointStorage
       this.updateMetric('save', elapsed, compressed.length);
     } catch (error) {
       this.handleSqliteError(error, "save", { id });
+      throw error; // Re-throw to ensure caller knows about the failure
     }
   }
 
@@ -335,6 +339,7 @@ export class SqliteCheckpointStorage
       return finalData;
     } catch (error) {
       this.handleSqliteError(error, "load", { id });
+      throw error;
     }
   }
 
@@ -354,6 +359,7 @@ export class SqliteCheckpointStorage
       this.updateMetric('delete', elapsed);
     } catch (error) {
       this.handleSqliteError(error, "delete", { id });
+      throw error;
     }
   }
 
@@ -369,6 +375,7 @@ export class SqliteCheckpointStorage
       return row !== undefined;
     } catch (error) {
       this.handleSqliteError(error, "exists", { id });
+      throw error;
     }
   }
 
@@ -434,6 +441,7 @@ export class SqliteCheckpointStorage
       return rows.map(row => row.id);
     } catch (error) {
       this.handleSqliteError(error, "list", { options });
+      throw error;
     }
   }
 
@@ -482,6 +490,7 @@ export class SqliteCheckpointStorage
       };
     } catch (error) {
       this.handleSqliteError(error, "getMetadata", { id });
+      throw error;
     }
   }
 
@@ -590,6 +599,7 @@ export class SqliteCheckpointStorage
       }));
     } catch (error) {
       this.handleSqliteError(error, "listWithMetadata", { options });
+      throw error;
     }
   }
 
@@ -604,6 +614,7 @@ export class SqliteCheckpointStorage
       db.exec(`DELETE FROM checkpoint_metadata`);
     } catch (error) {
       this.handleSqliteError(error, "clear", {});
+      throw error;
     }
   }
 
@@ -642,6 +653,7 @@ export class SqliteCheckpointStorage
       };
     } catch (error) {
       this.handleSqliteError(error, "getStats", {});
+      throw error;
     }
   }
 
@@ -868,116 +880,233 @@ export class SqliteCheckpointStorage
   }
 
   /**
-   * List checkpoints for a specific entity
-   * Entity-aware filtering for multi-entity checkpoint storage
+   * List checkpoints for a specific entity with metadata
+   * Optimized for entity-level queries using database indexes
    */
-  async listByEntity(
+  async listByEntityWithMetadata(
     entityId: string,
-    entityType?: string,
-    options?: Omit<CheckpointStorageListOptions, 'executionId' | 'workflowId'>
-  ): Promise<string[]> {
+    entityType: string,
+    options?: { limit?: number; offset?: number }
+  ): Promise<Array<{ id: string; metadata: CheckpointStorageMetadata }>> {
     const startTime = Date.now();
     const db = this.getDb();
 
     try {
-      let sql = `SELECT id FROM checkpoint_metadata WHERE entity_id = ?`;
-      const params: unknown[] = [entityId];
-
-      if (entityType) {
-        sql += ` AND entity_type = ?`;
-        params.push(entityType);
-      }
-
-      // Add additional filters from options
-      if (options?.tags && options.tags.length > 0) {
-        const tagPattern = `%${options.tags[0]}%`;
-        sql += ` AND tags LIKE ?`;
-        params.push(tagPattern);
-      }
-
-      if (options?.type) {
-        sql += ` AND checkpoint_type = ?`;
-        params.push(options.type);
-      }
-
-      // Sort by timestamp descending
-      sql += " ORDER BY timestamp DESC";
+      let sql = `
+        SELECT id, entity_type, entity_id, timestamp, checkpoint_type,
+               base_checkpoint_id, previous_checkpoint_id, message_count,
+               variable_count, blob_size, blob_hash, tags, custom_fields
+        FROM checkpoint_metadata
+        WHERE entity_id = ? AND entity_type = ?
+        ORDER BY timestamp DESC
+      `;
+      const params: unknown[] = [entityId, entityType];
 
       // Pagination with validation
-      const { limit: validatedLimit, offset: validatedOffset } = this.validatePagination(
-        options?.limit,
-        options?.offset
-      );
-      
       if (options?.limit !== undefined) {
         sql += " LIMIT ?";
-        params.push(validatedLimit);
+        params.push(options.limit);
       }
 
       if (options?.offset !== undefined) {
         sql += " OFFSET ?";
-        params.push(validatedOffset);
+        params.push(options.offset);
       }
 
       const stmt = db.prepare(sql);
-      const rows = stmt.all(...params) as Array<{ id: string }>;
+      const rows = stmt.all(...params) as Array<{
+        id: string;
+        entity_type: string;
+        entity_id: string;
+        timestamp: number;
+        checkpoint_type: string | null;
+        base_checkpoint_id: string | null;
+        previous_checkpoint_id: string | null;
+        message_count: number | null;
+        variable_count: number | null;
+        blob_size: number | null;
+        blob_hash: string | null;
+        tags: string | null;
+        custom_fields: string | null;
+      }>;
 
       const elapsed = Date.now() - startTime;
       this.updateMetric('list', elapsed);
 
-      return rows.map(row => row.id);
+      return rows.map(row => ({
+        id: row.id,
+        metadata: {
+          entityType: row.entity_type as any,
+          entityId: row.entity_id,
+          timestamp: row.timestamp,
+          customFields: {
+            checkpointType: row.checkpoint_type,
+            baseCheckpointId: row.base_checkpoint_id,
+            previousCheckpointId: row.previous_checkpoint_id,
+            messageCount: row.message_count,
+            variableCount: row.variable_count,
+            blobSize: row.blob_size,
+            blobHash: row.blob_hash,
+          },
+          tags: row.tags ? JSON.parse(row.tags) : undefined,
+        }
+      }));
     } catch (error) {
-      this.handleSqliteError(error, "listByEntity", { entityId, entityType });
+      this.handleSqliteError(error, "listByEntityWithMetadata", { entityId, entityType });
+      throw error;
     }
   }
 
   /**
-   * Get the latest checkpoint for a specific entity
+   * Get the latest N checkpoints for a specific entity
+   * Optimized for quick recovery scenarios
    */
-  async getLatestByEntity(entityId: string, entityType?: string): Promise<string | null> {
+  async getLatestByEntity(
+    entityId: string,
+    entityType: string,
+    count: number = 1,
+    includeData: boolean = false
+  ): Promise<Array<{ id: string; metadata: CheckpointStorageMetadata; data?: Uint8Array }>> {
     const db = this.getDb();
 
     try {
-      let sql = `SELECT id FROM checkpoint_metadata WHERE entity_id = ?`;
-      const params: unknown[] = [entityId];
+      // First, get metadata
+      const metadataSql = `
+        SELECT id, entity_type, entity_id, timestamp, checkpoint_type,
+               base_checkpoint_id, previous_checkpoint_id, message_count,
+               variable_count, blob_size, blob_hash, tags, custom_fields
+        FROM checkpoint_metadata
+        WHERE entity_id = ? AND entity_type = ?
+        ORDER BY timestamp DESC
+        LIMIT ?
+      `;
+      
+      const metadataStmt = db.prepare(metadataSql);
+      const metadataRows = metadataStmt.all(entityId, entityType, count) as Array<{
+        id: string;
+        entity_type: string;
+        entity_id: string;
+        timestamp: number;
+        checkpoint_type: string | null;
+        base_checkpoint_id: string | null;
+        previous_checkpoint_id: string | null;
+        message_count: number | null;
+        variable_count: number | null;
+        blob_size: number | null;
+        blob_hash: string | null;
+        tags: string | null;
+        custom_fields: string | null;
+      }>;
 
-      if (entityType) {
-        sql += ` AND entity_type = ?`;
-        params.push(entityType);
+      const results: Array<{ id: string; metadata: CheckpointStorageMetadata; data?: Uint8Array }> = [];
+
+      for (const row of metadataRows) {
+        const result: { id: string; metadata: CheckpointStorageMetadata; data?: Uint8Array } = {
+          id: row.id,
+          metadata: {
+            entityType: row.entity_type as any,
+            entityId: row.entity_id,
+            timestamp: row.timestamp,
+            customFields: {
+              checkpointType: row.checkpoint_type,
+              baseCheckpointId: row.base_checkpoint_id,
+              previousCheckpointId: row.previous_checkpoint_id,
+              messageCount: row.message_count,
+              variableCount: row.variable_count,
+              blobSize: row.blob_size,
+              blobHash: row.blob_hash,
+            },
+            tags: row.tags ? JSON.parse(row.tags) : undefined,
+          }
+        };
+
+        // Optionally load BLOB data
+        if (includeData) {
+          const blobSql = `SELECT blob_data FROM checkpoint_blob WHERE checkpoint_id = ?`;
+          const blobStmt = db.prepare(blobSql);
+          const blobRow = blobStmt.get(row.id) as { blob_data: Buffer } | undefined;
+          
+          if (blobRow) {
+            result.data = new Uint8Array(blobRow.blob_data);
+          }
+        }
+
+        results.push(result);
       }
 
-      sql += " ORDER BY timestamp DESC LIMIT 1";
-
-      const stmt = db.prepare(sql);
-      const row = stmt.get(...params) as { id: string } | undefined;
-
-      return row ? row.id : null;
+      return results;
     } catch (error) {
       this.handleSqliteError(error, "getLatestByEntity", { entityId, entityType });
+      throw error;
     }
   }
 
   /**
-   * Delete all checkpoints for a specific entity
+   * Delete checkpoints for a specific entity with advanced options
+   * Supports batch deletion with retention policies
    */
-  async deleteByEntity(entityId: string, entityType?: string): Promise<number> {
+  async deleteByEntity(
+    entityId: string,
+    entityType: string,
+    options?: {
+      keepLatest?: number;
+      olderThan?: number;
+    }
+  ): Promise<number> {
     const db = this.getDb();
 
     try {
-      let sql = `DELETE FROM checkpoint_metadata WHERE entity_id = ?`;
-      const params: unknown[] = [entityId];
+      // Build query to find checkpoints to delete
+      let selectSql = `
+        SELECT id FROM checkpoint_metadata
+        WHERE entity_id = ? AND entity_type = ?
+      `;
+      const params: unknown[] = [entityId, entityType];
 
-      if (entityType) {
-        sql += ` AND entity_type = ?`;
-        params.push(entityType);
+      // Add time-based filter
+      if (options?.olderThan) {
+        selectSql += ` AND timestamp < ?`;
+        params.push(options.olderThan);
       }
 
-      const stmt = db.prepare(sql);
-      const result = stmt.run(...params);
+      // Order by timestamp descending
+      selectSql += ` ORDER BY timestamp DESC`;
+
+      // Skip the latest N checkpoints if specified
+      if (options?.keepLatest && options.keepLatest > 0) {
+        selectSql += ` LIMIT -1 OFFSET ?`;
+        params.push(options.keepLatest);
+      }
+
+      // Get IDs to delete
+      const selectStmt = db.prepare(selectSql);
+      const rows = selectStmt.all(...params) as Array<{ id: string }>;
+      const idsToDelete = rows.map(r => r.id);
+
+      if (idsToDelete.length === 0) {
+        return 0;
+      }
+
+      // Batch delete from both tables
+      // SQLite supports DELETE with subquery
+      const deleteSql = `
+        DELETE FROM checkpoint_metadata
+        WHERE id IN (${idsToDelete.map(() => '?').join(',')})
+      `;
+      
+      const deleteStmt = db.prepare(deleteSql);
+      const result = deleteStmt.run(...idsToDelete);
+
+      logger.info('Deleted checkpoints by entity', {
+        entityId,
+        entityType,
+        deletedCount: result.changes
+      });
 
       return result.changes;
     } catch (error) {
       this.handleSqliteError(error, "deleteByEntity", { entityId, entityType });
+      throw error;
     }
   }
 }

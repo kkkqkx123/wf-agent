@@ -51,9 +51,6 @@ export interface BasePostgresStorageConfig {
   
   /** Verify integrity every Nth load operation (default: 100, only used when verifyIntegrity is true) */
   integrityCheckFrequency?: number;
-  
-  /** Schema version for migration support (default: 1) */
-  schemaVersion?: number;
 }
 
 /**
@@ -136,7 +133,6 @@ export abstract class BasePostgresStorage<TMetadataType> {
         connectionString: this.config.connectionString,
         tableName: this.getTableName(),
         usingPool: this.usingPool,
-        schemaVersion: this.getCurrentSchemaVersion(),
       });
     } catch (error) {
       this.initialized = false;
@@ -172,101 +168,20 @@ export abstract class BasePostgresStorage<TMetadataType> {
   }
 
   /**
-   * Initialize or migrate database schema
+   * Initialize database schema
    */
   private async initializeSchema(): Promise<void> {
     const client = await this.getClient();
     
     try {
-      const targetVersion = this.config.schemaVersion ?? 1;
-
-      // Create schema version tracking table if it doesn't exist
-      await client.query(`
-        CREATE TABLE IF NOT EXISTS _schema_versions (
-          table_name TEXT PRIMARY KEY,
-          version INTEGER NOT NULL,
-          updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-        )
-      `);
-
-      // Get current version for this table
-      const result = await client.query(
-        'SELECT version FROM _schema_versions WHERE table_name = $1',
-        [this.getTableName()]
-      );
-
-      const installedVersion = result.rows.length > 0 ? result.rows[0].version : 0;
-
-      if (installedVersion === 0) {
-        // Fresh installation - create tables
-        logger.info('Creating new schema', { 
-          table: this.getTableName(), 
-          version: targetVersion 
-        });
-        await this.createTableSchema(client);
-        
-        // Record version
-        await client.query(
-          'INSERT INTO _schema_versions (table_name, version, updated_at) VALUES ($1, $2, NOW())',
-          [this.getTableName(), targetVersion]
-        );
-      } else if (installedVersion < targetVersion) {
-        // Migration needed
-        logger.info('Migrating schema', { 
-          table: this.getTableName(), 
-          fromVersion: installedVersion, 
-          toVersion: targetVersion 
-        });
-        await this.migrateSchema(client, installedVersion, targetVersion);
-        
-        // Update version
-        await client.query(
-          'UPDATE _schema_versions SET version = $1, updated_at = NOW() WHERE table_name = $2',
-          [targetVersion, this.getTableName()]
-        );
-      } else if (installedVersion > targetVersion) {
-        logger.warn('Database schema version is newer than expected', {
-          table: this.getTableName(),
-          installedVersion,
-          targetVersion,
-        });
-      } else {
-        logger.debug('Schema is up to date', { 
-          table: this.getTableName(), 
-          version: installedVersion 
-        });
-      }
+      // Create tables (IF NOT EXISTS ensures idempotency)
+      logger.info('Initializing schema', { table: this.getTableName() });
+      await this.createTableSchema(client);
+      
+      logger.debug('Schema initialized', { table: this.getTableName() });
     } finally {
       this.releaseClient(client);
     }
-  }
-
-  /**
-   * Get current schema version
-   */
-  protected getCurrentSchemaVersion(): number {
-    return this.config.schemaVersion ?? 1;
-  }
-
-  /**
-   * Migrate schema from one version to another
-   * Override this method in subclasses to implement custom migrations
-   * @param client Database client
-   * @param fromVersion Current schema version
-   * @param toVersion Target schema version
-   */
-  protected async migrateSchema(
-    _client: PoolClient,
-    fromVersion: number,
-    toVersion: number
-  ): Promise<void> {
-    // Default implementation does nothing
-    // Subclasses should override to implement actual migrations
-    logger.warn('Schema migration not implemented', {
-      table: this.getTableName(),
-      fromVersion,
-      toVersion,
-    });
   }
 
   /**

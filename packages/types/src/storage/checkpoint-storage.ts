@@ -14,40 +14,30 @@ export type CheckpointEntityType = 'workflow' | 'agent' | 'task';
 /**
  * Checkpoint storage metadata
  * Metadata information for indexing and querying
- * Supports multiple entity types (workflow, agent, task) through entityType and entityId fields
+ * Entity-based design for efficient checkpoint management
  */
 export interface CheckpointStorageMetadata {
-  /** Execution ID (for workflow checkpoints) */
-  executionId?: ID;
-  /** Workflow ID (for workflow checkpoints) */
-  workflowId?: ID;
-  /** Entity type - identifies which entity this checkpoint belongs to */
-  entityType?: CheckpointEntityType;
-  /** Entity ID - the specific entity identifier (workflowId, agentLoopId, taskId, etc.) */
-  entityId?: ID;
-  /** Creating timestamps */
+  /** Entity type - identifies which entity this checkpoint belongs to (required) */
+  entityType: CheckpointEntityType;
+  /** Entity ID - the specific entity identifier (workflowId, agentLoopId, taskId, etc.) (required) */
+  entityId: ID;
+  /** Creating timestamp (required) */
   timestamp: Timestamp;
   /** Tagged arrays (for categorization and retrieval) */
   tags?: string[];
   /** Customizing metadata fields */
   customFields?: Record<string, unknown>;
-  /** Checkpoint schema version (for migration support) */
-  version?: number;
 }
 
 /**
  * Checkpoint stored list query option
  * Support for basic filtering and paging
- * Supports entity-aware filtering through entityType and entityId fields
+ * Entity-aware filtering as primary query mechanism
  */
 export interface CheckpointStorageListOptions {
-  /** Filter by execution ID (legacy, use entityId instead) */
-  executionId?: ID;
-  /** Filter by Workflow ID (legacy, use entityId instead) */
-  workflowId?: ID;
-  /** Filter by entity type */
+  /** Filter by entity type (required for efficient queries) */
   entityType?: CheckpointEntityType;
-  /** Filter by entity ID (workflowId, agentLoopId, taskId, etc.) */
+  /** Filter by entity ID (required for efficient queries) */
   entityId?: ID;
   /** Filter by tag (match any tag) */
   tags?: string[];

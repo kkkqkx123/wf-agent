@@ -3,9 +3,10 @@
  *
  * Manages the lifecycle of agent loop checkpoints including creation, retrieval, deletion, and cleanup.
  * Extends BaseCheckpointStateManager with agent-specific event building and metadata extraction.
+ * Entity-based design for efficient checkpoint management.
  */
 
-import type { CleanupResult, CheckpointStorageMetadata, CheckpointEntityType } from "@wf-agent/types";
+import type { CleanupResult, CheckpointStorageMetadata } from "@wf-agent/types";
 import type { AgentLoopCheckpoint } from "@wf-agent/types";
 import type { EventRegistry } from "../../core/registry/event-registry.js";
 import type { CheckpointStorageAdapter as StorageAdapter } from "@wf-agent/storage";
@@ -16,16 +17,20 @@ import { generateId } from "../../utils/id-utils.js";
  * Agent Loop Checkpoint State Manager
  *
  * Extends BaseCheckpointStateManager with agent-specific logic.
+ * Enforces entity binding for efficient checkpoint management.
  */
 export class AgentLoopCheckpointStateManager extends BaseCheckpointStateManager<AgentLoopCheckpoint> {
-  private agentLoopId?: string;
+  private readonly agentLoopId: string;
 
   constructor(
+    agentLoopId: string,  // Required: entity ID for this manager
     storageAdapter: StorageAdapter,
     eventManager?: EventRegistry,
-    agentLoopId?: string,
   ) {
     super(storageAdapter, eventManager);
+    if (!agentLoopId) {
+      throw new Error('agentLoopId is required for AgentLoopCheckpointStateManager');
+    }
     this.agentLoopId = agentLoopId;
   }
 
@@ -38,7 +43,14 @@ export class AgentLoopCheckpointStateManager extends BaseCheckpointStateManager<
    * @returns The checkpoint ID
    */
   async saveCheckpoint(checkpoint: AgentLoopCheckpoint): Promise<string> {
-    return await super.create(checkpoint);
+    const id = await super.create(checkpoint);
+    
+    // Execute entity-specific cleanup after saving
+    if (this.cleanupPolicy) {
+      await this.executeCleanupForEntity(this.agentLoopId, 'agent');
+    }
+    
+    return id;
   }
 
   /**
@@ -102,8 +114,8 @@ export class AgentLoopCheckpointStateManager extends BaseCheckpointStateManager<
 
   protected extractStorageMetadata(checkpoint: AgentLoopCheckpoint): CheckpointStorageMetadata {
     return {
-      entityType: 'agent' as CheckpointEntityType,
-      entityId: checkpoint.agentLoopId,
+      entityType: 'agent',
+      entityId: checkpoint.agentLoopId || this.agentLoopId,
       timestamp: checkpoint.timestamp,
       customFields: {
         type: checkpoint.type,

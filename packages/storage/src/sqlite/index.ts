@@ -8,7 +8,6 @@ export { SqliteWorkflowStorage } from "./sqlite-workflow-storage.js";
 export { SqliteWorkflowExecutionStorage } from "./sqlite-workflow-execution-storage.js";
 export { SqliteTaskStorage } from "./sqlite-task-storage.js";
 export { SqliteAgentLoopStorage } from "./sqlite-agent-loop-storage.js";
-export { SqliteAgentLoopCheckpointStorage } from "./sqlite-agent-loop-checkpoint-storage.js";
 export { SqliteMetricsStorage, type SqliteMetricsStorageConfig } from "./sqlite-metrics-storage.js";
 export {
   SqliteConnectionPool,

@@ -56,8 +56,10 @@ export class PostgresCheckpointStorage
     await client.query(`
       CREATE TABLE IF NOT EXISTS checkpoint_metadata (
         id TEXT PRIMARY KEY,
-        execution_id TEXT NOT NULL,
-        workflow_id TEXT NOT NULL,
+        execution_id TEXT,
+        workflow_id TEXT,
+        entity_type TEXT,
+        entity_id TEXT,
         timestamp BIGINT NOT NULL,
         checkpoint_type TEXT,
         base_checkpoint_id TEXT,
@@ -95,6 +97,12 @@ export class PostgresCheckpointStorage
       'CREATE INDEX IF NOT EXISTS idx_cp_meta_workflow ON checkpoint_metadata(workflow_id)'
     );
     await client.query(
+      'CREATE INDEX IF NOT EXISTS idx_cp_meta_entity_type ON checkpoint_metadata(entity_type)'
+    );
+    await client.query(
+      'CREATE INDEX IF NOT EXISTS idx_cp_meta_entity_id ON checkpoint_metadata(entity_id)'
+    );
+    await client.query(
       'CREATE INDEX IF NOT EXISTS idx_cp_meta_timestamp ON checkpoint_metadata(timestamp)'
     );
     await client.query(
@@ -102,6 +110,9 @@ export class PostgresCheckpointStorage
     );
     await client.query(
       'CREATE INDEX IF NOT EXISTS idx_cp_meta_exec_ts ON checkpoint_metadata(execution_id, timestamp)'
+    );
+    await client.query(
+      'CREATE INDEX IF NOT EXISTS idx_cp_meta_entity_ts ON checkpoint_metadata(entity_type, entity_id, timestamp)'
     );
 
     logger.debug('Checkpoint schema created');
@@ -171,12 +182,14 @@ export class PostgresCheckpointStorage
     // Insert or update metadata
     await client.query(
       `INSERT INTO checkpoint_metadata (
-        id, execution_id, workflow_id, timestamp, tags, custom_fields,
+        id, execution_id, workflow_id, entity_type, entity_id, timestamp, tags, custom_fields,
         blob_size, blob_hash, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
       ON CONFLICT (id) DO UPDATE SET
         execution_id = EXCLUDED.execution_id,
         workflow_id = EXCLUDED.workflow_id,
+        entity_type = EXCLUDED.entity_type,
+        entity_id = EXCLUDED.entity_id,
         timestamp = EXCLUDED.timestamp,
         tags = EXCLUDED.tags,
         custom_fields = EXCLUDED.custom_fields,
@@ -185,8 +198,10 @@ export class PostgresCheckpointStorage
         updated_at = NOW()`,
       [
         checkpointId,
-        metadata.executionId,
-        metadata.workflowId,
+        metadata.executionId || null,
+        metadata.workflowId || null,
+        metadata.entityType || null,
+        metadata.entityId || null,
         metadata.timestamp,
         metadata.tags ? JSON.stringify(metadata.tags) : null,
         metadata.customFields ? JSON.stringify(metadata.customFields) : null,
@@ -316,6 +331,16 @@ export class PostgresCheckpointStorage
         params.push(options.workflowId);
       }
 
+      if (options?.entityType) {
+        conditions.push(`entity_type = $${paramIndex++}`);
+        params.push(options.entityType);
+      }
+
+      if (options?.entityId) {
+        conditions.push(`entity_id = $${paramIndex++}`);
+        params.push(options.entityId);
+      }
+
       if (options?.type) {
         conditions.push(`checkpoint_type = $${paramIndex++}`);
         params.push(options.type);
@@ -418,6 +443,103 @@ export class PostgresCheckpointStorage
   }
 
   /**
+   * List checkpoints with metadata only (without loading BLOB data)
+   * More efficient for cleanup operations
+   */
+  async listWithMetadata(options?: CheckpointStorageListOptions): Promise<Array<{
+    id: string;
+    metadata: CheckpointStorageMetadata;
+  }>> {
+    const client = await this.getClient();
+    const startTime = Date.now();
+
+    try {
+      const { limit, offset } = this.validatePagination(options?.limit, options?.offset);
+
+      // Build dynamic query based on filters
+      const conditions: string[] = [];
+      const params: Array<string | number> = [];
+      let paramIndex = 1;
+
+      if (options?.executionId) {
+        conditions.push(`execution_id = $${paramIndex++}`);
+        params.push(options.executionId);
+      }
+
+      if (options?.workflowId) {
+        conditions.push(`workflow_id = $${paramIndex++}`);
+        params.push(options.workflowId);
+      }
+
+      if (options?.type) {
+        conditions.push(`checkpoint_type = $${paramIndex++}`);
+        params.push(options.type);
+      }
+
+      if (options?.timestampFrom) {
+        conditions.push(`timestamp >= $${paramIndex++}`);
+        params.push(options.timestampFrom);
+      }
+
+      if (options?.timestampTo) {
+        conditions.push(`timestamp <= $${paramIndex++}`);
+        params.push(options.timestampTo);
+      }
+
+      const whereClause = conditions.length > 0 
+        ? `WHERE ${conditions.join(' AND ')}`
+        : '';
+
+      const query = `
+        SELECT 
+          id,
+          execution_id as "executionId",
+          workflow_id as "workflowId",
+          entity_type as "entityType",
+          entity_id as "entityId",
+          timestamp,
+          tags,
+          custom_fields as "customFields"
+        FROM checkpoint_metadata
+        ${whereClause}
+        ORDER BY timestamp DESC
+        LIMIT $${paramIndex++} OFFSET $${paramIndex++}
+      `;
+
+      params.push(limit, offset);
+
+      const result = await client.query(query, params);
+      
+      const items = result.rows.map(row => ({
+        id: row.id,
+        metadata: {
+          executionId: row.executionId || undefined,
+          workflowId: row.workflowId || undefined,
+          entityType: row.entityType || undefined,
+          entityId: row.entityId || undefined,
+          timestamp: row.timestamp,
+          tags: row.tags ? JSON.parse(row.tags) : undefined,
+          customFields: row.customFields,
+        },
+      }));
+
+      const elapsed = Date.now() - startTime;
+      this.updateMetric('list', elapsed);
+
+      logger.debug('Checkpoints listed with metadata', {
+        count: items.length,
+        filters: Object.keys(options || {}),
+      });
+
+      return items;
+    } catch (error) {
+      return this.handlePostgresError(error, 'listWithMetadata', { options });
+    } finally {
+      this.releaseClient(client);
+    }
+  }
+
+  /**
    * Delete all checkpoints for an execution
    */
   async deleteByExecution(executionId: string): Promise<number> {
@@ -460,6 +582,257 @@ export class PostgresCheckpointStorage
       return result.rows.length > 0 ? result.rows[0].id : null;
     } catch (error) {
       return this.handlePostgresError(error, 'getLatestCheckpoint', { executionId });
+    } finally {
+      this.releaseClient(client);
+    }
+  }
+
+  /**
+   * Clear all checkpoints
+   */
+  override async clear(): Promise<void> {
+    const client = await this.getClient();
+
+    try {
+      // Delete from metadata table (cascade will delete blob)
+      await client.query('DELETE FROM checkpoint_metadata');
+      logger.info('All checkpoints cleared');
+    } catch (error) {
+      return this.handlePostgresError(error, 'clear', {});
+    } finally {
+      this.releaseClient(client);
+    }
+  }
+
+  /**
+   * Save multiple checkpoints in a single transaction
+   */
+  override async saveBatch(
+    items: Array<{ id: string; data: Uint8Array; metadata: CheckpointStorageMetadata }>,
+  ): Promise<void> {
+    const client = await this.getClient();
+    const startTime = Date.now();
+
+    if (items.length === 0) {
+      return;
+    }
+
+    try {
+      await client.query('BEGIN');
+
+      try {
+        for (const item of items) {
+          await this.saveToClient(client, item.id, item.data, item.metadata);
+        }
+
+        await client.query('COMMIT');
+
+        const elapsed = Date.now() - startTime;
+        const totalSize = items.reduce((sum, item) => sum + item.data.length, 0);
+        this.updateMetric('save', elapsed / items.length, totalSize);
+
+        logger.debug('Batch save completed', {
+          count: items.length,
+          totalTimeMs: elapsed,
+        });
+      } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+      }
+    } catch (error) {
+      return this.handlePostgresError(error, 'saveBatch', { count: items.length });
+    } finally {
+      this.releaseClient(client);
+    }
+  }
+
+  /**
+   * Load multiple checkpoints efficiently
+   */
+  override async loadBatch(ids: string[]): Promise<Array<{ id: string; data: Uint8Array | null }>> {
+    const client = await this.getClient();
+
+    if (ids.length === 0) {
+      return [];
+    }
+
+    try {
+      // Use IN clause for efficient batch loading
+      const placeholders = ids.map((_, i) => `$${i + 1}`).join(',');
+      const result = await client.query(
+        `SELECT cb.checkpoint_id as id, cb.blob_data, cb.compressed, cb.compression_algorithm
+         FROM checkpoint_blob cb
+         WHERE cb.checkpoint_id IN (${placeholders})`,
+        ids
+      );
+
+      // Create a map for quick lookup
+      const dataMap = new Map<string, Uint8Array>();
+      for (const row of result.rows) {
+        let data = row.blob_data;
+
+        // Decompress if needed
+        if (row.compressed && row.compression_algorithm) {
+          data = await decompressBlob(data, row.compression_algorithm);
+        }
+
+        dataMap.set(row.id, data);
+      }
+
+      // Maintain order and handle missing items
+      const results = ids.map(id => ({
+        id,
+        data: dataMap.get(id) || null,
+      }));
+
+      logger.debug('Batch load completed', {
+        requested: ids.length,
+        found: result.rows.length,
+      });
+
+      return results;
+    } catch (error) {
+      return this.handlePostgresError(error, 'loadBatch', { count: ids.length });
+    } finally {
+      this.releaseClient(client);
+    }
+  }
+
+  /**
+   * Delete multiple checkpoints in a single transaction
+   */
+  override async deleteBatch(ids: string[]): Promise<void> {
+    const client = await this.getClient();
+
+    if (ids.length === 0) {
+      return;
+    }
+
+    try {
+      await client.query('BEGIN');
+
+      try {
+        // Use IN clause for efficient batch deletion
+        const placeholders = ids.map((_, i) => `$${i + 1}`).join(',');
+        await client.query(
+          `DELETE FROM checkpoint_metadata WHERE id IN (${placeholders})`,
+          ids
+        );
+
+        await client.query('COMMIT');
+
+        logger.debug('Batch delete completed', {
+          count: ids.length,
+        });
+      } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+      }
+    } catch (error) {
+      return this.handlePostgresError(error, 'deleteBatch', { count: ids.length });
+    } finally {
+      this.releaseClient(client);
+    }
+  }
+
+  /**
+   * List checkpoints for a specific entity
+   */
+  async listByEntity(
+    entityId: string,
+    entityType?: string,
+    options?: Omit<CheckpointStorageListOptions, 'executionId' | 'workflowId'>
+  ): Promise<string[]> {
+    const client = await this.getClient();
+
+    try {
+      let sql = `SELECT id FROM checkpoint_metadata WHERE entity_id = $1`;
+      const params: any[] = [entityId];
+
+      if (entityType) {
+        sql += ` AND entity_type = $${params.length + 1}`;
+        params.push(entityType);
+      }
+
+      // Add additional filters from options
+      if (options?.tags && options.tags.length > 0) {
+        sql += ` AND tags LIKE $${params.length + 1}`;
+        params.push(`%${options.tags[0]}%`);
+      }
+
+      if (options?.type) {
+        sql += ` AND checkpoint_type = $${params.length + 1}`;
+        params.push(options.type);
+      }
+
+      // Sort by timestamp descending
+      sql += " ORDER BY timestamp DESC";
+
+      // Pagination
+      if (options?.limit !== undefined) {
+        sql += ` LIMIT $${params.length + 1}`;
+        params.push(options.limit);
+      }
+
+      if (options?.offset !== undefined) {
+        sql += ` OFFSET $${params.length + 1}`;
+        params.push(options.offset);
+      }
+
+      const result = await client.query(sql, params);
+      return result.rows.map((row: any) => row.id);
+    } catch (error) {
+      return this.handlePostgresError(error, 'listByEntity', { entityId, entityType });
+    } finally {
+      this.releaseClient(client);
+    }
+  }
+
+  /**
+   * Get the latest checkpoint for a specific entity
+   */
+  async getLatestByEntity(entityId: string, entityType?: string): Promise<string | null> {
+    const client = await this.getClient();
+
+    try {
+      let sql = `SELECT id FROM checkpoint_metadata WHERE entity_id = $1`;
+      const params: any[] = [entityId];
+
+      if (entityType) {
+        sql += ` AND entity_type = $${params.length + 1}`;
+        params.push(entityType);
+      }
+
+      sql += " ORDER BY timestamp DESC LIMIT 1";
+
+      const result = await client.query(sql, params);
+      return result.rows.length > 0 ? result.rows[0].id : null;
+    } catch (error) {
+      return this.handlePostgresError(error, 'getLatestByEntity', { entityId, entityType });
+    } finally {
+      this.releaseClient(client);
+    }
+  }
+
+  /**
+   * Delete all checkpoints for a specific entity
+   */
+  async deleteByEntity(entityId: string, entityType?: string): Promise<number> {
+    const client = await this.getClient();
+
+    try {
+      let sql = `DELETE FROM checkpoint_metadata WHERE entity_id = $1`;
+      const params: any[] = [entityId];
+
+      if (entityType) {
+        sql += ` AND entity_type = $${params.length + 1}`;
+        params.push(entityType);
+      }
+
+      const result = await client.query(sql, params);
+      return parseInt(result.rowCount?.toString() || '0');
+    } catch (error) {
+      return this.handlePostgresError(error, 'deleteByEntity', { entityId, entityType });
     } finally {
       this.releaseClient(client);
     }

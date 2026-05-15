@@ -31,7 +31,6 @@ import type {
   TaskStorageAdapter,
   WorkflowExecutionStorageAdapter,
   AgentLoopStorageAdapter,
-  AgentLoopCheckpointStorageAdapter,
   MetricsStorageAdapter,
 } from "@wf-agent/storage";
 import * as Identifiers from "./service-identifiers.js";
@@ -114,7 +113,6 @@ export interface ContainerStorageConfig {
   task?: TaskStorageAdapter;
   workflowExecution?: WorkflowExecutionStorageAdapter;
   agentLoop?: AgentLoopStorageAdapter;
-  agentLoopCheckpoint?: AgentLoopCheckpointStorageAdapter;
 }
 
 /**
@@ -160,12 +158,6 @@ export function configureContainerBindings(
   container
     .bind(Identifiers.AgentLoopStorageAdapter)
     .toDynamicValue(() => adapters.agentLoop || null)
-    .inSingletonScope();
-
-  // AgentLoopCheckpointStorageAdapter
-  container
-    .bind(Identifiers.AgentLoopCheckpointStorageAdapter)
-    .toDynamicValue(() => adapters.agentLoopCheckpoint || null)
     .inSingletonScope();
 
   // ============================================================

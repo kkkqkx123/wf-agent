@@ -4,13 +4,13 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { AgentLoopCheckpointStateManager } from "../checkpoint-state-manager.js";
-import type { AgentLoopCheckpointStorageAdapter } from "@wf-agent/storage";
+import type { CheckpointStorageAdapter } from "@wf-agent/storage";
 import type { AgentLoopCheckpoint } from "@wf-agent/types";
 import { AgentLoopStatus } from "@wf-agent/types";
 
 describe("AgentLoopCheckpointStateManager", () => {
   let stateManager: AgentLoopCheckpointStateManager;
-  let mockStorageAdapter: AgentLoopCheckpointStorageAdapter;
+  let mockStorageAdapter: CheckpointStorageAdapter;
 
   beforeEach(() => {
     mockStorageAdapter = {
@@ -19,8 +19,9 @@ describe("AgentLoopCheckpointStateManager", () => {
       load: vi.fn(),
       delete: vi.fn(),
       list: vi.fn(),
+      listWithMetadata: vi.fn(),
       close: vi.fn(),
-    } as unknown as AgentLoopCheckpointStorageAdapter;
+    } as unknown as CheckpointStorageAdapter;
 
     stateManager = new AgentLoopCheckpointStateManager(mockStorageAdapter);
   });
@@ -151,7 +152,7 @@ describe("AgentLoopCheckpointStateManager", () => {
         load: vi.fn(),
         delete: vi.fn(),
         list: vi.fn(),
-      } as unknown as AgentLoopCheckpointStorageAdapter;
+      } as unknown as CheckpointStorageAdapter;
 
       const manager = new AgentLoopCheckpointStateManager(adapterWithoutClose);
 

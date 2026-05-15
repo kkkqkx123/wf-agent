@@ -54,8 +54,10 @@ export class SqliteCheckpointStorage
     db.exec(`
       CREATE TABLE IF NOT EXISTS checkpoint_metadata (
         id TEXT PRIMARY KEY,
-        execution_id TEXT NOT NULL,
-        workflow_id TEXT NOT NULL,
+        execution_id TEXT,
+        workflow_id TEXT,
+        entity_type TEXT,
+        entity_id TEXT,
         timestamp INTEGER NOT NULL,
         checkpoint_type TEXT,
         base_checkpoint_id TEXT,
@@ -94,6 +96,12 @@ export class SqliteCheckpointStorage
       `CREATE INDEX IF NOT EXISTS idx_checkpoint_meta_workflow_id ON checkpoint_metadata(workflow_id)`,
     );
     db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_checkpoint_meta_entity_type ON checkpoint_metadata(entity_type)`,
+    );
+    db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_checkpoint_meta_entity_id ON checkpoint_metadata(entity_id)`,
+    );
+    db.exec(
       `CREATE INDEX IF NOT EXISTS idx_checkpoint_meta_timestamp ON checkpoint_metadata(timestamp)`,
     );
     db.exec(
@@ -104,6 +112,9 @@ export class SqliteCheckpointStorage
     );
     db.exec(
       `CREATE INDEX IF NOT EXISTS idx_checkpoint_meta_workflow_timestamp ON checkpoint_metadata(workflow_id, timestamp)`,
+    );
+    db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_checkpoint_meta_entity_timestamp ON checkpoint_metadata(entity_type, entity_id, timestamp)`,
     );
   }
 
@@ -172,14 +183,16 @@ export class SqliteCheckpointStorage
       // Use transaction to ensure atomicity
       const insertMetadata = db.prepare(`
         INSERT INTO checkpoint_metadata (
-          id, execution_id, workflow_id, timestamp, checkpoint_type,
+          id, execution_id, workflow_id, entity_type, entity_id, timestamp, checkpoint_type,
           base_checkpoint_id, previous_checkpoint_id, message_count, variable_count,
           blob_size, blob_hash, tags, custom_fields, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           execution_id = excluded.execution_id,
           workflow_id = excluded.workflow_id,
+          entity_type = excluded.entity_type,
+          entity_id = excluded.entity_id,
           timestamp = excluded.timestamp,
           checkpoint_type = excluded.checkpoint_type,
           base_checkpoint_id = excluded.base_checkpoint_id,
@@ -222,8 +235,10 @@ export class SqliteCheckpointStorage
 
           insertMetadata.run(
             id,
-            metadata.executionId,
-            metadata.workflowId,
+            metadata.executionId || null,
+            metadata.workflowId || null,
+            metadata.entityType || null,
+            metadata.entityId || null,
             metadata.timestamp,
             checkpointType,
             baseCheckpointId,
@@ -433,6 +448,8 @@ export class SqliteCheckpointStorage
         SELECT
           execution_id as "executionId",
           workflow_id as "workflowId",
+          entity_type as "entityType",
+          entity_id as "entityId",
           timestamp,
           tags,
           custom_fields as "customFields"
@@ -440,8 +457,10 @@ export class SqliteCheckpointStorage
       `);
       const row = stmt.get(id) as
         | {
-            executionId: string;
-            workflowId: string;
+            executionId: string | null;
+            workflowId: string | null;
+            entityType: string | null;
+            entityId: string | null;
             timestamp: number;
             tags: string | null;
             customFields: string | null;
@@ -453,14 +472,124 @@ export class SqliteCheckpointStorage
       }
 
       return {
-        executionId: row.executionId,
-        workflowId: row.workflowId,
+        executionId: row.executionId || undefined,
+        workflowId: row.workflowId || undefined,
+        entityType: row.entityType as any || undefined,
+        entityId: row.entityId || undefined,
         timestamp: row.timestamp,
         tags: row.tags ? JSON.parse(row.tags) : undefined,
         customFields: row.customFields ? JSON.parse(row.customFields) : undefined,
       };
     } catch (error) {
       this.handleSqliteError(error, "getMetadata", { id });
+    }
+  }
+
+  /**
+   * List checkpoints with metadata only (without loading BLOB data)
+   * More efficient for cleanup operations
+   */
+  async listWithMetadata(options?: CheckpointStorageListOptions): Promise<Array<{
+    id: string;
+    metadata: CheckpointStorageMetadata;
+  }>> {
+    const startTime = Date.now();
+    const db = this.getDb();
+
+    try {
+      let sql = `
+        SELECT 
+          id,
+          execution_id as "executionId",
+          workflow_id as "workflowId",
+          entity_type as "entityType",
+          entity_id as "entityId",
+          timestamp,
+          tags,
+          custom_fields as "customFields"
+        FROM checkpoint_metadata`;
+      const params: unknown[] = [];
+      const conditions: string[] = [];
+
+      // Construct filter criteria
+      if (options?.executionId) {
+        conditions.push("execution_id = ?");
+        params.push(options.executionId);
+      }
+
+      if (options?.workflowId) {
+        conditions.push("workflow_id = ?");
+        params.push(options.workflowId);
+      }
+
+      if (options?.entityType) {
+        conditions.push("entity_type = ?");
+        params.push(options.entityType);
+      }
+
+      if (options?.entityId) {
+        conditions.push("entity_id = ?");
+        params.push(options.entityId);
+      }
+
+      if (options?.tags && options.tags.length > 0) {
+        const tagPattern = `%${options.tags[0]}%`;
+        conditions.push("tags LIKE ?");
+        params.push(tagPattern);
+      }
+
+      if (conditions.length > 0) {
+        sql += " WHERE " + conditions.join(" AND ");
+      }
+
+      // Sort by timestamp descending
+      sql += " ORDER BY timestamp DESC";
+
+      // Pagination with validation
+      const { limit: validatedLimit, offset: validatedOffset } = this.validatePagination(
+        options?.limit,
+        options?.offset
+      );
+      
+      if (options?.limit !== undefined) {
+        sql += " LIMIT ?";
+        params.push(validatedLimit);
+      }
+
+      if (options?.offset !== undefined) {
+        sql += " OFFSET ?";
+        params.push(validatedOffset);
+      }
+
+      const stmt = db.prepare(sql);
+      const rows = stmt.all(...params) as Array<{
+        id: string;
+        executionId: string | null;
+        workflowId: string | null;
+        entityType: string | null;
+        entityId: string | null;
+        timestamp: number;
+        tags: string | null;
+        customFields: string | null;
+      }>;
+
+      const elapsed = Date.now() - startTime;
+      this.updateMetric('list', elapsed);
+
+      return rows.map(row => ({
+        id: row.id,
+        metadata: {
+          executionId: row.executionId || undefined,
+          workflowId: row.workflowId || undefined,
+          entityType: row.entityType as any || undefined,
+          entityId: row.entityId || undefined,
+          timestamp: row.timestamp,
+          tags: row.tags ? JSON.parse(row.tags) : undefined,
+          customFields: row.customFields ? JSON.parse(row.customFields) : undefined,
+        },
+      }));
+    } catch (error) {
+      this.handleSqliteError(error, "listWithMetadata", { options });
     }
   }
 
@@ -574,14 +703,16 @@ export class SqliteCheckpointStorage
           
           db.prepare(`
             INSERT INTO checkpoint_metadata (
-              id, execution_id, workflow_id, timestamp, checkpoint_type,
+              id, execution_id, workflow_id, entity_type, entity_id, timestamp, checkpoint_type,
               base_checkpoint_id, previous_checkpoint_id, message_count, variable_count,
               blob_size, blob_hash, tags, custom_fields, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
               execution_id = excluded.execution_id,
               workflow_id = excluded.workflow_id,
+              entity_type = excluded.entity_type,
+              entity_id = excluded.entity_id,
               timestamp = excluded.timestamp,
               checkpoint_type = excluded.checkpoint_type,
               base_checkpoint_id = excluded.base_checkpoint_id,
@@ -595,8 +726,10 @@ export class SqliteCheckpointStorage
               updated_at = excluded.updated_at
           `).run(
             item.id,
-            item.metadata.executionId,
-            item.metadata.workflowId,
+            item.metadata.executionId || null,
+            item.metadata.workflowId || null,
+            item.metadata.entityType || null,
+            item.metadata.entityId || null,
             item.metadata.timestamp,
             checkpointType,
             baseCheckpointId,
@@ -731,6 +864,120 @@ export class SqliteCheckpointStorage
       });
     } catch (error) {
       this.handleSqliteError(error, "deleteBatch", { count: ids.length });
+    }
+  }
+
+  /**
+   * List checkpoints for a specific entity
+   * Entity-aware filtering for multi-entity checkpoint storage
+   */
+  async listByEntity(
+    entityId: string,
+    entityType?: string,
+    options?: Omit<CheckpointStorageListOptions, 'executionId' | 'workflowId'>
+  ): Promise<string[]> {
+    const startTime = Date.now();
+    const db = this.getDb();
+
+    try {
+      let sql = `SELECT id FROM checkpoint_metadata WHERE entity_id = ?`;
+      const params: unknown[] = [entityId];
+
+      if (entityType) {
+        sql += ` AND entity_type = ?`;
+        params.push(entityType);
+      }
+
+      // Add additional filters from options
+      if (options?.tags && options.tags.length > 0) {
+        const tagPattern = `%${options.tags[0]}%`;
+        sql += ` AND tags LIKE ?`;
+        params.push(tagPattern);
+      }
+
+      if (options?.type) {
+        sql += ` AND checkpoint_type = ?`;
+        params.push(options.type);
+      }
+
+      // Sort by timestamp descending
+      sql += " ORDER BY timestamp DESC";
+
+      // Pagination with validation
+      const { limit: validatedLimit, offset: validatedOffset } = this.validatePagination(
+        options?.limit,
+        options?.offset
+      );
+      
+      if (options?.limit !== undefined) {
+        sql += " LIMIT ?";
+        params.push(validatedLimit);
+      }
+
+      if (options?.offset !== undefined) {
+        sql += " OFFSET ?";
+        params.push(validatedOffset);
+      }
+
+      const stmt = db.prepare(sql);
+      const rows = stmt.all(...params) as Array<{ id: string }>;
+
+      const elapsed = Date.now() - startTime;
+      this.updateMetric('list', elapsed);
+
+      return rows.map(row => row.id);
+    } catch (error) {
+      this.handleSqliteError(error, "listByEntity", { entityId, entityType });
+    }
+  }
+
+  /**
+   * Get the latest checkpoint for a specific entity
+   */
+  async getLatestByEntity(entityId: string, entityType?: string): Promise<string | null> {
+    const db = this.getDb();
+
+    try {
+      let sql = `SELECT id FROM checkpoint_metadata WHERE entity_id = ?`;
+      const params: unknown[] = [entityId];
+
+      if (entityType) {
+        sql += ` AND entity_type = ?`;
+        params.push(entityType);
+      }
+
+      sql += " ORDER BY timestamp DESC LIMIT 1";
+
+      const stmt = db.prepare(sql);
+      const row = stmt.get(...params) as { id: string } | undefined;
+
+      return row ? row.id : null;
+    } catch (error) {
+      this.handleSqliteError(error, "getLatestByEntity", { entityId, entityType });
+    }
+  }
+
+  /**
+   * Delete all checkpoints for a specific entity
+   */
+  async deleteByEntity(entityId: string, entityType?: string): Promise<number> {
+    const db = this.getDb();
+
+    try {
+      let sql = `DELETE FROM checkpoint_metadata WHERE entity_id = ?`;
+      const params: unknown[] = [entityId];
+
+      if (entityType) {
+        sql += ` AND entity_type = ?`;
+        params.push(entityType);
+      }
+
+      const stmt = db.prepare(sql);
+      const result = stmt.run(...params);
+
+      return result.changes;
+    } catch (error) {
+      this.handleSqliteError(error, "deleteByEntity", { entityId, entityType });
     }
   }
 }

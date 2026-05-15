@@ -5,10 +5,10 @@
  * Extends BaseCheckpointStateManager with agent-specific event building and metadata extraction.
  */
 
-import type { CleanupResult, CheckpointStorageMetadata } from "@wf-agent/types";
-import type { AgentLoopCheckpoint, AgentCheckpointMetadata } from "@wf-agent/types";
+import type { CleanupResult, CheckpointStorageMetadata, CheckpointEntityType } from "@wf-agent/types";
+import type { AgentLoopCheckpoint } from "@wf-agent/types";
 import type { EventRegistry } from "../../core/registry/event-registry.js";
-import type { AgentLoopCheckpointStorageAdapter as StorageAdapter } from "@wf-agent/storage";
+import type { CheckpointStorageAdapter as StorageAdapter } from "@wf-agent/storage";
 import { BaseCheckpointStateManager } from "../../core/checkpoint/base-checkpoint-state-manager.js";
 import { generateId } from "../../utils/id-utils.js";
 
@@ -18,33 +18,15 @@ import { generateId } from "../../utils/id-utils.js";
  * Extends BaseCheckpointStateManager with agent-specific logic.
  */
 export class AgentLoopCheckpointStateManager extends BaseCheckpointStateManager<AgentLoopCheckpoint> {
+  private agentLoopId?: string;
+
   constructor(
     storageAdapter: StorageAdapter,
     eventManager?: EventRegistry,
+    agentLoopId?: string,
   ) {
-    // Adapt storage adapter to the expected interface
-    const adaptedAdapter = {
-      save: async (id: string, data: Uint8Array, metadata: unknown) => {
-        await storageAdapter.save(id, data, metadata as AgentCheckpointMetadata);
-      },
-      load: async (id: string) => {
-        return await storageAdapter.load(id);
-      },
-      delete: async (id: string) => {
-        await storageAdapter.delete(id);
-      },
-      list: async (options?: { parentId?: string; limit?: number }) => {
-        // Convert base options to agent-specific options
-        const agentOptions: import("@wf-agent/types").AgentCheckpointListOptions = options?.parentId
-          ? { agentLoopId: options.parentId, limit: options.limit }
-          : { limit: options?.limit };
-        return await storageAdapter.list(agentOptions);
-      },
-      initialize: storageAdapter.initialize?.bind(storageAdapter),
-      close: storageAdapter.close?.bind(storageAdapter),
-    };
-
-    super(adaptedAdapter, eventManager);
+    super(storageAdapter, eventManager);
+    this.agentLoopId = agentLoopId;
   }
 
 
@@ -120,8 +102,8 @@ export class AgentLoopCheckpointStateManager extends BaseCheckpointStateManager<
 
   protected extractStorageMetadata(checkpoint: AgentLoopCheckpoint): CheckpointStorageMetadata {
     return {
-      executionId: checkpoint.agentLoopId,
-      workflowId: checkpoint.agentLoopId,
+      entityType: 'agent' as CheckpointEntityType,
+      entityId: checkpoint.agentLoopId,
       timestamp: checkpoint.timestamp,
       customFields: {
         type: checkpoint.type,

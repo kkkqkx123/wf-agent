@@ -58,7 +58,6 @@ import type {
   TaskStorageAdapter as TaskStorageAdapterType,
   WorkflowExecutionStorageAdapter as WorkflowExecutionStorageAdapterType,
   AgentLoopStorageAdapter as AgentLoopStorageAdapterType,
-  AgentLoopCheckpointStorageAdapter as AgentLoopCheckpointStorageAdapterType,
 } from "@wf-agent/storage";
 import type { MetricsRegistry as MetricsRegistryType } from "../metrics/metrics-registry.js";
 
@@ -399,12 +398,6 @@ export const WorkflowExecutionStorageAdapter: ServiceIdentifier<WorkflowExecutio
  * Provides agent loop lifecycle persistence operations
  */
 export const AgentLoopStorageAdapter: ServiceIdentifier<AgentLoopStorageAdapterType> = Symbol("AgentLoopStorageAdapter");
-
-/**
- * AgentLoopCheckpointStorageAdapter - Agent Loop Checkpoint Storage Adapter
- * Provides agent loop checkpoint persistence operations
- */
-export const AgentLoopCheckpointStorageAdapter: ServiceIdentifier<AgentLoopCheckpointStorageAdapterType> = Symbol("AgentLoopCheckpointStorageAdapter");
 
 /**
  * MetricsStorageAdapter - Metrics Storage Adapter

@@ -12,7 +12,6 @@ export { PostgresWorkflowStorage } from "./postgres-workflow-storage.js";
 export { PostgresTaskStorage } from "./postgres-task-storage.js";
 export { PostgresWorkflowExecutionStorage } from "./postgres-workflow-execution-storage.js";
 export { PostgresAgentLoopStorage } from "./postgres-agent-loop-storage.js";
-export { PostgresAgentLoopCheckpointStorage } from "./postgres-agent-loop-checkpoint-storage.js";
 
 export {
   PostgresConnectionPool,

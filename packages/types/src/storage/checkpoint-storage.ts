@@ -6,31 +6,49 @@
 import type { ID, Timestamp } from "../common.js";
 
 /**
+ * Entity type for checkpoint storage
+ * Identifies which entity type the checkpoint belongs to
+ */
+export type CheckpointEntityType = 'workflow' | 'agent' | 'task';
+
+/**
  * Checkpoint storage metadata
  * Metadata information for indexing and querying
+ * Supports multiple entity types (workflow, agent, task) through entityType and entityId fields
  */
 export interface CheckpointStorageMetadata {
-  /** Execution ID */
-  executionId: ID;
-  /** Workflow ID */
-  workflowId: ID;
+  /** Execution ID (for workflow checkpoints) */
+  executionId?: ID;
+  /** Workflow ID (for workflow checkpoints) */
+  workflowId?: ID;
+  /** Entity type - identifies which entity this checkpoint belongs to */
+  entityType?: CheckpointEntityType;
+  /** Entity ID - the specific entity identifier (workflowId, agentLoopId, taskId, etc.) */
+  entityId?: ID;
   /** Creating timestamps */
   timestamp: Timestamp;
   /** Tagged arrays (for categorization and retrieval) */
   tags?: string[];
   /** Customizing metadata fields */
   customFields?: Record<string, unknown>;
+  /** Checkpoint schema version (for migration support) */
+  version?: number;
 }
 
 /**
  * Checkpoint stored list query option
  * Support for basic filtering and paging
+ * Supports entity-aware filtering through entityType and entityId fields
  */
 export interface CheckpointStorageListOptions {
-  /** Filter by execution ID */
+  /** Filter by execution ID (legacy, use entityId instead) */
   executionId?: ID;
-  /** Filter by Workflow ID */
+  /** Filter by Workflow ID (legacy, use entityId instead) */
   workflowId?: ID;
+  /** Filter by entity type */
+  entityType?: CheckpointEntityType;
+  /** Filter by entity ID (workflowId, agentLoopId, taskId, etc.) */
+  entityId?: ID;
   /** Filter by tag (match any tag) */
   tags?: string[];
   /** Filter by timestamp range - start */

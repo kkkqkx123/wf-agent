@@ -50,6 +50,9 @@ export class CheckpointState extends BaseCheckpointStateManager<Checkpoint> {
       list: async (options?: { parentId?: string; limit?: number }) => {
         return await storageAdapter.list(options);
       },
+      listWithMetadata: async (options?: any) => {
+        return await storageAdapter.listWithMetadata(options);
+      },
       initialize: storageAdapter.initialize?.bind(storageAdapter),
       close: storageAdapter.close?.bind(storageAdapter),
     };

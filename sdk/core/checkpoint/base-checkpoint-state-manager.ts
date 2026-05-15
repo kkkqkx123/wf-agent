@@ -171,35 +171,21 @@ export abstract class BaseCheckpointStateManager<
       policy: this.cleanupPolicy.type,
     });
 
-    // Load all checkpoints for cleanup evaluation
-    const checkpointIds = await this.storageAdapter.list();
-    const checkpointInfoArray: Array<{
-      checkpointId: string;
-      metadata: CheckpointStorageMetadata;
-    }> = [];
+    // Load all checkpoints metadata for cleanup evaluation (without loading BLOB data)
+    const checkpointInfoArray = await this.storageAdapter.listWithMetadata();
 
-    for (const checkpointId of checkpointIds) {
-      try {
-        const data = await this.storageAdapter.load(checkpointId);
-        if (data) {
-          const checkpoint = await this.codec.deserialize<TCheckpoint>(data);
-          const metadata = this.extractStorageMetadata(checkpoint);
-          checkpointInfoArray.push({ checkpointId, metadata });
-          this.checkpointSizes.set(checkpointId, data.length);
-        }
-      } catch (error) {
-        logger.warn("Failed to load checkpoint for cleanup", {
-          checkpointId,
-          error: error instanceof Error ? error.message : String(error),
-        });
+    // Update checkpoint sizes from metadata if available
+    for (const info of checkpointInfoArray) {
+      // Try to get size from custom fields or use default
+      const size = (info.metadata.customFields as any)?.blobSize || 0;
+      if (size > 0) {
+        this.checkpointSizes.set(info.checkpointId, size);
       }
     }
 
     // Execute cleanup strategy
     const strategy = createCleanupStrategy(this.cleanupPolicy, this.checkpointSizes);
-    const toDeleteIds = strategy.execute(
-      checkpointInfoArray
-    );
+    const toDeleteIds = strategy.execute(checkpointInfoArray);
 
     // Delete checkpoints
     let freedSpaceBytes = 0;

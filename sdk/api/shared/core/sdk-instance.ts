@@ -83,6 +83,9 @@ export class SDKInstance {
     // Bind GlobalContext to the container for services that depend on it
     container.bind(ServiceIdentifiers.GlobalContext).toConstantValue(this.globalContext);
     
+    // Bind SDKOptions to the container for configuration-dependent services
+    container.bind(ServiceIdentifiers.SDKOptions).toConstantValue(options);
+    
     // Create API factory (it will use services from the container via GlobalContext)
     this.apiFactory = new APIFactory(this.globalContext);
 
@@ -299,8 +302,7 @@ export class SDKInstance {
         const customHandlerRegistry = getCustomHandlerRegistry();
         
         for (const [name, handler] of Object.entries(this.config.customTriggerHandlers)) {
-          // Type assertion is safe here because handlers are validated at registration time
-          customHandlerRegistry.register(name, handler as import("../../../core/registry/custom-handler-registry.js").CustomTriggerHandler);
+          customHandlerRegistry.register(name, handler);
         }
         
         logger.info("Custom trigger handlers registered", {

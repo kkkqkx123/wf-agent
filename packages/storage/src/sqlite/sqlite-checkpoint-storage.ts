@@ -238,10 +238,8 @@ export class SqliteCheckpointStorage
 
           insertMetadata.run(
             id,
-            metadata.executionId || null,
-            metadata.workflowId || null,
-            metadata.entityType || null,
-            metadata.entityId || null,
+            metadata.entityType,
+            metadata.entityId,
             metadata.timestamp,
             checkpointType,
             baseCheckpointId,
@@ -392,14 +390,14 @@ export class SqliteCheckpointStorage
       const conditions: string[] = [];
 
       // Construct filter criteria
-      if (options?.executionId) {
-        conditions.push("execution_id = ?");
-        params.push(options.executionId);
+      if (options?.entityType) {
+        conditions.push("entity_type = ?");
+        params.push(options.entityType);
       }
 
-      if (options?.workflowId) {
-        conditions.push("workflow_id = ?");
-        params.push(options.workflowId);
+      if (options?.entityId) {
+        conditions.push("entity_id = ?");
+        params.push(options.entityId);
       }
 
       if (options?.tags && options.tags.length > 0) {
@@ -454,8 +452,6 @@ export class SqliteCheckpointStorage
     try {
       const stmt = db.prepare(`
         SELECT
-          execution_id as "executionId",
-          workflow_id as "workflowId",
           entity_type as "entityType",
           entity_id as "entityId",
           timestamp,
@@ -465,10 +461,8 @@ export class SqliteCheckpointStorage
       `);
       const row = stmt.get(id) as
         | {
-            executionId: string | null;
-            workflowId: string | null;
-            entityType: string | null;
-            entityId: string | null;
+            entityType: string;
+            entityId: string;
             timestamp: number;
             tags: string | null;
             customFields: string | null;
@@ -480,10 +474,8 @@ export class SqliteCheckpointStorage
       }
 
       return {
-        executionId: row.executionId || undefined,
-        workflowId: row.workflowId || undefined,
-        entityType: row.entityType as any || undefined,
-        entityId: row.entityId || undefined,
+        entityType: row.entityType as any,
+        entityId: row.entityId,
         timestamp: row.timestamp,
         tags: row.tags ? JSON.parse(row.tags) : undefined,
         customFields: row.customFields ? JSON.parse(row.customFields) : undefined,
@@ -521,14 +513,14 @@ export class SqliteCheckpointStorage
       const conditions: string[] = [];
 
       // Construct filter criteria
-      if (options?.executionId) {
-        conditions.push("execution_id = ?");
-        params.push(options.executionId);
+      if (options?.entityType) {
+        conditions.push("entity_type = ?");
+        params.push(options.entityType);
       }
 
-      if (options?.workflowId) {
-        conditions.push("workflow_id = ?");
-        params.push(options.workflowId);
+      if (options?.entityId) {
+        conditions.push("entity_id = ?");
+        params.push(options.entityId);
       }
 
       if (options?.entityType) {
@@ -573,10 +565,8 @@ export class SqliteCheckpointStorage
       const stmt = db.prepare(sql);
       const rows = stmt.all(...params) as Array<{
         id: string;
-        executionId: string | null;
-        workflowId: string | null;
-        entityType: string | null;
-        entityId: string | null;
+        entityType: string;
+        entityId: string;
         timestamp: number;
         tags: string | null;
         customFields: string | null;
@@ -588,10 +578,8 @@ export class SqliteCheckpointStorage
       return rows.map(row => ({
         id: row.id,
         metadata: {
-          executionId: row.executionId || undefined,
-          workflowId: row.workflowId || undefined,
-          entityType: row.entityType as any || undefined,
-          entityId: row.entityId || undefined,
+          entityType: row.entityType as any,
+          entityId: row.entityId,
           timestamp: row.timestamp,
           tags: row.tags ? JSON.parse(row.tags) : undefined,
           customFields: row.customFields ? JSON.parse(row.customFields) : undefined,
@@ -738,10 +726,8 @@ export class SqliteCheckpointStorage
               updated_at = excluded.updated_at
           `).run(
             item.id,
-            item.metadata.executionId || null,
-            item.metadata.workflowId || null,
-            item.metadata.entityType || null,
-            item.metadata.entityId || null,
+            item.metadata.entityType,
+            item.metadata.entityId,
             item.metadata.timestamp,
             checkpointType,
             baseCheckpointId,

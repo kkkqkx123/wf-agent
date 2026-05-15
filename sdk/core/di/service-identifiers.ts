@@ -297,6 +297,12 @@ export const InterruptionState: ServiceIdentifier<InterruptionStateType> = Symbo
 export const SDK: ServiceIdentifier<SDKInstanceType> = Symbol("SDK");
 
 /**
+ * SDKOptions - SDK Configuration Options
+ * Stores the configuration options passed during SDK initialization
+ */
+export const SDKOptions: ServiceIdentifier<import("../../api/shared/types/core-types.js").SDKOptions> = Symbol("SDKOptions");
+
+/**
  * TriggeredSubworkflowHandler - Manages the execution of triggered sub-workflows
  *
  */
@@ -414,3 +420,9 @@ export const MetricsStorageAdapter: ServiceIdentifier<import("@wf-agent/storage"
  * Manages all metrics collectors and provides centralized access
  */
 export const MetricsRegistry: ServiceIdentifier<MetricsRegistryType> = Symbol("MetricsRegistry");
+
+/**
+ * MetricsConfig - Metrics Configuration
+ * Provides configuration for the metrics system
+ */
+export const MetricsConfig: ServiceIdentifier<import("../../api/shared/types/core-types.js").MetricsConfig> = Symbol("MetricsConfig");

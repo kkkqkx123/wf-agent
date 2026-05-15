@@ -5,6 +5,7 @@
 
 import type { Tool, HTTPMethod, HttpRequestOptions } from "@wf-agent/types";
 import type { RestToolConfig } from "@wf-agent/types";
+import { RequestInterceptor, ResponseInterceptor } from "../../../http/index.js";
 import {
   NetworkError,
   ToolError,
@@ -265,7 +266,7 @@ export class RestExecutor extends BaseExecutor {
     intercept: (config: unknown) => unknown | Promise<unknown>;
   }): void {
     this.interceptorManager.addRequestInterceptor(
-      interceptor as import("../../../http/index.js").RequestInterceptor,
+      interceptor as RequestInterceptor,
     );
   }
 
@@ -276,7 +277,7 @@ export class RestExecutor extends BaseExecutor {
     intercept: (response: unknown) => unknown | Promise<unknown>;
   }): void {
     this.interceptorManager.addResponseInterceptor(
-      interceptor as import("../../../http/index.js").ResponseInterceptor,
+      interceptor as ResponseInterceptor,
     );
   }
 

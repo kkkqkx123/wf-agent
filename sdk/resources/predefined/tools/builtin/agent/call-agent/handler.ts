@@ -11,6 +11,8 @@ import { resolveSystemPrompt } from "../../../../../../core/prompt/system-prompt
 import { transformToAgentLoopConfig } from "../../../../../../api/shared/config/processors/agent-loop.js";
 import { existsSync } from "fs";
 import { loadAgentLoopConfig } from "../../../../../../api/shared/config/config-utils.js";
+import type { ServiceFactory } from "../../../../../../core/di/factory-types.js";
+import type { AgentLoopCoordinator } from "../../../../../../agent/execution/coordinators/agent-loop-coordinator.js";
 
 export interface CallAgentParams {
   agentProfileId: string;
@@ -65,7 +67,7 @@ export function createCallAgentHandler() {
       });
     }
 
-    const agentLoopCoordinator = (coordinatorFactory as unknown as import("../../../../../../core/di/factory-types.js").ServiceFactory<import("../../../../../../agent/execution/coordinators/agent-loop-coordinator.js").AgentLoopCoordinator, []>).create();
+    const agentLoopCoordinator = (coordinatorFactory as unknown as ServiceFactory<AgentLoopCoordinator, []>).create();
 
     try {
       // Load agent profile configuration

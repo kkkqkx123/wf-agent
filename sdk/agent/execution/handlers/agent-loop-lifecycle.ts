@@ -13,7 +13,7 @@
  */
 
 import { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
-import { AgentLoopCheckpointCoordinator } from "../../checkpoint/index.js";
+import { AgentLoopCheckpointCoordinator, type CheckpointDependencies } from "../../checkpoint/index.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import type { CheckpointMetadata } from "@wf-agent/types";
 
@@ -57,7 +57,7 @@ export async function createAgentLoopCheckpoint(
   const coordinator = new AgentLoopCheckpointCoordinator();
   const checkpointId = await coordinator.createCheckpoint(
     entity,
-    dependencies as import("../../checkpoint/checkpoint-coordinator.js").CheckpointDependencies,
+    dependencies as CheckpointDependencies,
     options?.metadata as CheckpointMetadata | undefined,
   );
 

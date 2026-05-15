@@ -51,11 +51,11 @@ export class JsonCheckpointStorage
 
         const metadata = entry.metadata;
 
-        if (options.executionId && metadata.executionId !== options.executionId) {
+        if (options.entityType && metadata.entityType !== options.entityType) {
           return false;
         }
 
-        if (options.workflowId && metadata.workflowId !== options.workflowId) {
+        if (options.entityId && metadata.entityId !== options.entityId) {
           return false;
         }
 
@@ -103,11 +103,11 @@ export class JsonCheckpointStorage
       items = items.filter(item => {
         const metadata = item.metadata;
 
-        if (options.executionId && metadata.executionId !== options.executionId) {
+        if (options.entityType && metadata.entityType !== options.entityType) {
           return false;
         }
 
-        if (options.workflowId && metadata.workflowId !== options.workflowId) {
+        if (options.entityId && metadata.entityId !== options.entityId) {
           return false;
         }
 

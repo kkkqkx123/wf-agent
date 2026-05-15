@@ -57,7 +57,7 @@ export interface ContextProcessorHandlerContext {
         invisibleMessageCount: number;
       };
     }>;
-    getMessages: () => unknown[];
+    getMessages: () => LLMMessage[];
     clearMessages: (keepSystemMessage?: boolean) => void;
     addMessages: (...messages: LLMMessage[]) => number;
   };
@@ -81,7 +81,7 @@ export interface ContextProcessorHandlerContext {
                 invisibleMessageCount: number;
               };
             }>;
-            getMessages: () => unknown[];
+            getMessages: () => LLMMessage[];
           };
         }
       | undefined;
@@ -96,20 +96,12 @@ export interface ContextProcessorHandlerContext {
 
 /**
  * Get or create named message context
+ * Note: Caller must ensure registry exists before calling this function
  */
 function getOrCreateNamedContext(
-  workflowExecution: WorkflowExecution,
+  registry: MessageContextRegistry,
   contextId: string,
 ): NamedMessageContext {
-  const registry = (workflowExecution as WorkflowExecution & { messageContextRegistry?: MessageContextRegistry }).messageContextRegistry;
-  
-  if (!registry) {
-    throw new RuntimeValidationError("MessageContextRegistry not found in execution context", {
-      operation: "getOrCreateNamedContext",
-      field: "messageContextRegistry",
-    });
-  }
-
   let context = registry.get(contextId);
   
   if (!context) {
@@ -154,11 +146,31 @@ export async function contextProcessorHandler(
   const sourceContextId = config.sourceContext || 'current';
   const targetContextId = config.targetContext || 'current';
   
-  // Get source context
-  const sourceContext = getOrCreateNamedContext(workflowExecution, sourceContextId);
+  // Get registry for context operations (single retrieval)
+  const registry = (workflowExecution as WorkflowExecution & { messageContextRegistry?: MessageContextRegistry }).messageContextRegistry;
   
-  // Get target context (auto-create if needed) - will be used later
-  getOrCreateNamedContext(workflowExecution, targetContextId);
+  if (!registry) {
+    throw new RuntimeValidationError("MessageContextRegistry not found in execution context", {
+      operation: "initializeContexts",
+      field: "messageContextRegistry",
+    });
+  }
+  
+  // Get or create source and target contexts
+  const sourceContext = getOrCreateNamedContext(registry, sourceContextId);
+  
+  // Ensure target context exists before processing
+  // The registry.update() method requires the context to exist (throws error if not found)
+  // This call auto-creates the context if needed
+  const targetContextExisted = registry.has(targetContextId);
+  getOrCreateNamedContext(registry, targetContextId);
+  
+  if (!targetContextExisted) {
+    logger.debug('Auto-created target context for message operations', {
+      targetContextId,
+      nodeId: node.id,
+    });
+  }
 
   // 3. Obtain the target ConversationSession
   let targetConversationManager: ContextProcessorHandlerContext["conversationManager"] =
@@ -190,14 +202,15 @@ export async function contextProcessorHandler(
     // Load source messages into the conversation manager
     targetConversationManager.clearMessages(false);
     targetConversationManager.addMessages(...sourceContext.messages);
-    logger.debug('Synced messages from source context', {
+    logger.debug('Synced messages from source context to target', {
       sourceContextId,
       targetContextId,
       messageCount: sourceContext.messages.length,
     });
   } else {
+    // Source and target are the same, messages should already be in conversation manager
     const currentMessages = targetConversationManager.getMessages();
-    logger.debug('Using current context messages', {
+    logger.debug('Source and target context are the same, using existing messages', {
       contextId: sourceContextId,
       messageCount: currentMessages.length,
     });
@@ -233,10 +246,16 @@ export async function contextProcessorHandler(
 
   // 6. Save processed messages back to target context
   const processedMessages = targetConversationManager.getMessages();
-  const registry = (workflowExecution as WorkflowExecution & { messageContextRegistry?: MessageContextRegistry }).messageContextRegistry;
-  if (registry) {
-    registry.update(targetContextId, processedMessages as LLMMessage[]);
-  }
+  
+  // Update the target context with processed messages
+  // At this point, targetContext is guaranteed to exist due to getOrCreateNamedContext call above
+  registry.update(targetContextId, processedMessages);
+  
+  logger.debug('Saved processed messages to target context', {
+    targetContextId,
+    messageCount: processedMessages.length,
+    nodeId: node.id,
+  });
 
   // 7. Get the number of processed messages
   const messageCount = processedMessages.length;

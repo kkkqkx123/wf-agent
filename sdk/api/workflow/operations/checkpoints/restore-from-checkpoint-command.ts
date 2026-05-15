@@ -12,6 +12,7 @@ import { CheckpointCoordinator } from "../../../../workflow/checkpoint/checkpoin
 import type { WorkflowExecution } from "@wf-agent/types";
 
 import type { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
+import type { WorkflowExecutionRegistry } from "../../../../workflow/stores/workflow-execution-registry.js";
 
 /**
  * Restore parameters from the checkpoint.
@@ -51,7 +52,7 @@ export class RestoreFromCheckpointCommand extends BaseCommand<WorkflowExecution>
   protected async executeInternal(): Promise<WorkflowExecution> {
     const executionRegistry = this.dependencies.getWorkflowExecutionRegistry();
     const dependencies = {
-      workflowExecutionRegistry: executionRegistry as unknown as import("../../../../workflow/stores/workflow-execution-registry.js").WorkflowExecutionRegistry,
+      workflowExecutionRegistry: executionRegistry as unknown as WorkflowExecutionRegistry,
       checkpointStateManager: this.dependencies.getCheckpointStateManager(),
       workflowRegistry: this.dependencies.getWorkflowRegistry(),
       workflowGraphRegistry: this.dependencies.getWorkflowGraphRegistry(),

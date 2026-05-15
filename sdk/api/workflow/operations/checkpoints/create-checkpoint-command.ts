@@ -22,6 +22,7 @@ import type { CheckpointMetadata } from "@wf-agent/types";
 import { CheckpointCoordinator } from "../../../../workflow/checkpoint/checkpoint-coordinator.js";
 import type { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
 import { WorkflowExecutionNotFoundError } from "@wf-agent/types";
+import type { WorkflowExecutionRegistry } from "../../../../workflow/stores/workflow-execution-registry.js";
 
 /**
  * Create Checkpoint Command Parameters
@@ -65,7 +66,7 @@ export class CreateCheckpointCommand extends BaseCommand<string> {
     }
 
     const dependencies = {
-      workflowExecutionRegistry: executionRegistry as unknown as import("../../../../workflow/stores/workflow-execution-registry.js").WorkflowExecutionRegistry,
+      workflowExecutionRegistry: executionRegistry as unknown as WorkflowExecutionRegistry,
       checkpointStateManager,
       workflowRegistry,
       workflowGraphRegistry: graphRegistry,

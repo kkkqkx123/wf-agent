@@ -13,8 +13,7 @@
  * - Dependency injection: Manage dependencies through LLMContextFactory
  */
 
-import type { LLMMessage, BaseEvent, LLMToolCall } from "@wf-agent/types";
-import type { WorkflowConfig } from "@wf-agent/types";
+import type { LLMMessage, BaseEvent, LLMToolCall, WorkflowConfig } from "@wf-agent/types";
 import { ConversationSession } from "../../../core/messaging/conversation-session.js";
 import type { ToolContextStore } from "../../stores/tool-context-store.js";
 import { emit } from "../utils/index.js";
@@ -603,7 +602,7 @@ export class LLMExecutionCoordinator {
 
     // Call the approval flow which returns ToolApprovalResult
     const result = await this.requestToolApproval(
-      request.toolCall as import("@wf-agent/types").LLMToolCall,
+      request.toolCall as LLMToolCall,
       undefined,
       executionId,
       nodeId,

@@ -199,12 +199,10 @@ export class PostgresCheckpointStorage
     // Insert or update metadata
     await client.query(
       `INSERT INTO checkpoint_metadata (
-        id, execution_id, workflow_id, entity_type, entity_id, timestamp, tags, custom_fields,
+        id, entity_type, entity_id, timestamp, tags, custom_fields,
         blob_size, blob_hash, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
       ON CONFLICT (id) DO UPDATE SET
-        execution_id = EXCLUDED.execution_id,
-        workflow_id = EXCLUDED.workflow_id,
         entity_type = EXCLUDED.entity_type,
         entity_id = EXCLUDED.entity_id,
         timestamp = EXCLUDED.timestamp,
@@ -215,10 +213,8 @@ export class PostgresCheckpointStorage
         updated_at = NOW()`,
       [
         checkpointId,
-        metadata.executionId || null,
-        metadata.workflowId || null,
-        metadata.entityType || null,
-        metadata.entityId || null,
+        metadata.entityType,
+        metadata.entityId,
         metadata.timestamp,
         metadata.tags ? JSON.stringify(metadata.tags) : null,
         metadata.customFields ? JSON.stringify(metadata.customFields) : null,
@@ -340,16 +336,6 @@ export class PostgresCheckpointStorage
       const params: Array<string | number> = [];
       let paramIndex = 1;
 
-      if (options?.executionId) {
-        conditions.push(`execution_id = $${paramIndex++}`);
-        params.push(options.executionId);
-      }
-
-      if (options?.workflowId) {
-        conditions.push(`workflow_id = $${paramIndex++}`);
-        params.push(options.workflowId);
-      }
-
       if (options?.entityType) {
         conditions.push(`entity_type = $${paramIndex++}`);
         params.push(options.entityType);
@@ -448,8 +434,8 @@ export class PostgresCheckpointStorage
       
       // Parse JSON fields
       const metadata: CheckpointStorageMetadata = {
-        executionId: row.execution_id,
-        workflowId: row.workflow_id,
+        entityType: row.entity_type,
+        entityId: row.entity_id,
         timestamp: row.timestamp,
         tags: row.tags ? JSON.parse(row.tags) : undefined,
         customFields: row.custom_fields,
@@ -483,14 +469,14 @@ export class PostgresCheckpointStorage
       const params: Array<string | number> = [];
       let paramIndex = 1;
 
-      if (options?.executionId) {
-        conditions.push(`execution_id = $${paramIndex++}`);
-        params.push(options.executionId);
+      if (options?.entityType) {
+        conditions.push(`entity_type = $${paramIndex++}`);
+        params.push(options.entityType);
       }
 
-      if (options?.workflowId) {
-        conditions.push(`workflow_id = $${paramIndex++}`);
-        params.push(options.workflowId);
+      if (options?.entityId) {
+        conditions.push(`entity_id = $${paramIndex++}`);
+        params.push(options.entityId);
       }
 
       if (options?.type) {
@@ -515,8 +501,6 @@ export class PostgresCheckpointStorage
       const query = `
         SELECT 
           id,
-          execution_id as "executionId",
-          workflow_id as "workflowId",
           entity_type as "entityType",
           entity_id as "entityId",
           timestamp,
@@ -535,10 +519,8 @@ export class PostgresCheckpointStorage
       const items = result.rows.map(row => ({
         id: row.id,
         metadata: {
-          executionId: row.executionId || undefined,
-          workflowId: row.workflowId || undefined,
-          entityType: row.entityType || undefined,
-          entityId: row.entityId || undefined,
+          entityType: row.entityType,
+          entityId: row.entityId,
           timestamp: row.timestamp,
           tags: row.tags ? JSON.parse(row.tags) : undefined,
           customFields: row.customFields,
@@ -563,49 +545,23 @@ export class PostgresCheckpointStorage
   }
 
   /**
-   * Delete all checkpoints for an execution
+   * Get latest checkpoint for an entity
    */
-  async deleteByExecution(executionId: string): Promise<number> {
-    const client = await this.getClient();
-
-    try {
-      const result = await client.query(
-        'DELETE FROM checkpoint_metadata WHERE execution_id = $1',
-        [executionId]
-      );
-      
-      logger.info('Checkpoints deleted by execution', {
-        executionId,
-        count: result.rowCount,
-      });
-
-      return result.rowCount || 0;
-    } catch (error) {
-      this.handlePostgresError(error, 'deleteByExecution', { executionId });
-      throw error;
-    } finally {
-      this.releaseClient(client);
-    }
-  }
-
-  /**
-   * Get latest checkpoint for an execution
-   */
-  async getLatestCheckpoint(executionId: string): Promise<string | null> {
+  async getLatestCheckpoint(entityType: string, entityId: string): Promise<string | null> {
     const client = await this.getClient();
 
     try {
       const result = await client.query(
         `SELECT id FROM checkpoint_metadata 
-         WHERE execution_id = $1 
+         WHERE entity_type = $1 AND entity_id = $2
          ORDER BY timestamp DESC 
          LIMIT 1`,
-        [executionId]
+        [entityType, entityId]
       );
 
       return result.rows.length > 0 ? result.rows[0].id : null;
     } catch (error) {
-      this.handlePostgresError(error, 'getLatestCheckpoint', { executionId });
+      this.handlePostgresError(error, 'getLatestCheckpoint', { entityType, entityId });
       throw error;
     } finally {
       this.releaseClient(client);

@@ -9,6 +9,7 @@ import type {
   Checkpoint,
   CheckpointDelta,
   WorkflowExecutionStateSnapshot,
+  WorkflowExecutionStatus,
 } from "@wf-agent/types";
 
 /**
@@ -74,8 +75,8 @@ function computeCheckpointDelta(
 
   if (previousSnapshot?.status !== currentSnapshot?.status) {
     delta.statusChange = {
-      from: previousSnapshot?.status as import("@wf-agent/types").WorkflowExecutionStatus,
-      to: currentSnapshot?.status as import("@wf-agent/types").WorkflowExecutionStatus,
+      from: previousSnapshot?.status as WorkflowExecutionStatus,
+      to: currentSnapshot?.status as WorkflowExecutionStatus,
     };
   }
 

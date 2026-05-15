@@ -23,6 +23,7 @@ import * as Identifiers from "../../../core/di/service-identifiers.js";
 import type { GlobalContext } from "../../../core/global-context.js";
 import { AgentLoopCheckpointCoordinator } from "../../checkpoint/index.js";
 import type { ExecutionHierarchyRegistry } from "../../../core/registry/execution-hierarchy-registry.js";
+import type { CheckpointDependencies } from "../../checkpoint/checkpoint-coordinator.js";
 
 const logger = createContextualLogger({ component: "AgentLoopFactory" });
 
@@ -221,7 +222,7 @@ export class AgentLoopFactory {
     const coordinator = new AgentLoopCheckpointCoordinator();
     const entity = await coordinator.restoreFromCheckpoint(
       checkpointId,
-      dependencies as import("../../checkpoint/checkpoint-coordinator.js").CheckpointDependencies,
+      dependencies as CheckpointDependencies,
     );
 
     logger.info("Agent Loop restored from checkpoint successfully", {

@@ -33,6 +33,7 @@ import type {
   AgentLoopStorageAdapter,
   MetricsStorageAdapter,
 } from "@wf-agent/storage";
+import type { GlobalContext } from "../global-context.js";
 import * as Identifiers from "./service-identifiers.js";
 import type {
   IdBasedServiceFactory,
@@ -103,6 +104,12 @@ import { ExecutionHierarchyRegistry } from "../registry/execution-hierarchy-regi
 import { AgentLoopCoordinator } from "../../agent/execution/coordinators/agent-loop-coordinator.js";
 import { WorkflowExecutionEntity } from "../../workflow/entities/workflow-execution-entity.js";
 import { MetricsRegistry } from "../metrics/metrics-registry.js";
+import type { SDKOptions } from "../../api/shared/types/core-types.js";
+import { loadMetricsConfigFromFile, mergeWithDefaults, getEnvironmentDefaults } from "../config/metrics-config-loader.js";
+import type { MetricsConfig } from "../../api/shared/types/core-types.js";
+import { createContextualLogger } from "../../utils/contextual-logger.js";
+
+const logger = createContextualLogger({ component: "ContainerConfig" });
 
 /**
  * Storage adapter configuration for container initialization
@@ -258,7 +265,7 @@ export function configureContainerBindings(
   container
     .bind(Identifiers.WorkflowRegistry)
     .toDynamicValue((c: IContainer): WorkflowRegistry => {
-      const globalContext = c.get(Identifiers.GlobalContext) as import("../global-context.js").GlobalContext;
+      const globalContext = c.get(Identifiers.GlobalContext) as GlobalContext;
       const workflowExecutionRegistry = c.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry;
       const storageAdapter = c.get(Identifiers.WorkflowStorageAdapter) as WorkflowStorageAdapter | null;
       
@@ -351,7 +358,7 @@ export function configureContainerBindings(
           const workflowConversationSession = (
             workflowConversationSessionFactory as unknown as IdBasedServiceFactory<WorkflowConversationSession>
           ).create(executionId);
-          const globalContext = c.get(Identifiers.GlobalContext) as import("../global-context.js").GlobalContext;
+          const globalContext = c.get(Identifiers.GlobalContext) as GlobalContext;
           return new WorkflowStateTransitor(
             eventManager,
             workflowConversationSession,
@@ -433,7 +440,7 @@ export function configureContainerBindings(
           const stateTransitor = (
             stateTransitorFactory as unknown as IdBasedServiceFactory<WorkflowStateTransitor>
           ).create(executionId);
-          const globalContext = c.get(Identifiers.GlobalContext) as import("../global-context.js").GlobalContext;
+          const globalContext = c.get(Identifiers.GlobalContext) as GlobalContext;
           return new WorkflowLifecycleCoordinator(
             workflowExecutionRegistry,
             stateTransitor,
@@ -455,7 +462,7 @@ export function configureContainerBindings(
   container
     .bind(Identifiers.WorkflowExecutionBuilder)
     .toDynamicValue(c => {
-      const globalContext = c.get(Identifiers.GlobalContext) as import("../global-context.js").GlobalContext;
+      const globalContext = c.get(Identifiers.GlobalContext) as GlobalContext;
       return new WorkflowExecutionBuilder(globalContext);
     })
     .inSingletonScope();
@@ -567,7 +574,7 @@ export function configureContainerBindings(
         create: (executionId: string, nodeId: string, executionEntity: WorkflowExecutionEntity) => {
           const graph = executionEntity.getGraph();
           const navigator = new WorkflowNavigator(graph);
-          const globalContext = c.get(Identifiers.GlobalContext) as import("../global-context.js").GlobalContext;
+          const globalContext = c.get(Identifiers.GlobalContext) as GlobalContext;
           const config = {
             globalContext,
             eventManager: c.get(Identifiers.EventRegistry) as EventRegistry,
@@ -766,7 +773,7 @@ export function configureContainerBindings(
       
       const factory: NoArgServiceFactory<AgentLoopCoordinator> = {
         create: () => {
-          const globalContext = c.get(Identifiers.GlobalContext) as import("../global-context.js").GlobalContext;
+          const globalContext = c.get(Identifiers.GlobalContext) as GlobalContext;
           return new AgentLoopCoordinator(
             c.get(Identifiers.AgentLoopRegistry) as AgentLoopRegistry,
             (agentLoopExecutorFactory as unknown as NoArgServiceFactory<AgentLoopExecutor>).create(),
@@ -838,73 +845,62 @@ export function configureContainerBindings(
     })
     .inSingletonScope();
 
+  // MetricsConfig - Load and merge metrics configuration with priority-based resolution
+  // Priority: SDKOptions.metrics > Config file > Environment defaults > Hardcoded defaults
+  container
+    .bind(Identifiers.MetricsConfig)
+    .toDynamicValue(async (c: IContainer): Promise<MetricsConfig> => {
+      // Get SDK options from container
+      const sdkOptions = c.get(Identifiers.SDKOptions) as SDKOptions | undefined;
+      
+      // Priority 1: SDKOptions.metrics (programmatic override)
+      if (sdkOptions?.metrics) {
+        logger.info("Using metrics config from SDKOptions");
+        return mergeWithDefaults(sdkOptions.metrics);
+      }
+      
+      // Priority 2: Config file
+      const configPaths = [
+        './configs/metrics.toml',
+        './configs/metrics.json',
+      ];
+      
+      for (const path of configPaths) {
+        try {
+          const config = await loadMetricsConfigFromFile(path);
+          logger.info("Loaded metrics config from file", { path });
+          return config;
+        } catch {
+          // Try next path
+        }
+      }
+      
+      // Priority 3: Environment-based defaults
+      const env = process.env["NODE_ENV"] || "development";
+      logger.info("Using environment-based metrics defaults", { env });
+      return getEnvironmentDefaults(env as "development" | "production");
+    })
+    .inSingletonScope();
+
   // MetricsRegistry - Unified metrics registry
   // Manages all metric collectors with centralized configuration
   container
     .bind(Identifiers.MetricsRegistry)
-    .toDynamicValue((_c: IContainer): MetricsRegistry => {
-      // Configure all metrics collectors with unified settings
-      // Note: Periodic reporting is disabled at collector level, managed by MetricsRegistry
-      const config = {
-        workflowMetrics: {
-          bufferSize: 100,
-          flushInterval: 5000,
-          enablePeriodicReporting: false, // Disabled - managed by MetricsRegistry
-        },
-        nodeMetrics: {
-          bufferSize: 100,
-          flushInterval: 5000,
-          enablePeriodicReporting: false,
-        },
-        agentMetrics: {
-          bufferSize: 100,
-          flushInterval: 5000,
-          enablePeriodicReporting: false,
-        },
-        eventMetrics: {
-          bufferSize: 100,
-          flushInterval: 5000,
-          enablePeriodicReporting: false,
-        },
-        toolMetrics: {
-          bufferSize: 100,
-          flushInterval: 5000,
-          enablePeriodicReporting: false,
-        },
-        tokenMetrics: {
-          bufferSize: 100,
-          flushInterval: 5000,
-          enablePeriodicReporting: false,
-        },
-        templateMetrics: {
-          bufferSize: 100,
-          flushInterval: 5000,
-          enablePeriodicReporting: false,
-        },
-        configMetrics: {
-          bufferSize: 100,
-          flushInterval: 5000,
-          enablePeriodicReporting: false,
-        },
-        errorMetrics: {
-          bufferSize: 100,
-          flushInterval: 5000,
-          enablePeriodicReporting: false,
-        },
-        resourceMetrics: {
-          bufferSize: 100,
-          flushInterval: 5000,
-          enablePeriodicReporting: false,
-        },
-        agentLoopMetrics: {
-          bufferSize: 100,
-          flushInterval: 5000,
-          enablePeriodicReporting: false,
-        },
-        // MetricsRegistry-level periodic reporting (optional)
-        enablePeriodicReporting: false, // Set to true to enable unified periodic reports
-        reportingInterval: 60000, // 1 minute
-      };
+    .toDynamicValue((c: IContainer): MetricsRegistry => {
+      const config = c.get(Identifiers.MetricsConfig) as MetricsConfig;
+      
+      // Only create registry if metrics are enabled
+      if (config.enabled === false) {
+        logger.info("Metrics collection is disabled");
+        // Return a minimal registry with periodic reporting disabled
+        return new MetricsRegistry({ enablePeriodicReporting: false });
+      }
+      
+      logger.info("Initializing MetricsRegistry with configuration", {
+        enabled: config.enabled,
+        periodicReporting: config.enablePeriodicReporting,
+        reportingInterval: config.reportingInterval,
+      });
       
       return new MetricsRegistry(config);
     })

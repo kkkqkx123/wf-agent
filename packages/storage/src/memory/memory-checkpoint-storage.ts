@@ -17,8 +17,7 @@ export class MemoryCheckpointStorage
   implements CheckpointStorageAdapter
 {
   // Index structures for optimized queries
-  private executionIndex: Map<string, Set<string>> = new Map();
-  private workflowIndex: Map<string, Set<string>> = new Map();
+  private entityIndex: Map<string, Set<string>> = new Map();
   private tagIndex: Map<string, Set<string>> = new Map();
 
   constructor(config: MemoryStorageConfig = {}) {
@@ -29,29 +28,13 @@ export class MemoryCheckpointStorage
    * Update indexes when saving a checkpoint
    */
   private updateIndexes(id: string, metadata: CheckpointStorageMetadata): void {
-    // Index by executionId (if present)
-    if (metadata.executionId) {
-      if (!this.executionIndex.has(metadata.executionId)) {
-        this.executionIndex.set(metadata.executionId, new Set());
-      }
-      this.executionIndex.get(metadata.executionId)!.add(id);
-    }
-
-    // Index by workflowId (if present)
-    if (metadata.workflowId) {
-      if (!this.workflowIndex.has(metadata.workflowId)) {
-        this.workflowIndex.set(metadata.workflowId, new Set());
-      }
-      this.workflowIndex.get(metadata.workflowId)!.add(id);
-    }
-
-    // Index by entityId and entityType (for entity-aware queries)
+    // Index by entityType and entityId (for entity-aware queries)
     if (metadata.entityId && metadata.entityType) {
       const key = `${metadata.entityType}:${metadata.entityId}`;
-      if (!this.executionIndex.has(key)) {
-        this.executionIndex.set(key, new Set());
+      if (!this.entityIndex.has(key)) {
+        this.entityIndex.set(key, new Set());
       }
-      this.executionIndex.get(key)!.add(id);
+      this.entityIndex.get(key)!.add(id);
     }
 
     // Index by tags
@@ -69,36 +52,14 @@ export class MemoryCheckpointStorage
    * Remove indexes when deleting a checkpoint
    */
   private removeIndexes(id: string, metadata: CheckpointStorageMetadata): void {
-    // Remove from execution index
-    if (metadata.executionId) {
-      const execSet = this.executionIndex.get(metadata.executionId);
-      if (execSet) {
-        execSet.delete(id);
-        if (execSet.size === 0) {
-          this.executionIndex.delete(metadata.executionId);
-        }
-      }
-    }
-
-    // Remove from workflow index
-    if (metadata.workflowId) {
-      const workflowSet = this.workflowIndex.get(metadata.workflowId);
-      if (workflowSet) {
-        workflowSet.delete(id);
-        if (workflowSet.size === 0) {
-          this.workflowIndex.delete(metadata.workflowId);
-        }
-      }
-    }
-
     // Remove from entity index
     if (metadata.entityId && metadata.entityType) {
       const key = `${metadata.entityType}:${metadata.entityId}`;
-      const entitySet = this.executionIndex.get(key);
+      const entitySet = this.entityIndex.get(key);
       if (entitySet) {
         entitySet.delete(id);
         if (entitySet.size === 0) {
-          this.executionIndex.delete(key);
+          this.entityIndex.delete(key);
         }
       }
     }
@@ -145,8 +106,7 @@ export class MemoryCheckpointStorage
    */
   override async clear(): Promise<void> {
     await super.clear();
-    this.executionIndex.clear();
-    this.workflowIndex.clear();
+    this.entityIndex.clear();
     this.tagIndex.clear();
   }
 
@@ -160,10 +120,9 @@ export class MemoryCheckpointStorage
     let ids: Set<string>;
 
     // Use indexes for efficient filtering
-    if (options?.executionId) {
-      ids = new Set(this.executionIndex.get(options.executionId) || []);
-    } else if (options?.workflowId) {
-      ids = new Set(this.workflowIndex.get(options.workflowId) || []);
+    if (options?.entityType && options?.entityId) {
+      const key = `${options.entityType}:${options.entityId}`;
+      ids = new Set(this.entityIndex.get(key) || []);
     } else if (options?.tags && options.tags.length > 0) {
       // For tags, find intersection of all tag sets
       const tagSets = options.tags.map(tag => this.tagIndex.get(tag) || new Set<string>());
@@ -178,12 +137,11 @@ export class MemoryCheckpointStorage
 
     // Apply additional filters if needed
     if (options) {
-      if (options.executionId && !this.executionIndex.has(options.executionId)) {
-        // Already filtered by index, but double-check
-      }
-      
-      if (options.workflowId && !this.workflowIndex.has(options.workflowId)) {
-        // Already filtered by index, but double-check
+      if (options.entityType && options.entityId) {
+        const key = `${options.entityType}:${options.entityId}`;
+        if (!this.entityIndex.has(key)) {
+          // Already filtered by index, but double-check
+        }
       }
 
       if (options.tags && options.tags.length > 0) {
@@ -231,10 +189,9 @@ export class MemoryCheckpointStorage
     let ids: Set<string>;
 
     // Use indexes for efficient filtering
-    if (options?.executionId) {
-      ids = new Set(this.executionIndex.get(options.executionId) || []);
-    } else if (options?.workflowId) {
-      ids = new Set(this.workflowIndex.get(options.workflowId) || []);
+    if (options?.entityType && options?.entityId) {
+      const key = `${options.entityType}:${options.entityId}`;
+      ids = new Set(this.entityIndex.get(key) || []);
     } else if (options?.tags && options.tags.length > 0) {
       // For tags, find intersection of all tag sets
       const tagSets = options.tags.map(tag => this.tagIndex.get(tag) || new Set<string>());

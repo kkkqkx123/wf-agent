@@ -18,6 +18,7 @@ import type {
   UnregisterOptions,
   BatchUnregisterOptions,
   UpdateOptions,
+  WorkflowGraph,
 } from "@wf-agent/types";
 import type {
   WorkflowReferenceInfo,
@@ -365,7 +366,7 @@ export class WorkflowRegistry {
     const graphWithWorkflowId = { ...graph, workflowId: workflow.id };
     
     // Cache processing results
-    graphRegistry.register(graphWithWorkflowId as unknown as import("@wf-agent/types").WorkflowGraph);
+    graphRegistry.register(graphWithWorkflowId as unknown as WorkflowGraph);
   }
 
   /**

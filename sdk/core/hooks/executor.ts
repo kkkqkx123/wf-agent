@@ -23,11 +23,12 @@ import { conditionEvaluator } from "@wf-agent/common-utils";
 import { getErrorMessage, now } from "@wf-agent/common-utils";
 import { buildHookExecutedEvent } from "../utils/event/builders/index.js";
 import { sdkLogger as logger } from "../../utils/logger.js";
+import { checkWorkflowInterruption, shouldContinue } from "../utils/interruption/index.js";
 
 /**
  * Default Executor Configuration
  */
-const DEFAULT_CONFIG: Required<HookExecutorConfig> = {
+const DEFAULT_CONFIG: HookExecutorConfig = {
   parallel: true,
   continueOnError: true,
   warnOnConditionFailure: true,
@@ -102,7 +103,7 @@ export async function executeSingleHook<TContext extends BaseHookContext>(
   buildEvalContext: ContextBuilder<TContext>,
   handlers: HookHandler<TContext>[],
   emitEvent: EventEmitter,
-  config: Required<HookExecutorConfig> = DEFAULT_CONFIG,
+  config: HookExecutorConfig = DEFAULT_CONFIG,
 ): Promise<HookExecutionResult> {
   const startTime = now();
 
@@ -173,13 +174,25 @@ export async function executeHooks<TContext extends BaseHookContext>(
   emitEvent: EventEmitter,
   config: HookExecutorConfig = {},
 ): Promise<HookExecutionResult[]> {
-  const resolvedConfig = { ...DEFAULT_CONFIG, ...config };
+  const resolvedConfig = { 
+    parallel: config.parallel ?? true, 
+    continueOnError: config.continueOnError ?? true, 
+    warnOnConditionFailure: config.warnOnConditionFailure ?? true,
+    abortSignal: config.abortSignal,
+  };
 
   if (resolvedConfig.parallel) {
     // Parallel execution
-    const promises = hooks.map(hook =>
-      executeSingleHook(hook, context, buildEvalContext, handlers, emitEvent, resolvedConfig),
-    );
+    const promises = hooks.map(async (hook) => {
+      // Check for interruption before each hook in parallel mode
+      if (resolvedConfig.abortSignal?.aborted) {
+        const interruption = checkWorkflowInterruption(resolvedConfig.abortSignal);
+        if (!shouldContinue(interruption)) {
+          throw new Error(`Hook execution interrupted: ${interruption.type}`);
+        }
+      }
+      return executeSingleHook(hook, context, buildEvalContext, handlers, emitEvent, resolvedConfig);
+    });
     const results = await Promise.allSettled(promises);
     return results.map(r =>
       r.status === "fulfilled"
@@ -195,6 +208,14 @@ export async function executeHooks<TContext extends BaseHookContext>(
     // Serial execution
     const results: HookExecutionResult[] = [];
     for (const hook of hooks) {
+      // Check for interruption before each hook in serial mode
+      if (resolvedConfig.abortSignal?.aborted) {
+        const interruption = checkWorkflowInterruption(resolvedConfig.abortSignal);
+        if (!shouldContinue(interruption)) {
+          throw new Error(`Hook execution interrupted: ${interruption.type}`);
+        }
+      }
+
       const result = await executeSingleHook(
         hook,
         context,

@@ -951,6 +951,7 @@ export async function handleAgentInterruption(entity, error, operation, eventMan
 - [中断架构重构总结](./interrupt-refactoring-summary.md)
 - [SDK 中断模块集成分析](./sdk-interruption-module-integration-analysis.md)
 - [InterruptionHandler API 文档](../core/utils/interruption/interruption-handler.ts)
+- [**中断功能彻底重构方案**](./interruption-complete-refactoring-plan.md) - 针对"保持现状"模块的完整重构指南
 
 ---
 
@@ -1005,6 +1006,22 @@ try {
   }
 }
 ```
+
+---
+
+## ⚠️ 重要说明（2026-05-15 更新）
+
+本文档中标记为"保持现状"的模块实际上存在**不完整性和不一致性**。为了实现真正的架构统一，我们创建了详细的重构计划文档：
+
+👉 **[中断功能彻底重构方案](./interruption-complete-refactoring-plan.md)**
+
+该文档提供了：
+- ✅ 所有"保持现状"模块的详细问题分析
+- ✅ 完整的代码重构方案和示例
+- ✅ 实施步骤和工作量评估
+- ✅ 测试验证指南
+
+**建议**: 在进行任何新的中断相关开发之前，先完成彻底重构，以确保架构一致性。
 
 ---
 

@@ -2,6 +2,7 @@
   "extends": "../tsconfig.json",
   "compilerOptions": {
     "outDir": "./dist",
+    "rootDir": ".",
     "baseUrl": ".",
     "paths": {
       "@sdk/core/*": [
@@ -13,16 +14,7 @@
     }
   },
   "include": [
-    "index.ts",
-    "core/**/*",
-    "services/**/*",
-    "graph/**/*",
-    "agent/**/*",
-    "api/**/*",
-    "utils/**/*",
-    "resources/**/*",
-    "workflow/validation",
-    "workflow/execution/utils/__tests__"
+    "index.ts"
   ],
   "exclude": [
     "node_modules",

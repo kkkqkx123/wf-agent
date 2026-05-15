@@ -229,13 +229,9 @@ export class LLMExecutionCoordinator {
           { abortSignal: signal, executionId: contextId, nodeId },
         );
 
-        // Check if it's an interruption state
-        if (!llmResult.success) {
-          // Throw to be caught by executeWithInterruptionHandling
-          throw new InterruptionError(llmResult.interruption);
-        }
-
-        const llmResponse = llmResult.result;
+        // LLM Executor now throws errors directly (including AbortError)
+        // The executeWithInterruptionHandling wrapper will catch and handle interruptions
+        const llmResponse = llmResult;
 
         // Update Token usage statistics
         if (llmResponse.usage) {

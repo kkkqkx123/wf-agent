@@ -69,6 +69,8 @@ export interface HookExecutorConfig {
   continueOnError?: boolean;
   /** Whether to log a warning when the condition evaluation fails (default is true) */
   warnOnConditionFailure?: boolean;
+  /** Abort signal for interruption support */
+  abortSignal?: AbortSignal;
 }
 
 /**

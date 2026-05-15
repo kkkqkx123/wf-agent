@@ -29,16 +29,12 @@ import type { LLMExecutor } from "../../../core/executors/llm-executor.js";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import type { MessageStream } from "../../../core/llm/message-stream.js";
 import type { MetricsRegistry } from "../../../core/metrics/metrics-registry.js";
-import { isAbortError } from "@wf-agent/common-utils";
 import {
   executeWithInterruptionHandling,
-  checkWorkflowInterruption,
+  iterateWithInterruptionHandling,
 } from "../../../core/utils/interruption/index.js";
 import { executeAgentHook } from "../handlers/hook-handlers/index.js";
-import {
-  handleAgentError,
-  handleAgentInterruption as handleAgentInterruptionHandler,
-} from "../handlers/agent-error-handler.js";
+import { handleAgentError } from "../handlers/agent-error-handler.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import {
   buildAgentStartedEvent,
@@ -318,45 +314,49 @@ export class AgentExecutionCoordinator {
     );
 
     try {
-      while (entity.state.currentIteration < maxIterations) {
-        logger.debug("Starting new stream iteration", {
-          agentLoopId,
-          iteration: entity.state.currentIteration + 1,
-          maxIterations,
-        });
-
-        const interruptionResult = this.checkInterruptionStream(entity, agentLoopId);
-        if (interruptionResult) {
-          yield* interruptionResult;
-          return;
-        }
-
-        const shouldContinue = yield* this.executeIterationStream(
-          entity,
-          conversationManager,
-          toolSchemas,
-          profileId,
-        );
-
-        if (!shouldContinue) {
-          return;
-        }
-      }
-
-      logger.info("Agent Loop stream reached maximum iterations", {
-        agentLoopId,
+      // Create main loop iterator
+      const mainLoop = this.createMainLoopIterator(
+        entity,
+        conversationManager,
+        toolSchemas,
+        profileId,
         maxIterations,
-        toolCallCount: entity.state.toolCallCount,
-      });
-
-      entity.state.complete();
-      yield this.createAgentEndEvent(
-        agentLoopId,
-        conversationManager.getMessages(),
-        entity.state.currentIteration,
-        entity.state.toolCallCount,
-        true,
       );
+
+      // Use unified interruption handling iterator
+      for await (const item of iterateWithInterruptionHandling(mainLoop, entity.getAbortSignal())) {
+        if (item.type === "interrupted") {
+          // Handle interruption
+          const interruption = item.interruption;
+          const type = interruption.type === "paused" ? "PAUSE" : "STOP";
+          
+          if (type === "PAUSE") {
+            entity.state.pause();
+          } else {
+            entity.state.cancel();
+          }
+          
+          yield this.createErrorEvent(
+            agentLoopId,
+            `Execution ${interruption.type}`,
+            entity.state.currentIteration,
+            "stream_interruption",
+          );
+          await this.emitToRegistry(
+            this.createErrorEvent(
+              agentLoopId,
+              `Execution ${interruption.type}`,
+              entity.state.currentIteration,
+              "stream_interruption",
+            ),
+            entity,
+          );
+          return;
+        }
+
+        // Yield the event
+        yield item.value;
+      }
     } catch (error) {
       const standardizedError = await handleAgentError(
         entity,
@@ -383,36 +383,50 @@ export class AgentExecutionCoordinator {
   }
 
   /**
-   * Check interruption signals (stream mode)
+   * Create main loop iterator for streaming execution
    */
-  private checkInterruptionStream(
+  private async *createMainLoopIterator(
     entity: AgentLoopEntity,
-    agentLoopId: string,
-  ): AsyncGenerator<AgentLoopStreamEvent> | null {
-    if (entity.isAborted() || entity.shouldStop()) {
-      logger.info("Agent Loop stream execution cancelled", {
+    conversationManager: ConversationSession,
+    toolSchemas: ToolSchema[] | undefined,
+    profileId: string,
+    maxIterations: number,
+  ): AsyncGenerator<AgentLoopStreamEvent> {
+    const agentLoopId = entity.id;
+
+    while (entity.state.currentIteration < maxIterations) {
+      logger.debug("Starting new stream iteration", {
         agentLoopId,
-        iteration: entity.state.currentIteration,
+        iteration: entity.state.currentIteration + 1,
+        maxIterations,
       });
-      entity.state.cancel();
-      return this.createErrorGenerator(
+
+      const shouldContinue = yield* this.executeIterationStream(
         entity,
-        agentLoopId,
-        "Execution cancelled",
-        "execution_cancelled",
+        conversationManager,
+        toolSchemas,
+        profileId,
       );
+
+      if (!shouldContinue) {
+        return;
+      }
     }
 
-    if (entity.shouldPause()) {
-      logger.info("Agent Loop stream execution paused", {
-        agentLoopId,
-        iteration: entity.state.currentIteration,
-      });
-      entity.state.pause();
-      return this.createErrorGenerator(entity, agentLoopId, "Execution paused", "execution_paused");
-    }
+    logger.info("Agent Loop stream reached maximum iterations", {
+      agentLoopId,
+      maxIterations,
+      toolCallCount: entity.state.toolCallCount,
+    });
 
-    return null;
+    entity.state.complete();
+    yield this.createAgentEndEvent(
+      agentLoopId,
+      conversationManager.getMessages(),
+      entity.state.currentIteration,
+      entity.state.toolCallCount,
+      true,
+    );
   }
 
   /**
@@ -441,56 +455,28 @@ export class AgentExecutionCoordinator {
     
     await executeAgentHook(entity, "BEFORE_LLM_CALL", this.emitAgentEvent);
 
-    // Check interruption before LLM call using unified handler
-    if (abortSignal) {
-      const preLLMInterruption = checkWorkflowInterruption(abortSignal);
-      if (preLLMInterruption.type === "paused" || preLLMInterruption.type === "stopped") {
-        logger.info("Interrupted before LLM call", {
-          agentLoopId,
-          iteration: entity.state.currentIteration,
-          interruptionType: preLLMInterruption.type,
-        });
-        return this.handleLLMFailure(entity, preLLMInterruption.type);
-      }
-    }
-
     logger.debug("Calling LLM", {
       agentLoopId,
       iteration: entity.state.currentIteration,
       messageCount: conversationManager.getMessageCount(),
     });
 
+    // LLM Executor now throws errors directly (including AbortError)
+    // The outer executeWithInterruptionHandling wrapper will catch and handle interruptions
     const llmResult = await this.llmExecutor.executeLLMCall(
       conversationManager.getMessages(),
       { prompt: "", profileId, parameters: {}, tools: toolSchemas, stream: false },
       { abortSignal, executionId: entity.id, nodeId: entity.nodeId },
     );
 
-    // Check interruption after LLM call using unified handler
-    if (abortSignal) {
-      const postLLMInterruption = checkWorkflowInterruption(abortSignal);
-      if (postLLMInterruption.type === "paused" || postLLMInterruption.type === "stopped") {
-        logger.info("Interrupted after LLM call", {
-          agentLoopId,
-          iteration: entity.state.currentIteration,
-          interruptionType: postLLMInterruption.type,
-        });
-        return this.handleLLMFailure(entity, postLLMInterruption.type);
-      }
-    }
-
     logger.debug("LLM call completed", {
       agentLoopId,
       iteration: entity.state.currentIteration,
-      success: llmResult.success,
-      hasToolCalls: llmResult.success ? !!llmResult.result?.toolCalls?.length : false,
+      hasToolCalls: !!llmResult.toolCalls?.length,
     });
 
-    if (!llmResult.success) {
-      return this.handleLLMFailure(entity, llmResult.interruption.type);
-    }
-
-    const response = llmResult.result;
+    // LLM Executor now returns result directly (no success/interruption wrapper)
+    const response = llmResult;
 
     await executeAgentHook(entity, "AFTER_LLM_CALL", this.emitAgentEvent, undefined, {
       content: response.content,
@@ -707,28 +693,8 @@ export class AgentExecutionCoordinator {
           streamDone = true;
         });
 
+      // Wait for stream completion - interruption is handled by outer iterateWithInterruptionHandling
       while (!streamDone || eventQueue.length > 0) {
-        if (entity.isAborted() || entity.shouldStop()) {
-          const result = checkWorkflowInterruption(entity.getAbortSignal());
-          entity.state.cancel();
-          yield this.createErrorEvent(
-            agentLoopId,
-            result.type === "paused" ? "Execution paused" : "Execution cancelled",
-            entity.state.currentIteration,
-            "stream_interruption",
-          );
-          await this.emitToRegistry(
-            this.createErrorEvent(
-              agentLoopId,
-              result.type === "paused" ? "Execution paused" : "Execution cancelled",
-              entity.state.currentIteration,
-              "stream_interruption",
-            ),
-            entity,
-          );
-          return { success: false };
-        }
-
         while (eventQueue.length > 0) {
           const event = eventQueue.shift()!;
           yield event;
@@ -752,65 +718,18 @@ export class AgentExecutionCoordinator {
   }
 
   /**
-   * Handle LLM failure (sync mode)
-   */
-  private handleLLMFailure(
-    entity: AgentLoopEntity,
-    interruptionType: string,
-  ): { success: boolean; shouldContinue: boolean; interruption?: string } {
-    const agentLoopId = entity.id;
-    const iteration = entity.state.currentIteration;
-
-    if (interruptionType === "paused") {
-      logger.info("LLM call paused", { agentLoopId, iteration });
-      entity.state.pause();
-      return { success: false, shouldContinue: false, interruption: "paused" };
-    }
-
-    if (interruptionType === "stopped" || interruptionType === "aborted") {
-      logger.info("LLM call stopped", { agentLoopId, iteration });
-      entity.state.cancel();
-      return { success: false, shouldContinue: false, interruption: interruptionType };
-    }
-
-    throw new Error("LLM execution failed with unknown error");
-  }
-
-  /**
    * Handle stream LLM error
+   *
+   * Note: Interruption handling is done by outer iterateWithInterruptionHandling.
+   * This method only handles actual errors (non-abort errors).
    */
   private async *handleStreamLLMError(
     entity: AgentLoopEntity,
     agentLoopId: string,
     error: Error,
   ): AsyncGenerator<AgentLoopStreamEvent, boolean> {
-    if (isAbortError(error)) {
-      const isInterruption = await handleAgentInterruptionHandler(
-        entity,
-        error,
-        "llm_stream_call",
-        this.eventManager,
-      );
-      if (isInterruption) {
-        yield this.createErrorEvent(
-          agentLoopId,
-          (entity.state.error as Error | undefined)?.message || "Execution interrupted",
-          entity.state.currentIteration,
-          "llm_stream_call",
-        );
-        await this.emitToRegistry(
-          this.createErrorEvent(
-            agentLoopId,
-            (entity.state.error as Error | undefined)?.message || "Execution interrupted",
-            entity.state.currentIteration,
-            "llm_stream_call",
-          ),
-          entity,
-        );
-        return false;
-      }
-    }
-
+    // Let outer iterateWithInterruptionHandling handle abort/interruption
+    // Only process actual errors here
     const standardizedError = await handleAgentError(
       entity,
       error,
@@ -818,18 +737,19 @@ export class AgentExecutionCoordinator {
       undefined,
       this.eventManager,
     );
+    
     yield this.createErrorEvent(
       agentLoopId,
       standardizedError.message,
       entity.state.currentIteration,
-      "agent_loop_stream_execution",
+      "llm_stream_call",
     );
     await this.emitToRegistry(
       this.createErrorEvent(
         agentLoopId,
         standardizedError.message,
         entity.state.currentIteration,
-        "agent_loop_stream_execution",
+        "llm_stream_call",
       ),
       entity,
     );
@@ -838,39 +758,17 @@ export class AgentExecutionCoordinator {
 
   /**
    * Handle stream error
+   *
+   * Note: Interruption handling is done by outer iterateWithInterruptionHandling.
+   * This method only handles actual errors (non-abort errors).
    */
   private async *handleStreamError(
     entity: AgentLoopEntity,
     agentLoopId: string,
     error: Error,
   ): AsyncGenerator<AgentLoopStreamEvent, { success: boolean }> {
-    if (isAbortError(error)) {
-      const isInterruption = await handleAgentInterruptionHandler(
-        entity,
-        error,
-        "message_stream_done",
-        this.eventManager,
-      );
-      if (isInterruption) {
-        yield this.createErrorEvent(
-          agentLoopId,
-          (entity.state.error as Error | undefined)?.message || "Execution interrupted",
-          entity.state.currentIteration,
-          "llm_stream_call",
-        );
-        await this.emitToRegistry(
-          this.createErrorEvent(
-            agentLoopId,
-            (entity.state.error as Error | undefined)?.message || "Execution interrupted",
-            entity.state.currentIteration,
-            "llm_stream_call",
-          ),
-          entity,
-        );
-        return { success: false };
-      }
-    }
-
+    // Let outer iterateWithInterruptionHandling handle abort/interruption
+    // Only process actual errors here
     const standardizedError = await handleAgentError(
       entity,
       error,
@@ -878,18 +776,19 @@ export class AgentExecutionCoordinator {
       undefined,
       this.eventManager,
     );
+    
     yield this.createErrorEvent(
       agentLoopId,
       standardizedError.message,
       entity.state.currentIteration,
-      "agent_loop_stream_execution",
+      "message_stream_done",
     );
     await this.emitToRegistry(
       this.createErrorEvent(
         agentLoopId,
         standardizedError.message,
         entity.state.currentIteration,
-        "agent_loop_stream_execution",
+        "message_stream_done",
       ),
       entity,
     );
@@ -967,17 +866,6 @@ export class AgentExecutionCoordinator {
       iteration,
       context,
     };
-  }
-
-  private async *createErrorGenerator(
-    entity: AgentLoopEntity,
-    agentLoopId: string,
-    error: string,
-    context: string,
-  ): AsyncGenerator<AgentLoopStreamEvent> {
-    const event = this.createErrorEvent(agentLoopId, error, entity.state.currentIteration, context);
-    yield event;
-    await this.emitToRegistry(event, entity);
   }
 
   // ============ Event Registry Helpers ============

@@ -77,15 +77,6 @@ export function shouldContinue(result: ExecutionInterruptionCheckResult): boolea
 }
 
 /**
- * Check if a workflow interruption has occurred
- * @param result The result of the interruption check
- * @returns Whether an interruption has occurred
- */
-export function isInterrupted(result: ExecutionInterruptionCheckResult): boolean {
-  return result.type !== "continue";
-}
-
-/**
  * Get the workflow interrupt type
  * @param result The result of the interrupt check
  * @returns The interrupt type (PAUSE/STOP/null)
@@ -97,30 +88,6 @@ export function getWorkflowInterruptionType(result: ExecutionInterruptionCheckRe
     return "STOP";
   }
   return null;
-}
-
-/**
- * Get workflow node ID from interruption result
- * @param result The result of the interruption check
- * @returns The node ID or undefined
- */
-export function getWorkflowNodeId(result: ExecutionInterruptionCheckResult): string | undefined {
-  if (result.type === "paused" || result.type === "stopped") {
-    return result.nodeId;
-  }
-  return undefined;
-}
-
-/**
- * Get workflow execution ID from interruption result
- * @param result Interrupt check result
- * @returns Execution ID or undefined
- */
-export function getWorkflowExecutionId(result: ExecutionInterruptionCheckResult): string | undefined {
-  if (result.type === "paused" || result.type === "stopped") {
-    return result.executionId;
-  }
-  return undefined;
 }
 
 /**

@@ -18,13 +18,12 @@ import type { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import type { ErrorContext, SDKError } from "@wf-agent/types";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import { SDKError as SDKErrorClass } from "@wf-agent/types";
-import { isAbortError } from "@wf-agent/common-utils";
-import { checkWorkflowInterruption } from "../../../core/utils/interruption/index.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import { handleError } from "../../../core/utils/error-utils.js";
 import { emit } from "../../../core/utils/event/event-emitter.js";
 import { generateId, now } from "@wf-agent/common-utils";
 import type { AgentPausedEvent, AgentCancelledEvent } from "@wf-agent/types";
+import type { ExecutionInterruptionCheckResult } from "../../../core/utils/interruption/index.js";
 
 const logger = createContextualLogger({ component: "AgentErrorHandler" });
 
@@ -144,30 +143,27 @@ export async function handleAgentError(
 }
 
 /**
- * Handle Agent Loop interruption error
+ * Handle Agent Loop interruption
+ *
+ * Note: This function is called AFTER executeWithInterruptionHandling
+ * has already detected the interruption. It only handles status updates
+ * and event emission.
  *
  * @param entity Agent Loop entity
- * @param error Original error
+ * @param interruption Interruption check result (already determined)
  * @param operation Operation type
  * @param eventManager Event manager
- * @returns Whether it is an interruption error
  */
 export async function handleAgentInterruption(
   entity: AgentLoopEntity,
-  error: Error,
+  interruption: ExecutionInterruptionCheckResult,
   operation: string,
   eventManager?: EventRegistry,
-): Promise<boolean> {
-  if (!isAbortError(error)) {
-    return false;
-  }
-
-  const result = checkWorkflowInterruption(entity.getAbortSignal());
-
+): Promise<void> {
   logger.info("Agent Loop interruption detected", {
     agentLoopId: entity.id,
     operation,
-    interruptionType: result.type,
+    interruptionType: interruption.type,
     iteration: entity.state.currentIteration,
     // Enhanced context for better observability
     isStreaming: entity.state.isStreaming,
@@ -179,15 +175,14 @@ export async function handleAgentInterruption(
 
   // Build error context
   const context = buildAgentErrorContext(entity, operation, {
-    interruptionType: result.type,
+    interruptionType: interruption.type,
   });
 
   // Generate an interrupt error (warning level, which does not prevent further execution).
   const interruptionError = new SDKErrorClass(
-    result.type === "paused" ? "Execution paused" : "Execution cancelled",
+    interruption.type === "paused" ? "Execution paused" : "Execution cancelled",
     "warning",
     context,
-    error,
   );
 
   // Use a stateless error handling utility function
@@ -198,7 +193,7 @@ export async function handleAgentInterruption(
   });
 
   // Update Agent Status
-  if (result.type === "paused") {
+  if (interruption.type === "paused") {
     entity.state.pause();
     logger.info("Agent Loop paused", {
       agentLoopId: entity.id,
@@ -260,8 +255,6 @@ export async function handleAgentInterruption(
       }
     }
   }
-
-  return true;
 }
 
 /**

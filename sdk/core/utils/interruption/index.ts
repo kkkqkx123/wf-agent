@@ -16,8 +16,6 @@ export {
   ExecutionInterruptionCheckResult as WorkflowInterruptionCheckResult,
   checkWorkflowInterruption,
   getWorkflowInterruptionType,
-  getWorkflowNodeId,
-  getWorkflowExecutionId,
   getWorkflowInterruptionDescription,
   createInterruptionAbortReason,
 } from "./execution-interruption-utils.js";

@@ -19,12 +19,8 @@
  * - Does not depend on the implementation of any specific module
  */
 
-import { isAbortError } from "@wf-agent/common-utils";
-import { checkWorkflowInterruption } from "../utils/interruption/index.js";
-import type { WorkflowInterruptionCheckResult } from "../utils/interruption/index.js";
 import type { LLMMessage, LLMResult, ToolSchema } from "@wf-agent/types";
 import { LLMWrapper } from "../llm/wrapper.js";
-import { ExecutionError, LLMError } from "@wf-agent/types";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "LLMExecutor" });
@@ -64,13 +60,6 @@ export interface LLMExecutionResult {
 }
 
 /**
- * LLM execution results (including interrupt status)
- */
-export type LLMExecutionResultWithInterruption =
-  | { success: true; result: LLMExecutionResult }
-  | { success: false; interruption: WorkflowInterruptionCheckResult };
-
-/**
  * LLM Executor Class (Stateless)
  *
  * Provides methods to execute LLM calls without holding any state. All state is passed in as parameters, and results are returned as values. The lifecycle is managed by the DI (Dependency Injection) container.
@@ -81,67 +70,25 @@ export class LLMExecutor {
   constructor(private llmWrapper: LLMWrapper) {}
 
   /**
-   * Handle LLM call errors
-   *
-   * Unify the error handling logic for both streaming and non-streaming calls
-   *
-   * @param error Error object
-   * @param profileId LLM profile ID
-   * @param options Execution options
-   * @returns Execution result (including interruption status or error)
-   */
-  private handleLLMError(
-    error: LLMError,
-    profileId: string,
-    options?: { abortSignal?: AbortSignal; executionId?: string; nodeId?: string },
-  ): LLMExecutionResultWithInterruption {
-    // Check if it is an AbortError.
-    if (isAbortError(error)) {
-      const result = checkWorkflowInterruption(options?.abortSignal);
-      // PAUSE/STOP returns the interrupted state.
-      if (result.type === "paused" || result.type === "stopped") {
-        return {
-          success: false,
-          interruption: result,
-        };
-      }
-      // An ordinary abort (aborted) also returns an interrupted status.
-      if (result.type === "aborted") {
-        return {
-          success: false,
-          interruption: result,
-        };
-      }
-      // Continue without terminating; throw the original error.
-      throw error;
-    }
-
-    // Convert to ExecutionError and throw it.
-    throw new ExecutionError(
-      `LLM call failed: ${error.message}`,
-      options?.nodeId,
-      undefined,
-      { originalError: error, profileId },
-      error,
-    );
-  }
-
-  /**
    * Execute a single LLM call
    *
    * Note: This method only performs one LLM call and does not handle loops of tool calls.
    * The coordination of tool calls is the responsibility of the LLMCoordinator.
    *
+   * Note: This method does NOT handle interruptions.
+   * Interruption handling is the responsibility of the caller (Coordinator).
+   *
    * @param messages Array of messages
    * @param requestData Request data
    * @param options Execution options (including AbortSignal and context information)
-   * @returns LLM execution result or interruption status
+   * @returns LLM execution result
+   * @throws LLMError on failure (caller should handle interruptions)
    */
   async executeLLMCall(
     messages: LLMMessage[],
     requestData: LLMExecutionRequestData,
     options?: { abortSignal?: AbortSignal; executionId?: string; nodeId?: string },
-  ): Promise<LLMExecutionResultWithInterruption> {
+  ): Promise<LLMExecutionResult> {
     logger.debug("LLM call started", {
       profileId: requestData.profileId,
       executionId: options?.executionId,
@@ -172,7 +119,8 @@ export class LLMExecutor {
           profileId: requestData.profileId,
           error: streamResult.error.message,
         });
-        return this.handleLLMError(streamResult.error, requestData.profileId, options);
+        // Throw error directly, let caller handle interruptions
+        throw streamResult.error;
       }
 
       const messageStream = streamResult.value;
@@ -206,7 +154,8 @@ export class LLMExecutor {
           profileId: requestData.profileId,
           error: result.error.message,
         });
-        return this.handleLLMError(result.error, requestData.profileId, options);
+        // Throw error directly, let caller handle interruptions
+        throw result.error;
       }
 
       finalResult = result.value;
@@ -219,19 +168,16 @@ export class LLMExecutor {
       toolCallCount: finalResult.toolCalls?.length,
     });
 
-    // Build the return result
+    // Build and return result
     return {
-      success: true,
-      result: {
-        content: finalResult.content,
-        usage: finalResult.usage,
-        finishReason: finalResult.finishReason,
-        toolCalls: finalResult.toolCalls?.map(tc => ({
-          id: tc.id,
-          name: tc.function.name,
-          arguments: tc.function.arguments,
-        })),
-      },
+      content: finalResult.content,
+      usage: finalResult.usage,
+      finishReason: finalResult.finishReason,
+      toolCalls: finalResult.toolCalls?.map(tc => ({
+        id: tc.id,
+        name: tc.function.name,
+        arguments: tc.function.arguments,
+      })),
     };
   }
 }

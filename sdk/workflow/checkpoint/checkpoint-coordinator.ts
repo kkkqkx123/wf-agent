@@ -21,6 +21,9 @@ import type {
   LLMMessage,
   NodeExecutionResult,
   TriggerRuntimeState,
+  FullCheckpoint,
+  DeltaCheckpoint,
+  CheckpointDelta,
 } from "@wf-agent/types";
 import type { WorkflowExecutionRegistry } from "../stores/workflow-execution-registry.js";
 import type { WorkflowRegistry } from "../stores/workflow-registry.js";
@@ -181,7 +184,7 @@ export class CheckpointCoordinator {
           const restoreResult = await restorer.restore(previousCheckpointId);
           previousState = restoreResult.snapshot;
         } else {
-          const fullCp = previousCheckpoint as import("@wf-agent/types").FullCheckpoint<WorkflowExecutionStateSnapshot>;
+          const fullCp = previousCheckpoint as FullCheckpoint<WorkflowExecutionStateSnapshot>;
           previousState = fullCp.snapshot;
         }
 
@@ -196,7 +199,7 @@ export class CheckpointCoordinator {
         if (previousCheckpoint.type === "FULL") {
           baseCheckpointId = previousCheckpoint.id;
         } else {
-          const deltaCp = previousCheckpoint as import("@wf-agent/types").DeltaCheckpoint<import("@wf-agent/types").CheckpointDelta>;
+          const deltaCp = previousCheckpoint as DeltaCheckpoint<CheckpointDelta>;
           baseCheckpointId = deltaCp.baseCheckpointId;
         }
 
@@ -366,7 +369,7 @@ export class CheckpointCoordinator {
       workflowExecutionState = restoreResult.snapshot;
     } else {
       // Full checkpoint, use it directly.
-      const fullCp = checkpoint as import("@wf-agent/types").FullCheckpoint<WorkflowExecutionStateSnapshot>;
+      const fullCp = checkpoint as FullCheckpoint<WorkflowExecutionStateSnapshot>;
       workflowExecutionState = fullCp.snapshot;
     }
 
@@ -706,7 +709,7 @@ export class CheckpointCoordinator {
 
     // Verify according to the checkpoint type.
     if (checkpointType === "FULL") {
-      const fullCp = checkpoint as import("@wf-agent/types").FullCheckpoint<WorkflowExecutionStateSnapshot>;
+      const fullCp = checkpoint as FullCheckpoint<WorkflowExecutionStateSnapshot>;
       if (!fullCp.snapshot) {
         throw new WorkflowCheckpointError(
           "Invalid full checkpoint: missing snapshot",
@@ -718,7 +721,7 @@ export class CheckpointCoordinator {
         );
       }
     } else if (checkpointType === "DELTA") {
-      const deltaCp = checkpoint as import("@wf-agent/types").DeltaCheckpoint<import("@wf-agent/types").CheckpointDelta>;
+      const deltaCp = checkpoint as DeltaCheckpoint<CheckpointDelta>;
       if (!deltaCp.delta) {
         throw new WorkflowCheckpointError(
           "Invalid delta checkpoint: missing delta",

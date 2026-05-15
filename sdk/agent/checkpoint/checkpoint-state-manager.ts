@@ -6,7 +6,7 @@
  * Entity-based design for efficient checkpoint management.
  */
 
-import type { CleanupResult, CheckpointStorageMetadata } from "@wf-agent/types";
+import type { CleanupResult, CheckpointStorageMetadata, AgentCheckpointListOptions } from "@wf-agent/types";
 import type { AgentLoopCheckpoint } from "@wf-agent/types";
 import type { EventRegistry } from "../../core/registry/event-registry.js";
 import type { CheckpointStorageAdapter as StorageAdapter } from "@wf-agent/storage";
@@ -69,7 +69,7 @@ export class AgentLoopCheckpointStateManager extends BaseCheckpointStateManager<
    * @param options Filter options
    * @returns Array of checkpoint IDs
    */
-  override async list(options?: import("@wf-agent/types").AgentCheckpointListOptions): Promise<string[]> {
+  override async list(options?: AgentCheckpointListOptions): Promise<string[]> {
     return await super.list(options);
   }
 

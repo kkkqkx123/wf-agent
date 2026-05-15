@@ -3,7 +3,7 @@
  * Provides a seamless chain of APIs for creating and registering trigger templates
  */
 
-import type { TriggerTemplate, TriggerCondition, TriggerAction } from "@wf-agent/types";
+import type { TriggerTemplate, TriggerCondition, TriggerAction, Metadata } from "@wf-agent/types";
 import { EventType, TriggerActionType } from "@wf-agent/types";
 import { TemplateBuilder } from "./template-builder.js";
 import type { GlobalContext } from "../../../core/global-context.js";
@@ -94,7 +94,7 @@ export class TriggerTemplateBuilder extends TemplateBuilder<TriggerTemplate> {
     this._condition = {
       eventType,
       ...(eventName ? { eventName } : {}),
-      ...(metadata ? { metadata: metadata as import("@wf-agent/types").Metadata } : {}),
+      ...(metadata ? { metadata: metadata as Metadata } : {}),
     };
     this.updateTimestamp();
     return this;
@@ -115,8 +115,8 @@ export class TriggerTemplateBuilder extends TemplateBuilder<TriggerTemplate> {
     this._action = {
       type,
       parameters: parameters as unknown,
-      ...(metadata ? { metadata: metadata as import("@wf-agent/types").Metadata } : {}),
-    } as import("@wf-agent/types").TriggerAction;
+      ...(metadata ? { metadata: metadata as Metadata } : {}),
+    } as TriggerAction;
     this.updateTimestamp();
     return this;
   }

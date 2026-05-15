@@ -12,6 +12,9 @@ import type {
   TCheckpointType,
   AgentLoopCheckpoint,
   AgentLoopStateSnapshot,
+  DeltaCheckpoint,
+  FullCheckpoint,
+  AgentLoopDelta,
 } from "@wf-agent/types";
 import { AgentCheckpointError } from "@wf-agent/types";
 import { BaseCheckpointCoordinator } from "../../core/checkpoint/base-checkpoint-coordinator.js";
@@ -305,7 +308,7 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
 
     // Validation against checkpoint type
     if (checkpoint.type === "DELTA") {
-      const deltaCheckpoint = checkpoint as import("@wf-agent/types").DeltaCheckpoint<import("@wf-agent/types").AgentLoopDelta>;
+      const deltaCheckpoint = checkpoint as DeltaCheckpoint<AgentLoopDelta>;
       if (!deltaCheckpoint.delta && !deltaCheckpoint.previousCheckpointId) {
         throw new AgentCheckpointError(
           "Invalid delta checkpoint: missing delta data and previous checkpoint reference",
@@ -315,7 +318,7 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
         );
       }
     } else {
-      const fullCheckpoint = checkpoint as import("@wf-agent/types").FullCheckpoint<import("@wf-agent/types").AgentLoopStateSnapshot>;
+      const fullCheckpoint = checkpoint as FullCheckpoint<AgentLoopStateSnapshot>;
       if (!fullCheckpoint.snapshot) {
         throw new AgentCheckpointError(
           "Invalid full checkpoint: missing state snapshot",

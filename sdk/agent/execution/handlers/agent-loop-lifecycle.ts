@@ -15,6 +15,7 @@
 import { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import { AgentLoopCheckpointCoordinator } from "../../checkpoint/index.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
+import type { CheckpointMetadata } from "@wf-agent/types";
 
 const logger = createContextualLogger({ component: "AgentLoopLifecycle" });
 
@@ -57,7 +58,7 @@ export async function createAgentLoopCheckpoint(
   const checkpointId = await coordinator.createCheckpoint(
     entity,
     dependencies as import("../../checkpoint/checkpoint-coordinator.js").CheckpointDependencies,
-    options?.metadata as import("@wf-agent/types").CheckpointMetadata | undefined,
+    options?.metadata as CheckpointMetadata | undefined,
   );
 
   logger.info("Agent Loop checkpoint created successfully", {

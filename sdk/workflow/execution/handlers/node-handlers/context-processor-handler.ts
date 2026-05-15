@@ -157,8 +157,8 @@ export async function contextProcessorHandler(
   // Get source context
   const sourceContext = getOrCreateNamedContext(workflowExecution, sourceContextId);
   
-  // Get target context (auto-create if needed)
-  const targetContext = getOrCreateNamedContext(workflowExecution, targetContextId);
+  // Get target context (auto-create if needed) - will be used later
+  getOrCreateNamedContext(workflowExecution, targetContextId);
 
   // 3. Obtain the target ConversationSession
   let targetConversationManager: ContextProcessorHandlerContext["conversationManager"] =

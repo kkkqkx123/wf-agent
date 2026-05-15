@@ -2,7 +2,7 @@
  * Common interfaces and types for universal checkpoint system
  */
 
-import type { BaseCheckpoint } from "@wf-agent/types";
+import type { BaseCheckpoint, DeltaStorageConfig } from "@wf-agent/types";
 
 /**
  * Storage adapter interface for checkpoint persistence
@@ -16,12 +16,12 @@ export interface CheckpointStorageAdapter<TMetadata = unknown> {
   save(id: string, data: Uint8Array, metadata: TMetadata): Promise<void>;
   load(id: string): Promise<Uint8Array | null>;
   delete(id: string): Promise<void>;
-  list(options?: any): Promise<string[]>;
+  list(options?: Record<string, unknown>): Promise<string[]>;
   /**
    * List checkpoints with metadata only (without loading BLOB data)
    * More efficient for cleanup operations
    */
-  listWithMetadata(options?: any): Promise<Array<{
+  listWithMetadata(options?: Record<string, unknown>): Promise<Array<{
     id: string;
     metadata: TMetadata;
   }>>;
@@ -83,7 +83,7 @@ export interface CheckpointDependencies<TCheckpoint extends BaseCheckpoint<unkno
   saveCheckpoint: (checkpoint: TCheckpoint) => Promise<string>;
   getCheckpoint: (id: string) => Promise<TCheckpoint | null>;
   listCheckpoints: (parentId: string) => Promise<string[]>;
-  deltaConfig?: import("@wf-agent/types").DeltaStorageConfig;
+  deltaConfig?: DeltaStorageConfig;
 }
 
 /**

@@ -12,6 +12,7 @@ import type {
   SubgraphNodeConfig,
   WorkflowStartConfig,
   LoopStartNodeConfig,
+  TriggerConfigOverride,
 } from "@wf-agent/types";
 import type { StaticNode, StaticNodeType } from "@wf-agent/types";
 import type { Edge } from "@wf-agent/types";
@@ -350,7 +351,7 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
   addTriggerFromTemplate(
     triggerId: string,
     templateName: string,
-    configOverride?: import("@wf-agent/types").TriggerConfigOverride,
+    configOverride?: TriggerConfigOverride,
     triggerName?: string,
   ): this {
     const reference: TriggerReference = {

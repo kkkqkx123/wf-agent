@@ -23,7 +23,7 @@ import { now, diffTimestamp } from "@wf-agent/common-utils";
 import { CrudResourceAPI } from "../../../shared/resources/generic-resource-api.js";
 import type { ExecutionResult } from "../../../shared/types/execution-result.js";
 import { success, failure } from "../../../shared/types/execution-result.js";
-import type { UserInteractionHandler, UserInteractionRequest } from "@wf-agent/types";
+import type { UserInteractionHandler, UserInteractionRequest, UserInteractionContext } from "@wf-agent/types";
 import { ConfigurationError } from "@wf-agent/types";
 import type {
   ToolApprovalRequestedEvent,
@@ -197,7 +197,7 @@ export class UserInteractionResourceAPI extends CrudResourceAPI<
    */
   private createInteractionContext(
     request: UserInteractionRequest,
-  ): import("@wf-agent/types").UserInteractionContext {
+  ): UserInteractionContext {
     const cancelToken: { cancelled: boolean; cancel: () => void } = {
       cancelled: false,
       cancel: () => {
@@ -221,7 +221,7 @@ export class UserInteractionResourceAPI extends CrudResourceAPI<
         return {};
       },
       timeout: request.timeout,
-      cancelToken: cancelToken as import("@wf-agent/types").UserInteractionContext["cancelToken"],
+      cancelToken: cancelToken as UserInteractionContext["cancelToken"],
     };
   }
 

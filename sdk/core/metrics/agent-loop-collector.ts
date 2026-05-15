@@ -13,9 +13,6 @@ import { BaseMetricCollector } from "./base-collector.js";
 import type { MetricCollectorConfig, MetricFilter, MetricQueryResult } from "./types.js";
 import { AGENT_LOOP_METRICS } from "./constants.js";
 import { PrometheusFormatter, type PrometheusMetric } from "./utils/prometheus-formatter.js";
-import { createContextualLogger } from "../../utils/contextual-logger.js";
-
-const logger = createContextualLogger({ operation: "AgentLoopMetricsCollector" });
 
 /**
  * Agent Loop-specific metric collector

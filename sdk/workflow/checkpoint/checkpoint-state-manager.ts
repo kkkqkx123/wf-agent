@@ -9,6 +9,7 @@ import type {
 } from "@wf-agent/types";
 import type { CheckpointStorageAdapter as StorageAdapter } from "@wf-agent/storage";
 import type { EventRegistry } from "../../core/registry/event-registry.js";
+import type { CheckpointStorageAdapter } from "../../core/checkpoint/types.js";
 import { BaseCheckpointStateManager } from "../../core/checkpoint/base-checkpoint-state-manager.js";
 import {
   buildCheckpointCreatedEvent,
@@ -53,18 +54,18 @@ export class CheckpointState extends BaseCheckpointStateManager<Checkpoint> {
       list: async (options?: { parentId?: string; limit?: number }) => {
         return await storageAdapter.list(options);
       },
-      listWithMetadata: async (options?: any) => {
+      listWithMetadata: async (options?: Record<string, unknown>) => {
         return await storageAdapter.listWithMetadata(options);
       },
-      listByEntityWithMetadata: async (entityId: string, entityType: string, options?: any) => {
+      listByEntityWithMetadata: async (entityId: string, entityType: string, options?: Record<string, unknown>) => {
         // Type assertion needed until @wf-agent/storage types are updated
-        return await (storageAdapter as any).listByEntityWithMetadata(entityId, entityType, options);
+        return await (storageAdapter as unknown as CheckpointStorageAdapter).listByEntityWithMetadata(entityId, entityType, options);
       },
       getLatestByEntity: async (entityId: string, entityType: string, count?: number, includeData?: boolean) => {
-        return await (storageAdapter as any).getLatestByEntity(entityId, entityType, count, includeData);
+        return await (storageAdapter as unknown as CheckpointStorageAdapter).getLatestByEntity(entityId, entityType, count, includeData);
       },
-      deleteByEntity: async (entityId: string, entityType: string, options?: any) => {
-        return await (storageAdapter as any).deleteByEntity(entityId, entityType, options);
+      deleteByEntity: async (entityId: string, entityType: string, options?: Record<string, unknown>) => {
+        return await (storageAdapter as unknown as CheckpointStorageAdapter).deleteByEntity(entityId, entityType, options);
       },
       initialize: storageAdapter.initialize?.bind(storageAdapter),
       close: storageAdapter.close?.bind(storageAdapter),
@@ -93,7 +94,7 @@ export class CheckpointState extends BaseCheckpointStateManager<Checkpoint> {
     logger.info("Cleaning up workflow execution checkpoints", { workflowExecutionId: targetId });
 
     // Use optimized entity-level batch deletion
-    const deletedCount = await (this.storageAdapter as any).deleteByEntity(
+    const deletedCount = await (this.storageAdapter as unknown as CheckpointStorageAdapter).deleteByEntity(
       targetId,
       'workflow'
     );

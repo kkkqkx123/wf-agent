@@ -24,7 +24,7 @@ import { now, diffTimestamp } from "@wf-agent/common-utils";
 import { CrudResourceAPI } from "../../../shared/resources/generic-resource-api.js";
 import type { ExecutionResult } from "../../../shared/types/execution-result.js";
 import { success, failure } from "../../../shared/types/execution-result.js";
-import type { HumanRelayHandler, HumanRelayRequest, HumanRelayResponse } from "@wf-agent/types";
+import type { HumanRelayHandler, HumanRelayRequest, HumanRelayResponse, HumanRelayContext } from "@wf-agent/types";
 import { ConfigurationError, NotFoundError } from "@wf-agent/types";
 import type {
   HumanRelayRequestedEvent,
@@ -210,7 +210,7 @@ export class HumanRelayResourceAPI extends CrudResourceAPI<
    */
   private createRelayContext(
     request: HumanRelayRequest,
-  ): import("@wf-agent/types").HumanRelayContext {
+  ): HumanRelayContext {
     const cancelToken: { cancelled: boolean; cancel: () => void } = {
       cancelled: false,
       cancel: () => {
@@ -234,7 +234,7 @@ export class HumanRelayResourceAPI extends CrudResourceAPI<
         return {};
       },
       timeout: request.timeout,
-      cancelToken: cancelToken as import("@wf-agent/types").HumanRelayContext["cancelToken"],
+      cancelToken: cancelToken as HumanRelayContext["cancelToken"],
     };
   }
 

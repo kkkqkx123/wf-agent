@@ -26,6 +26,8 @@ import type {
   ToolBatchResult,
   PendingToolCall,
   ToolExecutionResult,
+  ToolApprovalHandler,
+  BaseEvent,
 } from "@wf-agent/types";
 import { generateId } from "@wf-agent/common-utils";
 import type { EventRegistry } from "../registry/event-registry.js";
@@ -364,7 +366,7 @@ export class ToolApprovalCoordinator {
     options: ToolApprovalOptions,
     contextId: string,
     nodeId: string,
-    approvalHandler: import("@wf-agent/types").ToolApprovalHandler,
+    approvalHandler: ToolApprovalHandler,
     eventManager?: EventRegistry,
   ): Promise<ToolBatchResult> {
     const batchId = generateId();
@@ -687,7 +689,7 @@ export class ToolApprovalCoordinator {
     options: ToolApprovalOptions,
     contextId: string,
     nodeId: string,
-    approvalHandler: import("@wf-agent/types").ToolApprovalHandler,
+    approvalHandler: ToolApprovalHandler,
     batchId: string,
     toolIndex: number,
     totalTools: number,
@@ -801,7 +803,7 @@ export class ToolApprovalCoordinator {
    */
   private async safeEmit(
     eventManager: EventRegistry,
-    event: import("@wf-agent/types").BaseEvent,
+    event: BaseEvent,
   ): Promise<void> {
     try {
       await eventManager.emit(event);

@@ -5,7 +5,7 @@
  */
 
 import { now, diffTimestamp } from "../../utils/timestamp-utils.js";
-import type { HttpClientConfig, HttpRequestOptions, HttpResponse } from "@wf-agent/types";
+import type { HttpClientConfig, HttpRequestOptions, HttpResponse, HttpLogger } from "@wf-agent/types";
 import { TimeoutError, CircuitBreakerOpenError, HttpError } from "@wf-agent/types";
 import {
   BadRequestError,
@@ -150,7 +150,7 @@ export class HttpClient {
   /**
    * Log recording auxiliary methods
    */
-  private log(level: keyof import("@wf-agent/types").HttpLogger, msg: string, context?: unknown) {
+  private log(level: keyof HttpLogger, msg: string, context?: unknown) {
     if (!this.config.logger?.[level]) return;
     this.config.logger[level]!(msg, context);
   }

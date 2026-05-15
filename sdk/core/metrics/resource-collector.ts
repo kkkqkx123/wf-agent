@@ -12,9 +12,6 @@ import { BaseMetricCollector } from "./base-collector.js";
 import type { MetricCollectorConfig } from "./types.js";
 import { RESOURCE_METRICS } from "./constants.js";
 import { PrometheusFormatter, type PrometheusMetric } from "./utils/prometheus-formatter.js";
-import { createContextualLogger } from "../../utils/contextual-logger.js";
-
-const logger = createContextualLogger({ operation: "ResourceMetricsCollector" });
 
 /**
  * Resource-specific metric collector

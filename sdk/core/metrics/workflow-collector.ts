@@ -233,10 +233,16 @@ export class WorkflowMetricsCollector extends BaseMetricCollector {
         try {
           const labels = JSON.parse(labelKey);
           if (labels.workflow_id && workflows.has(labels.workflow_id)) {
-            workflows.get(labels.workflow_id)!.success += labelAgg.value;
+            const workflowStats = workflows.get(labels.workflow_id)!;
+            workflowStats.success += labelAgg.value;
+            logger.debug("Updated workflow success count", { 
+              workflowId: labels.workflow_id, 
+              successCount: workflowStats.success,
+              increment: labelAgg.value
+            });
           }
-        } catch (_error) {
-          // Ignore parsing errors
+        } catch (error) {
+          logger.warn("Failed to parse success metric label key", { labelKey, error });
         }
       }
     }

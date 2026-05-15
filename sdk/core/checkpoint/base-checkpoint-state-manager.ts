@@ -5,7 +5,7 @@
  * Subclasses only need to implement event building for their specific checkpoint types.
  */
 
-import type { BaseCheckpoint, CleanupPolicy, CleanupResult, CheckpointStorageMetadata } from "@wf-agent/types";
+import type { BaseCheckpoint, CleanupPolicy, CleanupResult, CheckpointStorageMetadata, CheckpointInfo, BaseEvent } from "@wf-agent/types";
 import type { EventRegistry } from "../registry/event-registry.js";
 import { StateCodec } from "@wf-agent/common-utils";
 import { createCleanupStrategy } from "../utils/checkpoint/cleanup-policy.js";
@@ -63,7 +63,7 @@ export abstract class BaseCheckpointStateManager<
       // Emit created event (implemented by subclass)
       if (this.eventManager) {
         const createdEvent = this.buildCreatedEvent(checkpoint);
-        await this.eventManager.emit(createdEvent as import("@wf-agent/types").BaseEvent);
+        await this.eventManager.emit(createdEvent as BaseEvent);
       }
 
       logger.info("Checkpoint created", {
@@ -85,7 +85,7 @@ export abstract class BaseCheckpointStateManager<
       // Emit failed event (implemented by subclass)
       if (this.eventManager) {
         const failedEvent = this.buildFailedEvent(checkpoint.id, error, "create");
-        await this.eventManager.emit(failedEvent as import("@wf-agent/types").BaseEvent);
+        await this.eventManager.emit(failedEvent as BaseEvent);
       }
 
       throw error;
@@ -131,7 +131,7 @@ export abstract class BaseCheckpointStateManager<
       // Emit deleted event (implemented by subclass)
       if (this.eventManager) {
         const deletedEvent = await this.buildDeletedEvent(checkpointId, reason);
-        await this.eventManager.emit(deletedEvent as import("@wf-agent/types").BaseEvent);
+        await this.eventManager.emit(deletedEvent as BaseEvent);
       }
     } catch (error) {
       logger.error("Failed to delete checkpoint", {
@@ -190,16 +190,18 @@ export abstract class BaseCheckpointStateManager<
 
     // Update checkpoint sizes from metadata if available
     for (const info of checkpointInfoArray) {
-      const size = (info.metadata as any).customFields?.blobSize || 0;
+      const metadata = info.metadata as CheckpointStorageMetadata;
+      const customFields = metadata.customFields;
+      const size = (customFields?.['blobSize'] as number) || 0;
       if (size > 0) {
         this.checkpointSizes.set(info.id, size);
       }
     }
 
     // Convert to CheckpointInfo format for strategy
-    const checkpointInfo: import("@wf-agent/types").CheckpointInfo[] = checkpointInfoArray.map((info: any) => ({
+    const checkpointInfo: CheckpointInfo[] = checkpointInfoArray.map((info) => ({
       checkpointId: info.id,
-      metadata: info.metadata,
+      metadata: info.metadata as CheckpointStorageMetadata,
     }));
 
     // Execute cleanup strategy

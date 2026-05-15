@@ -9,7 +9,8 @@ import { createContextualLogger } from "../../utils/contextual-logger.js";
 import { generateId } from "../../utils/id-utils.js";
 import type { 
   FollowupQuestionRequestData,
-  FollowupQuestionResponseData 
+  FollowupQuestionResponseData,
+  BaseEvent
 } from "@wf-agent/types";
 
 export class FollowupQuestionCoordinator {
@@ -96,7 +97,7 @@ export class FollowupQuestionCoordinator {
       timestamp: Date.now(),
       data: responseData,
     };
-    await this.eventManager.emit(successEvent as unknown as import("@wf-agent/types").BaseEvent);
+    await this.eventManager.emit(successEvent as unknown as BaseEvent);
     this.logger.info(`Emitted follow-up question response for execution ${executionId}`);
   }
 
@@ -116,7 +117,7 @@ export class FollowupQuestionCoordinator {
         error: reason,
       },
     };
-    await this.eventManager.emit(failureEvent as unknown as import("@wf-agent/types").BaseEvent);
+    await this.eventManager.emit(failureEvent as unknown as BaseEvent);
     this.logger.warn(`Emitted follow-up question failure for execution ${executionId}: ${reason}`);
   }
 

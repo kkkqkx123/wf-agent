@@ -842,9 +842,7 @@ export function configureContainerBindings(
   // Manages all metric collectors with centralized configuration
   container
     .bind(Identifiers.MetricsRegistry)
-    .toDynamicValue((c: IContainer): MetricsRegistry => {
-      const globalContext = c.get(Identifiers.GlobalContext) as import("../global-context.js").GlobalContext;
-      
+    .toDynamicValue((_c: IContainer): MetricsRegistry => {
       // Configure all metrics collectors with unified settings
       // Note: Periodic reporting is disabled at collector level, managed by MetricsRegistry
       const config = {

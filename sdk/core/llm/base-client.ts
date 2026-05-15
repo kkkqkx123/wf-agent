@@ -14,7 +14,7 @@ import type {
   TokenCountResult,
   LLMUsage,
 } from "@wf-agent/types";
-import { HttpClient, SseTransport } from "@wf-agent/common-utils";
+import { HttpClient, HttpSseTransport as SseTransport } from "../../services/index.js";
 import { BaseFormatter, type FormatterConfig } from "./formatters/index.js";
 
 /**

@@ -24,7 +24,6 @@
 
 import { getErrorOrNew } from "@wf-agent/common-utils";
 import {
-  executeWithInterruptionHandling,
   checkWorkflowInterruption,
 } from "../utils/interruption/index.js";
 import type { ToolRegistry } from "../registry/tool-registry.js";
@@ -32,7 +31,7 @@ import type { EventRegistry } from "../registry/event-registry.js";
 import type { Tool, ID, Event } from "@wf-agent/types";
 import { now, diffTimestamp, generateId } from "@wf-agent/common-utils";
 import type { ConversationSession } from "../messaging/conversation-session.js";
-import { WorkflowExecutionInterruptedException, WorkflowCheckpointError } from "@wf-agent/types";
+import { WorkflowCheckpointError } from "@wf-agent/types";
 import { MessageBuilder } from "../messaging/message-builder.js";
 import type { CheckpointDependencies } from "../../workflow/checkpoint/utils/checkpoint-utils.js";
 import type { ToolVisibilityStore } from "../../workflow/stores/tool-visibility-store.js";

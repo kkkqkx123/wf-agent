@@ -527,7 +527,6 @@ export class NodeExecutionCoordinator {
       if (!result.success) {
         // Handle interruption - create checkpoints and trigger events
         const interruption = result.interruption;
-        const interruptionType = interruption.type === "paused" ? "PAUSE" : "STOP";
         
         // Return a CANCELLED result
         const cancelledResult: NodeExecutionResult = {

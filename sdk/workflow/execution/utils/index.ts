@@ -106,22 +106,6 @@ export {
   createAuditLoggingHook,
 } from "./hook-creators.js";
 
-// Callback utility function (re-exported from core/utils/callback)
-export {
-  wrapCallback,
-  createTimeoutPromise,
-  withTimeout,
-  validateCallback,
-  createSafeCallback,
-  executeCallbacks,
-  createRetryCallback,
-  createThrottledCallback,
-  createDebouncedCallback,
-  createOnceCallback,
-  createCachedCallback,
-  cleanupCache,
-} from "../../../core/utils/callback.js";
-
 // Checkpoint cleanup strategy (re-exported from core/utils/checkpoint)
 export {
   TimeBasedCleanupStrategy,

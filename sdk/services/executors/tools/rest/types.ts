@@ -4,12 +4,12 @@
 
 // Import basic types from @wf-agent/types
 import type { HTTPMethod, HttpResponse } from "@wf-agent/types";
-// Import the interceptor type from @wf-agent/common-utils.
+// Import the interceptor type from SDK HTTP module.
 import type {
   RequestInterceptor,
   ResponseInterceptor,
   ErrorInterceptor,
-} from "@wf-agent/common-utils";
+} from "../../../http/index.js";
 
 /**
  * HTTP Request Configuration

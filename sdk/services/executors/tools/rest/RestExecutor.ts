@@ -14,7 +14,7 @@ import {
   CircuitBreakerOpenError,
 } from "@wf-agent/types";
 import { BaseExecutor } from "../core/base/BaseExecutor.js";
-import { HttpClient, InterceptorManager } from "@wf-agent/common-utils";
+import { HttpClient, InterceptorManager } from "../../../http/index.js";
 import type { RestExecutorConfig } from "./types.js";
 
 /**
@@ -265,7 +265,7 @@ export class RestExecutor extends BaseExecutor {
     intercept: (config: unknown) => unknown | Promise<unknown>;
   }): void {
     this.interceptorManager.addRequestInterceptor(
-      interceptor as import("@wf-agent/common-utils").RequestInterceptor,
+      interceptor as import("../../../http/index.js").RequestInterceptor,
     );
   }
 
@@ -276,7 +276,7 @@ export class RestExecutor extends BaseExecutor {
     intercept: (response: unknown) => unknown | Promise<unknown>;
   }): void {
     this.interceptorManager.addResponseInterceptor(
-      interceptor as import("@wf-agent/common-utils").ResponseInterceptor,
+      interceptor as import("../../../http/index.js").ResponseInterceptor,
     );
   }
 

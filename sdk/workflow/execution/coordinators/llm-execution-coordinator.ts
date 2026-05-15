@@ -25,8 +25,6 @@ import { ExecutionError } from "@wf-agent/types";
 import { CheckpointCoordinator } from "../../checkpoint/checkpoint-coordinator.js";
 import { InterruptionDetectorImpl, type InterruptionDetector } from "../interruption-detector.js";
 import {
-  checkWorkflowInterruption,
-  shouldContinue,
   getWorkflowInterruptionDescription,
 } from "../../../core/utils/interruption/index.js";
 import type { WorkflowInterruptionCheckResult } from "../../../core/utils/interruption/index.js";

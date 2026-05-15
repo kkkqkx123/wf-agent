@@ -32,9 +32,9 @@ export { executeWithRetry } from "./retry-handler.js";
 export { NonRetryableStatusCode } from "./retry-handler.js";
 export type { RetryConfig } from "./retry-handler.js";
 
-// Export Fuse (re-exported from utils for backward compatibility)
-export { CircuitBreaker } from "../utils/circuit-breaker.js";
-export type { CircuitBreakerConfig } from "../utils/circuit-breaker.js";
+// Export Fuse (re-exported from utils)
+export { CircuitBreaker } from "../../utils/circuit-breaker.js";
+export type { CircuitBreakerConfig } from "../../utils/circuit-breaker.js";
 
 // Derived current limiter
 export { RateLimiter } from "./rate-limiter.js";

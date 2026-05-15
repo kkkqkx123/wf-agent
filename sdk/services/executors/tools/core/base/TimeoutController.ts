@@ -4,7 +4,13 @@
  */
 
 import { TimeoutError } from "@wf-agent/types";
-import { createAbortError } from "@wf-agent/common-utils";
+
+/**
+ * Create an abort error for timeout
+ */
+function createTimeoutAbortError(message: string): Error {
+  return new Error(message);
+}
 
 /**
  * Timeout Controller
@@ -40,7 +46,7 @@ export class TimeoutController {
     if (signal) {
       abortPromise = new Promise<never>((_, reject) => {
         const onAbort = () => {
-          reject(createAbortError("Tool execution aborted", signal));
+          reject(createTimeoutAbortError("Tool execution aborted"));
         };
 
         if (signal.aborted) {

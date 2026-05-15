@@ -10,7 +10,7 @@ import {
   ServiceUnavailableError,
   executeWithRetry,
   type RetryConfig,
-} from "@wf-agent/common-utils";
+} from "../../../../http/index.js";
 
 /**
  * Retry strategy configuration

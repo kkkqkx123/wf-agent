@@ -4,7 +4,7 @@
  * Limits the request rate using a token bucket algorithm
  */
 
-import { now } from "../utils/timestamp-utils.js";
+import { now } from "../../utils/timestamp-utils.js";
 
 /**
  * Current Limiter Arrangement

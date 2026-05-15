@@ -52,6 +52,21 @@ export {
   parseFullVersion,
 } from "./version-utils.js";
 
+// Timestamp Utilities
+export {
+  now,
+  timestampFromDate,
+  timestampToDate,
+  timestampToISOString,
+  nowWithTimezone,
+  diffTimestamp,
+  formatDuration,
+} from "./timestamp-utils.js";
+
+// Circuit Breaker
+export { CircuitBreaker, circuitBreakerDecorator } from "./circuit-breaker.js";
+export type { CircuitBreakerConfig, CircuitMetrics, CircuitState } from "./circuit-breaker.js";
+
 // Tool Utilities
 export * from "./tool-utils.js";
 

@@ -8,7 +8,7 @@ import type {
   TransportEventHandlers,
   StreamableHttpTransportConfig,
 } from "./types.js";
-import { HttpClient, streamSSE } from "@wf-agent/common-utils";
+import { HttpClient, streamSSE } from "../../http/index.js";
 
 /**
  * Streamable HTTP Transport

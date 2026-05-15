@@ -6,7 +6,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { LLMWrapper } from "../wrapper.js";
 import type { LLMProfile, LLMRequest, LLMResult, LLMClient } from "@wf-agent/types";
-import { LLMError, ConfigurationError, AbortError } from "@wf-agent/types";
+import { LLMError, ConfigurationError } from "@wf-agent/types";
+import { AbortError } from "../../types/interruption-types.js";
 import { MessageStream } from "../index.js";
 
 // Mock ProfileManager

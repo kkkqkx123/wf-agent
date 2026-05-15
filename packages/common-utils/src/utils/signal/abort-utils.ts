@@ -6,24 +6,11 @@
  * - Harmonize the use of AbortSignal as the interrupt mechanism.
  * - Simplify interrupt handling for asynchronous operations
  * - Provide type-safe utility functions
+ *
+ * @deprecated These utilities have been moved to SDK internal implementation.
+ * Use sdk/core/utils/interruption/ instead.
  */
-import { TimeoutError, AbortError } from "@wf-agent/types";
-
-/**
- * Abort reason for throwing AbortSignal.
- * If reason is an instance of Error, it is thrown directly, otherwise it is wrapped in AbortError.
- * @param signal AbortSignal
- * @throws Always throw an error
- */
-export function throwAbortReason(signal: AbortSignal): never {
-  const reason = signal.reason;
-  if (reason instanceof Error) {
-    throw reason;
-  }
-  // Use AbortError when the reason does not exist or is not an Error instance.
-  // Using 'This operation was aborted' is consistent with the native behavior of browsers.
-  throw new AbortError("This operation was aborted", reason);
-}
+import { TimeoutError } from "@wf-agent/types";
 
 /**
  * Check AbortSignal and execute the function
@@ -34,7 +21,11 @@ export function throwAbortReason(signal: AbortSignal): never {
  */
 export function withAbortSignal<T>(fn: () => Promise<T>, signal?: AbortSignal): Promise<T> {
   if (signal?.aborted) {
-    throwAbortReason(signal);
+    const reason = signal.reason;
+    if (reason instanceof Error) {
+      throw reason;
+    }
+    throw new Error("This operation was aborted");
   }
   return fn();
 }
@@ -51,7 +42,11 @@ export function withAbortSignalArg<T>(
   signal?: AbortSignal,
 ): Promise<T> {
   if (signal?.aborted) {
-    throwAbortReason(signal);
+    const reason = signal.reason;
+    if (reason instanceof Error) {
+      throw reason;
+    }
+    throw new Error("This operation was aborted");
   }
   if (!signal) {
     throw new Error("Signal is required for withAbortSignalArg");
@@ -197,7 +192,7 @@ export async function withTimeoutAndAbort<T>(
 
   // Check if the combination signal has been aborted
   if (combinedSignal.aborted) {
-    throw combinedSignal.reason || new AbortError("This operation was aborted");
+    throw combinedSignal.reason || new Error("This operation was aborted");
   }
 
   try {

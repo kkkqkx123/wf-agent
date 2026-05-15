@@ -15,7 +15,7 @@
  * - Portability: Can be shared by both the Graph module and the Agent module
  */
 
-import { InterruptedException, WorkflowExecutionInterruptedException } from "@wf-agent/types";
+import { InterruptedException, WorkflowExecutionInterruptedException } from "./interruption-types.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "InterruptionState" });
@@ -127,7 +127,6 @@ export class InterruptionState {
     this.interruptionType = null;
     
     // Create a new AbortController for fresh state
-    const oldController = this.abortController;
     this.abortController = new AbortController();
     
     // Notify all listeners to refresh their signal references

@@ -4,7 +4,7 @@
  * Provides a unified HTTP request interface, integrating features such as retry, circuit breaking, and rate limiting.
  */
 
-import { now, diffTimestamp } from "../utils/timestamp-utils.js";
+import { now, diffTimestamp } from "../../utils/timestamp-utils.js";
 import type { HttpClientConfig, HttpRequestOptions, HttpResponse } from "@wf-agent/types";
 import { TimeoutError, CircuitBreakerOpenError, HttpError } from "@wf-agent/types";
 import {
@@ -19,9 +19,9 @@ import {
   RateLimitError,
 } from "./errors.js";
 import { executeWithRetry, type RetryConfig } from "./retry-handler.js";
-import { CircuitBreaker } from "../utils/circuit-breaker.js";
+import { CircuitBreaker } from "../../utils/circuit-breaker.js";
 import { RateLimiter } from "./rate-limiter.js";
-import { isAbortError } from "../error/error-utils.js";
+import { isAbortError } from "../../core/utils/error-utils.js";
 
 /**
  * HTTP Client

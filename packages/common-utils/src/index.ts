@@ -1,11 +1,8 @@
 /**
  * General Toolkit
  *
- * Exports general functionalities such as HTTP transfer, utility functions, and a logging system.
+ * Exports general functionalities such as utility functions, and a logging system.
  */
-
-// HTTP-related
-export * from "./http/index.js";
 
 // Utility functions
 export * from "./utils/index.js";
@@ -24,11 +21,6 @@ export * from "./script-security/index.js";
 
 // Dependency Injection Container
 export * from "./di/index.js";
-
-// AbortSignal and interruption tools
-export * from "./utils/signal/abort-utils.js";
-export * from "./utils/signal/abort-signal-utils.js";
-export * from "./utils/signal/interruption-types.js";
 
 // Process management utilities (cross-platform signal handling)
 export * from "./utils/process/index.js";

@@ -10,18 +10,16 @@ import { ProfileManager } from "./profile-manager.js";
 import { ClientFactory, MessageStream } from "./index.js";
 import {
   tryCatchAsyncWithSignal,
-  isAbortError,
   now,
   diffTimestamp,
   generateId,
   ok,
   err,
-  checkInterruption,
-  getInterruptionDescription,
 } from "@wf-agent/common-utils";
 import { ConfigurationError, LLMError } from "@wf-agent/types";
 import type { Result } from "@wf-agent/types";
 import type { EventRegistry } from "../registry/event-registry.js";
+import { isAbortError } from "../utils/error-utils.js";
 
 import {
   buildLLMStreamAbortedEvent,
@@ -302,7 +300,7 @@ export class LLMWrapper {
   }
 
   /**
-   * Trigger an LLM flow error event
+   * Trigger an LLM stream error event
    * @param request: LLM request
    * @param error: Error
    */
@@ -316,46 +314,30 @@ export class LLMWrapper {
     const executionId = context.executionId;
     const workflowId = context.workflowId;
 
-    // Check if it is a termination error.
+    // Check if it is an abort error.
     if (isAbortError(error)) {
-      let reason: string;
-      if (request.signal) {
-        const interruption = checkInterruption(request.signal);
-        reason = getInterruptionDescription(interruption);
-        // If it is a normal termination and the reason is DOMException or undefined, use the default message.
-        if (interruption.type === "aborted") {
-          if (
-            !interruption.reason ||
-            (typeof interruption.reason === "object" &&
-              (interruption.reason as Record<string, unknown>)["name"] === "AbortError")
-          ) {
-            reason = "Stream aborted";
-          }
-        }
-      } else {
-        reason = "Stream aborted";
-      }
-
       this.eventManager.emit(
         buildLLMStreamAbortedEvent({
           workflowId: workflowId || "",
           executionId: executionId || "",
           nodeId: nodeId || "",
-          reason,
+          reason: "Stream aborted",
         }),
       );
-    } else {
-      // Other errors
-      const errorMessage = error instanceof Error ? error.message : String(error);
-
-      this.eventManager.emit(
-        buildLLMStreamErrorEvent({
-          workflowId: workflowId || "",
-          executionId: executionId || "",
-          nodeId: nodeId || "",
-          error: errorMessage,
-        }),
-      );
+      return;
     }
+
+    // Handle other errors - use a local variable to avoid TypeScript type narrowing issues
+    const err = error as Error | string;
+    const errorMessage = typeof err === "string" ? err : (err.message ?? String(err ?? "Unknown error"));
+
+    this.eventManager.emit(
+      buildLLMStreamErrorEvent({
+        workflowId: workflowId || "",
+        executionId: executionId || "",
+        nodeId: nodeId || "",
+        error: errorMessage,
+      }),
+    );
   }
 }

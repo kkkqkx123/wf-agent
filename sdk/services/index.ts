@@ -247,3 +247,55 @@ export {
   type ShutdownSignal,
   type ShutdownCheckpointResult,
 } from './shutdown/index.js';
+
+// ============================================================================
+// HTTP Service
+// ============================================================================
+export {
+  // HTTP Client
+  HttpClient,
+  // HTTP Transport (distinct from MCP transport)
+  HttpTransport as HttpServiceTransport,
+  SseTransport as HttpSseTransport,
+  Transport as HttpBaseTransport,
+  type TransportResponse as HttpTransportResponse,
+  type TransportOptions as HttpTransportOptions,
+  // Retry
+  executeWithRetry,
+  NonRetryableStatusCode,
+  type RetryConfig,
+  // Circuit Breaker (re-exported from core utils)
+  CircuitBreaker,
+  type CircuitBreakerConfig,
+  // Rate Limiter
+  RateLimiter,
+  type RateLimiterConfig,
+  // Interceptors
+  RequestInterceptor as HttpRequestInterceptor,
+  ResponseInterceptor as HttpResponseInterceptor,
+  ErrorInterceptor as HttpErrorInterceptor,
+  InterceptorManager,
+  createAuthInterceptor,
+  createLoggingInterceptor,
+  createRetryInterceptor,
+  // SSE Utilities
+  parseSSELine,
+  parseSSELines,
+  streamSSE,
+  readSSEStream,
+  // HTTP Errors
+  BadRequestError,
+  UnauthorizedError,
+  ForbiddenError,
+  NotFoundHttpError,
+  ConflictError,
+  UnprocessableEntityError,
+  RateLimitError,
+  InternalServerError,
+  ServiceUnavailableError,
+  // Types
+  type HTTPMethod,
+  type HttpRequestOptions,
+  type HttpResponse as HttpServiceResponse,
+  type HttpClientConfig,
+} from './http/index.js';

@@ -10,7 +10,7 @@
  * - Used by shared core executors and both workflow/agent modules
  */
 
-import type { InterruptionType } from "@wf-agent/types";
+import type { InterruptionType } from "../../types/interruption-types.js";
 import {
   checkInterruption as baseCheckInterruption,
 } from "@wf-agent/common-utils";

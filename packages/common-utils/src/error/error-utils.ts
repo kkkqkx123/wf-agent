@@ -3,7 +3,8 @@
  * Provides unified error handling capabilities to reduce repetitive type-checking code
  */
 
-import { AbortError, InterruptedException } from "@wf-agent/types";
+// Note: AbortError and InterruptedException have been moved to SDK internal implementation.
+// These functions are kept for backward compatibility but use generic Error types.
 
 /**
  * Extracting Error Messages
@@ -83,33 +84,4 @@ export function getErrorOrUndefined(error: unknown): Error | undefined {
  */
 export function getErrorOrNew(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
-}
-
-/**
- * Create AbortError
- * @param message Error message
- * @param signal AbortSignal (optional)
- * @returns AbortError instance
- */
-export function createAbortError(message: string, signal?: AbortSignal): AbortError {
-  const cause = signal?.reason as InterruptedException | undefined;
-  return new AbortError(message, cause);
-}
-
-/**
- * Check if it is an AbortError (nested checking is supported)
- * @param error Error object
- * @returns Whether the error is an AbortError.
- */
-export function isAbortError(error: unknown): error is AbortError {
-  if (error instanceof AbortError) {
-    return true;
-  }
-
-  // Check for nested causes
-  if (error instanceof Error && error.cause instanceof AbortError) {
-    return true;
-  }
-
-  return false;
 }

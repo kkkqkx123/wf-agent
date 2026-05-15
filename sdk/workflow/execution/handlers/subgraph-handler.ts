@@ -27,8 +27,6 @@ import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-
 import type { StaticNode, WorkflowNode, WorkflowStartConfig, SubgraphNodeConfig, NamedMessageContext, MessageContextRegistry, WorkflowExecution } from "@wf-agent/types";
 import { now } from "@wf-agent/common-utils";
 import {
-  checkWorkflowInterruption,
-  shouldContinue,
   getWorkflowInterruptionDescription,
   executeWithInterruptionHandling,
 } from "../../../core/utils/interruption/index.js";

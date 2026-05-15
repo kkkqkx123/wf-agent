@@ -10,11 +10,9 @@
  */
 
 import {
-  checkInterruption,
   createNeverAbortSignal,
-  isAbortError,
 } from "@wf-agent/common-utils";
-import type { InterruptionCheckResult } from "@wf-agent/common-utils";
+import { isAbortError } from "../error-utils.js";
 import {
   checkWorkflowInterruption,
   type ExecutionInterruptionCheckResult,

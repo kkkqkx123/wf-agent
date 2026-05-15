@@ -12,8 +12,6 @@ import type { ToolVisibilityCoordinator } from "./tool-visibility-coordinator.js
 import type { NodeExecutionCoordinator } from "./node-execution-coordinator.js";
 import type { WorkflowNavigator } from "../../builder/workflow-navigator.js";
 import {
-  checkWorkflowInterruption,
-  shouldContinue,
   executeWithInterruptionHandling,
 } from "../../../core/utils/interruption/index.js";
 import type { WorkflowInterruptionCheckResult } from "../../../core/utils/interruption/index.js";

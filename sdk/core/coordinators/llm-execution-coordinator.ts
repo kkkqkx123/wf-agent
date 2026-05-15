@@ -42,16 +42,6 @@ import {
 const logger = createContextualLogger();
 
 /**
- * Custom error to carry interruption information through the call stack
- */
-class InterruptionError extends Error {
-  constructor(public interruption: ExecutionInterruptionCheckResult) {
-    super("Operation interrupted");
-    this.name = "InterruptionError";
-  }
-}
-
-/**
  * LLM Execution Params
  */
 export interface LLMExecutionParams {

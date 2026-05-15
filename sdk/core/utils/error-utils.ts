@@ -212,3 +212,21 @@ export async function handleErrorWithContext(
 
   return enhancedError;
 }
+
+/**
+ * Check if it is an AbortError (nested checking is supported)
+ * @param error Error object
+ * @returns Whether the error is an AbortError.
+ */
+export function isAbortError(error: unknown): error is Error {
+  if (error instanceof Error && error.name === "AbortError") {
+    return true;
+  }
+
+  // Check for nested causes
+  if (error instanceof Error && error.cause instanceof Error && (error.cause as Error).name === "AbortError") {
+    return true;
+  }
+
+  return false;
+}

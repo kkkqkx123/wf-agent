@@ -19,13 +19,13 @@ export {
   renderTemplateById,
 } from "./template-registry.js";
 
-// Export Context Compression Coordination Module
+// Export Context Compression Coordination Module (from registration.ts)
 export {
   registerContextCompression,
   unregisterContextCompression,
   isContextCompressionRegistered,
   type ContextCompressionConfig,
-} from "./context-compression.js";
+} from "./registration.js";
 
 // Export the trigger module (excluding duplicate ContextCompressionConfig instances).
 export {

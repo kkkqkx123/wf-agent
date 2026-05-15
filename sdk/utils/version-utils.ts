@@ -10,7 +10,7 @@ import type { Version } from "@wf-agent/types";
  * Create initial version ("1.0.0")
  */
 export function initialVersion(): Version {
-  return "1.0.0.0";
+  return "1.0.0";
 }
 
 /**

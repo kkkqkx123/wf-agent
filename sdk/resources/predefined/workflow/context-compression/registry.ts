@@ -1,16 +1,11 @@
 /**
- * Context Compression Workflow Module
+ * Context Compression Workflow Registry
  *
- * Provides workflow definition and registration functionality
- * Combines the definition layer with the execution layer, simplifying the architecture
+ * Definition layer: Creates workflow templates (pure functions, no side effects)
  */
 
-import type { WorkflowTemplate, StaticNode, Edge } from "@wf-agent/types";
+import type { WorkflowTemplate } from "@wf-agent/types";
 import { now, generateId } from "@wf-agent/common-utils";
-import type { WorkflowRegistry } from "../../../workflow/stores/workflow-registry.js";
-import { createContextualLogger } from "../../../utils/contextual-logger.js";
-
-const logger = createContextualLogger({ component: "ContextCompressionWorkflow" });
 
 /**
  * Context compression workflow ID
@@ -18,7 +13,7 @@ const logger = createContextualLogger({ component: "ContextCompressionWorkflow" 
 export const CONTEXT_COMPRESSION_WORKFLOW_ID = "context_compression_workflow";
 
 /**
- * Default context compression prompt words
+ * Default context compression prompt
  */
 export const DEFAULT_COMPRESSION_PROMPT = `Please provide a compressed summary of the following history of the conversation.
 
@@ -35,9 +30,9 @@ Please output the summary directly without any prefixes or explanations.;`;
  * Context compression configuration options
  */
 export interface ContextCompressionConfig {
-  /** Custom compression hint words */
+  /** Custom compression prompt */
   compressionPrompt?: string;
-  /** Timeout period (in milliseconds), default is 60000 */
+  /** Timeout duration (in milliseconds), default is 60000 */
   timeout?: number;
   /** Maximum number of triggers (0 indicates no limit); the default value is 0. */
   maxTriggers?: number;
@@ -57,10 +52,10 @@ export function createContextCompressionWorkflow(
   const compressionLlmId = generateId();
   const compressionEndId = generateId();
 
-  const nodes: StaticNode[] = [
+  const nodes = [
     {
       id: compressionStartId,
-      type: "START_FROM_TRIGGER",
+      type: "START_FROM_TRIGGER" as const,
       name: "Start Compression",
       description: "Receive the full context passed in by the main workflow execution",
       config: {
@@ -76,7 +71,7 @@ export function createContextCompressionWorkflow(
     },
     {
       id: compressionLlmId,
-      type: "LLM",
+      type: "LLM" as const,
       name: "Compress Context",
       description: "Using LLM to compress dialog history with custom prompt",
       config: {
@@ -90,7 +85,7 @@ export function createContextCompressionWorkflow(
     },
     {
       id: compressionEndId,
-      type: "CONTINUE_FROM_TRIGGER",
+      type: "CONTINUE_FROM_TRIGGER" as const,
       name: "Complete Compression",
       description: "Passes compression results back to the main workflow execution",
       config: {
@@ -105,23 +100,20 @@ export function createContextCompressionWorkflow(
     },
   ];
 
-  const edges: Edge[] = [
+  const edges = [
     {
       id: generateId(),
       sourceNodeId: compressionStartId,
       targetNodeId: compressionLlmId,
-      type: "DEFAULT",
+      type: "DEFAULT" as const,
     },
     {
       id: generateId(),
       sourceNodeId: compressionLlmId,
       targetNodeId: compressionEndId,
-      type: "DEFAULT",
+      type: "DEFAULT" as const,
     },
   ];
-
-  // Edge IDs are now managed at runtime during preprocessing
-  // No need to manually assign them in static node definitions
 
   return {
     id: CONTEXT_COMPRESSION_WORKFLOW_ID,
@@ -153,59 +145,4 @@ export function createCustomContextCompressionWorkflow(
   config: ContextCompressionConfig = {},
 ): WorkflowTemplate {
   return createContextCompressionWorkflow(config.compressionPrompt, config);
-}
-
-/**
- * Registering the context compression workflow
- */
-export function registerContextCompressionWorkflow(
-  registry: WorkflowRegistry,
-  config?: ContextCompressionConfig,
-  skipIfExists: boolean = true,
-): boolean {
-  try {
-    const workflow = config?.compressionPrompt
-      ? createCustomContextCompressionWorkflow(config)
-      : createContextCompressionWorkflow();
-
-    // Check if the workflow already exists
-    if (registry.has(workflow.id)) {
-      if (skipIfExists) {
-        logger.info("Context compression workflow already exists, skipping registration");
-        return false;
-      }
-      // If skipIfExists is false, let the registry.register throw the error
-    }
-
-    registry.register(workflow, { skipIfExists });
-    logger.info("Registered context compression workflow");
-    return true;
-  } catch (error) {
-    logger.error("Failed to register context compression workflow", { error });
-    return false;
-  }
-}
-
-/**
- * Cancel the context compression workflow.
- */
-export function unregisterContextCompressionWorkflow(registry: WorkflowRegistry): boolean {
-  try {
-    if (registry.has(CONTEXT_COMPRESSION_WORKFLOW_ID)) {
-      registry.unregister(CONTEXT_COMPRESSION_WORKFLOW_ID, { force: true });
-      logger.info("Unregistered context compression workflow");
-      return true;
-    }
-    return false;
-  } catch (error) {
-    logger.error("Failed to unregister context compression workflow", { error });
-    return false;
-  }
-}
-
-/**
- * Check whether the context compression workflow has been registered.
- */
-export function isContextCompressionWorkflowRegistered(registry: WorkflowRegistry): boolean {
-  return registry.has(CONTEXT_COMPRESSION_WORKFLOW_ID);
 }

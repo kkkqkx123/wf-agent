@@ -129,7 +129,7 @@ export abstract class BaseCommand<T> implements Command<T> {
       description: "",
       category: "execution",
       requiresAuth: false,
-      version: "1.0.0.0",
+      version: "1.0.0",
     };
   }
 

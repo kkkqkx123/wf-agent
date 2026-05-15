@@ -82,7 +82,7 @@ export class OnEventSubscription extends BaseSubscription {
       description: "Registering event listeners",
       eventType: this.params.eventType,
       requiresAuth: false,
-      version: "1.0.0.0",
+      version: "1.0.0",
     };
   }
 }

@@ -24,7 +24,7 @@ function createMockExecutionContext(
   const mockWorkflowExecution: WorkflowExecution = {
     id: "test-workflow-execution",
     workflowId: "test-workflow",
-    workflowVersion: "1.0.0.0",
+    workflowVersion: "1.0.0",
     currentNodeId: "test-node",
     input: {},
     output: {},

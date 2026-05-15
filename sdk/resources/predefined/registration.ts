@@ -13,7 +13,6 @@
  * - trigger/: Trigger template registration
  * - workflow/: Workflow registration
  * - tools/: Tool registration
- * - context-compression.ts: Context compression coordination (handles dependencies between trigger and workflow)
  */
 
 import type { TriggerTemplateRegistry } from "../../core/registry/trigger-template-registry.js";
@@ -21,17 +20,97 @@ import type { WorkflowRegistry } from "../../workflow/stores/workflow-registry.j
 import type { ToolRegistry } from "../../core/registry/tool-registry.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
-// Import from a submodule
+// Import from submodules
 import {
-  registerContextCompression,
-  unregisterContextCompression,
-  isContextCompressionRegistered,
-  type ContextCompressionConfig,
-} from "./context-compression.js";
+  registerContextCompressionTrigger,
+  unregisterContextCompressionTrigger,
+  isContextCompressionTriggerRegistered,
+  type ContextCompressionConfig as TriggerContextCompressionConfig,
+} from "./trigger/index.js";
+
+import {
+  registerContextCompressionWorkflow,
+  unregisterContextCompressionWorkflow,
+  isContextCompressionWorkflowRegistered,
+  type ContextCompressionConfig as WorkflowContextCompressionConfig,
+} from "./workflow/index.js";
 
 import { registerPredefinedTools, unregisterPredefinedTools } from "./tools/registration.js";
 
 const logger = createContextualLogger({ component: "PredefinedRegistration" });
+
+/**
+ * Context Compression Configuration (unified type)
+ */
+export type ContextCompressionConfig = TriggerContextCompressionConfig &
+  WorkflowContextCompressionConfig;
+
+/**
+ * Register context compression (both trigger and workflow).
+ *
+ * Note: The workflow must be registered first, as the trigger references the workflow ID.
+ */
+function registerContextCompression(
+  triggerRegistry: TriggerTemplateRegistry,
+  workflowRegistry: WorkflowRegistry,
+  config?: ContextCompressionConfig,
+  skipIfExists: boolean = true,
+): {
+  triggerRegistered: boolean;
+  workflowRegistered: boolean;
+} {
+  // The workflow must be registered first, as the trigger references the workflow ID.
+  const workflowRegistered = registerContextCompressionWorkflow(
+    workflowRegistry,
+    config,
+    skipIfExists,
+  );
+  const triggerRegistered = registerContextCompressionTrigger(
+    triggerRegistry,
+    config,
+    skipIfExists,
+  );
+
+  return {
+    triggerRegistered,
+    workflowRegistered,
+  };
+}
+
+/**
+ * Unregister context compression (both trigger and workflow).
+ */
+function unregisterContextCompression(
+  triggerRegistry: TriggerTemplateRegistry,
+  workflowRegistry: WorkflowRegistry,
+): {
+  triggerUnregistered: boolean;
+  workflowUnregistered: boolean;
+} {
+  const triggerUnregistered = unregisterContextCompressionTrigger(triggerRegistry);
+  const workflowUnregistered = unregisterContextCompressionWorkflow(workflowRegistry);
+
+  return {
+    triggerUnregistered,
+    workflowUnregistered,
+  };
+}
+
+/**
+ * Check whether context compression is registered.
+ */
+function isContextCompressionRegistered(
+  triggerRegistry: TriggerTemplateRegistry,
+  workflowRegistry: WorkflowRegistry,
+): {
+  triggerRegistered: boolean;
+  workflowRegistered: boolean;
+} {
+  return {
+    triggerRegistered: isContextCompressionTriggerRegistered(triggerRegistry),
+    workflowRegistered: isContextCompressionWorkflowRegistered(workflowRegistry),
+  };
+}
 
 /**
  * Register all predefined content
@@ -159,5 +238,4 @@ export {
   registerContextCompression,
   unregisterContextCompression,
   isContextCompressionRegistered,
-  type ContextCompressionConfig,
 };

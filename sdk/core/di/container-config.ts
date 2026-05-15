@@ -32,6 +32,7 @@ import type {
   WorkflowExecutionStorageAdapter,
   AgentLoopStorageAdapter,
   AgentLoopCheckpointStorageAdapter,
+  MetricsStorageAdapter,
 } from "@wf-agent/storage";
 import * as Identifiers from "./service-identifiers.js";
 import type {
@@ -826,6 +827,24 @@ export function configureContainerBindings(
   // ============================================================
   // Layer 12.5: Metrics Services (before WorkflowExecutionPool)
   // ============================================================
+
+  // MetricsStorageAdapter - SQLite implementation for metrics persistence
+  container
+    .bind(Identifiers.MetricsStorageAdapter)
+    .toDynamicValue(async (): Promise<MetricsStorageAdapter> => {
+      const { SqliteMetricsStorage } = await import('@wf-agent/storage');
+      const { join } = await import('path');
+      
+      const storage = new SqliteMetricsStorage({
+        dbPath: join(process.cwd(), 'data', 'metrics.db'),
+        enableWAL: true,
+        vacuumInterval: 60 * 60 * 1000, // 1 hour
+      });
+      
+      await storage.initialize();
+      return storage;
+    })
+    .inSingletonScope();
 
   // MetricsRegistry - Unified metrics registry
   // Manages all metric collectors with centralized configuration

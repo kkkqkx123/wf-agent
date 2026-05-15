@@ -189,20 +189,6 @@ export class WorkflowMetricsCollector extends BaseMetricCollector {
   }
 
   /**
-   * Flush buffered metrics
-   */
-  async flush(): Promise<void> {
-    const flushedCount = this.metricsBuffer.length;
-    
-    if (flushedCount > 0) {
-      logger.debug("Flushing workflow metrics", { flushedCount });
-      // TODO: Implement actual persistence (e.g., write to database, send to monitoring service)
-      // For now, just clear the buffer
-      this.metricsBuffer = [];
-    }
-  }
-
-  /**
    * Get top workflows by execution count
    */
   getTopWorkflows(limit: number = 10): Array<{

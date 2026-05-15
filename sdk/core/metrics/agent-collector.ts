@@ -175,19 +175,6 @@ export class AgentMetricsCollector extends BaseMetricCollector {
   }
 
   /**
-   * Flush buffered metrics
-   */
-  async flush(): Promise<void> {
-    const flushedCount = this.metricsBuffer.length;
-    
-    if (flushedCount > 0) {
-      logger.debug("Flushing agent metrics", { flushedCount });
-      // TODO: Implement actual persistence
-      this.metricsBuffer = [];
-    }
-  }
-
-  /**
    * Export agent metrics in Prometheus format
    */
   toPrometheus(): string[] {

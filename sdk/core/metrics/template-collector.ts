@@ -181,21 +181,6 @@ export class TemplateMetricsCollector extends BaseMetricCollector {
   }
 
   /**
-   * Flush metrics to storage
-   * Override to implement custom persistence logic
-   */
-  async flush(): Promise<void> {
-    const flushedCount = this.metricsBuffer.length;
-
-    if (flushedCount > 0) {
-      logger.debug("Flushing template metrics", { flushedCount });
-
-      // TODO: Implement actual persistence
-      this.metricsBuffer = [];
-    }
-  }
-
-  /**
    * Export as Prometheus format
    */
   toPrometheus(): string[] {

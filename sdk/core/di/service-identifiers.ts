@@ -406,6 +406,12 @@ export const AgentLoopStorageAdapter: ServiceIdentifier<AgentLoopStorageAdapterT
  */
 export const AgentLoopCheckpointStorageAdapter: ServiceIdentifier<AgentLoopCheckpointStorageAdapterType> = Symbol("AgentLoopCheckpointStorageAdapter");
 
+/**
+ * MetricsStorageAdapter - Metrics Storage Adapter
+ * Provides metrics persistence operations
+ */
+export const MetricsStorageAdapter: ServiceIdentifier<import("@wf-agent/storage").MetricsStorageAdapter> = Symbol("MetricsStorageAdapter");
+
 // ============================================================
 // Metrics Services
 // ============================================================

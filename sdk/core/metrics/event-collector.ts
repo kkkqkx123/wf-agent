@@ -310,22 +310,6 @@ export class EventMetricsCollector extends BaseMetricCollector {
   }
 
   /**
-   * Flush buffered metrics
-   * Override to implement custom persistence logic
-   */
-  async flush(): Promise<void> {
-    const flushedCount = this.metricsBuffer.length;
-
-    if (flushedCount > 0) {
-      logger.debug("Flushing event metrics", { flushedCount });
-
-      // TODO: Implement actual persistence (e.g., write to database, send to monitoring service)
-      // For now, just clear the buffer
-      this.metricsBuffer = [];
-    }
-  }
-
-  /**
    * Export event metrics in Prometheus format
    */
   toPrometheus(): string[] {

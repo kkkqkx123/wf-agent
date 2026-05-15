@@ -228,19 +228,6 @@ export class NodeMetricsCollector extends BaseMetricCollector {
   }
 
   /**
-   * Flush buffered metrics
-   */
-  async flush(): Promise<void> {
-    const flushedCount = this.metricsBuffer.length;
-    
-    if (flushedCount > 0) {
-      logger.debug("Flushing node metrics", { flushedCount });
-      // TODO: Implement actual persistence
-      this.metricsBuffer = [];
-    }
-  }
-
-  /**
    * Export node metrics in Prometheus format
    */
   toPrometheus(): string[] {

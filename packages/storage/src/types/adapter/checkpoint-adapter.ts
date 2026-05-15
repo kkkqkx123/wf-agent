@@ -15,8 +15,9 @@ import type { CheckpointOptions } from "../checkpoint-options.js";
  * - packages/storage provides an implementation of CheckpointStorageAdapter based on this interface.
  * - Applications can use CheckpointStorageAdapter directly or implement it themselves.
  */
-export type CheckpointStorageAdapter = BaseStorageAdapter<
+export interface CheckpointStorageAdapter extends BaseStorageAdapter<
   CheckpointStorageMetadata,
   CheckpointStorageListOptions,
   CheckpointOptions
->;
+> {
+}

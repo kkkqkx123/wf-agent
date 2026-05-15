@@ -21,6 +21,7 @@ import type {
   MetricReportCallback,
   MetricReport,
 } from "./types.js";
+import type { MetricsStorageAdapter, MetricDataPoint } from "@wf-agent/storage";
 
 const logger = createContextualLogger({ operation: "BaseMetricCollector" });
 
@@ -102,6 +103,7 @@ export abstract class BaseMetricCollector implements MetricCollector {
   private cleanupTimer?: NodeJS.Timeout;
   private isFlushing: boolean = false;
   private nextSubscriptionId: number = 0;
+  protected storageAdapter?: MetricsStorageAdapter;
   
   // Histogram state management for cumulative bucket counts
   private histogramStates: Map<string, HistogramState> = new Map();
@@ -136,7 +138,7 @@ export abstract class BaseMetricCollector implements MetricCollector {
   // Default summary window size
   private static readonly DEFAULT_SUMMARY_WINDOW_SIZE = 1000;
 
-  constructor(config?: MetricCollectorConfig) {
+  constructor(config?: MetricCollectorConfig, storageAdapter?: MetricsStorageAdapter) {
     this.config = {
       bufferSize: config?.bufferSize ?? 100,
       flushInterval: config?.flushInterval ?? 5000,
@@ -144,6 +146,7 @@ export abstract class BaseMetricCollector implements MetricCollector {
       reportingInterval: config?.reportingInterval ?? 10000,
       maxAge: config?.maxAge ?? 3600000, // 1 hour default
     };
+    this.storageAdapter = storageAdapter;
 
     // Start periodic flush if enabled
     if (this.config.flushInterval > 0) {
@@ -306,9 +309,52 @@ export abstract class BaseMetricCollector implements MetricCollector {
 
   /**
    * Flush buffered metrics
-   * Must be implemented by subclasses to handle persistence
+   * If storage adapter is available, persist metrics to storage.
+   * Otherwise, just clear the buffer (metrics will be lost).
    */
-  abstract flush(): Promise<void>;
+  async flush(): Promise<void> {
+    if (this.metricsBuffer.length === 0) {
+      return;
+    }
+
+    const startTime = now();
+    
+    try {
+      // Persist to storage if adapter is available
+      if (this.storageAdapter) {
+        const dataPoints: MetricDataPoint[] = this.metricsBuffer
+          .filter(metric => metric.metricType !== 'summary') // Summary metrics are not persisted
+          .map(metric => ({
+            metricName: metric.metricName,
+            metricType: metric.metricType as 'counter' | 'gauge' | 'histogram',
+            value: metric.value ?? 1,
+            timestamp: metric.timestamp || now(),
+            labels: metric.labels,
+            collectorName: this.constructor.name,
+          }));
+        
+        if (dataPoints.length > 0) {
+          await this.storageAdapter.saveBatch(dataPoints);
+          logger.debug("Flushed metrics to storage", { count: dataPoints.length });
+        }
+      }
+      
+      // Clear buffer regardless of persistence success
+      this.metricsBuffer = [];
+      
+      // Update internal metrics
+      const duration = now() - startTime;
+      this.internalMetrics.flushCount += 1;
+      this.internalMetrics.lastFlushDuration = duration;
+      this.internalMetrics.avgFlushDuration = 
+        (this.internalMetrics.avgFlushDuration * (this.internalMetrics.flushCount - 1) + duration) / 
+        this.internalMetrics.flushCount;
+    } catch (error) {
+      logger.error("Failed to flush metrics", { error });
+      this.internalMetrics.flushErrorCount += 1;
+      // Don't throw - allow graceful degradation
+    }
+  }
 
   /**
    * Query metrics with filters

@@ -302,11 +302,14 @@ export class NodeExecutionCoordinator {
     logger.debug("Starting node execution", { executionId, nodeId, nodeType, nodeName: (node as WorkflowNode).name || ((node as RuntimeNode) as WorkflowNode).originalNode?.name });
 
     // Record node execution start in metrics
-    this.metricsRegistry.getNodeCollector().recordNodeExecutionStart(
-      nodeId,
-      nodeType,
-      workflowId
-    );
+    const nodeCollector = this.metricsRegistry.getNodeCollector();
+    if (nodeCollector) {
+      nodeCollector.recordNodeExecutionStart(
+        nodeId,
+        nodeType,
+        workflowId
+      );
+    }
 
     return await executeWithInterruptionHandling(
       async (effectiveSignal) => {
@@ -391,16 +394,19 @@ export class NodeExecutionCoordinator {
           const nodeDuration = diffTimestamp(nodeStartTime, now());
 
           // Record node execution completion in metrics
-          this.metricsRegistry.getNodeCollector().recordNodeExecution(
-            nodeId,
-            nodeType,
-            workflowId,
-            {
-              success: nodeResult.status === 'COMPLETED',
-              duration: nodeDuration,
-              errorType: nodeResult.status === 'FAILED' ? (nodeResult.error instanceof Error ? nodeResult.error.name : 'unknown') : undefined,
-            }
-          );
+          const nodeCollector = this.metricsRegistry.getNodeCollector();
+          if (nodeCollector) {
+            nodeCollector.recordNodeExecution(
+              nodeId,
+              nodeType,
+              workflowId,
+              {
+                success: nodeResult.status === 'COMPLETED',
+                duration: nodeDuration,
+                errorType: nodeResult.status === 'FAILED' ? (nodeResult.error instanceof Error ? nodeResult.error.name : 'unknown') : undefined,
+              }
+            );
+          }
 
           // Step 5: Record the results of node execution
           workflowExecutionEntity.addNodeResult(nodeResult);
@@ -574,7 +580,7 @@ export class NodeExecutionCoordinator {
       // Enter the subgraph
       const input = getSubgraphInput(workflowExecutionEntity);
       // Pass the original SUBGRAPH node for message context handling
-      if (graphNode.originalNode) {
+      if (graphNode.originalNode && graphNode.originalNode.type === 'SUBGRAPH') {
         await enterSubgraph(workflowExecutionEntity, graphNode.workflowId, graphNode.parentWorkflowId!, input, graphNode.originalNode);
       }
 
@@ -606,7 +612,7 @@ export class NodeExecutionCoordinator {
         await emit(this.eventManager, subgraphCompletedEvent);
 
         // Pass the original SUBGRAPH node for message context handling
-        if (graphNode.originalNode) {
+        if (graphNode.originalNode && graphNode.originalNode.type === 'SUBGRAPH') {
           await exitSubgraph(workflowExecutionEntity, graphNode.originalNode);
         }
       }

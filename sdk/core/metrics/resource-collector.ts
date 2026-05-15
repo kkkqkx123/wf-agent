@@ -134,22 +134,6 @@ export class ResourceMetricsCollector extends BaseMetricCollector {
   }
 
   /**
-   * Flush metrics to storage
-   * Override to implement custom persistence logic
-   */
-  async flush(): Promise<void> {
-    const flushedCount = this.metricsBuffer.length;
-
-    if (flushedCount > 0) {
-      logger.debug("Flushing resource metrics", { flushedCount });
-
-      // TODO: Implement actual persistence (e.g., write to database, send to monitoring service)
-      // For now, just clear the buffer
-      this.metricsBuffer = [];
-    }
-  }
-
-  /**
    * Export as Prometheus format
    */
   toPrometheus(): string[] {

@@ -102,6 +102,7 @@ import { AgentLoopRegistry } from "../../agent/stores/agent-loop-registry.js";
 import { ExecutionHierarchyRegistry } from "../registry/execution-hierarchy-registry.js";
 import { AgentLoopCoordinator } from "../../agent/execution/coordinators/agent-loop-coordinator.js";
 import { WorkflowExecutionEntity } from "../../workflow/entities/workflow-execution-entity.js";
+import { MetricsRegistry } from "../metrics/metrics-registry.js";
 
 /**
  * Storage adapter configuration for container initialization
@@ -819,6 +820,40 @@ export function configureContainerBindings(
           });
         },
       };
+    })
+    .inSingletonScope();
+
+  // ============================================================
+  // Layer 12.5: Metrics Services (before WorkflowExecutionPool)
+  // ============================================================
+
+  // MetricsRegistry - Unified metrics registry
+  // Depends on EventRegistry for optional event-based reporting
+  container
+    .bind(Identifiers.MetricsRegistry)
+    .toDynamicValue((c: IContainer): MetricsRegistry => {
+      const globalContext = c.get(Identifiers.GlobalContext) as import("../global-context.js").GlobalContext;
+      
+      // Configure metrics collectors with default settings
+      const config = {
+        workflowMetrics: {
+          bufferSize: 100,
+          flushInterval: 5000,
+          enablePeriodicReporting: false,
+        },
+        nodeMetrics: {
+          bufferSize: 100,
+          flushInterval: 5000,
+        },
+        agentMetrics: {
+          bufferSize: 100,
+          flushInterval: 5000,
+        },
+        enablePeriodicReporting: false,
+        reportingInterval: 60000, // 1 minute
+      };
+      
+      return new MetricsRegistry(globalContext, config);
     })
     .inSingletonScope();
 

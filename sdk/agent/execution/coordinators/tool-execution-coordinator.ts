@@ -23,7 +23,6 @@ import type {
   ToolApprovalHandler,
   AgentHookTriggeredEvent,
 } from "@wf-agent/types";
-import { AgentStreamEventType } from "@wf-agent/types";
 import type { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import type { ConversationSession } from "../../../core/messaging/conversation-session.js";
 import type { ToolCallExecutor } from "../../../core/executors/tool-call-executor.js";

@@ -230,12 +230,15 @@ export class MetricsResourceAPI {
     const lines: string[] = [];
     const timestamp = Date.now();
 
-    // Helper function to format labels
+    // Helper function to format labels for Prometheus exposition format
     const formatLabels = (labels: Record<string, string>): string => {
+      if (!labels || Object.keys(labels).length === 0) {
+        return "";
+      }
       const parts = Object.entries(labels)
         .map(([key, value]) => `${key}="${value}"`)
         .join(",");
-      return parts ? `{${parts}}` : "";
+      return `{${parts}}`;
     };
 
     // Export workflow metrics
@@ -249,17 +252,37 @@ export class MetricsResourceAPI {
     lines.push(`workflow_execution_success_rate ${workflowStats.successRate}`);
     
     lines.push(`# HELP workflow_execution_duration_seconds Workflow execution duration in seconds`);
-    lines.push(`# TYPE workflow_execution_duration_seconds histogram`);
-    lines.push(`workflow_execution_duration_seconds_avg ${workflowStats.avgDuration / 1000}`);
-    lines.push(`workflow_execution_duration_seconds_p95 ${workflowStats.p95Duration / 1000}`);
-    lines.push(`workflow_execution_duration_seconds_p99 ${workflowStats.p99Duration / 1000}`);
+    lines.push(`# TYPE workflow_execution_duration_seconds summary`);
+    lines.push(`workflow_execution_duration_seconds{quantile="0.5"} ${workflowStats.avgDuration / 1000}`);
+    lines.push(`workflow_execution_duration_seconds{quantile="0.95"} ${workflowStats.p95Duration / 1000}`);
+    lines.push(`workflow_execution_duration_seconds{quantile="0.99"} ${workflowStats.p99Duration / 1000}`);
+
+    // Export workflow by version
+    for (const [version, count] of Object.entries(workflowStats.byVersion)) {
+      const labels = formatLabels({ version });
+      lines.push(`workflow_execution_by_version_total${labels} ${count}`);
+    }
 
     // Export node metrics
     const nodeStats = collectors.node.getNodeExecutionStatsByType();
     lines.push(`# HELP node_execution_total Total node executions by type`);
     lines.push(`# TYPE node_execution_total counter`);
     for (const [nodeType, stats] of Object.entries(nodeStats)) {
-      lines.push(`node_execution_total{node_type="${nodeType}"} ${stats.totalCount}`);
+      const labels = formatLabels({ node_type: nodeType });
+      lines.push(`node_execution_total${labels} ${stats.totalCount}`);
+      lines.push(`node_execution_success_rate${labels} ${stats.successRate}`);
+    }
+
+    // Export top node templates
+    const topTemplates = collectors.node.getTopNodeTemplates(10);
+    lines.push(`# HELP node_template_instantiation_total Node template instantiation count`);
+    lines.push(`# TYPE node_template_instantiation_total counter`);
+    for (const template of topTemplates) {
+      const labels = formatLabels({ 
+        template_name: template.templateName,
+        node_type: template.nodeType 
+      });
+      lines.push(`node_template_instantiation_total${labels} ${template.instantiationCount}`);
     }
 
     // Export agent metrics
@@ -271,6 +294,29 @@ export class MetricsResourceAPI {
     lines.push(`# HELP agent_loop_iterations_avg Average iterations per agent loop`);
     lines.push(`# TYPE agent_loop_iterations_avg gauge`);
     lines.push(`agent_loop_iterations_avg ${agentStats.avgIterations}`);
+
+    // Export agent by profile
+    for (const [profileId, count] of Object.entries(agentStats.byProfile)) {
+      const labels = formatLabels({ profile_id: profileId });
+      lines.push(`agent_loop_execution_by_profile_total${labels} ${count}`);
+    }
+
+    // Export event metrics (if available)
+    if (collectors.event) {
+      try {
+        const eventSummary = collectors.event.generateSummary();
+        lines.push(`# HELP event_published_total Total events published`);
+        lines.push(`# TYPE event_published_total counter`);
+        lines.push(`event_published_total ${eventSummary.totalEvents}`);
+        
+        for (const [eventType, stat] of eventSummary.byEventType.entries()) {
+          const labels = formatLabels({ event_type: eventType });
+          lines.push(`event_published_by_type_total${labels} ${stat.count}`);
+        }
+      } catch (error) {
+        logger.warn("Failed to export event metrics", { error });
+      }
+    }
 
     // Add timestamp comment
     lines.push(`# Generated at ${new Date(timestamp).toISOString()}`);

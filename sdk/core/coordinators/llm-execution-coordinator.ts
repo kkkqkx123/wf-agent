@@ -136,7 +136,7 @@ export class LLMExecutionCoordinator {
       const error = new Error(description);
       // Preserve original interruption info as cause if available
       if (result && typeof result === 'object' && 'reason' in result) {
-        (error as any).cause = result;
+        Object.defineProperty(error, 'cause', { value: result });
       }
       return {
         success: false,
@@ -229,7 +229,7 @@ export class LLMExecutionCoordinator {
           
           // Record token metrics
           if (this.tokenMetricsCollector && llmResponse.usage) {
-            const usage = llmResponse.usage as any;
+            const usage = llmResponse.usage as LLMUsage;
             this.tokenMetricsCollector.recordTokenUsage({
               profileId: params.config.profileId || "DEFAULT",
               executionId: params.contextId,

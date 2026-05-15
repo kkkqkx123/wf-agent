@@ -86,6 +86,7 @@ export class AgentMetricsCollector extends BaseMetricCollector {
 
     this.incrementCounter('agent.loop.iteration.count', {
       profile_id: profileId,
+      iteration_number: iteration.toString(),
     });
   }
 

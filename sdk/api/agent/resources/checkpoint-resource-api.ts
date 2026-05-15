@@ -15,7 +15,6 @@ import type { AgentLoopEntity } from "../../../agent/entities/agent-loop-entity.
 import {
   AgentLoopCheckpointCoordinator,
   type CheckpointDependencies,
-  type CheckpointOptions,
 } from "../../../agent/checkpoint/checkpoint-coordinator.js";
 import { AgentLoopCheckpointStateManager } from "../../../agent/checkpoint/checkpoint-state-manager.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";

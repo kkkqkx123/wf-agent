@@ -25,6 +25,7 @@
 import { getErrorOrNew } from "@wf-agent/common-utils";
 import {
   checkWorkflowInterruption,
+  type ExecutionInterruptionCheckResult,
 } from "../utils/interruption/index.js";
 import type { ToolRegistry } from "../registry/tool-registry.js";
 import type { EventRegistry } from "../registry/event-registry.js";
@@ -656,7 +657,7 @@ export class ToolCallExecutor {
 
         // Handle InterruptionError - return interruption result instead of throwing
         if (error instanceof Error && error.name === "InterruptionError" && "interruption" in error) {
-          const interruptionResult = (error as any).interruption;
+          const interruptionResult = (error as { interruption: ExecutionInterruptionCheckResult }).interruption;
           
           // Log interruption for observability
           logger.info("Tool execution interrupted during execution", {

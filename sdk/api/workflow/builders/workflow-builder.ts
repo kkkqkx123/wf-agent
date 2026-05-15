@@ -366,9 +366,6 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
    * @returns Workflow Definitions
    */
   build(): WorkflowTemplate {
-    // Update edge references of a node
-    this.updateNodeEdgeReferences();
-
     // Validating workflows
     this.validate();
 
@@ -391,16 +388,6 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
     return workflow;
   }
 
-  /**
-   * Update edge references of a node
-   * Note: In the new architecture, edge IDs are added during runtime preprocessing,
-   * not in static node definitions. This method is kept for backward compatibility
-   * but does nothing.
-   */
-  private updateNodeEdgeReferences(): void {
-    // Edge IDs are now managed at runtime, not in static definitions
-    // This method is a no-op in the new architecture
-  }
 
   /**
    * Validating workflows

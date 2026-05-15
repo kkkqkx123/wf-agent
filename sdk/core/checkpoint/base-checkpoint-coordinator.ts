@@ -13,7 +13,7 @@ import type {
 import { DEFAULT_DELTA_STORAGE_CONFIG } from "../utils/checkpoint/constants.js";
 import { BaseDiffCalculator } from "./base-diff-calculator.js";
 import { BaseDeltaRestorer } from "./base-delta-restorer.js";
-import type { CheckpointableEntity, CheckpointDependencies, DeltaRestoreResult } from "./types.js";
+import type { CheckpointableEntity, CheckpointDependencies } from "./types.js";
 export type { CheckpointDependencies } from "./types.js";
 import { generateId } from "../../utils/id-utils.js";
 import { now } from "@wf-agent/common-utils";

@@ -67,12 +67,9 @@ export function transformWorkflow(
  * @returns String containing the configuration file content
  */
 export function exportWorkflow(workflowDef: WorkflowTemplate, format: ConfigFormat): string {
-  const transformer = new ConfigTransformer();
-  const configFile = transformer.transformFromWorkflow(workflowDef);
-
   switch (format) {
     case "json":
-      return stringifyJson(configFile, true);
+      return stringifyJson(workflowDef, true);
     case "toml":
       throw new ConfigurationError(
         "TOML format does not support export, please use JSON format",

@@ -320,7 +320,6 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
       }
     } else {
       // No active scope, use execution scope
-      targetMap = this.execution;
       entry = this.execution.get(name);
       
       // If not found in execution, check global

@@ -35,10 +35,7 @@ export class ConfigTransformer implements IConfigTransformer {
     // 4. Transform edges from config format to internal format
     const transformedEdges = this.transformEdges(processedConfig.edges || []);
 
-    // 5. Update edge references of the nodes
-    this.updateNodeEdgeReferences(transformedNodes, transformedEdges);
-
-    // 6. Build and return the complete WorkflowTemplate
+    // 5. Build and return the complete WorkflowTemplate
     const now = Date.now();
     const workflowDef: WorkflowTemplate = {
       ...processedConfig,
@@ -205,25 +202,4 @@ export class ConfigTransformer implements IConfigTransformer {
     } as EdgeType;
   }
 
-  /**
-   * Update edge references of nodes
-   * Note: In the new architecture, edge IDs are added during runtime preprocessing,
-   * not in static node definitions. This method is kept for backward compatibility
-   * but does nothing.
-   * @param nodes array of nodes
-   * @param edges array of edges
-   */
-  private updateNodeEdgeReferences(nodes: StaticNode[], edges: EdgeType[]): void {
-    // Edge IDs are now managed at runtime, not in static definitions
-    // This method is a no-op in the new architecture
-  }
-
-  /**
-   * Converting a WorkflowTemplate to a Configuration File Format
-   * @param workflowDef WorkflowTemplate
-   * @returns Configuration file format
-   */
-  transformFromWorkflow(workflowDef: WorkflowTemplate): WorkflowConfigFile {
-    return workflowDef;
-  }
 }

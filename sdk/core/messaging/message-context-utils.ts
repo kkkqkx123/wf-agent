@@ -4,7 +4,7 @@
  * Helper functions for initializing named message contexts in workflow executions.
  */
 
-import type { NamedMessageContext, MessageContextRegistry, LLMMessage } from "@wf-agent/types";
+import type { NamedMessageContext, MessageContextRegistry } from "@wf-agent/types";
 import type { WorkflowConfig } from "@wf-agent/types";
 import { BUILTIN_CONTEXT_IDS } from "@wf-agent/types";
 import { now } from "@wf-agent/common-utils";

@@ -5,14 +5,12 @@
  * Extends BaseCheckpointStateManager with agent-specific event building and metadata extraction.
  */
 
-import type { CleanupPolicy, CleanupResult, CheckpointStorageMetadata } from "@wf-agent/types";
+import type { CleanupResult, CheckpointStorageMetadata } from "@wf-agent/types";
 import type { AgentLoopCheckpoint, AgentCheckpointMetadata } from "@wf-agent/types";
 import type { EventRegistry } from "../../core/registry/event-registry.js";
 import type { AgentLoopCheckpointStorageAdapter as StorageAdapter } from "@wf-agent/storage";
 import { BaseCheckpointStateManager } from "../../core/checkpoint/base-checkpoint-state-manager.js";
-import { createContextualLogger } from "../../utils/contextual-logger.js";
-
-const logger = createContextualLogger({ operation: "AgentLoopCheckpointStateManager" });
+import { generateId } from "../../utils/id-utils.js";
 
 /**
  * Agent Loop Checkpoint State Manager
@@ -127,41 +125,54 @@ export class AgentLoopCheckpointStateManager extends BaseCheckpointStateManager<
       customFields: {
         type: checkpoint.type,
         version: 1,
+        baseCheckpointId: checkpoint.baseCheckpointId,
+        previousCheckpointId: checkpoint.previousCheckpointId,
       },
     };
   }
 
   protected buildCreatedEvent(checkpoint: AgentLoopCheckpoint): unknown {
-    // TODO: Create agent loop checkpoint created event builder
     return {
-      type: "AGENT_LOOP_CHECKPOINT_CREATED",
+      id: generateId(),
+      type: "CHECKPOINT_CREATED",
+      timestamp: Date.now(),
+      executionId: checkpoint.agentLoopId,
       data: {
         checkpointId: checkpoint.id,
         agentLoopId: checkpoint.agentLoopId,
+        checkpointType: checkpoint.type,
+        description: checkpoint.metadata?.description,
+        tags: checkpoint.metadata?.tags,
       },
-      timestamp: Date.now(),
     };
   }
 
   protected buildDeletedEvent(checkpointId: string): unknown {
-    // TODO: Create agent loop checkpoint deleted event builder
     return {
-      type: "AGENT_LOOP_CHECKPOINT_DELETED",
-      data: { checkpointId },
+      id: generateId(),
+      type: "CHECKPOINT_DELETED",
       timestamp: Date.now(),
+      data: {
+        checkpointId,
+        reason: "cleanup",
+      },
     };
   }
 
   protected buildFailedEvent(checkpointId: string, error: unknown): unknown {
-    const errorMessage = error instanceof Error ? error : new Error(String(error));
-    // TODO: Create agent loop checkpoint failed event builder
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : undefined;
+
     return {
-      type: "AGENT_LOOP_CHECKPOINT_FAILED",
+      id: generateId(),
+      type: "CHECKPOINT_FAILED",
+      timestamp: Date.now(),
       data: {
         checkpointId,
-        error: errorMessage.message,
+        operation: "create",
+        error: errorMessage,
+        stackTrace: errorStack,
       },
-      timestamp: Date.now(),
     };
   }
 }

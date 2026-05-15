@@ -2,12 +2,12 @@
  * Common interfaces and types for universal checkpoint system
  */
 
-import type { BaseCheckpoint, CheckpointMetadata } from "@wf-agent/types";
+import type { BaseCheckpoint } from "@wf-agent/types";
 
 /**
  * Storage adapter interface for checkpoint persistence
  */
-export interface CheckpointStorageAdapter<TCheckpoint extends BaseCheckpoint<unknown, unknown>> {
+export interface CheckpointStorageAdapter<TCheckpoint extends BaseCheckpoint<any, any>> {
   save(id: string, data: Uint8Array, metadata: unknown): Promise<void>;
   load(id: string): Promise<Uint8Array | null>;
   delete(id: string): Promise<void>;

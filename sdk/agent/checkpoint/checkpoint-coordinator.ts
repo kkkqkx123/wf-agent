@@ -16,9 +16,6 @@ import type {
 import { AgentCheckpointError } from "@wf-agent/types";
 import { BaseCheckpointCoordinator } from "../../core/checkpoint/base-checkpoint-coordinator.js";
 import type { CheckpointDependencies as BaseCheckpointDependencies } from "../../core/checkpoint/types.js";
-import { DEFAULT_DELTA_STORAGE_CONFIG } from "../../core/utils/checkpoint/constants.js";
-import { generateId } from "../../utils/index.js";
-import { now } from "@wf-agent/common-utils";
 
 /**
  * Checkpoint creation options

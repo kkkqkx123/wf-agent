@@ -4,8 +4,6 @@
 
 import type { BuiltinToolExecutionContext } from "@wf-agent/types";
 import type {
-  WorkflowToolExecutionContext,
-  ExecuteWorkflowParams,
   ExecuteWorkflowResult,
 } from "../../../../../../workflow/execution/types/workflow-tool.types.js";
 import type {

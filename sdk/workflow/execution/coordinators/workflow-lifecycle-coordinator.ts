@@ -94,14 +94,17 @@ export class WorkflowLifecycleCoordinator {
     const workflowVersion = workflowExecutionEntity.getWorkflowVersion();
 
     // Record workflow execution start in metrics
-    this.metricsRegistry.getWorkflowCollector().recordExecutionStart(
-      workflowId,
-      executionId,
-      {
-        version: workflowVersion,
-        executionType: 'MAIN',
-      }
-    );
+    const workflowCollector = this.metricsRegistry.getWorkflowCollector();
+    if (workflowCollector) {
+      workflowCollector.recordExecutionStart(
+        workflowId,
+        executionId,
+        {
+          version: workflowVersion,
+          executionType: 'MAIN',
+        }
+      );
+    }
 
     // Step 2: Register WorkflowExecutionEntity
     this.workflowExecutionRegistry.register(workflowExecutionEntity);
@@ -142,16 +145,19 @@ export class WorkflowLifecycleCoordinator {
       errorType = lastError instanceof Error ? lastError.name : 'unknown';
     }
     
-    this.metricsRegistry.getWorkflowCollector().recordExecutionComplete(
-      workflowId,
-      executionId,
-      {
-        success: isSuccess,
-        duration,
-        nodeCount,
-        errorType,
-      }
-    );
+    const wfCollector = this.metricsRegistry.getWorkflowCollector();
+    if (wfCollector) {
+      wfCollector.recordExecutionComplete(
+        workflowId,
+        executionId,
+        {
+          success: isSuccess,
+          duration,
+          nodeCount,
+          errorType,
+        }
+      );
+    }
 
     // Step 6: Cleanup execution-scoped event listeners
     const cleanedCount = this.globalContext.eventRegistry.cleanupExecutionListeners(workflowExecutionEntity.id);

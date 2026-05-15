@@ -4,9 +4,7 @@
 
 import type { BuiltinToolExecutionContext } from "@wf-agent/types";
 import type {
-  CancelWorkflowParams,
   CancelWorkflowResult,
-  WorkflowToolExecutionContext,
 } from "../../../../../../workflow/execution/types/workflow-tool.types.js";
 import * as Identifiers from "../../../../../../core/di/service-identifiers.js";
 import { RuntimeValidationError } from "@wf-agent/types";

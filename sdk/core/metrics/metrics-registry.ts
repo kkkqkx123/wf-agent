@@ -2,7 +2,6 @@
  * Metrics Registry
  * 
  * Manages all metrics collectors and provides centralized access.
- * Integrated into GlobalContext for easy access throughout the SDK.
  * 
  * Design Principles:
  * - Unified management of all metric collectors
@@ -11,7 +10,6 @@
  * - Decoupled from EventRegistry (creates its own EventCollector)
  */
 
-import type { GlobalContext } from "../global-context.js";
 import { WorkflowMetricsCollector } from "./workflow-collector.js";
 import { NodeMetricsCollector } from "./node-collector.js";
 import { AgentMetricsCollector } from "./agent-collector.js";
@@ -28,6 +26,39 @@ import { BaseMetricCollector } from "./base-collector.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "MetricsRegistry" });
+
+/**
+ * Collector name type for type-safe access
+ */
+type CollectorName = 
+  | 'workflow' 
+  | 'node' 
+  | 'agent' 
+  | 'event' 
+  | 'tool' 
+  | 'token' 
+  | 'template' 
+  | 'config' 
+  | 'error' 
+  | 'resource' 
+  | 'agentLoop';
+
+/**
+ * Type mapping from collector name to collector type
+ */
+type CollectorTypeMap = {
+  workflow: WorkflowMetricsCollector;
+  node: NodeMetricsCollector;
+  agent: AgentMetricsCollector;
+  event: EventMetricsCollector;
+  tool: ToolMetricsCollector;
+  token: TokenMetricsCollector;
+  template: TemplateMetricsCollector;
+  config: ConfigMetricsCollector;
+  error: ErrorMetricsCollector;
+  resource: ResourceMetricsCollector;
+  agentLoop: AgentLoopMetricsCollector;
+};
 
 export interface MetricsRegistryConfig {
   workflowMetrics?: MetricCollectorConfig;
@@ -51,10 +82,7 @@ export class MetricsRegistry {
   private reportingTimer: NodeJS.Timeout | null = null;
   private isStarted: boolean = false;
 
-  constructor(
-    private globalContext: GlobalContext,
-    config?: MetricsRegistryConfig
-  ) {
+  constructor(config?: MetricsRegistryConfig) {
     this.collectors = new Map();
     
     // Initialize all collectors with their respective configs
@@ -96,57 +124,60 @@ export class MetricsRegistry {
   }
 
   /**
-   * Get a specific collector by name
+   * Get a specific collector by name with type safety
+   * @param name Collector name
+   * @returns The collector instance or undefined if not found
    */
-  getCollector<T extends BaseMetricCollector>(name: string): T | undefined {
-    return this.collectors.get(name) as T | undefined;
+  getCollector<N extends CollectorName>(name: N): CollectorTypeMap[N] | undefined {
+    return this.collectors.get(name) as CollectorTypeMap[N] | undefined;
   }
 
   /**
    * Get typed collectors for convenience
+   * These methods provide type-safe access to specific collectors
    */
-  getWorkflowCollector(): WorkflowMetricsCollector {
-    return this.collectors.get('workflow') as WorkflowMetricsCollector;
+  getWorkflowCollector(): WorkflowMetricsCollector | undefined {
+    return this.collectors.get('workflow') as WorkflowMetricsCollector | undefined;
   }
 
-  getNodeCollector(): NodeMetricsCollector {
-    return this.collectors.get('node') as NodeMetricsCollector;
+  getNodeCollector(): NodeMetricsCollector | undefined {
+    return this.collectors.get('node') as NodeMetricsCollector | undefined;
   }
 
-  getAgentCollector(): AgentMetricsCollector {
-    return this.collectors.get('agent') as AgentMetricsCollector;
+  getAgentCollector(): AgentMetricsCollector | undefined {
+    return this.collectors.get('agent') as AgentMetricsCollector | undefined;
   }
 
-  getEventCollector(): EventMetricsCollector {
-    return this.collectors.get('event') as EventMetricsCollector;
+  getEventCollector(): EventMetricsCollector | undefined {
+    return this.collectors.get('event') as EventMetricsCollector | undefined;
   }
 
-  getToolCollector(): ToolMetricsCollector {
-    return this.collectors.get('tool') as ToolMetricsCollector;
+  getToolCollector(): ToolMetricsCollector | undefined {
+    return this.collectors.get('tool') as ToolMetricsCollector | undefined;
   }
 
-  getTokenCollector(): TokenMetricsCollector {
-    return this.collectors.get('token') as TokenMetricsCollector;
+  getTokenCollector(): TokenMetricsCollector | undefined {
+    return this.collectors.get('token') as TokenMetricsCollector | undefined;
   }
 
-  getTemplateCollector(): TemplateMetricsCollector {
-    return this.collectors.get('template') as TemplateMetricsCollector;
+  getTemplateCollector(): TemplateMetricsCollector | undefined {
+    return this.collectors.get('template') as TemplateMetricsCollector | undefined;
   }
 
-  getConfigCollector(): ConfigMetricsCollector {
-    return this.collectors.get('config') as ConfigMetricsCollector;
+  getConfigCollector(): ConfigMetricsCollector | undefined {
+    return this.collectors.get('config') as ConfigMetricsCollector | undefined;
   }
 
-  getErrorCollector(): ErrorMetricsCollector {
-    return this.collectors.get('error') as ErrorMetricsCollector;
+  getErrorCollector(): ErrorMetricsCollector | undefined {
+    return this.collectors.get('error') as ErrorMetricsCollector | undefined;
   }
 
-  getResourceCollector(): ResourceMetricsCollector {
-    return this.collectors.get('resource') as ResourceMetricsCollector;
+  getResourceCollector(): ResourceMetricsCollector | undefined {
+    return this.collectors.get('resource') as ResourceMetricsCollector | undefined;
   }
 
-  getAgentLoopCollector(): AgentLoopMetricsCollector {
-    return this.collectors.get('agentLoop') as AgentLoopMetricsCollector;
+  getAgentLoopCollector(): AgentLoopMetricsCollector | undefined {
+    return this.collectors.get('agentLoop') as AgentLoopMetricsCollector | undefined;
   }
 
   /**
@@ -382,12 +413,16 @@ export class MetricsRegistry {
           filter.timeRange = timeRange;
         }
         const result = collector.query(filter);
-        for (const metric of result.metrics.values()) {
+        
+        // Extract metrics with their actual labels from byLabel aggregation
+        for (const [_metricKey, metric] of result.metrics.entries()) {
           if (typeof metric.value === 'number' && metric.value > 0) {
+            const labels = this.extractLabelsFromAggregated(metric);
+            
             allMetrics.push({
               metricName: metric.metricName,
               value: metric.value,
-              labels: {},
+              labels,
               collector: name,
             });
           }
@@ -450,6 +485,15 @@ export class MetricsRegistry {
 
   /**
    * Calculate trends for key metrics over a time range
+   * 
+   * This method aggregates data points for each metric across all collectors
+   * and calculates the trend direction (increasing/decreasing/stable).
+   * 
+   * Design decisions:
+   * - Iterates by metricName first, then collects from all collectors
+   * - Only uses timeSeries data (not single aggregated values) for accurate trends
+   * - Requires at least 2 data points to calculate a meaningful trend
+   * - Uses simple percentage change between first and last data points
    */
   private calculateTrends(timeRange: { from: number; to: number }): Array<{
     metricName: string;
@@ -476,10 +520,13 @@ export class MetricsRegistry {
       'error.occurrence.count',
     ];
 
-    for (const collector of this.collectors.values()) {
-      try {
-        for (const metricName of keyMetrics) {
-          // Query metrics within the time range
+    // Query each metric across all collectors and aggregate results
+    for (const metricName of keyMetrics) {
+      const allDataPoints: Array<{ timestamp: number; value: number }> = [];
+
+      // Collect data points from all collectors for this specific metric
+      for (const collector of this.collectors.values()) {
+        try {
           const result = collector.query({
             metricName,
             timeRange,
@@ -487,54 +534,71 @@ export class MetricsRegistry {
 
           if (result.metrics.size === 0) continue;
 
-          // Collect data points from the metrics
-          const dataPoints: Array<{ timestamp: number; value: number }> = [];
-          
-          for (const [name, aggregated] of result.metrics.entries()) {
+          // Aggregate data points from all matching metrics in this collector
+          for (const [_metricKey, aggregated] of result.metrics.entries()) {
             if (aggregated.timeSeries && aggregated.timeSeries.length > 0) {
-              dataPoints.push(...aggregated.timeSeries);
-            } else if (typeof aggregated.value === 'number') {
-              // If no time series, use the aggregated value with current timestamp
-              dataPoints.push({
-                timestamp: Date.now(),
-                value: aggregated.value,
-              });
+              allDataPoints.push(...aggregated.timeSeries);
             }
+            // Note: We skip single aggregated values without time series
+            // because they don't provide enough data points for trend analysis
           }
-
-          if (dataPoints.length < 2) continue;
-
-          // Sort by timestamp
-          dataPoints.sort((a, b) => a.timestamp - b.timestamp);
-
-          // Calculate trend - safe access after length check
-          const firstValue = dataPoints[0]!.value;
-          const lastValue = dataPoints[dataPoints.length - 1]!.value;
-          const changePercent = firstValue !== 0 
-            ? ((lastValue - firstValue) / Math.abs(firstValue)) * 100 
-            : 0;
-
-          let trend: "increasing" | "decreasing" | "stable";
-          if (Math.abs(changePercent) < 5) {
-            trend = "stable";
-          } else if (changePercent > 0) {
-            trend = "increasing";
-          } else {
-            trend = "decreasing";
-          }
-
-          trends.push({
-            metricName,
-            dataPoints,
-            trend,
-            changePercent,
-          });
+        } catch (error) {
+          logger.warn(`Failed to query metric ${metricName} from collector`, { error });
         }
-      } catch (error) {
-        logger.warn(`Failed to calculate trends for collector`, { error });
       }
+
+      // Need at least 2 data points to calculate a trend
+      if (allDataPoints.length < 2) continue;
+
+      // Sort by timestamp
+      allDataPoints.sort((a, b) => a.timestamp - b.timestamp);
+
+      // Calculate trend
+      const firstValue = allDataPoints[0]!.value;
+      const lastValue = allDataPoints[allDataPoints.length - 1]!.value;
+      const changePercent = firstValue !== 0 
+        ? ((lastValue - firstValue) / Math.abs(firstValue)) * 100 
+        : 0;
+
+      let trend: "increasing" | "decreasing" | "stable";
+      if (Math.abs(changePercent) < 5) {
+        trend = "stable";
+      } else if (changePercent > 0) {
+        trend = "increasing";
+      } else {
+        trend = "decreasing";
+      }
+
+      trends.push({
+        metricName,
+        dataPoints: allDataPoints,
+        trend,
+        changePercent,
+      });
     }
 
     return trends;
+  }
+
+  /**
+   * Extract labels from an aggregated metric
+   * Helper method to safely parse label keys from byLabel map
+   */
+  private extractLabelsFromAggregated(aggregated: import('./types.js').AggregatedMetric): Record<string, string> {
+    if (!aggregated.byLabel || aggregated.byLabel.size === 0) {
+      return {};
+    }
+
+    const firstLabelEntry = aggregated.byLabel.entries().next();
+    if (firstLabelEntry.done) {
+      return {};
+    }
+
+    try {
+      return JSON.parse(firstLabelEntry.value[0]);
+    } catch {
+      logger.warn("Failed to parse label key", { labelKey: firstLabelEntry.value[0] });
+      return {};
+    }
   }
 }

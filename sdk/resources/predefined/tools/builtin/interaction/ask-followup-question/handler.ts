@@ -8,7 +8,7 @@
 import type { ToolOutput, BuiltinToolExecutionContext } from "@wf-agent/types";
 import type { EventRegistry } from "../../../../../../core/registry/event-registry.js";
 import { buildFollowupQuestionRequestedEvent } from "../../../../../../core/utils/event/builders/interaction-events.js";
-import { generateId, now, diffTimestamp } from "@wf-agent/common-utils";
+import { generateId } from "@wf-agent/common-utils";
 
 /**
  * Create the `ask_followup_question` tool execution function
@@ -21,7 +21,6 @@ export function createAskFollowupQuestionHandler() {
     params: Record<string, unknown>,
     context: BuiltinToolExecutionContext
   ): Promise<ToolOutput> => {
-    const startTime = now();
     
     try {
       const { questions, additionalInfoLabel } = params as {

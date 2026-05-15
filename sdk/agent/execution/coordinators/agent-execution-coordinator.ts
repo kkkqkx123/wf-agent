@@ -115,11 +115,14 @@ export class AgentExecutionCoordinator {
 
     // Record agent loop execution start in metrics
     if (this.metricsRegistry) {
-      this.metricsRegistry.getAgentCollector().recordExecutionStart(
-        profileId,
-        entity.config.agentConfigId || 'unknown',
-        agentLoopId
-      );
+      const agentCollector = this.metricsRegistry.getAgentCollector();
+      if (agentCollector) {
+        agentCollector.recordExecutionStart(
+          profileId,
+          entity.config.agentConfigId || 'unknown',
+          agentLoopId
+        );
+      }
     }
 
     try {
@@ -160,15 +163,18 @@ export class AgentExecutionCoordinator {
               // Record agent loop completion in metrics
               if (this.metricsRegistry) {
                 const duration = Date.now() - startTime;
-                this.metricsRegistry.getAgentCollector().recordExecutionComplete(
-                  profileId,
-                  {
-                    iterations: entity.state.currentIteration,
-                    toolCallCount: entity.state.toolCallCount,
-                    duration,
-                    success: true,
-                  }
-                );
+                const agentCollector = this.metricsRegistry.getAgentCollector();
+                if (agentCollector) {
+                  agentCollector.recordExecutionComplete(
+                    profileId,
+                    {
+                      iterations: entity.state.currentIteration,
+                      toolCallCount: entity.state.toolCallCount,
+                      duration,
+                      success: true,
+                    }
+                  );
+                }
               }
               
               return {
@@ -196,15 +202,18 @@ export class AgentExecutionCoordinator {
           // Record agent loop completion in metrics (max iterations reached)
           if (this.metricsRegistry) {
             const duration = Date.now() - startTime;
-            this.metricsRegistry.getAgentCollector().recordExecutionComplete(
-              profileId,
-              {
-                iterations: entity.state.currentIteration,
-                toolCallCount: entity.state.toolCallCount,
-                duration,
-                success: true,
-              }
-            );
+            const agentCollector = this.metricsRegistry.getAgentCollector();
+            if (agentCollector) {
+              agentCollector.recordExecutionComplete(
+                profileId,
+                {
+                  iterations: entity.state.currentIteration,
+                  toolCallCount: entity.state.toolCallCount,
+                  duration,
+                  success: true,
+                }
+              );
+            }
           }
           
           return {
@@ -232,15 +241,18 @@ export class AgentExecutionCoordinator {
         // Record agent loop completion in metrics (interrupted)
         if (this.metricsRegistry) {
           const duration = Date.now() - startTime;
-          this.metricsRegistry.getAgentCollector().recordExecutionComplete(
-            profileId,
-            {
-              iterations: entity.state.currentIteration,
-              toolCallCount: entity.state.toolCallCount,
-              duration,
-              success: false,
-            }
-          );
+          const agentCollector = this.metricsRegistry.getAgentCollector();
+          if (agentCollector) {
+            agentCollector.recordExecutionComplete(
+              profileId,
+              {
+                iterations: entity.state.currentIteration,
+                toolCallCount: entity.state.toolCallCount,
+                duration,
+                success: false,
+              }
+            );
+          }
         }
         
         return {
@@ -264,15 +276,18 @@ export class AgentExecutionCoordinator {
       // Record agent loop failure in metrics
       if (this.metricsRegistry) {
         const duration = Date.now() - startTime;
-        this.metricsRegistry.getAgentCollector().recordExecutionComplete(
-          profileId,
-          {
-            iterations: entity.state.currentIteration,
-            toolCallCount: entity.state.toolCallCount,
-            duration,
-            success: false,
-          }
-        );
+        const agentCollector = this.metricsRegistry.getAgentCollector();
+        if (agentCollector) {
+          agentCollector.recordExecutionComplete(
+            profileId,
+            {
+              iterations: entity.state.currentIteration,
+              toolCallCount: entity.state.toolCallCount,
+              duration,
+              success: false,
+            }
+          );
+        }
       }
 
       return {

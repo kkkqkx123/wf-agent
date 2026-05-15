@@ -26,7 +26,7 @@ import { registerPredefinedPromptTemplates } from "../../../resources/predefined
 import { registerAllPredefinedContent } from "../../../resources/predefined/registration.js";
 import { TomlParserManager } from "../../../utils/toml-parser-manager.js";
 import { createRotatingFileStream, createConsoleStream, createMultistream } from "@wf-agent/common-utils";
-import type { HumanRelayHandler, LLMProfile, SDKError } from "@wf-agent/types";
+import type { HumanRelayHandler, LLMProfile } from "@wf-agent/types";
 import { SDKError as SDKErrorClass } from "@wf-agent/types";
 import type { LogStream, LogLevel } from "@wf-agent/common-utils";
 import { WorkflowBuilder } from "../../workflow/builders/workflow-builder.js";

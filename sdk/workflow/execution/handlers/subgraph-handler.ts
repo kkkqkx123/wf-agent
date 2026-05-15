@@ -24,7 +24,7 @@
  */
 
 import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
-import type { StaticNode, WorkflowNode, WorkflowStartConfig, SubgraphNodeConfig, NamedMessageContext, MessageContextRegistry, WorkflowExecution } from "@wf-agent/types";
+import type { StaticNode, WorkflowNode, WorkflowStartConfig, NamedMessageContext, MessageContextRegistry, WorkflowExecution, SubgraphNodeConfig } from "@wf-agent/types";
 import { now } from "@wf-agent/common-utils";
 import {
   getWorkflowInterruptionDescription,
@@ -50,7 +50,7 @@ export async function enterSubgraph(
   workflowId: string,
   parentWorkflowId: string,
   input: Record<string, unknown>,
-  subgraphNode: StaticNode,
+  subgraphNode: StaticNode & { config: SubgraphNodeConfig },
 ): Promise<void> {
   const abortSignal = executionEntity.getAbortSignal();
 
@@ -108,7 +108,7 @@ export async function enterSubgraph(
  */
 export async function exitSubgraph(
   executionEntity: WorkflowExecutionEntity,
-  subgraphNode: StaticNode,
+  subgraphNode: StaticNode & { config: SubgraphNodeConfig },
 ): Promise<void> {
   const abortSignal = executionEntity.getAbortSignal();
 
@@ -154,12 +154,12 @@ export async function exitSubgraph(
  * Copies parent workflow contexts to subgraph internal names
  * 
  * @param executionEntity WorkflowExecution entity
- * @param subgraphNode The SUBGRAPH node
+ * @param subgraphNode The SUBGRAPH node with SubgraphNodeConfig
  * @param subgraphWorkflowId Subgraph workflow ID
  */
 async function handleEnterSubgraphMessageContexts(
   executionEntity: WorkflowExecutionEntity,
-  subgraphNode: StaticNode,
+  subgraphNode: StaticNode & { config: SubgraphNodeConfig },
   subgraphWorkflowId: string,
 ): Promise<void> {
   // Access the MessageContextRegistry attached to workflowExecution
@@ -267,11 +267,11 @@ async function handleEnterSubgraphMessageContexts(
  * Copies subgraph output contexts back to parent workflow
  * 
  * @param executionEntity WorkflowExecution entity
- * @param subgraphNode The SUBGRAPH node
+ * @param subgraphNode The SUBGRAPH node with SubgraphNodeConfig
  */
 async function handleExitSubgraphMessageContexts(
   executionEntity: WorkflowExecutionEntity,
-  subgraphNode: StaticNode,
+  subgraphNode: StaticNode & { config: SubgraphNodeConfig },
 ): Promise<void> {
   // Access the MessageContextRegistry attached to workflowExecution
   const workflowExecution = executionEntity.getWorkflowExecutionData() as WorkflowExecution & { messageContextRegistry?: MessageContextRegistry };

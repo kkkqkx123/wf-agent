@@ -185,8 +185,8 @@ export class NodeMetricsCollector extends BaseMetricCollector {
             }
             result[nodeType].totalCount += labelAgg.value;
           }
-        } catch (_error) {
-          // Ignore
+        } catch (error) {
+          logger.warn("Failed to parse label key in execution count metric", { labelKey, error });
         }
       }
     }
@@ -208,8 +208,8 @@ export class NodeMetricsCollector extends BaseMetricCollector {
               result[nodeType].successCount += labelAgg.value;
             }
           }
-        } catch (_error) {
-          // Ignore
+        } catch (error) {
+          logger.warn("Failed to parse label key in success count metric", { labelKey, error });
         }
       }
     }

@@ -897,7 +897,7 @@ export function configureContainerBindings(
         reportingInterval: 60000, // 1 minute
       };
       
-      return new MetricsRegistry(globalContext, config);
+      return new MetricsRegistry(config);
     })
     .inSingletonScope();
 

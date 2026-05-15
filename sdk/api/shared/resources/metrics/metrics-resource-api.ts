@@ -85,6 +85,9 @@ export class MetricsResourceAPI {
     byVersion: Record<string, number>;
   }> {
     const collector = this.metricsRegistry.getWorkflowCollector();
+    if (!collector) {
+      throw new Error('Workflow metrics collector not available');
+    }
     
     if (options?.workflowId) {
       return collector.getWorkflowUsageStats(options.workflowId);
@@ -105,6 +108,9 @@ export class MetricsResourceAPI {
     successRate: number;
   }>> {
     const collector = this.metricsRegistry.getWorkflowCollector();
+    if (!collector) {
+      throw new Error('Workflow metrics collector not available');
+    }
     return collector.getTopWorkflows(limit);
   }
 
@@ -123,6 +129,9 @@ export class MetricsResourceAPI {
     instantiationCount: number;
   }>> {
     const collector = this.metricsRegistry.getNodeCollector();
+    if (!collector) {
+      throw new Error('Node metrics collector not available');
+    }
     const limit = options?.topN || 10;
     return collector.getTopNodeTemplates(limit);
   }
@@ -137,6 +146,9 @@ export class MetricsResourceAPI {
     avgDuration: number;
   }>> {
     const collector = this.metricsRegistry.getNodeCollector();
+    if (!collector) {
+      throw new Error('Node metrics collector not available');
+    }
     return collector.getNodeExecutionStatsByType();
   }
 
@@ -156,6 +168,9 @@ export class MetricsResourceAPI {
     byProfile: Record<string, number>;
   }> {
     const collector = this.metricsRegistry.getAgentCollector();
+    if (!collector) {
+      throw new Error('Agent metrics collector not available');
+    }
     
     if (options?.profileId) {
       return collector.getAgentStats(options.profileId);
@@ -223,6 +238,10 @@ export class MetricsResourceAPI {
     const agentCollector = this.metricsRegistry.getAgentCollector();
     const eventCollector = this.metricsRegistry.getEventCollector();
     
+    if (!workflowCollector || !nodeCollector || !agentCollector) {
+      throw new Error('One or more metrics collectors not available');
+    }
+    
     const result = {
       timestamp: Date.now(),
       workflow: workflowCollector.toJSON(),
@@ -244,6 +263,10 @@ export class MetricsResourceAPI {
     const nodeCollector = this.metricsRegistry.getNodeCollector();
     const agentCollector = this.metricsRegistry.getAgentCollector();
     const eventCollector = this.metricsRegistry.getEventCollector();
+    
+    if (!workflowCollector || !nodeCollector || !agentCollector) {
+      throw new Error('One or more metrics collectors not available');
+    }
     
     // Each collector exports its own metrics
     const allMetrics: string[][] = [

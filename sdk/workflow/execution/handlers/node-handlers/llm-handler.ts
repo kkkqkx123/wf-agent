@@ -10,7 +10,7 @@
  * - Supports referencing predefined prompt templates via templateId
  */
 
-import type { RuntimeNode, LLMNodeConfig, NamedMessageContext, MessageContextRegistry } from "@wf-agent/types";
+import type { RuntimeNode, LLMNodeConfig, MessageContextRegistry } from "@wf-agent/types";
 import type { WorkflowExecution, LLMMessage } from "@wf-agent/types";
 import type { HumanRelayHandler } from "@wf-agent/types";
 import { ExecutionError, RuntimeValidationError } from "@wf-agent/types";

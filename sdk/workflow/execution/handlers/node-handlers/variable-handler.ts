@@ -3,11 +3,10 @@
  * Responsible for executing the VARIABLE node, evaluating variable expressions, and updating variable values.
  */
 
-import type { RuntimeNode, VariableNodeConfig, WorkflowExecution } from "@wf-agent/types";
+import type { RuntimeNode, VariableNodeConfig } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import { RuntimeValidationError } from "@wf-agent/types";
 import { now } from "@wf-agent/common-utils";
-import { resolvePath } from "@wf-agent/common-utils";
 import { VariableAccessor } from "../../utils/variable-accessor.js";
 
 /**

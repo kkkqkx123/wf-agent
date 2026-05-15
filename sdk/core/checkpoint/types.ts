@@ -7,9 +7,13 @@ import type { BaseCheckpoint } from "@wf-agent/types";
 /**
  * Storage adapter interface for checkpoint persistence
  */
-export interface CheckpointStorageAdapter<TCheckpoint extends BaseCheckpoint<any, any>> {
-  save(id: string, data: Uint8Array, metadata: unknown): Promise<void>;
-  load(id: string): Promise<Uint8Array | null>;
+export interface CheckpointStorageAdapter<
+  TState = unknown,
+  TMetadata = unknown,
+  TCheckpoint extends BaseCheckpoint<TState, TMetadata> = BaseCheckpoint<TState, TMetadata>
+> {
+  save(id: string, data: Uint8Array, metadata: TMetadata): Promise<void>;
+  load(id: string): Promise<{ data: Uint8Array; metadata: TMetadata } | null>;
   delete(id: string): Promise<void>;
   list(options?: { parentId?: string; limit?: number }): Promise<string[]>;
   initialize?(): Promise<void>;

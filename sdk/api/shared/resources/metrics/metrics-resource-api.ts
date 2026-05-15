@@ -84,7 +84,7 @@ export class MetricsResourceAPI {
     p99Duration: number;
     byVersion: Record<string, number>;
   }> {
-    const collector = this.metricsRegistry.getCollectors().workflow;
+    const collector = this.metricsRegistry.getWorkflowCollector();
     
     if (options?.workflowId) {
       return collector.getWorkflowUsageStats(options.workflowId);
@@ -104,7 +104,7 @@ export class MetricsResourceAPI {
     executionCount: number;
     successRate: number;
   }>> {
-    const collector = this.metricsRegistry.getCollectors().workflow;
+    const collector = this.metricsRegistry.getWorkflowCollector();
     return collector.getTopWorkflows(limit);
   }
 
@@ -122,7 +122,7 @@ export class MetricsResourceAPI {
     nodeType: string;
     instantiationCount: number;
   }>> {
-    const collector = this.metricsRegistry.getCollectors().node;
+    const collector = this.metricsRegistry.getNodeCollector();
     const limit = options?.topN || 10;
     return collector.getTopNodeTemplates(limit);
   }
@@ -136,7 +136,7 @@ export class MetricsResourceAPI {
     successRate: number;
     avgDuration: number;
   }>> {
-    const collector = this.metricsRegistry.getCollectors().node;
+    const collector = this.metricsRegistry.getNodeCollector();
     return collector.getNodeExecutionStatsByType();
   }
 
@@ -155,7 +155,7 @@ export class MetricsResourceAPI {
     avgToolCalls: number;
     byProfile: Record<string, number>;
   }> {
-    const collector = this.metricsRegistry.getCollectors().agent;
+    const collector = this.metricsRegistry.getAgentCollector();
     
     if (options?.profileId) {
       return collector.getAgentStats(options.profileId);
@@ -218,14 +218,17 @@ export class MetricsResourceAPI {
    * @returns JSON formatted metrics
    */
   private async exportAsJSON(): Promise<string> {
-    const collectors = this.metricsRegistry.getCollectors();
+    const workflowCollector = this.metricsRegistry.getWorkflowCollector();
+    const nodeCollector = this.metricsRegistry.getNodeCollector();
+    const agentCollector = this.metricsRegistry.getAgentCollector();
+    const eventCollector = this.metricsRegistry.getEventCollector();
     
     const result = {
       timestamp: Date.now(),
-      workflow: collectors.workflow.toJSON(),
-      node: collectors.node.toJSON(),
-      agent: collectors.agent.toJSON(),
-      event: collectors.event?.toJSON() || null,
+      workflow: workflowCollector.toJSON(),
+      node: nodeCollector.toJSON(),
+      agent: agentCollector.toJSON(),
+      event: eventCollector?.toJSON() || null,
     };
     
     return JSON.stringify(result, null, 2);
@@ -237,19 +240,22 @@ export class MetricsResourceAPI {
    * This is now MUCH simpler - just delegate to each collector!
    */
   private async exportAsPrometheus(): Promise<string> {
-    const collectors = this.metricsRegistry.getCollectors();
+    const workflowCollector = this.metricsRegistry.getWorkflowCollector();
+    const nodeCollector = this.metricsRegistry.getNodeCollector();
+    const agentCollector = this.metricsRegistry.getAgentCollector();
+    const eventCollector = this.metricsRegistry.getEventCollector();
     
     // Each collector exports its own metrics
     const allMetrics: string[][] = [
-      collectors.workflow.toPrometheus(),
-      collectors.node.toPrometheus(),
-      collectors.agent.toPrometheus(),
+      workflowCollector.toPrometheus(),
+      nodeCollector.toPrometheus(),
+      agentCollector.toPrometheus(),
     ];
     
     // Add event metrics if available
-    if (collectors.event) {
+    if (eventCollector) {
       try {
-        allMetrics.push(collectors.event.toPrometheus());
+        allMetrics.push(eventCollector.toPrometheus());
       } catch (error) {
         logger.warn("Failed to export event metrics", { error });
       }

@@ -9,6 +9,9 @@ import type {
   WorkflowConfig,
   WorkflowMetadata,
   Metadata,
+  SubgraphNodeConfig,
+  WorkflowStartConfig,
+  LoopStartNodeConfig,
 } from "@wf-agent/types";
 import type { StaticNode, StaticNodeType } from "@wf-agent/types";
 import type { Edge } from "@wf-agent/types";
@@ -440,7 +443,7 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
     // Validate subgraph variable mappings
     for (const node of Array.from(this.nodes.values())) {
       if (node.type === "SUBGRAPH") {
-        const config = node.config as any; // SubgraphNodeConfig
+        const config = node.config as SubgraphNodeConfig;
         
         // Check that variableInputs reference valid parent variables
         if (config.variableInputs && config.variableInputs.length > 0) {
@@ -456,12 +459,12 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
       }
       
       if (node.type === "START") {
-        const config = node.config as any; // StartNodeConfig
+        const config = node.config as WorkflowStartConfig;
         
         // Validate START node variable declarations
         if (config.variableInputs) {
           // Ensure no duplicate internal names
-          const internalNames = config.variableInputs.map((i: any) => i.internalName);
+          const internalNames = config.variableInputs.map((i) => i.internalName);
           const uniqueNames = new Set(internalNames);
           if (uniqueNames.size !== internalNames.length) {
             errors.push(`START node has duplicate internal variable names`);
@@ -470,7 +473,7 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
       }
       
       if (node.type === "LOOP_START") {
-        const config = node.config as any; // LoopStartNodeConfig
+        const config = node.config as LoopStartNodeConfig;
         
         // Validate LOOP_START variable inputs
         if (config.variableInputs && config.variableInputs.length > 0) {

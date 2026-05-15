@@ -7,7 +7,7 @@ import { existsSync } from "fs";
 import path from "path";
 import type { ToolOutput } from "@wf-agent/types";
 import type { ReadFileConfig } from "../../../types.js";
-import { IgnoreController, IgnoreMode, MAX_FILE_RESULTS } from "@wf-agent/sdk/services";
+import { IgnoreController, MAX_FILE_RESULTS } from "@wf-agent/sdk/services";
 
 /**
  * Parse paths (relative paths are supported)

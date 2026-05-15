@@ -4,8 +4,6 @@
  * Type definitions for the tool failure protection mechanism.
  */
 
-import type { ID } from "@wf-agent/types";
-
 /**
  * Tool failure tracking information
  */

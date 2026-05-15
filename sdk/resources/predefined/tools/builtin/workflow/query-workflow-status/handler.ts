@@ -18,11 +18,15 @@ import {
 } from "../../../../../../workflow/execution/types/workflow-tool.types.js";
 
 /**
- * Create query workflow status handler
+ * Query Workflow Status Tool Handler
+ * 
+ * @param params - QueryWorkflowStatusParams containing taskId
+ * @param context - WorkflowToolExecutionContext with parentExecutionEntity and globalContext
+ * @returns QueryWorkflowStatusResult with task status information
  */
 export function createQueryWorkflowStatusHandler() {
   return async (
-    params: Record<string, unknown>,
+    params: unknown,
     context: BuiltinToolExecutionContext,
   ): Promise<QueryWorkflowStatusResult> => {
     // Validate parameters using Zod schema

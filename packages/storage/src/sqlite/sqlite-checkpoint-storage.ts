@@ -129,8 +129,11 @@ export class SqliteCheckpointStorage
       const blobHash = await this.computeHash(data);
 
       return { messageCount, variableCount, blobHash };
-    } catch {
-      // If parsing fails, return default values
+    } catch (error) {
+      // If parsing fails, return default values and log warning
+      logger.warn("Failed to extract checkpoint metrics", {
+        error: (error as Error).message,
+      });
       return {
         messageCount: 0,
         variableCount: 0,
@@ -521,85 +524,123 @@ export class SqliteCheckpointStorage
   ): Promise<void> {
     const db = this.getDb();
     const now = Date.now();
+    const startTime = Date.now();
 
-    // Prepare statements
-    const insertMetadata = db.prepare(`
-      INSERT INTO checkpoint_metadata (
-        id, execution_id, workflow_id, timestamp, checkpoint_type,
-        base_checkpoint_id, previous_checkpoint_id, message_count, variable_count,
-        blob_size, blob_hash, tags, custom_fields, created_at, updated_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET
-        execution_id = excluded.execution_id,
-        workflow_id = excluded.workflow_id,
-        timestamp = excluded.timestamp,
-        checkpoint_type = excluded.checkpoint_type,
-        base_checkpoint_id = excluded.base_checkpoint_id,
-        previous_checkpoint_id = excluded.previous_checkpoint_id,
-        message_count = excluded.message_count,
-        variable_count = excluded.variable_count,
-        blob_size = excluded.blob_size,
-        blob_hash = excluded.blob_hash,
-        tags = excluded.tags,
-        custom_fields = excluded.custom_fields,
-        updated_at = excluded.updated_at
-    `);
+    try {
+      // Phase 1: Extract all metrics and prepare data asynchronously (outside transaction)
+      const preparedData = await Promise.all(
+        items.map(async (item) => {
+          const metrics = await this.extractMetrics(item.data);
+          
+          let checkpointType: string | null = null;
+          let baseCheckpointId: string | null = null;
+          let previousCheckpointId: string | null = null;
 
-    const insertBlob = db.prepare(`
-      INSERT INTO checkpoint_blob (checkpoint_id, blob_data, compressed, compression_algorithm)
-      VALUES (?, ?, ?, ?)
-      ON CONFLICT(checkpoint_id) DO UPDATE SET
-        blob_data = excluded.blob_data,
-        compressed = excluded.compressed,
-        compression_algorithm = excluded.compression_algorithm
-    `);
+          try {
+            const decoder = new TextDecoder();
+            const jsonStr = decoder.decode(item.data);
+            const checkpoint = JSON.parse(jsonStr);
+            checkpointType = checkpoint.type ?? null;
+            baseCheckpointId = checkpoint.baseCheckpointId ?? null;
+            previousCheckpointId = checkpoint.previousCheckpointId ?? null;
+          } catch (error) {
+            // Log parsing errors but continue with null values
+            logger.warn("Failed to parse checkpoint metadata", {
+              checkpointId: item.id,
+              error: (error as Error).message,
+            });
+          }
 
-    await this.saveBatchWithCustomLogic(items, async (db, item) => {
-      const metrics = await this.extractMetrics(item.data);
-      
-      let checkpointType: string | null = null;
-      let baseCheckpointId: string | null = null;
-      let previousCheckpointId: string | null = null;
+          // Get compression config and compress synchronously
+          const config = selectCompressionStrategy(item.data);
+          const { compressed, algorithm } = compressBlobSync(item.data, config);
 
-      try {
-        const decoder = new TextDecoder();
-        const jsonStr = decoder.decode(item.data);
-        const checkpoint = JSON.parse(jsonStr);
-        checkpointType = checkpoint.type ?? null;
-        baseCheckpointId = checkpoint.baseCheckpointId ?? null;
-        previousCheckpointId = checkpoint.previousCheckpointId ?? null;
-      } catch {
-        // Ignore parsing errors
-      }
-
-      // Get adaptive compression config for batch operation
-      // Get compression config for each item
-      const config = selectCompressionStrategy(item.data);
-
-      // Compress BLOB data synchronously for batch operation
-      const { compressed, algorithm } = compressBlobSync(item.data, config);
-
-      insertMetadata.run(
-        item.id,
-        item.metadata.executionId,
-        item.metadata.workflowId,
-        item.metadata.timestamp,
-        checkpointType,
-        baseCheckpointId,
-        previousCheckpointId,
-        metrics.messageCount,
-        metrics.variableCount,
-        compressed.length,
-        metrics.blobHash,
-        item.metadata.tags ? JSON.stringify(item.metadata.tags) : null,
-        item.metadata.customFields ? JSON.stringify(item.metadata.customFields) : null,
-        now,
-        now,
+          return {
+            item,
+            metrics,
+            checkpointType,
+            baseCheckpointId,
+            previousCheckpointId,
+            compressed,
+            algorithm,
+          };
+        }),
       );
 
-      insertBlob.run(item.id, compressed, algorithm ? 1 : 0, algorithm || null);
-    });
+      // Phase 2: Execute all inserts in a single transaction
+      const transaction = db.transaction(() => {
+        for (const prepared of preparedData) {
+          const { item, metrics, checkpointType, baseCheckpointId, previousCheckpointId, compressed, algorithm } = prepared;
+          
+          db.prepare(`
+            INSERT INTO checkpoint_metadata (
+              id, execution_id, workflow_id, timestamp, checkpoint_type,
+              base_checkpoint_id, previous_checkpoint_id, message_count, variable_count,
+              blob_size, blob_hash, tags, custom_fields, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+              execution_id = excluded.execution_id,
+              workflow_id = excluded.workflow_id,
+              timestamp = excluded.timestamp,
+              checkpoint_type = excluded.checkpoint_type,
+              base_checkpoint_id = excluded.base_checkpoint_id,
+              previous_checkpoint_id = excluded.previous_checkpoint_id,
+              message_count = excluded.message_count,
+              variable_count = excluded.variable_count,
+              blob_size = excluded.blob_size,
+              blob_hash = excluded.blob_hash,
+              tags = excluded.tags,
+              custom_fields = excluded.custom_fields,
+              updated_at = excluded.updated_at
+          `).run(
+            item.id,
+            item.metadata.executionId,
+            item.metadata.workflowId,
+            item.metadata.timestamp,
+            checkpointType,
+            baseCheckpointId,
+            previousCheckpointId,
+            metrics.messageCount,
+            metrics.variableCount,
+            compressed.length,
+            metrics.blobHash,
+            item.metadata.tags ? JSON.stringify(item.metadata.tags) : null,
+            item.metadata.customFields ? JSON.stringify(item.metadata.customFields) : null,
+            now,
+            now,
+          );
+
+          db.prepare(`
+            INSERT INTO checkpoint_blob (checkpoint_id, blob_data, compressed, compression_algorithm)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(checkpoint_id) DO UPDATE SET
+              blob_data = excluded.blob_data,
+              compressed = excluded.compressed,
+              compression_algorithm = excluded.compression_algorithm
+          `).run(item.id, compressed, algorithm ? 1 : 0, algorithm || null);
+        }
+      });
+
+      transaction();
+
+      const elapsed = Date.now() - startTime;
+      const totalSize = items.reduce((sum, item) => sum + item.data.length, 0);
+      this.updateMetric('save', elapsed / items.length, totalSize);
+
+      logger.debug("Batch save completed", {
+        table: this.getTableName(),
+        count: items.length,
+        totalTimeMs: elapsed,
+      });
+    } catch (error) {
+      logger.error("Batch save failed", { 
+        table: this.getTableName(), 
+        count: items.length,
+        error: (error as Error).message 
+      });
+      throw error;
+    }
   }
 
   /**

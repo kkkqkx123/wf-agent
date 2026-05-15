@@ -115,7 +115,7 @@ export class AgentExecutionCoordinator {
 
     // Record agent loop execution start in metrics
     if (this.metricsRegistry) {
-      this.metricsRegistry.getCollectors().agent.recordExecutionStart(
+      this.metricsRegistry.getAgentCollector().recordExecutionStart(
         profileId,
         entity.config.agentConfigId || 'unknown',
         agentLoopId
@@ -160,7 +160,7 @@ export class AgentExecutionCoordinator {
               // Record agent loop completion in metrics
               if (this.metricsRegistry) {
                 const duration = Date.now() - startTime;
-                this.metricsRegistry.getCollectors().agent.recordExecutionComplete(
+                this.metricsRegistry.getAgentCollector().recordExecutionComplete(
                   profileId,
                   {
                     iterations: entity.state.currentIteration,
@@ -196,7 +196,7 @@ export class AgentExecutionCoordinator {
           // Record agent loop completion in metrics (max iterations reached)
           if (this.metricsRegistry) {
             const duration = Date.now() - startTime;
-            this.metricsRegistry.getCollectors().agent.recordExecutionComplete(
+            this.metricsRegistry.getAgentCollector().recordExecutionComplete(
               profileId,
               {
                 iterations: entity.state.currentIteration,
@@ -232,7 +232,7 @@ export class AgentExecutionCoordinator {
         // Record agent loop completion in metrics (interrupted)
         if (this.metricsRegistry) {
           const duration = Date.now() - startTime;
-          this.metricsRegistry.getCollectors().agent.recordExecutionComplete(
+          this.metricsRegistry.getAgentCollector().recordExecutionComplete(
             profileId,
             {
               iterations: entity.state.currentIteration,
@@ -264,7 +264,7 @@ export class AgentExecutionCoordinator {
       // Record agent loop failure in metrics
       if (this.metricsRegistry) {
         const duration = Date.now() - startTime;
-        this.metricsRegistry.getCollectors().agent.recordExecutionComplete(
+        this.metricsRegistry.getAgentCollector().recordExecutionComplete(
           profileId,
           {
             iterations: entity.state.currentIteration,

@@ -169,7 +169,6 @@ export abstract class BaseSqliteStorage<TMetadataType> {
    */
   private async initializeSchema(): Promise<void> {
     const db = this.getDb();
-    const _currentVersion = this.getCurrentSchemaVersion();
     const targetVersion = this.config.schemaVersion ?? 1;
 
     // Create schema version tracking table if it doesn't exist

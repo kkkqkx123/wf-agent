@@ -120,8 +120,6 @@ export async function executeTriggeredSubgraphHandler(
   try {
     const parameters = action.parameters as ExecuteTriggeredSubgraphActionConfig;
     const { triggeredWorkflowId, waitForCompletion = true } = parameters;
-    const timeout = parameters.timeout;
-    const recordHistory = parameters.recordHistory;
 
     if (!triggeredWorkflowId) {
       throw new RuntimeValidationError("Missing required parameter: triggeredWorkflowId", {

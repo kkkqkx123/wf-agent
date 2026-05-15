@@ -302,7 +302,7 @@ export class NodeExecutionCoordinator {
     logger.debug("Starting node execution", { executionId, nodeId, nodeType, nodeName: (node as WorkflowNode).name || ((node as RuntimeNode) as WorkflowNode).originalNode?.name });
 
     // Record node execution start in metrics
-    this.metricsRegistry.getCollectors().node.recordNodeExecutionStart(
+    this.metricsRegistry.getNodeCollector().recordNodeExecutionStart(
       nodeId,
       nodeType,
       workflowId
@@ -391,7 +391,7 @@ export class NodeExecutionCoordinator {
           const nodeDuration = diffTimestamp(nodeStartTime, now());
 
           // Record node execution completion in metrics
-          this.metricsRegistry.getCollectors().node.recordNodeExecution(
+          this.metricsRegistry.getNodeCollector().recordNodeExecution(
             nodeId,
             nodeType,
             workflowId,

@@ -58,6 +58,8 @@ export interface ContextProcessorHandlerContext {
       };
     }>;
     getMessages: () => unknown[];
+    clearMessages: (keepSystemMessage?: boolean) => void;
+    addMessages: (...messages: LLMMessage[]) => number;
   };
   /** Workflow execution entity (optional, used to identify the parent workflow execution) */
   executionEntity?: {
@@ -183,11 +185,23 @@ export async function contextProcessorHandler(
     }
   }
 
-  // 4. Load source messages into conversation manager for processing
-  // Clear current messages and load source context messages
-  const currentMessages = targetConversationManager.getMessages();
-  // Note: In a real implementation, we would need to sync sourceContext.messages with conversationManager
-  // For now, we assume the operation will work on the current conversation state
+  // 4. Sync source context messages to conversation manager
+  if (sourceContextId !== targetContextId) {
+    // Load source messages into the conversation manager
+    targetConversationManager.clearMessages(false);
+    targetConversationManager.addMessages(...sourceContext.messages);
+    logger.debug('Synced messages from source context', {
+      sourceContextId,
+      targetContextId,
+      messageCount: sourceContext.messages.length,
+    });
+  } else {
+    const currentMessages = targetConversationManager.getMessages();
+    logger.debug('Using current context messages', {
+      contextId: sourceContextId,
+      messageCount: currentMessages.length,
+    });
+  }
 
   // 5. Execute message operations, which are internally handled by ConversationSession/MessageHistory for tasks such as refreshing and triggering events.
   const result = await targetConversationManager.executeMessageOperation(

@@ -14,12 +14,10 @@
  */
 
 import type { BaseEvent, EventType, EventListener } from "@wf-agent/types";
-import { ExecutionError, RuntimeValidationError } from "@wf-agent/types";
-import { generateId } from "../../utils/index.js";
-import { now, getErrorOrNew } from "@wf-agent/common-utils";
+import { RuntimeValidationError } from "@wf-agent/types";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 import { EventMetricsCollector, type AggregatedEventStat, type EventMetricsSummary } from "../metrics/event-collector.js";
-import { ExecutionEventEmitter, type EventEmitterOptions } from "./event-emitter.js";
+import { ExecutionEventEmitter } from "./event-emitter.js";
 
 const logger = createContextualLogger({ operation: "EventRegistry" });
 

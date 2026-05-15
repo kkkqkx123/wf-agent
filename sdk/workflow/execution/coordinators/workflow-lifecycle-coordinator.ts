@@ -94,7 +94,7 @@ export class WorkflowLifecycleCoordinator {
     const workflowVersion = workflowExecutionEntity.getWorkflowVersion();
 
     // Record workflow execution start in metrics
-    this.metricsRegistry.getCollectors().workflow.recordExecutionStart(
+    this.metricsRegistry.getWorkflowCollector().recordExecutionStart(
       workflowId,
       executionId,
       {
@@ -142,7 +142,7 @@ export class WorkflowLifecycleCoordinator {
       errorType = lastError instanceof Error ? lastError.name : 'unknown';
     }
     
-    this.metricsRegistry.getCollectors().workflow.recordExecutionComplete(
+    this.metricsRegistry.getWorkflowCollector().recordExecutionComplete(
       workflowId,
       executionId,
       {

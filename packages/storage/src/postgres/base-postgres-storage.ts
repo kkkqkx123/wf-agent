@@ -67,7 +67,6 @@ export abstract class BasePostgresStorage<TMetadataType> {
   private connectionPool: PostgresConnectionPool | null = null;
   protected metrics: StorageMetrics = { ...DEFAULT_STORAGE_METRICS };
   protected loadCounter: number = 0; // Counter for integrity check frequency
-  private readonly preparedStatements: Map<string, boolean> = new Map();
 
   constructor(protected readonly config: BasePostgresStorageConfig) {}
 
@@ -257,7 +256,7 @@ export abstract class BasePostgresStorage<TMetadataType> {
    * @param toVersion Target schema version
    */
   protected async migrateSchema(
-    client: PoolClient,
+    _client: PoolClient,
     fromVersion: number,
     toVersion: number
   ): Promise<void> {

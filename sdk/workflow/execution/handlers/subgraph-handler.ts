@@ -172,8 +172,6 @@ async function handleEnterSubgraphMessageContexts(
     );
   }
 
-  const subgraphConfig = subgraphNode.config as SubgraphNodeConfig;
-  
   // Get the subgraph's START node to access its messageInputs declaration
   const subgraphGraph = executionEntity.getGraph();
   const startNodeId = subgraphGraph.startNodeId;
@@ -285,8 +283,6 @@ async function handleExitSubgraphMessageContexts(
     );
   }
 
-  const subgraphConfig = subgraphNode.config as SubgraphNodeConfig;
-  
   // Get the subgraph's START node to access its messageOutputs declaration
   const subgraphContext = executionEntity.getCurrentSubgraphContext();
   if (!subgraphContext) {

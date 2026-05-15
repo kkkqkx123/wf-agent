@@ -30,7 +30,6 @@ import { ConversationSession } from "../../core/messaging/conversation-session.j
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "CheckpointCoordinator" });
-import { VariableManager } from "../state-managers/variable-manager.js";
 import { WorkflowExecutionEntity } from "../entities/workflow-execution-entity.js";
 import { ExecutionState } from "../state-managers/execution-state.js";
 import { WorkflowStateCoordinator } from "../state-managers/workflow-state-coordinator.js";

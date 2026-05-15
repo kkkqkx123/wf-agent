@@ -24,7 +24,6 @@ import {
   generateNamespacedEdgeId,
   generateId,
 } from "../../utils/index.js";
-import { SUBGRAPH_METADATA_KEYS } from "@wf-agent/types";
 import * as Identifiers from "../../core/di/service-identifiers.js";
 import type { GlobalContext } from "../../core/global-context.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";

@@ -4,7 +4,7 @@
  */
 
 import { now, generateId } from "@wf-agent/common-utils";
-import type { NodeCustomEvent, AgentHookTriggeredEvent, AgentHookType, Metadata, AgentStreamEventType } from "@wf-agent/types";
+import type { NodeCustomEvent, AgentHookTriggeredEvent, AgentHookType, Metadata } from "@wf-agent/types";
 
 // =============================================================================
 // Node Custom Event Builder

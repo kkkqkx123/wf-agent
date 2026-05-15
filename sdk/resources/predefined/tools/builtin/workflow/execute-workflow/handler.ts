@@ -22,11 +22,15 @@ import {
 } from "../../../../../../workflow/execution/types/workflow-tool.types.js";
 
 /**
- * Create execute workflow handler
+ * Execute Workflow Tool Handler
+ * 
+ * @param params - ExecuteWorkflowParams containing workflowId, input, messageContexts, etc.
+ * @param context - WorkflowToolExecutionContext with parentExecutionEntity and globalContext
+ * @returns ExecuteWorkflowResult with execution status (COMPLETED or SUBMITTED)
  */
 export function createExecuteWorkflowHandler() {
   return async (
-    params: Record<string, unknown>,
+    params: unknown,
     context: BuiltinToolExecutionContext,
   ): Promise<ExecuteWorkflowResult> => {
     // Validate parameters using Zod schema

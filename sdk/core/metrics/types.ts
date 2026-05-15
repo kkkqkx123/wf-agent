@@ -4,8 +4,6 @@
  * Core type definitions for the metrics collection system.
  */
 
-import { now } from "@wf-agent/common-utils";
-
 // =============================================================================
 // Metric Type Classification
 // =============================================================================

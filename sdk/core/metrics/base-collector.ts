@@ -6,6 +6,7 @@
  * - Periodic flushing
  * - Query support
  * - Reporting
+ * - Automatic expiration cleanup
  */
 
 import { now } from "@wf-agent/common-utils";
@@ -31,12 +32,15 @@ export abstract class BaseMetricCollector implements MetricCollector {
   protected metricsBuffer: Metric[] = [];
   protected config: Required<MetricCollectorConfig>;
   protected reportCallbacks: Array<{
+    id: string;
     callback: MetricReportCallback;
     interval: number;
     timer?: NodeJS.Timeout;
   }> = [];
-  protected isStarted: boolean = false;
   private flushTimer?: NodeJS.Timeout;
+  private cleanupTimer?: NodeJS.Timeout;
+  private isFlushing: boolean = false;
+  private nextSubscriptionId: number = 0;
 
   constructor(config?: MetricCollectorConfig) {
     this.config = {
@@ -52,10 +56,8 @@ export abstract class BaseMetricCollector implements MetricCollector {
       this.startPeriodicFlush();
     }
 
-    // Start periodic reporting if enabled
-    if (this.config.enablePeriodicReporting) {
-      this.startPeriodicReporting();
-    }
+    // Start periodic cleanup for expired metrics
+    this.startPeriodicCleanup();
   }
 
   /**
@@ -67,6 +69,11 @@ export abstract class BaseMetricCollector implements MetricCollector {
     if (!metric.metricName) {
       logger.warn("Record called with missing metricName", { metric });
       return;
+    }
+
+    // Add timestamp if not present
+    if (!metric.timestamp) {
+      metric.timestamp = now();
     }
 
     // Add to buffer
@@ -114,22 +121,21 @@ export abstract class BaseMetricCollector implements MetricCollector {
 
   /**
    * Record a histogram observation
+   * Note: This creates a basic histogram entry. For proper cumulative histograms,
+   * subclasses should override this method to maintain bucket state.
    */
   observeHistogram(
     metricName: string,
     value: number,
     labels?: Record<string, string>,
   ): void {
-    // For simplicity, we'll create a basic histogram with standard buckets
-    // Subclasses can override this for custom bucket configurations
-    const buckets = this.createStandardBuckets(value);
     const metric = {
       metricName,
       metricType: "histogram" as const,
       timestamp: now(),
       labels: labels || {},
       value,
-      buckets,
+      buckets: [], // Empty buckets - subclasses should provide proper implementation
       sum: value,
       count: 1,
     };
@@ -138,6 +144,8 @@ export abstract class BaseMetricCollector implements MetricCollector {
 
   /**
    * Record a summary observation
+   * Note: This creates a basic summary entry. For proper percentile calculations,
+   * subclasses should override this method to maintain observation history.
    */
   observeSummary(
     metricName: string,
@@ -150,7 +158,7 @@ export abstract class BaseMetricCollector implements MetricCollector {
       timestamp: now(),
       labels: labels || {},
       value,
-      percentiles: [{ percentile: 1.0, value }],
+      percentiles: [], // Empty percentiles - subclasses should provide proper implementation
       sum: value,
       count: 1,
     };
@@ -223,18 +231,25 @@ export abstract class BaseMetricCollector implements MetricCollector {
     options?: { interval?: number },
   ): () => void {
     const interval = options?.interval ?? this.config.reportingInterval;
+    const subscriptionId = `sub_${++this.nextSubscriptionId}`;
 
     const subscription = {
+      id: subscriptionId,
       callback,
       interval,
     };
 
     this.reportCallbacks.push(subscription);
 
+    // Start periodic reporting if this is the first subscription
+    if (this.reportCallbacks.length === 1) {
+      this.startPeriodicReporting();
+    }
+
     // Return unsubscribe function
     return () => {
       const index = this.reportCallbacks.findIndex(
-        (cb) => cb.callback === subscription.callback && cb.interval === subscription.interval,
+        (sub) => sub.id === subscriptionId,
       );
       if (index !== -1) {
         const sub = this.reportCallbacks[index];
@@ -242,6 +257,11 @@ export abstract class BaseMetricCollector implements MetricCollector {
           clearInterval(sub.timer);
         }
         this.reportCallbacks.splice(index, 1);
+        
+        // Stop periodic reporting if no more subscriptions
+        if (this.reportCallbacks.length === 0) {
+          this.stopPeriodicReporting();
+        }
       }
     };
   }
@@ -252,6 +272,7 @@ export abstract class BaseMetricCollector implements MetricCollector {
   clear(): void {
     this.metricsBuffer = [];
     this.stopPeriodicFlush();
+    this.stopPeriodicCleanup();
     this.stopPeriodicReporting();
     logger.info("Metrics cleared");
   }
@@ -260,11 +281,29 @@ export abstract class BaseMetricCollector implements MetricCollector {
    * Dispose the collector and release resources
    */
   dispose(): void {
+    // Flush remaining metrics before disposal
+    this.flush().catch((error) => {
+      logger.error("Failed to flush metrics during disposal", { error });
+    });
+    
     this.stopPeriodicFlush();
+    this.stopPeriodicCleanup();
     this.stopPeriodicReporting();
     this.clear();
     logger.info("Metric collector disposed");
   }
+
+  /**
+   * Export metrics in Prometheus exposition format
+   * Must be implemented by subclasses to provide specific metric formatting
+   */
+  abstract toPrometheus(): string[];
+
+  /**
+   * Export metrics as JSON
+   * Must be implemented by subclasses to provide specific JSON structure
+   */
+  abstract toJSON(): Record<string, unknown>;
 
   // =============================================================================
   // Protected Helper Methods
@@ -288,18 +327,25 @@ export abstract class BaseMetricCollector implements MetricCollector {
       }
 
       const agg = aggregated.get(metric.metricName)!;
+      const numericValue = typeof metric.value === "number" ? metric.value : 0;
 
       // Update aggregated value based on metric type
       switch (metric.metricType) {
         case "counter":
-          agg.value += typeof metric.value === "number" ? metric.value : 0;
+          // Counters accumulate
+          agg.value += numericValue;
           break;
         case "gauge":
-          agg.value = typeof metric.value === "number" ? metric.value : 0;
+          // Gauges take the latest value
+          agg.value = numericValue;
           break;
         case "histogram":
+          // Histograms accumulate sum and count
+          agg.value = numericValue; // Keep last observed value
+          break;
         case "summary":
-          agg.value = typeof metric.value === "number" ? metric.value : 0;
+          // Summaries accumulate sum and count
+          agg.value = numericValue; // Keep last observed value
           break;
       }
 
@@ -323,8 +369,18 @@ export abstract class BaseMetricCollector implements MetricCollector {
       }
 
       const labelAgg = agg.byLabel.get(labelKey)!;
-      if (typeof metric.value === "number") {
-        labelAgg.value += metric.value;
+      // Apply same aggregation logic for label groups
+      switch (metric.metricType) {
+        case "counter":
+          labelAgg.value += numericValue;
+          break;
+        case "gauge":
+          labelAgg.value = numericValue;
+          break;
+        case "histogram":
+        case "summary":
+          labelAgg.value = numericValue;
+          break;
       }
     }
 
@@ -393,7 +449,7 @@ export abstract class BaseMetricCollector implements MetricCollector {
       timestamp: now(),
       summary: {
         totalMetrics: this.metricsBuffer.length,
-        byType: byType as Record<string, number>,
+        byType,
         byCategory,
       },
       topMetrics: sortedMetrics,
@@ -409,9 +465,17 @@ export abstract class BaseMetricCollector implements MetricCollector {
     }
 
     this.flushTimer = setInterval(() => {
-      this.flush().catch((error) => {
-        logger.error("Periodic flush failed", { error });
-      });
+      // Prevent concurrent flushes
+      if (!this.isFlushing) {
+        this.isFlushing = true;
+        this.flush()
+          .finally(() => {
+            this.isFlushing = false;
+          })
+          .catch((error) => {
+            logger.error("Periodic flush failed", { error });
+          });
+      }
     }, this.config.flushInterval);
 
     logger.debug("Periodic flush started", { interval: this.config.flushInterval });
@@ -429,22 +493,76 @@ export abstract class BaseMetricCollector implements MetricCollector {
   }
 
   /**
-   * Start periodic reporting
+   * Start periodic cleanup of expired metrics
    */
-  private startPeriodicReporting(): void {
-    if (this.isStarted) {
+  private startPeriodicCleanup(): void {
+    if (this.cleanupTimer) {
       return;
     }
 
-    this.isStarted = true;
+    // Run cleanup every minute or maxAge/10, whichever is smaller
+    const cleanupInterval = Math.min(60000, this.config.maxAge / 10);
+    
+    this.cleanupTimer = setInterval(() => {
+      this.cleanupExpiredMetrics();
+    }, cleanupInterval);
 
+    logger.debug("Periodic cleanup started", { 
+      interval: cleanupInterval,
+      maxAge: this.config.maxAge 
+    });
+  }
+
+  /**
+   * Stop periodic cleanup
+   */
+  private stopPeriodicCleanup(): void {
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer);
+      this.cleanupTimer = undefined;
+      logger.debug("Periodic cleanup stopped");
+    }
+  }
+
+  /**
+   * Remove expired metrics from buffer
+   */
+  private cleanupExpiredMetrics(): void {
+    const cutoffTime = now() - this.config.maxAge;
+    const originalCount = this.metricsBuffer.length;
+    
+    this.metricsBuffer = this.metricsBuffer.filter(
+      (metric) => metric.timestamp >= cutoffTime
+    );
+    
+    const removedCount = originalCount - this.metricsBuffer.length;
+    if (removedCount > 0) {
+      logger.debug("Cleaned up expired metrics", { 
+        removedCount, 
+        remainingCount: this.metricsBuffer.length 
+      });
+    }
+  }
+
+  /**
+   * Start periodic reporting
+   */
+  private startPeriodicReporting(): void {
     for (const subscription of this.reportCallbacks) {
+      if (subscription.timer) {
+        // Already started
+        continue;
+      }
+      
       subscription.timer = setInterval(async () => {
         try {
           const report = this.generateReport();
           await subscription.callback(report);
         } catch (error) {
-          logger.error("Error in report callback", { error });
+          logger.error("Error in report callback", { 
+            error,
+            subscriptionId: subscription.id 
+          });
         }
       }, subscription.interval);
     }
@@ -458,10 +576,6 @@ export abstract class BaseMetricCollector implements MetricCollector {
    * Stop periodic reporting
    */
   private stopPeriodicReporting(): void {
-    if (!this.isStarted) {
-      return;
-    }
-
     for (const subscription of this.reportCallbacks) {
       if (subscription.timer) {
         clearInterval(subscription.timer);
@@ -469,7 +583,6 @@ export abstract class BaseMetricCollector implements MetricCollector {
       }
     }
 
-    this.isStarted = false;
     logger.info("Periodic reporting stopped");
   }
 }

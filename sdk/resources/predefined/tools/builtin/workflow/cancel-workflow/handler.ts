@@ -17,11 +17,15 @@ import {
 } from "../../../../../../workflow/execution/types/workflow-tool.types.js";
 
 /**
- * Create cancel workflow handler
+ * Cancel Workflow Tool Handler
+ * 
+ * @param params - CancelWorkflowParams containing taskId
+ * @param context - WorkflowToolExecutionContext with parentExecutionEntity and globalContext
+ * @returns CancelWorkflowResult with cancellation status
  */
 export function createCancelWorkflowHandler() {
   return async (
-    params: Record<string, unknown>,
+    params: unknown,
     context: BuiltinToolExecutionContext,
   ): Promise<CancelWorkflowResult> => {
     // Validate parameters using Zod schema

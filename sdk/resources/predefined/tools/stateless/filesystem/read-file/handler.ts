@@ -7,7 +7,7 @@ import { existsSync } from "fs";
 import * as path from "path";
 import type { ToolOutput } from "@wf-agent/types";
 import type { ReadFileConfig } from "../../../types.js";
-import { IgnoreController, IgnoreMode, ProtectController } from "@wf-agent/sdk/services";
+import { IgnoreController, ProtectController } from "@wf-agent/sdk/services";
 
 /**
  * Format file size to human-readable format

@@ -11,6 +11,7 @@
 import { BaseMetricCollector } from "./base-collector.js";
 import type { MetricCollectorConfig, MetricFilter, MetricQueryResult } from "./types.js";
 import { ERROR_METRICS } from "./constants.js";
+import { PrometheusFormatter, type PrometheusMetric } from "./utils/prometheus-formatter.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ operation: "ErrorMetricsCollector" });
@@ -200,5 +201,57 @@ export class ErrorMetricsCollector extends BaseMetricCollector {
       // For now, just clear the buffer
       this.metricsBuffer = [];
     }
+  }
+
+  /**
+   * Export as Prometheus format
+   */
+  toPrometheus(): string[] {
+    const summary = this.getErrorSummary();
+    const metrics: PrometheusMetric[] = [];
+    
+    // Total errors counter
+    metrics.push({
+      name: 'error_total',
+      type: 'counter',
+      help: 'Total errors',
+      samples: [{ value: summary.totalErrors }]
+    });
+    
+    // Errors by type
+    for (const [errorType, stats] of summary.byType) {
+      metrics.push({
+        name: 'error_by_type_total',
+        type: 'counter',
+        help: 'Errors grouped by type',
+        samples: [{ labels: { error_type: errorType }, value: stats.count }]
+      });
+    }
+    
+    // Format all metrics
+    return metrics.flatMap(m => PrometheusFormatter.formatMetric(m));
+  }
+  
+  /**
+   * Export as JSON
+   */
+  toJSON(): Record<string, unknown> {
+    const summary = this.getErrorSummary();
+    const errorsByType: Record<string, unknown> = {};
+    
+    for (const [errorType, stats] of summary.byType) {
+      errorsByType[errorType] = {
+        count: stats.count,
+        affectedExecutions: stats.affectedExecutions,
+        recoveryRate: stats.recoveryRate
+      };
+    }
+    
+    return {
+      type: 'error',
+      totalErrors: summary.totalErrors,
+      byType: errorsByType,
+      topErrors: summary.topErrors
+    };
   }
 }

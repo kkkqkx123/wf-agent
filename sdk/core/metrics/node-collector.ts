@@ -1,249 +1,297 @@
 /**
- * Node Execution Metrics Collector
+ * Node Metrics Collector
  * 
- * Collects and aggregates metrics specific to node executions including:
- * - Node execution duration distribution
- * - Success/failure rates by node type
- * - Retry counts
- * - Input/output sizes
+ * Tracks node template and execution metrics including:
+ * - Template instantiation count
+ * - Node execution frequency by type
+ * - Execution duration and success rate
+ * - Token usage for LLM nodes
  */
 
 import { BaseMetricCollector } from "./base-collector.js";
-import type { MetricCollectorConfig, MetricFilter, MetricQueryResult } from "./types.js";
-import { NODE_METRICS } from "./constants.js";
+import type { MetricCollectorConfig } from "./types.js";
+import { NODE_METRICS, TEMPLATE_METRICS } from "./constants.js";
+import { PrometheusFormatter, type PrometheusMetric } from "./utils/prometheus-formatter.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
-const logger = createContextualLogger({ operation: "NodeMetricsCollector" });
+const logger = createContextualLogger({ component: "NodeMetricsCollector" });
 
-/**
- * Node-specific metric collector
- * Extends BaseMetricCollector with node-specific convenience methods
- */
 export class NodeMetricsCollector extends BaseMetricCollector {
   constructor(config?: MetricCollectorConfig) {
     super(config);
   }
 
   /**
-   * Record node execution start
-   * @param nodeId Node ID
-   * @param nodeType Node type (e.g., LLM, Tool, Condition)
-   * @param workflowId Workflow ID
-   * @param executionId Execution ID
+   * Record node template instantiation
    */
-  recordNodeStart(
-    nodeId: string,
-    nodeType: string,
-    workflowId: string,
-    executionId: string,
-  ): void {
-    this.incrementCounter(NODE_METRICS.EXECUTION_COUNT, {
-      workflow_id: workflowId,
-      execution_id: executionId,
-      node_id: nodeId,
+  recordTemplateInstantiation(templateName: string, nodeType: string, metadata?: {
+    category?: string;
+    tags?: string[];
+  }): void {
+    if (!templateName || !nodeType) {
+      logger.warn("recordTemplateInstantiation called with missing parameters");
+      return;
+    }
+
+    this.incrementCounter(TEMPLATE_METRICS.INSTANTIATION_COUNT, {
+      template_name: templateName,
       node_type: nodeType,
-      status: "started",
+      category: metadata?.category || 'uncategorized',
+    });
+
+    logger.debug("Recorded node template instantiation", { templateName, nodeType });
+  }
+
+  /**
+   * Record node execution start
+   */
+  recordNodeExecutionStart(nodeId: string, nodeType: string, workflowId: string): void {
+    if (!nodeId || !nodeType || !workflowId) {
+      logger.warn("recordNodeExecutionStart called with missing parameters");
+      return;
+    }
+
+    this.incrementCounter('node.execution.started.count', {
+      node_type: nodeType,
+      node_id: nodeId,
+      workflow_id: workflowId,
     });
   }
 
   /**
    * Record node execution completion
-   * @param nodeId Node ID
-   * @param nodeType Node type
-   * @param workflowId Workflow ID
-   * @param executionId Execution ID
-   * @param duration Execution duration in milliseconds
-   * @param success Whether execution was successful
-   * @param inputSize Size of input data in bytes (optional)
-   * @param outputSize Size of output data in bytes (optional)
    */
-  recordNodeComplete(
-    nodeId: string,
-    nodeType: string,
-    workflowId: string,
-    executionId: string,
-    duration: number,
-    success: boolean,
-    inputSize?: number,
-    outputSize?: number,
-  ): void {
-    // Record execution duration distribution
-    this.observeHistogram(NODE_METRICS.EXECUTION_DURATION, duration, {
-      workflow_id: workflowId,
-      execution_id: executionId,
-      node_id: nodeId,
+  recordNodeExecution(nodeId: string, nodeType: string, workflowId: string, result: {
+    success: boolean;
+    duration: number;
+    tokenUsage?: number;
+    errorType?: string;
+  }): void {
+    if (!nodeId || !nodeType || !workflowId) {
+      logger.warn("recordNodeExecution called with missing parameters");
+      return;
+    }
+
+    // Record execution count
+    this.incrementCounter(NODE_METRICS.EXECUTION_COUNT, {
       node_type: nodeType,
-      success: success.toString(),
+      node_id: nodeId,
+      workflow_id: workflowId,
     });
 
-    // Record errors
-    if (!success) {
-      this.incrementCounter(NODE_METRICS.ERROR_COUNT, {
-        workflow_id: workflowId,
-        execution_id: executionId,
-        node_id: nodeId,
+    // Record duration
+    this.observeHistogram(NODE_METRICS.EXECUTION_DURATION, result.duration, {
+      node_type: nodeType,
+      node_id: nodeId,
+    });
+
+    // Record success/failure
+    if (result.success) {
+      this.incrementCounter(NODE_METRICS.SUCCESS_COUNT, {
         node_type: nodeType,
-        error_type: "execution_failed",
+      });
+    } else {
+      this.incrementCounter(NODE_METRICS.FAILURE_COUNT, {
+        node_type: nodeType,
+        error_type: result.errorType || 'unknown',
       });
     }
 
-    // Record input size if provided
-    if (inputSize !== undefined) {
-      this.setGauge(NODE_METRICS.INPUT_SIZE, inputSize, {
-        workflow_id: workflowId,
-        node_id: nodeId,
+    // For LLM nodes, track token usage
+    if (result.tokenUsage !== undefined && nodeType === 'LLM') {
+      this.observeHistogram(NODE_METRICS.TOKEN_USAGE, result.tokenUsage, {
         node_type: nodeType,
       });
     }
 
-    // Record output size if provided
-    if (outputSize !== undefined) {
-      this.setGauge(NODE_METRICS.OUTPUT_SIZE, outputSize, {
-        workflow_id: workflowId,
-        node_id: nodeId,
-        node_type: nodeType,
-      });
-    }
-  }
-
-  /**
-   * Record node retry
-   * @param nodeId Node ID
-   * @param nodeType Node type
-   * @param workflowId Workflow ID
-   * @param retryAttempt Retry attempt number (1-based)
-   */
-  recordNodeRetry(
-    nodeId: string,
-    nodeType: string,
-    workflowId: string,
-    retryAttempt: number,
-  ): void {
-    this.incrementCounter(NODE_METRICS.RETRY_COUNT, {
-      workflow_id: workflowId,
-      node_id: nodeId,
-      node_type: nodeType,
-      retry_attempt: retryAttempt.toString(),
+    logger.debug("Recorded node execution", { 
+      nodeId, 
+      nodeType, 
+      workflowId,
+      success: result.success,
+      duration: result.duration 
     });
   }
 
   /**
-   * Record node error with details
-   * @param nodeId Node ID
-   * @param nodeType Node type
-   * @param workflowId Workflow ID
-   * @param executionId Execution ID
-   * @param errorType Error type/category
+   * Get most frequently used node templates
    */
-  recordNodeError(
-    nodeId: string,
-    nodeType: string,
-    workflowId: string,
-    executionId: string,
-    errorType: string,
-  ): void {
-    this.incrementCounter(NODE_METRICS.ERROR_COUNT, {
-      workflow_id: workflowId,
-      execution_id: executionId,
-      node_id: nodeId,
-      node_type: nodeType,
-      error_type: errorType,
-    });
-  }
-
-  /**
-   * Get node-specific statistics
-   * @param nodeId Optional node ID filter
-   * @param nodeType Optional node type filter
-   * @returns Aggregated statistics
-   */
-  getNodeStats(nodeId?: string, nodeType?: string): MetricQueryResult {
-    const labels: Record<string, string> = {};
-    
-    if (nodeId) {
-      labels['node_id'] = nodeId;
-    }
-    
-    if (nodeType) {
-      labels['node_type'] = nodeType;
-    }
-
-    const filter: MetricFilter = Object.keys(labels).length > 0 ? { labels } : {};
-    return this.query(filter);
-  }
-
-  /**
-   * Get node performance summary by type
-   * Returns average duration, success rate, and error count for each node type
-   * @returns Map of node type to performance metrics
-   */
-  getNodePerformanceByType(): Map<string, {
-    avgDuration: number;
-    successRate: number;
-    totalExecutions: number;
-    errorCount: number;
+  getTopNodeTemplates(limit: number = 10): Array<{
+    templateName: string;
+    nodeType: string;
+    instantiationCount: number;
   }> {
-    const result = this.query({});
-    const summary = new Map<string, {
-      avgDuration: number;
-      successRate: number;
-      totalExecutions: number;
-      errorCount: number;
-    }>();
+    const result = this.query({
+      metricName: TEMPLATE_METRICS.INSTANTIATION_COUNT,
+      metricType: 'counter',
+    });
 
-    // Aggregate by node_type
-    for (const [metricName, aggregated] of result.metrics.entries()) {
-      if (metricName === NODE_METRICS.EXECUTION_DURATION && aggregated.byLabel) {
-        for (const [labelKey, labelAgg] of aggregated.byLabel.entries()) {
-          try {
-            const labels = JSON.parse(labelKey);
-            const nodeType = labels.node_type;
-            if (!nodeType) continue;
+    const templates: Map<string, { name: string; type: string; count: number }> = new Map();
 
-            if (!summary.has(nodeType)) {
-              summary.set(nodeType, {
-                avgDuration: 0,
-                successRate: 0,
-                totalExecutions: 0,
-                errorCount: 0,
-              });
-            }
-
-            const nodeStats = summary.get(nodeType)!;
-            
-            // Calculate average duration from time series
-            if (aggregated.timeSeries && aggregated.timeSeries.length > 0) {
-              const totalDuration = aggregated.timeSeries.reduce(
-                (sum, ts) => sum + ts.value,
-                0,
-              );
-              nodeStats.avgDuration = totalDuration / aggregated.timeSeries.length;
-            }
-
-            nodeStats.totalExecutions += labelAgg.value;
-          } catch (error) {
-            logger.warn("Failed to parse label key", { labelKey, error });
+    const metric = result.metrics.get(TEMPLATE_METRICS.INSTANTIATION_COUNT);
+    if (metric) {
+      for (const [labelKey, labelAgg] of metric.byLabel.entries()) {
+        try {
+          const labels = JSON.parse(labelKey);
+          if (labels.template_name && labels.node_type) {
+            const key = `${labels.template_name}:${labels.node_type}`;
+            templates.set(key, {
+              name: labels.template_name,
+              type: labels.node_type,
+              count: labelAgg.value,
+            });
           }
+        } catch (error) {
+          logger.warn("Failed to parse label key", { labelKey, error });
         }
       }
     }
 
-    return summary;
+    return Array.from(templates.values())
+      .sort((a, b) => b.count - a.count)
+      .slice(0, limit)
+      .map(t => ({
+        templateName: t.name,
+        nodeType: t.type,
+        instantiationCount: t.count,
+      }));
   }
 
   /**
-   * Flush metrics to storage
-   * Override to implement custom persistence logic
+   * Get node execution statistics by type
+   */
+  getNodeExecutionStatsByType(): Record<string, {
+    totalCount: number;
+    successRate: number;
+    avgDuration: number;
+  }> {
+    const result: Record<string, { totalCount: number; successCount: number; totalDuration: number }> = {};
+
+    // Get counts by type
+    const countResult = this.query({
+      metricName: NODE_METRICS.EXECUTION_COUNT,
+      metricType: 'counter',
+    });
+
+    const countMetric = countResult.metrics.get(NODE_METRICS.EXECUTION_COUNT);
+    if (countMetric) {
+      for (const [labelKey, labelAgg] of countMetric.byLabel.entries()) {
+        try {
+          const labels = JSON.parse(labelKey);
+          if (labels.node_type) {
+            const nodeType = labels.node_type;
+            if (!result[nodeType]) {
+              result[nodeType] = { totalCount: 0, successCount: 0, totalDuration: 0 };
+            }
+            result[nodeType].totalCount += labelAgg.value;
+          }
+        } catch (error) {
+          // Ignore
+        }
+      }
+    }
+
+    // Get success counts
+    const successResult = this.query({
+      metricName: NODE_METRICS.SUCCESS_COUNT,
+      metricType: 'counter',
+    });
+
+    const successMetric = successResult.metrics.get(NODE_METRICS.SUCCESS_COUNT);
+    if (successMetric) {
+      for (const [labelKey, labelAgg] of successMetric.byLabel.entries()) {
+        try {
+          const labels = JSON.parse(labelKey);
+          if (labels.node_type) {
+            const nodeType = labels.node_type;
+            if (result[nodeType]) {
+              result[nodeType].successCount += labelAgg.value;
+            }
+          }
+        } catch (error) {
+          // Ignore
+        }
+      }
+    }
+
+    // Calculate final stats
+    const stats: Record<string, { totalCount: number; successRate: number; avgDuration: number }> = {};
+    for (const [nodeType, data] of Object.entries(result)) {
+      stats[nodeType] = {
+        totalCount: data.totalCount,
+        successRate: data.totalCount > 0 ? data.successCount / data.totalCount : 0,
+        avgDuration: 0, // Would need to query duration histogram
+      };
+    }
+
+    return stats;
+  }
+
+  /**
+   * Flush buffered metrics
    */
   async flush(): Promise<void> {
     const flushedCount = this.metricsBuffer.length;
-
+    
     if (flushedCount > 0) {
       logger.debug("Flushing node metrics", { flushedCount });
-
-      // TODO: Implement actual persistence (e.g., write to database, send to monitoring service)
-      // For now, just clear the buffer
+      // TODO: Implement actual persistence
       this.metricsBuffer = [];
     }
+  }
+
+  /**
+   * Export node metrics in Prometheus format
+   */
+  toPrometheus(): string[] {
+    const metrics: PrometheusMetric[] = [];
+    
+    // Node execution stats by type
+    const nodeStats = this.getNodeExecutionStatsByType();
+    for (const [nodeType, stats] of Object.entries(nodeStats)) {
+      metrics.push({
+        name: 'node_execution_total',
+        type: 'counter',
+        help: 'Total node executions by type',
+        samples: [{ labels: { node_type: nodeType }, value: stats.totalCount }]
+      });
+      
+      metrics.push({
+        name: 'node_execution_success_rate',
+        type: 'gauge',
+        help: 'Node execution success rate by type',
+        samples: [{ labels: { node_type: nodeType }, value: stats.successRate }]
+      });
+    }
+    
+    // Top templates
+    const topTemplates = this.getTopNodeTemplates(10);
+    for (const template of topTemplates) {
+      metrics.push({
+        name: 'node_template_instantiation_total',
+        type: 'counter',
+        help: 'Node template instantiation count',
+        samples: [{
+          labels: {
+            template_name: template.templateName,
+            node_type: template.nodeType
+          },
+          value: template.instantiationCount
+        }]
+      });
+    }
+    
+    return metrics.flatMap(m => PrometheusFormatter.formatMetric(m));
+  }
+  
+  /**
+   * Export as JSON
+   */
+  toJSON(): Record<string, unknown> {
+    return {
+      type: 'node',
+      statsByType: this.getNodeExecutionStatsByType(),
+      topTemplates: this.getTopNodeTemplates(10)
+    };
   }
 }

@@ -13,6 +13,7 @@
 
 import { BaseMetricCollector } from "../metrics/base-collector.js";
 import type { MetricCollectorConfig, MetricFilter, MetricQueryResult } from "../metrics/types.js";
+import { PrometheusFormatter, type PrometheusMetric } from "./utils/prometheus-formatter.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ operation: "EventMetricsCollector" });
@@ -322,5 +323,59 @@ export class EventMetricsCollector extends BaseMetricCollector {
       // For now, just clear the buffer
       this.metricsBuffer = [];
     }
+  }
+
+  /**
+   * Export event metrics in Prometheus format
+   */
+  toPrometheus(): string[] {
+    const summary = this.generateSummary();
+    const metrics: PrometheusMetric[] = [];
+    
+    // Total events published
+    metrics.push({
+      name: 'event_published_total',
+      type: 'counter',
+      help: 'Total events published',
+      samples: [{ value: summary.totalEvents }]
+    });
+    
+    // Events by type
+    for (const [eventType, stat] of summary.byEventType.entries()) {
+      metrics.push({
+        name: 'event_published_by_type_total',
+        type: 'counter',
+        help: 'Events published grouped by type',
+        samples: [{ labels: { event_type: eventType }, value: stat.count }]
+      });
+    }
+    
+    return metrics.flatMap(m => PrometheusFormatter.formatMetric(m));
+  }
+  
+  /**
+   * Export as JSON
+   */
+  toJSON(): Record<string, unknown> {
+    const summary = this.generateSummary();
+    
+    // Convert Map to plain object for JSON serialization
+    const byEventTypeObj: Record<string, any> = {};
+    for (const [eventType, stat] of summary.byEventType.entries()) {
+      byEventTypeObj[eventType] = {
+        count: stat.count,
+        lastSeen: stat.lastSeen,
+        firstSeen: stat.firstSeen,
+        byExecution: Object.fromEntries(stat.byExecution)
+      };
+    }
+    
+    return {
+      type: 'event',
+      totalEvents: summary.totalEvents,
+      byEventType: byEventTypeObj,
+      activeExecutions: summary.activeExecutions,
+      generatedAt: summary.generatedAt
+    };
   }
 }

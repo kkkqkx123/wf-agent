@@ -11,6 +11,7 @@
 import { BaseMetricCollector } from "./base-collector.js";
 import type { MetricCollectorConfig, MetricFilter, MetricQueryResult } from "./types.js";
 import { RESOURCE_METRICS } from "./constants.js";
+import { PrometheusFormatter, type PrometheusMetric } from "./utils/prometheus-formatter.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ operation: "ResourceMetricsCollector" });
@@ -146,5 +147,58 @@ export class ResourceMetricsCollector extends BaseMetricCollector {
       // For now, just clear the buffer
       this.metricsBuffer = [];
     }
+  }
+
+  /**
+   * Export as Prometheus format
+   */
+  toPrometheus(): string[] {
+    const summary = this.getResourceSummary();
+    const metrics: PrometheusMetric[] = [];
+    
+    // Memory usage gauge
+    metrics.push({
+      name: 'resource_memory_usage_bytes',
+      type: 'gauge',
+      help: 'Memory usage in megabytes',
+      samples: [{ value: summary.memoryUsageMB }]
+    });
+    
+    // Active executions gauge
+    metrics.push({
+      name: 'resource_active_executions',
+      type: 'gauge',
+      help: 'Number of active executions',
+      samples: [{ value: summary.activeExecutions }]
+    });
+    
+    // Queued tasks gauge
+    metrics.push({
+      name: 'resource_queued_tasks',
+      type: 'gauge',
+      help: 'Number of queued tasks',
+      samples: [{ value: summary.queuedTasks }]
+    });
+    
+    // Event queue length gauge
+    metrics.push({
+      name: 'resource_event_queue_length',
+      type: 'gauge',
+      help: 'Event queue length',
+      samples: [{ value: summary.eventQueueLength }]
+    });
+    
+    // Format all metrics
+    return metrics.flatMap(m => PrometheusFormatter.formatMetric(m));
+  }
+  
+  /**
+   * Export as JSON
+   */
+  toJSON(): Record<string, unknown> {
+    return {
+      type: 'resource',
+      summary: this.getResourceSummary()
+    };
   }
 }

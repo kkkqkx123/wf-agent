@@ -230,7 +230,7 @@ export interface MetricReport {
  * Core interface for metric collectors
  * Each component (workflow, node, tool, etc.) should implement its own collector
  */
-export interface MetricCollector {
+export interface MetricCollector extends MetricExporter {
   /**
    * Record a metric
    * @param metric The metric to record
@@ -298,4 +298,26 @@ export interface MetricCollector {
    * Dispose the collector and release resources
    */
   dispose(): void;
+}
+
+// =============================================================================
+// Metric Exporter Interface
+// =============================================================================
+
+/**
+ * Metric exporter interface
+ * Each collector can implement this to support multiple export formats
+ */
+export interface MetricExporter {
+  /**
+   * Export metrics in Prometheus exposition format
+   * @returns Array of formatted metric lines (without trailing newline)
+   */
+  toPrometheus(): string[];
+  
+  /**
+   * Export metrics as JSON
+   * @returns JSON-serializable object
+   */
+  toJSON(): Record<string, unknown>;
 }

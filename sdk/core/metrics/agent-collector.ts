@@ -10,6 +10,7 @@
 
 import { BaseMetricCollector } from "./base-collector.js";
 import type { MetricCollectorConfig } from "./types.js";
+import { PrometheusFormatter, type PrometheusMetric } from "./utils/prometheus-formatter.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "AgentMetricsCollector" });
@@ -184,5 +185,51 @@ export class AgentMetricsCollector extends BaseMetricCollector {
       // TODO: Implement actual persistence
       this.metricsBuffer = [];
     }
+  }
+
+  /**
+   * Export agent metrics in Prometheus format
+   */
+  toPrometheus(): string[] {
+    const stats = this.getAgentStats();
+    const metrics: PrometheusMetric[] = [];
+    
+    // Total executions
+    metrics.push({
+      name: 'agent_loop_execution_total',
+      type: 'counter',
+      help: 'Total agent loop executions',
+      samples: [{ value: stats.totalExecutions }]
+    });
+    
+    // Average iterations
+    metrics.push({
+      name: 'agent_loop_iterations_avg',
+      type: 'gauge',
+      help: 'Average iterations per agent loop',
+      samples: [{ value: stats.avgIterations }]
+    });
+    
+    // By profile
+    for (const [profileId, count] of Object.entries(stats.byProfile)) {
+      metrics.push({
+        name: 'agent_loop_execution_by_profile_total',
+        type: 'counter',
+        help: 'Agent loop executions by profile',
+        samples: [{ labels: { profile_id: profileId }, value: count }]
+      });
+    }
+    
+    return metrics.flatMap(m => PrometheusFormatter.formatMetric(m));
+  }
+  
+  /**
+   * Export as JSON
+   */
+  toJSON(): Record<string, unknown> {
+    return {
+      type: 'agent',
+      stats: this.getAgentStats()
+    };
   }
 }

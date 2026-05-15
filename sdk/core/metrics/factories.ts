@@ -17,6 +17,7 @@ import type {
 import { WorkflowMetricsCollector } from "./workflow-collector.js";
 import { EventMetricsCollector } from "./event-collector.js";
 import { NodeMetricsCollector } from "./node-collector.js";
+import { AgentMetricsCollector } from "./agent-collector.js";
 import { ToolMetricsCollector } from "./tool-collector.js";
 import { TokenMetricsCollector } from "./token-collector.js";
 import { ErrorMetricsCollector } from "./error-collector.js";
@@ -123,6 +124,7 @@ export function createMetricsCollectors(config?: MetricCollectorConfig) {
     workflow: new WorkflowMetricsCollector(config),
     event: new EventMetricsCollector(config),
     node: new NodeMetricsCollector(config),
+    agent: new AgentMetricsCollector(config),
     tool: new ToolMetricsCollector(config),
     token: new TokenMetricsCollector(config),
     error: new ErrorMetricsCollector(config),

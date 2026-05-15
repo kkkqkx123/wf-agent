@@ -11,6 +11,7 @@
 import { BaseMetricCollector } from "./base-collector.js";
 import type { MetricCollectorConfig, MetricFilter, MetricQueryResult } from "./types.js";
 import { TEMPLATE_METRICS } from "./constants.js";
+import { PrometheusFormatter, type PrometheusMetric } from "./utils/prometheus-formatter.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ operation: "TemplateMetricsCollector" });
@@ -35,7 +36,7 @@ export class TemplateMetricsCollector extends BaseMetricCollector {
       ...context,
     };
 
-    this.incrementCounter(TEMPLATE_METRICS.USAGE_COUNT, labels);
+    this.incrementCounter(TEMPLATE_METRICS.INSTANTIATION_COUNT, labels);
   }
 
   /**
@@ -192,5 +193,129 @@ export class TemplateMetricsCollector extends BaseMetricCollector {
       // TODO: Implement actual persistence
       this.metricsBuffer = [];
     }
+  }
+
+  /**
+   * Export as Prometheus format
+   */
+  toPrometheus(): string[] {
+    const result = this.query({});
+    const metrics: PrometheusMetric[] = [];
+    
+    // Extract totals
+    let totalUsage = 0;
+    let totalCacheHits = 0;
+    let totalCacheMisses = 0;
+    let totalErrors = 0;
+    
+    for (const [metricName, aggregated] of result.metrics.entries()) {
+      switch (metricName) {
+        case TEMPLATE_METRICS.INSTANTIATION_COUNT:
+          totalUsage += aggregated.value;
+          break;
+        case TEMPLATE_METRICS.CACHE_HIT_COUNT:
+          totalCacheHits += aggregated.value;
+          break;
+        case TEMPLATE_METRICS.CACHE_MISS_COUNT:
+          totalCacheMisses += aggregated.value;
+          break;
+        case TEMPLATE_METRICS.ERROR_COUNT:
+          totalErrors += aggregated.value;
+          break;
+      }
+    }
+    
+    // Total usage counter
+    metrics.push({
+      name: 'template_usage_total',
+      type: 'counter',
+      help: 'Total template usages',
+      samples: [{ value: totalUsage }]
+    });
+    
+    // Cache hits
+    metrics.push({
+      name: 'template_cache_hit_total',
+      type: 'counter',
+      help: 'Total cache hits',
+      samples: [{ value: totalCacheHits }]
+    });
+    
+    // Cache misses
+    metrics.push({
+      name: 'template_cache_miss_total',
+      type: 'counter',
+      help: 'Total cache misses',
+      samples: [{ value: totalCacheMisses }]
+    });
+    
+    // Errors
+    if (totalErrors > 0) {
+      metrics.push({
+        name: 'template_error_total',
+        type: 'counter',
+        help: 'Total template errors',
+        samples: [{ value: totalErrors }]
+      });
+    }
+    
+    // By template breakdown
+    for (const [metricName, aggregated] of result.metrics.entries()) {
+      if (aggregated.byLabel && Object.keys(aggregated.byLabel).length > 0) {
+        for (const [labelKey, labelAgg] of Object.entries(aggregated.byLabel)) {
+          try {
+            const labels = JSON.parse(labelKey);
+            const templateId = labels.template_id;
+            if (!templateId) continue;
+            
+            metrics.push({
+              name: `${metricName}_by_template`,
+              type: 'counter',
+              help: `Template metric by template ID`,
+              samples: [{ labels: { template_id: templateId }, value: labelAgg.value }]
+            });
+          } catch (error) {
+            logger.warn("Failed to parse label key", { labelKey, error });
+          }
+        }
+      }
+    }
+    
+    // Format all metrics
+    return metrics.flatMap(m => PrometheusFormatter.formatMetric(m));
+  }
+  
+  /**
+   * Export as JSON
+   */
+  toJSON(): Record<string, unknown> {
+    const result = this.query({});
+    const templatesData: Record<string, unknown> = {};
+    
+    // Aggregate by template_id
+    for (const [metricName, aggregated] of result.metrics.entries()) {
+      if (aggregated.byLabel) {
+        for (const [labelKey, labelAgg] of Object.entries(aggregated.byLabel)) {
+          try {
+            const labels = JSON.parse(labelKey);
+            const templateId = labels.template_id;
+            if (!templateId) continue;
+            
+            if (!templatesData[templateId]) {
+              templatesData[templateId] = {};
+            }
+            
+            (templatesData[templateId] as any)[metricName] = labelAgg.value;
+          } catch (error) {
+            logger.warn("Failed to parse label key", { labelKey, error });
+          }
+        }
+      }
+    }
+    
+    return {
+      type: 'template',
+      templates: templatesData
+    };
   }
 }

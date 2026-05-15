@@ -11,6 +11,7 @@
 import { BaseMetricCollector } from "./base-collector.js";
 import type { MetricCollectorConfig, MetricFilter, MetricQueryResult } from "./types.js";
 import { TOOL_METRICS } from "./constants.js";
+import { PrometheusFormatter, type PrometheusMetric } from "./utils/prometheus-formatter.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ operation: "ToolMetricsCollector" });
@@ -195,5 +196,79 @@ export class ToolMetricsCollector extends BaseMetricCollector {
       // For now, just clear the buffer
       this.metricsBuffer = [];
     }
+  }
+
+  /**
+   * Export as Prometheus format
+   */
+  toPrometheus(): string[] {
+    const summary = this.getToolPerformanceSummary();
+    const metrics: PrometheusMetric[] = [];
+    
+    // Total tool calls counter
+    let totalCalls = 0;
+    for (const [, stats] of summary) {
+      totalCalls += stats.totalCalls;
+    }
+    
+    metrics.push({
+      name: 'tool_call_total',
+      type: 'counter',
+      help: 'Total tool calls',
+      samples: [{ value: totalCalls }]
+    });
+    
+    // Tool calls by tool_id
+    for (const [toolId, stats] of summary) {
+      metrics.push({
+        name: 'tool_call_by_tool_total',
+        type: 'counter',
+        help: 'Tool calls grouped by tool ID',
+        samples: [{ labels: { tool_id: toolId }, value: stats.totalCalls }]
+      });
+      
+      // Average duration per tool
+      metrics.push({
+        name: 'tool_call_duration_seconds',
+        type: 'gauge',
+        help: 'Average tool call duration in seconds',
+        samples: [{ labels: { tool_id: toolId }, value: stats.avgDuration / 1000 }]
+      });
+      
+      // Error count per tool
+      if (stats.errorCount > 0) {
+        metrics.push({
+          name: 'tool_call_error_total',
+          type: 'counter',
+          help: 'Tool call errors',
+          samples: [{ labels: { tool_id: toolId }, value: stats.errorCount }]
+        });
+      }
+    }
+    
+    // Format all metrics
+    return metrics.flatMap(m => PrometheusFormatter.formatMetric(m));
+  }
+  
+  /**
+   * Export as JSON
+   */
+  toJSON(): Record<string, unknown> {
+    const summary = this.getToolPerformanceSummary();
+    const toolsData: Record<string, unknown> = {};
+    
+    for (const [toolId, stats] of summary) {
+      toolsData[toolId] = {
+        totalCalls: stats.totalCalls,
+        avgDuration: stats.avgDuration,
+        successRate: stats.successRate,
+        errorCount: stats.errorCount
+      };
+    }
+    
+    return {
+      type: 'tool',
+      tools: toolsData
+    };
   }
 }

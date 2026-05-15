@@ -11,6 +11,7 @@
 import { BaseMetricCollector } from "./base-collector.js";
 import type { MetricCollectorConfig, MetricFilter, MetricQueryResult } from "./types.js";
 import { CONFIG_METRICS } from "./constants.js";
+import { PrometheusFormatter, type PrometheusMetric } from "./utils/prometheus-formatter.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ operation: "ConfigMetricsCollector" });
@@ -235,5 +236,108 @@ export class ConfigMetricsCollector extends BaseMetricCollector {
       // TODO: Implement actual persistence
       this.metricsBuffer = [];
     }
+  }
+
+  /**
+   * Export as Prometheus format
+   */
+  toPrometheus(): string[] {
+    const result = this.query({});
+    const metrics: PrometheusMetric[] = [];
+    
+    // Extract totals
+    let totalAccess = 0;
+    let totalCacheHits = 0;
+    let totalCacheMisses = 0;
+    let totalValidationErrors = 0;
+    
+    for (const [metricName, aggregated] of result.metrics.entries()) {
+      switch (metricName) {
+        case CONFIG_METRICS.ACCESS_COUNT:
+          totalAccess += aggregated.value;
+          break;
+        case CONFIG_METRICS.CACHE_HIT_COUNT:
+          totalCacheHits += aggregated.value;
+          break;
+        case CONFIG_METRICS.CACHE_MISS_COUNT:
+          totalCacheMisses += aggregated.value;
+          break;
+        case CONFIG_METRICS.VALIDATION_ERROR_COUNT:
+          totalValidationErrors += aggregated.value;
+          break;
+      }
+    }
+    
+    // Total access counter
+    metrics.push({
+      name: 'config_access_total',
+      type: 'counter',
+      help: 'Total configuration accesses',
+      samples: [{ value: totalAccess }]
+    });
+    
+    // Cache hits
+    metrics.push({
+      name: 'config_cache_hit_total',
+      type: 'counter',
+      help: 'Total cache hits',
+      samples: [{ value: totalCacheHits }]
+    });
+    
+    // Cache misses
+    metrics.push({
+      name: 'config_cache_miss_total',
+      type: 'counter',
+      help: 'Total cache misses',
+      samples: [{ value: totalCacheMisses }]
+    });
+    
+    // Validation errors
+    if (totalValidationErrors > 0) {
+      metrics.push({
+        name: 'config_validation_error_total',
+        type: 'counter',
+        help: 'Total validation errors',
+        samples: [{ value: totalValidationErrors }]
+      });
+    }
+    
+    // Format all metrics
+    return metrics.flatMap(m => PrometheusFormatter.formatMetric(m));
+  }
+  
+  /**
+   * Export as JSON
+   */
+  toJSON(): Record<string, unknown> {
+    const summary = {
+      totalAccess: 0,
+      totalCacheHits: 0,
+      totalCacheMisses: 0,
+      totalValidationErrors: 0
+    };
+    
+    const result = this.query({});
+    for (const [metricName, aggregated] of result.metrics.entries()) {
+      switch (metricName) {
+        case CONFIG_METRICS.ACCESS_COUNT:
+          summary.totalAccess += aggregated.value;
+          break;
+        case CONFIG_METRICS.CACHE_HIT_COUNT:
+          summary.totalCacheHits += aggregated.value;
+          break;
+        case CONFIG_METRICS.CACHE_MISS_COUNT:
+          summary.totalCacheMisses += aggregated.value;
+          break;
+        case CONFIG_METRICS.VALIDATION_ERROR_COUNT:
+          summary.totalValidationErrors += aggregated.value;
+          break;
+      }
+    }
+    
+    return {
+      type: 'config',
+      summary
+    };
   }
 }

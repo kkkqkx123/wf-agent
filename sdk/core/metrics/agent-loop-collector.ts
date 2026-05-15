@@ -12,6 +12,7 @@
 import { BaseMetricCollector } from "./base-collector.js";
 import type { MetricCollectorConfig, MetricFilter, MetricQueryResult } from "./types.js";
 import { AGENT_LOOP_METRICS } from "./constants.js";
+import { PrometheusFormatter, type PrometheusMetric } from "./utils/prometheus-formatter.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ operation: "AgentLoopMetricsCollector" });
@@ -258,5 +259,100 @@ export class AgentLoopMetricsCollector extends BaseMetricCollector {
       // For now, just clear the buffer
       this.metricsBuffer = [];
     }
+  }
+
+  /**
+   * Export as Prometheus format
+   */
+  toPrometheus(): string[] {
+    const result = this.query({});
+    const metrics: PrometheusMetric[] = [];
+    
+    // Extract totals
+    let totalExecutions = 0;
+    let activeCount = 0;
+    let totalErrors = 0;
+    let totalPauses = 0;
+    let totalResumes = 0;
+    
+    for (const [metricName, aggregated] of result.metrics.entries()) {
+      switch (metricName) {
+        case AGENT_LOOP_METRICS.EXECUTION_COUNT:
+          totalExecutions += aggregated.value;
+          break;
+        case AGENT_LOOP_METRICS.ACTIVE_COUNT:
+          activeCount = Math.round(aggregated.value);
+          break;
+        case AGENT_LOOP_METRICS.ERROR_COUNT:
+          totalErrors += aggregated.value;
+          break;
+        case AGENT_LOOP_METRICS.PAUSE_COUNT:
+          totalPauses += aggregated.value;
+          break;
+        case AGENT_LOOP_METRICS.RESUME_COUNT:
+          totalResumes += aggregated.value;
+          break;
+      }
+    }
+    
+    // Total executions
+    metrics.push({
+      name: 'agent_loop_execution_total',
+      type: 'counter',
+      help: 'Total agent loop executions',
+      samples: [{ value: totalExecutions }]
+    });
+    
+    // Active count
+    metrics.push({
+      name: 'agent_loop_active_count',
+      type: 'gauge',
+      help: 'Active agent loops',
+      samples: [{ value: activeCount }]
+    });
+    
+    // Errors
+    if (totalErrors > 0) {
+      metrics.push({
+        name: 'agent_loop_error_total',
+        type: 'counter',
+        help: 'Total agent loop errors',
+        samples: [{ value: totalErrors }]
+      });
+    }
+    
+    // Pauses
+    if (totalPauses > 0) {
+      metrics.push({
+        name: 'agent_loop_pause_total',
+        type: 'counter',
+        help: 'Total agent loop pauses',
+        samples: [{ value: totalPauses }]
+      });
+    }
+    
+    // Resumes
+    if (totalResumes > 0) {
+      metrics.push({
+        name: 'agent_loop_resume_total',
+        type: 'counter',
+        help: 'Total agent loop resumes',
+        samples: [{ value: totalResumes }]
+      });
+    }
+    
+    // Format all metrics
+    return metrics.flatMap(m => PrometheusFormatter.formatMetric(m));
+  }
+  
+  /**
+   * Export as JSON
+   */
+  toJSON(): Record<string, unknown> {
+    return {
+      type: 'agent_loop',
+      activeAgentLoops: this.getActiveAgentLoops(),
+      averageIterations: this.getAverageIterations()
+    };
   }
 }

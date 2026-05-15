@@ -2,30 +2,69 @@
  * Metrics System - Predefined Metric Names
  * 
  * Standard metric name constants organized by category.
+ * Provides type-safe metric names to prevent typos and ensure consistency.
  */
+
+/**
+ * Type for metric name constants
+ */
+export type MetricName = string;
 
 /**
  * Standard metric names for workflow execution
  */
 export const WORKFLOW_METRICS = {
-  EXECUTION_DURATION: "workflow.execution.duration",
-  EXECUTION_COUNT: "workflow.execution.count",
-  NODE_COUNT: "workflow.node.count",
-  ERROR_COUNT: "workflow.error.count",
-  SUCCESS_RATE: "workflow.success.rate",
+  /** Total workflow executions (counter) */
+  EXECUTION_COUNT: "workflow.execution.count" as const,
+  /** Workflow execution duration in milliseconds (histogram) */
+  EXECUTION_DURATION: "workflow.execution.duration" as const,
+  /** Number of nodes in workflow (histogram) */
+  NODE_COUNT: "workflow.node.count" as const,
+  /** Successful workflow executions (counter) */
+  SUCCESS_COUNT: "workflow.execution.success.count" as const,
+  /** Failed workflow executions (counter) */
+  FAILURE_COUNT: "workflow.execution.failure.count" as const,
+  /** Active workflow executions (gauge) */
+  ACTIVE_COUNT: "workflow.execution.active.count" as const,
+  /** Error count by type (counter) */
+  ERROR_COUNT: "workflow.error.count" as const,
 } as const;
+
+/**
+ * Type for workflow metric names
+ */
+export type WorkflowMetricName = keyof typeof WORKFLOW_METRICS;
 
 /**
  * Standard metric names for node execution
  */
 export const NODE_METRICS = {
-  EXECUTION_DURATION: "node.execution.duration",
-  EXECUTION_COUNT: "node.execution.count",
-  RETRY_COUNT: "node.retry.count",
-  ERROR_COUNT: "node.error.count",
-  INPUT_SIZE: "node.input.size",
-  OUTPUT_SIZE: "node.output.size",
+  /** Total node executions (counter) */
+  EXECUTION_COUNT: "node.execution.count" as const,
+  /** Node execution duration in milliseconds (histogram) */
+  EXECUTION_DURATION: "node.execution.duration" as const,
+  /** Successful node executions (counter) */
+  SUCCESS_COUNT: "node.execution.success.count" as const,
+  /** Failed node executions (counter) */
+  FAILURE_COUNT: "node.execution.failure.count" as const,
+  /** Node started count (counter) */
+  STARTED_COUNT: "node.execution.started.count" as const,
+  /** Retry count (counter) */
+  RETRY_COUNT: "node.retry.count" as const,
+  /** Error count by type (counter) */
+  ERROR_COUNT: "node.error.count" as const,
+  /** Input size in bytes (histogram) */
+  INPUT_SIZE: "node.input.size" as const,
+  /** Output size in bytes (histogram) */
+  OUTPUT_SIZE: "node.output.size" as const,
+  /** Token usage for LLM nodes (histogram) */
+  TOKEN_USAGE: "node.execution.token_usage" as const,
 } as const;
+
+/**
+ * Type for node metric names
+ */
+export type NodeMetricName = keyof typeof NODE_METRICS;
 
 /**
  * Standard metric names for tool calls
@@ -100,12 +139,22 @@ export const AGENT_LOOP_METRICS = {
  * Standard metric names for template usage
  */
 export const TEMPLATE_METRICS = {
-  USAGE_COUNT: "template.usage.count",
-  RENDER_DURATION: "template.render.duration",
-  CACHE_HIT_COUNT: "template.cache.hit_count",
-  CACHE_MISS_COUNT: "template.cache.miss_count",
-  ERROR_COUNT: "template.error.count",
+  /** Template instantiation count (counter) */
+  INSTANTIATION_COUNT: "node.template.instantiation.count" as const,
+  /** Template render duration (histogram) */
+  RENDER_DURATION: "template.render.duration" as const,
+  /** Cache hit count (counter) */
+  CACHE_HIT_COUNT: "template.cache.hit_count" as const,
+  /** Cache miss count (counter) */
+  CACHE_MISS_COUNT: "template.cache.miss_count" as const,
+  /** Error count (counter) */
+  ERROR_COUNT: "template.error.count" as const,
 } as const;
+
+/**
+ * Type for template metric names
+ */
+export type TemplateMetricName = keyof typeof TEMPLATE_METRICS;
 
 /**
  * Standard metric names for configuration access

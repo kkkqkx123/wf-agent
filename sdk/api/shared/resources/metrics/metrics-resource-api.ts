@@ -14,6 +14,7 @@
 import type { APIDependencyManager } from "../../core/sdk-dependencies.js";
 import type { MetricsRegistry } from "../../../../core/metrics/metrics-registry.js";
 import type { MetricReport } from "../../../../core/metrics/types.js";
+import { PrometheusFormatter } from "../../../../core/metrics/utils/prometheus-formatter.js";
 import { createContextualLogger } from "../../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "MetricsResourceAPI" });
@@ -217,111 +218,45 @@ export class MetricsResourceAPI {
    * @returns JSON formatted metrics
    */
   private async exportAsJSON(): Promise<string> {
-    const report = await this.generateReport();
-    return JSON.stringify(report, null, 2);
+    const collectors = this.metricsRegistry.getCollectors();
+    
+    const result = {
+      timestamp: Date.now(),
+      workflow: collectors.workflow.toJSON(),
+      node: collectors.node.toJSON(),
+      agent: collectors.agent.toJSON(),
+      event: collectors.event?.toJSON() || null,
+    };
+    
+    return JSON.stringify(result, null, 2);
   }
 
   /**
    * Export metrics in Prometheus format
-   * @returns Prometheus formatted metrics
+   * 
+   * This is now MUCH simpler - just delegate to each collector!
    */
   private async exportAsPrometheus(): Promise<string> {
     const collectors = this.metricsRegistry.getCollectors();
-    const lines: string[] = [];
-    const timestamp = Date.now();
-
-    // Helper function to format labels for Prometheus exposition format
-    const formatLabels = (labels: Record<string, string>): string => {
-      if (!labels || Object.keys(labels).length === 0) {
-        return "";
-      }
-      const parts = Object.entries(labels)
-        .map(([key, value]) => `${key}="${value}"`)
-        .join(",");
-      return `{${parts}}`;
-    };
-
-    // Export workflow metrics
-    const workflowStats = collectors.workflow.getWorkflowUsageStats();
-    lines.push(`# HELP workflow_execution_total Total workflow executions`);
-    lines.push(`# TYPE workflow_execution_total counter`);
-    lines.push(`workflow_execution_total ${workflowStats.totalExecutions}`);
     
-    lines.push(`# HELP workflow_execution_success_rate Workflow execution success rate`);
-    lines.push(`# TYPE workflow_execution_success_rate gauge`);
-    lines.push(`workflow_execution_success_rate ${workflowStats.successRate}`);
+    // Each collector exports its own metrics
+    const allMetrics: string[][] = [
+      collectors.workflow.toPrometheus(),
+      collectors.node.toPrometheus(),
+      collectors.agent.toPrometheus(),
+    ];
     
-    lines.push(`# HELP workflow_execution_duration_seconds Workflow execution duration in seconds`);
-    lines.push(`# TYPE workflow_execution_duration_seconds summary`);
-    lines.push(`workflow_execution_duration_seconds{quantile="0.5"} ${workflowStats.avgDuration / 1000}`);
-    lines.push(`workflow_execution_duration_seconds{quantile="0.95"} ${workflowStats.p95Duration / 1000}`);
-    lines.push(`workflow_execution_duration_seconds{quantile="0.99"} ${workflowStats.p99Duration / 1000}`);
-
-    // Export workflow by version
-    for (const [version, count] of Object.entries(workflowStats.byVersion)) {
-      const labels = formatLabels({ version });
-      lines.push(`workflow_execution_by_version_total${labels} ${count}`);
-    }
-
-    // Export node metrics
-    const nodeStats = collectors.node.getNodeExecutionStatsByType();
-    lines.push(`# HELP node_execution_total Total node executions by type`);
-    lines.push(`# TYPE node_execution_total counter`);
-    for (const [nodeType, stats] of Object.entries(nodeStats)) {
-      const labels = formatLabels({ node_type: nodeType });
-      lines.push(`node_execution_total${labels} ${stats.totalCount}`);
-      lines.push(`node_execution_success_rate${labels} ${stats.successRate}`);
-    }
-
-    // Export top node templates
-    const topTemplates = collectors.node.getTopNodeTemplates(10);
-    lines.push(`# HELP node_template_instantiation_total Node template instantiation count`);
-    lines.push(`# TYPE node_template_instantiation_total counter`);
-    for (const template of topTemplates) {
-      const labels = formatLabels({ 
-        template_name: template.templateName,
-        node_type: template.nodeType 
-      });
-      lines.push(`node_template_instantiation_total${labels} ${template.instantiationCount}`);
-    }
-
-    // Export agent metrics
-    const agentStats = collectors.agent.getAgentStats();
-    lines.push(`# HELP agent_loop_execution_total Total agent loop executions`);
-    lines.push(`# TYPE agent_loop_execution_total counter`);
-    lines.push(`agent_loop_execution_total ${agentStats.totalExecutions}`);
-    
-    lines.push(`# HELP agent_loop_iterations_avg Average iterations per agent loop`);
-    lines.push(`# TYPE agent_loop_iterations_avg gauge`);
-    lines.push(`agent_loop_iterations_avg ${agentStats.avgIterations}`);
-
-    // Export agent by profile
-    for (const [profileId, count] of Object.entries(agentStats.byProfile)) {
-      const labels = formatLabels({ profile_id: profileId });
-      lines.push(`agent_loop_execution_by_profile_total${labels} ${count}`);
-    }
-
-    // Export event metrics (if available)
+    // Add event metrics if available
     if (collectors.event) {
       try {
-        const eventSummary = collectors.event.generateSummary();
-        lines.push(`# HELP event_published_total Total events published`);
-        lines.push(`# TYPE event_published_total counter`);
-        lines.push(`event_published_total ${eventSummary.totalEvents}`);
-        
-        for (const [eventType, stat] of eventSummary.byEventType.entries()) {
-          const labels = formatLabels({ event_type: eventType });
-          lines.push(`event_published_by_type_total${labels} ${stat.count}`);
-        }
+        allMetrics.push(collectors.event.toPrometheus());
       } catch (error) {
         logger.warn("Failed to export event metrics", { error });
       }
     }
-
-    // Add timestamp comment
-    lines.push(`# Generated at ${new Date(timestamp).toISOString()}`);
-
-    return lines.join("\n") + "\n";
+    
+    // Combine all metrics with proper formatting
+    return PrometheusFormatter.combine(allMetrics);
   }
 
   // ============================================================

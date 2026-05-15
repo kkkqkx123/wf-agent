@@ -6,9 +6,9 @@
  */
 
 import type { GlobalContext } from "../global-context.js";
-import { WorkflowMetricsCollector } from "./workflow-metrics-collector.js";
-import { NodeMetricsCollector } from "./node-metrics-collector.js";
-import { AgentMetricsCollector } from "./agent-metrics-collector.js";
+import { WorkflowMetricsCollector } from "./workflow-collector.js";
+import { NodeMetricsCollector } from "./node-collector.js";
+import { AgentMetricsCollector } from "./agent-collector.js";
 import type { EventMetricsCollector } from "./event-collector.js";
 import type { MetricCollectorConfig, MetricReport } from "./types.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";

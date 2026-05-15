@@ -11,6 +11,7 @@
 import { BaseMetricCollector } from "./base-collector.js";
 import type { MetricCollectorConfig, MetricFilter, MetricQueryResult } from "./types.js";
 import { TOKEN_METRICS } from "./constants.js";
+import { PrometheusFormatter, type PrometheusMetric } from "./utils/prometheus-formatter.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ operation: "TokenMetricsCollector" });
@@ -263,5 +264,111 @@ export class TokenMetricsCollector extends BaseMetricCollector {
       // For now, just clear the buffer
       this.metricsBuffer = [];
     }
+  }
+
+  /**
+   * Export as Prometheus format
+   */
+  toPrometheus(): string[] {
+    const summary = this.getTokenUsageSummary();
+    const metrics: PrometheusMetric[] = [];
+    
+    // Total tokens counter
+    metrics.push({
+      name: 'token_usage_total',
+      type: 'counter',
+      help: 'Total tokens used',
+      samples: [{ value: summary.totalTokens }]
+    });
+    
+    // Prompt tokens
+    metrics.push({
+      name: 'token_prompt_total',
+      type: 'counter',
+      help: 'Total prompt tokens used',
+      samples: [{ value: summary.totalPromptTokens }]
+    });
+    
+    // Completion tokens
+    metrics.push({
+      name: 'token_completion_total',
+      type: 'counter',
+      help: 'Total completion tokens used',
+      samples: [{ value: summary.totalCompletionTokens }]
+    });
+    
+    // Total cost
+    if (summary.totalCost > 0) {
+      metrics.push({
+        name: 'token_cost_total',
+        type: 'counter',
+        help: 'Total cost in currency units',
+        samples: [{ value: summary.totalCost }]
+      });
+    }
+    
+    // Total requests
+    metrics.push({
+      name: 'token_request_total',
+      type: 'counter',
+      help: 'Total LLM requests',
+      samples: [{ value: summary.totalRequests }]
+    });
+    
+    // By profile breakdown
+    for (const [profileId, stats] of summary.byProfile) {
+      metrics.push({
+        name: 'token_usage_by_profile_total',
+        type: 'counter',
+        help: 'Token usage by profile',
+        samples: [
+          { labels: { profile_id: profileId, type: 'total' }, value: stats.totalTokens },
+          { labels: { profile_id: profileId, type: 'prompt' }, value: stats.promptTokens },
+          { labels: { profile_id: profileId, type: 'completion' }, value: stats.completionTokens }
+        ]
+      });
+      
+      if (stats.cost > 0) {
+        metrics.push({
+          name: 'token_cost_by_profile_total',
+          type: 'counter',
+          help: 'Cost by profile',
+          samples: [{ labels: { profile_id: profileId }, value: stats.cost }]
+        });
+      }
+    }
+    
+    // Format all metrics
+    return metrics.flatMap(m => PrometheusFormatter.formatMetric(m));
+  }
+  
+  /**
+   * Export as JSON
+   */
+  toJSON(): Record<string, unknown> {
+    const summary = this.getTokenUsageSummary();
+    const profilesData: Record<string, unknown> = {};
+    
+    for (const [profileId, stats] of summary.byProfile) {
+      profilesData[profileId] = {
+        totalTokens: stats.totalTokens,
+        promptTokens: stats.promptTokens,
+        completionTokens: stats.completionTokens,
+        cost: stats.cost,
+        requests: stats.requests
+      };
+    }
+    
+    return {
+      type: 'token',
+      summary: {
+        totalTokens: summary.totalTokens,
+        totalPromptTokens: summary.totalPromptTokens,
+        totalCompletionTokens: summary.totalCompletionTokens,
+        totalCost: summary.totalCost,
+        totalRequests: summary.totalRequests
+      },
+      byProfile: profilesData
+    };
   }
 }

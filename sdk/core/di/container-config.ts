@@ -828,28 +828,72 @@ export function configureContainerBindings(
   // ============================================================
 
   // MetricsRegistry - Unified metrics registry
-  // Depends on EventRegistry for optional event-based reporting
+  // Manages all metric collectors with centralized configuration
   container
     .bind(Identifiers.MetricsRegistry)
     .toDynamicValue((c: IContainer): MetricsRegistry => {
       const globalContext = c.get(Identifiers.GlobalContext) as import("../global-context.js").GlobalContext;
       
-      // Configure metrics collectors with default settings
+      // Configure all metrics collectors with unified settings
+      // Note: Periodic reporting is disabled at collector level, managed by MetricsRegistry
       const config = {
         workflowMetrics: {
           bufferSize: 100,
           flushInterval: 5000,
-          enablePeriodicReporting: false,
+          enablePeriodicReporting: false, // Disabled - managed by MetricsRegistry
         },
         nodeMetrics: {
           bufferSize: 100,
           flushInterval: 5000,
+          enablePeriodicReporting: false,
         },
         agentMetrics: {
           bufferSize: 100,
           flushInterval: 5000,
+          enablePeriodicReporting: false,
         },
-        enablePeriodicReporting: false,
+        eventMetrics: {
+          bufferSize: 100,
+          flushInterval: 5000,
+          enablePeriodicReporting: false,
+        },
+        toolMetrics: {
+          bufferSize: 100,
+          flushInterval: 5000,
+          enablePeriodicReporting: false,
+        },
+        tokenMetrics: {
+          bufferSize: 100,
+          flushInterval: 5000,
+          enablePeriodicReporting: false,
+        },
+        templateMetrics: {
+          bufferSize: 100,
+          flushInterval: 5000,
+          enablePeriodicReporting: false,
+        },
+        configMetrics: {
+          bufferSize: 100,
+          flushInterval: 5000,
+          enablePeriodicReporting: false,
+        },
+        errorMetrics: {
+          bufferSize: 100,
+          flushInterval: 5000,
+          enablePeriodicReporting: false,
+        },
+        resourceMetrics: {
+          bufferSize: 100,
+          flushInterval: 5000,
+          enablePeriodicReporting: false,
+        },
+        agentLoopMetrics: {
+          bufferSize: 100,
+          flushInterval: 5000,
+          enablePeriodicReporting: false,
+        },
+        // MetricsRegistry-level periodic reporting (optional)
+        enablePeriodicReporting: false, // Set to true to enable unified periodic reports
         reportingInterval: 60000, // 1 minute
       };
       

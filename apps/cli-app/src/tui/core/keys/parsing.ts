@@ -16,7 +16,6 @@ import { isKittyProtocolActive } from "./kitty-protocol.js";
 import { parseKittySequence, normalizeKittyFunctionalCodepoint, normalizeShiftedLetterIdentityCodepoint } from "./kitty-protocol.js";
 import { parseModifyOtherKeysSequence } from "./legacy-sequences.js";
 import { isWindowsTerminalSession } from "./legacy-sequences.js";
-import type { KeyId } from "./types.js";
 
 // =============================================================================
 // Helper Functions

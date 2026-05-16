@@ -7,9 +7,12 @@
  * - Runtime node handling
  * 
  * Key differences from StaticNode:
- * 1. SUBGRAPH nodes are EXPANDED and replaced with their internal structure
- * 2. START/END nodes inside subgraphs become SUBGRAPH_START/SUBGRAPH_END
+ * 1. SUBGRAPH nodes are NOT expanded (Phase 1: Scheme C) - executed as independent entities
+ * 2. EMBED_GRAPH nodes ARE expanded (Phase 3) - their START/END become SUBGRAPH_START/SUBGRAPH_END
  * 3. All nodes gain runtime-specific context properties
+ * 
+ * IMPORTANT: SUBGRAPH_START/SUBGRAPH_END are INTERNAL types used ONLY for EMBED_GRAPH expansion.
+ * They should NOT be used directly in workflow definitions.
  */
 
 import type { NodeIdentity, NodeExecutionConfig, RuntimeNodeContext } from "./shared-node-types.js";
@@ -37,7 +40,10 @@ import type { WorkflowStartConfig, WorkflowEndConfig } from "../workflow/boundar
 /**
  * Node types that exist in the runtime execution graph (after preprocessing)
  * 
- * Note: SUBGRAPH type does NOT exist at runtime - it's expanded during preprocessing
+ * Note: 
+ * - SUBGRAPH type does NOT exist at runtime (Phase 1: Scheme C)
+ * - EMBED_GRAPH type does NOT exist at runtime (expanded during preprocessing)
+ * - SUBGRAPH_START/SUBGRAPH_END are INTERNAL types for EMBED_GRAPH expansion only
  */
 export type RuntimeNodeType =
   | "START"
@@ -45,7 +51,8 @@ export type RuntimeNodeType =
   | "VARIABLE"
   | "FORK"
   | "JOIN"
-  // SUBGRAPH is removed - expanded during preprocessing
+  // SUBGRAPH is removed - creates independent execution entity at runtime (Phase 1)
+  // EMBED_GRAPH is removed - expanded during preprocessing (Phase 3)
   | "SCRIPT"
   | "LLM"
   | "ADD_TOOL"
@@ -57,7 +64,8 @@ export type RuntimeNodeType =
   | "AGENT_LOOP"
   | "START_FROM_TRIGGER"
   | "CONTINUE_FROM_TRIGGER"
-  // New runtime-only types (replacing START/END in expanded subgraphs)
+  // Internal runtime-only types (used ONLY for EMBED_GRAPH expansion)
+  // WARNING: Do not use these types in workflow definitions
   | "SUBGRAPH_START"
   | "SUBGRAPH_END";
 
@@ -85,7 +93,8 @@ export interface RuntimeNodeConfigMap {
   VARIABLE: VariableNodeConfig;
   FORK: ForkNodeConfig;
   JOIN: JoinNodeConfig;
-  // SUBGRAPH is removed - doesn't exist at runtime
+  // SUBGRAPH doesn't exist at runtime (Phase 1: Scheme C)
+  // EMBED_GRAPH doesn't exist at runtime (expanded during preprocessing, Phase 3)
   SCRIPT: ScriptNodeConfig;
   LLM: LLMNodeConfig;
   ADD_TOOL: AddToolNodeConfig;
@@ -97,7 +106,8 @@ export interface RuntimeNodeConfigMap {
   AGENT_LOOP: AgentLoopNodeConfig;
   START_FROM_TRIGGER: WorkflowStartConfig;
   CONTINUE_FROM_TRIGGER: WorkflowEndConfig;
-  // Runtime-only node types
+  // Internal runtime-only types (used ONLY for EMBED_GRAPH expansion)
+  // WARNING: Do not configure these types manually
   SUBGRAPH_START: WorkflowStartConfig;
   SUBGRAPH_END: WorkflowEndConfig;
 }

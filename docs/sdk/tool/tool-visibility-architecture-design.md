@@ -232,8 +232,7 @@ class WorkflowExecutionContext {  // 原 ThreadContext
    * 进入子图时更新工具可见性
    */
   enterSubgraph(workflowId: ID, parentWorkflowId: ID, input: any): void {
-    // 原有逻辑：变量作用域切换
-    this.variableCoordinator.enterLocalScope(this);
+    // 原有逻辑：变量作用域切换（Phase 2 已移除，使用显式变量导入/导出）
     this.executionState.enterSubgraph(workflowId, parentWorkflowId, input);
     
     // 新增：工具可见性切换
@@ -250,9 +249,8 @@ class WorkflowExecutionContext {  // 原 ThreadContext
    * 退出子图时恢复工具可见性
    */
   exitSubgraph(): void {
-    // 原有逻辑
+    // 原有逻辑（Phase 2 已移除 variableCoordinator 调用）
     this.executionState.exitSubgraph();
-    this.variableCoordinator.exitLocalScope(this);
     
     // 新增：恢复父作用域工具可见性
     const parentScopeId = this.executionState.getParentScopeId();

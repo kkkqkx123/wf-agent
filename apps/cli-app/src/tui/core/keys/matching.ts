@@ -3,7 +3,7 @@
  * Handles matching of terminal input data against key identifiers.
  */
 
-import { MODIFIERS, CODEPOINTS, ARROW_CODEPOINTS, FUNCTIONAL_CODEPOINTS, SYMBOL_KEYS } from "./constants.js";
+import { MODIFIERS, CODEPOINTS, ARROW_CODEPOINTS, FUNCTIONAL_CODEPOINTS, SYMBOL_KEYS, LEGACY_KEY_SEQUENCES } from "./constants.js";
 import { isKittyProtocolActive } from "./kitty-protocol.js";
 import { matchesKittySequence } from "./kitty-protocol.js";
 import {
@@ -40,6 +40,7 @@ function isDigitKey(key: string): boolean {
   return key >= "0" && key <= "9";
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function formatKeyNameWithModifiers(keyName: string, modifier: number): string | undefined {
   const mods: string[] = [];
   const effectiveMod = modifier & ~(64 + 128); // LOCK_MASK
@@ -227,7 +228,7 @@ export function matchesKey(data: string, keyId: KeyId): boolean {
     case "insert":
       if (modifier === 0) {
         return (
-          matchesLegacySequence(data, ["\x1b[2~"]) ||
+          matchesLegacySequence(data, LEGACY_KEY_SEQUENCES.insert) ||
           matchesKittySequence(data, FUNCTIONAL_CODEPOINTS.insert, 0)
         );
       }
@@ -239,7 +240,7 @@ export function matchesKey(data: string, keyId: KeyId): boolean {
     case "delete":
       if (modifier === 0) {
         return (
-          matchesLegacySequence(data, ["\x1b[3~"]) ||
+          matchesLegacySequence(data, LEGACY_KEY_SEQUENCES.delete) ||
           matchesKittySequence(data, FUNCTIONAL_CODEPOINTS.delete, 0)
         );
       }
@@ -250,14 +251,14 @@ export function matchesKey(data: string, keyId: KeyId): boolean {
 
     case "clear":
       if (modifier === 0) {
-        return matchesLegacySequence(data, ["\x1b[E", "\x1bOE"]);
+        return matchesLegacySequence(data, LEGACY_KEY_SEQUENCES.clear);
       }
       return matchesLegacyModifierSequence(data, "clear", modifier);
 
     case "home":
       if (modifier === 0) {
         return (
-          matchesLegacySequence(data, ["\x1b[H", "\x1bOH", "\x1b[1~", "\x1b[7~"]) ||
+          matchesLegacySequence(data, LEGACY_KEY_SEQUENCES.home) ||
           matchesKittySequence(data, FUNCTIONAL_CODEPOINTS.home, 0)
         );
       }
@@ -269,7 +270,7 @@ export function matchesKey(data: string, keyId: KeyId): boolean {
     case "end":
       if (modifier === 0) {
         return (
-          matchesLegacySequence(data, ["\x1b[F", "\x1bOF", "\x1b[4~", "\x1b[8~"]) ||
+          matchesLegacySequence(data, LEGACY_KEY_SEQUENCES.end) ||
           matchesKittySequence(data, FUNCTIONAL_CODEPOINTS.end, 0)
         );
       }
@@ -281,7 +282,7 @@ export function matchesKey(data: string, keyId: KeyId): boolean {
     case "pageup":
       if (modifier === 0) {
         return (
-          matchesLegacySequence(data, ["\x1b[5~", "\x1b[[5~"]) ||
+          matchesLegacySequence(data, LEGACY_KEY_SEQUENCES.pageUp) ||
           matchesKittySequence(data, FUNCTIONAL_CODEPOINTS.pageUp, 0)
         );
       }
@@ -293,7 +294,7 @@ export function matchesKey(data: string, keyId: KeyId): boolean {
     case "pagedown":
       if (modifier === 0) {
         return (
-          matchesLegacySequence(data, ["\x1b[6~", "\x1b[[6~"]) ||
+          matchesLegacySequence(data, LEGACY_KEY_SEQUENCES.pageDown) ||
           matchesKittySequence(data, FUNCTIONAL_CODEPOINTS.pageDown, 0)
         );
       }
@@ -308,7 +309,7 @@ export function matchesKey(data: string, keyId: KeyId): boolean {
       }
       if (modifier === 0) {
         return (
-          matchesLegacySequence(data, ["\x1b[A", "\x1bOA"]) ||
+          matchesLegacySequence(data, LEGACY_KEY_SEQUENCES.up) ||
           matchesKittySequence(data, ARROW_CODEPOINTS.up, 0)
         );
       }
@@ -323,7 +324,7 @@ export function matchesKey(data: string, keyId: KeyId): boolean {
       }
       if (modifier === 0) {
         return (
-          matchesLegacySequence(data, ["\x1b[B", "\x1bOB"]) ||
+          matchesLegacySequence(data, LEGACY_KEY_SEQUENCES.down) ||
           matchesKittySequence(data, ARROW_CODEPOINTS.down, 0)
         );
       }
@@ -350,7 +351,7 @@ export function matchesKey(data: string, keyId: KeyId): boolean {
       }
       if (modifier === 0) {
         return (
-          matchesLegacySequence(data, ["\x1b[D", "\x1bOD"]) ||
+          matchesLegacySequence(data, LEGACY_KEY_SEQUENCES.left) ||
           matchesKittySequence(data, ARROW_CODEPOINTS.left, 0)
         );
       }
@@ -377,7 +378,7 @@ export function matchesKey(data: string, keyId: KeyId): boolean {
       }
       if (modifier === 0) {
         return (
-          matchesLegacySequence(data, ["\x1b[C", "\x1bOC"]) ||
+          matchesLegacySequence(data, LEGACY_KEY_SEQUENCES.right) ||
           matchesKittySequence(data, ARROW_CODEPOINTS.right, 0)
         );
       }
@@ -401,21 +402,7 @@ export function matchesKey(data: string, keyId: KeyId): boolean {
       if (modifier !== 0) {
         return false;
       }
-      const functionKeySequences: Record<string, string[]> = {
-        f1: ["\x1bOP", "\x1b[11~", "\x1b[[A"],
-        f2: ["\x1bOQ", "\x1b[12~", "\x1b[[B"],
-        f3: ["\x1bOR", "\x1b[13~", "\x1b[[C"],
-        f4: ["\x1bOS", "\x1b[14~", "\x1b[[D"],
-        f5: ["\x1b[15~", "\x1b[[E"],
-        f6: ["\x1b[17~"],
-        f7: ["\x1b[18~"],
-        f8: ["\x1b[19~"],
-        f9: ["\x1b[20~"],
-        f10: ["\x1b[21~"],
-        f11: ["\x1b[23~"],
-        f12: ["\x1b[24~"],
-      };
-      return matchesLegacySequence(data, functionKeySequences[key]!);
+      return matchesLegacySequence(data, LEGACY_KEY_SEQUENCES[key]);
     }
   }
 

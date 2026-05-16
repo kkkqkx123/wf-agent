@@ -8,7 +8,7 @@
 // Reuse basic types from the packages layer
 import type { FragmentCompositionConfig } from "@wf-agent/prompt-templates";
 import { fragmentRegistry } from "./registry.js";
-import { createContextualLogger } from "../../../../utils/contextual-logger.js";
+import { createContextualLogger } from "@sdk/utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "FragmentComposer" });
 

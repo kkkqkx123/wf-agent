@@ -5,7 +5,6 @@
  * Shows iteration count, tool calls, messages, and status.
  */
 
-import { Box } from "../core/index.js";
 import type { Component } from "../core/tui.js";
 import type { AgentIterationData } from "@wf-agent/types";
 

@@ -6,7 +6,7 @@
 
 import type { TodoItem, TodoStatus, TodoPriority } from "@wf-agent/types";
 import { wrapSection } from "./utils.js";
-import { truncateText } from "@wf-agent/sdk";
+import { truncateText } from "../../../../utils/index.js";
 
 // ============================================================================
 // Local TODO Validation and Normalization Functions

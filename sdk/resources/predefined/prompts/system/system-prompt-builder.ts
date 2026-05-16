@@ -22,18 +22,18 @@
  */
 
 import type { Tool } from "@wf-agent/types";
-import type { ToolDescriptionFormat } from "../../../../core/utils/tools/tool-description-generator.js";
+import type { ToolDescriptionFormat } from "@sdk/core/utils/tools/tool-description-generator.js";
 import {
   generateToolAvailabilitySection,
   toolDescriptionRegistry,
-} from "../../../../core/utils/tools/index.js";
+} from "@sdk/core/utils/tools/index.js";
 import {
   buildCompleteSystemPrompt,
   ASSISTANT_SYSTEM_PROMPT_FRAGMENTS,
   CODER_SYSTEM_PROMPT_FRAGMENTS,
 } from "../fragments/composer.js";
 import { initializeFragmentRegistry, fragmentRegistry } from "../fragments/registry.js";
-import { createContextualLogger } from "../../../../utils/contextual-logger.js";
+import { createContextualLogger } from "@sdk/utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "SystemPromptBuilder" });
 

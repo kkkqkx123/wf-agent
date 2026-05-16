@@ -86,8 +86,6 @@ export class WorkflowLifecycleCoordinator {
    * @returns: Execution result
    */
   async execute(workflowId: string, options: WorkflowExecutionOptions = {}): Promise<WorkflowExecutionResult> {
-    const startTime = Date.now();
-    
     // Step 1: Construct the WorkflowExecutionEntity
     const { workflowExecutionEntity } = await this.workflowExecutionBuilder.build(workflowId, options);
     const executionId = workflowExecutionEntity.id;
@@ -120,12 +118,10 @@ export class WorkflowLifecycleCoordinator {
 
     // Step 4: Execute the Workflow
     const result = await this.workflowExecutor.executeWorkflow(workflowExecutionEntity);
-    const duration = Date.now() - startTime;
 
     // Step 5: Update the workflow execution status based on the execution results.
     const status = result.metadata?.status;
     const isSuccess = status === "COMPLETED";
-    const nodeCount = workflowExecutionEntity.getNodeResults().length;
 
     try {
       if (isSuccess) {

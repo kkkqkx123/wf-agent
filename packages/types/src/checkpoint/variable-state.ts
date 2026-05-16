@@ -16,14 +16,14 @@
  * Checkpoint Variable State Structure
  *
  * This structure captures the complete variable state at a point in time,
- * including both persistent scopes (global, execution) and temporary scopes
- * (subgraph/loop managed via scopeStack).
+ * including both persistent scopes (global, execution).
  *
  * Usage:
  * - WorkflowExecutionStateSnapshot.variableState - checkpoint state storage
  * - Checkpoint serialization/deserialization
  *
- * Note: This is different from VariableScopes which only contains persistent scopes.
+ * Note: After architecture refactoring (Phase 1-3), scopeStack has been removed.
+ * Subgraph now uses independent execution entities with their own variable managers.
  */
 export interface CheckpointVariableState {
   /**
@@ -37,14 +37,4 @@ export interface CheckpointVariableState {
    * Independent per execution, deep copied on fork
    */
   execution: Record<string, unknown>;
-
-  /**
-   * Temporary Scope Stack
-   * Contains all nested temporary scopes (subgraph, loop, etc.)
-   * Each entry represents one level of scope nesting
-   *
-   * Note: After migration to VariableManager, subgraph and loop scopes
-   * are unified in this stack. The distinction is no longer maintained.
-   */
-  scopeStack: Record<string, unknown>[];
 }

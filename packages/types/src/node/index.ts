@@ -4,7 +4,8 @@
  * Architecture:
  * - StaticNode types: Used for workflow definition, validation, preprocessing
  * - RuntimeNode types: Used for execution after preprocessing
- * - SUBGRAPH nodes exist only in static definitions, expanded at runtime
+ * - SUBGRAPH nodes create independent execution entities at runtime (Phase 1: Scheme C)
+ * - EMBED_GRAPH nodes are expanded during preprocessing for lightweight reuse (Phase 3)
  */
 
 // Export shared base types
@@ -28,6 +29,7 @@ export {
   ForkNode as StaticForkNode,
   JoinNode as StaticJoinNode,
   SubgraphNode,
+  EmbedGraphNode,
   ScriptNode as StaticScriptNode,
   LLMNode as StaticLLMNode,
   AddToolNode as StaticAddToolNode,
@@ -47,6 +49,7 @@ export {
   isForkNode as isStaticForkNode,
   isJoinNode as isStaticJoinNode,
   isSubgraphNode,
+  isEmbedGraphNode,
   isScriptNode as isStaticScriptNode,
   isLLMNode as isStaticLLMNode,
   isAddToolNode as isStaticAddToolNode,
@@ -83,6 +86,7 @@ export {
   AgentLoopNode as RuntimeAgentLoopNode,
   StartFromTriggerNode as RuntimeStartFromTriggerNode,
   ContinueFromTriggerNode as RuntimeContinueFromTriggerNode,
+  // Internal types (used ONLY for EMBED_GRAPH expansion, not for public use)
   SubgraphStartNode,
   SubgraphEndNode,
   RuntimeNode,
@@ -103,6 +107,7 @@ export {
   isAgentLoopNode as isRuntimeAgentLoopNode,
   isStartFromTriggerNode as isRuntimeStartFromTriggerNode,
   isContinueFromTriggerNode as isRuntimeContinueFromTriggerNode,
+  // Internal type guards (used ONLY for EMBED_GRAPH expansion, not for public use)
   isSubgraphStartNode,
   isSubgraphEndNode,
 } from "./runtime-node-types.js";

@@ -156,6 +156,12 @@ export class GraphValidator {
       errorList.push(...subgraphErrors);
     }
 
+    // Validate EMBED_GRAPH nodes
+    if (opts.checkSubgraphExistence) {
+      const embedGraphErrors = this.validateEmbedGraphExistence(graph);
+      errorList.push(...embedGraphErrors);
+    }
+
     // Check the compatibility of sub-workflow interfaces.
     if (opts.checkSubgraphCompatibility) {
       const compatibilityErrors = this.validateSubgraphCompatibility(graph);
@@ -595,12 +601,38 @@ export class GraphValidator {
    * @param graph Graph data
    * @returns List of verification errors
    */
-  private static validateSubgraphCompatibility(graph: WorkflowGraphData): ConfigurationValidationError[] {
+  private static validateSubgraphCompatibility(_graph: WorkflowGraphData): ConfigurationValidationError[] {
+    const errors: ConfigurationValidationError[] = [];
+
+    // TODO: Implement subgraph compatibility validation when needed
+    // Currently this is a placeholder for future implementation
+
+    return errors;
+  }
+
+  /**
+   * Validate EMBED_GRAPH node existence and configuration
+   * @param graph Graph data
+   * @returns List of validation errors
+   */
+  private static validateEmbedGraphExistence(graph: WorkflowGraphData): ConfigurationValidationError[] {
     const errors: ConfigurationValidationError[] = [];
 
     for (const node of graph.nodes.values()) {
-      if (node.type === ("SUBGRAPH" as StaticNodeType)) {
-        const _subgraphConfig = node.originalNode?.config as { subgraphId?: string } | undefined;
+      const originalType = node.originalNode?.type;
+      if (originalType === "EMBED_GRAPH") {
+        const embedConfig = node.originalNode?.config as { embedId?: string } | undefined;
+        if (!embedConfig || !embedConfig.embedId) {
+          errors.push(
+            new ConfigurationValidationError(`EMBED_GRAPH node (${node.id}) is missing embedId configuration`, {
+              configType: "workflow",
+              context: {
+                code: "MISSING_EMBED_ID",
+                nodeId: node.id,
+              },
+            }),
+          );
+        }
       }
     }
 

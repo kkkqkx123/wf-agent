@@ -60,8 +60,8 @@ program
 
     // 0. Initialize TOML parser first (required for config loading)
     try {
-      const { TomlParserManager } = await import("@wf-agent/sdk");
-      await TomlParserManager.initialize();
+      const { utils } = await import("@wf-agent/sdk");
+      await utils.TomlParserManager.initialize();
     } catch (_error) {
       // Continue without TOML parser - will use JSON or defaults
     }
@@ -123,7 +123,6 @@ program
       workflowStorageAdapter: storageManager?.getWorkflowStorage() ?? undefined,
       taskStorageAdapter: storageManager?.getTaskStorage() ?? undefined,
       workflowExecutionStorageAdapter: storageManager?.getWorkflowExecutionStorage() ?? undefined,
-      agentLoopCheckpointStorageAdapter: storageManager?.getAgentLoopCheckpointStorage() ?? undefined,
       // Enable graceful shutdown (default is true, but explicit for clarity)
       gracefulShutdown: {
         enabled: true,
@@ -158,8 +157,6 @@ program
 
     // 8. Initialize User Interaction Handler for interactive tools
     const interactionHandler = new CLIUserInteractionManager();
-    // Access event manager through the events API's internal dependencies
-    const eventAPI = sdkInstance.events;
     // The eventAPI has access to the event manager internally
     // We'll use a different approach: pass the SDK instance and let handler access events
     interactionHandler.initialize(sdkInstance);
@@ -270,7 +267,7 @@ async function startTUI() {
     }
     
     // Setup cleanup handlers for TUI mode
-    // Note: GracefulShutdownManager is already registered by SDK, so we don't need manual signal handlers
+    // Note: GracefulShutdownManager is already registered by SDK, but we need additional TUI-specific cleanup
     const cleanupAndExit = async () => {
       output.infoLog("Cleaning up resources...");
       
@@ -312,8 +309,21 @@ async function startTUI() {
       }
     };
 
-    // Note: GracefulShutdownManager is already registered by SDK, so we don't need manual signal handlers
-    // The cleanup logic is handled in the onDestroy hook
+    // Register cleanup handler for process exit events
+    process.on('exit', () => {
+      // Synchronous cleanup only (async operations won't complete)
+      output.infoLog("Process exiting...");
+    });
+    
+    process.on('SIGINT', async () => {
+      output.infoLog("Received SIGINT, cleaning up...");
+      await cleanupAndExit();
+    });
+    
+    process.on('SIGTERM', async () => {
+      output.infoLog("Received SIGTERM, cleaning up...");
+      await cleanupAndExit();
+    });
     
     // Start the TUI application
     app.start();
@@ -326,7 +336,7 @@ async function startTUI() {
   }
 }
 
-// Graceful exit handling (for CLI mode only)
+// Cleanup function for CLI mode (called by postAction hook or ExitManager)
 const shutdown = async () => {
   const output = getOutput();
   output.infoLog("Cleaning up resources...");
@@ -355,19 +365,17 @@ const shutdown = async () => {
 
     // Close the output stream.
     await output.close();
-    process.exit(0);
   } catch (error) {
     output.errorLog(
       `Error cleaning up resources: ${error instanceof Error ? error.message : String(error)}`,
     );
     await output.close();
-    process.exit(1);
+    throw error;
   }
 };
 
-// Note: GracefulShutdownManager is already registered by SDK during bootstrap
-// Manual signal handlers are no longer needed - the SDK handles SIGINT/SIGTERM automatically
-// The shutdown function above is kept for reference but not used as a signal handler
+// Export shutdown function for use in ExitManager or other modules
+export { shutdown };
 
 // Export function to get SDK instance (for adapters and other modules)
 export function getSDKInstance(): import("@wf-agent/sdk").SDKInstance | null {

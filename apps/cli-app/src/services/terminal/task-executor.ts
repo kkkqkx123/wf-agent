@@ -1,9 +1,11 @@
 /**
  * Task Executor
  * Responsible for executing workflow threads in isolated terminals.
+ * 
+ * Note: This executor runs workflows via CLI commands in isolated terminals.
+ * For direct SDK integration, consider using WorkflowExecutionAdapter instead.
  */
 
-import { type SDKInstance } from "@wf-agent/sdk";
 import { randomUUID } from "crypto";
 import * as pty from "node-pty";
 import { getOutput } from "../../utils/output.js";
@@ -21,21 +23,15 @@ function isIPty(ptyInstance: unknown): ptyInstance is pty.IPty {
 /**
  * Task Executor
  * Responsible for executing workflow threads in isolated terminals.
+ * 
+ * Note: This executor uses CLI commands to run workflows in separate terminal sessions.
+ * It does not directly use the SDK - it spawns independent CLI processes.
  */
 export class TaskExecutor {
   /** Task Status Mapping Table */
   private tasks: Map<string, TaskStatus> = new Map();
   /** Task-Terminal Mapping Table */
   private taskTerminalMap: Map<string, string> = new Map();
-  /** SDK instance */
-  private sdk: SDKInstance;
-
-  constructor(sdkInstance: SDKInstance) {
-    if (!sdkInstance) {
-      throw new Error("SDK instance is required. Please provide a valid SDK instance.");
-    }
-    this.sdk = sdkInstance;
-  }
 
   /**
    * Execute task in isolated terminal

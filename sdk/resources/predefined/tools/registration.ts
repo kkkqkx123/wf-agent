@@ -4,10 +4,10 @@
  * Responsible for the registration and deregistration of predefined tools.
  */
 
-import type { ToolRegistry } from "../../../core/registry/tool-registry.js";
-import { createContextualLogger } from "../../../utils/contextual-logger.js";
+import type { ToolRegistry } from "@sdk/core/registry/tool-registry.js";
+import { createContextualLogger } from "@sdk/utils/contextual-logger.js";
 import { createPredefinedTools } from "./registry.js";
-import { toSdkTool } from "../../../services/executors/tools/utils.js";
+import { toSdkTool } from "@sdk/services/executors/tools/utils.js";
 
 const logger = createContextualLogger({ component: "PredefinedTools" });
 

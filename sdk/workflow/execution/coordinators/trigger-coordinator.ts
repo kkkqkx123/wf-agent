@@ -295,8 +295,6 @@ export class TriggerCoordinator {
       workflowRegistry,
       workflowLifecycleCoordinator,
       eventManager,
-      executionBuilder,
-      taskQueueManager,
     } = this.contextFactory.getDependencies();
     const stateManager = this.contextFactory.getStateManager();
 

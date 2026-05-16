@@ -189,7 +189,7 @@ export class CLIAppTUI {
   /**
    * Handle global keyboard input
    */
-  private handleGlobalInput(data: string): boolean {
+  private _handleGlobalInput(data: string): boolean {
     // Ctrl+Q to quit
     if (data === "\x11" || data === "\u0011") {
       this.stop();

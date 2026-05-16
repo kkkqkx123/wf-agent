@@ -4,15 +4,15 @@
 
 import type { BuiltinToolExecutionContext } from "@wf-agent/types";
 import type { AgentLoopRuntimeConfig } from "@wf-agent/types";
-import * as Identifiers from "../../../../../../core/di/service-identifiers.js";
+import * as Identifiers from "@sdk/core/di/service-identifiers.js";
 import { RuntimeValidationError, ConfigurationError } from "@wf-agent/types";
-import type { ToolRegistry } from "../../../../../../core/registry/tool-registry.js";
-import { resolveSystemPrompt } from "../../../../../../core/prompt/system-prompt-resolver.js";
-import { transformToAgentLoopConfig } from "../../../../../../api/shared/config/processors/agent-loop.js";
+import type { ToolRegistry } from "@sdk/core/registry/tool-registry.js";
+import { resolveSystemPrompt } from "@sdk/core/prompt/system-prompt-resolver.js";
+import { transformToAgentLoopConfig } from "@sdk/api/shared/config/processors/agent-loop.js";
 import { existsSync } from "fs";
-import { loadAgentLoopConfig } from "../../../../../../api/shared/config/config-utils.js";
-import type { ServiceFactory } from "../../../../../../core/di/factory-types.js";
-import type { AgentLoopCoordinator } from "../../../../../../agent/execution/coordinators/agent-loop-coordinator.js";
+import { loadAgentLoopConfig } from "@sdk/api/shared/config/config-utils.js";
+import type { ServiceFactory } from "@sdk/core/di/factory-types.js";
+import type { AgentLoopCoordinator } from "@sdk/agent/execution/coordinators/agent-loop-coordinator.js";
 
 export interface CallAgentParams {
   agentProfileId: string;
@@ -52,7 +52,7 @@ export function createCallAgentHandler() {
     
     // Get GlobalContext from execution context
     // The context object may have a globalContext property or be the GlobalContext itself
-    const globalContext = (context as unknown as { globalContext?: import("../../../../../../core/global-context.js").GlobalContext }).globalContext;
+    const globalContext = (context as unknown as { globalContext?: import("@sdk/core/global-context.js").GlobalContext }).globalContext;
     if (!globalContext) {
       throw new RuntimeValidationError("GlobalContext not available in execution context", {
         operation: "call_agent",

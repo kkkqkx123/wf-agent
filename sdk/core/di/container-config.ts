@@ -80,7 +80,6 @@ import { CheckpointState } from "../../workflow/checkpoint/checkpoint-state-mana
 import { ToolContextStore } from "../../workflow/stores/tool-context-store.js";
 import { WorkflowConversationSession } from "../../workflow/message/workflow-conversation-session.js";
 import { ToolVisibilityStore } from "../../workflow/stores/tool-visibility-store.js";
-import { ToolVisibilityCoordinator } from "../../workflow/execution/coordinators/tool-visibility-coordinator.js";
 import { WorkflowExecutionBuilder } from "../../workflow/execution/factories/workflow-execution-builder.js";
 import { WorkflowExecutor } from "../../workflow/execution/executors/workflow-executor.js";
 
@@ -204,7 +203,7 @@ export function configureContainerBindings(
     .toDynamicValue(() => new EventRegistry())
     .inSingletonScope();
 
-  container.bind(Identifiers.ToolRegistry).to(ToolRegistry).inSingletonScope();
+  container.bind(Identifiers.ToolRegistry).toDynamicValue(() => new ToolRegistry()).inSingletonScope();
 
   container.bind(Identifiers.ScriptRegistry).to(ScriptRegistry).inSingletonScope();
 
@@ -693,18 +692,10 @@ export function configureContainerBindings(
   // WorkflowExecutionCoordinator - Workflow Execution Coordinator Factory
   // WorkflowExecutionCoordinator is responsible for coordinating the workflow execution process and requires WorkflowExecutionEntity as a parameter.
   // Create instances using the factory pattern, with one execution coordinator per workflow execution
-  // Note: VariableCoordinator、TriggerCoordinator、InterruptionState、ToolVisibilityCoordinator、NodeExecutionCoordinator all need to be created based on executionId
+  // Note: InterruptionState and NodeExecutionCoordinator need to be created based on executionId
   container
     .bind(Identifiers.WorkflowExecutionCoordinator)
     .toDynamicValue((c: IContainer) => {
-      const variableCoordinator = c.get(Identifiers.VariableCoordinator) as VariableCoordinator;
-      const toolService = c.get(Identifiers.ToolRegistry) as ToolRegistry;
-      const toolVisibilityStore = c.get(Identifiers.ToolVisibilityStore) as ToolVisibilityStore;
-      const toolVisibilityCoordinator = new ToolVisibilityCoordinator(
-        toolService,
-        toolVisibilityStore,
-      );
-      const triggerCoordinatorFactory = c.get(Identifiers.TriggerCoordinator);
       const interruptionManagerFactory = c.get(Identifiers.InterruptionState);
       const nodeExecutionCoordinatorFactory = c.get(Identifiers.NodeExecutionCoordinator);
 
@@ -725,10 +716,7 @@ export function configureContainerBindings(
           
           return new WorkflowExecutionCoordinator(
             executionEntity,
-            variableCoordinator,
-            (triggerCoordinatorFactory as unknown as IdBasedServiceFactory<TriggerCoordinator>).create(executionId),
             interruptionManager,
-            toolVisibilityCoordinator,
             (
               nodeExecutionCoordinatorFactory as unknown as NodeExecutionCoordinatorFactory<NodeExecutionCoordinator>
             ).create(executionId, nodeId, executionEntity),

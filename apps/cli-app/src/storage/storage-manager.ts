@@ -8,20 +8,17 @@ import type {
   WorkflowStorageAdapter,
   WorkflowExecutionStorageAdapter,
   TaskStorageAdapter,
-  AgentLoopCheckpointStorageAdapter,
 } from "@wf-agent/storage";
 import {
   JsonCheckpointStorage,
   JsonWorkflowStorage,
   JsonWorkflowExecutionStorage,
   JsonTaskStorage,
-  JsonAgentLoopCheckpointStorage,
   type BaseJsonStorageConfig,
   SqliteCheckpointStorage,
   SqliteWorkflowStorage,
   SqliteWorkflowExecutionStorage,
   SqliteTaskStorage,
-  SqliteAgentLoopCheckpointStorage,
   type BaseSqliteStorageConfig,
 } from "@wf-agent/storage";
 import type { CLIConfig } from "../config/index.js";
@@ -42,7 +39,6 @@ export class StorageManager {
   private workflowExecutionStorage: WorkflowExecutionStorageAdapter | null = null;
   private checkpointStorage: CheckpointStorageAdapter | null = null;
   private taskStorage: TaskStorageAdapter | null = null;
-  private agentLoopCheckpointStorage: AgentLoopCheckpointStorageAdapter | null = null;
   private initialized: boolean = false;
 
   constructor(private config: CLIConfig) {}
@@ -112,10 +108,6 @@ export class StorageManager {
     this.taskStorage = new JsonTaskStorage(baseConfig);
     await this.taskStorage.initialize();
     logger.info("TaskStorage initialized", { baseDir });
-
-    this.agentLoopCheckpointStorage = new JsonAgentLoopCheckpointStorage(baseConfig);
-    await this.agentLoopCheckpointStorage.initialize();
-    logger.info("AgentLoopCheckpointStorage initialized", { baseDir });
   }
 
   /**
@@ -159,10 +151,6 @@ export class StorageManager {
     this.taskStorage = new SqliteTaskStorage(baseConfig);
     await this.taskStorage.initialize();
     logger.info("TaskStorage initialized", { dbPath, enableWAL });
-
-    this.agentLoopCheckpointStorage = new SqliteAgentLoopCheckpointStorage(baseConfig);
-    await this.agentLoopCheckpointStorage.initialize();
-    logger.info("AgentLoopCheckpointStorage initialized", { dbPath, enableWAL });
   }
 
   /**
@@ -194,13 +182,6 @@ export class StorageManager {
   }
 
   /**
-   * Get agent loop checkpoint storage
-   */
-  getAgentLoopCheckpointStorage(): AgentLoopCheckpointStorageAdapter | null {
-    return this.agentLoopCheckpointStorage;
-  }
-
-  /**
    * Close all storage instances
    */
   async close(): Promise<void> {
@@ -221,9 +202,6 @@ export class StorageManager {
     }
     if (this.taskStorage) {
       promises.push(this.taskStorage.close());
-    }
-    if (this.agentLoopCheckpointStorage) {
-      promises.push(this.agentLoopCheckpointStorage.close());
     }
 
     await Promise.all(promises);
@@ -252,9 +230,6 @@ export class StorageManager {
     }
     if (this.taskStorage) {
       promises.push(this.taskStorage.clear());
-    }
-    if (this.agentLoopCheckpointStorage) {
-      promises.push(this.agentLoopCheckpointStorage.clear());
     }
 
     await Promise.all(promises);

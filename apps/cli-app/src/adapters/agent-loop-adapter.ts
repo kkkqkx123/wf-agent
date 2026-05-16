@@ -16,9 +16,8 @@ import {
   type AgentLoopCheckpointDependencies,
   type AgentLoopEntity,
 } from "@wf-agent/sdk/agent";
+import { EventRegistry, LLMWrapper, LLMExecutor, ToolRegistry, type MessageStreamEvent } from "@wf-agent/sdk";
 import type { AgentLoopRuntimeConfig, AgentLoopResult, ID, Message, AgentStreamEvent } from "@wf-agent/types";
-import type { MessageStreamEvent } from "@wf-agent/sdk/core";
-import { LLMExecutor, LLMWrapper, ToolRegistry, EventRegistry } from "@wf-agent/sdk/core";
 import { CLINotFoundError } from "../types/cli-types.js";
 import { CLIToolApprovalHandler } from "../handlers/user-interaction/tool-approval.js";
 
@@ -200,14 +199,14 @@ export class AgentLoopAdapter extends BaseAdapter {
    * Get Agent Loop instance
    * @param id Instance ID
    */
-  getAgentLoop(id: ID): {
+  async getAgentLoop(id: ID): Promise<{
     id: ID;
     status: string;
     currentIteration: number;
     toolCallCount: number;
     messageCount: number;
-  } | undefined {
-    const entity = this.coordinator.get(id);
+  } | undefined> {
+    const entity = await this.coordinator.get(id);
     if (!entity) {
       return undefined;
     }
@@ -225,16 +224,17 @@ export class AgentLoopAdapter extends BaseAdapter {
    * Get Agent Loop entity (internal use)
    * @param id Instance ID
    */
-  getAgentLoopEntity(id: ID): AgentLoopEntity | undefined {
-    return this.coordinator.get(id);
+  async getAgentLoopEntity(id: ID): Promise<AgentLoopEntity | undefined> {
+    return await this.coordinator.get(id);
   }
 
   /**
    * Get Agent Loop status
    * @param id Instance ID
    */
-  getAgentLoopStatus(id: ID): string | undefined {
-    return this.coordinator.getStatus(id);
+  async getAgentLoopStatus(id: ID): Promise<string | undefined> {
+    const status = await this.coordinator.getStatus(id);
+    return status;
   }
 
   /**

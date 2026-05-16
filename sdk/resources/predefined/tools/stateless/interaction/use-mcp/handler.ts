@@ -6,7 +6,7 @@
  */
 
 import type { ToolOutput } from "@wf-agent/types";
-import type { McpConnectionManager } from "../../../../../../services/mcp/index.js";
+import type { McpConnectionManager } from "@sdk/services/mcp/index.js";
 
 /**
  * Process MCP tool result content

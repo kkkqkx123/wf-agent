@@ -4,13 +4,11 @@
  */
 
 import type { SDKInstance } from "@wf-agent/sdk";
-import { FollowupQuestionCoordinator, ToolApprovalCoordinator } from "@wf-agent/sdk";
+import { ToolApprovalCoordinator } from "@wf-agent/sdk";
 import { CLIFollowupQuestionHandler } from "./followup-question.js";
 import { CLIToolApprovalHandler } from "./tool-approval.js";
-import type { ToolApprovalRequest } from "@wf-agent/types";
 
 export class CLIUserInteractionManager {
-  private followupCoordinator: FollowupQuestionCoordinator | null = null;
   private followupHandler: CLIFollowupQuestionHandler | null = null;
   
   private approvalCoordinator: ToolApprovalCoordinator | null = null;
@@ -28,14 +26,8 @@ export class CLIUserInteractionManager {
 
     const eventManager = globalContext.eventRegistry;
     
-    // 1. Initialize Follow-up Question Coordinator
-    this.followupCoordinator = new FollowupQuestionCoordinator(eventManager);
+    // 1. Initialize Follow-up Question Handler
     this.followupHandler = new CLIFollowupQuestionHandler();
-
-    this.followupCoordinator.registerUIAdapter(async (data) => {
-      return await this.followupHandler!.handle(data);
-    });
-    this.followupCoordinator.initialize();
 
     // 2. Initialize Tool Approval Coordinator
     this.approvalCoordinator = new ToolApprovalCoordinator(eventManager);
@@ -59,15 +51,8 @@ export class CLIUserInteractionManager {
     if (this.followupHandler) {
       this.followupHandler.cleanup();
     }
-    if (this.followupCoordinator) {
-      this.followupCoordinator.cleanup();
-    }
     if (this.approvalHandler) {
       this.approvalHandler.cleanup();
-    }
-    if (this.approvalCoordinator) {
-      // ToolApprovalCoordinator doesn't have a cleanup method in the current SDK version
-      // this.approvalCoordinator.cleanup();
     }
   }
 }

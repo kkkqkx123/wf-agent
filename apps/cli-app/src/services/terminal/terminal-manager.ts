@@ -4,7 +4,7 @@
  */
 
 import * as pty from "node-pty";
-import { spawn, type ChildProcess } from "child_process";
+import { spawn } from "child_process";
 import { randomUUID } from "crypto";
 import * as fs from "fs";
 import * as path from "path";

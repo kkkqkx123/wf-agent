@@ -20,6 +20,7 @@ import { routeHandler } from "./route-handler.js";
 import { scriptHandler } from "./script-handler.js";
 import { startFromTriggerHandler } from "./start-from-trigger-handler.js";
 import { startHandler } from "./start-handler.js";
+import { subgraphHandler, type SubgraphHandlerContext } from "./subgraph-handler.js";
 import { userInteractionHandler, type UserInteractionHandlerContext } from "./user-interaction-handler.js";
 import { variableHandler } from "./variable-handler.js";
 
@@ -57,6 +58,8 @@ export function getNodeHandler(nodeType: string): NodeHandlerFn {
     START_FROM_TRIGGER: (_gc, workflowExecutionEntity, node, context) =>
       startFromTriggerHandler(workflowExecutionEntity, node, context as StartFromTriggerHandlerContext),
     START: (_gc, workflowExecutionEntity, node, _ctx) => startHandler(workflowExecutionEntity, node),
+    SUBGRAPH: (globalContext, workflowExecutionEntity, node, context) =>
+      subgraphHandler(globalContext, workflowExecutionEntity, node, context as SubgraphHandlerContext),
     USER_INTERACTION: (_gc, workflowExecutionEntity, node, context) =>
       userInteractionHandler(workflowExecutionEntity.getExecution(), node, context as UserInteractionHandlerContext),
     VARIABLE: (_gc, workflowExecutionEntity, node, _ctx) => variableHandler(workflowExecutionEntity, node),
@@ -84,6 +87,7 @@ export {
   scriptHandler,
   startFromTriggerHandler,
   startHandler,
+  subgraphHandler,
   userInteractionHandler,
   variableHandler,
 };

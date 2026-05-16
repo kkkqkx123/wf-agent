@@ -4,7 +4,6 @@
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { TerminalSession, TaskStatus } from "../types.js";
-import type { SDKInstance } from "@wf-agent/sdk";
 
 // Mock output
 vi.mock("../../utils/output.js", () => ({
@@ -22,14 +21,10 @@ import { TaskExecutor } from "../task-executor.js";
 describe("TaskExecutor", () => {
   let executor: TaskExecutor;
   let mockTerminal: TerminalSession;
-  let mockSDK: SDKInstance;
 
   beforeEach(() => {
-    // Create a mock SDK instance
-    mockSDK = {} as SDKInstance;
-    
-    // Pass mock SDK to avoid importing index.js
-    executor = new TaskExecutor(mockSDK);
+    // Create TaskExecutor without SDK dependency
+    executor = new TaskExecutor();
     
     // Create a mock terminal session
     const mockPty = {

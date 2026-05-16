@@ -24,6 +24,7 @@ import { validateLLMNode } from "./llm-validator.js";
 import { validateAddToolNode } from "./add-tool-validator.js";
 import { validateUserInteractionNode } from "./user-interaction-validator.js";
 import { validateSubgraphNode } from "./subgraph-validator.js";
+import { validateEmbedGraphNode } from "./embed-graph-validator.js";
 import { validateStartFromTriggerNode } from "./start-from-trigger-validator.js";
 import { validateContinueFromTriggerNode } from "./continue-from-trigger-validator.js";
 
@@ -41,6 +42,7 @@ export { validateLLMNode } from "./llm-validator.js";
 export { validateAddToolNode } from "./add-tool-validator.js";
 export { validateUserInteractionNode } from "./user-interaction-validator.js";
 export { validateSubgraphNode } from "./subgraph-validator.js";
+export { validateEmbedGraphNode } from "./embed-graph-validator.js";
 export { validateStartFromTriggerNode } from "./start-from-trigger-validator.js";
 export { validateContinueFromTriggerNode } from "./continue-from-trigger-validator.js";
 
@@ -79,6 +81,8 @@ export function validateNodeByType(node: StaticNode): Result<StaticNode, Configu
       return validateUserInteractionNode(node);
     case "SUBGRAPH":
       return validateSubgraphNode(node);
+    case "EMBED_GRAPH":
+      return validateEmbedGraphNode(node);
     case "START_FROM_TRIGGER":
       return validateStartFromTriggerNode(node);
     case "CONTINUE_FROM_TRIGGER":

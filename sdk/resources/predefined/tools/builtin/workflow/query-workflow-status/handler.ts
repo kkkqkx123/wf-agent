@@ -5,15 +5,15 @@
 import type { BuiltinToolExecutionContext } from "@wf-agent/types";
 import type {
   QueryWorkflowStatusResult,
-} from "../../../../../../workflow/execution/types/workflow-tool.types.js";
-import * as Identifiers from "../../../../../../core/di/service-identifiers.js";
+} from "@sdk/workflow/execution/types/workflow-tool.types.js";
+import * as Identifiers from "@sdk/core/di/service-identifiers.js";
 import { RuntimeValidationError } from "@wf-agent/types";
-import type { TriggeredSubworkflowHandler } from "../../../../../../workflow/execution/handlers/triggered-subworkflow-handler.js";
-import { isWorkflowExecutionInstance } from "../../../../../../core/types/index.js";
+import type { TriggeredSubworkflowHandler } from "@sdk/workflow/execution/handlers/triggered-subworkflow-handler.js";
+import { isWorkflowExecutionInstance } from "@sdk/core/types/index.js";
 import {
   QueryWorkflowStatusParamsSchema,
   assertWorkflowContext,
-} from "../../../../../../workflow/execution/types/workflow-tool.types.js";
+} from "@sdk/workflow/execution/types/workflow-tool.types.js";
 
 /**
  * Query Workflow Status Tool Handler

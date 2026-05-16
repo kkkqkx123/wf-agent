@@ -1,26 +1,19 @@
 /**
- * Subgraph Processing Function
- * Responsible for handling the logic related to the entry and exit of subgraphs
+ * Subgraph Processing Function (Phase 1: Scheme C - Message Context Only)
+ * 
+ * NOTE: This module now ONLY handles message context passing for subgraphs.
+ * Variable import/export is handled directly in the SUBGRAPH node handler
+ * using WorkflowExecutionBuilder.createSubgraph() and VariableManager.importVariables/exportVariables.
  *
  * Responsibilities:
- * - Handle the logic for subgraphs to enter
- * - Handle the logic for subgraphs to exit
- * - Create metadata for the subgraph context
- * - Manage message context passing between parent and subgraph workflows
- * - Manage variable scope isolation using VariableManager's scope stack
+ * - Handle message context passing when entering/exiting subgraphs
+ * - Validate message context mappings between parent and child workflows
+ * - Copy message contexts to avoid conflicts
  *
  * Design Principles:
+ * - Pure functions with no internal state
  * - Reuse existing path parsing functions
- * - Avoid duplicating the implementation of variable parsing logic
- * - Provide a clear interface for subgraph processing
- * - Use pure functions with no internal state
- * - Leverage VariableManager's scope stack for proper variable isolation
- *
- * Context Management:
- * - Subgraphs can explicitly declare message context inputs/outputs via START node configuration
- * - Message contexts are passed through messagePassing configuration in SUBGRAPH nodes
- * - Contexts are copied (shallow copy) to avoid conflicts between parent and child workflows
- * - Variables are isolated using scope stack - child scopes cannot access parent variables unless explicitly mapped
+ * - Clear separation: variables via VariableManager, messages via this module
  */
 
 import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
@@ -57,9 +50,9 @@ export async function enterSubgraph(
   // Use unified interruption handling wrapper
   const result = await executeWithInterruptionHandling(
     async () => {
-      // NOTE: Variable import is handled by SUBGRAPH_START node handler
+      // Phase 1: Variable import is handled by SUBGRAPH node handler via createSubgraph()
       // This function only handles message context passing
-      logger.debug("Entering subgraph (variables handled by SUBGRAPH_START)", {
+      logger.debug("Entering subgraph (variables handled by SUBGRAPH node handler)", {
         executionId: executionEntity.id,
         workflowId,
       });
@@ -106,9 +99,9 @@ export async function exitSubgraph(
   // Use unified interruption handling wrapper
   const result = await executeWithInterruptionHandling(
     async () => {
-      // NOTE: Variable export is handled by SUBGRAPH_END node handler
+      // Phase 1: Variable export is handled by SUBGRAPH node handler via exportVariables()
       // This function only handles message context passing
-      logger.debug("Exiting subgraph (variables handled by SUBGRAPH_END)", {
+      logger.debug("Exiting subgraph (variables handled by SUBGRAPH node handler)", {
         executionId: executionEntity.id,
       });
 

@@ -24,7 +24,6 @@ import type { WorkflowGraphRegistry } from "../../stores/workflow-graph-registry
 import * as Identifiers from "../../../core/di/service-identifiers.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
-import type { ToolRegistry } from "../../../core/registry/tool-registry.js";
 import type { WorkflowRegistry } from "../../stores/workflow-registry.js";
 import { ConversationSession } from "../../../core/messaging/conversation-session.js";
 import { InMemoryMessageContextRegistry, initializeExecutionContext } from "../../../core/messaging/index.js";
@@ -96,16 +95,6 @@ export class WorkflowExecutionBuilder {
       throw new Error("GlobalContext not initialized. Use constructor with GlobalContext parameter.");
     }
     return this.globalContext.container.get(Identifiers.WorkflowRegistry) as WorkflowRegistry;
-  }
-
-  /**
-   * Get tool service (from DI container)
-   */
-  private _getToolService(): ToolRegistry {
-    if (!this.globalContext) {
-      throw new Error("GlobalContext not initialized. Use constructor with GlobalContext parameter.");
-    }
-    return this.globalContext.toolRegistry;
   }
 
   /**
@@ -507,6 +496,159 @@ export class WorkflowExecutionBuilder {
 
     return {
       workflowExecutionEntity: forkWorkflowExecutionEntity,
+      stateCoordinator,
+      conversationManager,
+    };
+  }
+
+  /**
+   * Create a subgraph execution entity (Phase 1: Scheme C - Separate Execution Entity)
+   * 
+   * Creates an independent child workflow execution with explicit variable mapping and complete isolation.
+   * This replaces the old graph expansion model with a proper parent-child execution relationship.
+   *
+   * @param parentEntity Parent workflow execution entity
+   * @param options Subgraph creation options including subworkflow ID and variable mappings
+   * @returns WorkflowExecutionBuildResult containing the child entity, state coordinator, and conversation manager
+   */
+  async createSubgraph(
+    parentEntity: WorkflowExecutionEntity,
+    options: {
+      subworkflowId: string;
+      nodeId: string; // SUBGRAPH node ID in parent workflow
+      variableMapping?: {
+        inputs?: Array<{ externalName: string; internalName: string; required?: boolean; defaultValue?: unknown }>;
+        outputs?: Array<{ internalName: string; externalName: string }>;
+      };
+      async?: boolean;
+    }
+  ): Promise<WorkflowExecutionBuildResult> {
+    const parentExecution = parentEntity.getWorkflowExecutionData();
+    const subgraphExecutionId = generateId();
+    
+    logger.info("Creating subgraph execution", {
+      parentExecutionId: parentEntity.id,
+      subgraphExecutionId,
+      subworkflowId: options.subworkflowId,
+    });
+
+    // Step 1: Get the preprocessed subworkflow graph
+    const subgraphGraph = this.getWorkflowGraphRegistry().get(options.subworkflowId);
+    if (!subgraphGraph) {
+      throw new ExecutionError(
+        `Subworkflow '${options.subworkflowId}' not found or not preprocessed`,
+        undefined,
+        options.subworkflowId
+      );
+    }
+
+    // Step 2: Create subworkflow execution data
+    const startNode = Array.from(subgraphGraph.nodes.values()).find(n => n.type === "START");
+    if (!startNode) {
+      throw new RuntimeValidationError("Subworkflow graph must have a START node", {
+        field: "graph.nodes",
+      });
+    }
+
+    const subgraphExecution: WorkflowExecution = {
+      id: subgraphExecutionId,
+      workflowId: options.subworkflowId,
+      workflowVersion: subgraphGraph.workflowVersion,
+      currentNodeId: startNode.id,
+      graph: subgraphGraph,
+      variables: [], // Initially empty, will be populated via importVariables
+      variableScopes: {
+        global: parentExecution.variableScopes.global, // Share global scope by reference
+        execution: {}, // Empty execution scope - will be filled via importVariables
+      },
+      input: {}, // Will be populated via variable inputs
+      output: {},
+      nodeResults: [],
+      errors: [],
+      executionType: "TRIGGERED_SUBWORKFLOW", // Use existing type for subgraph executions
+      hierarchy: {
+        parent: {
+          parentType: 'WORKFLOW',
+          parentId: parentEntity.id,
+          nodeId: options.nodeId, // SUBGRAPH node ID in parent
+        },
+        children: [],
+        depth: parentEntity.getHierarchyMetadata()?.depth ? 
+               parentEntity.getHierarchyMetadata()!.depth + 1 : 1,
+        rootExecutionId: parentEntity.getRootExecutionId(),
+        rootExecutionType: parentEntity.getRootExecutionType(),
+      },
+    };
+
+    // Step 3: Create ExecutionState and WorkflowExecutionState
+    const executionState = new ExecutionState();
+    const workflowExecutionState = new WorkflowExecutionState();
+    const registry = this.getExecutionHierarchyRegistry();
+
+    // Step 4: Create WorkflowExecutionEntity
+    const subgraphEntity = new WorkflowExecutionEntity(
+      subgraphExecution,
+      executionState,
+      workflowExecutionState,
+      undefined,
+      registry
+    );
+
+    // Step 5: Import variables from parent using explicit mapping (with deep clone)
+    if (options.variableMapping?.inputs && options.variableMapping.inputs.length > 0) {
+      subgraphEntity.variableStateManager.importVariables(
+        parentEntity.variableStateManager,
+        options.variableMapping.inputs
+      );
+      logger.debug("Imported variables to subgraph", {
+        count: options.variableMapping.inputs.length,
+      });
+    }
+
+    // Step 6: Initialize variables from subworkflow definitions
+    const variableCoordinator = this.getVariableCoordinator() as {
+      initializeFromDefinitions: (
+        manager: any,
+        variables: VariableDefinition[]
+      ) => void;
+    };
+    variableCoordinator.initializeFromDefinitions(
+      subgraphEntity.variableStateManager,
+      subgraphGraph.variables || []
+    );
+
+    // Step 7: Create ConversationSession (clone from parent message history)
+    const conversationManager = new ConversationSession({
+      eventManager: this.getEventManager(),
+      workflowExecutionId: subgraphExecutionId,
+      workflowId: options.subworkflowId,
+      initialMessages: parentEntity.messageHistoryManager.getMessages(),
+    });
+    conversationManager.setContext(subgraphExecution.workflowId, subgraphExecutionId);
+
+    // Step 8: Create WorkflowStateCoordinator
+    const stateCoordinator = new WorkflowStateCoordinator({
+      workflowExecutionEntity: subgraphEntity,
+      conversationManager,
+    });
+
+    // Step 9: Register parent-child relationship in hierarchy registry
+    registry.register(subgraphEntity);
+    parentEntity.registerChild({
+      childType: 'WORKFLOW',
+      childId: subgraphExecutionId,
+      createdAt: Date.now(),
+    });
+
+    logger.debug("Subgraph execution created successfully", {
+      subgraphExecutionId,
+      parentExecutionId: parentEntity.id,
+      variableInputCount: options.variableMapping?.inputs?.length || 0,
+      hasOutputs: !!(options.variableMapping?.outputs && options.variableMapping.outputs.length > 0),
+    });
+
+    return {
+      workflowExecutionEntity: subgraphEntity,
       stateCoordinator,
       conversationManager,
     };

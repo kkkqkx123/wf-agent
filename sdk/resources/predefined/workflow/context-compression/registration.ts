@@ -4,8 +4,8 @@
  * Registration layer: Handles workflow registration logic (with side effects)
  */
 
-import type { WorkflowRegistry } from "../../../../workflow/stores/workflow-registry.js";
-import { createContextualLogger } from "../../../../utils/contextual-logger.js";
+import type { WorkflowRegistry } from "@sdk/workflow/stores/workflow-registry.js";
+import { createContextualLogger } from "@sdk/utils/contextual-logger.js";
 import {
   CONTEXT_COMPRESSION_WORKFLOW_ID,
   createContextCompressionWorkflow,

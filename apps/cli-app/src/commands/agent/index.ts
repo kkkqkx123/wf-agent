@@ -277,7 +277,7 @@ export function createAgentCommands(): Command {
     .action(async id => {
       try {
         const adapter = new AgentLoopAdapter();
-        const status = adapter.getAgentLoopStatus(id);
+        const status = await adapter.getAgentLoopStatus(id);
 
         if (!status) {
           handleError(new CLIValidationError(`Agent Loop not found: ${id}`), {
@@ -307,7 +307,7 @@ export function createAgentCommands(): Command {
     .action(async (id, options: CommandOptions) => {
       try {
         const adapter = new AgentLoopAdapter();
-        const agentLoopInfo = adapter.getAgentLoop(id);
+        const agentLoopInfo = await adapter.getAgentLoop(id);
 
         if (!agentLoopInfo) {
           handleError(new CLIValidationError(`Agent Loop not found: ${id}`), {
@@ -501,7 +501,7 @@ export function createAgentCommands(): Command {
     .action(async (id, options: CommandOptions) => {
       try {
         const adapter = new AgentLoopAdapter();
-        const messages = adapter.getAgentLoopMessages(id);
+        const messages = await adapter.getAgentLoopMessages(id);
 
         if (options.verbose) {
           output.json(messages);

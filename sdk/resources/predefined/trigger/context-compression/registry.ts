@@ -6,7 +6,7 @@
 
 import type { TriggerTemplate } from "@wf-agent/types";
 import { now } from "@wf-agent/common-utils";
-import { CONTEXT_COMPRESSION_WORKFLOW_ID } from "../../../workflow/context-compression/registry.js";
+import { CONTEXT_COMPRESSION_WORKFLOW_ID } from "../../workflow/context-compression/registry.js";
 
 /**
  * Context Compression Trigger Template Name

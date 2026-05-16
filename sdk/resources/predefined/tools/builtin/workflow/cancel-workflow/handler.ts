@@ -5,14 +5,14 @@
 import type { BuiltinToolExecutionContext } from "@wf-agent/types";
 import type {
   CancelWorkflowResult,
-} from "../../../../../../workflow/execution/types/workflow-tool.types.js";
-import * as Identifiers from "../../../../../../core/di/service-identifiers.js";
+} from "@sdk/workflow/execution/types/workflow-tool.types.js";
+import * as Identifiers from "@sdk/core/di/service-identifiers.js";
 import { RuntimeValidationError } from "@wf-agent/types";
-import type { TriggeredSubworkflowHandler } from "../../../../../../workflow/execution/handlers/triggered-subworkflow-handler.js";
+import type { TriggeredSubworkflowHandler } from "@sdk/workflow/execution/handlers/triggered-subworkflow-handler.js";
 import {
   CancelWorkflowParamsSchema,
   assertWorkflowContext,
-} from "../../../../../../workflow/execution/types/workflow-tool.types.js";
+} from "@sdk/workflow/execution/types/workflow-tool.types.js";
 
 /**
  * Cancel Workflow Tool Handler

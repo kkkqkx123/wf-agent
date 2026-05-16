@@ -60,7 +60,6 @@ export class WorkflowRegistry {
   private workflowRelationships: Map<string, WorkflowRelationship> = new Map();
   private activeWorkflows: Set<string> = new Set();
   private referenceRelations: Map<string, WorkflowReferenceRelation[]> = new Map();
-  private maxRecursionDepth: number;
   private workflowExecutionRegistry: WorkflowExecutionRegistry | undefined;
   private storageAdapter: WorkflowStorageAdapter | null = null;
 
@@ -72,7 +71,6 @@ export class WorkflowRegistry {
     } = {},
     workflowExecutionRegistry?: WorkflowExecutionRegistry,
   ) {
-    this.maxRecursionDepth = options.maxRecursionDepth ?? 10;
     this.workflowExecutionRegistry = workflowExecutionRegistry;
     this.storageAdapter = options.storageAdapter || null;
   }

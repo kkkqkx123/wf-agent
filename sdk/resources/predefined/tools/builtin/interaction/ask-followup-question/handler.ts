@@ -6,8 +6,8 @@
  */
 
 import type { ToolOutput, BuiltinToolExecutionContext } from "@wf-agent/types";
-import type { EventRegistry } from "../../../../../../core/registry/event-registry.js";
-import { buildFollowupQuestionRequestedEvent } from "../../../../../../core/utils/event/builders/interaction-events.js";
+import type { EventRegistry } from "@sdk/core/registry/event-registry.js";
+import { buildFollowupQuestionRequestedEvent } from "@sdk/core/utils/event/builders/interaction-events.js";
 import { generateId } from "@wf-agent/common-utils";
 
 /**

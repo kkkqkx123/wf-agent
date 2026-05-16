@@ -28,6 +28,7 @@ import type { SubgraphNodeConfig } from "./configs/subgraph-configs.js";
 import type { AgentLoopNodeConfig } from "./configs/agent-loop-configs.js";
 // Import boundary configs for START/END/SUBGRAPH_START and trigger nodes
 import type { WorkflowStartConfig, WorkflowEndConfig } from "../workflow/boundary-config.js";
+import type { EmbedGraphNodeConfig } from "./configs/embed-graph-configs.js";
 
 // ============================================================================
 // Static Node Types
@@ -39,7 +40,8 @@ export type StaticNodeType =
   | "VARIABLE"
   | "FORK"
   | "JOIN"
-  | "SUBGRAPH"  // Only exists in static definition, expanded during preprocessing
+  | "SUBGRAPH"  // Creates independent execution entity (Phase 1: Scheme C)
+  | "EMBED_GRAPH"  // Lightweight graph expansion for control flow reuse (Phase 3)
   | "SCRIPT"
   | "LLM"
   | "ADD_TOOL"
@@ -76,6 +78,7 @@ export interface StaticNodeConfigMap {
   FORK: ForkNodeConfig;
   JOIN: JoinNodeConfig;
   SUBGRAPH: SubgraphNodeConfig;
+  EMBED_GRAPH: EmbedGraphNodeConfig;
   SCRIPT: ScriptNodeConfig;
   LLM: LLMNodeConfig;
   ADD_TOOL: AddToolNodeConfig;
@@ -104,6 +107,7 @@ export type VariableNode = StaticNodeOfType<"VARIABLE">;
 export type ForkNode = StaticNodeOfType<"FORK">;
 export type JoinNode = StaticNodeOfType<"JOIN">;
 export type SubgraphNode = StaticNodeOfType<"SUBGRAPH">;
+export type EmbedGraphNode = StaticNodeOfType<"EMBED_GRAPH">;
 export type ScriptNode = StaticNodeOfType<"SCRIPT">;
 export type LLMNode = StaticNodeOfType<"LLM">;
 export type AddToolNode = StaticNodeOfType<"ADD_TOOL">;
@@ -130,6 +134,7 @@ export type StaticNode =
   | ForkNode
   | JoinNode
   | SubgraphNode
+  | EmbedGraphNode
   | ScriptNode
   | LLMNode
   | AddToolNode
@@ -157,6 +162,7 @@ export const isVariableNode = createStaticNodeTypeGuard("VARIABLE");
 export const isForkNode = createStaticNodeTypeGuard("FORK");
 export const isJoinNode = createStaticNodeTypeGuard("JOIN");
 export const isSubgraphNode = createStaticNodeTypeGuard("SUBGRAPH");
+export const isEmbedGraphNode = createStaticNodeTypeGuard("EMBED_GRAPH");
 export const isScriptNode = createStaticNodeTypeGuard("SCRIPT");
 export const isLLMNode = createStaticNodeTypeGuard("LLM");
 export const isAddToolNode = createStaticNodeTypeGuard("ADD_TOOL");

@@ -15,10 +15,10 @@
  * - tools/: Tool registration
  */
 
-import type { TriggerTemplateRegistry } from "../../core/registry/trigger-template-registry.js";
-import type { WorkflowRegistry } from "../../workflow/stores/workflow-registry.js";
-import type { ToolRegistry } from "../../core/registry/tool-registry.js";
-import { createContextualLogger } from "../../utils/contextual-logger.js";
+import type { TriggerTemplateRegistry } from "@sdk/core/registry/trigger-template-registry.js";
+import type { WorkflowRegistry } from "@sdk/workflow/stores/workflow-registry.js";
+import type { ToolRegistry } from "@sdk/core/registry/tool-registry.js";
+import { createContextualLogger } from "@sdk/utils/contextual-logger.js";
 
 // Import from submodules
 import {

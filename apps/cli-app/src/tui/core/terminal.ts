@@ -1,4 +1,4 @@
-import { setKittyProtocolActive } from "./keys/index.js";
+import { setKittyProtocolActive, isKittyProtocolActive } from "./keys/index.js";
 import { StdinBuffer } from "./stdin-buffer.js";
 
 const TERMINAL_PROGRESS_KEEPALIVE_MS = 1000;
@@ -29,7 +29,7 @@ export interface Terminal {
   get rows(): number;
 
   // Whether Kitty keyboard protocol is active
-  get kittyProtocolActive(): boolean;
+  // Note: This property is deprecated. Use isKittyProtocolActive() from keys module directly.
 
   // Cursor positioning (relative to current position)
   moveBy(lines: number): void;
@@ -57,15 +57,11 @@ export class ProcessTerminal implements Terminal {
   private wasRaw = false;
   private inputHandler?: (data: string) => void;
   private resizeHandler?: () => void;
-  private _kittyProtocolActive = false;
   private _modifyOtherKeysActive = false;
   private stdinBuffer?: StdinBuffer;
   private stdinDataHandler?: (data: string) => void;
   private progressInterval?: ReturnType<typeof setInterval>;
 
-  get kittyProtocolActive(): boolean {
-    return this._kittyProtocolActive;
-  }
 
   start(onInput: (data: string) => void, onResize: () => void): void {
     this.inputHandler = onInput;
@@ -107,10 +103,9 @@ export class ProcessTerminal implements Terminal {
     // Forward individual sequences to the input handler
     this.stdinBuffer.on("data", (sequence) => {
       // Check for Kitty protocol response
-      if (!this._kittyProtocolActive) {
+      if (!isKittyProtocolActive()) {
         const match = sequence.match(kittyResponsePattern);
         if (match) {
-          this._kittyProtocolActive = true;
           setKittyProtocolActive(true);
 
           // Enable Kitty keyboard protocol (push flags)
@@ -150,7 +145,7 @@ export class ProcessTerminal implements Terminal {
     
     // Fallback to modifyOtherKeys if Kitty not detected
     setTimeout(() => {
-      if (!this._kittyProtocolActive && !this._modifyOtherKeysActive) {
+      if (!isKittyProtocolActive() && !this._modifyOtherKeysActive) {
         process.stdout.write("\x1b[>4;2m");
         this._modifyOtherKeysActive = true;
       }
@@ -158,10 +153,9 @@ export class ProcessTerminal implements Terminal {
   }
 
   async drainInput(maxMs = 1000, idleMs = 50): Promise<void> {
-    if (this._kittyProtocolActive) {
+    if (isKittyProtocolActive()) {
       // Disable Kitty keyboard protocol
       process.stdout.write("\x1b[<u");
-      this._kittyProtocolActive = false;
       setKittyProtocolActive(false);
     }
     if (this._modifyOtherKeysActive) {
@@ -205,9 +199,8 @@ export class ProcessTerminal implements Terminal {
     process.stdout.write("\x1b[?2004l");
 
     // Disable Kitty keyboard protocol
-    if (this._kittyProtocolActive) {
+    if (isKittyProtocolActive()) {
       process.stdout.write("\x1b[<u");
-      this._kittyProtocolActive = false;
       setKittyProtocolActive(false);
     }
     if (this._modifyOtherKeysActive) {

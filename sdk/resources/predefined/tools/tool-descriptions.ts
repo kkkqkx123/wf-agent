@@ -13,7 +13,7 @@
  * ```
  */
 
-import { toolDescriptionRegistry } from "../../../core/utils/tools/tool-description-registry.js";
+import { toolDescriptionRegistry } from "@sdk/core/utils/tools/tool-description-registry.js";
 
 // Stateless - Filesystem tools
 export { READ_FILE_TOOL_DESCRIPTION } from "./stateless/filesystem/read-file/index.js";

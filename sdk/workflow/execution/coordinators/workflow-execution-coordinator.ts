@@ -5,10 +5,7 @@
 
 import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
 import type { WorkflowExecutionResult } from "@wf-agent/types";
-import type { VariableCoordinator } from "./variable-coordinator.js";
-import type { TriggerCoordinator } from "./trigger-coordinator.js";
 import type { InterruptionState } from "../../../core/types/interruption-state.js";
-import type { ToolVisibilityCoordinator } from "./tool-visibility-coordinator.js";
 import type { NodeExecutionCoordinator } from "./node-execution-coordinator.js";
 import type { WorkflowNavigator } from "../../builder/workflow-navigator.js";
 import {
@@ -33,10 +30,7 @@ import type { WorkflowInterruptionCheckResult } from "../../../core/utils/interr
 export class WorkflowExecutionCoordinator {
   constructor(
     private readonly workflowExecutionEntity: WorkflowExecutionEntity,
-    private readonly _variableCoordinator: VariableCoordinator,
-    private readonly _triggerCoordinator: TriggerCoordinator,
     private readonly interruptionManager: InterruptionState,
-    private readonly _toolVisibilityCoordinator: ToolVisibilityCoordinator,
     private readonly nodeExecutionCoordinator: NodeExecutionCoordinator,
     private readonly navigator: WorkflowNavigator,
   ) {}

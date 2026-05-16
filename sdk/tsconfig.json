@@ -10,6 +10,18 @@
       ],
       "@sdk/services/*": [
         "./services/*"
+      ],
+      "@sdk/utils/*": [
+        "./utils/*"
+      ],
+      "@sdk/workflow/*": [
+        "./workflow/*"
+      ],
+      "@sdk/agent/*": [
+        "./agent/*"
+      ],
+      "@sdk/api/*": [
+        "./api/*"
       ]
     }
   },

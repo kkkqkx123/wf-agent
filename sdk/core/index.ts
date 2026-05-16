@@ -1,4 +1,5 @@
 // Core module exports
+// Only exports from core directory, no cross-module re-exports
 
 // Checkpoint - Universal Layer
 export * from "./checkpoint/index.js";
@@ -32,52 +33,6 @@ export * from "./prompt/index.js";
 
 // Registry
 export * from "./registry/index.js";
-
-// Services (re-exported from sdk/services)
-export {
-  checkAutoApproval,
-  extractContextFromParameters,
-  type AutoApprovalDecision,
-  type AutoApprovalContext,
-  type CheckAutoApprovalParams,
-  containsDangerousSubstitution,
-  findLongestPrefixMatch,
-  getCommandDecision,
-  getSingleCommandDecision,
-  type CommandDecision,
-  checkFilePermission,
-  matchesPattern,
-  getEffectivePermission,
-  batchCheckFilePermissions,
-  createDefaultFilePermissionSettings,
-  checkMcpApproval,
-  createDefaultMcpApprovalSettings,
-  mergeMcpApprovalSettings,
-  isServerConfigured,
-  getAutoApprovedTools,
-} from "../services/auto-approval/index.js";
-
-export {
-  TerminalService,
-  getTerminalService,
-  createTerminalService,
-  ShellDetector,
-  shellDetector,
-  TerminalRegistry,
-  terminalRegistry,
-  type ShellType,
-  type SessionStatus,
-  type TerminalSessionOptions,
-  type TerminalSession,
-  type ExecuteOptions,
-  type ExecuteResult,
-  type OutputOptions,
-  type TerminalServiceConfig,
-  type ShellInfo,
-  type ProcessInfo,
-  type TerminalSessionWithProcess,
-  type TerminalServiceEvents,
-} from "../services/terminal/index.js";
 
 // Triggers
 export * from "./triggers/index.js";

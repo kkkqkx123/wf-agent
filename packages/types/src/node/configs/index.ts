@@ -26,6 +26,9 @@ export * from './context-configs.js';
 // Export subgraph node configuration
 export * from './subgraph-configs.js';
 
+// Export embed graph node configuration
+export * from './embed-graph-configs.js';
+
 // Export trigger-based subworkflow node configurations
 // Note: These are aliases to WorkflowStartConfig and WorkflowEndConfig
 export {
@@ -46,6 +49,10 @@ export {
   SubgraphNodeConfigSchema,
   isSubgraphNodeConfig,
 } from './subgraph-configs-schema.js';
+
+export {
+  EmbedGraphNodeConfigSchema,
+} from './embed-graph-configs-schema.js';
 
 // Re-export boundary config schemas for trigger nodes (aliases)
 export {

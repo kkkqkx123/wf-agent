@@ -17,10 +17,9 @@ import {
   LEGACY_KEY_SEQUENCES,
   LEGACY_SHIFT_SEQUENCES,
   LEGACY_CTRL_SEQUENCES,
-  LEGACY_SEQUENCE_KEY_IDS,
   MODIFIERS,
 } from "./constants.js";
-import type { KeyId, ParsedModifyOtherKeysSequence } from "./types.js";
+import type { ParsedModifyOtherKeysSequence } from "./types.js";
 
 // =============================================================================
 // Legacy Sequence Matching

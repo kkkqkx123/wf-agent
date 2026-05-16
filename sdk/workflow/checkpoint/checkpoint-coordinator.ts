@@ -277,7 +277,6 @@ export class CheckpointCoordinator {
     const variableState: import("@wf-agent/types").CheckpointVariableState = {
       global: Object.fromEntries(vmSnapshot.global.entries()),
       execution: Object.fromEntries(vmSnapshot.execution.entries()),
-      scopeStack: vmSnapshot.scopeStack.map(scope => Object.fromEntries(scope.entries())),
     };
 
     return {
@@ -419,7 +418,6 @@ export class CheckpointCoordinator {
     // Convert from CheckpointVariableState back to VariableManager format
     const globalMap = new Map();
     const executionMap = new Map();
-    const scopeStack: Array<Map<string, { definition: import("@wf-agent/types").VariableDefinition; value: unknown }>> = [];
     
     const variableState = workflowExecutionState.variableState;
     
@@ -443,24 +441,9 @@ export class CheckpointCoordinator {
       }
     }
     
-    // Restore temporary scopes from scopeStack
-    if (variableState.scopeStack && Array.isArray(variableState.scopeStack)) {
-      for (const scopeObj of variableState.scopeStack) {
-        const scopeMap = new Map();
-        for (const [name, value] of Object.entries(scopeObj)) {
-          scopeMap.set(name, {
-            definition: { name, type: typeof value, value, scope: 'subgraph' as const },
-            value,
-          });
-        }
-        scopeStack.push(scopeMap);
-      }
-    }
-    
     workflowExecutionEntity.variableStateManager.restoreFromSnapshot({
       global: globalMap,
       execution: executionMap,
-      scopeStack,
     });
 
     // Step 8: Create the ConversationSession

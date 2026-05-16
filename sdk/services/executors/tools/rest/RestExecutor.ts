@@ -17,9 +17,6 @@ import {
 import { BaseExecutor } from "../core/base/BaseExecutor.js";
 import { HttpClient, InterceptorManager } from "../../../http/index.js";
 import type { RestExecutorConfig } from "./types.js";
-import { createContextualLogger } from "../../../../utils/contextual-logger.js";
-
-const logger = createContextualLogger({ component: "RestExecutor" });
 
 /**
  * REST Tool Executor

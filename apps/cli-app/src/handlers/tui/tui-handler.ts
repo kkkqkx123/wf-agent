@@ -19,6 +19,7 @@ export class TUIHandler implements OutputHandler {
   readonly target = OutputTarget.TUI;
   readonly name = "tui";
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   constructor(private tui: TUI) {}
 
   /**

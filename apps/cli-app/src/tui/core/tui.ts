@@ -172,10 +172,7 @@ export class TUI extends Container {
   private static readonly MIN_RENDER_INTERVAL_MS = 16;
   private cursorRow = 0;
   private hardwareCursorRow = 0;
-  private showHardwareCursor = process.env["PI_HARDWARE_CURSOR"] === "1";
-  private clearOnShrink = process.env["PI_CLEAR_ON_SHRINK"] === "1";
   private maxLinesRendered = 0;
-  private previousViewportTop = 0;
   private fullRedrawCount = 0;
   private stopped = false;
 
@@ -189,12 +186,9 @@ export class TUI extends Container {
     focusOrder: number;
   }[] = [];
 
-  constructor(terminal: Terminal, showHardwareCursor?: boolean) {
+  constructor(terminal: Terminal) {
     super();
     this.terminal = terminal;
-    if (showHardwareCursor !== undefined) {
-      this.showHardwareCursor = showHardwareCursor;
-    }
   }
 
   get fullRedraws(): number {
@@ -365,7 +359,6 @@ export class TUI extends Container {
       this.cursorRow = 0;
       this.hardwareCursorRow = 0;
       this.maxLinesRendered = 0;
-      this.previousViewportTop = 0;
       if (this.renderTimer) {
         clearTimeout(this.renderTimer);
         this.renderTimer = undefined;

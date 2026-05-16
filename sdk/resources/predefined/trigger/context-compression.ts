@@ -7,9 +7,9 @@
 
 import type { TriggerTemplate } from "@wf-agent/types";
 import { now } from "@wf-agent/common-utils";
-import type { TriggerTemplateRegistry } from "../../../core/registry/trigger-template-registry.js";
+import type { TriggerTemplateRegistry } from "@sdk/core/registry/trigger-template-registry.js";
 import { CONTEXT_COMPRESSION_WORKFLOW_ID } from "../workflow/context-compression.js";
-import { createContextualLogger } from "../../../utils/contextual-logger.js";
+import { createContextualLogger } from "@sdk/utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "ContextCompressionTrigger" });
 

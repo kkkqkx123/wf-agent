@@ -272,40 +272,6 @@ export class WorkflowExecutionRegistry {
   }
 
   /**
-   * Load workflow execution from storage (if adapter is available)
-   * Note: This is a simplified implementation. Full deserialization would require
-   * reconstructing the complete entity with all state managers.
-   * @param executionId Execution ID to load
-   * @returns Loaded execution data or null
-   */
-  private async loadFromStorage(executionId: string): Promise<unknown | null> {
-    if (!this.storageAdapter) {
-      logger.debug("No storage adapter configured, cannot load from storage");
-      return null;
-    }
-
-    try {
-      const data = await this.storageAdapter.load(executionId);
-      if (!data) {
-        return null;
-      }
-
-      // Deserialize execution data
-      const decoder = new TextDecoder();
-      const executionData = JSON.parse(decoder.decode(data));
-      
-      logger.debug("Workflow execution loaded from storage", { executionId });
-      return executionData;
-    } catch (error) {
-      logger.error("Failed to load workflow execution from storage", {
-        executionId,
-        error: getErrorMessage(error),
-      });
-      return null;
-    }
-  }
-
-  /**
    * Initialize registry from storage (preload all executions)
    * Note: This is typically not used for executions as they are created dynamically.
    * This method is provided for completeness and potential future use cases.

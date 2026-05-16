@@ -26,6 +26,7 @@ import { enterSubgraph, exitSubgraph } from "../subgraph-handler.js";
 import * as Identifiers from "../../../../core/di/service-identifiers.js";
 import type { WorkflowExecutor } from "../../executors/workflow-executor.js";
 import type { WorkflowExecutionBuilder } from "../../factories/workflow-execution-builder.js";
+import { getErrorOrNew } from "@wf-agent/common-utils";
 
 const logger = createContextualLogger({ component: "subgraph-node-handler" });
 
@@ -82,57 +83,108 @@ export async function subgraphHandler(
     outputs: config.variableOutputs || [],
   };
 
-  // Step 3: Create independent subgraph execution entity
-  const buildResult = await executionBuilder.createSubgraph(workflowExecutionEntity, {
-    subworkflowId,
-    nodeId: node.id,
-    variableMapping,
-    async: false, // SUBGRAPH always executes synchronously
-  });
-
-  const subgraphEntity = buildResult.workflowExecutionEntity;
-
-  logger.debug("Subgraph execution entity created", {
-    subgraphExecutionId: subgraphEntity.id,
-    parentExecutionId: workflowExecutionEntity.id,
-  });
-
-  // Step 4: Handle message context entering (via subgraph-handler)
-  // Note: We need to pass the original SUBGRAPH static node for message context validation
-  const staticNode = ('originalNode' in node ? node.originalNode : node) as any;
-  if (staticNode && staticNode.type === 'SUBGRAPH') {
-    await enterSubgraph(
-      workflowExecutionEntity,
+  let subgraphEntity: WorkflowExecutionEntity | null = null;
+  
+  try {
+    // Step 3: Create independent subgraph execution entity
+    const buildResult = await executionBuilder.createSubgraph(workflowExecutionEntity, {
       subworkflowId,
-      workflowExecutionEntity.getWorkflowId(),
-      {}, // Input will come from variable imports
-      staticNode
-    );
-  }
-
-  // Step 5: Execute subgraph synchronously
-  const result = await executeSync(globalContext, subgraphEntity);
-  logger.info("Subgraph completed", {
-    subgraphExecutionId: subgraphEntity.id,
-  });
-
-  // Step 6: Export variables back to parent
-  if (variableMapping.outputs && variableMapping.outputs.length > 0) {
-    workflowExecutionEntity.variableStateManager.exportVariables(
-      subgraphEntity.variableStateManager,
-      variableMapping.outputs
-    );
-    logger.debug("Exported variables from subgraph to parent", {
-      count: variableMapping.outputs.length,
+      nodeId: node.id,
+      variableMapping,
+      async: false, // SUBGRAPH always executes synchronously
     });
-  }
 
-  // Step 7: Handle message context exiting (via subgraph-handler)
-  if (staticNode && staticNode.type === 'SUBGRAPH') {
-    await exitSubgraph(workflowExecutionEntity, staticNode);
-  }
+    subgraphEntity = buildResult.workflowExecutionEntity;
 
-  return result;
+    logger.debug("Subgraph execution entity created", {
+      subgraphExecutionId: subgraphEntity.id,
+      parentExecutionId: workflowExecutionEntity.id,
+    });
+
+    // Step 4: Handle message context entering (via subgraph-handler)
+    // Note: We need to pass the original SUBGRAPH static node for message context validation
+    const staticNode = ('originalNode' in node ? node.originalNode : node) as any;
+    if (staticNode && staticNode.type === 'SUBGRAPH') {
+      await enterSubgraph(
+        workflowExecutionEntity,
+        subworkflowId,
+        workflowExecutionEntity.getWorkflowId(),
+        {}, // Input will come from variable imports
+        staticNode
+      );
+    }
+
+    // Step 5: Execute subgraph synchronously
+    const result = await executeSync(globalContext, subgraphEntity);
+    logger.info("Subgraph completed", {
+      subgraphExecutionId: subgraphEntity.id,
+    });
+
+    // Step 6: Export variables back to parent
+    if (variableMapping.outputs && variableMapping.outputs.length > 0) {
+      workflowExecutionEntity.variableStateManager.exportVariables(
+        subgraphEntity.variableStateManager,
+        variableMapping.outputs
+      );
+      logger.debug("Exported variables from subgraph to parent", {
+        count: variableMapping.outputs.length,
+      });
+    }
+
+    // Step 7: Handle message context exiting (via subgraph-handler)
+    if (staticNode && staticNode.type === 'SUBGRAPH') {
+      await exitSubgraph(workflowExecutionEntity, staticNode);
+    }
+
+    return result;
+  } catch (error) {
+    const errorObj = getErrorOrNew(error);
+    logger.error("Subgraph execution failed", {
+      executionId: workflowExecutionEntity.id,
+      nodeId: node.id,
+      subworkflowId,
+      subgraphExecutionId: subgraphEntity?.id,
+      error: errorObj,
+    });
+
+    // Cleanup resources on failure
+    if (subgraphEntity) {
+      try {
+        logger.debug("Cleaning up failed subgraph execution", {
+          subgraphExecutionId: subgraphEntity.id,
+        });
+
+        // Stop execution if running
+        subgraphEntity.stop();
+
+        // Unregister from hierarchy registry
+        const registry = globalContext.container.get(
+          Identifiers.ExecutionHierarchyRegistry
+        ) as any;
+        if (registry && typeof registry.unregister === 'function') {
+          registry.unregister(subgraphEntity.id);
+        }
+
+        // Remove from parent's children list
+        workflowExecutionEntity.unregisterChild(subgraphEntity.id, 'WORKFLOW');
+
+        logger.info("Failed subgraph cleaned up successfully", {
+          subgraphExecutionId: subgraphEntity.id,
+        });
+      } catch (cleanupError) {
+        logger.warn("Failed to cleanup subgraph after error", {
+          subgraphExecutionId: subgraphEntity.id,
+          cleanupError: getErrorOrNew(cleanupError),
+        });
+      }
+    }
+
+    // Re-throw with more context
+    throw new Error(
+      `Subgraph execution failed for node '${node.id}': ${errorObj.message}`,
+      { cause: errorObj }
+    );
+  }
 }
 
 /**

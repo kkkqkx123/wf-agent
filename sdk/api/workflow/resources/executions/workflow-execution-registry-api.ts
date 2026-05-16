@@ -44,7 +44,7 @@ export interface WorkflowExecutionSummary {
   /** Execution state */
   status: WorkflowExecutionStatus;
   /** Execution type */
-  executionType?: "MAIN" | "FORK_JOIN" | "TRIGGERED_SUBWORKFLOW";
+  executionType?: "MAIN" | "FORK_JOIN" | "TRIGGERED_SUBWORKFLOW" | "SUBGRAPH";
   /** Current Node ID */
   currentNodeId: string;
   /** Starting time */

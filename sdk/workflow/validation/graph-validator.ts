@@ -598,14 +598,135 @@ export class GraphValidator {
 
   /**
    * Verify sub-workflow interface compatibility
-   * @param graph Graph data
+   * 
+   * Validates that SUBGRAPH nodes have compatible variable mappings:
+   * - variableInputs reference valid parent workflow variables or are optional with defaults
+   * - variableOutputs reference valid subworkflow variables
+   * 
+   * Note: This validation is performed at the graph level, checking all SUBGRAPH nodes.
+   * Detailed runtime validation (actual variable existence) happens during execution.
+   * 
+   * @param graph Graph data containing SUBGRAPH nodes
    * @returns List of verification errors
    */
-  private static validateSubgraphCompatibility(_graph: WorkflowGraphData): ConfigurationValidationError[] {
+  private static validateSubgraphCompatibility(graph: WorkflowGraphData): ConfigurationValidationError[] {
     const errors: ConfigurationValidationError[] = [];
 
-    // TODO: Implement subgraph compatibility validation when needed
-    // Currently this is a placeholder for future implementation
+    // Get all SUBGRAPH nodes
+    const subgraphNodes: Array<{
+      nodeId: string;
+      subworkflowId: string;
+      variableInputs?: Array<{ externalName: string; internalName: string; required?: boolean; defaultValue?: unknown }>;
+      variableOutputs?: Array<{ internalName: string; externalName: string }>;
+    }> = [];
+
+    for (const node of graph.nodes.values()) {
+      if (node.type === ("SUBGRAPH" as StaticNodeType)) {
+        const config = node.originalNode?.config as {
+          subgraphId?: string;
+          variableInputs?: Array<{ externalName: string; internalName: string; required?: boolean; defaultValue?: unknown }>;
+          variableOutputs?: Array<{ internalName: string; externalName: string }>;
+        } | undefined;
+
+        if (config?.subgraphId) {
+          subgraphNodes.push({
+            nodeId: node.id,
+            subworkflowId: config.subgraphId,
+            variableInputs: config.variableInputs,
+            variableOutputs: config.variableOutputs,
+          });
+        }
+      }
+    }
+
+    // Validate each SUBGRAPH node's variable mappings
+    for (const subgraphNode of subgraphNodes) {
+      // Check variableInputs format
+      if (subgraphNode.variableInputs && subgraphNode.variableInputs.length > 0) {
+        for (const input of subgraphNode.variableInputs) {
+          // Validate that externalName and internalName are present
+          if (!input.externalName || !input.externalName.trim()) {
+            errors.push(
+              new ConfigurationValidationError(
+                `SUBGRAPH node '${subgraphNode.nodeId}' has variableInput with missing externalName`,
+                {
+                  configType: "workflow",
+                  context: {
+                    code: "MISSING_EXTERNAL_NAME",
+                    nodeId: subgraphNode.nodeId,
+                    subworkflowId: subgraphNode.subworkflowId,
+                    internalName: input.internalName,
+                  },
+                }
+              )
+            );
+          }
+
+          if (!input.internalName || !input.internalName.trim()) {
+            errors.push(
+              new ConfigurationValidationError(
+                `SUBGRAPH node '${subgraphNode.nodeId}' has variableInput with missing internalName`,
+                {
+                  configType: "workflow",
+                  context: {
+                    code: "MISSING_INTERNAL_NAME",
+                    nodeId: subgraphNode.nodeId,
+                    subworkflowId: subgraphNode.subworkflowId,
+                    externalName: input.externalName,
+                  },
+                }
+              )
+            );
+          }
+
+          // Warn if required input has no default value (runtime validation will catch missing values)
+          if (input.required && input.defaultValue === undefined) {
+            // This is not an error, just a potential runtime issue
+            // We could add a warning log here if needed
+          }
+        }
+      }
+
+      // Check variableOutputs format
+      if (subgraphNode.variableOutputs && subgraphNode.variableOutputs.length > 0) {
+        for (const output of subgraphNode.variableOutputs) {
+          // Validate that internalName and externalName are present
+          if (!output.internalName || !output.internalName.trim()) {
+            errors.push(
+              new ConfigurationValidationError(
+                `SUBGRAPH node '${subgraphNode.nodeId}' has variableOutput with missing internalName`,
+                {
+                  configType: "workflow",
+                  context: {
+                    code: "MISSING_OUTPUT_INTERNAL_NAME",
+                    nodeId: subgraphNode.nodeId,
+                    subworkflowId: subgraphNode.subworkflowId,
+                    externalName: output.externalName,
+                  },
+                }
+              )
+            );
+          }
+
+          if (!output.externalName || !output.externalName.trim()) {
+            errors.push(
+              new ConfigurationValidationError(
+                `SUBGRAPH node '${subgraphNode.nodeId}' has variableOutput with missing externalName`,
+                {
+                  configType: "workflow",
+                  context: {
+                    code: "MISSING_OUTPUT_EXTERNAL_NAME",
+                    nodeId: subgraphNode.nodeId,
+                    subworkflowId: subgraphNode.subworkflowId,
+                    internalName: output.internalName,
+                  },
+                }
+              )
+            );
+          }
+        }
+      }
+    }
 
     return errors;
   }

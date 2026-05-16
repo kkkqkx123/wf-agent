@@ -32,4 +32,6 @@ export type WorkflowExecutionType =
   /** FORK/JOIN child executions */
   | "FORK_JOIN"
   /** Triggered subworkflow execution */
-  | "TRIGGERED_SUBWORKFLOW";
+  | "TRIGGERED_SUBWORKFLOW"
+  /** SUBGRAPH node execution (synchronous embedded workflow) */
+  | "SUBGRAPH";

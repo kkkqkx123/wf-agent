@@ -565,7 +565,7 @@ export class WorkflowExecutionBuilder {
       output: {},
       nodeResults: [],
       errors: [],
-      executionType: "TRIGGERED_SUBWORKFLOW", // Use existing type for subgraph executions
+      executionType: "SUBGRAPH", // SUBGRAPH node execution
       hierarchy: {
         parent: {
           parentType: 'WORKFLOW',

@@ -6,13 +6,13 @@
 import { Box, Container, Text, SelectList } from "../core/index.js";
 import type { Screen } from "./screen.js";
 import { WorkflowAdapter } from "../../adapters/workflow-adapter.js";
-import type { MessageBus, MessageSubscription } from "@wf-agent/sdk";
+import type { MessageBus, MessageSubscription } from "@wf-agent/sdk/api";
 import { MessageCategory, WorkflowExecutionMessageType } from "@wf-agent/types";
 import type {
   BaseComponentMessage,
   WorkflowExecutionNodeData,
 } from "@wf-agent/types";
-import { createContextualLogger } from "@wf-agent/sdk";
+import { createContextualLogger } from "@wf-agent/sdk/utils";
 
 export class WorkflowScreen implements Screen {
   private container: Container;

@@ -63,7 +63,8 @@ export class Editor implements Component, Focusable {
   private autocompleteProvider?: AutocompleteProvider;
   private autocompleteList?: SelectList;
   private autocompleteState: "regular" | "force" | null = null;
-  private autocompletePrefix: string = "";
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  private _autocompletePrefix: string = "";
   private autocompleteMaxVisible: number = 5;
   private autocompleteAbort?: AbortController;
   private autocompleteDebounceTimer?: ReturnType<typeof setTimeout>;
@@ -1586,7 +1587,7 @@ export class Editor implements Component, Focusable {
   }
 
   private applyAutocompleteSuggestions(suggestions: AutocompleteSuggestions & { prefix?: string }, state: "regular" | "force"): void {
-    this.autocompletePrefix = suggestions.prefix || "";
+    this._autocompletePrefix = suggestions.prefix || "";
     const items = suggestions.items
       .filter((item): item is { value: string; label: string; description?: string } => item.value !== undefined && item.label !== undefined)
       .map(item => ({ value: item.value!, label: item.label!, description: item.description }));
@@ -1613,7 +1614,7 @@ export class Editor implements Component, Focusable {
     this.cancelAutocompleteRequest();
     this.autocompleteState = null;
     this.autocompleteList = undefined;
-    this.autocompletePrefix = "";
+    this._autocompletePrefix = "";
   }
 
   public isShowingAutocomplete(): boolean {

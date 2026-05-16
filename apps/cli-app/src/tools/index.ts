@@ -12,7 +12,7 @@ export type { ToolOutput } from "@wf-agent/types";
 export type { ToolRegistryConfig } from "./types.js";
 
 // Export tool definition types from SDK
-export type { ToolDefinitionLike } from "@wf-agent/sdk";
+export type { ToolDefinitionLike } from "@wf-agent/sdk/services";
 
 // Registration Center Export
 export { ToolRegistry, createToolRegistry } from "./registry.js";
@@ -27,14 +27,14 @@ export {
   RetryStrategy,
   toSdkTool,
   toSdkTools,
-} from "@wf-agent/sdk";
+} from "@wf-agent/sdk/services";
 
 // Import predefined tools from the SDK.
 export {
   createPredefinedTools,
   registerPredefinedTools,
   type PredefinedToolsOptions,
-} from "@wf-agent/sdk";
+} from "@wf-agent/sdk/resources";
 
 // Auxiliary function exports (re-exported from common-utils)
 export { resolvePath } from "./utils.js";

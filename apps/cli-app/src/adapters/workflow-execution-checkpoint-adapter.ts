@@ -5,8 +5,8 @@
 
 import { BaseAdapter } from "./base-adapter.js";
 import { CLINotFoundError } from "../types/cli-types.js";
-import { getData, isFailure, getError } from "@wf-agent/sdk";
-import { CheckpointResourceAPI } from "@wf-agent/sdk";
+import { getData, isFailure, getError } from "@wf-agent/sdk/api";
+import { CheckpointResourceAPI } from "@wf-agent/sdk/api";
 import type { Checkpoint, GraphCheckpointTriggerType } from "@wf-agent/types";
 
 /**

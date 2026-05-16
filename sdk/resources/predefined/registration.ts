@@ -22,95 +22,20 @@ import { createContextualLogger } from "@sdk/utils/contextual-logger.js";
 
 // Import from submodules
 import {
-  registerContextCompressionTrigger,
-  unregisterContextCompressionTrigger,
-  isContextCompressionTriggerRegistered,
-  type ContextCompressionConfig as TriggerContextCompressionConfig,
+  registerPredefinedTriggers,
+  unregisterPredefinedTriggers,
+  type PredefinedTriggersOptions,
 } from "./trigger/index.js";
 
 import {
-  registerContextCompressionWorkflow,
-  unregisterContextCompressionWorkflow,
-  isContextCompressionWorkflowRegistered,
-  type ContextCompressionConfig as WorkflowContextCompressionConfig,
+  registerPredefinedWorkflows,
+  unregisterPredefinedWorkflows,
+  type PredefinedWorkflowsOptions,
 } from "./workflow/index.js";
 
 import { registerPredefinedTools, unregisterPredefinedTools } from "./tools/registration.js";
 
 const logger = createContextualLogger({ component: "PredefinedRegistration" });
-
-/**
- * Context Compression Configuration (unified type)
- */
-export type ContextCompressionConfig = TriggerContextCompressionConfig &
-  WorkflowContextCompressionConfig;
-
-/**
- * Register context compression (both trigger and workflow).
- *
- * Note: The workflow must be registered first, as the trigger references the workflow ID.
- */
-function registerContextCompression(
-  triggerRegistry: TriggerTemplateRegistry,
-  workflowRegistry: WorkflowRegistry,
-  config?: ContextCompressionConfig,
-  skipIfExists: boolean = true,
-): {
-  triggerRegistered: boolean;
-  workflowRegistered: boolean;
-} {
-  // The workflow must be registered first, as the trigger references the workflow ID.
-  const workflowRegistered = registerContextCompressionWorkflow(
-    workflowRegistry,
-    config,
-    skipIfExists,
-  );
-  const triggerRegistered = registerContextCompressionTrigger(
-    triggerRegistry,
-    config,
-    skipIfExists,
-  );
-
-  return {
-    triggerRegistered,
-    workflowRegistered,
-  };
-}
-
-/**
- * Unregister context compression (both trigger and workflow).
- */
-function unregisterContextCompression(
-  triggerRegistry: TriggerTemplateRegistry,
-  workflowRegistry: WorkflowRegistry,
-): {
-  triggerUnregistered: boolean;
-  workflowUnregistered: boolean;
-} {
-  const triggerUnregistered = unregisterContextCompressionTrigger(triggerRegistry);
-  const workflowUnregistered = unregisterContextCompressionWorkflow(workflowRegistry);
-
-  return {
-    triggerUnregistered,
-    workflowUnregistered,
-  };
-}
-
-/**
- * Check whether context compression is registered.
- */
-function isContextCompressionRegistered(
-  triggerRegistry: TriggerTemplateRegistry,
-  workflowRegistry: WorkflowRegistry,
-): {
-  triggerRegistered: boolean;
-  workflowRegistered: boolean;
-} {
-  return {
-    triggerRegistered: isContextCompressionTriggerRegistered(triggerRegistry),
-    workflowRegistered: isContextCompressionWorkflowRegistered(workflowRegistry),
-  };
-}
 
 /**
  * Register all predefined content
@@ -126,10 +51,8 @@ export function registerAllPredefinedContent(
   workflowRegistry: WorkflowRegistry,
   toolService: ToolRegistry,
   options?: {
-    contextCompression?: {
-      enabled?: boolean;
-      config?: ContextCompressionConfig;
-    };
+    triggers?: PredefinedTriggersOptions & { enabled?: boolean };
+    workflows?: PredefinedWorkflowsOptions & { enabled?: boolean };
     tools?: {
       enabled?: boolean;
       config?: Parameters<typeof registerPredefinedTools>[1];
@@ -137,9 +60,13 @@ export function registerAllPredefinedContent(
     skipIfExists?: boolean;
   },
 ): {
-  contextCompression: {
-    triggerRegistered: boolean;
-    workflowRegistered: boolean;
+  triggers: {
+    success: string[];
+    failures: Array<{ triggerName: string; error: string }>;
+  };
+  workflows: {
+    success: string[];
+    failures: Array<{ workflowId: string; error: string }>;
   };
   tools: {
     success: string[];
@@ -148,9 +75,13 @@ export function registerAllPredefinedContent(
 } {
   const skipIfExists = options?.skipIfExists ?? true;
   const results = {
-    contextCompression: {
-      triggerRegistered: false,
-      workflowRegistered: false,
+    triggers: {
+      success: [] as string[],
+      failures: [] as Array<{ triggerName: string; error: string }>,
+    },
+    workflows: {
+      success: [] as string[],
+      failures: [] as Array<{ workflowId: string; error: string }>,
     },
     tools: {
       success: [] as string[],
@@ -158,18 +89,31 @@ export function registerAllPredefinedContent(
     },
   };
 
-  // Register context compression (delegated to the context-compression module)
-  if (options?.contextCompression?.enabled !== false) {
+  // Register predefined triggers
+  if (options?.triggers?.enabled !== false) {
     try {
-      results.contextCompression = registerContextCompression(
+      results.triggers = registerPredefinedTriggers(
         triggerRegistry,
-        workflowRegistry,
-        options?.contextCompression?.config,
+        options?.triggers,
         skipIfExists,
       );
-      logger.info("Context compression registered");
+      logger.info("Predefined triggers registered");
     } catch (error) {
-      logger.error("Failed to register context compression", { error });
+      logger.error("Failed to register predefined triggers", { error });
+    }
+  }
+
+  // Register predefined workflows
+  if (options?.workflows?.enabled !== false) {
+    try {
+      results.workflows = registerPredefinedWorkflows(
+        workflowRegistry,
+        options?.workflows,
+        skipIfExists,
+      );
+      logger.info("Predefined workflows registered");
+    } catch (error) {
+      logger.error("Failed to register predefined workflows", { error });
     }
   }
 
@@ -187,16 +131,25 @@ export function registerAllPredefinedContent(
 }
 
 /**
- * Cancel all predefined content.
+ * Unregister all predefined content.
  */
 export function unregisterAllPredefinedContent(
   triggerRegistry: TriggerTemplateRegistry,
   workflowRegistry: WorkflowRegistry,
   toolService: ToolRegistry,
+  options?: {
+    triggerNames?: string[];
+    workflowIds?: string[];
+    toolIds?: string[];
+  },
 ): {
-  contextCompression: {
-    triggerUnregistered: boolean;
-    workflowUnregistered: boolean;
+  triggers: {
+    success: string[];
+    failures: Array<{ triggerName: string; error: string }>;
+  };
+  workflows: {
+    success: string[];
+    failures: Array<{ workflowId: string; error: string }>;
   };
   tools: {
     success: string[];
@@ -204,9 +157,13 @@ export function unregisterAllPredefinedContent(
   };
 } {
   const results = {
-    contextCompression: {
-      triggerUnregistered: false,
-      workflowUnregistered: false,
+    triggers: {
+      success: [] as string[],
+      failures: [] as Array<{ triggerName: string; error: string }>,
+    },
+    workflows: {
+      success: [] as string[],
+      failures: [] as Array<{ workflowId: string; error: string }>,
     },
     tools: {
       success: [] as string[],
@@ -214,17 +171,25 @@ export function unregisterAllPredefinedContent(
     },
   };
 
-  // Cancel context compression (delegated to the context-compression module)
+  // Unregister predefined triggers
   try {
-    results.contextCompression = unregisterContextCompression(triggerRegistry, workflowRegistry);
-    logger.info("Context compression unregistered");
+    results.triggers = unregisterPredefinedTriggers(triggerRegistry, options?.triggerNames);
+    logger.info("Predefined triggers unregistered");
   } catch (error) {
-    logger.error("Failed to unregister context compression", { error });
+    logger.error("Failed to unregister predefined triggers", { error });
   }
 
-  // Cancel the predefined tool (delegated to the tools module).
+  // Unregister predefined workflows
   try {
-    results.tools = unregisterPredefinedTools(toolService);
+    results.workflows = unregisterPredefinedWorkflows(workflowRegistry, options?.workflowIds);
+    logger.info("Predefined workflows unregistered");
+  } catch (error) {
+    logger.error("Failed to unregister predefined workflows", { error });
+  }
+
+  // Unregister predefined tools (delegated to the tools module).
+  try {
+    results.tools = unregisterPredefinedTools(toolService, options?.toolIds);
     logger.info("Predefined tools unregistered");
   } catch (error) {
     logger.error("Failed to unregister predefined tools", { error });
@@ -232,10 +197,3 @@ export function unregisterAllPredefinedContent(
 
   return results;
 }
-
-// Reexport the interfaces of the submodules to maintain API compatibility.
-export {
-  registerContextCompression,
-  unregisterContextCompression,
-  isContextCompressionRegistered,
-};

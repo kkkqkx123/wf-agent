@@ -1,9 +1,11 @@
 /**
  * Workflow Execution Command Group
+ * 
+ * Refactored to use ExecutionService for unified execution.
+ * All workflow executions go through SDK. Terminals are used ONLY for display.
  */
 
 import { Command } from "commander";
-import { WorkflowExecutionAdapter } from "../../adapters/workflow-execution-adapter.js";
 import { getOutput } from "../../utils/output.js";
 import { formatWorkflowExecution, formatWorkflowExecutionList } from "../../utils/cli-formatters.js";
 import type { CommandOptions } from "../../types/cli-types.js";
@@ -11,32 +13,35 @@ import { handleError } from "../../utils/error-handler.js";
 import { CLIValidationError } from "../../types/cli-types.js";
 import { getSDKInstance } from "../../index.js";
 
-// Add import statements
+// Import ExecutionService and TerminalManager
+import { ExecutionService } from "../../services/execution/execution-service.js";
 import { TerminalManager } from "../../services/terminal/terminal-manager.js";
-import { TaskExecutor } from "../../services/terminal/task-executor.js";
+import { WorkflowExecutionAdapter } from "../../adapters/workflow-execution-adapter.js";
 
 const output = getOutput();
 
-// Lazy initialization - create instances only when needed to avoid SDK initialization order issues
+// Lazy initialization - create instances only when needed
+let executionService: ExecutionService | null = null;
 let terminalManager: TerminalManager | null = null;
-let taskExecutor: TaskExecutor | null = null;
 
-function getTerminalManager(): TerminalManager {
-  if (!terminalManager) {
-    terminalManager = new TerminalManager();
-  }
-  return terminalManager;
-}
-
-function getTaskExecutor(): TaskExecutor {
-  if (!taskExecutor) {
+function getExecutionService(): ExecutionService {
+  if (!executionService) {
     const sdk = getSDKInstance();
     if (!sdk) {
       throw new Error("SDK instance not initialized. Make sure the CLI app has started.");
     }
-    taskExecutor = new TaskExecutor(sdk);
+    terminalManager = new TerminalManager();
+    executionService = new ExecutionService(sdk, terminalManager);
   }
-  return taskExecutor;
+  return executionService;
+}
+
+function getTerminalManager(): TerminalManager {
+  if (!terminalManager) {
+    // Create standalone TerminalManager for listing terminals
+    terminalManager = new TerminalManager();
+  }
+  return terminalManager;
 }
 
 /**
@@ -80,42 +85,43 @@ export function createWorkflowExecutionCommands(): Command {
             }
           }
 
-          if (options.blocking) {
-            // Run in the current terminal (in a blocking manner).
-            const adapter = new WorkflowExecutionAdapter();
-            const execution = await adapter.executeWorkflow(workflowId, inputData);
-            output.output(formatWorkflowExecution(execution, { verbose: options.verbose }));
-          } else {
-            // Run in an independent terminal (the default method).
-            const terminal = getTerminalManager().createTerminal({
-              background: options.background,
-              logFile: options.logFile,
-            });
-            const result = await getTaskExecutor().executeInTerminal(workflowId, inputData, terminal);
+          // Determine execution mode
+          const mode = options.blocking ? 'blocking' : 
+                      options.background ? 'background' : 'detached';
 
-            if (options.background) {
-              output.newLine();
-              output.info("The workflow execution has been started in the background.");
-              output.keyValue("Task ID", result.taskId);
-              output.keyValue("Process ID", String(terminal.pid));
-              output.keyValue("Log file", options.logFile || `logs/task-${result.taskId}.log`);
-              output.keyValue("Startup time", result.startTime.toISOString());
-              output.newLine();
-              output.info(
-                `Use 'modular-agent execution status ${result.taskId}' to check task status`,
-              );
-            } else {
-              output.newLine();
-              output.info("The workflow execution has been started in a separate terminal.");
-              output.keyValue("Task ID", result.taskId);
-              output.keyValue("Terminal ID", result.sessionId);
-              output.keyValue("Process ID", String(terminal.pid));
-              output.keyValue("Startup time", result.startTime.toISOString());
-              output.newLine();
-              output.info(
-                `Use 'modular-agent execution status ${result.taskId}' to check task status`,
-              );
+          // Execute via ExecutionService (unified path through SDK)
+          const result = await getExecutionService().execute(workflowId, inputData, mode);
+
+          // Display result based on mode
+          if (mode === 'blocking') {
+            // Blocking mode: Show final result
+            output.output(formatWorkflowExecution(result.result as any, { verbose: options.verbose }));
+          } else if (mode === 'background') {
+            // Background mode: Show background execution info
+            output.newLine();
+            output.info("The workflow execution has been started in the background.");
+            output.keyValue("Execution ID", result.executionId);
+            output.keyValue("Process ID", String(result.pid));
+            output.keyValue("Log file", result.logFile || `logs/workflow-${result.executionId}.log`);
+            output.keyValue("Startup time", result.startTime.toISOString());
+            output.newLine();
+            output.info(
+              `Use 'modular-agent execution status ${result.executionId}' to check execution status`,
+            );
+          } else {
+            // Detached mode: Show terminal info
+            output.newLine();
+            output.info("The workflow execution has been started in a separate terminal.");
+            output.keyValue("Execution ID", result.executionId);
+            if (result.terminalId) {
+              output.keyValue("Terminal ID", result.terminalId);
             }
+            output.keyValue("Process ID", String(result.pid));
+            output.keyValue("Startup time", result.startTime.toISOString());
+            output.newLine();
+            output.info(
+              `Use 'modular-agent execution status ${result.executionId}' to check execution status`,
+            );
           }
         } catch (error) {
           handleError(error, {
@@ -126,40 +132,39 @@ export function createWorkflowExecutionCommands(): Command {
       },
     );
 
-  // Addition: Command to view task status
+  // View execution status command
   workflowExecutionCmd
-    .command("status <task-id>")
-    .description("Check the task status.")
-    .action(async taskId => {
+    .command("status <execution-id>")
+    .description("Check the execution status")
+    .action(async executionId => {
       try {
-        const status = await getTaskExecutor().monitorTask(taskId);
+        const status = await getExecutionService().monitorExecution(executionId);
         output.newLine();
-        output.subsection("Task Status:");
-        output.keyValue("Task ID", status.taskId);
+        output.subsection("Execution Status:");
+        output.keyValue("Execution ID", status.executionId);
         output.keyValue("Status", status.status);
-        output.keyValue("Progress", `${status.progress || 0}%`);
-        output.keyValue("Message", status.message || "No message available");
+        output.keyValue("Progress", `${status.progress || 'N/A'}%`);
         output.keyValue("Last update", status.lastUpdate.toISOString());
       } catch (error) {
         handleError(error, {
-          operation: "getTaskStatus",
-          additionalInfo: { taskId },
+          operation: "getExecutionStatus",
+          additionalInfo: { executionId },
         });
       }
     });
 
-  // Addition: Command to stop a task
+  // Cancel execution command
   workflowExecutionCmd
-    .command("cancel <task-id>")
-    .description("Cancel task execution")
-    .action(async taskId => {
+    .command("cancel <execution-id>")
+    .description("Cancel workflow execution")
+    .action(async executionId => {
       try {
-        await getTaskExecutor().stopTask(taskId);
-        output.info(`Task cancelled: ${taskId}`);
+        await getExecutionService().stopExecution(executionId);
+        output.info(`Execution cancelled: ${executionId}`);
       } catch (error) {
         handleError(error, {
-          operation: "cancelTask",
-          additionalInfo: { taskId },
+          operation: "cancelExecution",
+          additionalInfo: { executionId },
         });
       }
     });
@@ -178,7 +183,7 @@ export function createWorkflowExecutionCommands(): Command {
 
       output.newLine();
       output.subsection("Active Terminal:");
-      terminals.forEach((terminal, index) => {
+      terminals.forEach((terminal: any, index: number) => {
         output.output(`  ${index + 1}. ID: ${terminal.id}`);
         output.output(`     PID: ${terminal.pid}`);
         output.output(`     Status: ${terminal.status}`);

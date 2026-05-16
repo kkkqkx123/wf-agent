@@ -1,16 +1,11 @@
 /**
  * Context Compression Workflow Module
  *
- * Provides workflow definition and registration functionality
- * Combines the definition layer with the execution layer, simplifying the architecture
+ * Provides workflow definition functionality
  */
 
 import type { WorkflowTemplate, StaticNode, Edge } from "@wf-agent/types";
 import { now, generateId } from "@wf-agent/common-utils";
-import type { WorkflowRegistry } from "@sdk/workflow/stores/workflow-registry.js";
-import { createContextualLogger } from "@sdk/utils/contextual-logger.js";
-
-const logger = createContextualLogger({ component: "ContextCompressionWorkflow" });
 
 /**
  * Context compression workflow ID
@@ -155,57 +150,4 @@ export function createCustomContextCompressionWorkflow(
   return createContextCompressionWorkflow(config.compressionPrompt, config);
 }
 
-/**
- * Registering the context compression workflow
- */
-export function registerContextCompressionWorkflow(
-  registry: WorkflowRegistry,
-  config?: ContextCompressionConfig,
-  skipIfExists: boolean = true,
-): boolean {
-  try {
-    const workflow = config?.compressionPrompt
-      ? createCustomContextCompressionWorkflow(config)
-      : createContextCompressionWorkflow();
 
-    // Check if the workflow already exists
-    if (registry.has(workflow.id)) {
-      if (skipIfExists) {
-        logger.info("Context compression workflow already exists, skipping registration");
-        return false;
-      }
-      // If skipIfExists is false, let the registry.register throw the error
-    }
-
-    registry.register(workflow, { skipIfExists });
-    logger.info("Registered context compression workflow");
-    return true;
-  } catch (error) {
-    logger.error("Failed to register context compression workflow", { error });
-    return false;
-  }
-}
-
-/**
- * Cancel the context compression workflow.
- */
-export function unregisterContextCompressionWorkflow(registry: WorkflowRegistry): boolean {
-  try {
-    if (registry.has(CONTEXT_COMPRESSION_WORKFLOW_ID)) {
-      registry.unregister(CONTEXT_COMPRESSION_WORKFLOW_ID, { force: true });
-      logger.info("Unregistered context compression workflow");
-      return true;
-    }
-    return false;
-  } catch (error) {
-    logger.error("Failed to unregister context compression workflow", { error });
-    return false;
-  }
-}
-
-/**
- * Check whether the context compression workflow has been registered.
- */
-export function isContextCompressionWorkflowRegistered(registry: WorkflowRegistry): boolean {
-  return registry.has(CONTEXT_COMPRESSION_WORKFLOW_ID);
-}

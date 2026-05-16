@@ -5,7 +5,7 @@
 
 import { BaseAdapter } from "./base-adapter.js";
 import type { LLMMessage } from "@wf-agent/types";
-import { getData, isFailure, getError } from "@wf-agent/sdk";
+import { getData, isFailure, getError } from "@wf-agent/sdk/api";
 import { CLINotFoundError } from "../types/cli-types.js";
 
 /**

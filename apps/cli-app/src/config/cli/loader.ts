@@ -4,8 +4,7 @@
  * Uses SDK's parsing capabilities for TOML and JSON.
  */
 
-import { loadConfigContent, parseJson } from "@wf-agent/sdk";
-import { TomlParserManager } from "@wf-agent/sdk";
+import { loadConfigContent, parseJson, parseToml } from "@wf-agent/sdk/api";
 import type { CLIConfig } from "./types.js";
 import { CLIConfigSchema } from "./schema.js";
 import { DEFAULT_CONFIG } from "./defaults.js";
@@ -21,11 +20,8 @@ function parseConfigContent(content: string, format: "json" | "toml"): unknown {
     case "json":
       return parseJson(content);
     case "toml":
-      // Use TomlParserManager directly for CLI config (not workflow config)
-      {
-        const toml = TomlParserManager.getInstance();
-        return toml.parse(content);
-      }
+      // Use SDK's parseToml for CLI config
+      return parseToml(content);
     default:
       throw new Error(`Unsupported config format: ${format}`);
   }

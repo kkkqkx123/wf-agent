@@ -4,8 +4,8 @@
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { WorkflowExecutionAdapter } from "../workflow-execution-adapter.js";
-import { SDKInstance } from "@wf-agent/sdk";
-import { success, failure } from "@wf-agent/sdk";
+import { SDKInstance } from "@wf-agent/sdk/api";
+import { success, failure } from "@wf-agent/sdk/api";
 
 // Mock SDK dependencies
 const mockExecutionsApi = {

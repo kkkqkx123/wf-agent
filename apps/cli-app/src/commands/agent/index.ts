@@ -11,7 +11,7 @@ import type { CommandOptions } from "../../types/cli-types.js";
 import type { AgentLoopRuntimeConfig, AgentLoopCheckpoint, Message, LLMMessage } from "@wf-agent/types";
 import { handleError } from "../../utils/error-handler.js";
 import { CLIValidationError } from "../../types/cli-types.js";
-import { loadAgentLoopConfig, transformToAgentLoopConfig } from "@wf-agent/sdk";
+import { loadAgentLoopConfig, transformToAgentLoopConfig } from "@wf-agent/sdk/api";
 import { existsSync } from "fs";
 
 const output = getOutput();

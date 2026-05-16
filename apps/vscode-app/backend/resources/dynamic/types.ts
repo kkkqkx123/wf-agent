@@ -1,13 +1,13 @@
 /**
- * VSCode 扩展的动态上下文类型定义
- *
- * 扩展 SDK 的基础类型，添加 VSCode 特有功能
+ * Dynamic Context Type Definition for VSCode Extensions
+ * 
+ * Extends the SDK's base types to add VSCode-specific functionality
  */
 
 import type { DynamicContextConfig, DynamicRuntimeContext } from "@wf-agent/types";
 
 /**
- * VSCode 扩展的动态上下文配置
+ * Dynamic Context Configuration for VSCode Extensions
  */
 export interface VSCodeDynamicContextConfig extends DynamicContextConfig {
   /** Does it contain any open tabs? */
@@ -21,7 +21,7 @@ export interface VSCodeDynamicContextConfig extends DynamicContextConfig {
 }
 
 /**
- * VSCode 扩展的运行时上下文
+ * Runtime Context for VSCode Extensions
  */
 export interface VSCodeDynamicRuntimeContext extends DynamicRuntimeContext {
   /** Open tab page */
@@ -33,7 +33,7 @@ export interface VSCodeDynamicRuntimeContext extends DynamicRuntimeContext {
 }
 
 /**
- * 诊断信息配置
+ * Diagnostic Information Configuration
  */
 export interface DiagnosticsConfig {
   /** Whether to enable */

@@ -4,7 +4,7 @@
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { SkillAdapter } from "../skill-adapter.js";
-import { success, failure } from "@wf-agent/sdk";
+import { success, failure } from "@wf-agent/sdk/api";
 
 // Mock SDK dependencies
 vi.mock("@wf-agent/sdk", async () => {

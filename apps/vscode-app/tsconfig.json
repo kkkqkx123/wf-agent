@@ -2,13 +2,7 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "outDir": "./dist",
-    "rootDir": ".",
-    "paths": {
-      "@wf-agent/*": [
-        "../../packages/*/src",
-        "../../sdk/*/src"
-      ]
-    }
+    "rootDir": "."
   },
   "include": [
     "./**/*"

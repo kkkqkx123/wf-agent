@@ -2,7 +2,7 @@
  * Autocomplete support for TUI components.
  */
 
-import { createContextualLogger } from "@wf-agent/sdk";
+import { createContextualLogger } from "@wf-agent/sdk/utils";
 
 const logger = createContextualLogger({ component: "Autocomplete" });
 

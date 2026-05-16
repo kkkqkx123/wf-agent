@@ -22,7 +22,7 @@ import {
 } from "@wf-agent/common-utils";
 import type { LogLevel } from "@wf-agent/common-utils";
 import { getOutput } from "./output.js";
-import { configureSDKLogger } from "@wf-agent/sdk";
+import { configureSDKLogger } from "@wf-agent/sdk/utils";
 
 // ============================================
 // Types

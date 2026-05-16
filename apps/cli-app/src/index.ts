@@ -10,7 +10,7 @@ import { initializeOutput, getOutput } from "./utils/output.js";
 import { initializeFormatter } from "./utils/formatter.js";
 import { initLogger, initSDKLogger } from "./utils/logger.js";
 import { loadConfigWithEnvOverride } from "./config/index.js";
-import { createSDK } from "@wf-agent/sdk";
+import { createSDK } from "@wf-agent/sdk/api";
 import { ExitManager, isHeadlessMode, detectExecutionMode } from "./utils/exit-manager.js";
 import {
   initializeStorageManager,

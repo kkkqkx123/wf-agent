@@ -21,9 +21,8 @@ import { sdkLogger as logger, configureSDKLogger } from "../../../utils/logger.j
 import { getErrorMessage } from "@wf-agent/common-utils";
 import { createIsolatedContainer, ContainerManager } from "../../../core/di/container-manager.js";
 import * as ServiceIdentifiers from "../../../core/di/service-identifiers.js";
-import { registerContextCompression } from "../../../resources/predefined/index.js";
-import { registerPredefinedPromptTemplates } from "../../../resources/predefined/prompts/index.js";
 import { registerAllPredefinedContent } from "../../../resources/predefined/registration.js";
+import { registerPredefinedPromptTemplates } from "../../../resources/predefined/prompts/index.js";
 import { TomlParserManager } from "../../../utils/toml-parser-manager.js";
 import { createRotatingFileStream, createConsoleStream, createMultistream } from "@wf-agent/common-utils";
 import type { HumanRelayHandler, LLMProfile } from "@wf-agent/types";
@@ -409,31 +408,28 @@ export class SDKInstance {
 
     const presets = this.config?.presets;
 
-    // Context compression is enabled by default, unless it is explicitly disabled.
-    if (presets?.contextCompression?.enabled !== false) {
-      try {
-        registerContextCompression(
-          this.globalContext.triggerTemplateRegistry,
-          this.globalContext.workflowRegistry,
-          presets?.contextCompression,
-          false,
-        );
-      } catch (error) {
-        logger.error(`Failed to bootstrap context compression preset: ${getErrorMessage(error)}`);
-      }
-    }
-
-    // The predefined tools are enabled by default, unless they are explicitly disabled.
-    if (presets?.predefinedTools?.enabled !== false) {
+    // Register all predefined content (triggers, workflows, tools)
+    if (presets) {
       try {
         registerAllPredefinedContent(
           this.globalContext.triggerTemplateRegistry,
           this.globalContext.workflowRegistry,
           this.globalContext.toolRegistry,
           {
-            contextCompression: { enabled: false }, // Already registered separately above.
+            triggers: {
+              enabled: presets?.contextCompression?.enabled !== false,
+              config: {
+                contextCompression: presets?.contextCompression,
+              },
+            },
+            workflows: {
+              enabled: presets?.contextCompression?.enabled !== false,
+              config: {
+                contextCompression: presets?.contextCompression,
+              },
+            },
             tools: {
-              enabled: presets?.predefinedTools?.enabled,
+              enabled: presets?.predefinedTools?.enabled !== false,
               config: {
                 allowList: presets?.predefinedTools?.allowList,
                 blockList: presets?.predefinedTools?.blockList,
@@ -444,9 +440,9 @@ export class SDKInstance {
           },
         );
 
-        logger.info("Predefined tools registered successfully");
+        logger.info("Predefined content registered successfully");
       } catch (error) {
-        logger.error(`Failed to bootstrap predefined tools: ${getErrorMessage(error)}`);
+        logger.error(`Failed to bootstrap predefined content: ${getErrorMessage(error)}`);
       }
     }
 

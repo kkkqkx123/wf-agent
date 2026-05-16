@@ -6,7 +6,7 @@
 import { BaseAdapter } from "./base-adapter.js";
 import { resolve, join, extname } from "path";
 import type { Tool, ToolExecutionOptions } from "@wf-agent/types";
-import { StaticValidatorAPI, loadConfigContent, parseToml, parseJson, getData, isFailure, getError } from "@wf-agent/sdk";
+import { StaticValidatorAPI, loadConfigContent, parseToml, parseJson, getData, isFailure, getError } from "@wf-agent/sdk/api";
 import type { ConfigurationValidationError } from "@wf-agent/types";
 import { CLINotFoundError } from "../types/cli-types.js";
 import { ToolRegistry, type ToolRegistryConfig } from "../tools/index.js";

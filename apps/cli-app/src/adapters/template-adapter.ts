@@ -6,7 +6,7 @@
 import { BaseAdapter } from "./base-adapter.js";
 import { resolve, join, extname } from "path";
 import { CLINotFoundError } from "../types/cli-types.js";
-import { loadConfigContent, parseNodeTemplate, parseTriggerTemplate, getData, isFailure, getError } from "@wf-agent/sdk";
+import { loadConfigContent, parseNodeTemplate, parseTriggerTemplate, getData, isFailure, getError } from "@wf-agent/sdk/api";
 import type { NodeTemplate, TriggerTemplate, NodeTemplateSummary, TriggerTemplateSummary } from "@wf-agent/types";
 
 /**

@@ -3,7 +3,7 @@
  * Provides common adapter functionality
  */
 
-import { type SDKInstance } from "@wf-agent/sdk";
+import type { SDKInstance } from "@wf-agent/sdk/api";
 import { getOutput, type CLIOutput } from "../utils/output.js";
 import type { ErrorContext } from "../utils/error-handler.js";
 import { CLIError } from "../types/cli-types.js";

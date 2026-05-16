@@ -4,7 +4,7 @@
  * Initializes the component message system for CLI-App.
  */
 
-import { MessageBus } from "@wf-agent/sdk";
+import { MessageBus } from "@wf-agent/sdk/api";
 import { CLI_ROUTING_RULES } from "./routing-rules.js";
 
 /**

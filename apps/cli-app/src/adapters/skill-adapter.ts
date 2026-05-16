@@ -11,7 +11,7 @@
 import { BaseAdapter } from "./base-adapter.js";
 import type { SkillMetadata, SkillMatchResult, SkillResourceType } from "@wf-agent/types";
 import { CLINotFoundError } from "../types/cli-types.js";
-import { getData, isFailure, getError } from "@wf-agent/sdk";
+import { getData, isFailure, getError } from "@wf-agent/sdk/api";
 
 /**
  * Skill Adapter

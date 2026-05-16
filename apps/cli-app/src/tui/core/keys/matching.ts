@@ -41,7 +41,7 @@ function isDigitKey(key: string): boolean {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-function formatKeyNameWithModifiers(keyName: string, modifier: number): string | undefined {
+function _formatKeyNameWithModifiers(keyName: string, modifier: number): string | undefined {
   const mods: string[] = [];
   const effectiveMod = modifier & ~(64 + 128); // LOCK_MASK
   const supportedModifierMask = MODIFIERS.shift | MODIFIERS.ctrl | MODIFIERS.alt | MODIFIERS.super;

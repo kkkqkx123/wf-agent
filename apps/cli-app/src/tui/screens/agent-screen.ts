@@ -7,7 +7,7 @@ import { Box, Container, Text, Input } from "../core/index.js";
 import type { Screen } from "./screen.js";
 import type { Component } from "../core/tui.js";
 import type { AgentLoopRuntimeConfig } from "@wf-agent/types";
-import type { MessageBus, MessageSubscription } from "@wf-agent/sdk";
+import type { MessageBus, MessageSubscription } from "@wf-agent/sdk/api";
 import { MessageCategory, AgentMessageType } from "@wf-agent/types";
 import type {
   AgentStartData,

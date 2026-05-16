@@ -1,14 +1,14 @@
 /**
- * 诊断信息数据源
- *
- * 获取当前 VSCode 工作区的诊断信息
+ * Diagnostic Information Data Sources
+ * 
+ * Get diagnostic information for the current VSCode workspace
  */
 
 import * as vscode from "vscode";
 import type { DiagnosticsConfig } from "./types.js";
 
 /**
- * 诊断严重级别映射
+ * Diagnostic Severity Level Mapping
  */
 const severityMap: Record<vscode.DiagnosticSeverity, string> = {
   [vscode.DiagnosticSeverity.Error]: "error",
@@ -18,10 +18,10 @@ const severityMap: Record<vscode.DiagnosticSeverity, string> = {
 };
 
 /**
- * 获取工作区诊断信息
- *
- * @param config 诊断配置
- * @returns 格式化的诊断信息字符串
+ * Get workspace diagnostic information
+ * 
+ * @param config Diagnostic configuration
+ * @returns Formatted diagnostic information string.
  */
 export function getWorkspaceDiagnostics(config: DiagnosticsConfig): string {
   if (!config.enabled) return "";
@@ -76,7 +76,7 @@ export function getWorkspaceDiagnostics(config: DiagnosticsConfig): string {
 }
 
 /**
- * 生成诊断信息内容
+ * Generate diagnostic information content
  */
 export function generateDiagnosticsContent(diagnostics?: string): string {
   if (!diagnostics) return "";

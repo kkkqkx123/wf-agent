@@ -1,13 +1,13 @@
 /**
- * 活动编辑器数据源
- *
- * 获取当前 VSCode 中活动的编辑器信息
+ * Activity Editor Data Source
+ * 
+ * Get information about the active editor in the current VSCode
  */
 
 import * as vscode from "vscode";
 
 /**
- * 检查路径是否应该被忽略
+ * Check if the path should be ignored
  */
 function shouldIgnorePath(path: string, patterns: string[]): boolean {
   for (const pattern of patterns) {
@@ -23,10 +23,10 @@ function shouldIgnorePath(path: string, patterns: string[]): boolean {
 }
 
 /**
- * 获取活动编辑器路径
- *
- * @param ignorePatterns 忽略的文件模式
- * @returns 相对路径或 null
+ * Get event editor path
+ * 
+ * @param ignorePatterns file patterns to ignore
+ * @returns Relative path or null
  */
 export function getActiveEditorPath(ignorePatterns: string[] = []): string | null {
   const activeEditor = vscode.window.activeTextEditor;
@@ -47,7 +47,7 @@ export function getActiveEditorPath(ignorePatterns: string[] = []): string | nul
 }
 
 /**
- * 生成活动编辑器内容
+ * Generating Event Editor Content
  */
 export function generateActiveEditorContent(activeEditor?: string): string {
   if (!activeEditor) return "";

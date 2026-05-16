@@ -4,7 +4,7 @@
 
 import { Box, Container, Text, SelectList } from "../core/index.js";
 import type { Screen } from "./screen.js";
-import type { MessageBus, MessageSubscription } from "@wf-agent/sdk";
+import type { MessageBus, MessageSubscription } from "@wf-agent/sdk/api";
 import { MessageCategory, AgentMessageType, WorkflowExecutionMessageType } from "@wf-agent/types";
 import type { BaseComponentMessage } from "@wf-agent/types";
 

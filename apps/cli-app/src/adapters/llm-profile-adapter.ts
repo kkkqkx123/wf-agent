@@ -6,7 +6,7 @@
 import { BaseAdapter } from "./base-adapter.js";
 import { resolve, join, extname } from "path";
 import type { LLMProfile } from "@wf-agent/types";
-import { loadConfigContent, parseLLMProfile, getData, isFailure, getError } from "@wf-agent/sdk";
+import { loadConfigContent, parseLLMProfile, getData, isFailure, getError } from "@wf-agent/sdk/api";
 import { CLINotFoundError } from "../types/cli-types.js";
 
 /**

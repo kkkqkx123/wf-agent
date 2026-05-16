@@ -14,6 +14,7 @@
  */
 
 import {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   LEGACY_KEY_SEQUENCES,
   LEGACY_SHIFT_SEQUENCES,
   LEGACY_CTRL_SEQUENCES,

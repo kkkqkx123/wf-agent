@@ -1,17 +1,12 @@
 /**
  * Context Compression Trigger Module
  *
- * Provides trigger definition and registration functionality
- * Combines the definition layer with the execution layer, simplifying the architecture
+ * Provides trigger definition functionality
  */
 
 import type { TriggerTemplate } from "@wf-agent/types";
 import { now } from "@wf-agent/common-utils";
-import type { TriggerTemplateRegistry } from "@sdk/core/registry/trigger-template-registry.js";
 import { CONTEXT_COMPRESSION_WORKFLOW_ID } from "../workflow/context-compression.js";
-import { createContextualLogger } from "@sdk/utils/contextual-logger.js";
-
-const logger = createContextualLogger({ component: "ContextCompressionTrigger" });
 
 /**
  * Context Compression Trigger Template Name
@@ -87,61 +82,4 @@ export function createCustomContextCompressionTrigger(
   return template;
 }
 
-/**
- * Register context compression trigger
- */
-export function registerContextCompressionTrigger(
-  registry: TriggerTemplateRegistry,
-  config?: ContextCompressionConfig,
-  skipIfExists: boolean = true,
-): boolean {
-  try {
-    const template = config
-      ? createCustomContextCompressionTrigger(config)
-      : createContextCompressionTriggerTemplate();
 
-    // Check if the template already exists
-    if (registry.has(template.name)) {
-      if (skipIfExists) {
-        logger.info("Context compression trigger already exists, skipping registration");
-        return false;
-      }
-      // If skipIfExists is false, let the registry.register throw the error
-    }
-
-    registry.register(template, { skipIfExists });
-    logger.info("Registered context compression trigger");
-    return true;
-  } catch (error) {
-    logger.error("Failed to register context compression trigger", { error });
-    // Re-throw the error if skipIfExists is false (the caller expects it)
-    if (!skipIfExists) {
-      throw error;
-    }
-    return false;
-  }
-}
-
-/**
- * Cancel the context compression trigger.
- */
-export function unregisterContextCompressionTrigger(registry: TriggerTemplateRegistry): boolean {
-  try {
-    if (registry.has(CONTEXT_COMPRESSION_TRIGGER_NAME)) {
-      registry.unregister(CONTEXT_COMPRESSION_TRIGGER_NAME);
-      logger.info("Unregistered context compression trigger");
-      return true;
-    }
-    return false;
-  } catch (error) {
-    logger.error("Failed to unregister context compression trigger", { error });
-    return false;
-  }
-}
-
-/**
- * Check whether the context compression trigger has been registered.
- */
-export function isContextCompressionTriggerRegistered(registry: TriggerTemplateRegistry): boolean {
-  return registry.has(CONTEXT_COMPRESSION_TRIGGER_NAME);
-}

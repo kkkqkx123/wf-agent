@@ -7,7 +7,7 @@ import { readdir } from "fs/promises";
 import { join, resolve, dirname, extname } from "path";
 import { Box, Container, Text, SelectList, Input } from "../core/index.js";
 import type { Component } from "../core/tui.js";
-import { createContextualLogger } from "@wf-agent/sdk";
+import { createContextualLogger } from "@wf-agent/sdk/utils";
 
 export interface FileSelectionOptions {
   allowedExtensions?: string[]; // e.g., ['.toml', '.json']

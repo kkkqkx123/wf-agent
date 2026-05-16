@@ -4,8 +4,8 @@
  */
 
 import { BaseAdapter } from "./base-adapter.js";
-import type { HumanRelayConfig, HumanRelayFilter } from "@wf-agent/sdk";
-import { getData, isFailure, getError } from "@wf-agent/sdk";
+import type { HumanRelayConfig, HumanRelayFilter } from "@wf-agent/sdk/api";
+import { getData, isFailure, getError } from "@wf-agent/sdk/api";
 import { CLINotFoundError } from "../types/cli-types.js";
 
 /**

@@ -9,7 +9,7 @@ import type {
   NodeMetricsQuery,
   AgentMetricsQuery,
   MetricsExportFormat,
-} from "@wf-agent/sdk";
+} from "@wf-agent/sdk/api";
 
 /**
  * Metrics Adapter

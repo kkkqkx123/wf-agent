@@ -1,10 +1,10 @@
 /**
- * VSCode 扩展组合器
- *
- * 扩展 SDK 的基础组合器，添加 VSCode 特有功能
+ * VSCode Extended Composer
+ * 
+ * Extends the SDK's base combiner with VSCode-specific functionality
  */
 
-import { generateDynamicContextContent } from "@wf-agent/sdk";
+import { generateDynamicContextContent } from "@wf-agent/sdk/resources";
 import type {
   VSCodeDynamicContextConfig,
   VSCodeDynamicRuntimeContext,
@@ -15,7 +15,7 @@ import { getOpenTabs, generateOpenTabsContent } from "./open-tabs.js";
 import { getWorkspaceDiagnostics, generateDiagnosticsContent } from "./diagnostics.js";
 
 /**
- * 默认诊断配置
+ * Default Diagnostic Configuration
  */
 const DEFAULT_DIAGNOSTICS_CONFIG: DiagnosticsConfig = {
   enabled: true,
@@ -27,12 +27,12 @@ const DEFAULT_DIAGNOSTICS_CONFIG: DiagnosticsConfig = {
 };
 
 /**
- * 生成 VSCode 扩展的动态上下文
- *
- * @param config VSCode 扩展的动态上下文配置
- * @param runtime 运行时上下文数据
- * @param diagnosticsConfig 诊断配置（可选）
- * @returns 动态上下文内容字符串
+ * Generating dynamic contexts for VSCode extensions
+ * 
+ * @param config Dynamic context configuration for VSCode extensions
+ * @param runtime Runtime context data
+ * @param diagnosticsConfig Diagnostics configuration (optional)
+ * @returns Dynamic context content string
  */
 export function generateVSCodeDynamicContext(
   config: VSCodeDynamicContextConfig,
@@ -69,7 +69,7 @@ export function generateVSCodeDynamicContext(
 }
 
 /**
- * 检查是否有 VSCode 特有的动态内容
+ * Checking for VSCode-specific dynamic content
  */
 export function hasVSCodeDynamicContent(config: VSCodeDynamicContextConfig): boolean {
   return (

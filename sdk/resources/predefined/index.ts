@@ -19,34 +19,11 @@ export {
   renderTemplateById,
 } from "./template-registry.js";
 
-// Export Context Compression Coordination Module (from registration.ts)
-export {
-  registerContextCompression,
-  unregisterContextCompression,
-  isContextCompressionRegistered,
-  type ContextCompressionConfig,
-} from "./registration.js";
+// Export the trigger module
+export * from "./trigger/index.js";
 
-// Export the trigger module (excluding duplicate ContextCompressionConfig instances).
-export {
-  CONTEXT_COMPRESSION_TRIGGER_NAME,
-  createContextCompressionTriggerTemplate,
-  createCustomContextCompressionTrigger,
-  registerContextCompressionTrigger,
-  unregisterContextCompressionTrigger,
-  isContextCompressionTriggerRegistered,
-} from "./trigger/index.js";
-
-// Export the workflow module (excluding duplicate ContextCompressionConfig instances).
-export {
-  CONTEXT_COMPRESSION_WORKFLOW_ID,
-  DEFAULT_COMPRESSION_PROMPT,
-  createContextCompressionWorkflow,
-  createCustomContextCompressionWorkflow,
-  registerContextCompressionWorkflow,
-  unregisterContextCompressionWorkflow,
-  isContextCompressionWorkflowRegistered,
-} from "./workflow/index.js";
+// Export the workflow module
+export * from "./workflow/index.js";
 
 // Export predefined tools
 export * from "./tools/index.js";

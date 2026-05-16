@@ -6,7 +6,7 @@
 import { BaseAdapter } from "./base-adapter.js";
 import { resolve, join, extname } from "path";
 import { CLINotFoundError } from "../types/cli-types.js";
-import { getData, isFailure, getError, loadConfigContent, parseWorkflow } from "@wf-agent/sdk";
+import { getData, isFailure, getError, loadConfigContent, parseWorkflow } from "@wf-agent/sdk/api";
 import type { WorkflowTemplate } from "@wf-agent/types";
 
 /**

@@ -3,8 +3,8 @@
  * Manages all user interaction coordinators and handlers.
  */
 
-import type { SDKInstance } from "@wf-agent/sdk";
-import { ToolApprovalCoordinator } from "@wf-agent/sdk";
+import type { SDKInstance } from "@wf-agent/sdk/api";
+import { ToolApprovalCoordinator } from "@wf-agent/sdk/api";
 import { CLIFollowupQuestionHandler } from "./followup-question.js";
 import { CLIToolApprovalHandler } from "./tool-approval.js";
 

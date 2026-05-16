@@ -11,7 +11,8 @@ import {
   type CreateCheckpointOptions,
   type AgentLoopEntity,
 } from "@wf-agent/sdk/agent";
-import { AgentLoopCheckpointResourceAPI, getData, isFailure, getError } from "@wf-agent/sdk";
+import { AgentLoopCheckpointResourceAPI } from "@wf-agent/sdk/api";
+import { getData, isFailure, getError } from "@wf-agent/sdk/api";
 import type { AgentLoopCheckpoint, CheckpointMetadata } from "@wf-agent/types";
 import { CLINotFoundError } from "../types/cli-types.js";
 

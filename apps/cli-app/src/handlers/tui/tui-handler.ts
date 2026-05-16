@@ -20,7 +20,7 @@ export class TUIHandler implements OutputHandler {
   readonly name = "tui";
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  constructor(private tui: TUI) {}
+  constructor(private _tui: TUI) {}
 
   /**
    * Check if this handler supports the given message

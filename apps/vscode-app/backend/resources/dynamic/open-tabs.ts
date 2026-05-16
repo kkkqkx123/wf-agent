@@ -1,13 +1,13 @@
 /**
- * 打开的标签页数据源
- *
- * 获取当前 VSCode 中打开的标签页信息
+ * Open tab data source
+ * 
+ * Get information about open tabs in the current VSCode
  */
 
 import * as vscode from "vscode";
 
 /**
- * 检查路径是否应该被忽略
+ * Check if the path should be ignored
  */
 function shouldIgnorePath(path: string, patterns: string[]): boolean {
   for (const pattern of patterns) {
@@ -23,11 +23,11 @@ function shouldIgnorePath(path: string, patterns: string[]): boolean {
 }
 
 /**
- * 获取打开的标签页列表
- *
- * @param maxTabs 最大标签页数量，-1 表示不限制
- * @param ignorePatterns 忽略的文件模式
- * @returns 标签页路径列表
+ * Get a list of open tabs
+ * 
+ * @param maxTabs Maximum number of tabs, -1 means unlimited
+ * @param ignorePatterns Ignore file patterns
+ * @returns List of tab paths
  */
 export function getOpenTabs(maxTabs: number = -1, ignorePatterns: string[] = []): string[] {
   const tabs: string[] = [];
@@ -54,7 +54,7 @@ export function getOpenTabs(maxTabs: number = -1, ignorePatterns: string[] = [])
 }
 
 /**
- * 生成打开的标签页内容
+ * Generate the content of open tabs
  */
 export function generateOpenTabsContent(tabs?: string[], maxTabs?: number): string {
   if (!tabs || tabs.length === 0) return "";

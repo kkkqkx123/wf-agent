@@ -7,7 +7,7 @@
 
 import * as fs from "fs/promises";
 import * as path from "path";
-import { createContextualLogger } from "@wf-agent/sdk";
+import { createContextualLogger } from "@wf-agent/sdk/utils";
 
 /**
  * Display section for output.md aggregation

@@ -5,9 +5,9 @@
 
 import { BaseAdapter } from "./base-adapter.js";
 import type { BaseEvent } from "@wf-agent/types";
-import type { EventFilter } from "@wf-agent/sdk";
+import type { EventFilter } from "@wf-agent/sdk/api";
 import { CLINotFoundError } from "../types/cli-types.js";
-import { getData, isFailure, getError } from "@wf-agent/sdk";
+import { getData, isFailure, getError } from "@wf-agent/sdk/api";
 
 /**
  * Event Adapter

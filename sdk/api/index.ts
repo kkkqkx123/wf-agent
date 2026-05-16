@@ -367,3 +367,8 @@ export {
   loadConfigContent,
   loadAgentLoopConfig,
 } from "./shared/config/index.js";
+
+// ============================================================================
+// Core - Coordinators
+// ============================================================================
+export { ToolApprovalCoordinator, LLMExecutionCoordinator } from "../core/coordinators/index.js";

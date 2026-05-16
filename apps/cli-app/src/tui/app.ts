@@ -8,12 +8,12 @@ import type { Screen } from "./screens/screen.js";
 import { DashboardScreen } from "./screens/dashboard-screen.js";
 import { WorkflowScreen } from "./screens/workflow-screen.js";
 import { AgentScreen } from "./screens/agent-screen.js";
-import { MessageBus } from "@wf-agent/sdk";
+import { MessageBus } from "@wf-agent/sdk/api";
 import { HumanRelayService, DisplayOutputService } from "../services/io/index.js";
 import { TUIHumanRelayHandler } from "./handlers/tui-human-relay-handler.js";
 import { TUIHandler, FunctionalFileHandler, DisplayFileHandler } from "../handlers/index.js";
 import { CLI_ROUTING_RULES } from "../config/routing-rules.js";
-import { createContextualLogger } from "@wf-agent/sdk";
+import { createContextualLogger } from "@wf-agent/sdk/utils";
 
 export class CLIAppTUI {
   private tui: TUI;
@@ -189,7 +189,8 @@ export class CLIAppTUI {
   /**
    * Handle global keyboard input
    */
-  private _handleGlobalInput(data: string): boolean {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  private __handleGlobalInput(data: string): boolean {
     // Ctrl+Q to quit
     if (data === "\x11" || data === "\u0011") {
       this.stop();

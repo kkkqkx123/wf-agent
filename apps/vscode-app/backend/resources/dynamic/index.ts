@@ -1,5 +1,5 @@
 /**
- * VSCode 动态上下文统一导出
+ * VSCode Dynamic Context Unified Export
  */
 
 // type definition

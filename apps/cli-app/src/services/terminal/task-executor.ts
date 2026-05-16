@@ -1,9 +1,14 @@
 /**
- * Task Executor
- * Responsible for executing workflow threads in isolated terminals.
+ * Terminal Workflow Runner (formerly TaskExecutor)
  * 
- * Note: This executor runs workflows via CLI commands in isolated terminals.
- * For direct SDK integration, consider using WorkflowExecutionAdapter instead.
+ * DEPRECATED: This class is kept for backward compatibility only.
+ * 
+ * IMPORTANT: This class does NOT execute workflows via SDK.
+ * It spawns CLI commands in isolated terminals, which triggers a NEW SDK initialization.
+ * 
+ * For proper workflow execution with single SDK instance, use ExecutionService instead.
+ * 
+ * @deprecated Use ExecutionService for workflow execution. This class will be removed in future versions.
  */
 
 import { randomUUID } from "crypto";
@@ -21,11 +26,19 @@ function isIPty(ptyInstance: unknown): ptyInstance is pty.IPty {
 }
 
 /**
- * Task Executor
- * Responsible for executing workflow threads in isolated terminals.
+ * Terminal Workflow Runner (Legacy)
  * 
- * Note: This executor uses CLI commands to run workflows in separate terminal sessions.
- * It does not directly use the SDK - it spawns independent CLI processes.
+ * @deprecated This class uses CLI command spawning which causes double SDK initialization.
+ * Use ExecutionService instead for proper single-SDK-instance execution.
+ * 
+ * Current behavior:
+ * - Spawns CLI commands in isolated PTY terminals
+ * - Each spawned process initializes its own SDK instance
+ * - Suitable only for complete process isolation scenarios
+ * 
+ * Recommended replacement:
+ * - ExecutionService.execute() for all workflow execution modes
+ * - TerminalManager for terminal display only
  */
 export class TaskExecutor {
   /** Task Status Mapping Table */

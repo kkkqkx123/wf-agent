@@ -8,7 +8,7 @@
 import type { OutputHandler, BaseComponentMessage } from "@wf-agent/types";
 import { OutputTarget } from "@wf-agent/types";
 import type { DisplayOutputService, DisplaySection } from "../../services/io/index.js";
-import { createContextualLogger } from "@wf-agent/sdk";
+import { createContextualLogger } from "@wf-agent/sdk/utils";
 import type {
   AgentToolResultData,
   WorkflowExecutionNodeData,

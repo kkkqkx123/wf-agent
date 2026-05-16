@@ -4,7 +4,7 @@
  */
 
 import { BaseAdapter } from "./base-adapter.js";
-import { getData, isFailure, getError } from "@wf-agent/sdk";
+import { getData, isFailure, getError } from "@wf-agent/sdk/api";
 
 /**
  * Variable Adapter

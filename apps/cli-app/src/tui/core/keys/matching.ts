@@ -40,19 +40,6 @@ function isDigitKey(key: string): boolean {
   return key >= "0" && key <= "9";
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function _formatKeyNameWithModifiers(keyName: string, modifier: number): string | undefined {
-  const mods: string[] = [];
-  const effectiveMod = modifier & ~(64 + 128); // LOCK_MASK
-  const supportedModifierMask = MODIFIERS.shift | MODIFIERS.ctrl | MODIFIERS.alt | MODIFIERS.super;
-  if ((effectiveMod & ~supportedModifierMask) !== 0) return undefined;
-  if (effectiveMod & MODIFIERS.shift) mods.push("shift");
-  if (effectiveMod & MODIFIERS.ctrl) mods.push("ctrl");
-  if (effectiveMod & MODIFIERS.alt) mods.push("alt");
-  if (effectiveMod & MODIFIERS.super) mods.push("super");
-  return mods.length > 0 ? `${mods.join("+")}+${keyName}` : keyName;
-}
-
 function parseKeyId(
   keyId: string,
 ): { key: string; ctrl: boolean; shift: boolean; alt: boolean; super: boolean } | null {

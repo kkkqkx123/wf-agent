@@ -11,7 +11,7 @@ import { AgentScreen } from "./screens/agent-screen.js";
 import { MessageBus } from "@wf-agent/sdk/api";
 import { HumanRelayService, DisplayOutputService } from "../services/io/index.js";
 import { TUIHumanRelayHandler } from "./handlers/tui-human-relay-handler.js";
-import { TUIHandler, FunctionalFileHandler, DisplayFileHandler } from "../handlers/index.js";
+import { FunctionalFileHandler, DisplayFileHandler } from "../handlers/index.js";
 import { CLI_ROUTING_RULES } from "../config/routing-rules.js";
 import { createContextualLogger } from "@wf-agent/sdk/utils";
 
@@ -89,8 +89,9 @@ export class CLIAppTUI {
    * Initialize message handlers
    */
   private initializeMessageHandlers() {
-    // Register TUI handler
-    this.messageBus.registerHandler(new TUIHandler(this.tui));
+    // Note: TUI message handling is done through direct MessageBus subscriptions
+    // in Screen components (e.g., AgentScreen.setupMessageSubscriptions()).
+    // This avoids duplicate message routing and keeps UI logic within screens.
   
     // Register functional file handler
     this.messageBus.registerHandler(new FunctionalFileHandler(this.humanRelayService));
@@ -188,11 +189,12 @@ export class CLIAppTUI {
 
   /**
    * Handle global keyboard input
+   * @deprecated Reserved for future use - currently not called
    */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  private __handleGlobalInput(data: string): boolean {
+  // @ts-ignore - Reserved for future use
+  private __handleGlobalInput(_data: string): boolean {
     // Ctrl+Q to quit
-    if (data === "\x11" || data === "\u0011") {
+    if (_data === "\x11" || _data === "\u0011") {
       this.stop();
       setTimeout(() => process.exit(0), 100);
       return true;
@@ -200,7 +202,7 @@ export class CLIAppTUI {
 
     // F1 for help (ESC [ P where P is keycode for F1)
     // F1 typically sends ESC OP or ESC [ 1 1 ~
-    if (data === "\x1bOP" || data === "\x1b[11~") {
+    if (_data === "\x1bOP" || _data === "\x1b[11~") {
       this.showHelp();
       return true;
     }

@@ -174,7 +174,7 @@ export { DisableTriggerCommand } from "./workflow/operations/triggers/disable-tr
 export type { DisableTriggerParams } from "./workflow/operations/triggers/disable-trigger-command.js";
 
 // Subscriptions
-export { OnEventSubscription } from "./workflow/operations/events/on-event-subscription.js";
+export { OnEventSubscription, createExecutionScopedSubscription } from "./workflow/operations/events/on-event-subscription.js";
 export type { OnEventParams } from "./workflow/operations/events/on-event-subscription.js";
 
 export { OnceEventSubscription } from "./workflow/operations/events/once-event-subscription.js";

@@ -33,6 +33,7 @@ import { createAgentCommands } from "./commands/agent/index.js";
 import { createSkillCommands } from "./commands/skill/index.js";
 import { createMetricsCommands } from "./commands/metrics/index.js";
 import { CLIUserInteractionManager } from "./handlers/user-interaction/index.js";
+import { initializeContainer, getContainer } from "./services/container.js";
 
 // Create an instance of the main program.
 const program = new Command();
@@ -163,6 +164,9 @@ program
     
     // Store handler reference for cleanup
     (global as any).__cliInteractionHandler = interactionHandler;
+
+    // 9. Initialize dependency container
+    initializeContainer(sdkInstance);
   });
 
 // Add workflow command groups
@@ -282,18 +286,13 @@ async function startTUI() {
           sdkInstance = null;
         }
 
-        // Dynamically import terminal modules (to avoid circular dependencies)
-        const { TerminalManager } = await import("./services/terminal/terminal-manager.js");
-        const { CommunicationBridge } = await import("./services/terminal/communication-bridge.js");
-
-        const terminalManager = new TerminalManager();
-        const communicationBridge = new CommunicationBridge();
-
-        // Clean up all terminal sessions.
-        await terminalManager.cleanupAll();
-
-        // Clean up all communication bridges.
-        communicationBridge.cleanupAll();
+        // Use container to cleanup services
+        try {
+          const container = getContainer();
+          await container.cleanup();
+        } catch (error) {
+          output.warnLog(`Container cleanup warning: ${error instanceof Error ? error.message : String(error)}`);
+        }
 
         output.infoLog("Resource cleanup is complete.");
 
@@ -348,18 +347,13 @@ const shutdown = async () => {
       sdkInstance = null;
     }
 
-    // Dynamically import terminal modules (to avoid circular dependencies)
-    const { TerminalManager } = await import("./services/terminal/terminal-manager.js");
-    const { CommunicationBridge } = await import("./services/terminal/communication-bridge.js");
-
-    const terminalManager = new TerminalManager();
-    const communicationBridge = new CommunicationBridge();
-
-    // Clean up all terminal sessions.
-    await terminalManager.cleanupAll();
-
-    // Clean up all communication bridges.
-    communicationBridge.cleanupAll();
+    // Use container to cleanup services
+    try {
+      const container = getContainer();
+      await container.cleanup();
+    } catch (error) {
+      output.warnLog(`Container cleanup warning: ${error instanceof Error ? error.message : String(error)}`);
+    }
 
     output.infoLog("Resource cleanup is complete.");
 

@@ -2,8 +2,6 @@
  * Constants and mapping tables for keyboard input handling.
  */
 
-import type { KeyId } from "./types.js";
-
 // =============================================================================
 // Symbol Keys Set
 // =============================================================================
@@ -92,9 +90,14 @@ export const KITTY_FUNCTIONAL_KEY_EQUIVALENTS = new Map<number, number>([
 ]);
 
 // =============================================================================
-// Legacy Terminal Sequences
+// Legacy Terminal Key Sequences
+// These are pre-defined escape sequences used by terminals that don't support
+// the Kitty keyboard protocol.
 // =============================================================================
 
+/**
+ * Base legacy key sequences (no modifiers)
+ */
 export const LEGACY_KEY_SEQUENCES = {
   up: ["\x1b[A", "\x1bOA"],
   down: ["\x1b[B", "\x1bOB"],
@@ -121,6 +124,9 @@ export const LEGACY_KEY_SEQUENCES = {
   f12: ["\x1b[24~"],
 } as const;
 
+/**
+ * Shift modifier legacy sequences
+ */
 export const LEGACY_SHIFT_SEQUENCES = {
   up: ["\x1b[a"],
   down: ["\x1b[b"],
@@ -135,6 +141,9 @@ export const LEGACY_SHIFT_SEQUENCES = {
   end: ["\x1b[8$"],
 } as const;
 
+/**
+ * Ctrl modifier legacy sequences
+ */
 export const LEGACY_CTRL_SEQUENCES = {
   up: ["\x1bOa"],
   down: ["\x1bOb"],
@@ -149,11 +158,10 @@ export const LEGACY_CTRL_SEQUENCES = {
   end: ["\x1b[8^"],
 } as const;
 
-// =============================================================================
-// Legacy Sequence to KeyId Mapping (Reverse Lookup)
-// =============================================================================
-
-export const LEGACY_SEQUENCE_KEY_IDS: Record<string, KeyId> = {
+/**
+ * Legacy sequence to KeyId mapping (reverse lookup)
+ */
+export const LEGACY_SEQUENCE_KEY_IDS: Record<string, string> = {
   "\x1bOA": "up",
   "\x1bOB": "down",
   "\x1bOC": "right",

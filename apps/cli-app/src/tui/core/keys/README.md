@@ -4,18 +4,41 @@ Keyboard input handling for terminal applications. Supports both legacy terminal
 
 ## Architecture
 
-This module is split into multiple files for better maintainability:
+This module is organized by responsibility for better maintainability:
 
 ```
 keys/
 ├── types.ts              # Type definitions (KeyId, Key helper, event types)
-├── constants.ts          # Constants and mapping tables
+├── constants.ts          # All constants including legacy terminal sequences
 ├── kitty-protocol.ts     # Kitty keyboard protocol parsing
-├── legacy-sequences.ts   # Legacy terminal sequences & modifyOtherKeys
+├── legacy-sequences.ts   # Legacy sequence matching utilities
 ├── matching.ts           # Core key matching logic
 ├── parsing.ts            # Key parsing and printable decoding
-└── index.ts              # Unified exports
+└── index.ts              # Unified public API exports
 ```
+
+### Module Responsibilities
+
+- **constants.ts**: All constant values (no runtime logic)
+  - Codepoint constants (escape, tab, enter, etc.)
+  - Modifier bit masks (shift, alt, ctrl, super)
+  - Symbol keys set
+  - Kitty functional key equivalents
+  - Legacy terminal escape sequences (base, shift, ctrl modifiers)
+  - Legacy sequence to KeyId reverse lookup mapping
+
+- **legacy-sequences.ts**: Matching utilities for legacy sequences
+  - Sequence matching functions
+  - xterm modifyOtherKeys parsing
+  - Windows Terminal detection
+
+- **matching.ts**: Core matching logic
+  - matchesKey() function
+  - Handles all protocols (legacy, Kitty, modifyOtherKeys)
+
+- **parsing.ts**: Input parsing
+  - parseKey() function
+  - Printable character decoding
 
 ## API
 

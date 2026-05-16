@@ -11,37 +11,31 @@ import { formatWorkflowExecution, formatWorkflowExecutionList } from "../../util
 import type { CommandOptions } from "../../types/cli-types.js";
 import { handleError } from "../../utils/error-handler.js";
 import { CLIValidationError } from "../../types/cli-types.js";
-import { getSDKInstance } from "../../index.js";
 
-// Import ExecutionService and TerminalManager
-import { ExecutionService } from "../../services/execution/execution-service.js";
-import { TerminalManager } from "../../services/terminal/terminal-manager.js";
-import { WorkflowExecutionAdapter } from "../../adapters/workflow-execution-adapter.js";
+// Import container for dependency injection
+import { getContainer } from "../../services/container.js";
 
 const output = getOutput();
 
-// Lazy initialization - create instances only when needed
-let executionService: ExecutionService | null = null;
-let terminalManager: TerminalManager | null = null;
-
-function getExecutionService(): ExecutionService {
-  if (!executionService) {
-    const sdk = getSDKInstance();
-    if (!sdk) {
-      throw new Error("SDK instance not initialized. Make sure the CLI app has started.");
-    }
-    terminalManager = new TerminalManager();
-    executionService = new ExecutionService(sdk, terminalManager);
-  }
-  return executionService;
+/**
+ * Get ExecutionService from container
+ */
+function getExecutionService() {
+  return getContainer().getExecutionService();
 }
 
-function getTerminalManager(): TerminalManager {
-  if (!terminalManager) {
-    // Create standalone TerminalManager for listing terminals
-    terminalManager = new TerminalManager();
-  }
-  return terminalManager;
+/**
+ * Get TerminalManager from container
+ */
+function getTerminalManager() {
+  return getContainer().getTerminalManager();
+}
+
+/**
+ * Get WorkflowExecutionAdapter from container
+ */
+function getWorkflowExecutionAdapter() {
+  return getContainer().getWorkflowExecutionAdapter();
 }
 
 /**
@@ -200,7 +194,7 @@ export function createWorkflowExecutionCommands(): Command {
       try {
         output.infoLog(`Pausing workflow execution: ${executionId}`);
 
-        const adapter = new WorkflowExecutionAdapter();
+        const adapter = getWorkflowExecutionAdapter();
         await adapter.pauseWorkflowExecution(executionId);
       } catch (error) {
         handleError(error, {
@@ -218,7 +212,7 @@ export function createWorkflowExecutionCommands(): Command {
       try {
         output.infoLog(`Resuming workflow execution: ${executionId}`);
 
-        const adapter = new WorkflowExecutionAdapter();
+        const adapter = getWorkflowExecutionAdapter();
         await adapter.resumeWorkflowExecution(executionId);
       } catch (error) {
         handleError(error, {
@@ -236,7 +230,7 @@ export function createWorkflowExecutionCommands(): Command {
       try {
         output.infoLog(`Stopping workflow execution: ${executionId}`);
 
-        const adapter = new WorkflowExecutionAdapter();
+        const adapter = getWorkflowExecutionAdapter();
         await adapter.stopWorkflowExecution(executionId);
       } catch (error) {
         handleError(error, {
@@ -254,7 +248,7 @@ export function createWorkflowExecutionCommands(): Command {
     .option("-v, --verbose", "Detailed output")
     .action(async (options: CommandOptions) => {
       try {
-        const adapter = new WorkflowExecutionAdapter();
+        const adapter = getWorkflowExecutionAdapter();
         const executions = await adapter.listWorkflowExecutions();
 
         output.output(formatWorkflowExecutionList(executions, { table: options.table }));
@@ -272,7 +266,7 @@ export function createWorkflowExecutionCommands(): Command {
     .option("-v, --verbose", "Detailed output")
     .action(async (executionId: string, options: CommandOptions) => {
       try {
-        const adapter = new WorkflowExecutionAdapter();
+        const adapter = getWorkflowExecutionAdapter();
         const execution = await adapter.getWorkflowExecution(executionId);
 
         output.output(formatWorkflowExecution(execution, { verbose: options.verbose }));
@@ -298,7 +292,7 @@ export function createWorkflowExecutionCommands(): Command {
           return;
         }
 
-        const adapter = new WorkflowExecutionAdapter();
+        const adapter = getWorkflowExecutionAdapter();
         await adapter.deleteWorkflowExecution(executionId);
       } catch (error) {
         handleError(error, {

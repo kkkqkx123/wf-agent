@@ -63,8 +63,7 @@ export class Editor implements Component, Focusable {
   private autocompleteProvider?: AutocompleteProvider;
   private autocompleteList?: SelectList;
   private autocompleteState: "regular" | "force" | null = null;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  private _autocompletePrefix: string = "";
+  private autocompleteIsSlashCommand: boolean = false;
   private autocompleteMaxVisible: number = 5;
   private autocompleteAbort?: AbortController;
   private autocompleteDebounceTimer?: ReturnType<typeof setTimeout>;
@@ -1518,6 +1517,11 @@ export class Editor implements Component, Focusable {
     this.cancelAutocompleteRequest();
     const startToken = ++this.autocompleteStartToken;
 
+    // Detect if this is a slash command completion
+    const currentLine = this.state.lines[this.state.cursorLine] || "";
+    const beforeCursor = currentLine.slice(0, this.state.cursorCol);
+    this.autocompleteIsSlashCommand = beforeCursor.trimStart().startsWith("/") && !beforeCursor.trimStart().includes(" ");
+
     void this.startAutocompleteRequest(startToken, force);
   }
 
@@ -1586,17 +1590,16 @@ export class Editor implements Component, Focusable {
     );
   }
 
-  private applyAutocompleteSuggestions(suggestions: AutocompleteSuggestions & { prefix?: string }, state: "regular" | "force"): void {
-    this._autocompletePrefix = suggestions.prefix || "";
+  private applyAutocompleteSuggestions(suggestions: AutocompleteSuggestions, state: "regular" | "force"): void {
     const items = suggestions.items
       .filter((item): item is { value: string; label: string; description?: string } => item.value !== undefined && item.label !== undefined)
       .map(item => ({ value: item.value!, label: item.label!, description: item.description }));
-    this.autocompleteList = this.createAutocompleteList(suggestions.prefix || "", items);
+    this.autocompleteList = this.createAutocompleteList(items);
     this.autocompleteState = state;
   }
 
-  private createAutocompleteList(prefix: string, items: Array<{ value: string; label: string; description?: string }>): SelectList {
-    const layout = prefix.startsWith("/") ? SLASH_COMMAND_SELECT_LIST_LAYOUT : undefined;
+  private createAutocompleteList(items: Array<{ value: string; label: string; description?: string }>): SelectList {
+    const layout = this.autocompleteIsSlashCommand ? SLASH_COMMAND_SELECT_LIST_LAYOUT : undefined;
     return new SelectList(items, this.autocompleteMaxVisible, this.theme.selectList, layout);
   }
 
@@ -1614,7 +1617,7 @@ export class Editor implements Component, Focusable {
     this.cancelAutocompleteRequest();
     this.autocompleteState = null;
     this.autocompleteList = undefined;
-    this._autocompletePrefix = "";
+    this.autocompleteIsSlashCommand = false;
   }
 
   public isShowingAutocomplete(): boolean {

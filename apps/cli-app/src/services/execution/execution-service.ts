@@ -11,7 +11,9 @@ import type { SDKInstance } from "@wf-agent/sdk/api";
 import { WorkflowExecutionAdapter } from "../../adapters/workflow-execution-adapter.js";
 import { TerminalManager } from "../terminal/terminal-manager.js";
 import type { TerminalSession } from "../terminal/types.js";
-import type { WorkflowExecutionResult } from "@wf-agent/types";
+import type { WorkflowExecutionResult, BaseEvent, NodeCompletedEvent, WorkflowExecutionCompletedEvent, WorkflowExecutionFailedEvent } from "@wf-agent/types";
+import { createExecutionScopedSubscription } from "@wf-agent/sdk/api";
+import { CLIError, ErrorCode } from "../../types/cli-types.js";
 
 const output = getOutput();
 
@@ -51,8 +53,10 @@ export interface ExecutionResult {
 export class ExecutionService {
   private terminalManager: TerminalManager;
   private adapter: WorkflowExecutionAdapter;
+  private sdk: SDKInstance;
 
-  constructor(_sdk: SDKInstance, terminalManager: TerminalManager) {
+  constructor(sdk: SDKInstance, terminalManager: TerminalManager) {
+    this.sdk = sdk;
     this.terminalManager = terminalManager;
     this.adapter = new WorkflowExecutionAdapter();
   }
@@ -79,7 +83,10 @@ export class ExecutionService {
       case 'background':
         return this.executeBackground(workflowId, input);
       default:
-        throw new Error(`Unsupported execution mode: ${mode}`);
+        throw new CLIError(
+          `Unsupported execution mode: ${mode}`,
+          ErrorCode.VALIDATION
+        );
     }
   }
 
@@ -276,41 +283,180 @@ export class ExecutionService {
   }
 
   /**
-   * Setup event streaming to terminal (placeholder for future implementation)
-   * This will subscribe to SDK events and forward them to the terminal
+   * Setup event streaming to terminal
+   * Subscribes to SDK events and forwards them to the terminal for real-time display
    */
   private async setupEventStreaming(
-    _executionId: string,
-    _terminal: TerminalSession
+    executionId: string,
+    terminal: TerminalSession
   ): Promise<void> {
-    // TODO: Implement event streaming when SDK provides event subscription API
-    // Example:
-    // this.sdk.events.on('workflow.progress', (event) => {
-    //   if (event.executionId === executionId) {
-    //     terminal.pty.write(`Progress: ${event.progress}%\n`);
-    //   }
-    // });
+    const dependencies = this.sdk.getFactory().getDependencies();
     
-    output.debugLog('Event streaming setup (placeholder - not yet implemented)');
+    // Subscribe to node completed events
+    const nodeCompletedUnsubscribe = createExecutionScopedSubscription(
+      executionId,
+      'NODE_COMPLETED',
+      (event: BaseEvent) => {
+        const nodeEvent = event as NodeCompletedEvent;
+        const message = `[${new Date().toISOString()}] ✓ Node completed: ${nodeEvent.nodeId}\n`;
+        if (terminal.pty && 'write' in terminal.pty) {
+          terminal.pty.write(message);
+        }
+      },
+      dependencies
+    ).subscribe();
+
+    // Subscribe to workflow completed event
+    const workflowCompletedUnsubscribe = createExecutionScopedSubscription(
+      executionId,
+      'WORKFLOW_EXECUTION_COMPLETED',
+      (event: BaseEvent) => {
+        const workflowEvent = event as WorkflowExecutionCompletedEvent;
+        const message = [
+          '\n',
+          '╔══════════════════════════════════════════╗',
+          '║     Workflow Execution Completed         ║',
+          '╠══════════════════════════════════════════╣',
+          `║ Execution Time: ${(workflowEvent.executionTime / 1000).toFixed(2)}s`.padEnd(43) + '║',
+          '╚══════════════════════════════════════════╝',
+          '\n',
+        ].join('\n');
+        
+        if (terminal.pty && 'write' in terminal.pty) {
+          terminal.pty.write(message);
+        }
+        
+        // Cleanup subscriptions
+        nodeCompletedUnsubscribe();
+        workflowCompletedUnsubscribe();
+      },
+      dependencies
+    ).subscribe();
+
+    // Subscribe to workflow failed event
+    const workflowFailedUnsubscribe = createExecutionScopedSubscription(
+      executionId,
+      'WORKFLOW_EXECUTION_FAILED',
+      (event: BaseEvent) => {
+        const workflowEvent = event as WorkflowExecutionFailedEvent;
+        const errorMessage = workflowEvent.error instanceof Error 
+          ? workflowEvent.error.message 
+          : String(workflowEvent.error);
+        
+        const message = [
+          '\n',
+          '╔══════════════════════════════════════════╗',
+          '║     Workflow Execution Failed            ║',
+          '╠══════════════════════════════════════════╣',
+          `║ Error: ${errorMessage.substring(0, 35)}`.padEnd(43) + '║',
+          '╚══════════════════════════════════════════╝',
+          '\n',
+        ].join('\n');
+        
+        if (terminal.pty && 'write' in terminal.pty) {
+          terminal.pty.write(message);
+        }
+        
+        // Cleanup subscriptions
+        nodeCompletedUnsubscribe();
+        workflowFailedUnsubscribe();
+      },
+      dependencies
+    ).subscribe();
+
+    output.debugLog(`Event streaming setup for execution ${executionId}`);
   }
 
   /**
-   * Setup background logging (placeholder for future implementation)
-   * This will subscribe to SDK events and write them to log file
+   * Setup background logging
+   * Subscribes to SDK events and writes them to log file via background terminal
    */
   private async setupBackgroundLogging(
-    _executionId: string,
-    _terminal: TerminalSession
+    executionId: string,
+    terminal: TerminalSession
   ): Promise<void> {
-    // TODO: Implement background logging when SDK provides event subscription API
-    // Example:
-    // this.sdk.events.on('workflow.progress', (event) => {
-    //   if (event.executionId === executionId) {
-    //     terminal.pty.stdin?.write(`[${new Date().toISOString()}] Progress: ${event.progress}%\n`);
-    //   }
-    // });
+    const dependencies = this.sdk.getFactory().getDependencies();
     
-    output.debugLog('Background logging setup (placeholder - not yet implemented)');
+    // Subscribe to node started events
+    const nodeStartedUnsubscribe = createExecutionScopedSubscription(
+      executionId,
+      'NODE_STARTED',
+      (event: BaseEvent) => {
+        const message = `[${new Date().toISOString()}] → Node started: ${(event as any).nodeId} (${(event as any).nodeType})\n`;
+        if (terminal.pty && 'stdin' in terminal.pty && terminal.pty.stdin) {
+          terminal.pty.stdin.write(message);
+        }
+      },
+      dependencies
+    ).subscribe();
+
+    // Subscribe to node completed events
+    const nodeCompletedUnsubscribe = createExecutionScopedSubscription(
+      executionId,
+      'NODE_COMPLETED',
+      (event: BaseEvent) => {
+        const nodeEvent = event as NodeCompletedEvent;
+        const message = `[${new Date().toISOString()}] ✓ Node completed: ${nodeEvent.nodeId}\n`;
+        if (terminal.pty && 'stdin' in terminal.pty && terminal.pty.stdin) {
+          terminal.pty.stdin.write(message);
+        }
+      },
+      dependencies
+    ).subscribe();
+
+    // Subscribe to workflow completed event
+    const workflowCompletedUnsubscribe = createExecutionScopedSubscription(
+      executionId,
+      'WORKFLOW_EXECUTION_COMPLETED',
+      (event: BaseEvent) => {
+        const workflowEvent = event as WorkflowExecutionCompletedEvent;
+        const message = [
+          `[${new Date().toISOString()}] Workflow execution completed`,
+          `  Execution Time: ${(workflowEvent.executionTime / 1000).toFixed(2)}s`,
+          '',
+        ].join('\n');
+        
+        if (terminal.pty && 'stdin' in terminal.pty && terminal.pty.stdin) {
+          terminal.pty.stdin.write(message);
+        }
+        
+        // Cleanup subscriptions
+        nodeStartedUnsubscribe();
+        nodeCompletedUnsubscribe();
+        workflowCompletedUnsubscribe();
+      },
+      dependencies
+    ).subscribe();
+
+    // Subscribe to workflow failed event
+    const workflowFailedUnsubscribe = createExecutionScopedSubscription(
+      executionId,
+      'WORKFLOW_EXECUTION_FAILED',
+      (event: BaseEvent) => {
+        const workflowEvent = event as WorkflowExecutionFailedEvent;
+        const errorMessage = workflowEvent.error instanceof Error 
+          ? workflowEvent.error.message 
+          : String(workflowEvent.error);
+        
+        const message = [
+          `[${new Date().toISOString()}] Workflow execution failed`,
+          `  Error: ${errorMessage}`,
+          '',
+        ].join('\n');
+        
+        if (terminal.pty && 'stdin' in terminal.pty && terminal.pty.stdin) {
+          terminal.pty.stdin.write(message);
+        }
+        
+        // Cleanup subscriptions
+        nodeStartedUnsubscribe();
+        nodeCompletedUnsubscribe();
+        workflowFailedUnsubscribe();
+      },
+      dependencies
+    ).subscribe();
+
+    output.debugLog(`Background logging setup for execution ${executionId}`);
   }
 
   /**
@@ -333,8 +479,13 @@ export class ExecutionService {
         lastUpdate: new Date(),
       };
     } catch (error) {
-      output.errorLog(`Failed to monitor execution ${executionId}: ${error instanceof Error ? error.message : String(error)}`);
-      throw error;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      output.errorLog(`Failed to monitor execution ${executionId}: ${errorMessage}`);
+      throw new CLIError(
+        `Failed to monitor execution: ${errorMessage}`,
+        ErrorCode.API,
+        4
+      );
     }
   }
 
@@ -349,8 +500,13 @@ export class ExecutionService {
       await this.adapter.stopWorkflowExecution(executionId);
       output.infoLog(`Execution stopped: ${executionId}`);
     } catch (error) {
-      output.errorLog(`Failed to stop execution ${executionId}: ${error instanceof Error ? error.message : String(error)}`);
-      throw error;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      output.errorLog(`Failed to stop execution ${executionId}: ${errorMessage}`);
+      throw new CLIError(
+        `Failed to stop workflow execution: ${errorMessage}`,
+        ErrorCode.API,
+        4,
+      );
     }
   }
 

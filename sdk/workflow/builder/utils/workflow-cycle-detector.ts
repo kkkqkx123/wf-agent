@@ -4,7 +4,7 @@
  */
 
 import type { ID, CycleDetectionResult, WorkflowGraphStructure } from "@wf-agent/types";
-import { dfsWithPathTracking, type DfsCycleCallback } from "./workflow-traversal.js";
+import { dfsWithPathTrackingAndEarlyExit, type DfsCycleCallback } from "./workflow-traversal.js";
 
 /**
  * Detect cycles in a workflow graph (using DFS)
@@ -16,8 +16,11 @@ export function detectCycles(graph: WorkflowGraphStructure): CycleDetectionResul
   const cycleEdges: ID[] = [];
   let hasCycle = false;
 
+  // Shared visited set across all DFS calls to avoid redundant traversal
+  const visited = new Set<ID>();
+
   // Define the callback for cycle detection
-  const cycleCallback: DfsCycleCallback = (nodeId, path, visited, recursionStack) => {
+  const cycleCallback: DfsCycleCallback = (nodeId, path, _visited, recursionStack) => {
     if (recursionStack.has(nodeId)) {
       // Found a loop
       hasCycle = true;
@@ -52,11 +55,13 @@ export function detectCycles(graph: WorkflowGraphStructure): CycleDetectionResul
     return { shouldContinue: true };
   };
 
-  // Start a DFS from each unvisited node.
+  // Start a DFS from each unvisited node using shared visited set
   for (const nodeId of graph.getAllNodeIds()) {
-    dfsWithPathTracking(graph, nodeId, cycleCallback);
-    if (hasCycle) {
-      break;
+    if (!visited.has(nodeId)) {
+      const foundCycle = dfsWithPathTrackingAndEarlyExit(graph, nodeId, cycleCallback, visited);
+      if (foundCycle) {
+        break;
+      }
     }
   }
 

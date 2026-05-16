@@ -50,7 +50,7 @@ export class ResumeAgentLoopCommand extends BaseCommand<void> {
     const registry = this.dependencies.getAgentLoopRegistry();
 
     // Obtain the Agent Loop entity
-    const entity = registry.get(this.params.agentLoopId);
+    const entity = await registry.get(this.params.agentLoopId);
     if (!entity) {
       throw new Error(`Agent Loop not found: ${this.params.agentLoopId}`);
     }

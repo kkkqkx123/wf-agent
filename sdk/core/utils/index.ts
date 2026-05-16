@@ -33,3 +33,6 @@ export * from "./task/index.js";
 
 // Interruption utilities
 export * from "./interruption/index.js";
+
+// Timeout utilities
+export * from "./timeout/index.js";

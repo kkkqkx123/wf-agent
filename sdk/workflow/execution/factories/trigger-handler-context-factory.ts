@@ -20,6 +20,7 @@ import type { CheckpointState } from "../../checkpoint/checkpoint-state-manager.
 import type { WorkflowExecutionBuilder } from "./workflow-execution-builder.js";
 import type { TaskQueue } from "../../stores/task/task-queue.js";
 import type { WorkflowStateTransitor } from "../coordinators/workflow-state-transitor.js";
+import type { GlobalContext } from "../../../core/global-context.js";
 import { DependencyInjectionError } from "@wf-agent/types";
 
 /**
@@ -70,6 +71,8 @@ export interface TriggerHandlerContextFactoryConfig {
   workflowRegistry: WorkflowRegistry;
   /** Trigger State Manager */
   stateManager: TriggerState;
+  /** Global Context for accessing DI container */
+  globalContext: GlobalContext;
 
   // Optional dependencies
   /** Checkpoint State Manager */
@@ -296,6 +299,15 @@ export class TriggerHandlerContextFactory {
    */
   getStateManager(): TriggerState {
     return this.config.stateManager;
+  }
+
+  /**
+   * Get global context
+   *
+   * @returns Global context
+   */
+  getGlobalContext(): GlobalContext {
+    return this.config.globalContext;
   }
 
   /**

@@ -96,10 +96,36 @@ export interface ToolAddedEvent extends BaseEvent {
   nodeId: ID;
   /** Tool ID List */
   toolIds: ID[];
-  /** scope (computing) */
-  scope: "GLOBAL" | "EXECUTION" | "LOCAL";
+  /** Scope (EXECUTION or LOCAL) */
+  scope: "EXECUTION" | "LOCAL";
   /** Number of tools successfully added */
   addedCount: number;
   /** Number of tools skipped */
   skippedCount: number;
+}
+
+/**
+ * Tool visibility changed event type
+ * Triggered when the set of visible tools changes (scope switch, dynamic add/remove, etc.)
+ */
+export interface ToolVisibilityChangedEvent extends BaseEvent {
+  type: "TOOL_VISIBILITY_CHANGED";
+  /** Execution ID */
+  executionId: ID;
+  /** Workflow ID */
+  workflowId?: ID;
+  /** Node ID (optional, if triggered by node execution) */
+  nodeId?: ID;
+  /** Current scope */
+  scope: "EXECUTION" | "SUBGRAPH" | "LOOP";
+  /** Scope ID */
+  scopeId: ID;
+  /** Change type */
+  changeType: "enter_scope" | "exit_scope" | "add_tools" | "remove_tools" | "refresh" | "init";
+  /** Currently visible tool IDs */
+  visibleToolIds: ID[];
+  /** Previous visible tool IDs (for comparison) */
+  previousVisibleToolIds?: ID[];
+  /** Timestamp of the change */
+  timestamp: number;
 }

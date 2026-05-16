@@ -27,16 +27,12 @@ const logger = createContextualLogger({ operation: "checkpoint-state-manager" })
  * Entity-based design for efficient checkpoint management.
  */
 export class CheckpointState extends BaseCheckpointStateManager<Checkpoint> {
-  private readonly workflowExecutionId: string;
-
   /**
    * Constructor
-   * @param workflowExecutionId Workflow execution ID (required for entity binding)
    * @param storageAdapter Storage adapter interface (implemented by the application layer)
    * @param eventManager Event manager (optional)
    */
   constructor(
-    workflowExecutionId: string,
     storageAdapter: StorageAdapter,
     eventManager?: EventRegistry
   ) {
@@ -72,11 +68,6 @@ export class CheckpointState extends BaseCheckpointStateManager<Checkpoint> {
     };
 
     super(adaptedAdapter, eventManager);
-
-    if (!workflowExecutionId) {
-      throw new Error('workflowExecutionId is required for CheckpointState');
-    }
-    this.workflowExecutionId = workflowExecutionId;
   }
 
 
@@ -85,22 +76,24 @@ export class CheckpointState extends BaseCheckpointStateManager<Checkpoint> {
    * Clean up all checkpoints for the specified workflow execution
    * Optimized to use entity-level batch deletion
    *
-   * @param workflowExecutionId WorkflowExecution ID (optional, defaults to constructor value)
+   * @param workflowExecutionId WorkflowExecution ID (required)
    * @returns Number of checkpoints deleted
    */
-  async cleanupWorkflowExecutionCheckpoints(workflowExecutionId?: string): Promise<number> {
-    const targetId = workflowExecutionId || this.workflowExecutionId;
+  async cleanupWorkflowExecutionCheckpoints(workflowExecutionId: string): Promise<number> {
+    if (!workflowExecutionId) {
+      throw new Error('workflowExecutionId is required for cleanupWorkflowExecutionCheckpoints');
+    }
     
-    logger.info("Cleaning up workflow execution checkpoints", { workflowExecutionId: targetId });
+    logger.info("Cleaning up workflow execution checkpoints", { workflowExecutionId });
 
     // Use optimized entity-level batch deletion
     const deletedCount = await (this.storageAdapter as unknown as CheckpointStorageAdapter).deleteByEntity(
-      targetId,
+      workflowExecutionId,
       'workflow'
     );
 
     logger.info("Workflow execution checkpoints cleaned up", { 
-      workflowExecutionId: targetId, 
+      workflowExecutionId, 
       deletedCount 
     });
 
@@ -117,8 +110,8 @@ export class CheckpointState extends BaseCheckpointStateManager<Checkpoint> {
     const id = await super.create(checkpointData);
     
     // Execute entity-specific cleanup after saving
-    if (this.cleanupPolicy) {
-      await this.executeCleanupForEntity(this.workflowExecutionId, 'workflow');
+    if (this.cleanupPolicy && checkpointData.executionId) {
+      await this.executeCleanupForEntity(checkpointData.executionId, 'workflow');
     }
     
     return id;
@@ -167,9 +160,13 @@ export class CheckpointState extends BaseCheckpointStateManager<Checkpoint> {
   // ============================================================================
 
   protected extractStorageMetadata(checkpoint: Checkpoint): CheckpointStorageMetadata {
+    if (!checkpoint.executionId) {
+      throw new Error('checkpoint.executionId is required for storage metadata');
+    }
+    
     return {
       entityType: 'workflow',
-      entityId: checkpoint.executionId || this.workflowExecutionId,
+      entityId: checkpoint.executionId,
       timestamp: checkpoint.timestamp,
       tags: checkpoint.metadata?.tags,
       customFields: checkpoint.metadata?.customFields,

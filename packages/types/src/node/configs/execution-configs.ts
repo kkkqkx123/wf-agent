@@ -61,8 +61,11 @@ export interface AddToolNodeConfig {
   toolIds: string[];
   /** Tool description template (optional, for dynamic generation of tool descriptions) */
   descriptionTemplate?: string;
-  /** Tool scope (optional, defaults to EXECUTION) */
-  scope?: 'GLOBAL' | 'EXECUTION' | 'LOCAL';
+  /** Tool scope (optional, defaults to EXECUTION)
+   * - EXECUTION: Tools available in current execution instance
+   * - LOCAL: Tools available only in current local/subgraph context
+   */
+  scope?: 'EXECUTION' | 'LOCAL';
   /** Whether to overwrite existing tools (default false) */
   overwrite?: boolean;
   /** Tool metadata (optional) */

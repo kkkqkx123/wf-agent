@@ -250,6 +250,19 @@ export class SDKInstance {
       logger.error(`Failed to initialize TOML parser: ${getErrorMessage(error)}`);
     }
 
+    // Initialize TaskRegistry with async storage loading
+    try {
+      const taskRegistry = this.globalContext.container.get(ServiceIdentifiers.TaskRegistry);
+      if (taskRegistry && typeof (taskRegistry as any).initialize === 'function') {
+        await (taskRegistry as any).initialize();
+        logger.info("TaskRegistry initialized", {
+          persistenceEnabled: (taskRegistry as any).isPersistenceEnabled?.() ?? false,
+        });
+      }
+    } catch (error) {
+      logger.error(`Failed to initialize TaskRegistry: ${getErrorMessage(error)}`);
+    }
+
     // Configure MCP if enabled
     if (this.config?.mcp) {
       try {

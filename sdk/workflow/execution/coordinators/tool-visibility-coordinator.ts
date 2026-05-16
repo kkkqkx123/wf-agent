@@ -40,9 +40,6 @@ export class ToolVisibilityCoordinator {
   /** Tool Visibility Store (Stateful) */
   private toolVisibilityStore: ToolVisibilityStore;
 
-  /** Tool Services */
-  private toolService: ToolRegistry;
-
   /** Message Builder */
   private messageBuilder: ToolVisibilityMessageBuilder;
 
@@ -52,7 +49,6 @@ export class ToolVisibilityCoordinator {
    * @param toolVisibilityStore: Tool visibility store
    */
   constructor(toolService: ToolRegistry, toolVisibilityStore?: ToolVisibilityStore) {
-    this.toolService = toolService;
     this.toolVisibilityStore = toolVisibilityStore || new ToolVisibilityStore();
     this.messageBuilder = new ToolVisibilityMessageBuilder(toolService);
   }

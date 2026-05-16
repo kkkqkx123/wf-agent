@@ -74,6 +74,7 @@ import type {
   ToolCallCompletedEvent,
   ToolCallFailedEvent,
   ToolAddedEvent,
+  ToolVisibilityChangedEvent,
 } from "./tool-events.js";
 
 import type { MessageAddedEvent, ConversationStateChangedEvent } from "./conversation-events.js";
@@ -134,6 +135,8 @@ import type {
   AgentHookTriggeredCoreEvent,
   AgentPausedEvent,
   AgentCancelledEvent,
+  AgentResumedEvent,
+  AgentFailedEvent,
 } from "./agent-events.js";
 import type {
   SkillLoadStartedEvent,
@@ -177,6 +180,7 @@ export type Event =
   | ToolCallCompletedEvent
   | ToolCallFailedEvent
   | ToolAddedEvent
+  | ToolVisibilityChangedEvent
   | ConversationStateChangedEvent
   | ErrorEvent
   | CheckpointCreatedEvent
@@ -209,6 +213,8 @@ export type Event =
   | AgentHookTriggeredCoreEvent
   | AgentPausedEvent
   | AgentCancelledEvent
+  | AgentResumedEvent
+  | AgentFailedEvent
   | SkillLoadStartedEvent
   | SkillLoadCompletedEvent
   | SkillLoadFailedEvent

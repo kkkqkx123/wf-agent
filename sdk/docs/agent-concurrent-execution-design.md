@@ -229,8 +229,11 @@ export class ThreadExecutionManager {
   private poolService: ExecutionPoolService<ThreadEntity>;
   private queueManager: ExecutionQueueManager<ThreadEntity>;
 
-  constructor(deps: ThreadExecutionManagerDependencies) {
-    this.taskRegistry = TaskRegistry.getInstance();
+  constructor(
+    taskRegistry: TaskRegistry,
+    deps: ThreadExecutionManagerDependencies
+  ) {
+    this.taskRegistry = taskRegistry; // Injected from DI container
     this.poolService = new ExecutionPoolService(
       deps.executorFactory,
       deps.poolConfig
@@ -264,8 +267,11 @@ export class AgentExecutionManager {
   private poolService: ExecutionPoolService<AgentLoopEntity>;
   private queueManager: ExecutionQueueManager<AgentLoopEntity>;
 
-  constructor(deps: AgentExecutionManagerDependencies) {
-    this.taskRegistry = TaskRegistry.getInstance();
+  constructor(
+    taskRegistry: TaskRegistry,
+    deps: AgentExecutionManagerDependencies
+  ) {
+    this.taskRegistry = taskRegistry; // Injected from DI container
     this.poolService = new ExecutionPoolService(
       deps.executorFactory,
       deps.poolConfig

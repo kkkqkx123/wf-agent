@@ -194,6 +194,29 @@ export class HumanRelayClient implements LLMClient {
     request: LLMRequest,
     startTime: number,
   ): LLMResult {
+    // Extract relevant information from request to enrich metadata
+    const metadata: Record<string, unknown> = {
+      source: "human-relay",
+      profileId: this.profile.id,
+    };
+
+    // Include request parameters if available
+    if (request.parameters && Object.keys(request.parameters).length > 0) {
+      metadata["requestParameters"] = request.parameters;
+    }
+
+    // Include tool information if tools were requested
+    if (request.tools && request.tools.length > 0) {
+      metadata["hasTools"] = true;
+      metadata["toolCount"] = request.tools.length;
+      metadata["toolNames"] = request.tools.map((tool) => tool.id);
+    }
+
+    // Include streaming flag if specified
+    if (request.stream !== undefined) {
+      metadata["streaming"] = request.stream;
+    }
+
     return {
       id: humanResponse.requestId,
       model: this.profile.model,
@@ -204,10 +227,7 @@ export class HumanRelayClient implements LLMClient {
       },
       finishReason: "stop",
       duration: now() - startTime,
-      metadata: {
-        source: "human-relay",
-        profileId: this.profile.id,
-      },
+      metadata,
     };
   }
 }

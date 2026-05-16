@@ -1,32 +1,33 @@
 /**
  * ToolContextStore - Tool Context Store
- * Specializes in managing the runtime context of tools, supporting the management of tools with different scopes.
+ * Specializes in managing the runtime context of tools, supporting execution-isolated tool management.
  *
  * Core Responsibilities:
  * 1. Manages the runtime context of tools (tool ID, scope, metadata)
  * 2. Provides execution-isolated tool management
- * 3. Supports tools with different scopes (EXECUTION, LOCAL, GLOBAL)
+ * 3. Supports two scopes: EXECUTION (default) and LOCAL (for subgraph/isolated contexts)
  * 4. Offers atomic tool operations
  *
  * Design Principles:
  * - Only manages tool context; does not include business logic
  * - Execution isolation, with each workflow execution having its own independent tool context
- * - Supports multiple levels of scopes (EXECUTION, LOCAL, GLOBAL)
+ * - Simple two-level scope hierarchy for clarity and maintainability
  * - Atomic operations to ensure consistency of the tool context
  */
 
-import type { ID } from "@wf-agent/types";
 import { now } from "@wf-agent/common-utils";
 
 /**
  * Tool Scope Types
  * 
  * Scope Hierarchy (from most specific to most general):
- * - EXECUTION: Tools available only in the current workflow execution instance
- * - LOCAL: Tools available in the current local/subgraph context
- * - GLOBAL: Tools available across all execution instances
+ * - LOCAL: Tools available only in the current local/subgraph context
+ * - EXECUTION: Tools available in the current workflow execution instance (default)
+ * 
+ * Note: Global and workflow-level tools should be configured via ToolRegistry and availableTools.initial,
+ * not managed dynamically at runtime.
  */
-export type ToolScope = "GLOBAL" | "EXECUTION" | "LOCAL";
+export type ToolScope = "EXECUTION" | "LOCAL";
 
 /**
  * Tool metadata
@@ -46,12 +47,10 @@ export interface ToolMetadata {
  * Tool Context Structure
  */
 export interface ToolContext {
-  /** Execution Scope Tools (tools specific to this workflow execution instance) */
-  executionTools: Map<string, ToolMetadata>;
   /** Local Scope Tools (tools specific to subgraph/local context) */
   localTools: Map<string, ToolMetadata>;
-  /** Global Scope Tools (tools available across all executions) */
-  globalTools: Map<string, ToolMetadata>;
+  /** Execution Scope Tools (tools specific to this workflow execution instance) */
+  executionTools: Map<string, ToolMetadata>;
 }
 
 /**
@@ -60,40 +59,38 @@ export interface ToolContext {
  * Responsibilities:
  * - Manages the runtime context of tools
  * - Provides execution-isolated tool management
- * - Supports tool management across different scopes
+ * - Supports two scopes: EXECUTION (default) and LOCAL
  * - Offers atomic tool operations
  *
  * Design Principles:
  * - Stateful design: Maintains the tool context
  * - Context management: Provides operations for creating, deleting, modifying, and querying tools
  * - Execution isolation: Each workflow execution has its own independent tool context
- * - Scope support: Supports three scopes: EXECUTION, LOCAL, and GLOBAL
+ * - Simplified scope model: Only EXECUTION and LOCAL scopes for clarity
  */
 export class ToolContextStore {
-  /** Tool context mapping: executionId -> ToolContext */
-  private contexts: Map<string, ToolContext> = new Map();
+  /** Execution-level tool context mapping: executionId -> ToolContext */
+  private executionContexts: Map<string, ToolContext> = new Map();
 
   /**
-   * Obtain or create tool context
+   * Obtain or create execution-level tool context
    */
-  private getOrCreateContext(executionId: string): ToolContext {
-    if (!this.contexts.has(executionId)) {
-      this.contexts.set(executionId, {
-        executionTools: new Map(),
+  private getOrCreateExecutionContext(executionId: string): ToolContext {
+    if (!this.executionContexts.has(executionId)) {
+      this.executionContexts.set(executionId, {
         localTools: new Map(),
-        globalTools: new Map(),
+        executionTools: new Map(),
       });
     }
-    return this.contexts.get(executionId)!;
+    return this.executionContexts.get(executionId)!;
   }
 
   /**
    * Add tools to the specified scope
    *
    * @param executionId Execution ID
-   * @param workflowId Workflow ID
    * @param toolIds List of tool IDs
-   * @param scope Tool scope
+   * @param scope Tool scope (defaults to EXECUTION)
    * @param overwrite Whether to overwrite existing tools
    * @param descriptionTemplate Tool description template (optional)
    * @param customMetadata Custom metadata (optional)
@@ -101,14 +98,13 @@ export class ToolContextStore {
    */
   addTools(
     executionId: string,
-    workflowId: ID,
     toolIds: string[],
     scope: ToolScope = "EXECUTION",
     overwrite: boolean = false,
     descriptionTemplate?: string,
     customMetadata?: Record<string, unknown>,
   ): number {
-    const context = this.getOrCreateContext(executionId);
+    const context = this.getOrCreateExecutionContext(executionId);
     let addedCount = 0;
 
     for (const toolId of toolIds) {
@@ -119,19 +115,7 @@ export class ToolContextStore {
         addedAt: now(),
       };
 
-      let targetMap: Map<string, ToolMetadata>;
-
-      switch (scope) {
-        case "EXECUTION":
-          targetMap = context.executionTools;
-          break;
-        case "LOCAL":
-          targetMap = context.localTools;
-          break;
-        case "GLOBAL":
-          targetMap = context.globalTools;
-          break;
-      }
+      const targetMap = scope === "LOCAL" ? context.localTools : context.executionTools;
 
       // Check if it already exists.
       if (targetMap.has(toolId)) {
@@ -157,27 +141,21 @@ export class ToolContextStore {
    * @returns Collection of tool IDs
    */
   getTools(executionId: string, scope?: ToolScope): Set<string> {
-    const context = this.contexts.get(executionId);
+    const context = this.executionContexts.get(executionId);
     if (!context) {
       return new Set();
     }
 
     if (scope) {
-      switch (scope) {
-        case "EXECUTION":
-          return new Set(context.executionTools.keys());
-        case "LOCAL":
-          return new Set(context.localTools.keys());
-        case "GLOBAL":
-          return new Set(context.globalTools.keys());
-      }
+      return scope === "LOCAL" 
+        ? new Set(context.localTools.keys())
+        : new Set(context.executionTools.keys());
     }
 
-    // Tools to return all scopes
+    // Return tools from all scopes
     const allTools = new Set<string>();
     context.executionTools.forEach((_, toolId) => allTools.add(toolId));
     context.localTools.forEach((_, toolId) => allTools.add(toolId));
-    context.globalTools.forEach((_, toolId) => allTools.add(toolId));
 
     return allTools;
   }
@@ -190,29 +168,24 @@ export class ToolContextStore {
    * @param scope Tool scope (optional; if not specified, search all scopes)
    * @returns Tool metadata; returns undefined if not found
    */
-  getToolMetadata(executionId: string, toolId: string, scope?: ToolScope): ToolMetadata | undefined {
-    const context = this.contexts.get(executionId);
+  getToolMetadata(
+    executionId: string,
+    toolId: string,
+    scope?: ToolScope,
+  ): ToolMetadata | undefined {
+    const context = this.executionContexts.get(executionId);
     if (!context) {
       return undefined;
     }
 
     if (scope) {
-      switch (scope) {
-        case "EXECUTION":
-          return context.executionTools.get(toolId);
-        case "LOCAL":
-          return context.localTools.get(toolId);
-        case "GLOBAL":
-          return context.globalTools.get(toolId);
-      }
+      return scope === "LOCAL"
+        ? context.localTools.get(toolId)
+        : context.executionTools.get(toolId);
     }
 
-    // Search all scopes
-    return (
-      context.executionTools.get(toolId) ||
-      context.localTools.get(toolId) ||
-      context.globalTools.get(toolId)
-    );
+    // Search all scopes (priority: LOCAL > EXECUTION)
+    return context.localTools.get(toolId) || context.executionTools.get(toolId);
   }
 
   /**
@@ -224,7 +197,7 @@ export class ToolContextStore {
    * @returns Number of tools successfully removed
    */
   removeTools(executionId: string, toolIds: string[], scope?: ToolScope): number {
-    const context = this.contexts.get(executionId);
+    const context = this.executionContexts.get(executionId);
     if (!context) {
       return 0;
     }
@@ -232,19 +205,7 @@ export class ToolContextStore {
     let removedCount = 0;
 
     if (scope) {
-      let targetMap: Map<string, ToolMetadata>;
-      switch (scope) {
-        case "EXECUTION":
-          targetMap = context.executionTools;
-          break;
-        case "LOCAL":
-          targetMap = context.localTools;
-          break;
-        case "GLOBAL":
-          targetMap = context.globalTools;
-          break;
-      }
-
+      const targetMap = scope === "LOCAL" ? context.localTools : context.executionTools;
       for (const toolId of toolIds) {
         if (targetMap.delete(toolId)) {
           removedCount++;
@@ -259,9 +220,6 @@ export class ToolContextStore {
         if (context.localTools.delete(toolId)) {
           removedCount++;
         }
-        if (context.globalTools.delete(toolId)) {
-          removedCount++;
-        }
       }
     }
 
@@ -269,14 +227,14 @@ export class ToolContextStore {
   }
 
   /**
-   * Tool for clearing a specified scope
+   * Clear tools from a specified scope
    *
    * @param executionId Execution ID
    * @param scope Tool scope (optional; if not specified, all scopes will be cleared)
    * @returns Number of tools that were cleared
    */
   clearTools(executionId: string, scope?: ToolScope): number {
-    const context = this.contexts.get(executionId);
+    const context = this.executionContexts.get(executionId);
     if (!context) {
       return 0;
     }
@@ -284,25 +242,18 @@ export class ToolContextStore {
     let clearedCount = 0;
 
     if (scope) {
-      switch (scope) {
-        case "EXECUTION":
-          clearedCount = context.executionTools.size;
-          context.executionTools.clear();
-          break;
-        case "LOCAL":
-          clearedCount = context.localTools.size;
-          context.localTools.clear();
-          break;
-        case "GLOBAL":
-          clearedCount = context.globalTools.size;
-          context.globalTools.clear();
-          break;
+      if (scope === "LOCAL") {
+        clearedCount = context.localTools.size;
+        context.localTools.clear();
+      } else {
+        clearedCount = context.executionTools.size;
+        context.executionTools.clear();
       }
     } else {
-      clearedCount = context.executionTools.size + context.localTools.size + context.globalTools.size;
+      // Clear all scopes
+      clearedCount = context.executionTools.size + context.localTools.size;
       context.executionTools.clear();
       context.localTools.clear();
-      context.globalTools.clear();
     }
 
     return clearedCount;
@@ -317,84 +268,74 @@ export class ToolContextStore {
    * @returns Whether the tool exists
    */
   hasTool(executionId: string, toolId: string, scope?: ToolScope): boolean {
-    const context = this.contexts.get(executionId);
+    const context = this.executionContexts.get(executionId);
     if (!context) {
       return false;
     }
 
     if (scope) {
-      switch (scope) {
-        case "EXECUTION":
-          return context.executionTools.has(toolId);
-        case "LOCAL":
-          return context.localTools.has(toolId);
-        case "GLOBAL":
-          return context.globalTools.has(toolId);
-      }
+      return scope === "LOCAL"
+        ? context.localTools.has(toolId)
+        : context.executionTools.has(toolId);
     }
 
-    return (
-      context.executionTools.has(toolId) ||
-      context.localTools.has(toolId) ||
-      context.globalTools.has(toolId)
-    );
+    // Check all scopes
+    return context.localTools.has(toolId) || context.executionTools.has(toolId);
   }
 
   /**
    * Get a snapshot of the tool context
    *
    * @param executionId: Execution ID
-   * @returns: Snapshot of the tool context
+   * @returns: Snapshot of the tool context (only execution-level tools)
    */
   getSnapshot(executionId: string): ToolContext | undefined {
-    const context = this.contexts.get(executionId);
+    const context = this.executionContexts.get(executionId);
     if (!context) {
       return undefined;
     }
 
     return {
-      executionTools: new Map(context.executionTools),
       localTools: new Map(context.localTools),
-      globalTools: new Map(context.globalTools),
+      executionTools: new Map(context.executionTools),
     };
   }
 
   /**
-   * Recovery tool context from a snapshot
+   * Restore tool context from a snapshot
    *
    * @param executionId: Execution ID
-   * @param snapshot: Tool context snapshot
+   * @param snapshot: Tool context snapshot (only execution-level tools)
    */
   restoreSnapshot(executionId: string, snapshot: ToolContext): void {
-    this.contexts.set(executionId, {
-      executionTools: new Map(snapshot.executionTools),
+    this.executionContexts.set(executionId, {
       localTools: new Map(snapshot.localTools),
-      globalTools: new Map(snapshot.globalTools),
+      executionTools: new Map(snapshot.executionTools),
     });
   }
 
   /**
-   * Delete tool context
+   * Delete execution-level tool context
    *
    * @param executionId Execution ID
    */
   deleteContext(executionId: string): void {
-    this.contexts.delete(executionId);
+    this.executionContexts.delete(executionId);
   }
 
   /**
    * Clear all tool contexts.
    */
   clearAll(): void {
-    this.contexts.clear();
+    this.executionContexts.clear();
   }
 
   /**
-   * Get all execution IDs
+   * Get all execution IDs with tool contexts
    *
    * @returns List of execution IDs
    */
   getAllExecutionIds(): string[] {
-    return Array.from(this.contexts.keys());
+    return Array.from(this.executionContexts.keys());
   }
 }

@@ -273,7 +273,7 @@ export class AgentLoopCoordinator {
   async pause(id: ID): Promise<void> {
     logger.debug("Attempting to pause Agent Loop", { agentLoopId: id });
 
-    const entity = this.registry.get(id);
+    const entity = await this.registry.get(id);
     if (!entity) {
       logger.warn("Agent Loop not found for pause operation", { agentLoopId: id });
       throw new Error(`AgentLoop not found: ${id}`);
@@ -305,7 +305,7 @@ export class AgentLoopCoordinator {
   async resume(id: ID): Promise<AgentLoopResult> {
     logger.debug("Attempting to resume Agent Loop", { agentLoopId: id });
 
-    const entity = this.registry.get(id);
+    const entity = await this.registry.get(id);
     if (!entity) {
       logger.warn("Agent Loop not found for resume operation", { agentLoopId: id });
       throw new Error(`AgentLoop not found: ${id}`);
@@ -372,7 +372,7 @@ export class AgentLoopCoordinator {
   async continue(id: ID): Promise<AgentLoopResult> {
     logger.debug("Attempting to continue Agent Loop", { agentLoopId: id });
 
-    const entity = this.registry.get(id);
+    const entity = await this.registry.get(id);
     if (!entity) {
       logger.warn("Agent Loop not found for continue operation", { agentLoopId: id });
       throw new Error(`AgentLoop not found: ${id}`);
@@ -437,7 +437,7 @@ export class AgentLoopCoordinator {
   async stop(id: ID): Promise<void> {
     logger.debug("Attempting to stop Agent Loop", { agentLoopId: id });
 
-    const entity = this.registry.get(id);
+    const entity = await this.registry.get(id);
     if (!entity) {
       logger.warn("Agent Loop not found for stop operation", { agentLoopId: id });
       throw new Error(`AgentLoop not found: ${id}`);
@@ -460,16 +460,17 @@ export class AgentLoopCoordinator {
    * Get an instance
    * @param id: Instance ID
    */
-  get(id: ID): AgentLoopEntity | undefined {
-    return this.registry.get(id);
+  async get(id: ID): Promise<AgentLoopEntity | undefined> {
+    return await this.registry.get(id);
   }
 
   /**
    * Get instance status
    * @param id: Instance ID
    */
-  getStatus(id: ID): AgentLoopStatus | undefined {
-    return this.registry.get(id)?.getStatus();
+  async getStatus(id: ID): Promise<AgentLoopStatus | undefined> {
+    const entity = await this.registry.get(id);
+    return entity?.getStatus();
   }
 
   /**

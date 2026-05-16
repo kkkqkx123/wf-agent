@@ -82,12 +82,11 @@ export async function addToolHandler(
     }
 
     // 2. Add tools to the context
-    const scope = config.scope || "EXECUTION";
+    const scope = (config.scope as "EXECUTION" | "LOCAL") || "EXECUTION";
     const overwrite = config.overwrite || false;
 
     const addedCount = context.toolContextStore.addTools(
       workflowExecution.id,
-      workflowExecution.workflowId,
       validToolIds,
       scope,
       overwrite,

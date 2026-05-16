@@ -213,8 +213,9 @@ export function configureContainerBindings(
     .to(TriggerTemplateRegistry)
     .inSingletonScope();
 
-  // TaskRegistry - Task registry (per-instance, not singleton)
+  // TaskRegistry - Task registry (per-SDK-instance singleton)
   // Each SDK instance gets its own TaskRegistry to ensure isolation
+  // Note: Async initialization (loading from storage) is handled in SDKInstance.bootstrap()
   container
     .bind(Identifiers.TaskRegistry)
     .toDynamicValue((c: IContainer) => {
@@ -641,6 +642,7 @@ export function configureContainerBindings(
             executionBuilder: workflowExecutionBuilder,
             taskQueueManager,
             workflowLifecycleCoordinator: workflowStateTransitor,
+            globalContext: c.get(Identifiers.GlobalContext) as GlobalContext,
           });
         },
       };
@@ -665,6 +667,7 @@ export function configureContainerBindings(
         get: (id: string) => workflowExecutionRegistry.get(id) ?? undefined,
       };
       return new TriggeredSubworkflowHandler(
+        taskRegistry,
         workflowExecutionRegistryAdapter,
         c.get(Identifiers.WorkflowExecutionBuilder) as WorkflowExecutionBuilder,
         taskQueueManager,

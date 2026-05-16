@@ -22,9 +22,6 @@ import {
   WorkflowNotFoundError,
 } from "@wf-agent/types";
 import type { WorkflowExecutionRegistry } from "../../../stores/workflow-execution-registry.js";
-import type { EventRegistry } from "../../../../core/registry/event-registry.js";
-import type { WorkflowExecutionBuilder } from "../../factories/workflow-execution-builder.js";
-import type { TaskQueue } from "../../../stores/task/task-queue.js";
 import { getErrorMessage, now, diffTimestamp } from "@wf-agent/common-utils";
 import type { TriggeredSubgraphTask } from "../../types/triggered-subworkflow.types.js";
 import * as Identifiers from "../../../../core/di/service-identifiers.js";
@@ -106,14 +103,11 @@ function createFailureResult(
 }
 
 export async function executeTriggeredSubgraphHandler(
-  globalContext: GlobalContext,
   action: TriggerAction,
   triggerId: string,
   workflowExecutionRegistry: WorkflowExecutionRegistry,
-  eventManager: EventRegistry,
-  executionBuilder: WorkflowExecutionBuilder,
-  taskQueueManager: TaskQueue,
   currentExecutionId?: string,
+  globalContext?: GlobalContext,
 ): Promise<TriggerExecutionResult> {
   const startTime = now();
 
@@ -138,6 +132,13 @@ export async function executeTriggeredSubgraphHandler(
 
     if (!mainWorkflowExecutionEntity) {
       throw new WorkflowExecutionNotFoundError(`Main workflow execution entity not found: ${executionId}`, executionId);
+    }
+
+    if (!globalContext) {
+      throw new RuntimeValidationError("GlobalContext is required for execute_triggered_subgraph", {
+        operation: "handle",
+        field: "globalContext",
+      });
     }
 
     const container = globalContext.container;

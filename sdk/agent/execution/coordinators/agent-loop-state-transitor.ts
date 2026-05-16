@@ -21,6 +21,15 @@ import type { AgentLoopResult } from "@wf-agent/types";
 import type { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import { AgentLoopStatus } from "@wf-agent/types";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
+import { emit } from "../../../core/utils/event/event-emitter.js";
+import {
+  buildAgentStartedEvent,
+  buildAgentCompletedEvent,
+  buildAgentPausedEvent,
+  buildAgentCancelledEvent,
+  buildAgentResumedEvent,
+  buildAgentFailedEvent,
+} from "../../../core/utils/event/builders/agent-events.js";
 
 const logger = createContextualLogger({ component: "AgentLoopStateTransitor" });
 
@@ -30,7 +39,7 @@ const logger = createContextualLogger({ component: "AgentLoopStateTransitor" });
  * Provides atomic state transition operations and high-level process orchestration
  */
 export class AgentLoopStateTransitor {
-  constructor(private eventManager?: EventRegistry) {}
+  constructor(private eventManager: EventRegistry) {}
 
   /**
    * Start Agent Loop Execution
@@ -55,6 +64,15 @@ export class AgentLoopStateTransitor {
 
     // Update state
     entity.state.start();
+
+    // Emit AGENT_STARTED event
+    const startedEvent = buildAgentStartedEvent({
+      agentLoopId: entity.id,
+      maxIterations: entity.config.maxIterations ?? -1,
+      initialMessageCount: entity.getMessages().length,
+      executionId: entity.id,
+    });
+    await emit(this.eventManager, startedEvent);
 
     logger.info("Agent loop execution started", {
       agentLoopId: entity.id,
@@ -82,6 +100,18 @@ export class AgentLoopStateTransitor {
     // Update state
     entity.state.pause();
 
+    // Emit AGENT_PAUSED event
+    const pausedEvent = buildAgentPausedEvent({
+      agentLoopId: entity.id,
+      iteration: entity.state.currentIteration,
+      toolCallCount: entity.state.toolCallCount,
+      isStreaming: entity.state.isStreaming,
+      pendingToolCalls: entity.state.pendingToolCalls.size,
+      streamMessagePreserved: !!entity.state.streamMessage,
+      executionId: entity.id,
+    });
+    await emit(this.eventManager, pausedEvent);
+
     logger.info("Agent loop execution paused", { agentLoopId: entity.id });
   }
 
@@ -104,6 +134,15 @@ export class AgentLoopStateTransitor {
 
     // Update state
     entity.state.resume();
+
+    // Emit AGENT_RESUMED event
+    const resumedEvent = buildAgentResumedEvent({
+      agentLoopId: entity.id,
+      iteration: entity.state.currentIteration,
+      toolCallCount: entity.state.toolCallCount,
+      executionId: entity.id,
+    });
+    await emit(this.eventManager, resumedEvent);
 
     logger.info("Agent loop execution resumed", { agentLoopId: entity.id });
   }
@@ -128,6 +167,16 @@ export class AgentLoopStateTransitor {
 
     // Update state
     entity.state.complete();
+
+    // Emit AGENT_COMPLETED event
+    const completedEvent = buildAgentCompletedEvent({
+      agentLoopId: entity.id,
+      iterations: result.iterations,
+      toolCallCount: result.toolCallCount,
+      success: true,
+      executionId: entity.id,
+    });
+    await emit(this.eventManager, completedEvent);
 
     logger.info("Agent loop execution completed successfully", {
       agentLoopId: entity.id,
@@ -154,6 +203,16 @@ export class AgentLoopStateTransitor {
 
     // Update state
     entity.state.fail(error);
+
+    // Emit AGENT_FAILED event
+    const failedEvent = buildAgentFailedEvent({
+      agentLoopId: entity.id,
+      iteration: entity.state.currentIteration,
+      toolCallCount: entity.state.toolCallCount,
+      error: error instanceof Error ? { message: error.message, name: error.name } : String(error),
+      executionId: entity.id,
+    });
+    await emit(this.eventManager, failedEvent);
 
     logger.info("Agent loop execution failed", {
       agentLoopId: entity.id,
@@ -182,6 +241,18 @@ export class AgentLoopStateTransitor {
 
     // Update state
     entity.state.cancel();
+
+    // Emit AGENT_CANCELLED event
+    const cancelledEvent = buildAgentCancelledEvent({
+      agentLoopId: entity.id,
+      iteration: entity.state.currentIteration,
+      toolCallCount: entity.state.toolCallCount,
+      isStreaming: entity.state.isStreaming,
+      pendingToolCalls: entity.state.pendingToolCalls.size,
+      reason,
+      executionId: entity.id,
+    });
+    await emit(this.eventManager, cancelledEvent);
 
     logger.info("Agent loop execution cancelled", {
       agentLoopId: entity.id,

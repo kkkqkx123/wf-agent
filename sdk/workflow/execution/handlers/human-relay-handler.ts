@@ -157,41 +157,51 @@ export async function emitHumanRelayRespondedEvent(
 
 /**
  * Get human input
- * @param task HumanRelay task
  * @param request HumanRelay request
  * @param context HumanRelay context
  * @param handler HumanRelay handler
  * @returns HumanRelay response
  */
 export async function getHumanInput(
-  task: HumanRelayTask,
   request: HumanRelayRequest,
   context: HumanRelayContext,
   handler: HumanRelayHandler,
 ): Promise<HumanRelayResponse> {
-  // Implement timeout control
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    setTimeout(() => {
-      reject(new Error(`HumanRelay timeout after ${request.timeout}ms`));
-    }, request.timeout);
-  });
-
-  // Cancel control
-  const cancelPromise = new Promise<never>((_, reject) => {
-    const checkCancel = setInterval(() => {
-      if (context.cancelToken.cancelled) {
-        clearInterval(checkCancel);
-        reject(new Error("HumanRelay cancelled"));
-      }
-    }, 100);
-  });
+  let cancelInterval: NodeJS.Timeout | null = null;
 
   try {
-    // Competition: Manual input, timeout, cancellation
+    // Implement timeout control
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error(`HumanRelay timeout after ${request.timeout}ms`));
+      }, request.timeout);
+    });
+
+    // Cancel control with proper cleanup
+    const cancelPromise = new Promise<never>((_, reject) => {
+      cancelInterval = setInterval(() => {
+        if (context.cancelToken.cancelled) {
+          if (cancelInterval) {
+            clearInterval(cancelInterval);
+            cancelInterval = null;
+          }
+          reject(new Error("HumanRelay cancelled"));
+        }
+      }, 100);
+    });
+
+    // Race between handler execution, timeout, and cancellation
     return await Promise.race([handler.handle(request, context), timeoutPromise, cancelPromise]);
   } finally {
-    // Clean up the cancellation checks.
-    context.cancelToken.cancel();
+    // Properly clean up interval to prevent memory leaks
+    if (cancelInterval) {
+      clearInterval(cancelInterval);
+      cancelInterval = null;
+    }
+    // Only cancel if not already cancelled
+    if (!context.cancelToken.cancelled) {
+      context.cancelToken.cancel();
+    }
   }
 }
 
@@ -262,7 +272,7 @@ export async function executeHumanRelay(
     const context = createHumanRelayContext(task);
 
     // 4. Call the application layer processor to obtain human input.
-    const response = await getHumanInput(task, request, context, humanRelayHandler);
+    const response = await getHumanInput(request, context, humanRelayHandler);
 
     // 5. Trigger the HUMAN_RELAY_RESPONDED event
     await emitHumanRelayRespondedEvent(task, response, eventManager);

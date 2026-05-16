@@ -126,7 +126,6 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
     checkpointType: TCheckpointType,
     checkpointId: string,
     timestamp: number,
-    checkpointCount: number,
     previousCheckpointIds: string[],
     dependencies: CheckpointDependencies,
     metadata?: CheckpointMetadata,

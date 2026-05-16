@@ -101,7 +101,6 @@ export abstract class BaseCheckpointCoordinator<
       checkpointType,
       checkpointId,
       timestamp,
-      checkpointCount,
       previousCheckpointIds,
       dependencies,
       metadata
@@ -255,7 +254,6 @@ export abstract class BaseCheckpointCoordinator<
    * @param checkpointType Checkpoint type
    * @param checkpointId Generated checkpoint ID
    * @param timestamp Timestamp
-   * @param checkpointCount Number of existing checkpoints
    * @param previousCheckpointIds IDs of previous checkpoints
    * @param dependencies Checkpoint dependencies
    * @param metadata Optional metadata
@@ -267,7 +265,6 @@ export abstract class BaseCheckpointCoordinator<
     checkpointType: "FULL" | "DELTA",
     checkpointId: string,
     timestamp: number,
-    checkpointCount: number,
     previousCheckpointIds: string[],
     dependencies: CheckpointDependencies<TCheckpoint>,
     metadata?: CheckpointMetadata

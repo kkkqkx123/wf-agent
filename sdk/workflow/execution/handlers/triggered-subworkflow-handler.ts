@@ -109,13 +109,15 @@ export class TriggeredSubworkflowHandler implements TaskManager {
 
   /**
    * Constructor
-   * @param workflowExecutionRegistry: WorkflowExecution registry
-   * @param executionBuilder: WorkflowExecution builder
-   * @param taskQueueManager: Task queue manager
-   * @param eventManager: Event manager
-   * @param workflowExecutionPool: Workflow execution pool service
+   * @param taskRegistry Task registry (injected from DI container)
+   * @param workflowExecutionRegistry WorkflowExecution registry
+   * @param executionBuilder WorkflowExecution builder
+   * @param taskQueueManager Task queue manager
+   * @param eventManager Event manager
+   * @param workflowExecutionPool Workflow execution pool service
    */
   constructor(
+    taskRegistry: TaskRegistry,
     workflowExecutionRegistry: {
       register: (entity: WorkflowExecutionEntity) => void;
       get: (id: string) => WorkflowExecutionEntity | undefined;
@@ -130,14 +132,12 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     eventManager: EventRegistry,
     workflowExecutionPool: WorkflowExecutionPool,
   ) {
+    this.taskRegistry = taskRegistry;
     this.workflowExecutionRegistry = workflowExecutionRegistry;
     this.executionBuilder = executionBuilder;
     this.taskQueueManager = taskQueueManager;
     this.eventManager = eventManager;
     this.workflowExecutionPool = workflowExecutionPool;
-
-    // Get the global task registry
-    this.taskRegistry = TaskRegistry.getInstance();
 
     // Create an async completion manager with event integration
     this.callbackState = new AsyncCompletionManager<ExecutedSubgraphResult>(eventManager);

@@ -1,19 +1,20 @@
 /**
- * TaskRegistry - Task Registry (Global Singleton Service)
+ * TaskRegistry - Task Registry (DI Container Managed Service)
  *
  * Responsibilities:
  * - Stores and manages information about all tasks
  * - Tracks task status, execution results, timestamps, etc.
  * - Provides functionality for querying and cleaning up tasks
  * - Routes task operations to the appropriate managers
- * - Supports optional persistence through TaskstorageAdapter
+ * - Supports optional persistence through TaskStorageAdapter
  *
  * Design Principles:
- * - Global singleton, accessible through SingletonRegistry
+ * - Managed by DI container (one instance per SDK instance)
  * - Workflow-execution-safe management of task information
  * - Supports regular cleaning of expired tasks
  * - Provides manager routing functionality
  * - Optional persistence layer for task data
+ * - Initialized automatically by DI container with proper async initialization
  */
 
 import { generateId } from "../../../utils/index.js";
@@ -74,14 +75,18 @@ export interface TaskRegistryConfig {
 }
 
 /**
- * TaskRegistry - Task Registry (global singleton)
+ * TaskRegistry - Task Registry (managed by DI container)
  *
  * Supports both in-memory and persistent storage modes:
- * - Without storageAdapter: Pure in-memory mode (default, backward compatible)
+ * - Without storageAdapter: Pure in-memory mode (default)
  * - With storageAdapter: Persistent mode with automatic sync
+ * 
+ * Lifecycle:
+ * - Created and initialized by DI container during SDK initialization
+ * - One instance per SDK instance (container-scoped singleton)
+ * - Automatically initializes storage if configured
  */
 export class TaskRegistry {
-  private static instance: TaskRegistry;
 
   /**
    * Task Mapping
@@ -117,34 +122,40 @@ export class TaskRegistry {
   /**
    * Initialization flag
    */
-  private initialized: boolean = false;
+  private _initialized: boolean = false;
 
   /**
-   * Constructor - now public for DI container usage
-   * @param config Optional configuration
+   * Constructor - creates and initializes TaskRegistry
+   * @param config Configuration options
+   * 
+   * Note: This constructor performs synchronous setup only.
+   * Async initialization (loading from storage) should be done
+   * by calling initialize() after construction, typically handled
+   * by the DI container factory.
    */
   constructor(config?: TaskRegistryConfig) {
     if (config?.storageAdapter) {
       this.storageAdapter = config.storageAdapter;
       this.autoPersist = config.autoPersist ?? true;
     }
-  }
-
-  /**
-   * Obtain a singleton instance
-   */
-  static getInstance(): TaskRegistry {
-    if (!TaskRegistry.instance) {
-      TaskRegistry.instance = new TaskRegistry();
+    // Mark as initialized for in-memory mode (no async init needed)
+    if (!config?.storageAdapter) {
+      this._initialized = true;
     }
-    return TaskRegistry.instance;
   }
 
   /**
    * Initialize the registry with optional persistence
    * @param config Configuration options
+   * @throws Error if called on an already initialized registry
    */
   async initialize(config?: TaskRegistryConfig): Promise<void> {
+    // Prevent re-initialization
+    if (this._initialized) {
+      logger.warn("TaskRegistry already initialized, skipping");
+      return;
+    }
+
     if (config?.storageAdapter) {
       this.storageAdapter = config.storageAdapter;
       this.autoPersist = config.autoPersist ?? true;
@@ -156,13 +167,19 @@ export class TaskRegistry {
         // Load existing tasks from storage
         await this.loadFromStorage();
 
-        this.initialized = true;
+        this._initialized = true;
+        logger.info("TaskRegistry initialized with persistence enabled");
       } catch (error) {
         // If storage initialization fails, fall back to in-memory mode
         logger.warn("Failed to initialize task storage, falling back to in-memory mode", { error });
         this.storageAdapter = undefined;
         this.autoPersist = false;
+        this._initialized = true; // Still mark as initialized (in-memory mode)
       }
+    } else {
+      // No storage adapter, just mark as initialized
+      this._initialized = true;
+      logger.info("TaskRegistry initialized in in-memory mode");
     }
   }
 
@@ -696,7 +713,15 @@ export class TaskRegistry {
         logger.warn("Failed to close task storage", { error });
       }
     }
-    this.initialized = false;
+    this._initialized = false;
+  }
+
+  /**
+   * Check if the registry has been initialized
+   * @returns Whether initialization is complete
+   */
+  isInitialized(): boolean {
+    return this._initialized;
   }
 
   /**

@@ -127,45 +127,25 @@ export class WorkflowLifecycleCoordinator {
     const isSuccess = status === "COMPLETED";
     const nodeCount = workflowExecutionEntity.getNodeResults().length;
 
-    if (isSuccess) {
-      await this.workflowStateTransitor.completeWorkflowExecution(workflowExecutionEntity, result);
-    } else {
-      // Get the first error from the errors array
-      const errors = workflowExecutionEntity.getErrors();
-      const lastError =
-        errors.length > 0 ? (errors[errors.length - 1] as Error) : new Error("Execution failed");
-      await this.workflowStateTransitor.failWorkflowExecution(workflowExecutionEntity, lastError);
+    try {
+      if (isSuccess) {
+        await this.workflowStateTransitor.completeWorkflowExecution(workflowExecutionEntity, result);
+      } else {
+        // Get the first error from the errors array
+        const errors = workflowExecutionEntity.getErrors();
+        const lastError =
+          errors.length > 0 ? (errors[errors.length - 1] as Error) : new Error("Execution failed");
+        await this.workflowStateTransitor.failWorkflowExecution(workflowExecutionEntity, lastError);
+      }
+    } finally {
+      // Step 6: Cleanup execution-scoped event listeners (ensure cleanup in all cases)
+      const cleanedCount = this.globalContext.eventRegistry.cleanupExecutionListeners(workflowExecutionEntity.id);
+      logger.info('Cleaned up event listeners after execution', { 
+        executionId: workflowExecutionEntity.id, 
+        cleanedCount,
+        status 
+      });
     }
-
-    // Record workflow execution completion in metrics
-    let errorType: string | undefined;
-    if (!isSuccess && result.metadata.errorCount > 0) {
-      const errors = workflowExecutionEntity.getErrors();
-      const lastError = errors.length > 0 ? errors[errors.length - 1] : null;
-      errorType = lastError instanceof Error ? lastError.name : 'unknown';
-    }
-    
-    const wfCollector = this.metricsRegistry.getWorkflowCollector();
-    if (wfCollector) {
-      wfCollector.recordExecutionComplete(
-        workflowId,
-        executionId,
-        {
-          success: isSuccess,
-          duration,
-          nodeCount,
-          errorType,
-        }
-      );
-    }
-
-    // Step 6: Cleanup execution-scoped event listeners
-    const cleanedCount = this.globalContext.eventRegistry.cleanupExecutionListeners(workflowExecutionEntity.id);
-    logger.info('Cleaned up event listeners after execution', { 
-      executionId: workflowExecutionEntity.id, 
-      cleanedCount,
-      status 
-    });
 
     return result;
   }
@@ -277,7 +257,17 @@ export class WorkflowLifecycleCoordinator {
     workflowExecutionEntity.resetInterrupt();
 
     // 4. Continue execution from restored position
-    return await this.workflowExecutor.executeWorkflow(workflowExecutionEntity);
+    const result = await this.workflowExecutor.executeWorkflow(workflowExecutionEntity);
+    
+    // 5. Cleanup execution-scoped event listeners after resume completes
+    const cleanedCount = this.globalContext.eventRegistry.cleanupExecutionListeners(executionId);
+    logger.info('Cleaned up event listeners after resume', { 
+      executionId, 
+      cleanedCount,
+      status: result.metadata?.status 
+    });
+    
+    return result;
   }
 
   /**

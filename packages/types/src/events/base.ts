@@ -62,6 +62,8 @@ export type EventType =
   | "TOOL_CALL_BLOCKED"
   /** Tool Additions */
   | "TOOL_ADDED"
+  /** Tool visibility changed */
+  | "TOOL_VISIBILITY_CHANGED"
   /** Dialog status change */
   | "CONVERSATION_STATE_CHANGED"
   /** error event */
@@ -150,6 +152,10 @@ export type EventType =
   | "AGENT_PAUSED"
   /** Agent cancelled */
   | "AGENT_CANCELLED"
+  /** Agent resumed */
+  | "AGENT_RESUMED"
+  /** Agent failed */
+  | "AGENT_FAILED"
   /** Progressive tool execution start (batch) */
   | "PROGRESSIVE_TOOL_EXECUTION_START"
   /** Progressive tool execution end (batch) */

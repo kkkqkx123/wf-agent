@@ -108,14 +108,16 @@ export type DfsCycleCallback = (
  * @param graph - The graph data to traverse
  * @param startNodeId - Starting node ID
  * @param callback - Called for each node with current state
+ * @param externalVisited - Optional external visited set shared across multiple DFS calls
  * @returns True if traversal should continue, false if stopped early
  */
 export function dfsWithPathTracking(
   graph: WorkflowGraphStructure,
   startNodeId: ID,
-  callback: DfsCycleCallback
+  callback: DfsCycleCallback,
+  externalVisited?: Set<ID>
 ): void {
-  const visited = new Set<ID>();
+  const visited = externalVisited || new Set<ID>();
   const recursionStack = new Set<ID>();
 
   const dfsRecursive = (nodeId: ID, path: ID[]): boolean => {
@@ -154,4 +156,62 @@ export function dfsWithPathTracking(
   if (!visited.has(startNodeId)) {
     dfsRecursive(startNodeId, []);
   }
+}
+
+/**
+ * DFS with path tracking that supports early termination and shared state
+ * Similar to dfsWithPathTracking but returns a boolean indicating if cycle was found
+ * 
+ * @param graph - The graph data to traverse
+ * @param startNodeId - Starting node ID
+ * @param callback - Called for each node with current state
+ * @param visited - Shared visited set across multiple calls
+ * @returns True if a cycle was found, false otherwise
+ */
+export function dfsWithPathTrackingAndEarlyExit(
+  graph: WorkflowGraphStructure,
+  startNodeId: ID,
+  callback: DfsCycleCallback,
+  visited: Set<ID>
+): boolean {
+  const recursionStack = new Set<ID>();
+
+  const dfsRecursive = (nodeId: ID, path: ID[]): boolean => {
+    // Call the callback to check if we should process this node
+    const result = callback(nodeId, path, visited, recursionStack);
+    
+    if (result.foundCycle) {
+      return true; // Cycle found, propagate upward
+    }
+
+    visited.add(nodeId);
+    recursionStack.add(nodeId);
+    path.push(nodeId);
+
+    const neighbors = graph.getOutgoingNeighbors(nodeId);
+    for (const neighborId of neighbors) {
+      if (!visited.has(neighborId)) {
+        if (dfsRecursive(neighborId, path)) {
+          return true; // Cycle found, propagate upward
+        }
+      } else if (recursionStack.has(neighborId)) {
+        // Found a back edge (cycle)
+        const cycleResult = callback(neighborId, path, visited, recursionStack);
+        if (cycleResult.foundCycle) {
+          return true; // Cycle found, propagate upward
+        }
+      }
+    }
+
+    recursionStack.delete(nodeId);
+    path.pop();
+    return false; // No cycle found in this branch
+  };
+
+  // Start DFS from the given node
+  if (!visited.has(startNodeId)) {
+    return dfsRecursive(startNodeId, []);
+  }
+  
+  return false;
 }

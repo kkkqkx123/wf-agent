@@ -7,6 +7,10 @@ import { createBuilder } from "./common.js";
 import type {
   AgentStartedEvent,
   AgentCompletedEvent,
+  AgentPausedEvent,
+  AgentCancelledEvent,
+  AgentResumedEvent,
+  AgentFailedEvent,
   AgentTurnStartedEvent,
   AgentTurnCompletedEvent,
   AgentMessageStartedEvent,
@@ -33,6 +37,26 @@ export const buildAgentStartedEvent = createBuilder<AgentStartedEvent>("AGENT_ST
  * Build AGENT_COMPLETED event
  */
 export const buildAgentCompletedEvent = createBuilder<AgentCompletedEvent>("AGENT_COMPLETED");
+
+/**
+ * Build AGENT_PAUSED event
+ */
+export const buildAgentPausedEvent = createBuilder<AgentPausedEvent>("AGENT_PAUSED");
+
+/**
+ * Build AGENT_CANCELLED event
+ */
+export const buildAgentCancelledEvent = createBuilder<AgentCancelledEvent>("AGENT_CANCELLED");
+
+/**
+ * Build AGENT_RESUMED event
+ */
+export const buildAgentResumedEvent = createBuilder<AgentResumedEvent>("AGENT_RESUMED");
+
+/**
+ * Build AGENT_FAILED event
+ */
+export const buildAgentFailedEvent = createBuilder<AgentFailedEvent>("AGENT_FAILED");
 
 // =============================================================================
 // Agent Turn Events

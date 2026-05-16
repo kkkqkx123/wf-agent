@@ -276,6 +276,38 @@ export interface AgentCancelledEvent extends BaseEvent {
 }
 
 /**
+ * Agent Resumed Event
+ *
+ * Emitted when agent execution is resumed from paused state.
+ */
+export interface AgentResumedEvent extends BaseEvent {
+  type: "AGENT_RESUMED";
+  /** Agent Loop ID */
+  agentLoopId: ID;
+  /** Current iteration when resumed */
+  iteration: number;
+  /** Total tool calls made */
+  toolCallCount: number;
+}
+
+/**
+ * Agent Failed Event
+ *
+ * Emitted when agent execution fails due to an error.
+ */
+export interface AgentFailedEvent extends BaseEvent {
+  type: "AGENT_FAILED";
+  /** Agent Loop ID */
+  agentLoopId: ID;
+  /** Current iteration when failed */
+  iteration: number;
+  /** Total tool calls made */
+  toolCallCount: number;
+  /** Error that caused failure */
+  error: unknown;
+}
+
+/**
  * Union type of all agent events
  */
 export type AgentEvent =
@@ -291,4 +323,6 @@ export type AgentEvent =
   | AgentIterationCompletedEvent
   | AgentHookTriggeredCoreEvent
   | AgentPausedEvent
-  | AgentCancelledEvent;
+  | AgentCancelledEvent
+  | AgentResumedEvent
+  | AgentFailedEvent;

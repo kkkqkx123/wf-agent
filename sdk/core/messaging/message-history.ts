@@ -284,8 +284,8 @@ export class MessageHistory {
       const checkpointId = `batch-${currentBatch}-${Date.now()}`;
 
       await checkpointStorage.save(checkpointId, checkpointData, {
-        executionId: "message-history",
-        workflowId: "batch-checkpoint",
+        entityType: "workflow",
+        entityId: "batch-checkpoint",
         timestamp: Date.now(),
       });
 
@@ -351,7 +351,7 @@ export class MessageHistory {
    * @param keepInMemory Number of recent batches to keep in memory
    */
   protected async releaseOldBatches(
-    checkpointStorage: CheckpointStorageAdapter,
+    _checkpointStorage: CheckpointStorageAdapter,
     keepInMemory: number,
   ): Promise<void> {
     const batchesToRelease = getBatchesToRelease(this.markMap, keepInMemory);

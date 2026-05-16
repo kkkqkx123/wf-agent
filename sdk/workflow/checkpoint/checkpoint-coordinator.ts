@@ -28,6 +28,7 @@ import type {
 import type { WorkflowExecutionRegistry } from "../stores/workflow-execution-registry.js";
 import type { WorkflowRegistry } from "../stores/workflow-registry.js";
 import type { WorkflowGraphRegistry } from "../stores/workflow-graph-registry.js";
+import type { JoinNodeConfig } from "@wf-agent/types";
 import { CheckpointState } from "./checkpoint-state-manager.js";
 import { ConversationSession } from "../../core/messaging/conversation-session.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
@@ -528,14 +529,24 @@ export class CheckpointCoordinator {
       });
     }
 
-    // Step 16: Inferring FORK/JOIN status (if needed)
-    // Note: FORK/JOIN status does not need to be saved to Checkpoint and can be inferred from the diagram structure and execution sequence during recovery
-    // If the current node is a JOIN node, you can infer which branches have completed
+    // Step 16: Infer FORK/JOIN completion status (if current node is JOIN)
+    // Note: FORK/JOIN status does not need to be saved to Checkpoint and can be inferred from the execution registry during recovery
     if (workflowExecution.graph) {
       const currentNode = workflowExecution.graph.getNode(workflowExecutionState.currentNodeId);
       if (currentNode && currentNode.type === "JOIN") {
-        // Here, corresponding processing can be carried out based on the inferred state
-        // For example: logging or updating certain status
+        const joinStatus = await this._inferForkJoinState(
+          workflowExecutionState.currentNodeId,
+          workflowExecutionEntity,
+          dependencies.workflowExecutionRegistry,
+        );
+        
+        logger.info("Inferred JOIN completion status", {
+          executionId: workflowExecutionEntity.id,
+          joinNodeId: workflowExecutionState.currentNodeId,
+          completedPaths: Array.from(joinStatus.completedPaths),
+          pendingPaths: Array.from(joinStatus.pendingPaths),
+          failedPaths: Array.from(joinStatus.failedPaths),
+        });
       }
     }
 
@@ -616,52 +627,94 @@ export class CheckpointCoordinator {
   }
 
   /**
-   * Infer FORK/JOIN status (static private method)
-   * Determine the completion status of parallel branches from the graph structure and execution sequence
+   * Infer FORK/JOIN completion status from JOIN node (static private method)
+   * Determine the completion status of parallel branches by checking child workflow executions
    *
-   * @param forkNodeId: ID of the FORK node
-   * @param nodeResults: Execution results of the node
-   * @param graph: Workflow graph
-   * @returns: Set of completed and incomplete paths
+   * @param joinNodeId: ID of the JOIN node
+   * @param workflowExecutionEntity: Current workflow execution entity
+   * @param workflowExecutionRegistry: Registry to find child executions
+   * @returns: Sets of completed, pending, and failed paths
    */
-  private static inferForkJoinState(
-    forkNodeId: string,
-    nodeResults: Record<string, unknown>,
-    graph: unknown,
-  ): {
+  private static async _inferForkJoinState(
+    joinNodeId: string,
+    workflowExecutionEntity: WorkflowExecutionEntity,
+    workflowExecutionRegistry: WorkflowExecutionRegistry,
+  ): Promise<{
     completedPaths: Set<string>;
     pendingPaths: Set<string>;
-  } {
-    // 1. Obtain the FORK node
-    const graphObj = graph as {
-      getNode: (id: string) => { type: string; config?: unknown } | null;
-    };
-    const forkNode = graphObj.getNode(forkNodeId);
-    if (!forkNode || forkNode.type !== "FORK") {
-      return { completedPaths: new Set(), pendingPaths: new Set() };
+    failedPaths: Set<string>;
+  }> {
+    // Step 1: Get the JOIN node and its configuration
+    const graph = workflowExecutionEntity.getGraph();
+    const joinNode = graph.getNode(joinNodeId);
+    
+    if (!joinNode || joinNode.type !== "JOIN") {
+      return {
+        completedPaths: new Set(),
+        pendingPaths: new Set(),
+        failedPaths: new Set(),
+      };
     }
 
-    // 2. Obtain all paths for the FORK node
-    const forkPaths =
-      (forkNode.config as { forkPaths?: { pathId: string; childNodeId: string }[] })?.forkPaths ||
-      [];
+    // Step 2: Extract forkPathIds from JOIN node configuration
+    const joinConfig = joinNode.originalNode?.config as JoinNodeConfig | undefined;
+    const forkPathIds = joinConfig?.forkPathIds || [];
 
-    // 3. Determine which paths have been completed
+    if (forkPathIds.length === 0) {
+      logger.warn("JOIN node has no forkPathIds configured", {
+        joinNodeId,
+        executionId: workflowExecutionEntity.id,
+      });
+      return {
+        completedPaths: new Set(),
+        pendingPaths: new Set(),
+        failedPaths: new Set(),
+      };
+    }
+
+    // Step 3: Find all FORK_JOIN child executions from registry
+    const allExecutions = workflowExecutionRegistry.getAll();
+    const parentExecutionId = workflowExecutionEntity.id;
+    
+    // Filter child executions that belong to this parent and are FORK_JOIN type
+    const childExecutions = Array.from(allExecutions.values()).filter((exec) => {
+      const execData = exec.getWorkflowExecutionData();
+      return (
+        execData.executionType === "FORK_JOIN" &&
+        execData.hierarchy?.parent?.parentId === parentExecutionId
+      );
+    });
+
+    // Step 4: Determine completion status for each path
     const completedPaths = new Set<string>();
     const pendingPaths = new Set<string>();
+    const failedPaths = new Set<string>();
 
-    for (const forkPath of forkPaths) {
-      const pathId = forkPath.pathId;
-      const startNodeId = forkPath.childNodeId;
+    for (const pathId of forkPathIds) {
+      // Find the child execution corresponding to this pathId
+      const childExecution = childExecutions.find(
+        (exec) => exec.getWorkflowExecutionData().forkJoinContext?.forkPathId === pathId,
+      );
 
-      if (nodeResults[startNodeId]) {
-        completedPaths.add(pathId);
-      } else {
+      if (!childExecution) {
+        // No child execution found for this path - still pending
         pendingPaths.add(pathId);
+      } else {
+        // Check the status of the child execution
+        const status = childExecution.getStatus();
+        
+        if (status === "COMPLETED") {
+          completedPaths.add(pathId);
+        } else if (status === "FAILED" || status === "CANCELLED" || status === "TIMEOUT") {
+          failedPaths.add(pathId);
+        } else {
+          // RUNNING, PAUSED, STOPPED, CREATED are considered pending
+          pendingPaths.add(pathId);
+        }
       }
     }
 
-    return { completedPaths, pendingPaths };
+    return { completedPaths, pendingPaths, failedPaths };
   }
 
   /**

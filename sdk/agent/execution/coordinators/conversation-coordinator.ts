@@ -25,10 +25,10 @@ export class ConversationCoordinator {
    * Get the dialog manager
    * @param agentLoopId Agent Loop ID
    */
-  getConversationManager(agentLoopId: string): ConversationSession | undefined {
+  async getConversationManager(agentLoopId: string): Promise<ConversationSession | undefined> {
     logger.debug("Getting conversation manager", { agentLoopId });
 
-    const loop = this.registry.get(agentLoopId);
+    const loop = await this.registry.get(agentLoopId);
     if (!loop) {
       logger.warn("Agent Loop not found when getting conversation manager", { agentLoopId });
       return undefined;
@@ -44,7 +44,7 @@ export class ConversationCoordinator {
   async getNormalizedHistory(agentLoopId: string): Promise<LLMMessage[]> {
     logger.debug("Getting normalized conversation history", { agentLoopId });
 
-    const manager = this.getConversationManager(agentLoopId);
+    const manager = await this.getConversationManager(agentLoopId);
     if (!manager) {
       logger.warn("Conversation manager not found", { agentLoopId });
       return [];
@@ -68,7 +68,7 @@ export class ConversationCoordinator {
   async getConversationStats(agentLoopId: string) {
     logger.debug("Getting conversation statistics", { agentLoopId });
 
-    const manager = this.getConversationManager(agentLoopId);
+    const manager = await this.getConversationManager(agentLoopId);
     if (!manager) {
       logger.warn("Conversation manager not found when getting stats", { agentLoopId });
       return undefined;

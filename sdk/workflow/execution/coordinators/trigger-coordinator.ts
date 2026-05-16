@@ -49,14 +49,22 @@ const logger = createContextualLogger({ component: "TriggerCoordinator" });
 export class TriggerCoordinator {
   /** Context Factory */
   private contextFactory: TriggerHandlerContextFactory;
+  
+  /** Error handling strategy configuration */
+  private errorHandlingStrategy: 'silent' | 'log' | 'throw' = 'log';
 
   /**
    * Constructor (using factory configuration)
    *
    * @param config Factory configuration
+   * @param options Optional configuration including error handling strategy
    */
-  constructor(config: TriggerHandlerContextFactoryConfig) {
+  constructor(
+    config: TriggerHandlerContextFactoryConfig,
+    options?: { errorHandlingStrategy?: 'silent' | 'log' | 'throw' }
+  ) {
     this.contextFactory = new TriggerHandlerContextFactory(config);
+    this.errorHandlingStrategy = options?.errorHandlingStrategy || 'log';
   }
 
   /**
@@ -251,8 +259,26 @@ export class TriggerCoordinator {
 
         // Execute the trigger
         await this.executeTrigger(trigger);
-      } catch {
-        // Silently handle errors to prevent them from affecting other triggers.
+      } catch (error) {
+        // Handle errors based on configured strategy
+        const errorObj = getErrorOrNew(error);
+        switch (this.errorHandlingStrategy) {
+          case 'silent':
+            // Silently ignore errors to prevent affecting other triggers
+            break;
+          case 'log':
+            // Log the error but continue with other triggers
+            logger.warn('Trigger execution failed', {
+              triggerId: trigger.id,
+              triggerName: trigger.name,
+              error: errorObj.message,
+              eventType: event.type,
+            }, undefined, errorObj);
+            break;
+          case 'throw':
+            // Re-throw the error (will stop processing remaining triggers)
+            throw error;
+        }
       }
     }
   }
@@ -347,20 +373,19 @@ export class TriggerCoordinator {
         break;
 
       case "execute_triggered_subgraph":
-        if (!workflowExecutionRegistry || !eventManager || !executionBuilder || !taskQueueManager) {
+        if (!workflowExecutionRegistry) {
           throw new DependencyInjectionError(
-            "Required dependencies not provided for execute_triggered_subgraph",
-            "WorkflowExecutionRegistry/EventRegistry/WorkflowExecutionBuilder/TaskQueue",
+            "WorkflowExecutionRegistry not provided for execute_triggered_subgraph",
+            "WorkflowExecutionRegistry",
           );
         }
+        const globalContext = this.contextFactory.getGlobalContext();
         await handler(
           trigger.action,
           trigger.id,
           workflowExecutionRegistry,
-          eventManager,
-          executionBuilder,
-          taskQueueManager,
           trigger.executionId,
+          globalContext,
         );
         break;
 

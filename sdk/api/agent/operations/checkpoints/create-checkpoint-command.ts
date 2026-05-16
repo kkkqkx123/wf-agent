@@ -57,7 +57,7 @@ export class CreateCheckpointCommand extends BaseCommand<string> {
     const registry = this.dependencies.getAgentLoopRegistry();
 
     // Getting the Agent Loop Entity
-    const entity = registry.get(this.params.agentLoopId);
+    const entity = await registry.get(this.params.agentLoopId);
     if (!entity) {
       throw new Error(`Agent Loop not found: ${this.params.agentLoopId}`);
     }

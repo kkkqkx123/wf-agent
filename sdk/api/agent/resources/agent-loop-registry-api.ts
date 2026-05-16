@@ -66,7 +66,7 @@ export class AgentLoopRegistryAPI extends CrudResourceAPI<AgentLoopEntity, ID, A
    * Constructor
    * @param deps APIDependencyManager instance
    */
-  constructor(private deps: APIDependencyManager) {
+  constructor(deps: APIDependencyManager) {
     super();
     this.registry = deps.getAgentLoopRegistry();
   }
@@ -81,7 +81,8 @@ export class AgentLoopRegistryAPI extends CrudResourceAPI<AgentLoopEntity, ID, A
    * @returns Agent Loop entity, or null if it doesn't exist
    */
   protected async getResource(id: ID): Promise<AgentLoopEntity | null> {
-    return this.registry.get(id) || null;
+    const entity = await this.registry.get(id);
+    return entity || null;
   }
 
   /**

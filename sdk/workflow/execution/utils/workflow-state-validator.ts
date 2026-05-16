@@ -50,7 +50,7 @@ export function isValidTransition(
 /**
  * Verify the status transition; throw an error if it is invalid.
  *
- * @param executionId Workflow Execution ID (used for error messages)
+ * @param workflowExecutionId Workflow Execution ID (used for error messages)
  * @param currentStatus Current status
  * @param targetStatus Target status
  * @throws ValidationError The status transition is invalid.
@@ -62,11 +62,11 @@ export function validateTransition(
 ): void {
   if (!isValidTransition(currentStatus, targetStatus)) {
     throw new RuntimeValidationError(
-      `Invalid state transition: ${currentStatus} -> ${targetStatus}`,
+      `Invalid state transition for workflow ${workflowExecutionId}: ${currentStatus} -> ${targetStatus}`,
       {
         operation: "validateStateTransition",
         field: "workflowExecution.status",
-        value: { currentStatus, targetStatus },
+        value: { workflowExecutionId, currentStatus, targetStatus },
       },
     );
   }

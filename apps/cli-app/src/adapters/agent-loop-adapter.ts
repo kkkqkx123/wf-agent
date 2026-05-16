@@ -312,7 +312,7 @@ export class AgentLoopAdapter extends BaseAdapter {
     metadata?: Record<string, unknown>,
   ): Promise<string> {
     return this.executeWithErrorHandling(async () => {
-      const entity = this.registry.get(id);
+      const entity = await this.registry.get(id);
       if (!entity) {
         throw new CLINotFoundError(`Agent Loop not found: ${id}`, "AgentLoop", id);
       }
@@ -345,9 +345,9 @@ export class AgentLoopAdapter extends BaseAdapter {
    * Clone Agent Loop
    * @param id Instance ID
    */
-  cloneAgentLoop(id: ID): Promise<{ id: ID }> {
+  async cloneAgentLoop(id: ID): Promise<{ id: ID }> {
     return this.executeWithErrorHandling(async () => {
-      const entity = this.registry.get(id);
+      const entity = await this.registry.get(id);
       if (!entity) {
         throw new CLINotFoundError(`Agent Loop not found: ${id}`, "AgentLoop", id);
       }
@@ -364,9 +364,9 @@ export class AgentLoopAdapter extends BaseAdapter {
    * Cleanup Agent Loop resources
    * @param id Instance ID
    */
-  cleanupAgentLoop(id: ID): Promise<void> {
+  async cleanupAgentLoop(id: ID): Promise<void> {
     return this.executeWithErrorHandling(async () => {
-      const entity = this.registry.get(id);
+      const entity = await this.registry.get(id);
       if (!entity) {
         throw new CLINotFoundError(`Agent Loop not found: ${id}`, "AgentLoop", id);
       }
@@ -382,8 +382,8 @@ export class AgentLoopAdapter extends BaseAdapter {
    * Get Agent Loop message history
    * @param id Instance ID
    */
-  getAgentLoopMessages(id: ID): Message[] {
-    const entity = this.registry.get(id);
+  async getAgentLoopMessages(id: ID): Promise<Message[]> {
+    const entity = await this.registry.get(id);
     if (!entity) {
       throw new CLINotFoundError(`Agent Loop not found: ${id}`, "AgentLoop", id);
     }

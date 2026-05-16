@@ -524,8 +524,27 @@ async function waitForCompletionByPolling(
   const pendingExecutions = new Set(childExecutionIds);
   let conditionMet = false;
 
+  // Initialize timeout tracking
+  const startTime = Date.now();
+
   // Enter the waiting loop
   while (pendingExecutions.size > 0) {
+    // Check for timeout
+    if (timeout !== undefined && timeout > 0) {
+      const elapsed = Date.now() - startTime;
+      if (elapsed >= timeout) {
+        logger.warn("Timeout reached while waiting for child executions", {
+          timeout,
+          elapsed,
+          pendingCount: pendingExecutions.size,
+          pendingExecutions: Array.from(pendingExecutions),
+          completedCount: completedExecutions.length,
+          failedCount: failedExecutions.length,
+        });
+        break;
+      }
+    }
+
     // Check the status of the sub-WorkflowExecution.
     for (const executionId of Array.from(pendingExecutions)) {
       const executionEntity = workflowExecutionRegistry.get(executionId);

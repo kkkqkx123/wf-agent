@@ -3,11 +3,10 @@
  * Responsible for executing the VARIABLE node, evaluating variable expressions, and updating variable values.
  */
 
-import type { RuntimeNode, VariableNodeConfig } from "@wf-agent/types";
+import type { RuntimeNode, VariableNodeConfig, EvaluationContext } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import { RuntimeValidationError } from "@wf-agent/types";
-import { now } from "@wf-agent/common-utils";
-import { VariableAccessor } from "../../utils/variable-accessor.js";
+import { now, expressionEvaluator } from "@wf-agent/common-utils";
 
 /**
  * Check whether the node can be executed.
@@ -30,42 +29,12 @@ function canExecute(executionEntity: WorkflowExecutionEntity, node: RuntimeNode)
 }
 
 /**
- * Parse variable references in expressions
- * Use VariableAccessor for unified path parsing logic
- */
-function resolveVariableReferences(
-  expression: string,
-  executionEntity: WorkflowExecutionEntity,
-): string {
-  const variablePattern = /\{\{(\w+(?:\.\w+)*)\}\}/g;
-  const accessor = new VariableAccessor(executionEntity);
-
-  return expression.replace(variablePattern, (match, varPath) => {
-    // Use VariableAccessor to get the value (handles all scopes)
-    const value = accessor.get(varPath);
-
-    // If the variable does not exist, return undefined.
-    if (value === undefined) {
-      return "undefined";
-    }
-
-    // Formatted values
-    if (typeof value === "string") {
-      return `'${value}'`;
-    } else if (typeof value === "object") {
-      return JSON.stringify(value);
-    } else {
-      return String(value);
-    }
-  });
-}
-
-/**
- * Evaluate the expression using VariableManager's variables
+ * Evaluate the expression using ExpressionEvaluator (AST-based, safe)
+ * Supports: comparison, logical, arithmetic, ternary operators, string methods, etc.
  */
 function evaluateExpression(
   expression: string,
-  variableType: string,
+  _variableType: string,
   executionEntity: WorkflowExecutionEntity,
 ): unknown {
   try {
@@ -74,16 +43,28 @@ function evaluateExpression(
       return "";
     }
 
-    // Get all variables from VariableManager (includes all scopes)
+    // Build evaluation context with all variables
     const allVariables = executionEntity.variableStateManager.getAllVariables();
+    const input = executionEntity.getInput();
+    const output = executionEntity.getOutput();
 
-    const func = new Function(...Object.keys(allVariables), `return (${expression})`);
-    const result = func(...Object.values(allVariables));
+    const context: EvaluationContext = {
+      variables: allVariables,
+      input,
+      output,
+    };
+
+    // Use AST-based evaluator (safe, preserves types)
+    const result = expressionEvaluator.evaluate(expression, context);
+    
     return result;
-  } catch {
+  } catch (error) {
     throw new RuntimeValidationError(`Failed to evaluate expression: ${expression}`, {
       operation: "handle",
       field: "variable.expression",
+      context: {
+        error: error instanceof Error ? error.message : String(error),
+      },
     });
   }
 }
@@ -176,11 +157,8 @@ export async function variableHandler(
   const config = node.config as VariableNodeConfig;
   const workflowExecution = executionEntity.getExecution();
 
-  // Parse variable references in expressions
-  const evaluatedExpression = resolveVariableReferences(config.expression, executionEntity);
-
-  // Evaluate the expression.
-  const result = evaluateExpression(evaluatedExpression, config.variableType, executionEntity);
+  // Evaluate the expression using AST-based evaluator (safe, preserves types)
+  const result = evaluateExpression(config.expression, config.variableType, executionEntity);
 
   // Verify the type of the evaluation result.
   const typedResult = convertType(result, config.variableType);

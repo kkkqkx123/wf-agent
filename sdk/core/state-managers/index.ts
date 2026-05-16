@@ -1,7 +1,7 @@
 /**
- * Tool Failure Protection Module
+ * State Managers Module
  * 
- * Provides state management for tool failure protection mechanism.
+ * Provides state management for various SDK components.
  */
 
 export { ToolFailureProtectionState } from "./tool-failure-protection-state.js";
@@ -11,3 +11,6 @@ export type {
   ToolFailureProtectionSnapshot,
   ToolExecutionCheckResult,
 } from "./tool-failure-protection-types.js";
+
+// Timeout Management
+export { TimeoutManager } from "./timeout-manager.js";

@@ -80,11 +80,34 @@ export class AgentLoopRegistry {
 
   /**
    * Get AgentLoopEntity
+   * Tries to get from memory first, then attempts to load from storage if not found.
    * @param id instance ID
    * @returns Agent Loop entity, or undefined if it doesn't exist.
    */
-  get(id: ID): AgentLoopEntity | undefined {
-    return this.entities.get(id);
+  async get(id: ID): Promise<AgentLoopEntity | undefined> {
+    // Try memory first
+    const cached = this.entities.get(id);
+    if (cached) {
+      return cached;
+    }
+
+    // If not in memory and storage adapter is available, try loading from storage
+    if (this.storageAdapter) {
+      logger.debug("Agent loop not in memory, attempting to load from storage", { agentLoopId: id });
+      // Note: Full restoration requires checkpoint mechanism via AgentLoopFactory.fromCheckpoint()
+      // This method only provides basic data loading. For complete entity restoration,
+      // use the checkpoint restore API instead.
+      const loadedData = await this._loadFromStorage(id);
+      if (loadedData) {
+        logger.warn(
+          "Loaded raw data from storage but cannot reconstruct full entity without checkpoint. " +
+            "Use AgentLoopFactory.fromCheckpoint() for complete restoration.",
+          { agentLoopId: id }
+        );
+      }
+    }
+
+    return undefined;
   }
 
   /**
@@ -264,13 +287,20 @@ export class AgentLoopRegistry {
   }
 
   /**
-   * Load agent loop from storage (if adapter is available)
-   * Note: This is a simplified implementation. Full deserialization would require
-   * reconstructing the complete entity with all dependencies.
+   * Load agent loop data from storage (if adapter is available)
+   * 
+   * IMPORTANT: This method loads raw serialized data, NOT a fully reconstructed AgentLoopEntity.
+   * To restore a complete entity with all dependencies (config, conversationManager, etc.),
+   * use AgentLoopFactory.fromCheckpoint() which properly handles:
+   * - Loading checkpoint from storage
+   * - Extracting state snapshot
+   * - Reconstructing entity with re-provided config
+   * - Restoring conversation manager and other runtime components
+   * 
    * @param agentLoopId Agent loop ID to load
-   * @returns Loaded agent loop data or null
+   * @returns Raw agent loop data or null (cannot be used directly as AgentLoopEntity)
    */
-  private async loadFromStorage(agentLoopId: string): Promise<unknown | null> {
+  private async _loadFromStorage(agentLoopId: string): Promise<unknown | null> {
     if (!this.storageAdapter) {
       logger.debug("No storage adapter configured, cannot load from storage");
       return null;
@@ -279,6 +309,7 @@ export class AgentLoopRegistry {
     try {
       const data = await this.storageAdapter.load(agentLoopId);
       if (!data) {
+        logger.debug("No data found in storage for agent loop", { agentLoopId });
         return null;
       }
 
@@ -286,10 +317,10 @@ export class AgentLoopRegistry {
       const decoder = new TextDecoder();
       const agentData = JSON.parse(decoder.decode(data));
       
-      logger.debug("Agent loop loaded from storage", { agentLoopId });
+      logger.debug("Raw agent loop data loaded from storage", { agentLoopId });
       return agentData;
     } catch (error) {
-      logger.error("Failed to load agent loop from storage", {
+      logger.error("Failed to load agent loop data from storage", {
         agentLoopId,
         error: getErrorMessage(error),
       });

@@ -66,7 +66,7 @@ export class AgentLoopMessageResourceAPI extends ReadonlyResourceAPI<
       return null;
     }
 
-    const entity = this.registry.get(agentLoopId);
+    const entity = await this.registry.get(agentLoopId);
     if (!entity) {
       return null;
     }
@@ -136,7 +136,7 @@ export class AgentLoopMessageResourceAPI extends ReadonlyResourceAPI<
     offset?: number,
     orderBy: "asc" | "desc" = "asc",
   ): Promise<LLMMessage[]> {
-    const entity = this.registry.get(agentLoopId);
+    const entity = await this.registry.get(agentLoopId);
     if (!entity) {
       return [];
     }
@@ -165,7 +165,7 @@ export class AgentLoopMessageResourceAPI extends ReadonlyResourceAPI<
    * @returns array of messages
    */
   async getRecentMessages(agentLoopId: ID, count: number): Promise<LLMMessage[]> {
-    const entity = this.registry.get(agentLoopId);
+    const entity = await this.registry.get(agentLoopId);
     if (!entity) {
       return [];
     }
@@ -180,7 +180,7 @@ export class AgentLoopMessageResourceAPI extends ReadonlyResourceAPI<
    * @returns Array of matching messages
    */
   async searchMessages(agentLoopId: ID, query: string): Promise<LLMMessage[]> {
-    const entity = this.registry.get(agentLoopId);
+    const entity = await this.registry.get(agentLoopId);
     if (!entity) {
       return [];
     }
@@ -204,7 +204,7 @@ export class AgentLoopMessageResourceAPI extends ReadonlyResourceAPI<
     byType: Record<string, number>;
     totalTokenUsage: { promptTokens: number; completionTokens: number; totalTokens: number };
   }> {
-    const entity = this.registry.get(agentLoopId);
+    const entity = await this.registry.get(agentLoopId);
     if (!entity) {
       return {
         total: 0,
@@ -241,7 +241,7 @@ export class AgentLoopMessageResourceAPI extends ReadonlyResourceAPI<
    * @param agentLoopId Agent Loop ID
    */
   async normalizeHistory(agentLoopId: ID): Promise<void> {
-    const entity = this.registry.get(agentLoopId);
+    const entity = await this.registry.get(agentLoopId);
     if (entity) {
       entity.normalizeHistory();
     }
@@ -300,7 +300,7 @@ export class AgentLoopMessageResourceAPI extends ReadonlyResourceAPI<
    * @returns Number of messages
    */
   async getMessageCount(agentLoopId: ID): Promise<number> {
-    const entity = this.registry.get(agentLoopId);
+    const entity = await this.registry.get(agentLoopId);
     if (!entity) {
       return 0;
     }

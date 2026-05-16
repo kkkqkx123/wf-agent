@@ -11,6 +11,7 @@ import type {
   ToolCallFailedEvent,
   ToolCallBlockedEvent,
   ToolAddedEvent,
+  ToolVisibilityChangedEvent,
 } from "@wf-agent/types";
 
 // =============================================================================
@@ -73,3 +74,24 @@ export const buildToolCallBlockedEvent = (
  * Build tool added event
  */
 export const buildToolAddedEvent = createBuilder<ToolAddedEvent>("TOOL_ADDED");
+
+/**
+ * Build tool visibility changed event
+ */
+export const buildToolVisibilityChangedEvent = (
+  params: Omit<BuildParams<ToolVisibilityChangedEvent>, "timestamp"> & {
+    executionId: string;
+    scope: "EXECUTION" | "SUBGRAPH" | "LOOP";
+    scopeId: string;
+    changeType: "enter_scope" | "exit_scope" | "add_tools" | "remove_tools" | "refresh" | "init";
+    visibleToolIds: string[];
+    previousVisibleToolIds?: string[];
+    workflowId?: string;
+    nodeId?: string;
+  },
+): ToolVisibilityChangedEvent => ({
+  id: generateId(),
+  type: "TOOL_VISIBILITY_CHANGED",
+  timestamp: now(),
+  ...params,
+}) as ToolVisibilityChangedEvent;

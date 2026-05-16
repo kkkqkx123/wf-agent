@@ -41,6 +41,9 @@ export class CLIToolApprovalHandler implements ToolApprovalHandler {
         name: tc.function?.name || "unknown",
         arguments: tc.function?.arguments
       })),
+      // Pass configuration fields if available
+      timeout: request.timeout,
+      securityPreset: request.securityPreset,
     };
 
     const response = await this.handle(data);

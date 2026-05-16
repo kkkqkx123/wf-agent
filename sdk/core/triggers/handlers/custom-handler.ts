@@ -6,9 +6,10 @@
  */
 
 import type { BaseTriggerDefinition, TriggerExecutionResult } from "../types.js";
+import type { Container } from "@wf-agent/common-utils";
+import * as ServiceIdentifiers from "../../di/service-identifiers.js";
 import { now } from "@wf-agent/common-utils";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
-import { getCustomHandlerRegistry } from "../../registry/custom-handler-registry.js";
 
 const logger = createContextualLogger({ component: "CustomTriggerHandler" });
 
@@ -28,10 +29,12 @@ export interface CustomActionParameters {
  * Execute a custom action
  *
  * @param trigger Trigger definition
+ * @param container DI container to resolve CustomHandlerRegistry
  * @returns Execution result
  */
 export async function executeCustomAction(
   trigger: BaseTriggerDefinition,
+  container: Container,
 ): Promise<TriggerExecutionResult> {
   const startTime = now();
   const { action } = trigger;
@@ -57,7 +60,7 @@ export async function executeCustomAction(
     }
 
     // Look up the registered handler
-    const registry = getCustomHandlerRegistry();
+    const registry = container.get(ServiceIdentifiers.CustomHandlerRegistry);
     const handler = registry.getHandler(handlerName);
 
     if (!handler) {

@@ -124,5 +124,4 @@ export * from "./utils/index.js";
 export * from "./resources/index.js";
 
 // Re-export interaction module
-export { FollowupQuestionCoordinator } from "./core/coordinators/followup-question-coordinator.js";
 export { ToolApprovalCoordinator } from "./core/coordinators/tool-approval-coordinator.js";

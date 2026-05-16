@@ -49,7 +49,6 @@ interface InternalStreamEvent {
  * Message flow
  */
 export class MessageStream implements AsyncIterable<InternalStreamEvent> {
-  private messages: LLMMessage[];
   private receivedMessages: LLMMessage[];
   private currentMessageSnapshot: LLMMessage | null;
   private currentTextSnapshot: string;
@@ -69,7 +68,6 @@ export class MessageStream implements AsyncIterable<InternalStreamEvent> {
   private readQueue: Array<(event: InternalStreamEvent) => void>;
 
   constructor() {
-    this.messages = [];
     this.receivedMessages = [];
     this.currentMessageSnapshot = null;
     this.currentTextSnapshot = "";

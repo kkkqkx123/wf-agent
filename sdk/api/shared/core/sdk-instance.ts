@@ -32,7 +32,6 @@ import type { LogStream, LogLevel } from "@wf-agent/common-utils";
 import { WorkflowBuilder } from "../../workflow/builders/workflow-builder.js";
 import { NodeBuilder } from "../../workflow/builders/node-builder.js";
 import { McpServerRegistry } from "../../../services/mcp/server-registry.js";
-import { getCustomHandlerRegistry } from "../../../core/registry/custom-handler-registry.js";
 import { NodeTemplateBuilder } from "../../workflow/builders/node-template-builder.js";
 import { TriggerTemplateBuilder } from "../../workflow/builders/trigger-template-builder.js";
 import type { BaseCommand } from "../types/command.js";
@@ -312,7 +311,8 @@ export class SDKInstance {
     // Configure custom trigger handlers if provided
     if (this.config?.customTriggerHandlers) {
       try {
-        const customHandlerRegistry = getCustomHandlerRegistry();
+        const container = ContainerManager.getInstance().getContainer(this.containerId);
+        const customHandlerRegistry = container.get(ServiceIdentifiers.CustomHandlerRegistry);
         
         for (const [name, handler] of Object.entries(this.config.customTriggerHandlers)) {
           customHandlerRegistry.register(name, handler);

@@ -43,6 +43,12 @@ export interface ToolApprovalRequestData {
   toolIndex?: number;
   /** Total tools in batch */
   totalTools?: number;
+  
+  // Configuration fields (from ToolApprovalOptions)
+  /** Approval timeout in milliseconds */
+  timeout?: number;
+  /** Security preset name */
+  securityPreset?: import("../tool/approval.js").SecurityPreset;
 }
 
 /**

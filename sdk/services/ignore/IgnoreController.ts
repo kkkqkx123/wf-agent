@@ -92,7 +92,6 @@ export class IgnoreController {
   private mode: IgnoreMode;
   private customIgnoreFile: string;
   private customPatterns: string[];
-  private builtinPatterns: string[];
   private builtinIgnoreChecker: ((path: string) => boolean) | null = null;
   private gitignoreChecker: ((path: string) => boolean) | null = null;
   private customIgnoreChecker: ((path: string) => boolean) | null = null;
@@ -104,7 +103,6 @@ export class IgnoreController {
     this.mode = config.mode ?? "all";
     this.customIgnoreFile = config.customIgnoreFile ?? ".agentignore";
     this.customPatterns = config.customPatterns ?? [];
-    this.builtinPatterns = [];
 
     // Initialize built-in patterns
     this.initializeBuiltinPatterns();
@@ -130,7 +128,6 @@ export class IgnoreController {
       }
     }
 
-    this.builtinPatterns = patterns;
     this.builtinIgnoreChecker = fastIgnore(patterns.join("\n"));
   }
 

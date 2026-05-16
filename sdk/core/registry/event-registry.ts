@@ -10,7 +10,7 @@
  * Note: Internal event mechanism has been removed, replaced with direct method calls
  *
  * This module only exports class definition, not instances
- * Instances are managed uniformly through SingletonRegistry
+ * Instances are managed by the DI container as singletons
  */
 
 import type { BaseEvent, EventType, EventListener } from "@wf-agent/types";
@@ -20,21 +20,6 @@ import { EventMetricsCollector, type AggregatedEventStat, type EventMetricsSumma
 import { ExecutionEventEmitter } from "./event-emitter.js";
 
 const logger = createContextualLogger({ operation: "EventRegistry" });
-
-/**
- * EventRegistry configuration options
- */
-export interface EventRegistryConfig {
-  /** Maximum number of listeners per event type (prevents memory overflow) */
-  maxListenersPerEvent?: number;
-  /** Default listener timeout in milliseconds */
-  defaultListenerTimeout?: number;
-  /** Slow listener threshold in milliseconds (for warning logs) */
-  slowListenerThreshold?: number;
-  /** Enable backpressure control */
-  enableBackpressure?: boolean;
-}
-
 
 /**
  * EventRegistry - Event Registry
@@ -53,20 +38,10 @@ class EventRegistry {
   // Per-execution ExecutionEventEmitter instances
   private emitters: Map<string, ExecutionEventEmitter> = new Map();
   
-  // Configuration
-  private config: Required<EventRegistryConfig>;
-  
   // Cross-execution metrics collector (new universal metrics system)
   private metricsCollector: EventMetricsCollector;
 
-  constructor(config?: EventRegistryConfig) {
-    this.config = {
-      maxListenersPerEvent: config?.maxListenersPerEvent ?? 100,
-      defaultListenerTimeout: config?.defaultListenerTimeout ?? 30000, // 30 seconds
-      slowListenerThreshold: config?.slowListenerThreshold ?? 5000, // 5 seconds
-      enableBackpressure: config?.enableBackpressure ?? true,
-    };
-    
+  constructor() {
     // Initialize event metrics collector
     this.metricsCollector = new EventMetricsCollector();
   }

@@ -128,18 +128,58 @@ export class BaseDeltaRestorer<
 
   /**
    * Build checkpoint chain from target to base
+   * Uses listCheckpoints to batch-load checkpoints for better performance
    * @param checkpointId Starting checkpoint ID
    * @returns Array of checkpoint IDs from base to target
    */
   private async buildCheckpointChain(checkpointId: string): Promise<string[]> {
+    // Step 1: Load target checkpoint to get its parent ID
+    const targetCheckpoint = await this.loadCheckpoint(checkpointId);
+    if (!targetCheckpoint) {
+      throw new Error(`Checkpoint not found: ${checkpointId}`);
+    }
+
+    // If it's a full checkpoint, return single-element chain
+    if (targetCheckpoint.type === "FULL") {
+      return [checkpointId];
+    }
+
+    // Step 2: Get parent ID from delta checkpoint
+    const parentId = targetCheckpoint.previousCheckpointId;
+    if (!parentId) {
+      throw new Error(`Delta checkpoint missing previousCheckpointId: ${checkpointId}`);
+    }
+
+    // Step 3: Batch load all checkpoints under the same parent
+    // This reduces I/O from N sequential loads to 1 batch load + individual loads for chain traversal
+    logger.debug("Batch loading checkpoints for chain construction", { parentId });
+    const allCheckpointIds = await this.listCheckpoints(parentId);
+    
+    // Step 4: Load all checkpoints in parallel for efficiency
+    const checkpointMap = new Map<string, TCheckpoint>();
+    const loadPromises = allCheckpointIds.map(async (id) => {
+      const cp = await this.loadCheckpoint(id);
+      if (cp) {
+        checkpointMap.set(id, cp);
+      }
+    });
+    await Promise.all(loadPromises);
+
+    // Step 5: Build chain by traversing backward through previousCheckpointId links
     const chain: string[] = [];
     let currentId: string | undefined = checkpointId;
+    const visited = new Set<string>();
 
-    // Traverse backward through previousCheckpointId links
     while (currentId) {
+      // Prevent infinite loops
+      if (visited.has(currentId)) {
+        throw new Error(`Circular reference detected in checkpoint chain at: ${currentId}`);
+      }
+      visited.add(currentId);
+
       chain.unshift(currentId); // Add to beginning
 
-      const checkpoint = await this.loadCheckpoint(currentId);
+      const checkpoint = checkpointMap.get(currentId);
       if (!checkpoint) {
         throw new Error(`Checkpoint not found in chain: ${currentId}`);
       }
@@ -152,6 +192,12 @@ export class BaseDeltaRestorer<
       // Move to previous checkpoint
       currentId = checkpoint.previousCheckpointId;
     }
+
+    logger.debug("Checkpoint chain built", {
+      chainLength: chain.length,
+      baseCheckpointId: chain[0],
+      targetCheckpointId: chain[chain.length - 1],
+    });
 
     return chain;
   }

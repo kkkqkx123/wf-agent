@@ -2,7 +2,7 @@
  * Script Registry
  * Provides a unified interface for script management and execution
  *
- * This module only exports class definitions; instances are not exported. Instances are managed uniformly through a Dependency Injection (DI) container.
+ * This module only exports class definitions; instances are managed by the DI container as singletons.
  *
  */
 

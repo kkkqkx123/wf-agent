@@ -582,14 +582,15 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
    * Copy from another VariableManager (for fork scenarios)
    * @param source Source VariableManager
    * 
-   * Note: Global scope variables are shared by reference
-   * Execution scope variables are deep copied
+   * Note: Global scope variables are shared by reference (as designed for cross-execution sharing)
+   * Execution scope variables are shallow copied (definitions cloned, values referenced)
+   * Scope stack is NOT copied - new execution starts with empty scope stack
    */
   copyFrom(source: VariableManager): void {
-    // Share global variables by reference
+    // Share global variables by reference (intentional for cross-execution sharing)
     this.global = source.global;
     
-    // Deep copy execution variables
+    // Shallow copy execution variables (clone definitions, reference values)
     this.execution = new Map();
     for (const [name, entry] of source.execution) {
       this.execution.set(name, {
@@ -597,11 +598,20 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
         value: entry.value,
       });
     }
+    
+    // Do NOT copy scope stack - new execution/fork starts fresh
+    // Scopes are managed dynamically during execution
+    this.scopeStack = [];
 
     // Clear cache
     if (this.cacheEnabled && this.cache) {
       this.cache.clear();
     }
+    
+    logger.debug("VariableManager copied from source", {
+      globalCount: this.global.size,
+      executionCount: this.execution.size,
+    });
   }
 
   /**

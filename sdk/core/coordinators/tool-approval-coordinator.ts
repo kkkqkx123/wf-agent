@@ -699,7 +699,7 @@ export class ToolApprovalCoordinator {
   ): Promise<ToolApprovalResult> {
     const interactionId = generateId();
 
-    // Create approval request with batch context
+    // Create approval request with batch context and configuration
     const request: ToolApprovalRequest = {
       toolCall,
       toolDescription: this.getToolDescription(toolCall),
@@ -711,6 +711,9 @@ export class ToolApprovalCoordinator {
       totalTools,
       pendingQueue,
       autoExecutedResults,
+      // Pass configuration from options
+      timeout: options.approvalTimeout,
+      securityPreset: options.securityPreset,
     };
 
     // Delegate to handler
@@ -737,6 +740,7 @@ export class ToolApprovalCoordinator {
 
   /**
    * Build pending queue for events
+   * Includes remaining auto-executable tools, confirmation tool, and subsequent tools
    */
   private buildPendingQueue(
     remainingAuto: LLMToolCall[],
@@ -745,6 +749,16 @@ export class ToolApprovalCoordinator {
   ): PendingToolCall[] {
     const queue: PendingToolCall[] = [];
 
+    // Add remaining auto-executable tools first
+    queue.push(
+      ...remainingAuto.map((call) => ({
+        id: call.id,
+        name: call.function?.name || "unknown",
+        arguments: call.function?.arguments,
+      })),
+    );
+
+    // Add confirmation-required tool
     if (confirmTool) {
       queue.push({
         id: confirmTool.id,
@@ -753,6 +767,7 @@ export class ToolApprovalCoordinator {
       });
     }
 
+    // Add remaining tools after confirmation
     queue.push(
       ...remainingAfterConfirm.map((call) => ({
         id: call.id,
@@ -980,9 +995,5 @@ export class ToolApprovalCoordinator {
       requiresManualReview: auditEntry.requiresManualReview,
     });
 
-    // In production, this could be extended to:
-    // - Write to persistent storage (database, file)
-    // - Send to monitoring/analytics service
-    // - Trigger alerts for suspicious patterns
   }
 }

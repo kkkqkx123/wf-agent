@@ -2,7 +2,7 @@
  * Trigger Template Registry
  * Responsible for the registration, querying, and management of trigger templates
  *
- * This module only exports class definitions; instances are managed uniformly through the SingletonRegistry.
+ * This module only exports class definitions; instances are managed by the DI container as singletons.
  */
 
 import type {

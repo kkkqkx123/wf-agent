@@ -17,6 +17,9 @@ import {
 import { BaseExecutor } from "../core/base/BaseExecutor.js";
 import { HttpClient, InterceptorManager } from "../../../http/index.js";
 import type { RestExecutorConfig } from "./types.js";
+import { createContextualLogger } from "../../../../utils/contextual-logger.js";
+
+const logger = createContextualLogger({ component: "RestExecutor" });
 
 /**
  * REST Tool Executor
@@ -24,11 +27,9 @@ import type { RestExecutorConfig } from "./types.js";
 export class RestExecutor extends BaseExecutor {
   private httpClient: HttpClient;
   private interceptorManager: InterceptorManager;
-  private config: RestExecutorConfig;
 
   constructor(config: RestExecutorConfig = {}) {
     super();
-    this.config = config;
 
     // Create an HttpClient for common-utils
     this.httpClient = new HttpClient({
@@ -112,27 +113,30 @@ export class RestExecutor extends BaseExecutor {
 
       // Execute the request.
       let response;
+      // Build full URL with query params from tool config
+      const fullUrl = this.buildFullUrl(toolConfig?.baseUrl || "", url, queryParams as Record<string, unknown> | undefined);
+      
       switch (method) {
         case "GET":
-          response = await this.httpClient.get(url, processedConfig);
+          response = await this.httpClient.get(fullUrl, processedConfig);
           break;
         case "POST":
-          response = await this.httpClient.post(url, body, processedConfig);
+          response = await this.httpClient.post(fullUrl, body, processedConfig);
           break;
         case "PUT":
-          response = await this.httpClient.put(url, body, processedConfig);
+          response = await this.httpClient.put(fullUrl, body, processedConfig);
           break;
         case "DELETE":
-          response = await this.httpClient.delete(url, processedConfig);
+          response = await this.httpClient.delete(fullUrl, processedConfig);
           break;
         case "PATCH":
-          response = await this.httpClient.post(url, body, processedConfig);
+          response = await this.httpClient.patch(fullUrl, body, processedConfig);
           break;
         case "HEAD":
-          response = await this.httpClient.get(url, processedConfig);
+          response = await this.httpClient.head(fullUrl, processedConfig);
           break;
         case "OPTIONS":
-          response = await this.httpClient.get(url, processedConfig);
+          response = await this.httpClient.options(fullUrl, processedConfig);
           break;
         default:
           throw new RuntimeValidationError(`Unsupported HTTP method: ${method}`, {
@@ -152,7 +156,7 @@ export class RestExecutor extends BaseExecutor {
         requestId: response?.requestId,
       });
 
-      return this.formatResponse(toolConfig, url, method, processedResponse);
+      return this.formatResponse(toolConfig, fullUrl, method, processedResponse);
     } catch (error) {
       // Application error interceptor
       let processedError = error instanceof Error ? error : new Error(String(error));
@@ -197,7 +201,7 @@ export class RestExecutor extends BaseExecutor {
    * Formatted response
    */
   private formatResponse(
-    toolConfig: RestToolConfig,
+    toolConfig: RestToolConfig | undefined,
     url: string,
     method: string,
     response: {
@@ -216,8 +220,10 @@ export class RestExecutor extends BaseExecutor {
     data?: unknown;
     requestId?: string;
   } {
+    // Build full URL using tool-level baseUrl (preferred) or fallback to empty string
+    const baseUrl = toolConfig?.baseUrl || "";
     return {
-      url: this.buildFullUrl(toolConfig?.baseUrl || "", url),
+      url: this.buildFullUrl(baseUrl, url),
       method,
       status: response.status,
       statusText: response.statusText,
@@ -245,7 +251,7 @@ export class RestExecutor extends BaseExecutor {
       fullUrl = `${cleanBaseUrl}/${cleanUrl}`;
     }
 
-    // Add query parameters
+    // Add query parameters from buildFullUrl parameter
     if (queryParams && Object.keys(queryParams).length > 0) {
       const queryString = new URLSearchParams(
         Object.entries(queryParams)
@@ -253,7 +259,7 @@ export class RestExecutor extends BaseExecutor {
           .map(([key, value]) => [key, String(value)]),
       ).toString();
 
-      fullUrl += `?${queryString}`;
+      fullUrl += fullUrl.includes("?") ? `&${queryString}` : `?${queryString}`;
     }
 
     return fullUrl;

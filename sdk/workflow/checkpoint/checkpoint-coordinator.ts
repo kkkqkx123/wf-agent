@@ -32,8 +32,6 @@ import type { JoinNodeConfig } from "@wf-agent/types";
 import { CheckpointState } from "./checkpoint-state-manager.js";
 import { ConversationSession } from "../../core/messaging/conversation-session.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
-
-const logger = createContextualLogger({ component: "CheckpointCoordinator" });
 import { WorkflowExecutionEntity } from "../entities/workflow-execution-entity.js";
 import { ExecutionState } from "../state-managers/execution-state.js";
 import { WorkflowStateCoordinator } from "../state-managers/workflow-state-coordinator.js";
@@ -45,6 +43,8 @@ import { mergeMetadata } from "../../utils/metadata-utils.js";
 import type { Metadata } from "@wf-agent/types";
 import type { ExecutionHierarchyRegistry } from "../../core/registry/execution-hierarchy-registry.js";
 import { HierarchyIntegrityService } from "../../core/execution/hierarchy-integrity-service.js";
+
+const logger = createContextualLogger({ component: "CheckpointCoordinator" });
 
 /**
  * Checkpoint dependencies

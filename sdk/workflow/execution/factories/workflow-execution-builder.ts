@@ -13,7 +13,7 @@
  * - This eliminates data redundancy and synchronization issues
  */
 
-import type { WorkflowGraph, WorkflowExecution, WorkflowExecutionOptions, WorkflowConfig, MessageContextRegistry } from "@wf-agent/types";
+import type { WorkflowGraph, WorkflowExecution, WorkflowExecutionOptions, WorkflowConfig, MessageContextRegistry, VariableDefinition } from "@wf-agent/types";
 import { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
 import { WorkflowExecutionState } from "../../state-managers/workflow-execution-state.js";
 import { ExecutionState } from "../../state-managers/execution-state.js";
@@ -31,6 +31,7 @@ import { InMemoryMessageContextRegistry, initializeExecutionContext } from "../.
 import { logError, emitErrorEvent } from "../../../core/utils/error-utils.js";
 import type { ExecutionHierarchyRegistry } from "../../../core/registry/execution-hierarchy-registry.js";
 import type { GlobalContext } from "../../../core/global-context.js";
+import type { VariableManager } from "../../state-managers/variable-manager.js";
 
 const logger = createContextualLogger({ operation: "workflow-execution-builder" });
 
@@ -78,16 +79,6 @@ export class WorkflowExecutionBuilder {
   }
 
   /**
-   * Get variable state manager (from DI container)
-   */
-  private getVariableStateManager(): unknown {
-    if (!this.globalContext) {
-      throw new Error("GlobalContext not initialized. Use constructor with GlobalContext parameter.");
-    }
-    return this.globalContext.container.get(Identifiers.VariableManager);
-  }
-
-  /**
    * Get event manager (from DI container)
    */
   private getEventManager(): EventRegistry {
@@ -110,7 +101,7 @@ export class WorkflowExecutionBuilder {
   /**
    * Get tool service (from DI container)
    */
-  private getToolService(): ToolRegistry {
+  private _getToolService(): ToolRegistry {
     if (!this.globalContext) {
       throw new Error("GlobalContext not initialized. Use constructor with GlobalContext parameter.");
     }
@@ -227,19 +218,15 @@ export class WorkflowExecutionBuilder {
       executionType: "MAIN",
     };
 
-    // Step 4: Initialize variables from WorkflowGraph
-    const variableCoordinator = this.getVariableCoordinator() as {
-      initializeFromDefinitions: (variables: import("@wf-agent/types").VariableDefinition[]) => void;
-    };
-    variableCoordinator.initializeFromDefinitions(workflowGraph.variables || []);
-
-    // Step 5: Create WorkflowExecutionState
+    // Step 4: Create WorkflowExecutionState
     const workflowExecutionState = new WorkflowExecutionState();
 
-    // Step 5.1: Create ExecutionState (for subgraph stack management)
+    // Step 5: Create ExecutionState (for subgraph stack management)
     const executionState = new ExecutionState();
 
-    // Step 6: Create WorkflowExecutionEntity (without ConversationManager)
+    // Step 6: Create WorkflowExecutionEntity
+    // Note: WorkflowExecutionEntity internally creates its own VariableManager instance
+    // This follows the same pattern as MessageHistory - each entity owns its state managers
     const registry = this.getExecutionHierarchyRegistry();
     const workflowExecutionEntity = new WorkflowExecutionEntity(
       workflowExecution,
@@ -247,6 +234,21 @@ export class WorkflowExecutionBuilder {
       workflowExecutionState,
       undefined,
       registry
+    );
+
+    // Step 7: Initialize variables in the entity's VariableManager
+    // The VariableCoordinator is stateless and receives the manager as a parameter
+    const variableCoordinator = this.getVariableCoordinator() as {
+      initializeFromDefinitions: (
+        manager: VariableManager,
+        variables: VariableDefinition[]
+      ) => void;
+    };
+    
+    // Initialize variables from WorkflowGraph definitions
+    variableCoordinator.initializeFromDefinitions(
+      workflowExecutionEntity.variableStateManager,
+      workflowGraph.variables || []
     );
 
     // Step 7: Create MessageContextRegistry and initialize contexts
@@ -354,7 +356,8 @@ export class WorkflowExecutionBuilder {
     // Create ExecutionState (for subgraph stack management)
     const executionState = new ExecutionState();
 
-    // Create WorkflowExecutionEntity (without ConversationManager)
+    // Create WorkflowExecutionEntity
+    // Note: Each entity has its own VariableManager instance
     const registry = this.getExecutionHierarchyRegistry();
     const copiedWorkflowExecutionEntity = new WorkflowExecutionEntity(
       copiedWorkflowExecution,
@@ -362,6 +365,11 @@ export class WorkflowExecutionBuilder {
       workflowExecutionState,
       undefined,
       registry
+    );
+
+    // Copy variable state from source entity to copied entity
+    copiedWorkflowExecutionEntity.variableStateManager.copyFrom(
+      sourceWorkflowExecutionEntity.variableStateManager
     );
 
     // Create ConversationSession (clone from source message history)
@@ -451,7 +459,8 @@ export class WorkflowExecutionBuilder {
     // Create ExecutionState (for subgraph stack management)
     const executionState = new ExecutionState();
 
-    // Create WorkflowExecutionEntity (without ConversationManager)
+    // Create WorkflowExecutionEntity
+    // Note: Each fork execution has its own VariableManager instance
     const registry = this.getExecutionHierarchyRegistry();
     const forkWorkflowExecutionEntity = new WorkflowExecutionEntity(
       forkWorkflowExecution,
@@ -459,6 +468,12 @@ export class WorkflowExecutionBuilder {
       workflowExecutionState,
       undefined,
       registry
+    );
+
+    // Copy relevant variable state from parent entity to fork entity
+    // Only copy execution-scoped variables, global scope is shared by reference
+    forkWorkflowExecutionEntity.variableStateManager.copyFrom(
+      parentWorkflowExecutionEntity.variableStateManager
     );
 
     // Create ConversationSession (clone from parent message history)

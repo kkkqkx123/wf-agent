@@ -10,4 +10,4 @@ export { ExecutionEventEmitter } from "./event-emitter.js";
 export { ExecutionHierarchyRegistry, type AnyExecutionEntity, type ExecutionsByRoot } from "./execution-hierarchy-registry.js";
 
 // Timeout Management
-export { TimeoutRegistry, getDefaultTimeoutRegistry, resetDefaultTimeoutRegistry } from "./timeout-registry.js";
+export { TimeoutRegistry } from "./timeout-registry.js";

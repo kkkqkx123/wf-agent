@@ -264,31 +264,3 @@ export class TimeoutRegistry {
     this.managers.delete(executionId);
   }
 }
-
-/**
- * Singleton instance of TimeoutRegistry
- * Exported for convenience, but applications should create their own instances
- */
-let defaultRegistry: TimeoutRegistry | null = null;
-
-/**
- * Get the default TimeoutRegistry instance
- * Creates one if it doesn't exist
- * @returns Default TimeoutRegistry
- */
-export function getDefaultTimeoutRegistry(): TimeoutRegistry {
-  if (!defaultRegistry) {
-    defaultRegistry = new TimeoutRegistry();
-  }
-  return defaultRegistry;
-}
-
-/**
- * Reset the default registry (useful for testing)
- */
-export function resetDefaultTimeoutRegistry(): void {
-  if (defaultRegistry) {
-    defaultRegistry.cleanupAll();
-    defaultRegistry = null;
-  }
-}

@@ -93,7 +93,7 @@ describe("validateTransition", () => {
     );
 
     expect(() => validateTransition("wfexec-1", "CREATED", "COMPLETED")).toThrow(
-      "Invalid state transition: CREATED -> COMPLETED",
+      "Invalid state transition for workflow wfexec-1: CREATED -> COMPLETED",
     );
   });
 

@@ -55,6 +55,8 @@ import { ToolRegistry } from "../registry/tool-registry.js";
 import { ScriptRegistry } from "../registry/script-registry.js";
 import { NodeTemplateRegistry } from "../registry/node-template-registry.js";
 import { TriggerTemplateRegistry } from "../registry/trigger-template-registry.js";
+import { TimeoutRegistry } from "../registry/timeout-registry.js";
+import { CustomHandlerRegistry } from "../registry/custom-handler-registry.js";
 import { TaskRegistry } from "../../workflow/stores/task/task-registry.js";
 import { TaskQueue } from "../../workflow/stores/task/task-queue.js";
 import { WorkflowRegistry } from "../../workflow/stores/workflow-registry.js";
@@ -211,6 +213,18 @@ export function configureContainerBindings(
   container
     .bind(Identifiers.TriggerTemplateRegistry)
     .to(TriggerTemplateRegistry)
+    .inSingletonScope();
+
+  // TimeoutRegistry - Timeout registry with optional configuration
+  container
+    .bind(Identifiers.TimeoutRegistry)
+    .toDynamicValue(() => new TimeoutRegistry())
+    .inSingletonScope();
+
+  // CustomHandlerRegistry - Custom trigger handler registry
+  container
+    .bind(Identifiers.CustomHandlerRegistry)
+    .to(CustomHandlerRegistry)
     .inSingletonScope();
 
   // TaskRegistry - Task registry (per-SDK-instance singleton)
@@ -511,18 +525,17 @@ export function configureContainerBindings(
   // Layer Eleven: Execution Layer Coordinators (High Priority)
   // ============================================================
 
-  // VariableCoordinator - A variable coordinator that relies on VariableManager and EventRegistry
+  // VariableCoordinator - A stateless variable coordinator
+  // Note: This coordinator receives VariableManager as a parameter in each method call,
+  // ensuring it always operates on the correct instance without maintaining state.
   container
     .bind(Identifiers.VariableCoordinator)
     .toDynamicValue((c: IContainer): VariableCoordinator => {
-      const managerFactory = c.get(Identifiers.VariableManager) as unknown as { create: () => VariableManager };
-      const manager = managerFactory.create();
       const eventManager = c.get(Identifiers.EventRegistry) as EventRegistry;
-      return new VariableCoordinator(manager, eventManager);
+      return new VariableCoordinator(eventManager);
     })
     .inSingletonScope();
 
-  // LLMExecutionCoordinator - 依赖 LLMExecutor、ToolRegistry、EventRegistry、ToolCallExecutor
   // LLMExecutionCoordinator - LLM execution coordinator, depends on LLMExecutor, ToolRegistry, EventRegistry, ToolCallExecutor
   container
     .bind(Identifiers.LLMExecutionCoordinator)

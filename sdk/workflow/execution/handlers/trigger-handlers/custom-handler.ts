@@ -11,6 +11,7 @@ import {
   type BaseTriggerDefinition,
 } from "../../../../core/triggers/index.js";
 import { getErrorMessage, now } from "@wf-agent/common-utils";
+import { ContainerManager } from "../../../../core/di/container-manager.js";
 
 function createSuccessResult(
   triggerId: string,
@@ -45,6 +46,7 @@ function createFailureResult(
 export async function customHandler(
   action: TriggerAction,
   triggerId: string,
+  containerId: string,
 ): Promise<TriggerExecutionResult> {
   const startTime = now();
 
@@ -75,7 +77,8 @@ export async function customHandler(
       },
     };
 
-    const result = await executeCustomAction(trigger);
+    const container = ContainerManager.getInstance().getContainer(containerId);
+    const result = await executeCustomAction(trigger, container);
 
     if (result.success) {
       return createSuccessResult(

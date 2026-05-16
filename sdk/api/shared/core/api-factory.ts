@@ -3,8 +3,12 @@
  *
  * Design patterns used:
  * - Factory pattern: Responsible for creating API instances in a unified manner.
- * - Singleton pattern: Ensures that there is only one instance of the factory class in the application.
+ * - Instance-level caching: Ensures that each API type has only one instance per APIFactory.
  *
+ * Architecture:
+ * - Each SDKInstance creates its own APIFactory
+ * - APIFactory caches API instances internally (instance-level singleton)
+ * - Multiple SDKInstances can coexist with fully isolated API factories
  */
 
 import { WorkflowRegistryAPI } from "../../workflow/resources/workflows/workflow-registry-api.js";
@@ -76,7 +80,6 @@ export interface AllAPIs {
  * ```
  */
 export class APIFactory {
-  private static instance: APIFactory;
   private apiInstances: Partial<AllAPIs> = {};
   private dependencies: APIDependencyManager;
 
@@ -96,22 +99,25 @@ export class APIFactory {
   }
 
   /**
-   * General method for creating an API instance
+   * General method for creating an API instance with caching
    * @param key: The key name of the API instance
    * @param APIConstructor: The API constructor
-   * @returns: The API instance
+   * @returns: The API instance (cached if already created)
    */
   private createAPI<T extends AllAPIs[keyof AllAPIs]>(
     key: keyof AllAPIs,
     APIConstructor: new (deps: APIDependencyManager) => T,
   ): T {
-    const instance = this.apiInstances[key];
-    if (!instance) {
-      const newInstance = new APIConstructor(this.dependencies) as AllAPIs[keyof AllAPIs];
-      Object.assign(this.apiInstances, { [key]: newInstance });
-      return newInstance as T;
+    // Check cache first
+    const cachedInstance = this.apiInstances[key];
+    if (cachedInstance) {
+      return cachedInstance as T;
     }
-    return instance as T;
+
+    // Create new instance and cache it
+    const newInstance: T = new APIConstructor(this.dependencies);
+    (this.apiInstances as Record<keyof AllAPIs, AllAPIs[keyof AllAPIs]>)[key] = newInstance;
+    return newInstance;
   }
 
   /**

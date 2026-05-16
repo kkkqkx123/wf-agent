@@ -9,6 +9,10 @@ import type {
   StreamableHttpTransportConfig,
 } from "./types.js";
 import { HttpClient, streamSSE } from "../../http/index.js";
+import { executeWithRetry, type RetryConfig } from "../../http/retry-handler.js";
+import { createContextualLogger } from "../../../utils/contextual-logger.js";
+
+const logger = createContextualLogger({ component: "StreamableHttpTransport" });
 
 /**
  * Streamable HTTP Transport
@@ -22,6 +26,7 @@ export class StreamableHttpTransport implements IMcpTransport {
   private config: StreamableHttpTransportConfig;
   private httpClient: HttpClient;
   private abortController: AbortController | null = null;
+  private retryConfig: RetryConfig;
 
   constructor(config: StreamableHttpTransportConfig) {
     this.config = config;
@@ -29,6 +34,12 @@ export class StreamableHttpTransport implements IMcpTransport {
       baseURL: config.url,
       defaultHeaders: config.headers,
     });
+    // Default retry configuration
+    this.retryConfig = {
+      maxRetries: 3,
+      baseDelay: 1000,
+      maxDelay: 10000,
+    };
   }
 
   get isConnected(): boolean {
@@ -48,10 +59,16 @@ export class StreamableHttpTransport implements IMcpTransport {
       // Validate the endpoint is reachable using HEAD request
       await this.httpClient.get("", { method: "HEAD" });
       this._isConnected = true;
-    } catch {
+      logger.debug("Transport started successfully", { url: this.config.url });
+    } catch (error) {
       // Even if HEAD fails, we might still be able to communicate
       // So we mark as connected and let actual requests fail if needed
       this._isConnected = true;
+      // Log warning for debugging
+      logger.warn("HEAD request failed, but continuing anyway", {
+        url: this.config.url,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
@@ -81,12 +98,18 @@ export class StreamableHttpTransport implements IMcpTransport {
     this.abortController = new AbortController();
 
     try {
-      const response = await this.httpClient.post("", message, {
-        headers: {
-          Accept: "application/json, text/event-stream",
+      // Use retry handler for automatic retries
+      const response = await executeWithRetry(
+        async () => {
+          return await this.httpClient.post("", message, {
+            headers: {
+              Accept: "application/json, text/event-stream",
+            },
+            signal: this.abortController!.signal,
+          });
         },
-        signal: this.abortController.signal,
-      });
+        this.retryConfig,
+      );
 
       // Handle streaming response
       const contentType = response.headers?.["content-type"] || "";
@@ -96,11 +119,20 @@ export class StreamableHttpTransport implements IMcpTransport {
       } else {
         this.handlers.onData?.(response.data);
       }
+
+      logger.debug("Message sent successfully", { url: this.config.url });
     } catch (error) {
       // Check if error is due to abort
       if ((error as Error).name === "AbortError") {
+        logger.debug("Request aborted", { url: this.config.url });
         return; // Request was cancelled, not an error
       }
+
+      logger.error("Failed to send message after retries", {
+        url: this.config.url,
+        error: error instanceof Error ? error.message : String(error),
+      });
+
       this.handlers.onError?.(error as Error);
       throw error;
     } finally {

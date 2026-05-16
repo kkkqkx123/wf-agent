@@ -33,10 +33,10 @@ import type { WorkflowInterruptionCheckResult } from "../../../core/utils/interr
 export class WorkflowExecutionCoordinator {
   constructor(
     private readonly workflowExecutionEntity: WorkflowExecutionEntity,
-    private readonly variableCoordinator: VariableCoordinator,
-    private readonly triggerCoordinator: TriggerCoordinator,
+    private readonly _variableCoordinator: VariableCoordinator,
+    private readonly _triggerCoordinator: TriggerCoordinator,
     private readonly interruptionManager: InterruptionState,
-    private readonly toolVisibilityCoordinator: ToolVisibilityCoordinator,
+    private readonly _toolVisibilityCoordinator: ToolVisibilityCoordinator,
     private readonly nodeExecutionCoordinator: NodeExecutionCoordinator,
     private readonly navigator: WorkflowNavigator,
   ) {}

@@ -128,6 +128,12 @@ export interface ToolApprovalRequest {
   pendingQueue?: LLMToolCall[];
   /** Results from auto-executed prefix */
   autoExecutedResults?: ToolExecutionResult[];
+  
+  // Configuration from ToolApprovalOptions
+  /** Approval timeout in milliseconds (from options.approvalTimeout) */
+  timeout?: number;
+  /** Security preset name (from options.securityPreset) */
+  securityPreset?: import("./approval.js").SecurityPreset;
 }
 
 /**

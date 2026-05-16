@@ -11,7 +11,7 @@
  * Design Principles:
  * - Stateless design: Does not maintain any mutable state
  * - Coordination logic: Encapsulates the coordination logic for variable operations
- * - Dependency injection: Receives managers for dependencies through the constructor
+ * - Dependency injection: Receives managers for dependencies through method parameters
  * - Delegation pattern: Uses the VariableManager for atomic state operations
  */
 
@@ -40,23 +40,24 @@ const logger = createContextualLogger({ component: "VariableCoordinator" });
  * Design Principles:
  * - Stateless design: Does not maintain any mutable state
  * - Coordination logic: Encapsulates the logic for coordinating variable operations
- * - Dependency injection: Receives managers for dependencies through the constructor
+ * - Dependency injection: Receives managers for dependencies through method parameters
  * - Delegation pattern: Uses the VariableManager to perform atomic state operations
+ * 
+ * IMPORTANT: This coordinator is stateless and receives VariableManager as a parameter
+ * in each method call. This ensures it always operates on the correct instance.
  */
 export class VariableCoordinator {
   constructor(
-    private manager: VariableManager,
     private eventManager?: EventRegistry,
-    private executionId?: string,
-    private workflowId?: string,
   ) {}
 
   /**
    * Initialize variables from VariableDefinition array
+   * @param manager The VariableManager instance to initialize
    * @param variableDefinitions Array of variable definitions
    */
-  initializeFromDefinitions(variableDefinitions: VariableDefinition[]): void {
-    this.manager.initializeFromDefinitions(variableDefinitions);
+  initializeFromDefinitions(manager: VariableManager, variableDefinitions: VariableDefinition[]): void {
+    manager.initializeFromDefinitions(variableDefinitions);
   }
 
   /**
@@ -65,30 +66,33 @@ export class VariableCoordinator {
    * 
    * Priority: loop > subgraph > execution > global
    * 
+   * @param manager The VariableManager instance to use
    * @param _executionEntity WorkflowExecutionEntity instance (kept for API compatibility)
    * @param name Variable name
    * @returns Variable value or undefined if not found
    */
-  getVariable(_executionEntity: WorkflowExecutionEntity, name: string): unknown {
+  getVariable(manager: VariableManager, _executionEntity: WorkflowExecutionEntity, name: string): unknown {
     // Simple delegation to VariableManager
     // All scope priority logic is centralized in VariableManager.getVariable()
-    return this.manager.getVariable(name);
+    return manager.getVariable(name);
   }
 
   /**
    * Update the value of a defined variable
+   * @param manager The VariableManager instance to use
    * @param executionEntity WorkflowExecutionEntity instance
    * @param name Variable name
    * @param value New variable value
    * @param explicitScope Explicitly specified scope (optional)
    */
   async updateVariable(
+    manager: VariableManager,
     executionEntity: WorkflowExecutionEntity,
     name: string,
     value: unknown,
     explicitScope?: VariableScope,
   ): Promise<void> {
-    const variableDef = this.manager.getVariableDefinition(name);
+    const variableDef = manager.getVariableDefinition(name);
 
     if (!variableDef) {
       throw new RuntimeValidationError(
@@ -97,7 +101,7 @@ export class VariableCoordinator {
           operation: "setVariable",
           field: "variableName",
           value: name,
-          context: { executionId: this.executionId, workflowId: this.workflowId },
+          context: { executionId: executionEntity.id, workflowId: executionEntity.getWorkflowId() },
         },
       );
     }
@@ -107,7 +111,7 @@ export class VariableCoordinator {
         operation: "setVariable",
         field: "variableName",
         value: name,
-        context: { executionId: this.executionId, workflowId: this.workflowId },
+        context: { executionId: executionEntity.id, workflowId: executionEntity.getWorkflowId() },
       });
     }
 
@@ -119,8 +123,8 @@ export class VariableCoordinator {
           field: "variableValue",
           value: value,
           context: {
-            executionId: this.executionId,
-            workflowId: this.workflowId,
+            executionId: executionEntity.id,
+            workflowId: executionEntity.getWorkflowId(),
             variableName: name,
             expectedType: variableDef.type,
             actualType: typeof value,
@@ -140,7 +144,7 @@ export class VariableCoordinator {
     }
 
     // Delegate to VariableManager
-    this.manager.setVariable(name, value);
+    manager.setVariable(name, value);
 
     // Trigger a variable change event
     await this.emitVariableChangedEvent(executionEntity, name, value, variableDef.scope);
@@ -148,47 +152,50 @@ export class VariableCoordinator {
 
   /**
    * Check if the variable exists
+   * @param manager The VariableManager instance to use
    * @param executionEntity WorkflowExecutionEntity instance
    * @param name Variable name
    * @returns Whether the variable exists
    */
-  hasVariable(executionEntity: WorkflowExecutionEntity, name: string): boolean {
-    return this.getVariable(executionEntity, name) !== undefined;
+  hasVariable(manager: VariableManager, executionEntity: WorkflowExecutionEntity, name: string): boolean {
+    return this.getVariable(manager, executionEntity, name) !== undefined;
   }
 
   /**
    * Get all variables (merged by scope priority)
+   * @param manager The VariableManager instance to use
    * @returns A map of all variable key-value pairs
    */
-  getAllVariables(): Record<string, unknown> {
-    return this.manager.getAllVariables();
+  getAllVariables(manager: VariableManager): Record<string, unknown> {
+    return manager.getAllVariables();
   }
 
   /**
    * Get the variable within the specified scope
+   * @param manager The VariableManager instance to use
    * @param scope Variable scope
    * @returns Variable key-value pair within the specified scope
    */
-  getVariablesByScope(scope: VariableScope): Record<string, unknown> {
-    return this.manager.getVariablesByScope(scope);
+  getVariablesByScope(manager: VariableManager, scope: VariableScope): Record<string, unknown> {
+    return manager.getVariablesByScope(scope);
   }
 
   /**
    * Enter subgraph/loop scope
-   * Delegates to VariableManager.enterSubgraphScope()
+   * @param manager The VariableManager instance to use
    * Note: Both subgraphs and loops now use the same scope stack mechanism
    */
-  enterLocalScope(): void {
-    this.manager.enterSubgraphScope();
+  enterLocalScope(manager: VariableManager): void {
+    manager.enterSubgraphScope();
   }
 
   /**
    * Leave subgraph/loop scope
-   * Delegates to VariableManager.exitSubgraphScope()
+   * @param manager The VariableManager instance to use
    * Note: Both subgraphs and loops now use the same scope stack mechanism
    */
-  exitLocalScope(): void {
-    this.manager.exitSubgraphScope();
+  exitLocalScope(manager: VariableManager): void {
+    manager.exitSubgraphScope();
   }
 
   /**
@@ -227,9 +234,10 @@ export class VariableCoordinator {
 
   /**
    * Clear all variables
+   * @param manager The VariableManager instance to clear
    */
-  clearVariables(): void {
-    this.manager.cleanup();
+  clearVariables(manager: VariableManager): void {
+    manager.cleanup();
   }
 
   /**
@@ -315,13 +323,5 @@ export class VariableCoordinator {
         error: getErrorOrNew(error).message,
       });
     }
-  }
-
-  /**
-   * Get the underlying VariableManager (for advanced use cases like checkpoints)
-   * @returns VariableManager instance
-   */
-  getManager(): VariableManager {
-    return this.manager;
   }
 }

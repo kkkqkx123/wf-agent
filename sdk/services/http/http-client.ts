@@ -105,6 +105,31 @@ export class HttpClient {
   }
 
   /**
+   * PATCH request
+   */
+  async patch<T = unknown>(
+    url: string,
+    body?: unknown,
+    options?: HttpRequestOptions,
+  ): Promise<HttpResponse<T>> {
+    return this.request<T>({ ...options, method: "PATCH", url, body });
+  }
+
+  /**
+   * HEAD request
+   */
+  async head<T = unknown>(url: string, options?: HttpRequestOptions): Promise<HttpResponse<T>> {
+    return this.request<T>({ ...options, method: "HEAD", url });
+  }
+
+  /**
+   * OPTIONS request
+   */
+  async options<T = unknown>(url: string, options?: HttpRequestOptions): Promise<HttpResponse<T>> {
+    return this.request<T>({ ...options, method: "OPTIONS", url });
+  }
+
+  /**
    * Common Request Methods
    */
   protected async request<T = unknown>(options: HttpRequestOptions): Promise<HttpResponse<T>> {

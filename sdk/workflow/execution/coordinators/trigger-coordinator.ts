@@ -389,6 +389,11 @@ export class TriggerCoordinator {
         );
         break;
 
+      case "custom":
+        // Custom handler requires containerId to resolve CustomHandlerRegistry from DI container
+        await handler(trigger.action, trigger.id, trigger.executionId);
+        break;
+
       default:
         // For other handlers, use a backward-compatible approach.
         await handler(trigger.action, trigger.id);

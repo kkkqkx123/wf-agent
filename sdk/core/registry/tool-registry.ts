@@ -2,7 +2,7 @@
  * Tool Registrys
  * Provides a unified interface for tool execution and tool registration management
  *
- * This module only exports class definitions; instances are managed uniformly through SingletonRegistry.
+ * This module only exports class definitions; instances are managed by the DI container as singletons.
  *
  */
 
@@ -15,6 +15,7 @@ import {
 } from "@wf-agent/types";
 import type { IToolExecutor } from "../../services/executors/tools/core/interfaces/IToolExecutor.js";
 import type { ToolExecutionOptions, ToolExecutionResult } from "@wf-agent/types";
+import type { RestExecutorConfig } from "../../services/executors/tools/rest/types.js";
 import { StatelessExecutor } from "../../services/executors/tools/stateless/StatelessExecutor.js";
 import { StatefulExecutor } from "../../services/executors/tools/stateful/StatefulExecutor.js";
 import { RestExecutor } from "../../services/executors/tools/rest/RestExecutor.js";
@@ -38,11 +39,13 @@ class ToolRegistry {
   private staticValidator: StaticValidator;
   private runtimeValidator: RuntimeValidator;
   private builtinExecutor: BuiltinExecutor;
+  private restExecutorConfig: RestExecutorConfig;
 
-  constructor() {
+  constructor(restExecutorConfig: RestExecutorConfig = {}) {
     this.staticValidator = new StaticValidator();
     this.runtimeValidator = new RuntimeValidator();
     this.builtinExecutor = new BuiltinExecutor();
+    this.restExecutorConfig = restExecutorConfig;
     this.initializeExecutors();
   }
 
@@ -53,7 +56,7 @@ class ToolRegistry {
     // Use the implementations directly from the packages.
     this.executors.set("STATELESS", new StatelessExecutor());
     this.executors.set("STATEFUL", new StatefulExecutor());
-    this.executors.set("REST", new RestExecutor());
+    this.executors.set("REST", new RestExecutor(this.restExecutorConfig));
     this.executors.set("BUILTIN", this.builtinExecutor);
   }
 

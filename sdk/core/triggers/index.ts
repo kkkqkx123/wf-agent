@@ -40,12 +40,6 @@ export { executeCustomAction } from "./handlers/index.js";
 export type { CustomActionParameters } from "./handlers/index.js";
 
 // Custom Handler Registry (re-export from registry)
-export {
-  CustomHandlerRegistry,
-  getCustomHandlerRegistry,
-  registerCustomHandler,
-  getCustomHandler,
-  resetCustomHandlerRegistry,
-} from "../registry/custom-handler-registry.js";
+export { CustomHandlerRegistry } from "../registry/custom-handler-registry.js";
 
 export type { CustomTriggerHandler } from "../registry/custom-handler-registry.js";

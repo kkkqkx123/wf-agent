@@ -54,22 +54,36 @@ export class MessageResourceAPI extends ReadonlyResourceAPI<LLMMessage, string, 
 
   /**
    * Get a single message
-   * @param id: Message ID
-   * @returns: Message object; returns null if the message does not exist
+   * @param id Message ID (format: executionId-index)
+   * @returns Message object; returns null if the message does not exist
    */
   protected async getResource(id: string): Promise<LLMMessage | null> {
-    // Messages are usually obtained through workflow execution entities, and here it is necessary to iterate through all workflow executions.
-    const executionEntities = this.registry.getAll();
-    for (const executionEntity of executionEntities) {
-      const messages = executionEntity.getMessages() || [];
-      const message = messages.find(
-        (m: LLMMessage, index: number) => `${executionEntity.id}-${index}` === id,
-      );
-      if (message) {
-        return message;
-      }
+    // Parse ID format: executionId-index
+    const lastDashIndex = id.lastIndexOf('-');
+    if (lastDashIndex === -1) {
+      return null;
     }
-    return null;
+
+    const executionId = id.substring(0, lastDashIndex);
+    const indexStr = id.substring(lastDashIndex + 1);
+    const index = parseInt(indexStr, 10);
+
+    if (isNaN(index) || index < 0) {
+      return null;
+    }
+
+    // Get specific workflow execution entity
+    const executionEntity = this.registry.get(executionId);
+    if (!executionEntity) {
+      return null;
+    }
+
+    const messages = executionEntity.getMessages() || [];
+    if (index >= messages.length) {
+      return null;
+    }
+
+    return messages[index] || null;
   }
 
   /**

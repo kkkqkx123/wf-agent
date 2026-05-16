@@ -22,7 +22,7 @@ import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-registry.js";
 import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
 import { WorkflowConversationSession } from "../../message/workflow-conversation-session.js";
-import { validateTransition } from "../utils/workflow-state-validator.js";
+import { validateTransition, isTerminalStatus } from "../utils/workflow-state-validator.js";
 import {
   buildWorkflowExecutionStartedEvent,
   buildWorkflowExecutionStateChangedEvent,
@@ -443,7 +443,7 @@ export class WorkflowStateTransitor {
         }
 
         const status = childContext.getStatus();
-        if (status === "COMPLETED" || status === "FAILED" || status === "CANCELLED") {
+        if (isTerminalStatus(status as WorkflowExecutionStatus)) {
           clearInterval(checkInterval);
           resolve();
         }
@@ -456,16 +456,6 @@ export class WorkflowStateTransitor {
     });
   }
 
-  /**
-   * Check if a status is terminal
-   *
-   * @param status Workflow execution status
-   * @returns Whether the status is terminal
-   * @private
-   */
-  private isTerminalStatus(status: string): boolean {
-    return status === "COMPLETED" || status === "FAILED" || status === "CANCELLED";
-  }
 
   /**
    * Get the depth of the workflow execution tree

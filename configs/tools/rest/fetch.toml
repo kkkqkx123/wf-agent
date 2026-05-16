@@ -6,6 +6,11 @@ function_path = "path"
 enabled = true
 timeout = 30
 
+# REST Tool Configuration
+[config]
+maxRetries = 2
+retryDelay = 1000
+
 # 状态配置
 [state_config]
 manager_type = "memory"

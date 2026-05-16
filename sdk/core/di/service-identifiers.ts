@@ -52,6 +52,8 @@ import type { AgentLoopExecutor as AgentLoopExecutorType } from "../../agent/exe
 import type { AgentLoopCoordinator as AgentLoopCoordinatorType } from "../../agent/execution/coordinators/agent-loop-coordinator.js";
 import type { SkillRegistry as SkillRegistryType } from "../registry/skill-registry.js";
 import type { SkillLoader as SkillLoaderType } from "../utils/skill-loader.js";
+import type { TimeoutRegistry as TimeoutRegistryType } from "../registry/timeout-registry.js";
+import type { CustomHandlerRegistry as CustomHandlerRegistryType } from "../registry/custom-handler-registry.js";
 import type {
   CheckpointStorageAdapter as CheckpointStorageAdapterType,
   WorkflowStorageAdapter as WorkflowStorageAdapterType,
@@ -370,6 +372,18 @@ export const SkillRegistry: ServiceIdentifier<SkillRegistryType> = Symbol("Skill
  * Responsible for loading Skills, performing permission verification, and managing resource access control.
  */
 export const SkillLoader: ServiceIdentifier<SkillLoaderType> = Symbol("SkillLoader");
+
+/**
+ * TimeoutRegistry - Timeout Registry
+ * Manages TimeoutManager instances across all executions with centralized timeout operations.
+ */
+export const TimeoutRegistry: ServiceIdentifier<TimeoutRegistryType> = Symbol("TimeoutRegistry");
+
+/**
+ * CustomHandlerRegistry - Custom Trigger Handler Registry
+ * Manages custom trigger handlers that can be registered at runtime.
+ */
+export const CustomHandlerRegistry: ServiceIdentifier<CustomHandlerRegistryType> = Symbol("CustomHandlerRegistry");
 
 // ============================================================
 // Storage Adapter Services

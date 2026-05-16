@@ -5,9 +5,8 @@
  * This allows users to define their own custom actions for triggers.
  *
  * Design Principles:
- * - Singleton pattern: Single registry instance across the application
+ * - Managed by DI container as singleton: Single registry instance across the application
  * - Type-safe: Strongly typed handler functions
- * - Lazy initialization: Registry is created on first use
  * - Error handling: Clear errors for missing handlers
  */
 
@@ -110,46 +109,4 @@ export class CustomHandlerRegistry {
   get size(): number {
     return this.handlers.size;
   }
-}
-
-// Singleton instance
-let registryInstance: CustomHandlerRegistry | null = null;
-
-/**
- * Get the global custom handler registry instance
- *
- * @returns The singleton registry instance
- */
-export function getCustomHandlerRegistry(): CustomHandlerRegistry {
-  if (!registryInstance) {
-    registryInstance = new CustomHandlerRegistry();
-  }
-  return registryInstance;
-}
-
-/**
- * Reset the global registry (useful for testing)
- */
-export function resetCustomHandlerRegistry(): void {
-  registryInstance = null;
-}
-
-/**
- * Register a custom handler (convenience function)
- *
- * @param name Handler name
- * @param handler Handler function
- */
-export function registerCustomHandler(name: string, handler: CustomTriggerHandler): void {
-  getCustomHandlerRegistry().register(name, handler);
-}
-
-/**
- * Get a custom handler (convenience function)
- *
- * @param name Handler name
- * @returns The handler function, or undefined if not found
- */
-export function getCustomHandler(name: string): CustomTriggerHandler | undefined {
-  return getCustomHandlerRegistry().getHandler(name);
 }

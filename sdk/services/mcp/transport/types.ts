@@ -80,10 +80,21 @@ export interface StdioTransportConfig {
  */
 export interface SseTransportConfig {
   type: "sse";
-  /** Server URL */
+  /** SSE endpoint for receiving events */
   url: string;
+  /** Optional POST endpoint for sending messages (defaults to /message) */
+  messageEndpoint?: string;
   /** HTTP headers */
   headers?: Record<string, string>;
+  /** Connection timeout in milliseconds */
+  timeout?: number;
+  /** Reconnection configuration */
+  reconnection?: {
+    maxAttempts?: number;
+    initialDelay?: number;
+    maxDelay?: number;
+    backoffMultiplier?: number;
+  };
 }
 
 /**

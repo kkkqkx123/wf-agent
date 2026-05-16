@@ -56,7 +56,7 @@ export class AgentLoopCoordinator {
     eventManager?: EventRegistry, // EventRegistry type imported dynamically
     private readonly metricsCollector?: AgentLoopMetricsCollector,
   ) {
-    this.stateTransitor = new AgentLoopStateTransitor(eventManager);
+    this.stateTransitor = new AgentLoopStateTransitor(eventManager!);
   }
 
   /**

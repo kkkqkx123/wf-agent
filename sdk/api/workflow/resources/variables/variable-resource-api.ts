@@ -6,7 +6,6 @@
 import { now } from "@wf-agent/common-utils";
 import { ReadonlyResourceAPI } from "../../../shared/resources/generic-resource-api.js";
 import type { WorkflowExecutionRegistry } from "../../../../workflow/stores/workflow-execution-registry.js";
-import type { WorkflowExecution } from "@wf-agent/types";
 import { NotFoundError, WorkflowExecutionNotFoundError, SDKError } from "@wf-agent/types";
 import type { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
 import type { ExecutionResult } from "../../../shared/types/execution-result.js";
@@ -364,17 +363,6 @@ export class VariableResourceAPI extends ReadonlyResourceAPI<unknown, string, Va
       throw new Error(`Invalid variable ID format: ${id}. Expected format: executionId:variableName`);
     }
     return [parts[0]!, parts[1]!];
-  }
-
-  /**
-   * Obtain an execution instance
-   */
-  private async getWorkflowExecution(executionId: string): Promise<WorkflowExecution> {
-    const executionContext = this.registry.get(executionId);
-    if (!executionContext) {
-      throw new WorkflowExecutionNotFoundError(`Workflow execution not found: ${executionId}`, executionId);
-    }
-    return executionContext.getExecution();
   }
 
   /**

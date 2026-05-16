@@ -55,14 +55,14 @@ function getLoopState(executionEntity: WorkflowExecutionEntity): LoopState | und
 }
 
 /**
- * Clear loop state and exit scope using VariableManager
+ * Clear loop state using VariableManager
  */
 function clearLoopState(executionEntity: WorkflowExecutionEntity): void {
   const manager = executionEntity.variableStateManager;
   // Remove loop state
   manager.deleteVariable('__loop_state');
-  // Exit the loop scope
-  manager.exitSubgraphScope();
+  // TODO Phase 2: Scope exit will be handled by explicit variable export mechanism
+  // manager.exitSubgraphScope();
 }
 
 /**

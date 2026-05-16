@@ -321,8 +321,9 @@ export async function loopStartHandler(
       variableName: variableName,
     };
 
-    // Enter the new loop scope using VariableManager
-    executionEntity.variableStateManager.enterSubgraphScope();
+    // TODO Phase 2: Replace with explicit variable import for loop iterations
+    // For now, scope isolation is removed. Loop variables will be handled through explicit mappings.
+    // executionEntity.variableStateManager.enterSubgraphScope();
     
     // Initialize loop-scoped variables from definitions
     for (const variable of workflowExecution.variables) {
@@ -341,8 +342,8 @@ export async function loopStartHandler(
     // Loop ended, clearing loop state.
     clearLoopState(executionEntity);
 
-    // Leave the loop scope using VariableManager
-    executionEntity.variableStateManager.exitSubgraphScope();
+    // TODO Phase 2: Replace with explicit variable export cleanup
+    // executionEntity.variableStateManager.exitSubgraphScope();
 
     return {
       loopId: config.loopId,
@@ -388,7 +389,7 @@ export async function loopStartHandler(
 
 /**
  * Handle explicit variable input mapping for loop
- * Maps parent workflow variables to loop internal variables
+ * Maps parent workflow variables to loop internal variables using importVariables API
  * 
  * @param executionEntity WorkflowExecution entity
  * @param config LoopStart node configuration
@@ -399,25 +400,10 @@ async function handleLoopVariableInputs(
 ): Promise<void> {
   const manager = executionEntity.variableStateManager;
   
-  // Process explicit variable inputs
+  // Process explicit variable inputs using the new importVariables API
   if (config.variableInputs && config.variableInputs.length > 0) {
-    for (const mapping of config.variableInputs) {
-      const parentValue = manager.getVariable(mapping.externalName);
-      
-      if (parentValue === undefined) {
-        if (mapping.required) {
-          throw new Error(
-            `Required input '${mapping.externalName}' not found for loop '${config.loopId}'. ` +
-            `Cannot set as '${mapping.internalName}'.`
-          );
-        }
-        // Use default value if provided
-        if (mapping.defaultValue !== undefined) {
-          manager.setVariable(mapping.internalName, mapping.defaultValue);
-        }
-      } else {
-        manager.setVariable(mapping.internalName, parentValue);
-      }
-    }
+    // For loops, we import from the same manager (self-reference)
+    // The importVariables method will deep clone the values
+    manager.importVariables(manager, config.variableInputs);
   }
 }

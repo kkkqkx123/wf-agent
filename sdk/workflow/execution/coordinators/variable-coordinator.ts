@@ -183,19 +183,27 @@ export class VariableCoordinator {
   /**
    * Enter subgraph/loop scope
    * @param manager The VariableManager instance to use
-   * Note: Both subgraphs and loops now use the same scope stack mechanism
+   * 
+   * @deprecated This method will be removed in Phase 2.
+   * Use explicit variable import/export instead.
    */
   enterLocalScope(manager: VariableManager): void {
-    manager.enterSubgraphScope();
+    // TODO Phase 2: Remove this method. Replace with explicit variable import.
+    // manager.enterSubgraphScope();
+    logger.warn("enterLocalScope is deprecated. Use explicit variable import instead.");
   }
 
   /**
    * Leave subgraph/loop scope
    * @param manager The VariableManager instance to use
-   * Note: Both subgraphs and loops now use the same scope stack mechanism
+   * 
+   * @deprecated This method will be removed in Phase 2.
+   * Use explicit variable import/export instead.
    */
   exitLocalScope(manager: VariableManager): void {
-    manager.exitSubgraphScope();
+    // TODO Phase 2: Remove this method. Replace with explicit variable export.
+    // manager.exitSubgraphScope();
+    logger.warn("exitLocalScope is deprecated. Use explicit variable export instead.");
   }
 
   /**

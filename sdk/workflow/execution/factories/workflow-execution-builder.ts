@@ -470,11 +470,20 @@ export class WorkflowExecutionBuilder {
       registry
     );
 
-    // Copy relevant variable state from parent entity to fork entity
-    // Only copy execution-scoped variables, global scope is shared by reference
+    // Copy variable state from parent to fork using deep clone
+    // This ensures complete isolation between fork branches
     forkWorkflowExecutionEntity.variableStateManager.copyFrom(
       parentWorkflowExecutionEntity.variableStateManager
     );
+    
+    // TODO Phase 2 Enhancement: Support explicit variable mapping for forks
+    // If fork branch has custom variableMapping config, use importVariables instead:
+    // if (forkBranchConfig.variableMapping) {
+    //   forkWorkflowExecutionEntity.variableStateManager.importVariables(
+    //     parentWorkflowExecutionEntity.variableStateManager,
+    //     forkBranchConfig.variableMapping
+    //   );
+    // }
 
     // Create ConversationSession (clone from parent message history)
     const conversationManager = new ConversationSession({

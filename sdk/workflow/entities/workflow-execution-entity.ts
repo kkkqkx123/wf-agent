@@ -109,6 +109,9 @@ export class WorkflowExecutionEntity {
     this.state = state ?? new WorkflowExecutionState();
     this.messageHistoryManager = new MessageHistory(workflowExecution.id);
     this.variableStateManager = new VariableManager();
+    
+    // Set execution entity reference for runtime validation
+    this.variableStateManager.setExecutionEntity(this);
 
     // Initialize tool failure protection state
     this.toolFailureProtection = new ToolFailureProtectionState(toolFailureProtectionConfig);

@@ -1,31 +1,44 @@
 /**
  * VariableManager - Simplified Variable State Manager (REFACTORED)
  * 
- * Inspired by MessageHistory design philosophy:
- * - Single source of truth: Two Maps for global and execution scopes
- * - Unified access interface: getVariable() / setVariable()
- * - Scope stack for temporary isolation in subgraphs and loops
+ * Design Philosophy:
+ * - Two scopes only: global (shared) and execution (isolated per workflow)
+ * - Explicit variable passing through importVariables/exportVariables
+ * - No implicit scope inheritance - all cross-boundary transfers are explicit
+ * - Deep clone on import/export to ensure complete isolation
  * 
  * Key Features:
- * - Simplified structure: Global and execution scopes for persistent variables
- * - Temporary scope stack: For subgraph and loop variable isolation
- * - Explicit variable mapping: Variables must be explicitly passed between scopes
- * - Automatic cleanup: Scope exit discards all local variables
+ * - Simple structure: Only global and execution scopes
+ * - Explicit data flow: Variables must be explicitly mapped at boundaries
+ * - Automatic deep cloning: Prevents accidental state pollution
+ * - Runtime validation: Checks variable access against declared inputs
  * 
- * Design Principles:
- * - Simplicity: Follow MessageHistory's flat structure approach
- * - Consistency: Unified API for all operations
- * - Performance: O(1) lookup with optional caching
- * - Isolation: Scope stack provides proper variable isolation for nested contexts
+ * Usage Example:
+ * ```typescript
+ * const manager = new VariableManager();
  * 
- * Architecture Changes:
- * - Removed variableOutputs from START node (START is entry-only)
- * - Added scopeStack for dynamic variable isolation
- * - Variable mapping happens at graph build time, not runtime
- * - Subgraph variables are isolated and automatically cleaned up on exit
+ * // Register variables
+ * manager.registerVariable({
+ *   name: 'config',
+ *   type: 'object',
+ *   value: { timeout: 5000 },
+ *   scope: 'global',
+ *   readonly: true
+ * });
+ * 
+ * // Import from parent (with deep clone)
+ * manager.importVariables(parentManager, [
+ *   { externalName: 'user_id', internalName: 'uid' }
+ * ]);
+ * 
+ * // Export to parent (with deep clone)
+ * manager.exportVariables(parentManager, [
+ *   { internalName: 'result', externalName: 'output' }
+ * ]);
+ * ```
  */
 
-import type { VariableDefinition, VariableScope } from "@wf-agent/types";
+import type { VariableDefinition, VariableScope, WorkflowVariableInput, WorkflowVariableOutput } from "@wf-agent/types";
 import { RuntimeValidationError } from "@wf-agent/types";
 import type { StateManager } from "../../core/types/state-manager.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
@@ -46,7 +59,6 @@ interface VariableEntry {
 export interface VariableManagerSnapshot {
   global: Map<string, VariableEntry>;
   execution: Map<string, VariableEntry>;
-  scopeStack: Array<Map<string, VariableEntry>>;
 }
 
 /**
@@ -95,10 +107,15 @@ export interface VariableManagerSnapshot {
  * manager.setVariable('counter', 5);
  * const value = manager.getVariable('counter'); // 5
  * 
- * // Enter/Exit scopes
- * manager.enterSubgraphScope();
- * manager.setVariable('temp', 'value');
- * manager.exitSubgraphScope();
+ * // Import from parent (Phase 2 feature)
+ * // manager.importVariables(parentManager, [
+ * //   { externalName: 'user_id', internalName: 'uid' }
+ * // ]);
+ * 
+ * // Export to parent (Phase 2 feature)
+ * // manager.exportVariables(parentManager, [
+ * //   { internalName: 'result', externalName: 'output' }
+ * // ]);
  * ```
  */
 export class VariableManager implements StateManager<VariableManagerSnapshot> {
@@ -107,9 +124,12 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
   
   /** Execution scope - isolated per execution */
   private execution: Map<string, VariableEntry> = new Map();
-  
-  /** Scope stack - for temporary isolation in subgraphs and loops */
-  private scopeStack: Array<Map<string, VariableEntry>> = [];
+
+  /**
+   * Optional reference to WorkflowExecutionEntity for runtime validation
+   * This allows checking if accessed variables are declared in current node's variableInputs
+   */
+  private executionEntity?: any; // Type will be set via setter to avoid circular dependency
 
   /**
    * Optional cache for frequently accessed variables
@@ -128,39 +148,14 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
   }
 
   /**
-   * Enter a new scope (for subgraphs or loops)
-   * Creates a temporary isolated scope on top of the scope stack
-   * 
-   * Usage Example:
-   * ```typescript
-   * manager.enterSubgraphScope();
-   * manager.setVariable('temp', 'value'); // Stored in current scope
-   * manager.exitSubgraphScope();
-   * ```
+   * Set the execution entity reference for runtime validation
+   * @param entity WorkflowExecutionEntity instance
    */
-  enterSubgraphScope(): void {
-    logger.debug("Entering new scope", { depth: this.scopeStack.length + 1 });
-    this.scopeStack.push(new Map());
+  setExecutionEntity(entity: any): void {
+    this.executionEntity = entity;
   }
-  
-  /**
-   * Exit the current scope (for subgraphs or loops)
-   * Removes the topmost scope from the stack
-   * All variables in that scope are discarded
-   * 
-   * Note: If you need to preserve variables, copy them before exiting
-   */
-  exitSubgraphScope(): void {
-    if (this.scopeStack.length > 0) {
-      const removedScope = this.scopeStack.pop();
-      logger.debug("Exiting scope", { 
-        depth: this.scopeStack.length,
-        variablesDiscarded: removedScope?.size || 0
-      });
-    } else {
-      logger.warn("Attempted to exit scope but no scope is active");
-    }
-  }
+
+
 
   /**
    * Initialize from VariableDefinition array
@@ -216,12 +211,15 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
 
   /**
    * Get variable value by name (unified entry point)
-   * Priority: current scope (deepest) > execution > global
+   * Priority: execution > global
    * 
    * Search order:
-   * 1. Current scope (top of scopeStack) if exists
-   * 2. Execution scope
-   * 3. Global scope
+   * 1. Execution scope
+   * 2. Global scope
+   * 
+   * Runtime Validation (development mode only):
+   * - Checks if the variable is declared in current node's variableInputs
+   * - Warns if accessing undeclared variables in subgraph/loop contexts
    * 
    * @param name Variable name
    * @returns Variable value or undefined if not found
@@ -233,26 +231,6 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
       if (cached && Date.now() - cached.timestamp < this.cacheTTL) {
         logger.debug("Cache hit", { name });
         return cached.value;
-      }
-    }
-
-    // Check current scope first (if scope stack exists)
-    if (this.scopeStack.length > 0) {
-      for (let i = this.scopeStack.length - 1; i >= 0; i--) {
-        const scope = this.scopeStack[i];
-        if (scope && scope.has(name)) {
-          const entry = scope.get(name);
-          if (entry) {
-            const value = entry.value;
-            
-            // Update cache
-            if (this.cacheEnabled && this.cache) {
-              this.cache.set(name, { value, timestamp: Date.now() });
-            }
-            
-            return value;
-          }
-        }
       }
     }
     
@@ -280,18 +258,61 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
       return value;
     }
     
+    // Runtime validation: warn about undeclared variable access (development mode only)
+    if (process.env["NODE_ENV"] === "development" && this.executionEntity) {
+      this.validateVariableAccess(name);
+    }
+    
     logger.debug("Variable not found", { name });
     return undefined;
   }
 
   /**
+   * Validate variable access against current node's configuration (runtime check)
+   * Only runs in development mode to catch programming errors early
+   * @param name Variable name being accessed
+   */
+  private validateVariableAccess(name: string): void {
+    try {
+      const currentNodeId = this.executionEntity.getCurrentNodeId?.();
+      if (!currentNodeId) return;
+      
+      const currentNode = this.executionEntity.getNode?.(currentNodeId);
+      if (!currentNode) return;
+      
+      // Check if current node is a subgraph or loop that should have explicit inputs
+      if (currentNode.type === "SUBGRAPH" || currentNode.type === "LOOP_START") {
+        const config = currentNode.config as any;
+        const declaredInputs = config.variableInputs || [];
+        
+        // Check if this variable was declared in variableInputs
+        const isDeclared = declaredInputs.some(
+          (input: any) => input.internalName === name
+        );
+        
+        // Also check if it's a global variable (always accessible)
+        const isGlobal = this.global.has(name);
+        
+        if (!isDeclared && !isGlobal) {
+          logger.warn(
+            `⚠️  Accessing undeclared variable '${name}' in ${currentNode.type} node '${currentNodeId}'.\n` +
+            `This variable was not declared in variableInputs. It should have been caught by static validation.\n` +
+            `Available variables: ${declaredInputs.map((i: any) => i.internalName).join(", ") || "(none)"}`
+          );
+        }
+      }
+    } catch (error) {
+      // Silently ignore validation errors to avoid breaking production
+      logger.debug("Runtime validation failed", { error });
+    }
+  }
+
+  /**
    * Set variable value (unified entry point)
-   * Variables are stored in the current deepest scope (if any), otherwise in execution scope
+   * Variables are stored in execution scope
    * Use explicit API to set global variables
    * 
-   * Priority for storage:
-   * 1. Current scope (top of scopeStack) if exists
-   * 2. Execution scope otherwise
+   * Storage location: Execution scope
    * 
    * @param name Variable name
    * @param value New value
@@ -300,39 +321,19 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
    */
   setVariable(name: string, value: unknown, freeze?: boolean): void {
     let entry: VariableEntry | undefined;
-    let targetMap: Map<string, VariableEntry> | undefined;
     
-    // Determine which scope to use
-    if (this.scopeStack.length > 0) {
-      // Use the current deepest scope
-      const currentScope = this.scopeStack[this.scopeStack.length - 1];
-      if (currentScope) {
-        targetMap = currentScope;
-        entry = targetMap.get(name);
-      }
-      
-      // If not found in current scope, check execution then global
-      if (!entry) {
-        entry = this.execution.get(name);
-      }
-      if (!entry) {
-        entry = this.global.get(name);
-      }
-    } else {
-      // No active scope, use execution scope
-      entry = this.execution.get(name);
-      
-      // If not found in execution, check global
-      if (!entry) {
-        entry = this.global.get(name);
-      }
+    // Check execution scope first
+    entry = this.execution.get(name);
+    
+    // If not found in execution, check global
+    if (!entry) {
+      entry = this.global.get(name);
     }
     
     if (!entry) {
       const availableVars = [
         ...Array.from(this.execution.keys()),
-        ...Array.from(this.global.keys()),
-        ...this.scopeStack.flatMap(scope => Array.from(scope.keys()))
+        ...Array.from(this.global.keys())
       ];
       throw new RuntimeValidationError(
         `Variable '${name}' is not defined. Available variables: ${availableVars.length > 0 ? availableVars.join(', ') : '(none)'}`,
@@ -364,8 +365,7 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
     logger.debug("Setting variable", { 
       name, 
       scope: entry.definition.scope, 
-      freeze: shouldFreeze,
-      inScopeStack: this.scopeStack.length > 0
+      freeze: shouldFreeze
     });
 
     if (shouldFreeze && typeof value === 'object' && value !== null && !Object.isFrozen(value)) {
@@ -373,42 +373,8 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
       logger.debug("Froze object value for variable", { name });
     }
 
-    // Update the value in the appropriate scope
-    const currentScope = this.scopeStack.length > 0 ? this.scopeStack[this.scopeStack.length - 1] : undefined;
-    if (currentScope && currentScope.has(name)) {
-      // Update in current scope if it exists there
-      const entry = currentScope.get(name);
-      if (entry) {
-        entry.value = value;
-      }
-    } else if (this.execution.has(name)) {
-      // Update in execution scope
-      const entry = this.execution.get(name);
-      if (entry) {
-        entry.value = value;
-      }
-    } else if (this.global.has(name)) {
-      // Update in global scope
-      const entry = this.global.get(name);
-      if (entry) {
-        entry.value = value;
-      }
-    } else {
-      // Create new entry in the appropriate scope
-      const newEntry: VariableEntry = {
-        definition: entry.definition,
-        value
-      };
-      
-      if (this.scopeStack.length > 0) {
-        const currentScope = this.scopeStack[this.scopeStack.length - 1];
-        if (currentScope) {
-          currentScope.set(name, newEntry);
-        }
-      } else {
-        this.execution.set(name, newEntry);
-      }
-    }
+    // Update the value
+    entry.value = value;
 
     // Invalidate cache
     if (this.cacheEnabled && this.cache) {
@@ -418,40 +384,21 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
 
   /**
    * Check if variable exists
-   * Checks all scopes: current scope stack, execution, and global
+   * Checks execution and global scopes
    * @param name Variable name
    * @returns true if variable is defined
    */
   hasVariable(name: string): boolean {
-    // Check scope stack first
-    if (this.scopeStack.length > 0) {
-      for (const scope of this.scopeStack) {
-        if (scope.has(name)) {
-          return true;
-        }
-      }
-    }
-    
     return this.execution.has(name) || this.global.has(name);
   }
 
   /**
    * Get variable definition
-   * Searches through all scopes to find the variable definition
+   * Searches through execution and global scopes to find the variable definition
    * @param name Variable name
    * @returns Variable definition or undefined
    */
   getVariableDefinition(name: string): VariableDefinition | undefined {
-    // Check scope stack first
-    if (this.scopeStack.length > 0) {
-      for (const scope of this.scopeStack) {
-        const entry = scope.get(name);
-        if (entry) {
-          return entry.definition;
-        }
-      }
-    }
-    
     return this.execution.get(name)?.definition || this.global.get(name)?.definition;
   }
 
@@ -519,25 +466,13 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
 
   /**
    * Delete variable
-   * Tries to delete from all scopes: current scope stack, execution, then global
+   * Tries to delete from execution and global scopes
    * @param name Variable name
    * @returns true if deleted successfully
    */
   deleteVariable(name: string): boolean {
     logger.debug("Deleting variable", { name });
 
-    let deleted = false;
-    
-    // Try to delete from scope stack first
-    if (this.scopeStack.length > 0) {
-      for (const scope of this.scopeStack) {
-        if (scope.delete(name)) {
-          deleted = true;
-        }
-      }
-    }
-    
-    // Try to delete from execution and global scopes
     const deletedFromExecution = this.execution.delete(name);
     const deletedFromGlobal = this.global.delete(name);
 
@@ -546,31 +481,27 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
       this.cache.delete(name);
     }
 
-    return deleted || deletedFromExecution || deletedFromGlobal;
+    return deletedFromExecution || deletedFromGlobal;
   }
 
   /**
    * Create snapshot (for checkpoints)
-   * Includes scope stack state for complete state capture
    * @returns Complete state snapshot
    */
   createSnapshot(): VariableManagerSnapshot {
     return {
       global: new Map(this.global),
       execution: new Map(this.execution),
-      scopeStack: this.scopeStack.map(scope => new Map(scope)),
     };
   }
 
   /**
    * Restore from snapshot (for checkpoints)
-   * Restores all scopes including the scope stack
    * @param snapshot State snapshot
    */
   restoreFromSnapshot(snapshot: VariableManagerSnapshot): void {
     this.global = new Map(snapshot.global);
     this.execution = new Map(snapshot.execution);
-    this.scopeStack = snapshot.scopeStack.map(scope => new Map(scope));
 
     // Clear cache after restore
     if (this.cacheEnabled && this.cache) {
@@ -582,46 +513,182 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
    * Copy from another VariableManager (for fork scenarios)
    * @param source Source VariableManager
    * 
-   * Note: Global scope variables are shared by reference (as designed for cross-execution sharing)
-   * Execution scope variables are shallow copied (definitions cloned, values referenced)
-   * Scope stack is NOT copied - new execution starts with empty scope stack
+   * Note: 
+   * - Global scope variables are shared by reference (as designed for cross-execution sharing)
+   * - Execution scope variables are DEEP CLONED to ensure complete isolation
+   * - This is different from importVariables() which uses explicit mapping
+   * 
+   * For explicit variable passing with custom mapping, use importVariables() instead.
    */
   copyFrom(source: VariableManager): void {
     // Share global variables by reference (intentional for cross-execution sharing)
     this.global = source.global;
     
-    // Shallow copy execution variables (clone definitions, reference values)
+    // Deep clone execution variables to ensure isolation
     this.execution = new Map();
     for (const [name, entry] of source.execution) {
-      this.execution.set(name, {
-        definition: { ...entry.definition },
-        value: entry.value,
-      });
+      try {
+        // Deep clone the value to prevent shared state
+        const clonedValue = structuredClone(entry.value);
+        this.execution.set(name, {
+          definition: { ...entry.definition },
+          value: clonedValue,
+        });
+      } catch (error) {
+        // Fallback to shallow copy if structuredClone fails
+        logger.warn("structuredClone failed in copyFrom, using shallow copy", {
+          variableName: name,
+          error
+        });
+        this.execution.set(name, {
+          definition: { ...entry.definition },
+          value: entry.value,
+        });
+      }
     }
-    
-    // Do NOT copy scope stack - new execution/fork starts fresh
-    // Scopes are managed dynamically during execution
-    this.scopeStack = [];
 
     // Clear cache
     if (this.cacheEnabled && this.cache) {
       this.cache.clear();
     }
     
-    logger.debug("VariableManager copied from source", {
+    logger.debug("VariableManager copied from source with deep clone", {
       globalCount: this.global.size,
       executionCount: this.execution.size,
     });
   }
 
   /**
+   * Import variables from parent workflow with explicit mapping and deep clone
+   * 
+   * This is the ONLY way to receive variables from a parent workflow.
+   * All imported variables are deep cloned to ensure complete isolation.
+   * 
+   * @param source Source VariableManager (parent)
+   * @param mappings Explicit variable input mappings
+   * @throws RuntimeValidationError if required variable is not found in source
+   * 
+   * Example:
+   * ```typescript
+   * childManager.importVariables(parentManager, [
+   *   { externalName: 'user_id', internalName: 'uid', required: true },
+   *   { externalName: 'config', internalName: 'settings', defaultValue: {} }
+   * ]);
+   * ```
+   */
+  importVariables(
+    source: VariableManager,
+    mappings: WorkflowVariableInput[]
+  ): void {
+    logger.debug("Importing variables from parent", { count: mappings.length });
+    
+    for (const mapping of mappings) {
+      const value = source.getVariable(mapping.externalName);
+      
+      if (value === undefined) {
+        if (mapping.required) {
+          throw new RuntimeValidationError(
+            `Required input variable '${mapping.externalName}' not found in parent workflow`,
+            {
+              operation: "importVariables",
+              field: mapping.externalName,
+              context: {
+                externalName: mapping.externalName,
+                internalName: mapping.internalName,
+                required: mapping.required
+              }
+            }
+          );
+        }
+        // Use default value if provided
+        if (mapping.defaultValue !== undefined) {
+          // Deep clone default value to avoid shared references
+          const clonedDefault = structuredClone(mapping.defaultValue);
+          this.setVariable(mapping.internalName, clonedDefault);
+          logger.debug("Used default value for optional input", {
+            internalName: mapping.internalName
+          });
+        }
+      } else {
+        // Always deep clone to ensure isolation
+        try {
+          const clonedValue = structuredClone(value);
+          this.setVariable(mapping.internalName, clonedValue);
+          logger.debug("Imported variable with deep clone", {
+            externalName: mapping.externalName,
+            internalName: mapping.internalName
+          });
+        } catch (error) {
+          // Handle cases where structuredClone fails (e.g., functions, DOM nodes)
+          logger.warn("structuredClone failed, using shallow copy", {
+            externalName: mapping.externalName,
+            error
+          });
+          this.setVariable(mapping.internalName, value);
+        }
+      }
+    }
+  }
+
+  /**
+   * Export variables to parent workflow with explicit mapping and deep clone
+   * 
+   * This is the ONLY way to return variables to a parent workflow.
+   * All exported variables are deep cloned before transfer.
+   * 
+   * @param target Target VariableManager (parent)
+   * @param mappings Explicit variable output mappings
+   * 
+   * Example:
+   * ```typescript
+   * childManager.exportVariables(parentManager, [
+   *   { internalName: 'result', externalName: 'output' },
+   *   { internalName: 'status', externalName: 'execution_status' }
+   * ]);
+   * ```
+   */
+  exportVariables(
+    target: VariableManager,
+    mappings: WorkflowVariableOutput[]
+  ): void {
+    logger.debug("Exporting variables to parent", { count: mappings.length });
+    
+    for (const mapping of mappings) {
+      const value = this.getVariable(mapping.internalName);
+      
+      if (value !== undefined) {
+        try {
+          // Deep clone before exporting
+          const clonedValue = structuredClone(value);
+          target.setVariable(mapping.externalName, clonedValue);
+          logger.debug("Exported variable with deep clone", {
+            internalName: mapping.internalName,
+            externalName: mapping.externalName
+          });
+        } catch (error) {
+          // Handle cases where structuredClone fails
+          logger.warn("structuredClone failed during export, using shallow copy", {
+            internalName: mapping.internalName,
+            error
+          });
+          target.setVariable(mapping.externalName, value);
+        }
+      } else {
+        // Variable doesn't exist - silently skip (optional outputs)
+        logger.debug("Skipping undefined output variable", {
+          internalName: mapping.internalName,
+          externalName: mapping.externalName
+        });
+      }
+    }
+  }
+
+  /**
    * Clean up resources
-   * Clears all scopes including the scope stack
    */
   cleanup(): void {
     this.global.clear();
     this.execution.clear();
-    this.scopeStack = [];
 
     if (this.cacheEnabled && this.cache) {
       this.cache.clear();
@@ -635,18 +702,15 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
    * @returns Count of registered variables
    */
   size(): number {
-    const scopeStackCount = this.scopeStack.reduce((sum, scope) => sum + scope.size, 0);
-    return this.global.size + this.execution.size + scopeStackCount;
+    return this.global.size + this.execution.size;
   }
 
   /**
    * Check if empty
-   * @returns true if no variables registered in any scope
+   * @returns true if no variables registered
    */
   isEmpty(): boolean {
-    return this.global.size === 0 && 
-           this.execution.size === 0 && 
-           this.scopeStack.every(scope => scope.size === 0);
+    return this.global.size === 0 && this.execution.size === 0;
   }
 
   /**

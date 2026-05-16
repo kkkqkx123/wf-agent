@@ -55,23 +55,3 @@ export interface ForkJoinValidationResult {
   /** Pairing details */
   pairs: Map<ID, ID>;
 }
-
-/**
- * Graph Validation Options
- */
-export interface GraphValidationOptions {
-  /** Whether to detect the ring */
-  checkCycles?: boolean;
-  /** Whether to check accessibility */
-  checkReachability?: boolean;
-  /** Whether to check FORK/JOIN pairing */
-  checkForkJoin?: boolean;
-  /** Whether to check START/END nodes */
-  checkStartEnd?: boolean;
-  /** Whether to check for isolated nodes */
-  checkIsolatedNodes?: boolean;
-  /** Whether to check for sub workflow existence */
-  checkSubgraphExistence?: boolean;
-  /** Whether to check sub workflow interface compatibility */
-  checkSubgraphCompatibility?: boolean;
-}

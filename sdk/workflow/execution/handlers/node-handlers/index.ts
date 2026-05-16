@@ -21,6 +21,8 @@ import { scriptHandler } from "./script-handler.js";
 import { startFromTriggerHandler } from "./start-from-trigger-handler.js";
 import { startHandler } from "./start-handler.js";
 import { subgraphHandler, type SubgraphHandlerContext } from "./subgraph-handler.js";
+import { embedStartHandler } from "./embed-start-handler.js";
+import { embedEndHandler } from "./embed-end-handler.js";
 import { userInteractionHandler, type UserInteractionHandlerContext } from "./user-interaction-handler.js";
 import { variableHandler } from "./variable-handler.js";
 
@@ -60,6 +62,10 @@ export function getNodeHandler(nodeType: string): NodeHandlerFn {
     START: (_gc, workflowExecutionEntity, node, _ctx) => startHandler(workflowExecutionEntity, node),
     SUBGRAPH: (globalContext, workflowExecutionEntity, node, context) =>
       subgraphHandler(globalContext, workflowExecutionEntity, node, context as SubgraphHandlerContext),
+    EMBED_START: (_gc, workflowExecutionEntity, node, _ctx) =>
+      embedStartHandler(workflowExecutionEntity, node),
+    EMBED_END: (_gc, workflowExecutionEntity, node, _ctx) =>
+      embedEndHandler(workflowExecutionEntity, node),
     USER_INTERACTION: (_gc, workflowExecutionEntity, node, context) =>
       userInteractionHandler(workflowExecutionEntity.getExecution(), node, context as UserInteractionHandlerContext),
     VARIABLE: (_gc, workflowExecutionEntity, node, _ctx) => variableHandler(workflowExecutionEntity, node),

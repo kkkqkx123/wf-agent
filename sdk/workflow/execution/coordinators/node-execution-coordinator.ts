@@ -303,7 +303,7 @@ export class NodeExecutionCoordinator {
         // 
         // SUBGRAPH (Phase 1: Scheme C):
         // - Nodes are NOT expanded during graph building
-        // - No SUBGRAPH_START/SUBGRAPH_END boundary nodes exist
+        // - No EMBED_START/EMBED_END boundary nodes exist (only for EMBED_GRAPH expansion)
         // - Execution is handled by subgraph node handler directly
         // 
         // EMBED_GRAPH (Phase 3):

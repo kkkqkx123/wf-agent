@@ -7,11 +7,11 @@
  * - Runtime node handling
  * 
  * Key differences from StaticNode:
- * 1. SUBGRAPH nodes are NOT expanded (Phase 1: Scheme C) - executed as independent entities
- * 2. EMBED_GRAPH nodes ARE expanded (Phase 3) - their START/END become SUBGRAPH_START/SUBGRAPH_END
+ * 1. SUBGRAPH nodes remain in runtime graph (Phase 1: Scheme C) - executed as independent entities
+ * 2. EMBED_GRAPH nodes ARE expanded (Phase 3) - their START/END become EMBED_START/EMBED_END
  * 3. All nodes gain runtime-specific context properties
  * 
- * IMPORTANT: SUBGRAPH_START/SUBGRAPH_END are INTERNAL types used ONLY for EMBED_GRAPH expansion.
+ * IMPORTANT: EMBED_START/EMBED_END are INTERNAL types used ONLY for EMBED_GRAPH expansion.
  * They should NOT be used directly in workflow definitions.
  */
 
@@ -30,6 +30,7 @@ import type {
 import type { UserInteractionNodeConfig } from "./configs/interaction-configs.js";
 import type { ContextProcessorNodeConfig } from "./configs/context-configs.js";
 import type { AgentLoopNodeConfig } from "./configs/agent-loop-configs.js";
+import type { SubgraphNodeConfig } from "./configs/subgraph-configs.js";
 // Import boundary configs for START/END nodes and trigger nodes
 import type { WorkflowStartConfig, WorkflowEndConfig } from "../workflow/boundary-config.js";
 
@@ -41,9 +42,9 @@ import type { WorkflowStartConfig, WorkflowEndConfig } from "../workflow/boundar
  * Node types that exist in the runtime execution graph (after preprocessing)
  * 
  * Note: 
- * - SUBGRAPH type does NOT exist at runtime (Phase 1: Scheme C)
+ * - SUBGRAPH type EXISTS at runtime (Phase 1: Scheme C) - creates independent execution entity
  * - EMBED_GRAPH type does NOT exist at runtime (expanded during preprocessing)
- * - SUBGRAPH_START/SUBGRAPH_END are INTERNAL types for EMBED_GRAPH expansion only
+ * - EMBED_START/EMBED_END are INTERNAL types for EMBED_GRAPH expansion only
  */
 export type RuntimeNodeType =
   | "START"
@@ -51,7 +52,7 @@ export type RuntimeNodeType =
   | "VARIABLE"
   | "FORK"
   | "JOIN"
-  // SUBGRAPH is removed - creates independent execution entity at runtime (Phase 1)
+  | "SUBGRAPH"  // Exists at runtime, handled by subgraphHandler (Phase 1: Scheme C)
   // EMBED_GRAPH is removed - expanded during preprocessing (Phase 3)
   | "SCRIPT"
   | "LLM"
@@ -65,9 +66,8 @@ export type RuntimeNodeType =
   | "START_FROM_TRIGGER"
   | "CONTINUE_FROM_TRIGGER"
   // Internal runtime-only types (used ONLY for EMBED_GRAPH expansion)
-  // WARNING: Do not use these types in workflow definitions
-  | "SUBGRAPH_START"
-  | "SUBGRAPH_END";
+  | "EMBED_START"
+  | "EMBED_END";
 
 // ============================================================================
 // Base Runtime Node Structure
@@ -93,8 +93,7 @@ export interface RuntimeNodeConfigMap {
   VARIABLE: VariableNodeConfig;
   FORK: ForkNodeConfig;
   JOIN: JoinNodeConfig;
-  // SUBGRAPH doesn't exist at runtime (Phase 1: Scheme C)
-  // EMBED_GRAPH doesn't exist at runtime (expanded during preprocessing, Phase 3)
+  SUBGRAPH: SubgraphNodeConfig;
   SCRIPT: ScriptNodeConfig;
   LLM: LLMNodeConfig;
   ADD_TOOL: AddToolNodeConfig;
@@ -108,8 +107,8 @@ export interface RuntimeNodeConfigMap {
   CONTINUE_FROM_TRIGGER: WorkflowEndConfig;
   // Internal runtime-only types (used ONLY for EMBED_GRAPH expansion)
   // WARNING: Do not configure these types manually
-  SUBGRAPH_START: WorkflowStartConfig;
-  SUBGRAPH_END: WorkflowEndConfig;
+  EMBED_START: WorkflowStartConfig;
+  EMBED_END: WorkflowEndConfig;
 }
 
 export type RuntimeNodeOfType<T extends RuntimeNodeType> = BaseRuntimeNode & {
@@ -126,6 +125,7 @@ export type EndNode = RuntimeNodeOfType<"END">;
 export type VariableNode = RuntimeNodeOfType<"VARIABLE">;
 export type ForkNode = RuntimeNodeOfType<"FORK">;
 export type JoinNode = RuntimeNodeOfType<"JOIN">;
+export type SubgraphNode = RuntimeNodeOfType<"SUBGRAPH">;  // Exists at runtime (Phase 1: Scheme C)
 export type ScriptNode = RuntimeNodeOfType<"SCRIPT">;
 export type LLMNode = RuntimeNodeOfType<"LLM">;
 export type AddToolNode = RuntimeNodeOfType<"ADD_TOOL">;
@@ -138,9 +138,9 @@ export type AgentLoopNode = RuntimeNodeOfType<"AGENT_LOOP">;
 export type StartFromTriggerNode = RuntimeNodeOfType<"START_FROM_TRIGGER">;
 export type ContinueFromTriggerNode = RuntimeNodeOfType<"CONTINUE_FROM_TRIGGER">;
 
-// Runtime-only node types (generated during subgraph expansion)
-export type SubgraphStartNode = RuntimeNodeOfType<"SUBGRAPH_START">;
-export type SubgraphEndNode = RuntimeNodeOfType<"SUBGRAPH_END">;
+// Runtime-only node types (generated during EMBED_GRAPH expansion)
+export type EmbedStartNode = RuntimeNodeOfType<"EMBED_START">;
+export type EmbedEndNode = RuntimeNodeOfType<"EMBED_END">;
 
 // ============================================================================
 // Runtime Node Union Type
@@ -155,6 +155,7 @@ export type RuntimeNode =
   | VariableNode
   | ForkNode
   | JoinNode
+  | SubgraphNode  // Exists at runtime
   | ScriptNode
   | LLMNode
   | AddToolNode
@@ -166,8 +167,8 @@ export type RuntimeNode =
   | AgentLoopNode
   | StartFromTriggerNode
   | ContinueFromTriggerNode
-  | SubgraphStartNode
-  | SubgraphEndNode;
+  | EmbedStartNode
+  | EmbedEndNode;
 
 // ============================================================================
 // Type Guard Functions
@@ -183,6 +184,7 @@ export const isEndNode = createRuntimeNodeTypeGuard("END");
 export const isVariableNode = createRuntimeNodeTypeGuard("VARIABLE");
 export const isForkNode = createRuntimeNodeTypeGuard("FORK");
 export const isJoinNode = createRuntimeNodeTypeGuard("JOIN");
+export const isSubgraphNode = createRuntimeNodeTypeGuard("SUBGRAPH");  // Exists at runtime
 export const isScriptNode = createRuntimeNodeTypeGuard("SCRIPT");
 export const isLLMNode = createRuntimeNodeTypeGuard("LLM");
 export const isAddToolNode = createRuntimeNodeTypeGuard("ADD_TOOL");
@@ -195,6 +197,6 @@ export const isAgentLoopNode = createRuntimeNodeTypeGuard("AGENT_LOOP");
 export const isStartFromTriggerNode = createRuntimeNodeTypeGuard("START_FROM_TRIGGER");
 export const isContinueFromTriggerNode = createRuntimeNodeTypeGuard("CONTINUE_FROM_TRIGGER");
 
-// Runtime-only type guards
-export const isSubgraphStartNode = createRuntimeNodeTypeGuard("SUBGRAPH_START");
-export const isSubgraphEndNode = createRuntimeNodeTypeGuard("SUBGRAPH_END");
+// Runtime-only type guards (for EMBED_GRAPH expansion)
+export const isEmbedStartNode = createRuntimeNodeTypeGuard("EMBED_START");
+export const isEmbedEndNode = createRuntimeNodeTypeGuard("EMBED_END");

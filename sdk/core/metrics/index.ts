@@ -34,6 +34,7 @@ export {
   AGENT_LOOP_METRICS,
   TEMPLATE_METRICS,
   CONFIG_METRICS,
+  SUBGRAPH_METRICS,
 } from "./constants.js";
 
 // Factory functions

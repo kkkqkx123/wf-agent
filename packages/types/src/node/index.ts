@@ -75,6 +75,7 @@ export {
   VariableNode as RuntimeVariableNode,
   ForkNode as RuntimeForkNode,
   JoinNode as RuntimeJoinNode,
+  SubgraphNode as RuntimeSubgraphNode,  // Exists at runtime (Phase 1: Scheme C)
   ScriptNode as RuntimeScriptNode,
   LLMNode as RuntimeLLMNode,
   AddToolNode as RuntimeAddToolNode,
@@ -87,8 +88,8 @@ export {
   StartFromTriggerNode as RuntimeStartFromTriggerNode,
   ContinueFromTriggerNode as RuntimeContinueFromTriggerNode,
   // Internal types (used ONLY for EMBED_GRAPH expansion, not for public use)
-  SubgraphStartNode,
-  SubgraphEndNode,
+  EmbedStartNode,
+  EmbedEndNode,
   RuntimeNode,
   // Runtime type guards
   isStartNode as isRuntimeStartNode,
@@ -96,6 +97,7 @@ export {
   isVariableNode as isRuntimeVariableNode,
   isForkNode as isRuntimeForkNode,
   isJoinNode as isRuntimeJoinNode,
+  isSubgraphNode as isRuntimeSubgraphNode,  // Exists at runtime
   isScriptNode as isRuntimeScriptNode,
   isLLMNode as isRuntimeLLMNode,
   isAddToolNode as isRuntimeAddToolNode,
@@ -108,8 +110,8 @@ export {
   isStartFromTriggerNode as isRuntimeStartFromTriggerNode,
   isContinueFromTriggerNode as isRuntimeContinueFromTriggerNode,
   // Internal type guards (used ONLY for EMBED_GRAPH expansion, not for public use)
-  isSubgraphStartNode,
-  isSubgraphEndNode,
+  isEmbedStartNode,
+  isEmbedEndNode,
 } from "./runtime-node-types.js";
 
 

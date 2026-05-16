@@ -84,6 +84,7 @@ export async function subgraphHandler(
   };
 
   let subgraphEntity: WorkflowExecutionEntity | null = null;
+  const executionStartTime = Date.now();
   
   try {
     // Step 3: Create independent subgraph execution entity
@@ -115,10 +116,39 @@ export async function subgraphHandler(
     }
 
     // Step 5: Execute subgraph synchronously
+    const executionStartTime = Date.now();
     const result = await executeSync(globalContext, subgraphEntity);
+    const executionDuration = Date.now() - executionStartTime;
+    
     logger.info("Subgraph completed", {
       subgraphExecutionId: subgraphEntity.id,
+      duration: executionDuration,
     });
+
+    // Record SUBGRAPH-specific metrics
+    try {
+      const metricsRegistry = globalContext.container.get(Identifiers.MetricsRegistry);
+      const nodeCollector = metricsRegistry?.getNodeCollector();
+      if (nodeCollector && typeof nodeCollector.recordSubgraphExecution === 'function') {
+        const hierarchyMetadata = subgraphEntity.getHierarchyMetadata();
+        nodeCollector.recordSubgraphExecution(
+          node.id,
+          workflowExecutionEntity.getWorkflowId(),
+          {
+            success: subgraphEntity.getStatus() === 'COMPLETED',
+            duration: executionDuration,
+            subworkflowId,
+            depth: hierarchyMetadata?.depth || 1,
+            variableInputCount: variableMapping.inputs?.length || 0,
+            variableOutputCount: variableMapping.outputs?.length || 0,
+            errorType: undefined,
+          }
+        );
+      }
+    } catch (metricsError) {
+      // Don't fail the execution if metrics recording fails
+      logger.warn("Failed to record subgraph metrics", { error: getErrorOrNew(metricsError) });
+    }
 
     // Step 6: Export variables back to parent
     if (variableMapping.outputs && variableMapping.outputs.length > 0) {
@@ -139,6 +169,8 @@ export async function subgraphHandler(
     return result;
   } catch (error) {
     const errorObj = getErrorOrNew(error);
+    const executionDuration = Date.now() - executionStartTime;
+    
     logger.error("Subgraph execution failed", {
       executionId: workflowExecutionEntity.id,
       nodeId: node.id,
@@ -146,6 +178,31 @@ export async function subgraphHandler(
       subgraphExecutionId: subgraphEntity?.id,
       error: errorObj,
     });
+
+    // Record failure metrics
+    try {
+      const metricsRegistry = globalContext.container.get(Identifiers.MetricsRegistry);
+      const nodeCollector = metricsRegistry?.getNodeCollector();
+      if (nodeCollector && typeof nodeCollector.recordSubgraphExecution === 'function') {
+        const hierarchyMetadata = subgraphEntity?.getHierarchyMetadata();
+        nodeCollector.recordSubgraphExecution(
+          node.id,
+          workflowExecutionEntity.getWorkflowId(),
+          {
+            success: false,
+            duration: executionDuration,
+            subworkflowId,
+            depth: hierarchyMetadata?.depth || 1,
+            variableInputCount: variableMapping.inputs?.length || 0,
+            variableOutputCount: variableMapping.outputs?.length || 0,
+            errorType: errorObj.name || 'Error',
+          }
+        );
+      }
+    } catch (metricsError) {
+      // Don't fail the execution if metrics recording fails
+      logger.warn("Failed to record subgraph failure metrics", { error: getErrorOrNew(metricsError) });
+    }
 
     // Cleanup resources on failure
     if (subgraphEntity) {

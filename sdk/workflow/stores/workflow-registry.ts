@@ -336,7 +336,6 @@ export class WorkflowRegistry {
   /**
    * Preprocessing Workflow
    * @param workflow: Workflow definition
-   * @returns: Preprocessed graph
    */
   private async preprocessWorkflow(workflow: WorkflowTemplate): Promise<void> {
     const graphRegistry = this.getWorkflowGraphRegistry();
@@ -344,6 +343,20 @@ export class WorkflowRegistry {
     // Check if it has already been preprocessed.
     if (graphRegistry.has(workflow.id)) {
       return;
+    }
+
+    // Recursively preprocess EMBED_GRAPH dependents first
+    // This ensures subworkflow graphs are available when the parent graph is expanded
+    for (const node of workflow.nodes) {
+      if (node.type === "EMBED_GRAPH") {
+        const embedId = (node.config as { embedId?: string })?.embedId;
+        if (embedId && !graphRegistry.has(embedId)) {
+          const subworkflow = this.get(embedId);
+          if (subworkflow) {
+            await this.preprocessWorkflow(subworkflow);
+          }
+        }
+      }
     }
 
     // Use WorkflowGraphBuilder to build and validate the graph
@@ -356,6 +369,20 @@ export class WorkflowRegistry {
       throw new ConfigurationValidationError(
         `Workflow validation failed: ${errors.join(", ")}`,
         { configPath: workflow.id, context: { errors } },
+      );
+    }
+
+    // Expand EMBED_GRAPH nodes (merge subworkflow graphs into parent)
+    const mergeResult = await WorkflowGraphBuilder.processSubgraphs(
+      graph,
+      this,
+      graphRegistry as unknown as { get: (id: string) => import("../entities/workflow-graph-data.js").WorkflowGraphData | undefined },
+    );
+
+    if (!mergeResult.success) {
+      throw new ConfigurationValidationError(
+        `EMBED_GRAPH expansion failed for workflow '${workflow.id}': ${mergeResult.errors.join("; ")}`,
+        { configPath: workflow.id, context: { errors: mergeResult.errors } },
       );
     }
 

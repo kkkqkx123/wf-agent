@@ -122,24 +122,23 @@ modular-agent-framework/
 ### 3. Testing Strategy
 
 - **Unit tests**: In `__tests__` folders of current path
-  (Example: source code in `<path>/file.ts` , then test file in `<path>/__tests__/file.test.ts`)
-  Note: Avoid deep relavant path import
+  Note: The `__tests__` directory where the unit tests are located must be exactly the same directory as the original file. It is forbidden to create any unit tests at the upper level.
 
 - **Integration tests**: In `__tests__` folders of current package root
   (Example: source code in `<package>/`, then test file in `<package>/__tests__/<domain>[optional]/feature.int.test.ts`)
   Focus: Cross-module functional collaboration.
 
-- **Public type tests (SDK-only)**: In `<sdk>/__tests__/test-d/` 
+- **Public type tests (SDK-only)**: In `<sdk>/__tests__/test-d/`
   File: `<package>/__tests__/test-d/<domain>[optional]/<type>.test-d.ts` (run via `tsd`)
   Focus: Validate exported public APIs/interfaces/types from user perspective.
 
 - **End-to-end tests**: In `apps/` for complete workflows
 
-- **Run Tests**: 
+- **Run Tests**:
   - Unit&integration: `cd <package>; pnpm test <path>`
   - Type: `cd <package>; pnpm test:type`
   - Typecheck for test: `cd <package>; pnpm typecheck:type`
-  **Never run all tests at once. `pnpm test` without path is forbidden.**
+    **Never run all tests at once. `pnpm test` without path is forbidden.**
 
 ### 4. Build Orchestration
 

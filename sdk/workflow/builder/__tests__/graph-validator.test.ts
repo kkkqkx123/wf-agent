@@ -1,14 +1,14 @@
 /**
- * Workflow Graph Validator Unit Tests
- * Tests for WorkflowGraphValidator class functionality
+ * Graph Validator Unit Tests
+ * Tests for GraphValidator class functionality
  */
 
 import { describe, it, expect } from 'vitest';
 import { WorkflowGraphBuilder } from '../workflow-graph-builder.js';
-import { WorkflowGraphValidator } from '../workflow-graph-validator.js';
+import { GraphValidator } from '../../validation/graph-validator.js';
 import type { WorkflowTemplate } from '@wf-agent/types';
 
-describe('WorkflowGraphValidator', () => {
+describe('GraphValidator', () => {
   describe('validate - START/END nodes', () => {
     it('should validate a workflow with valid START and END nodes', () => {
       const workflow: WorkflowTemplate = {
@@ -29,7 +29,7 @@ describe('WorkflowGraphValidator', () => {
       };
 
       const graph = WorkflowGraphBuilder.build(workflow);
-      const result = WorkflowGraphValidator.validate(graph);
+      const result = GraphValidator.validate(graph);
 
       expect(result.isOk()).toBe(true);
     });
@@ -50,7 +50,7 @@ describe('WorkflowGraphValidator', () => {
       };
 
       const graph = WorkflowGraphBuilder.build(workflow);
-      const result = WorkflowGraphValidator.validate(graph);
+      const result = GraphValidator.validate(graph);
 
       expect(result.isErr()).toBe(true);
       if (result.isErr()) {
@@ -74,7 +74,7 @@ describe('WorkflowGraphValidator', () => {
       };
 
       const graph = WorkflowGraphBuilder.build(workflow);
-      const result = WorkflowGraphValidator.validate(graph);
+      const result = GraphValidator.validate(graph);
 
       expect(result.isErr()).toBe(true);
       if (result.isErr()) {
@@ -103,7 +103,7 @@ describe('WorkflowGraphValidator', () => {
       };
 
       const graph = WorkflowGraphBuilder.build(workflow);
-      const result = WorkflowGraphValidator.validate(graph);
+      const result = GraphValidator.validate(graph);
 
       expect(result.isErr()).toBe(true);
       if (result.isErr()) {
@@ -132,7 +132,7 @@ describe('WorkflowGraphValidator', () => {
       };
 
       const graph = WorkflowGraphBuilder.build(workflow);
-      const result = WorkflowGraphValidator.validate(graph);
+      const result = GraphValidator.validate(graph);
 
       expect(result.isErr()).toBe(true);
       if (result.isErr()) {
@@ -162,7 +162,7 @@ describe('WorkflowGraphValidator', () => {
       };
 
       const graph = WorkflowGraphBuilder.build(workflow);
-      const result = WorkflowGraphValidator.validate(graph);
+      const result = GraphValidator.validate(graph);
 
       expect(result.isErr()).toBe(true);
       if (result.isErr()) {
@@ -217,7 +217,7 @@ describe('WorkflowGraphValidator', () => {
       };
 
       const graph = WorkflowGraphBuilder.build(workflow);
-      const result = WorkflowGraphValidator.validate(graph);
+      const result = GraphValidator.validate(graph);
 
       expect(result.isOk()).toBe(true);
     });
@@ -252,7 +252,7 @@ describe('WorkflowGraphValidator', () => {
       };
 
       const graph = WorkflowGraphBuilder.build(workflow);
-      const result = WorkflowGraphValidator.validate(graph);
+      const result = GraphValidator.validate(graph);
 
       expect(result.isErr()).toBe(true);
       if (result.isErr()) {

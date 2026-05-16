@@ -7,7 +7,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { LLMExecutor, type LLMExecutionRequestData } from '../llm-executor.js';
 import type { LLMWrapper } from '../../llm/wrapper.js';
 import type { LLMResult, LLMMessage } from '@wf-agent/types';
-import { ok, err, createAbortError } from '@wf-agent/common-utils';
+import { ok, err } from '@wf-agent/common-utils';
 import { LLMError } from '@wf-agent/types';
 import { createInterruptionAbortReason } from '../../utils/interruption/index.js';
 
@@ -57,11 +57,8 @@ describe('LLMExecutor', () => {
 
       const result = await executor.executeLLMCall(messages, requestData);
 
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.result.content).toBe('Test response');
-        expect(result.result.finishReason).toBe('stop');
-      }
+      expect(result.content).toBe('Test response');
+      expect(result.finishReason).toBe('stop');
       expect(mockLLMWrapper.generate).toHaveBeenCalledTimes(1);
     });
 

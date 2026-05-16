@@ -37,7 +37,7 @@
  * - Verification of the combination of nodes triggering sub-workflows (handled by WorkflowValidator).
  */
 
-import type { ID, StaticNodeType, GraphValidationOptions, WorkflowGraphAnalysis } from "@wf-agent/types";
+import type { ID, StaticNodeType, WorkflowGraphAnalysis } from "@wf-agent/types";
 import { ConfigurationValidationError } from "@wf-agent/types";
 import type { Result } from "@wf-agent/types";
 import { ok, err } from "@wf-agent/common-utils";
@@ -54,119 +54,96 @@ import { getReachableNodes } from "../builder/utils/workflow-traversal.js";
 export class GraphValidator {
   /**
    * Verify the graph structure.
+   * All validation rules are mandatory and always enabled.
    */
   static validate(
     graph: WorkflowGraphData,
-    options: GraphValidationOptions = {},
   ): Result<WorkflowGraphData, ConfigurationValidationError[]> {
     const errorList: ConfigurationValidationError[] = [];
-
-    const opts = {
-      checkCycles: true,
-      checkReachability: true,
-      checkForkJoin: true,
-      checkStartEnd: true,
-      checkIsolatedNodes: true,
-      checkSubgraphExistence: false,
-      checkSubgraphCompatibility: false,
-      ...options,
-    };
 
     // Check if it is a trigger sub-workflow.
     const isTriggeredSubgraph = this.isTriggeredSubgraph(graph);
 
     // Check the START/END nodes.
-    if (opts.checkStartEnd) {
-      const startEndErrors = isTriggeredSubgraph
-        ? this.validateTriggeredSubgraphNodes(graph)
-        : this.validateStartEndNodes(graph);
-      errorList.push(...startEndErrors);
-    }
+    const startEndErrors = isTriggeredSubgraph
+      ? this.validateTriggeredSubgraphNodes(graph)
+      : this.validateStartEndNodes(graph);
+    errorList.push(...startEndErrors);
 
     // Check isolated nodes.
-    if (opts.checkIsolatedNodes) {
-      const isolatedErrors = this.validateIsolatedNodes(graph);
-      errorList.push(...isolatedErrors);
-    }
+    const isolatedErrors = this.validateIsolatedNodes(graph);
+    errorList.push(...isolatedErrors);
 
     // Detect loop
-    if (opts.checkCycles) {
-      const cycleResult = detectCycles(graph);
-      if (cycleResult.hasCycle) {
+    const cycleResult = detectCycles(graph);
+    if (cycleResult.hasCycle) {
+      errorList.push(
+        new ConfigurationValidationError("Circular dependencies exist in the workflow", {
+          configType: "workflow",
+          context: {
+            code: "CYCLE_DETECTED",
+            cycleNodes: cycleResult.cycleNodes,
+            cycleEdges: cycleResult.cycleEdges,
+          },
+        }),
+      );
+    }
+
+    // Reachability Analysis
+    if (isTriggeredSubgraph) {
+      // The trigger workflow only verifies internal connectivity.
+      const connectivityErrors = this.validateTriggeredSubgraphConnectivity(graph);
+      errorList.push(...connectivityErrors);
+    } else {
+      // Verify the reachability from START to END in the normal workflow.
+      const reachabilityResult = analyzeReachability(graph);
+
+      //  unreachable node
+      for (const nodeId of reachabilityResult.unreachableNodes) {
         errorList.push(
-          new ConfigurationValidationError("Circular dependencies exist in the workflow", {
+          new ConfigurationValidationError(`节点(${nodeId})从START节点不可达`, {
             configType: "workflow",
             context: {
-              code: "CYCLE_DETECTED",
-              cycleNodes: cycleResult.cycleNodes,
-              cycleEdges: cycleResult.cycleEdges,
+              code: "UNREACHABLE_NODE",
+              nodeId,
+            },
+          }),
+        );
+      }
+
+      // Dead node
+      for (const nodeId of reachabilityResult.deadEndNodes) {
+        errorList.push(
+          new ConfigurationValidationError(`节点(${nodeId})无法到达END节点`, {
+            configType: "workflow",
+            context: {
+              code: "DEAD_END_NODE",
+              nodeId,
             },
           }),
         );
       }
     }
 
-    // Reachability Analysis
-    if (opts.checkReachability) {
-      if (isTriggeredSubgraph) {
-        // The trigger workflow only verifies internal connectivity.
-        const connectivityErrors = this.validateTriggeredSubgraphConnectivity(graph);
-        errorList.push(...connectivityErrors);
-      } else {
-        // Verify the reachability from START to END in the normal workflow.
-        const reachabilityResult = analyzeReachability(graph);
-
-        //  unreachable node
-        for (const nodeId of reachabilityResult.unreachableNodes) {
-          errorList.push(
-            new ConfigurationValidationError(`节点(${nodeId})从START节点不可达`, {
-              configType: "workflow",
-              context: {
-                code: "UNREACHABLE_NODE",
-                nodeId,
-              },
-            }),
-          );
-        }
-
-        // Dead node
-        for (const nodeId of reachabilityResult.deadEndNodes) {
-          errorList.push(
-            new ConfigurationValidationError(`节点(${nodeId})无法到达END节点`, {
-              configType: "workflow",
-              context: {
-                code: "DEAD_END_NODE",
-                nodeId,
-              },
-            }),
-          );
-        }
-      }
-    }
-
     // FORK/JOIN pairing verification
-    if (opts.checkForkJoin) {
-      const forkJoinErrors = this.validateForkJoinPairs(graph);
-      errorList.push(...forkJoinErrors);
-    }
+    const forkJoinErrors = this.validateForkJoinPairs(graph);
+    errorList.push(...forkJoinErrors);
 
     // Check the existence of the sub-workflow.
-    if (opts.checkSubgraphExistence) {
-      const subgraphErrors = this.validateSubgraphExistence(graph);
-      errorList.push(...subgraphErrors);
-    }
+    const subgraphErrors = this.validateSubgraphExistence(graph);
+    errorList.push(...subgraphErrors);
 
     // Validate EMBED_GRAPH nodes
-    if (opts.checkSubgraphExistence) {
-      const embedGraphErrors = this.validateEmbedGraphExistence(graph);
-      errorList.push(...embedGraphErrors);
-    }
+    const embedGraphErrors = this.validateEmbedGraphExistence(graph);
+    errorList.push(...embedGraphErrors);
+
+    // Validate EMBED_GRAPH constraints
+    const embedGraphConstraintErrors = this.validateEmbedGraphConstraints(graph);
+    errorList.push(...embedGraphConstraintErrors);
 
     // Check the compatibility of sub-workflow interfaces.
-    if (opts.checkSubgraphCompatibility) {
-      const compatibilityErrors = this.validateSubgraphCompatibility(graph);
-      errorList.push(...compatibilityErrors);
-    }
+    const compatibilityErrors = this.validateSubgraphCompatibility(graph);
+    errorList.push(...compatibilityErrors);
 
     if (errorList.length === 0) {
       return ok(graph);
@@ -228,7 +205,7 @@ export class GraphValidator {
         const outgoingEdges = graph.getOutgoingEdges(endNodeId);
         if (outgoingEdges.length > 0) {
           errors.push(
-            new ConfigurationValidationError(`END节点(${endNodeId})不能有出边`, {
+            new ConfigurationValidationError(`END node (${endNodeId}) cannot have outgoing edges`, {
               configType: "workflow",
               context: {
                 code: "END_NODE_HAS_OUTGOING_EDGES",
@@ -289,7 +266,7 @@ export class GraphValidator {
 
       if (incomingEdges.length === 0 && outgoingEdges.length === 0) {
         errors.push(
-          new ConfigurationValidationError(`节点(${node.id})是孤立节点，既没有入边也没有出边`, {
+          new ConfigurationValidationError(`Node (${node.id}) is isolated, has no incoming or outgoing edges`, {
             configType: "workflow",
             context: {
               code: "ISOLATED_NODE",
@@ -515,7 +492,7 @@ export class GraphValidator {
     // Report on unmatched FORK nodes.
     for (const forkNodeId of unpairedForks) {
       errors.push(
-        new ConfigurationValidationError(`FORK节点(${forkNodeId})没有配对的JOIN节点`, {
+        new ConfigurationValidationError(`FORK node (${forkNodeId}) has no matching JOIN node`, {
           configType: "workflow",
           context: {
             code: "UNPAIRED_FORK",
@@ -752,6 +729,74 @@ export class GraphValidator {
                 nodeId: node.id,
               },
             }),
+          );
+        }
+      }
+    }
+
+    return errors;
+  }
+
+  /**
+   * Validate EMBED_GRAPH constraints
+   * 
+   * Validates that embedded workflows referenced by EMBED_GRAPH nodes meet the constraints:
+   * - Rule 1: Cannot define variables
+   * - Rule 2: Cannot have triggers
+   * - Rule 3: Cannot contain VARIABLE nodes
+   * 
+   * Note: This validation is performed at the graph level after graph building.
+   * The actual constraint checking requires access to the workflow registry.
+   * 
+   * @param graph Graph data containing EMBED_GRAPH nodes
+   * @returns List of verification errors
+   */
+  private static validateEmbedGraphConstraints(graph: WorkflowGraphData): ConfigurationValidationError[] {
+    const errors: ConfigurationValidationError[] = [];
+
+    // Note: Full constraint validation requires access to the workflow registry
+    // to check if the referenced workflows have variables/triggers.
+    // This is currently done in WorkflowGraphBuilder.processSubgraphs.
+    // 
+    // This method validates what can be checked at the graph level:
+    // - EMBED_GRAPH nodes should not have variable mappings (they don't support them)
+    
+    for (const node of graph.nodes.values()) {
+      const originalType = node.originalNode?.type;
+      if (originalType === "EMBED_GRAPH") {
+        const config = node.originalNode?.config as {
+          variableInputs?: unknown[];
+          variableOutputs?: unknown[];
+        } | undefined;
+
+        // EMBED_GRAPH should not have variable mappings
+        if (config?.variableInputs && config.variableInputs.length > 0) {
+          errors.push(
+            new ConfigurationValidationError(
+              `EMBED_GRAPH node '${node.id}' should not have variableInputs. Use SUBGRAPH for variable passing.`,
+              {
+                configType: "workflow",
+                context: {
+                  code: "EMBED_GRAPH_HAS_VARIABLE_INPUTS",
+                  nodeId: node.id,
+                },
+              }
+            )
+          );
+        }
+
+        if (config?.variableOutputs && config.variableOutputs.length > 0) {
+          errors.push(
+            new ConfigurationValidationError(
+              `EMBED_GRAPH node '${node.id}' should not have variableOutputs. Use SUBGRAPH for variable passing.`,
+              {
+                configType: "workflow",
+                context: {
+                  code: "EMBED_GRAPH_HAS_VARIABLE_OUTPUTS",
+                  nodeId: node.id,
+                },
+              }
+            )
           );
         }
       }

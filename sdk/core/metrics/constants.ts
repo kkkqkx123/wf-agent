@@ -166,3 +166,32 @@ export const CONFIG_METRICS = {
   CACHE_HIT_COUNT: "config.cache.hit_count",
   CACHE_MISS_COUNT: "config.cache.miss_count",
 } as const;
+
+/**
+ * Standard metric names for SUBGRAPH execution
+ */
+export const SUBGRAPH_METRICS = {
+  /** Total subgraph executions (counter) */
+  EXECUTION_COUNT: "subgraph.execution.count" as const,
+  /** Subgraph execution duration in milliseconds (histogram) */
+  EXECUTION_DURATION: "subgraph.execution.duration" as const,
+  /** Successful subgraph executions (counter) */
+  SUCCESS_COUNT: "subgraph.execution.success.count" as const,
+  /** Failed subgraph executions (counter) */
+  FAILURE_COUNT: "subgraph.execution.failure.count" as const,
+  /** Nested depth of subgraph (histogram) */
+  NESTED_DEPTH: "subgraph.nested.depth" as const,
+  /** Variable import count (counter) */
+  VARIABLE_IMPORT_COUNT: "subgraph.variable.import.count" as const,
+  /** Variable export count (counter) */
+  VARIABLE_EXPORT_COUNT: "subgraph.variable.export.count" as const,
+  /** Variable import duration in milliseconds (histogram) */
+  VARIABLE_IMPORT_DURATION: "subgraph.variable.import.duration" as const,
+  /** Variable export duration in milliseconds (histogram) */
+  VARIABLE_EXPORT_DURATION: "subgraph.variable.export.duration" as const,
+} as const;
+
+/**
+ * Type for subgraph metric names
+ */
+export type SubgraphMetricName = keyof typeof SUBGRAPH_METRICS;

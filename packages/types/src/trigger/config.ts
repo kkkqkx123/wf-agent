@@ -233,7 +233,7 @@ export interface ApplyMessageOperationAction extends BaseTriggerAction {
  */
 export interface ExecuteTriggeredSubgraphAction extends BaseTriggerAction {
   type: "execute_triggered_subgraph";
-  parameters: ExecuteTriggeredSubgraphActionConfig;
+  parameters: ExecuteTriggeredSubworkflowActionConfig;
 }
 
 /**
@@ -274,7 +274,7 @@ export function isTriggerActionType<T extends TriggerActionType>(
  * Execution Trigger Sub-Workflow Action Configuration
  * For triggers to initiate isolated subworkflow execution
  */
-export interface ExecuteTriggeredSubgraphActionConfig {
+export interface ExecuteTriggeredSubworkflowActionConfig {
   /** Trigger subworkflow ID (workflow containing the START_FROM_TRIGGER node) */
   triggeredWorkflowId: ID;
   /** Whether to wait for completion (default true, synchronized execution) */

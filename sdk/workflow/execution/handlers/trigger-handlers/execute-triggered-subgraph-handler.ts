@@ -15,7 +15,7 @@
  */
 
 import type { TriggerAction, TriggerExecutionResult } from "@wf-agent/types";
-import type { ExecuteTriggeredSubgraphActionConfig } from "@wf-agent/types";
+import type { ExecuteTriggeredSubworkflowActionConfig } from "@wf-agent/types";
 import {
   RuntimeValidationError,
   WorkflowExecutionNotFoundError,
@@ -23,7 +23,7 @@ import {
 } from "@wf-agent/types";
 import type { WorkflowExecutionRegistry } from "../../../stores/workflow-execution-registry.js";
 import { getErrorMessage, now, diffTimestamp } from "@wf-agent/common-utils";
-import type { TriggeredSubgraphTask } from "../../types/triggered-subworkflow.types.js";
+import type { TriggeredSubworkflowTask } from "../../types/triggered-subworkflow.types.js";
 import * as Identifiers from "../../../../core/di/service-identifiers.js";
 import type { GlobalContext } from "../../../../core/global-context.js";
 import type { WorkflowGraphRegistry } from "../../../stores/workflow-graph-registry.js";
@@ -112,7 +112,7 @@ export async function executeTriggeredSubgraphHandler(
   const startTime = now();
 
   try {
-    const parameters = action.parameters as ExecuteTriggeredSubgraphActionConfig;
+    const parameters = action.parameters as ExecuteTriggeredSubworkflowActionConfig;
     const { triggeredWorkflowId, waitForCompletion = true } = parameters;
 
     if (!triggeredWorkflowId) {
@@ -162,8 +162,8 @@ export async function executeTriggeredSubgraphHandler(
       Identifiers.TriggeredSubworkflowHandler,
     ) as TriggeredSubworkflowHandler;
 
-    const task: TriggeredSubgraphTask = {
-      subgraphId: triggeredWorkflowId,
+    const task: TriggeredSubworkflowTask = {
+      subworkflowId: triggeredWorkflowId,
       input,
       triggerId,
       mainWorkflowExecutionEntity,
@@ -176,7 +176,7 @@ export async function executeTriggeredSubgraphHandler(
 
     if (waitForCompletion) {
       const syncResult = result as {
-        subgraphEntity: { getOutput: () => Record<string, unknown> };
+        subworkflowEntity: { getOutput: () => Record<string, unknown> };
         executionTime: number;
       };
       return createSyncSuccessResult(
@@ -185,7 +185,7 @@ export async function executeTriggeredSubgraphHandler(
         {
           triggeredWorkflowId,
           input,
-          output: syncResult.subgraphEntity.getOutput(),
+          output: syncResult.subworkflowEntity.getOutput(),
           executionTime: syncResult.executionTime,
         },
         executionTime,

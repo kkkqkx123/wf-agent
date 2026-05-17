@@ -67,6 +67,10 @@ import type {
   NodeCompletedEvent,
   NodeFailedEvent,
   NodeCustomEvent,
+  ForkStartedEvent,
+  ForkBranchStartedEvent,
+  ForkBranchCompletedEvent,
+  ForkCompletedEvent,
 } from "./node-events.js";
 
 import type {
@@ -173,6 +177,10 @@ export type Event =
   | NodeCompletedEvent
   | NodeFailedEvent
   | NodeCustomEvent
+  | ForkStartedEvent
+  | ForkBranchStartedEvent
+  | ForkBranchCompletedEvent
+  | ForkCompletedEvent
   | TokenLimitExceededEvent
   | TokenUsageWarningEvent
   | MessageAddedEvent

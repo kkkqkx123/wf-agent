@@ -177,6 +177,107 @@ export class NodeMetricsCollector extends BaseMetricCollector {
   }
 
   /**
+   * Record FORK-specific metrics
+   * This extends the basic node execution metrics with FORK-specific data
+   */
+  recordForkExecution(
+    nodeId: string,
+    workflowId: string,
+    result: {
+      branchCount: number;
+      totalDuration: number;
+      successCount: number;
+      failureCount: number;
+      maxBranchDuration: number;
+      minBranchDuration: number;
+    }
+  ): void {
+    if (!nodeId || !workflowId) {
+      logger.warn("recordForkExecution called with missing parameters");
+      return;
+    }
+
+    // Record as regular node execution first
+    this.recordNodeExecution(nodeId, 'FORK', workflowId, {
+      success: result.failureCount === 0,
+      duration: result.totalDuration,
+    });
+
+    // Record FORK-specific metrics
+    this.incrementCounter('fork.execution.count', {
+      node_id: nodeId,
+      branch_count: result.branchCount.toString(),
+    });
+
+    // Record branch statistics
+    this.observeHistogram('fork.branch.duration', result.maxBranchDuration, {
+      node_id: nodeId,
+      stat: 'max',
+    });
+
+    this.observeHistogram('fork.branch.duration', result.minBranchDuration, {
+      node_id: nodeId,
+      stat: 'min',
+    });
+
+    // Record success/failure counts
+    if (result.successCount > 0) {
+      this.incrementCounter('fork.branch.success.count', {
+        node_id: nodeId,
+      }, result.successCount);
+    }
+
+    if (result.failureCount > 0) {
+      this.incrementCounter('fork.branch.failure.count', {
+        node_id: nodeId,
+      }, result.failureCount);
+    }
+
+    logger.debug("Recorded fork execution", {
+      nodeId,
+      workflowId,
+      branchCount: result.branchCount,
+      successCount: result.successCount,
+      failureCount: result.failureCount,
+    });
+  }
+
+  /**
+   * Record individual FORK branch execution metrics
+   */
+  recordForkBranchExecution(branchResult: {
+    nodeId: string;
+    forkPathId: string;
+    duration: number;
+    status: string;
+  }): void {
+    if (!branchResult.nodeId || !branchResult.forkPathId) {
+      logger.warn("recordForkBranchExecution called with missing parameters");
+      return;
+    }
+
+    // Record branch duration
+    this.observeHistogram('fork.branch.execution.duration', branchResult.duration, {
+      node_id: branchResult.nodeId,
+      fork_path_id: branchResult.forkPathId,
+    });
+
+    // Record branch status
+    this.incrementCounter('fork.branch.status.count', {
+      node_id: branchResult.nodeId,
+      fork_path_id: branchResult.forkPathId,
+      status: branchResult.status,
+    });
+
+    logger.debug("Recorded fork branch execution", {
+      nodeId: branchResult.nodeId,
+      forkPathId: branchResult.forkPathId,
+      duration: branchResult.duration,
+      status: branchResult.status,
+    });
+  }
+
+  /**
    * Get SUBGRAPH execution statistics
    */
   getSubgraphExecutionStats(): Record<string, {

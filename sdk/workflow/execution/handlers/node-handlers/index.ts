@@ -50,7 +50,8 @@ export function getNodeHandler(nodeType: string): NodeHandlerFn {
     CONTINUE_FROM_TRIGGER: (_gc, workflowExecutionEntity, node, _ctx) =>
       continueFromTriggerHandler(workflowExecutionEntity, node),
     END: (_gc, workflowExecutionEntity, node, _ctx) => endHandler(workflowExecutionEntity, node),
-    FORK: (_gc, workflowExecutionEntity, node, _ctx) => forkHandler(workflowExecutionEntity, node),
+    FORK: (globalContext, workflowExecutionEntity, node, context) =>
+      forkHandler(globalContext, workflowExecutionEntity, node, context as any),
     JOIN: (_gc, workflowExecutionEntity, node, _ctx) => joinHandler(workflowExecutionEntity, node),
     LLM: (_gc, workflowExecutionEntity, node, context) =>
       llmHandler(workflowExecutionEntity.getExecution(), node, context as LLMHandlerContext),

@@ -469,12 +469,8 @@ export class WorkflowStateTransitor {
       return 0;
     }
 
-    const parentExecutionId = context.getParentExecutionId();
-    if (!parentExecutionId) {
-      return 1;
-    }
-
-    return 1 + this.getWorkflowExecutionTreeDepth(parentExecutionId);
+    // Use new unified hierarchy API
+    return context.getHierarchyDepth() + 1; // Convert from 0-based to 1-based depth
   }
 
   /**

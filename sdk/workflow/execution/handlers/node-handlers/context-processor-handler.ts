@@ -63,7 +63,7 @@ export interface ContextProcessorHandlerContext {
   };
   /** Workflow execution entity (optional, used to identify the parent workflow execution) */
   executionEntity?: {
-    getParentExecutionId: () => string | undefined;
+    getParentContext: () => { parentType: string; parentId: string } | undefined;
     getConversationManager: () => unknown;
   };
   /** Workflow Execution Registry (optional, used to obtain the parent workflow execution entity) */
@@ -180,17 +180,17 @@ export async function contextProcessorHandler(
     const executionEntity = context.executionEntity;
     const executionRegistry = context.executionRegistry;
 
-    if (executionEntity && executionRegistry && executionEntity.getParentExecutionId()) {
-      const parentExecutionId = executionEntity.getParentExecutionId();
-      if (parentExecutionId) {
-        const parentExecutionEntity = executionRegistry.get(parentExecutionId);
+    if (executionEntity && executionRegistry) {
+      const parentContext = executionEntity.getParentContext();
+      if (parentContext) {
+        const parentExecutionEntity = executionRegistry.get(parentContext.parentId);
         if (parentExecutionEntity) {
           targetConversationManager =
             parentExecutionEntity.getConversationManager() as ContextProcessorHandlerContext["conversationManager"];
-          logger.info(`Targeting parent workflow execution: ${parentExecutionId} for context processing`, {
+          logger.info(`Targeting parent workflow execution: ${parentContext.parentId} for context processing`, {
             nodeId: node.id,
             executionId: workflowExecution.id,
-            parentExecutionId,
+            parentExecutionId: parentContext.parentId,
           });
         }
       }

@@ -247,34 +247,10 @@ export class WorkflowExecutionEntity {
 
   // Triggering Sub-workflow Context ============
 
-  registerChildExecution(childExecutionId: ID): void {
-    this.registerChild({
-      childType: 'WORKFLOW',
-      childId: childExecutionId,
-      createdAt: Date.now(),
-    });
-  }
-
-  unregisterChildExecution(childExecutionId: ID): void {
-    this.unregisterChild(childExecutionId, 'WORKFLOW');
-  }
-
-  getParentExecutionId(): ID | undefined {
-    const parentContext = this.hierarchyManager.getParent();
-    return parentContext?.parentId;
-  }
-
   getChildExecutionIds(): ID[] {
     return this.hierarchyManager.getChildren()
       .filter(ref => ref.childType === 'WORKFLOW')
       .map(ref => ref.childId);
-  }
-
-  setParentExecutionId(parentExecutionId: ID): void {
-    this.setParentContext({
-      parentType: 'WORKFLOW',
-      parentId: parentExecutionId,
-    });
   }
 
   getTriggeredSubworkflowId(): ID | undefined {
@@ -576,10 +552,10 @@ export class WorkflowExecutionEntity {
   }
 
   /**
-   * Set parent execution context (NEW unified API)
+   * Set parent execution context (unified API)
    * 
-   * Replaces setParentExecutionId() for unified parent-child relationship management.
    * Supports both Workflow and Agent parents with type safety.
+   * Provides automatic validation including cycle detection and depth limit enforcement.
    * 
    * @param parentContext Parent execution context
    * @example
@@ -606,7 +582,7 @@ export class WorkflowExecutionEntity {
   }
 
   /**
-   * Get parent execution context (NEW unified API)
+   * Get parent execution context (unified API)
    * 
    * @returns Parent execution context or undefined if root node
    */
@@ -615,10 +591,10 @@ export class WorkflowExecutionEntity {
   }
 
   /**
-   * Register child execution reference (NEW unified API)
+   * Register child execution reference (unified API)
    * 
-   * Replaces registerChildExecution() for unified child tracking.
    * Supports both Workflow and Agent children with type safety.
+   * Tracks creation timestamp and supports optional metadata.
    * 
    * @param childRef Child execution reference
    * @example
@@ -646,7 +622,7 @@ export class WorkflowExecutionEntity {
   }
 
   /**
-   * Unregister child execution reference (NEW unified API)
+   * Unregister child execution reference (unified API)
    * 
    * @param childId Child execution ID
    * @param childType Child execution type (defaults to 'WORKFLOW' for backward compatibility)
@@ -659,7 +635,7 @@ export class WorkflowExecutionEntity {
   }
 
   /**
-   * Get all child execution references (NEW unified API)
+   * Get all child execution references (unified API)
    * 
    * @returns Array of child execution references
    */
@@ -668,7 +644,7 @@ export class WorkflowExecutionEntity {
   }
 
   /**
-   * Get hierarchy depth (NEW unified API)
+   * Get hierarchy depth (unified API)
    * 
    * @returns Depth in hierarchy tree (0 for root)
    */
@@ -677,7 +653,7 @@ export class WorkflowExecutionEntity {
   }
 
   /**
-   * Get root execution ID (NEW unified API)
+   * Get root execution ID (unified API)
    * 
    * @returns Root execution ID
    */
@@ -686,7 +662,7 @@ export class WorkflowExecutionEntity {
   }
 
   /**
-   * Get root execution type (NEW unified API)
+   * Get root execution type (unified API)
    * 
    * @returns Root execution type
    */
@@ -695,7 +671,7 @@ export class WorkflowExecutionEntity {
   }
 
   /**
-   * Check if this is a root execution (NEW unified API)
+   * Check if this is a root execution (unified API)
    * 
    * @returns True if no parent
    */
@@ -704,7 +680,7 @@ export class WorkflowExecutionEntity {
   }
 
   /**
-   * Get complete hierarchy metadata (NEW unified API)
+   * Get complete hierarchy metadata (unified API)
    * 
    * @returns Hierarchy metadata for serialization
    */
@@ -713,7 +689,7 @@ export class WorkflowExecutionEntity {
   }
 
   /**
-   * Restore hierarchy from metadata (NEW unified API)
+   * Restore hierarchy from metadata (unified API)
    * 
    * Used during checkpoint restoration.
    * 

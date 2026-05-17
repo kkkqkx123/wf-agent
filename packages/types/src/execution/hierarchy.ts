@@ -90,6 +90,7 @@ export type ParentExecutionContext =
  * 
  * Used by parent executions to track all child executions.
  * Includes creation timestamp for ordering and lifecycle management.
+ * Optional metadata fields can be used for execution-specific context.
  * 
  * @example
  * ```typescript
@@ -98,6 +99,14 @@ export type ParentExecutionContext =
  *   childType: 'WORKFLOW',
  *   childId: 'sub-workflow-789',
  *   createdAt: Date.now(),
+ * };
+ * 
+ * // Fork branch with path ID
+ * const forkChild: ChildExecutionReference = {
+ *   childType: 'WORKFLOW',
+ *   childId: 'fork-branch-456',
+ *   createdAt: Date.now(),
+ *   forkPathId: 'path-1',
  * };
  * 
  * // Agent child reference
@@ -116,6 +125,8 @@ export type ChildExecutionReference =
       childId: ID;
       /** Creation timestamp */
       createdAt: Timestamp;
+      /** Fork path ID (for FORK_JOIN executions) */
+      forkPathId?: ID;
     }
   | {
       /** Child is an Agent Loop execution */

@@ -610,6 +610,8 @@ export function configureContainerBindings(
             agentLoopExecutorFactory: (
               agentLoopExecutorFactory as unknown as NoArgServiceFactory<AgentLoopExecutor>
             ).create(),
+            executionBuilder: c.get(Identifiers.WorkflowExecutionBuilder) as WorkflowExecutionBuilder,
+            workflowExecutor: c.get(Identifiers.WorkflowExecutor) as WorkflowExecutor,
           };
           return new NodeExecutionCoordinator(config);
         },

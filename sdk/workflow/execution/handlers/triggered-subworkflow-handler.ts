@@ -21,7 +21,7 @@ import type { ConversationSession } from "../../../core/messaging/conversation-s
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "TriggeredSubworkflowHandler" });
-import type { ExecuteTriggeredSubgraphActionConfig } from "@wf-agent/types";
+import type { ExecuteTriggeredSubworkflowActionConfig } from "@wf-agent/types";
 import { getErrorOrNew, now } from "@wf-agent/common-utils";
 import { TaskRegistry, type TaskManager } from "../../stores/task/task-registry.js";
 import type { WorkflowExecutionPool } from "../workflow-execution-pool.js";
@@ -29,8 +29,8 @@ import { TaskQueue } from "../../stores/task/task-queue.js";
 import { AsyncCompletionManager } from "../../state-managers/promise-resolution-manager.js";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import {
-  type TriggeredSubgraphTask,
-  type ExecutedSubgraphResult,
+  type TriggeredSubworkflowTask,
+  type ExecutedSubworkflowResult,
   type TaskSubmissionResult,
 } from "../types/triggered-subworkflow.types.js";
 import { emit } from "../../../core/utils/event/event-emitter.js";
@@ -96,7 +96,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
   /**
    * Completion Handler State
    */
-  private callbackState: AsyncCompletionManager<ExecutedSubgraphResult>;
+  private callbackState: AsyncCompletionManager<ExecutedSubworkflowResult>;
 
   /**
    * Active Task Mapping
@@ -140,7 +140,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     this.workflowExecutionPool = workflowExecutionPool;
 
     // Create an async completion manager with event integration
-    this.callbackState = new AsyncCompletionManager<ExecutedSubgraphResult>(eventManager);
+    this.callbackState = new AsyncCompletionManager<ExecutedSubworkflowResult>(eventManager);
   }
 
   /**
@@ -149,13 +149,13 @@ export class TriggeredSubworkflowHandler implements TaskManager {
    * @returns Execution result (synchronous) or task submission result (asynchronous)
    */
   async executeTriggeredSubgraph(
-    task: TriggeredSubgraphTask,
-  ): Promise<ExecutedSubgraphResult | TaskSubmissionResult> {
+    task: TriggeredSubworkflowTask,
+  ): Promise<ExecutedSubworkflowResult | TaskSubmissionResult> {
     // Verify parameters
-    if (!task.subgraphId) {
-      throw new RuntimeValidationError("subgraphId is required", {
+    if (!task.subworkflowId) {
+      throw new RuntimeValidationError("subworkflowId is required", {
         operation: "executeTriggeredSubgraph",
-        field: "subgraphId",
+        field: "subworkflowId",
       });
     }
 
@@ -175,12 +175,24 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     // Register with WorkflowExecutionRegistry
     this.workflowExecutionRegistry.register(subgraphEntity);
 
-    // Establish a parent-child execution relationship
+    // Establish parent-child execution relationship (NEW unified API)
     const parentExecutionId = task.mainWorkflowExecutionEntity.id;
     const childExecutionId = subgraphEntity.id;
-    task.mainWorkflowExecutionEntity.registerChildExecution(childExecutionId);
-    subgraphEntity.setParentExecutionId(parentExecutionId);
-    subgraphEntity.setTriggeredSubworkflowId(task.subgraphId);
+    
+    // Set parent context using new unified API
+    subgraphEntity.setParentContext({
+      parentType: 'WORKFLOW',
+      parentId: parentExecutionId,
+    });
+    
+    // Register child reference in parent entity
+    task.mainWorkflowExecutionEntity.registerChild({
+      childType: 'WORKFLOW',
+      childId: childExecutionId,
+      createdAt: Date.now(),
+    });
+    
+    subgraphEntity.setTriggeredSubworkflowId(task.subworkflowId);
 
     // Trigger the start event
     await this.emitStartedEvent(task, subgraphEntity);
@@ -203,8 +215,8 @@ export class TriggeredSubworkflowHandler implements TaskManager {
    * @param task: Trigger the sub-workflow task
    * @returns: Input data
    */
-  private prepareInputData(task: TriggeredSubgraphTask): Record<string, unknown> {
-    const config = task.config as ExecuteTriggeredSubgraphActionConfig | undefined;
+  private prepareInputData(task: TriggeredSubworkflowTask): Record<string, unknown> {
+    const config = task.config as ExecuteTriggeredSubworkflowActionConfig | undefined;
     const mainEntity = task.mainWorkflowExecutionEntity;
     
     // Base input data
@@ -256,10 +268,10 @@ export class TriggeredSubworkflowHandler implements TaskManager {
    * @returns: The sub-workflow entity
    */
   private async createSubgraphContext(
-    task: TriggeredSubgraphTask,
+    task: TriggeredSubworkflowTask,
     input: Record<string, unknown>,
   ): Promise<WorkflowExecutionEntity> {
-    const { workflowExecutionEntity: subgraphEntity } = await this.executionBuilder.build(task.subgraphId, {
+    const { workflowExecutionEntity: subgraphEntity } = await this.executionBuilder.build(task.subworkflowId, {
       input,
     });
 
@@ -278,7 +290,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
   private async executeSync(
     subgraphEntity: WorkflowExecutionEntity,
     timeout: number,
-  ): Promise<ExecutedSubgraphResult> {
+  ): Promise<ExecutedSubworkflowResult> {
     // First, register the task with the global TaskRegistry.
     const taskId = this.taskRegistry.register(subgraphEntity, "workflowExecution", this, timeout);
 
@@ -318,7 +330,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     // This can prevent memory leaks caused by uncleaned Promise references.
     await this.callbackState.registerHandler(
       executionId,
-      (result: ExecutedSubgraphResult) => this.handleSubgraphCompleted(executionId, result),
+      (result: ExecutedSubworkflowResult) => this.handleSubgraphCompleted(executionId, result),
       (error: Error) => this.handleSubgraphFailed(executionId, error),
     );
 
@@ -345,7 +357,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
    */
   private async handleSubgraphCompleted(
     executionId: string,
-    result: ExecutedSubgraphResult,
+    result: ExecutedSubworkflowResult,
   ): Promise<void> {
     // Trigger the completion event
     this.emitCompletedEvent(executionId, result);
@@ -408,13 +420,13 @@ export class TriggeredSubworkflowHandler implements TaskManager {
    * @param subgraphEntity Sub-workflow entity
    */
   private unregisterParentChildRelationship(subgraphEntity: WorkflowExecutionEntity): void {
-    const parentExecutionId = subgraphEntity.getParentExecutionId();
+    const parentContext = subgraphEntity.getParentContext();
     const childExecutionId = subgraphEntity.id;
 
-    if (parentExecutionId) {
-      const parentEntity = this.workflowExecutionRegistry.get(parentExecutionId);
+    if (parentContext) {
+      const parentEntity = this.workflowExecutionRegistry.get(parentContext.parentId);
       if (parentEntity) {
-        parentEntity.unregisterChildExecution(childExecutionId);
+        parentEntity.unregisterChild(childExecutionId, 'WORKFLOW');
       }
     }
   }
@@ -425,13 +437,13 @@ export class TriggeredSubworkflowHandler implements TaskManager {
    * @param subgraphEntity: Sub-workflow entity
    */
   private async emitStartedEvent(
-    task: TriggeredSubgraphTask,
+    task: TriggeredSubworkflowTask,
     _subgraphEntity: WorkflowExecutionEntity,
   ): Promise<void> {
     const startedEvent = buildTriggeredSubgraphStartedEvent({
       executionId: task.mainWorkflowExecutionEntity.id,
       workflowId: task.mainWorkflowExecutionEntity.getWorkflowId(),
-      subgraphId: task.subgraphId,
+      subgraphId: task.subworkflowId,
       triggerId: task.triggerId,
       input: task.input,
     });
@@ -445,7 +457,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
    */
   private async emitCompletedEvent(
     executionId: string,
-    result: ExecutedSubgraphResult,
+    result: ExecutedSubworkflowResult,
   ): Promise<void> {
     const subgraphEntity = this.workflowExecutionRegistry.get(executionId);
     if (!subgraphEntity) {

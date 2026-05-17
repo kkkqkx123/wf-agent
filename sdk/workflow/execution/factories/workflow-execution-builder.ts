@@ -474,6 +474,36 @@ export class WorkflowExecutionBuilder {
     //   );
     // }
 
+    // Establish parent-child hierarchy relationship (NEW - unified approach)
+    if (registry) {
+      // Set parent context on fork entity
+      forkWorkflowExecutionEntity.setParentContext({
+        parentType: 'WORKFLOW',
+        parentId: parentWorkflowExecutionEntity.id,
+      });
+      
+      // Register fork entity with hierarchy registry
+      registry.register(forkWorkflowExecutionEntity);
+      
+      // Register child reference in parent entity
+      parentWorkflowExecutionEntity.registerChild({
+        childType: 'WORKFLOW',
+        childId: forkExecutionId,
+        createdAt: Date.now(),
+        forkPathId: forkConfig.forkPathId || forkConfig.forkId,
+      });
+      
+      logger.debug('Fork hierarchy established', {
+        forkExecutionId,
+        parentExecutionId: parentWorkflowExecutionEntity.id,
+        forkPathId: forkConfig.forkPathId || forkConfig.forkId,
+      });
+    } else {
+      logger.warn('Hierarchy registry not available, fork will not have parent-child relationship', {
+        forkExecutionId,
+      });
+    }
+
     // Create ConversationSession (clone from parent message history)
     const conversationManager = new ConversationSession({
       eventManager: this.getEventManager(),

@@ -30,7 +30,7 @@ export {
   TriggerTemplateSchema,
   TriggerConfigOverrideSchema,
   ConversationHistoryOptionsSchema,
-  ExecuteTriggeredSubgraphActionConfigSchema,
+  ExecuteTriggeredSubworkflowActionConfigSchema,
   ExecuteScriptActionConfigSchema,
   StopWorkflowExecutionActionParametersSchema,
   PauseWorkflowExecutionActionParametersSchema,

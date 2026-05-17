@@ -494,9 +494,11 @@ export class CheckpointCoordinator {
 
     // Step 14: Restore the context of the Triggered sub-workflow (if any).
     if (workflowExecutionState.triggeredSubworkflowContext) {
-      workflowExecutionEntity.setParentExecutionId(
-        workflowExecutionState.triggeredSubworkflowContext.parentExecutionId,
-      );
+      // Use new unified API to set parent context
+      workflowExecutionEntity.setParentContext({
+        parentType: 'WORKFLOW',
+        parentId: workflowExecutionState.triggeredSubworkflowContext.parentExecutionId,
+      });
       workflowExecutionEntity.setTriggeredSubworkflowId(
         workflowExecutionState.triggeredSubworkflowContext.triggeredSubworkflowId,
       );
@@ -565,12 +567,22 @@ export class CheckpointCoordinator {
         if (childCheckpointId) {
           // Recover the sub-workflow execution
           const childResult = await this.restoreFromCheckpoint(childCheckpointId, dependencies);
-          // Reestablish the parent-child relationship
-          childResult.workflowExecutionEntity.setParentExecutionId(workflowExecutionEntity.id);
+          
+          // Reestablish the parent-child relationship using new unified API
+          childResult.workflowExecutionEntity.setParentContext({
+            parentType: 'WORKFLOW',
+            parentId: workflowExecutionEntity.id,
+          });
+          
           // Register with WorkflowExecutionRegistry
           workflowExecutionRegistry.register(childResult.workflowExecutionEntity);
-          // Register the child workflow execution in the main workflow execution.
-          workflowExecutionEntity.registerChildExecution(childWorkflowExecutionId);
+          
+          // Register the child workflow execution in the main workflow execution
+          workflowExecutionEntity.registerChild({
+            childType: 'WORKFLOW',
+            childId: childWorkflowExecutionId,
+            createdAt: Date.now(),
+          });
         }
       }
     }

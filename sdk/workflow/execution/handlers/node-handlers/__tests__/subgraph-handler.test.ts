@@ -35,7 +35,7 @@ const mockSubgraphNode: StaticNodeOfType<'SUBGRAPH'> = {
   id: 'subgraph-node-1',
   type: 'SUBGRAPH',
   config: {
-    subworkflowId: 'child-workflow',
+    subgraphId: 'child-workflow',
     variableInputs: [
       { externalName: 'parentVar1', internalName: 'childVar1', required: true },
       { externalName: 'parentVar2', internalName: 'childVar2', required: false, defaultValue: 'default' }
@@ -48,7 +48,7 @@ const mockSubgraphNode: StaticNodeOfType<'SUBGRAPH'> = {
     id: 'subgraph-node-1',
     type: 'SUBGRAPH',
     config: {
-      subworkflowId: 'child-workflow',
+      subgraphId: 'child-workflow',
       variableInputs: [
         { externalName: 'parentVar1', internalName: 'childVar1', required: true },
         { externalName: 'parentVar2', internalName: 'childVar2', required: false, defaultValue: 'default' }
@@ -131,7 +131,7 @@ describe('subgraphHandler', () => {
       expect(mockExecutionBuilder.createSubgraph).toHaveBeenCalledWith(
         mockWorkflowExecutionEntity,
         {
-          subworkflowId: 'child-workflow',
+          subgraphId: 'child-workflow',
           nodeId: 'subgraph-node-1',
           variableMapping: {
             inputs: mockSubgraphNode.config.variableInputs,
@@ -161,7 +161,7 @@ describe('subgraphHandler', () => {
       const nodeWithoutMappings: StaticNodeOfType<'SUBGRAPH'> = {
         ...mockSubgraphNode,
         config: {
-          subworkflowId: 'child-workflow'
+          subgraphId: 'child-workflow'
         },
         originalNode: {
           ...mockSubgraphNode.originalNode!,
@@ -182,7 +182,7 @@ describe('subgraphHandler', () => {
       expect(mockExecutionBuilder.createSubgraph).toHaveBeenCalledWith(
         mockWorkflowExecutionEntity,
         {
-          subworkflowId: 'child-workflow',
+          subgraphId: 'child-workflow',
           nodeId: 'subgraph-node-1',
           variableMapping: {
             inputs: [],

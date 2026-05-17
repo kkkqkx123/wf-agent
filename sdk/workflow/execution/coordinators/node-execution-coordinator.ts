@@ -29,6 +29,11 @@ import type { ConversationSession } from "../../../core/messaging/conversation-s
 import type { GlobalContext } from "../../../core/global-context.js";
 import type { InterruptionState } from "../../../core/types/interruption-state.js";
 import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-registry.js";
+import type { ToolContextStore } from "../../stores/tool-context-store.js";
+import type { ToolRegistry } from "../../../core/registry/tool-registry.js";
+import type { WorkflowExecutionBuilder } from "../factories/workflow-execution-builder.js";
+import type { WorkflowExecutor } from "../executors/workflow-executor.js";
+import type { ForkBranchResult } from "../types/subworkflow-result.types.js";
 import { LLMExecutionCoordinator } from "./llm-execution-coordinator.js";
 import { SDKError } from "@wf-agent/types";
 
@@ -95,11 +100,15 @@ export interface NodeExecutionCoordinatorConfig {
   /** Manual Relay Processor (optional) */
   humanRelayHandler?: HumanRelayHandler;
   /** Tool Context Store (optional) */
-  toolContextStore?: unknown;
+  toolContextStore?: ToolContextStore;
   /** Tool Services (Optional) */
-  toolService?: unknown;
+  toolService?: ToolRegistry;
   /** Agent Loop Executor Factory (optional) */
   agentLoopExecutorFactory?: unknown;
+  /** Workflow Execution Builder (optional, required for FORK nodes) */
+  executionBuilder?: WorkflowExecutionBuilder;
+  /** Workflow Executor (optional, required for FORK nodes) */
+  workflowExecutor?: WorkflowExecutor;
 }
 
 /**
@@ -158,6 +167,8 @@ export class NodeExecutionCoordinator {
       toolService: config.toolService,
       agentLoopExecutorFactory: config.agentLoopExecutorFactory,
       workflowExecutionRegistry: config.workflowExecutionRegistry,
+      executionBuilder: config.executionBuilder,
+      workflowExecutor: config.workflowExecutor,
     });
   }
 
@@ -564,15 +575,38 @@ export class NodeExecutionCoordinator {
 
     // 4. Constructing the execution results
     const endTime = now();
-    const outputStatus = (
-      output as
-        | { status?: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "SKIPPED" | "CANCELLED" }
-        | undefined
-    )?.status;
+    
+    // Handle FORK nodes specially - output is ForkBranchResult[]
+    let status: NodeExecutionResult['status'] = 'COMPLETED';
+    
+    if (node.type === 'FORK') {
+      const branchResults = output as ForkBranchResult[] | undefined;
+      if (Array.isArray(branchResults) && branchResults.length > 0) {
+        // Check if any branch failed
+        const hasFailure = branchResults.some(r => r.executionResult.metadata.status === 'FAILED');
+        const hasCancelled = branchResults.some(r => r.executionResult.metadata.status === 'CANCELLED');
+        
+        if (hasFailure) {
+          status = 'FAILED';
+        } else if (hasCancelled) {
+          status = 'CANCELLED';
+        } else {
+          status = 'COMPLETED';
+        }
+      }
+    } else {
+      // For other node types, check status field directly
+      status = (
+        output as
+          | { status?: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "SKIPPED" | "CANCELLED" }
+          | undefined
+      )?.status || 'COMPLETED';
+    }
+    
     return {
       nodeId: node.id,
       nodeType: node.type,
-      status: outputStatus || "COMPLETED",
+      status,
       step: workflowExecutionEntity.getNodeResults().length + 1,
       startTime,
       endTime,

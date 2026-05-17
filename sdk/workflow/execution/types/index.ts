@@ -6,11 +6,25 @@
  */
 
 export {
-  type TriggeredSubgraphTask,
-  type ExecutedSubgraphResult,
+  type TriggeredSubworkflowTask,
+  type ExecutedSubworkflowResult,
   type TaskSubmissionResult,
-  type QueueTask,
+  type TriggeredSubworkflowQueueTask,
 } from "./triggered-subworkflow.types.js";
+
+export {
+  type SubgraphExecutionResult,
+  type ForkBranchResult,
+  type SubWorkflowExecutionResult,
+  createSubgraphResult,
+  createForkBranchResult,
+  toSubWorkflowResult,
+} from "./subworkflow-result.types.js";
+
+export {
+  type ForkHandlerContext,
+  type ForkExecutionConfig,
+} from "./fork.types.js";
 
 export {
   type ToolVisibilityContext,

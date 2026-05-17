@@ -21,8 +21,8 @@ import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import { now, diffTimestamp, getErrorMessage, getErrorOrNew } from "@wf-agent/common-utils";
 import { createSubgraphMetadata } from "./subgraph-handler.js";
 import type {
-  TriggeredSubgraphTask,
-  ExecutedSubgraphResult,
+  TriggeredSubworkflowTask,
+  ExecutedSubworkflowResult,
 } from "../types/triggered-subworkflow.types.js";
 import {
   buildTriggeredSubgraphStartedEvent,
@@ -56,13 +56,13 @@ export interface SubgraphContextFactory {
  * @returns: The sub-workflow context
  */
 export async function createSubgraphContext(
-  task: TriggeredSubgraphTask,
+  task: TriggeredSubworkflowTask,
   contextFactory: SubgraphContextFactory,
 ): Promise<WorkflowExecutionEntity> {
   const metadata = createSubgraphMetadata(task.triggerId, task.mainWorkflowExecutionEntity.id);
 
   const subgraphEntity = await contextFactory.buildSubgraphContext(
-    task.subgraphId,
+    task.subworkflowId,
     task.input,
     metadata,
   );
@@ -78,14 +78,14 @@ export async function createSubgraphContext(
  */
 export async function emitSubgraphStartedEvent(
   mainWorkflowExecutionEntity: WorkflowExecutionEntity,
-  task: TriggeredSubgraphTask,
+  task: TriggeredSubworkflowTask,
   eventManager: EventRegistry,
 ): Promise<void> {
   await eventManager.emit(
     buildTriggeredSubgraphStartedEvent({
       executionId: mainWorkflowExecutionEntity.id,
       workflowId: mainWorkflowExecutionEntity.getWorkflowId(),
-      subgraphId: task.subgraphId,
+      subgraphId: task.subworkflowId,
       triggerId: task.triggerId,
       input: task.input,
     }),
@@ -102,7 +102,7 @@ export async function emitSubgraphStartedEvent(
  */
 export async function emitSubgraphCompletedEvent(
   mainWorkflowExecutionEntity: WorkflowExecutionEntity,
-  task: TriggeredSubgraphTask,
+  task: TriggeredSubworkflowTask,
   subgraphEntity: WorkflowExecutionEntity,
   executionTime: number,
   eventManager: EventRegistry,
@@ -111,7 +111,7 @@ export async function emitSubgraphCompletedEvent(
     buildTriggeredSubgraphCompletedEvent({
       executionId: mainWorkflowExecutionEntity.id,
       workflowId: mainWorkflowExecutionEntity.getWorkflowId(),
-      subgraphId: task.subgraphId,
+      subgraphId: task.subworkflowId,
       triggerId: task.triggerId,
       output: subgraphEntity.getOutput(),
       executionTime,
@@ -129,7 +129,7 @@ export async function emitSubgraphCompletedEvent(
  */
 export async function emitSubgraphFailedEvent(
   mainWorkflowExecutionEntity: WorkflowExecutionEntity,
-  task: TriggeredSubgraphTask,
+  task: TriggeredSubworkflowTask,
   error: Error | string,
   executionTime: number,
   eventManager: EventRegistry,
@@ -138,7 +138,7 @@ export async function emitSubgraphFailedEvent(
     buildTriggeredSubgraphFailedEvent({
       executionId: mainWorkflowExecutionEntity.id,
       workflowId: mainWorkflowExecutionEntity.getWorkflowId(),
-      subgraphId: task.subgraphId,
+      subgraphId: task.subworkflowId,
       triggerId: task.triggerId,
       error: error instanceof Error ? error : new Error(getErrorMessage(error)),
       executionTime,
@@ -155,11 +155,11 @@ export async function emitSubgraphFailedEvent(
  * @returns The execution result, including the sub-workflow context, execution outcome, and execution time
  */
 export async function executeSingleTriggeredSubgraph(
-  task: TriggeredSubgraphTask,
+  task: TriggeredSubworkflowTask,
   contextFactory: SubgraphContextFactory,
   subgraphExecutor: SubgraphExecutor,
   eventManager: EventRegistry,
-): Promise<ExecutedSubgraphResult> {
+): Promise<ExecutedSubworkflowResult> {
   const startTime = now();
 
   try {
@@ -184,7 +184,7 @@ export async function executeSingleTriggeredSubgraph(
     );
 
     return {
-      subgraphEntity,
+      subworkflowEntity: subgraphEntity,
       executionResult: executionResult as WorkflowExecutionResult,
       executionTime,
     };

@@ -236,9 +236,9 @@ export const ApplyMessageOperationActionParametersSchema = z.object({
 });
 
 /**
- * Execute Triggered Subgraph Action Config Schema
+ * Execute Triggered Subworkflow Action Config Schema
  */
-export const ExecuteTriggeredSubgraphActionConfigSchema = z.object({
+export const ExecuteTriggeredSubworkflowActionConfigSchema = z.object({
   triggeredWorkflowId: z.string().min(1, "Triggered workflow ID is required"),
   waitForCompletion: z.boolean().optional(),
   timeout: z.number().int().positive().optional(),
@@ -333,7 +333,7 @@ export const TriggerActionSchema = z.discriminatedUnion("type", [
   // execute_triggered_subgraph
   z.object({
     type: z.literal("execute_triggered_subgraph"),
-    parameters: ExecuteTriggeredSubgraphActionConfigSchema,
+    parameters: ExecuteTriggeredSubworkflowActionConfigSchema,
     metadata: z.record(z.string(), z.any()).optional(),
   }),
   // execute_script

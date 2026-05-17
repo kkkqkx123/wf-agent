@@ -286,22 +286,29 @@ getSubgraphStack(): SubgraphContext[] {
 #### Child Execution Management
 
 ```typescript
-registerChildExecution(childExecutionId: ID): void {
-  if (!this.workflowExecution.triggeredSubworkflowContext) {
-    this.workflowExecution.triggeredSubworkflowContext = {
-      parentExecutionId: "",
-      childExecutionIds: [],
-      triggeredSubworkflowId: "",
-    };
-  }
-  if (!this.workflowExecution.triggeredSubworkflowContext.childExecutionIds.includes(childExecutionId)) {
-    this.workflowExecution.triggeredSubworkflowContext.childExecutionIds.push(childExecutionId);
-  }
+// NEW unified API (recommended)
+registerChild(childRef: ChildExecutionReference): void {
+  this.hierarchyManager.addChild(childRef);
+  this.syncHierarchyToDataObject();
+}
+
+unregisterChild(childId: ID, childType: 'WORKFLOW' | 'AGENT_LOOP' = 'WORKFLOW'): void {
+  this.hierarchyManager.removeChild(childId, childType);
+  this.syncHierarchyToDataObject();
 }
 
 getChildExecutionIds(): ID[] {
-  return this.workflowExecution.triggeredSubworkflowContext?.childExecutionIds || [];
+  return this.hierarchyManager.getChildren()
+    .filter(ref => ref.childType === 'WORKFLOW')
+    .map(ref => ref.childId);
 }
+
+// Example usage:
+entity.registerChild({
+  childType: 'WORKFLOW',
+  childId: childExecutionId,
+  createdAt: Date.now(),
+});
 ```
 
 ---

@@ -7,7 +7,7 @@ import type {
   WorkflowTrigger,
   TriggerCondition,
   TriggerAction,
-  ExecuteTriggeredSubgraphActionConfig,
+  ExecuteTriggeredSubworkflowActionConfig,
   ExecuteScriptActionConfig,
   TriggerReference,
 } from "@wf-agent/types";
@@ -16,7 +16,7 @@ import {
   TriggerActionSchema,
   WorkflowTriggerSchema,
   TriggerReferenceSchema,
-  ExecuteTriggeredSubgraphActionConfigSchema,
+  ExecuteTriggeredSubworkflowActionConfigSchema,
   ExecuteScriptActionConfigSchema,
 } from "@wf-agent/types";
 import { ConfigurationValidationError } from "@wf-agent/types";
@@ -43,11 +43,11 @@ export function validateTriggerCondition(
  * @param path: Field path (used for error paths)
  * @throws ValidationError: Throws a ValidationError when the configuration is invalid
  */
-export function validateExecuteTriggeredSubgraphActionConfig(
-  config: ExecuteTriggeredSubgraphActionConfig,
+export function validateExecuteTriggeredSubworkflowActionConfig(
+  config: ExecuteTriggeredSubworkflowActionConfig,
   path: string = "action.parameters",
-): Result<ExecuteTriggeredSubgraphActionConfig, ConfigurationValidationError[]> {
-  return validateConfig(config, ExecuteTriggeredSubgraphActionConfigSchema, path, "trigger");
+): Result<ExecuteTriggeredSubworkflowActionConfig, ConfigurationValidationError[]> {
+  return validateConfig(config, ExecuteTriggeredSubworkflowActionConfigSchema, path, "trigger");
 }
 
 /**

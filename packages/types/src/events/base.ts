@@ -42,6 +42,14 @@ export type EventType =
   | "NODE_FAILED"
   /** Node customization events */
   | "NODE_CUSTOM_EVENT"
+  /** Fork node started */
+  | "FORK_STARTED"
+  /** Fork branch started */
+  | "FORK_BRANCH_STARTED"
+  /** Fork branch completed */
+  | "FORK_BRANCH_COMPLETED"
+  /** Fork node completed */
+  | "FORK_COMPLETED"
   /** Token exceeds limit */
   | "TOKEN_LIMIT_EXCEEDED"
   /** Token Usage Warning */

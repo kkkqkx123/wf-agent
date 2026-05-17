@@ -7,8 +7,8 @@ import type {
   ExecuteWorkflowResult,
 } from "@sdk/workflow/execution/types/workflow-tool.types.js";
 import type {
-  TriggeredSubgraphTask,
-  ExecutedSubgraphResult,
+  TriggeredSubworkflowTask,
+  ExecutedSubworkflowResult,
   TaskSubmissionResult,
 } from "@sdk/workflow/execution/types/triggered-subworkflow.types.js";
 import * as Identifiers from "@sdk/core/di/service-identifiers.js";
@@ -101,16 +101,23 @@ export function createExecuteWorkflowHandler() {
     }
 
     // Build execution task
-    const task: TriggeredSubgraphTask = {
-      subgraphId: workflowId,
+    const task: TriggeredSubworkflowTask = {
+      subworkflowId: workflowId,
       input,
-      messageContexts,  // Pass message contexts to the triggered subworkflow
       mainWorkflowExecutionEntity: workflowContext.parentExecutionEntity,
       triggerId: `builtin-${context.executionId}-${Date.now()}`,
       config: {
         triggeredWorkflowId: workflowId,
         waitForCompletion,
         timeout,
+        // Pass message contexts via inputMapping.additionalParams if provided
+        ...(messageContexts && {
+          inputMapping: {
+            additionalParams: {
+              messageContexts,
+            },
+          },
+        }),
       },
     };
 
@@ -120,11 +127,11 @@ export function createExecuteWorkflowHandler() {
     // Process result
     if ("workflowExecutionResult" in result) {
       // Synchronous execution completed
-      const executedResult = result as ExecutedSubgraphResult;
+      const executedResult = result as ExecutedSubworkflowResult;
       return {
         success: true,
         status: "COMPLETED",
-        output: executedResult.subgraphEntity.getOutput(),
+        output: executedResult.subworkflowEntity.getOutput(),
         executionTime: executedResult.executionTime,
       };
     } else {

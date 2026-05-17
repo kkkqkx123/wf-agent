@@ -20,8 +20,8 @@ import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import type { WorkflowExecutionEntity } from "../../entities/index.js";
 import type { WorkflowExecutionResult } from "@wf-agent/types";
 import {
-  type QueueTask,
-  type ExecutedSubgraphResult,
+  type TriggeredSubworkflowQueueTask,
+  type ExecutedSubworkflowResult,
   type TaskSubmissionResult,
 } from "../../execution/types/triggered-subworkflow.types.js";
 import type { QueueStats } from "../../../core/types/index.js";
@@ -41,12 +41,12 @@ export class TaskQueue {
   /**
    * Waiting Execution Queue
    */
-  private pendingQueue: QueueTask[] = [];
+  private pendingQueue: TriggeredSubworkflowQueueTask[] = [];
 
   /**
    * Running task mapping
    */
-  private runningTasks: Map<string, QueueTask> = new Map();
+  private runningTasks: Map<string, TriggeredSubworkflowQueueTask> = new Map();
 
   /**
    * Task registration registry
@@ -95,13 +95,13 @@ export class TaskQueue {
     taskId: string,
     executionEntity: WorkflowExecutionEntity,
     timeout?: number,
-  ): Promise<ExecutedSubgraphResult> {
+  ): Promise<ExecutedSubworkflowResult> {
     return new Promise((resolve, reject) => {
-      const queueTask: QueueTask = {
+      const queueTask: TriggeredSubworkflowQueueTask = {
         taskId,
         workflowExecutionEntity: executionEntity,
         resolve: resolve as (
-          value: ExecutedSubgraphResult | PromiseLike<ExecutedSubgraphResult>,
+          value: ExecutedSubworkflowResult | PromiseLike<ExecutedSubworkflowResult>,
         ) => void,
         reject,
         submitTime: now(),
@@ -123,7 +123,7 @@ export class TaskQueue {
    * @returns Task submission result
    */
   submitAsync(taskId: string, executionEntity: WorkflowExecutionEntity, timeout?: number): TaskSubmissionResult {
-    const queueTask: QueueTask = {
+    const queueTask: TriggeredSubworkflowQueueTask = {
       taskId,
       workflowExecutionEntity: executionEntity,
       resolve: () => {}, // Asynchronous tasks do not require resolve
@@ -189,7 +189,7 @@ export class TaskQueue {
    * @param executor: The executor
    * @param queueTask: The queue task
    */
-  private async executeTask(executor: WorkflowExecutor, queueTask: QueueTask): Promise<void> {
+  private async executeTask(executor: WorkflowExecutor, queueTask: TriggeredSubworkflowQueueTask): Promise<void> {
     const startTime = now();
 
     try {
@@ -221,7 +221,7 @@ export class TaskQueue {
    * @param executionTime: Execution time
    */
   private async handleTaskCompleted(
-    queueTask: QueueTask,
+    queueTask: TriggeredSubworkflowQueueTask,
     executionResult: WorkflowExecutionResult,
     executionTime: number,
   ): Promise<void> {
@@ -244,8 +244,8 @@ export class TaskQueue {
 
     // If it is a synchronous task, call resolve.
     if (queueTask.resolve) {
-      const result: ExecutedSubgraphResult = {
-        subgraphEntity: queueTask.workflowExecutionEntity,
+      const result: ExecutedSubworkflowResult = {
+        subworkflowEntity: queueTask.workflowExecutionEntity,
         executionResult,
         executionTime,
       };
@@ -260,7 +260,7 @@ export class TaskQueue {
    * @param executionTime: Execution time
    */
   private async handleTaskFailed(
-    queueTask: QueueTask,
+    queueTask: TriggeredSubworkflowQueueTask,
     error: Error,
     _executionTime: number,
   ): Promise<void> {

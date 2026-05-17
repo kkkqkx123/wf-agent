@@ -54,3 +54,61 @@ export interface NodeCustomEvent extends BaseEvent {
   /** Event data */
   eventData: Record<string, unknown>;
 }
+
+/**
+ * Fork node start event type
+ */
+export interface ForkStartedEvent extends BaseEvent {
+  type: "FORK_STARTED";
+  /** Node ID */
+  nodeId: ID;
+  /** Number of fork branches */
+  branchCount: number;
+}
+
+/**
+ * Fork branch start event type
+ */
+export interface ForkBranchStartedEvent extends BaseEvent {
+  type: "FORK_BRANCH_STARTED";
+  /** Node ID */
+  nodeId: ID;
+  /** Fork path ID */
+  forkPathId: string;
+  /** Branch execution ID */
+  branchExecutionId: ID;
+}
+
+/**
+ * Fork branch completion event type
+ */
+export interface ForkBranchCompletedEvent extends BaseEvent {
+  type: "FORK_BRANCH_COMPLETED";
+  /** Node ID */
+  nodeId: ID;
+  /** Fork path ID */
+  forkPathId: string;
+  /** Branch execution ID */
+  branchExecutionId: ID;
+  /** Branch execution status */
+  status: string;
+  /** Execution time in milliseconds */
+  executionTime: number;
+}
+
+/**
+ * Fork node completion event type
+ */
+export interface ForkCompletedEvent extends BaseEvent {
+  type: "FORK_COMPLETED";
+  /** Node ID */
+  nodeId: ID;
+  /** Total number of branches */
+  totalBranches: number;
+  /** Number of successful branches */
+  successCount: number;
+  /** Number of failed branches */
+  failureCount: number;
+  /** Total execution time in milliseconds */
+  totalExecutionTime: number;
+}

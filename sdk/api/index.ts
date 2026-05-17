@@ -210,7 +210,7 @@ export {
 } from "../core/validation/index.js";
 export {
   validateTriggerCondition as validateTriggerConditionAPI,
-  validateExecuteTriggeredSubgraphActionConfig as validateExecuteTriggeredSubgraphActionConfigAPI,
+  validateExecuteTriggeredSubworkflowActionConfig as validateExecuteTriggeredSubworkflowActionConfigAPI,
   validateTriggerAction as validateTriggerActionAPI,
   validateWorkflowTrigger as validateWorkflowTriggerAPI,
   validateTriggerReference as validateTriggerReferenceAPI,

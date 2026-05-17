@@ -7,38 +7,49 @@
  * - Provide a complete lifecycle status for trigger workflows
  */
 
-import type { ID, ExecuteTriggeredSubgraphActionConfig, LLMMessage } from "@wf-agent/types";
+import type { ID, ExecuteTriggeredSubworkflowActionConfig } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../entities/index.js";
 import type { WorkflowExecutionResult } from "@wf-agent/types";
-import { TaskStatus } from "../../../core/types/index.js";
 
 /**
  * Trigger Sub-workflow Task Interface
+ * 
+ * Represents a task to execute a triggered subworkflow.
+ * All configuration including input/output mapping should be passed via the `config` field.
  */
-export interface TriggeredSubgraphTask {
-  /** Sub-workflow ID */
-  subgraphId: ID;
-  /** Input data (variables) */
+export interface TriggeredSubworkflowTask {
+  /** Sub-workflow ID (the workflow definition to execute) */
+  subworkflowId: ID;
+  /** Input data (variables) - will be merged with config.inputMapping if present */
   input: Record<string, unknown>;
-  /** Named message contexts to pass to the subworkflow */
-  messageContexts?: Record<string, LLMMessage[]>;
-  /** Trigger ID */
+  /** Trigger ID - unique identifier for this trigger event */
   triggerId: string;
-  /** Main Workflow Execution Entity */
+  /** Main Workflow Execution Entity - the parent execution context */
   mainWorkflowExecutionEntity: WorkflowExecutionEntity;
-  /** Configuration options */
-  config?: ExecuteTriggeredSubgraphActionConfig;
+  /** Configuration options including input/output mapping, timeout, etc. */
+  config?: ExecuteTriggeredSubworkflowActionConfig;
 }
 
 /**
- * Execute the return result of a single trigger workflow (synchronous execution)
+ * Execute the return result of a single trigger subworkflow (synchronous execution)
+ * 
+ * This interface provides comprehensive access to the subworkflow execution results.
+ * Use `executionResult.output` for the final output data, or access `subworkflowEntity`
+ * for internal state inspection and debugging purposes.
  */
-export interface ExecutedSubgraphResult {
-  /** Sub-workflow entity */
-  subgraphEntity: WorkflowExecutionEntity;
-  /** Execution result */
+export interface ExecutedSubworkflowResult {
+  /** 
+   * Subworkflow execution entity - provides access to internal state, variables, and metadata.
+   * Use this for debugging or when you need to inspect the execution context.
+   * For normal usage, prefer `executionResult.output` to get the final output.
+   */
+  subworkflowEntity: WorkflowExecutionEntity;
+  /** 
+   * Execution result containing output data, status, and other metadata.
+   * This is the primary source for retrieving the subworkflow's output.
+   */
   executionResult: WorkflowExecutionResult;
-  /** Execution time (in milliseconds) */
+  /** Execution time in milliseconds */
   executionTime: number;
 }
 
@@ -48,8 +59,8 @@ export interface ExecutedSubgraphResult {
 export interface TaskSubmissionResult {
   /** Task ID */
   taskId: string;
-  /** Task Status */
-  status: TaskStatus;
+  /** Task Status - QUEUED: successfully added to queue, REJECTED: rejected due to capacity or validation */
+  status: "QUEUED" | "REJECTED";
   /** Message */
   message: string;
   /** Submission time (in milliseconds) */
@@ -57,15 +68,18 @@ export interface TaskSubmissionResult {
 }
 
 /**
- * Queue Task Interface (for internal use)
+ * Queue Task Interface for Triggered Subworkflow (for internal use)
+ * 
+ * Note: This is specific to triggered subworkflow execution.
+ * For generic execution queue tasks, see sdk/core/execution/execution-queue.ts
  */
-export interface QueueTask {
+export interface TriggeredSubworkflowQueueTask {
   /** Task ID */
   taskId: string;
   /** Workflow Execution Entity */
   workflowExecutionEntity: WorkflowExecutionEntity;
   /** Promise resolve function */
-  resolve: (value: ExecutedSubgraphResult) => void;
+  resolve: (value: ExecutedSubworkflowResult) => void;
   /** Promise reject function */
   reject: (error: Error) => void;
   /** Submission time */

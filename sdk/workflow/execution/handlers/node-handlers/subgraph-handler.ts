@@ -27,6 +27,11 @@ import * as Identifiers from "../../../../core/di/service-identifiers.js";
 import type { WorkflowExecutor } from "../../executors/workflow-executor.js";
 import type { WorkflowExecutionBuilder } from "../../factories/workflow-execution-builder.js";
 import { getErrorOrNew } from "@wf-agent/common-utils";
+import {
+  createSubgraphResult,
+  type SubgraphExecutionResult,
+} from "../../types/subworkflow-result.types.js";
+import { cleanupFailedSubworkflow } from "../../utils/subworkflow-cleanup.js";
 
 const logger = createContextualLogger({ component: "subgraph-node-handler" });
 
@@ -34,7 +39,10 @@ const logger = createContextualLogger({ component: "subgraph-node-handler" });
  * SUBGRAPH Node Handler Context
  */
 export interface SubgraphHandlerContext {
-  // Context will be provided by NodeHandlerContextFactory
+  /** Execution builder for creating subgraph execution entities */
+  executionBuilder: WorkflowExecutionBuilder;
+  /** Workflow executor for executing subgraphs */
+  workflowExecutor: WorkflowExecutor;
 }
 
 /**
@@ -43,18 +51,18 @@ export interface SubgraphHandlerContext {
  * NOTE: SUBGRAPH only supports synchronous execution.
  * For asynchronous/parallel execution, use FORK nodes instead.
  * 
- * @param globalContext Global application context
+ * @param globalContext Global application context (not used directly)
  * @param workflowExecutionEntity Parent workflow execution entity
  * @param node SUBGRAPH runtime node
- * @param context Handler context (optional)
- * @returns Execution result
+ * @param context Handler context containing executionBuilder and workflowExecutor
+ * @returns SubgraphExecutionResult with subgraph entity, execution result, and timing
  */
 export async function subgraphHandler(
   globalContext: GlobalContext,
   workflowExecutionEntity: WorkflowExecutionEntity,
   node: RuntimeNode,
-  _context?: SubgraphHandlerContext,
-): Promise<unknown> {
+  context?: SubgraphHandlerContext,
+): Promise<SubgraphExecutionResult> {
   const config = node.config as SubgraphNodeConfig;
   const subworkflowId = config.subgraphId;
   
@@ -68,13 +76,15 @@ export async function subgraphHandler(
     subworkflowId,
   });
 
-  // Step 1: Get WorkflowExecutionBuilder from DI container
-  const executionBuilder = globalContext.container.get(
-    Identifiers.WorkflowExecutionBuilder
-  ) as WorkflowExecutionBuilder;
+  // Step 1: Validate required dependencies from context
+  const executionBuilder = context?.executionBuilder;
+  const executor = context?.workflowExecutor;
 
   if (!executionBuilder) {
-    throw new Error("WorkflowExecutionBuilder not available in DI container");
+    throw new Error('WorkflowExecutionBuilder required for SUBGRAPH execution');
+  }
+  if (!executor) {
+    throw new Error('WorkflowExecutor required for SUBGRAPH execution');
   }
 
   // Step 2: Build variable mappings from node config
@@ -117,7 +127,7 @@ export async function subgraphHandler(
 
     // Step 5: Execute subgraph synchronously
     const executionStartTime = Date.now();
-    const result = await executeSync(globalContext, subgraphEntity);
+    const executionResult = await executor.executeWorkflow(subgraphEntity);
     const executionDuration = Date.now() - executionStartTime;
     
     logger.info("Subgraph completed", {
@@ -166,7 +176,8 @@ export async function subgraphHandler(
       await exitSubgraph(workflowExecutionEntity, staticNode);
     }
 
-    return result;
+    // Step 8: Return standardized result
+    return createSubgraphResult(subgraphEntity, executionResult, executionDuration);
   } catch (error) {
     const errorObj = getErrorOrNew(error);
     const executionDuration = Date.now() - executionStartTime;
@@ -211,23 +222,15 @@ export async function subgraphHandler(
           subgraphExecutionId: subgraphEntity.id,
         });
 
-        // Stop execution if running
-        subgraphEntity.stop();
-
-        // Unregister from hierarchy registry
         const registry = globalContext.container.get(
           Identifiers.ExecutionHierarchyRegistry
         ) as any;
-        if (registry && typeof registry.unregister === 'function') {
-          registry.unregister(subgraphEntity.id);
-        }
-
-        // Remove from parent's children list
-        workflowExecutionEntity.unregisterChild(subgraphEntity.id, 'WORKFLOW');
-
-        logger.info("Failed subgraph cleaned up successfully", {
-          subgraphExecutionId: subgraphEntity.id,
-        });
+        
+        await cleanupFailedSubworkflow(
+          subgraphEntity,
+          workflowExecutionEntity,
+          registry
+        );
       } catch (cleanupError) {
         logger.warn("Failed to cleanup subgraph after error", {
           subgraphExecutionId: subgraphEntity.id,
@@ -244,32 +247,4 @@ export async function subgraphHandler(
   }
 }
 
-/**
- * Execute subgraph synchronously
- * @param globalContext Global application context
- * @param subgraphEntity Subgraph execution entity
- * @returns Execution result
- */
-async function executeSync(
-  globalContext: GlobalContext,
-  subgraphEntity: WorkflowExecutionEntity,
-): Promise<unknown> {
-  // Get WorkflowExecutor from DI container
-  const executor = globalContext.container.get(
-    Identifiers.WorkflowExecutor
-  ) as WorkflowExecutor;
 
-  if (!executor) {
-    throw new Error("WorkflowExecutor not available in DI container");
-  }
-
-  // Execute the subgraph workflow
-  const executionResult = await executor.executeWorkflow(subgraphEntity);
-
-  return {
-    executionId: subgraphEntity.id,
-    output: subgraphEntity.getOutput(),
-    status: subgraphEntity.getStatus(),
-    executionResult,
-  };
-}

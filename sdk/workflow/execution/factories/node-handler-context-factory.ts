@@ -15,7 +15,6 @@ import type { UserInteractionHandler } from "@wf-agent/types";
 import type { HumanRelayHandler } from "@wf-agent/types";
 import type { ConversationSession } from "../../../core/messaging/conversation-session.js";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
-// DEPRECATED: ToolContextStore removed in new architecture
 import type { ToolRegistry } from "../../../core/registry/tool-registry.js";
 import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-registry.js";
 import type { WorkflowExecutionBuilder } from "../factories/workflow-execution-builder.js";
@@ -96,7 +95,6 @@ export class NodeHandlerContextFactory {
     ["CONTEXT_PROCESSOR", (_node, entity) => this.createContextProcessorContext(entity)],
     ["LLM", (node, entity) => this.createLLMContext(node, entity)],
     ["AGENT_LOOP", (node, entity) => this.createAgentLoopContext(node, entity)],
-    // DEPRECATED: ADD_TOOL removed in new architecture (replaced by TOOL_VISIBILITY)
     ["TOOL_VISIBILITY", (node, entity) => this.createToolVisibilityContext(node, entity)],
     ["FORK", (node, entity) => this.createForkContext(node, entity)],
     ["SUBGRAPH", (node, entity) => this.createSubgraphContext(node, entity)],

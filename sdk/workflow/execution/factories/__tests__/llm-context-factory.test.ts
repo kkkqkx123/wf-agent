@@ -237,16 +237,6 @@ describe('LLMContextFactory', () => {
     });
   });
 
-  describe('createToolVisibilityContext', () => {
-    it('should return tool visibility context with all dependencies', () => {
-      const result = factory.createToolVisibilityContext();
-      
-      expect(result.toolContextStore).toBe(config.toolContextStore);
-      expect(result.toolVisibilityCoordinator).toBe(config.toolVisibilityCoordinator);
-      expect(result.toolService).toBe(config.toolService);
-    });
-  });
-
   describe('hasToolApprovalSupport', () => {
     it('should return true when both executionRegistry and checkpointStateManager are present', () => {
       expect(factory.hasToolApprovalSupport()).toBe(true);

@@ -4,7 +4,7 @@
 // Checkpoint - Universal Layer
 export * from "./checkpoint/index.js";
 
-// Checkpoint - Utils (legacy, will be deprecated)
+// Checkpoint - Utils
 export * from "./utils/checkpoint/index.js";
 
 // Coordinators

@@ -26,5 +26,4 @@ export {
   type InterruptionContext,
   type ToolExecutionContext,
   type LLMCallContext,
-  type ToolVisibilityContext,
 } from "./llm-context-factory.js";

@@ -143,7 +143,8 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
 
   /**
    * Get single event
-   * @deprecated Event history is not stored globally. Use execution-scoped listeners instead.
+   * Note: This method is required by ReadonlyResourceAPI template pattern but events are not stored globally.
+   * Always returns null. Use execution-scoped listeners instead.
    * @param id Event ID
    * @returns Always returns null as events are not persisted
    */
@@ -154,7 +155,8 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
 
   /**
    * Get all events
-   * @deprecated Event history is not stored globally. Use execution-scoped listeners instead.
+   * Note: This method is required by ReadonlyResourceAPI template pattern but events are not stored globally.
+   * Always returns empty array. Use execution-scoped listeners instead.
    * @returns Always returns empty array as events are not persisted
    */
   protected async getAllResources(): Promise<Event[]> {
@@ -164,7 +166,8 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
 
   /**
    * Apply filter conditions
-   * @deprecated Filtering requires event history which is not available
+   * Note: This method is required by ReadonlyResourceAPI template pattern but filtering requires event history which is not available.
+   * Returns the input array unchanged.
    */
   protected override applyFilter(events: Event[], _filter: EventFilter): Event[] {
     logger.warn('applyFilter is deprecated - no event history available for filtering');
@@ -186,7 +189,7 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
 
   /**
    * Get event list
-   * @deprecated Event history is not stored. Use execution-scoped listeners for real-time event collection.
+   * Note: Event history is not stored. Use execution-scoped listeners for real-time event collection.
    * @param filter Filter conditions (ignored)
    * @returns Always returns empty array
    */
@@ -229,7 +232,7 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
 
   /**
    * Get recent events
-   * @deprecated Event history is not stored. Use execution-scoped listeners for real-time event collection.
+   * Note: Event history is not stored. Use execution-scoped listeners for real-time event collection.
    * @param count Event count (ignored)
    * @param filter Filter conditions (ignored)
    * @returns Always returns empty array
@@ -241,7 +244,7 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
 
   /**
    * Search events
-   * @deprecated Event history is not stored. Use execution-scoped listeners for real-time event collection.
+   * Note: Event history is not stored. Use execution-scoped listeners for real-time event collection.
    * @param query Search keyword (ignored)
    * @param filter Filter conditions (ignored)
    * @returns Always returns empty array
@@ -253,7 +256,7 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
 
   /**
    * Get event timeline
-   * @deprecated Event history is not stored. Use execution-scoped listeners for real-time event collection.
+   * Note: Event history is not stored. Use execution-scoped listeners for real-time event collection.
    * @param executionId Execution ID (ignored)
    * @param workflowId Workflow ID (ignored)
    * @returns Always returns empty array
@@ -301,7 +304,7 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
 
   /**
    * Get workflow event statistics
-   * @deprecated Workflow-level tracking requires additional metrics labels
+   * Note: Workflow-level tracking requires additional metrics labels
    * @returns Empty object (workflow tracking not yet implemented in metrics)
    */
   async getWorkflowEventStatistics(): Promise<Record<string, number>> {
@@ -311,7 +314,7 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
 
   /**
    * Clear event history
-   * @deprecated Event history is not stored. Metrics cleanup is handled by EventRegistry.
+   * Note: Event history is not stored. Metrics cleanup is handled by EventRegistry.
    */
   async clearEventHistory(): Promise<void> {
     logger.warn('clearEventHistory is deprecated - metrics are managed by EventRegistry');
@@ -319,7 +322,7 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
 
   /**
    * Get event history size
-   * @deprecated Event history is not stored. Use metrics summary for total event count.
+   * Note: Event history is not stored. Use metrics summary for total event count.
    * @returns Always returns 0
    */
   async getEventHistorySize(): Promise<number> {
@@ -329,7 +332,7 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
 
   /**
    * Get event time range
-   * @deprecated Event history is not stored. Use metrics for timestamp information.
+   * Note: Event history is not stored. Use metrics for timestamp information.
    * @returns Always returns null
    */
   async getEventTimeRange(): Promise<{ start: number; end: number } | null> {
@@ -343,7 +346,7 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
 
   /**
    * Get agent execution events
-   * @deprecated Event history is not stored. Use execution-scoped listeners for agent events.
+   * Note: Event history is not stored. Use execution-scoped listeners for agent events.
    * @param agentLoopId Agent Loop ID (ignored)
    * @returns Always returns empty array
    */
@@ -354,7 +357,7 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
 
   /**
    * Get agent turn events
-   * @deprecated Event history is not stored. Use execution-scoped listeners for agent events.
+   * Note: Event history is not stored. Use execution-scoped listeners for agent events.
    * @param agentLoopId Agent Loop ID (ignored)
    * @returns Always returns empty array
    */
@@ -365,7 +368,7 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
 
   /**
    * Get agent tool execution events
-   * @deprecated Event history is not stored. Use execution-scoped listeners for agent events.
+   * Note: Event history is not stored. Use execution-scoped listeners for agent events.
    * @param agentLoopId Agent Loop ID (ignored)
    * @returns Always returns empty array
    */

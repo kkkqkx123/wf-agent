@@ -26,7 +26,6 @@ import type { WorkflowExecutor as WorkflowExecutorType } from "../../workflow/ex
 import type { WorkflowLifecycleCoordinator as WorkflowLifecycleCoordinatorType } from "../../workflow/execution/coordinators/workflow-lifecycle-coordinator.js";
 import type { WorkflowStateTransitor as WorkflowStateTransitorType } from "../../workflow/execution/coordinators/workflow-state-transitor.js";
 import type { CheckpointState as CheckpointStateType } from "../../workflow/checkpoint/checkpoint-state-manager.js";
-// DEPRECATED: ToolContextStore, ToolVisibilityStore, and ToolVisibilityCoordinator removed in new architecture
 import type { WorkflowConversationSession as GraphConversationSessionType } from "../../workflow/message/workflow-conversation-session.js";
 import type { LLMExecutor as LLMExecutorType } from "../executors/llm-executor.js";
 import type { ToolCallExecutor as ToolCallExecutorType } from "../executors/tool-call-executor.js";
@@ -36,7 +35,6 @@ import type { VariableCoordinator as VariableCoordinatorType } from "../../workf
 import type { TriggerCoordinator as TriggerCoordinatorType } from "../../workflow/execution/coordinators/trigger-coordinator.js";
 import type { NodeExecutionCoordinator as NodeExecutionCoordinatorType } from "../../workflow/execution/coordinators/node-execution-coordinator.js";
 import type { LLMExecutionCoordinator as LLMExecutionCoordinatorType } from "../../workflow/execution/coordinators/llm-execution-coordinator.js";
-// DEPRECATED: ToolVisibilityCoordinator removed in new architecture
 import type { CheckpointCoordinator as CheckpointCoordinatorType } from "../../workflow/checkpoint/checkpoint-coordinator.js";
 import type { ConversationSession as ConversationSessionType } from "../messaging/conversation-session.js";
 import type { TriggerState as TriggerStateType } from "../../workflow/state-managers/trigger-state.js";

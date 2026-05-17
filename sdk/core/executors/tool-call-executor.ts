@@ -121,9 +121,6 @@ export class ToolCallExecutor {
     private toolService: ToolRegistry,
     private eventManager?: EventRegistry,
     private checkpointDependencies?: CheckpointDependencies,
-    // DEPRECATED: toolVisibilityStore parameter is no longer used (replaced by ToolPermissionManager)
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _deprecated_toolVisibilityStore?: unknown,
     private eventBuilder?: EventBuilder,
     private createCheckpointFn?: CheckpointCreator,
     private safeEmitFn?: (

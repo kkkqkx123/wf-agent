@@ -174,19 +174,6 @@ export class WorkflowGraphBuilder {
   /**
    * Process sub-workflow nodes - Handles both SUBGRAPH and EMBED_GRAPH
    * 
-   * ARCHITECTURE CHANGE (Phase 1 & 3):
-   * 
-   * SUBGRAPH (Phase 1: Scheme C):
-   * - OLD MODEL: Expanded during graph building (mergeGraph)
-   * - NEW MODEL: Creates independent execution entities at runtime
-   * - STATUS: @deprecated, will be removed in future version
-   * 
-   * EMBED_GRAPH (Phase 3):
-   * - Lightweight graph expansion for pure control flow reuse
-   * - NO variable isolation (shares parent's VariableManager)
-   * - Strict validation: Cannot contain variables, triggers, or VARIABLE nodes
-   * - Uses mergeGraph() internally for expansion
-   * 
    * @param graph: The main graph
    * @param workflowRegistry: The workflow registry (for registering parent-child relationships)
    * @param workflowGraphRegistry: The workflow graph registry (for retrieving preprocessed subworkflow graphs)
@@ -424,8 +411,7 @@ export class WorkflowGraphBuilder {
       };
     },
   ): SubgraphMergeResult {
-    // NOTE: mergeGraph is deprecated for SUBGRAPH (Phase 1: Scheme C),
-    // but is still actively used for EMBED_GRAPH expansion (Phase 3).
+    // NOTE: mergeGraph is used for EMBED_GRAPH expansion (Phase 3).
     // SUBGRAPH nodes are executed as independent child workflows at runtime,
     // while EMBED_GRAPH nodes are expanded during preprocessing.
     logger.debug(

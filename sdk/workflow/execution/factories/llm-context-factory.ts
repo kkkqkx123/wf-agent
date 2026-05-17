@@ -58,14 +58,6 @@ export interface LLMCallContext {
   toolService: ToolRegistry;
 }
 
-/**
- * Tool Visibility Context
- */
-export interface ToolVisibilityContext {
-  // DEPRECATED: toolContextStore removed in new architecture
-  toolVisibilityCoordinator?: unknown;
-  toolService: ToolRegistry;
-}
 
 /**
  * LLM Context Factory Configuration
@@ -181,17 +173,6 @@ export class LLMContextFactory {
     };
   }
 
-  /**
-   * Create a tool visibility context
-   *
-   * @returns Tool visibility context
-   */
-  createToolVisibilityContext(): ToolVisibilityContext {
-    return {
-      // DEPRECATED: toolContextStore and toolVisibilityCoordinator removed in new architecture
-      toolService: this.config.toolService,
-    };
-  }
 
   /**
    * Check if the tool approval feature is supported

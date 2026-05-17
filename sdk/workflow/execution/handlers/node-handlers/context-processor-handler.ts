@@ -86,9 +86,6 @@ export interface ContextProcessorHandlerContext {
         }
       | undefined;
   };
-  // DEPRECATED: toolVisibilityCoordinator removed in new architecture
-  /** Workflow execution context (optional, used for refreshing tool visibility declarations) */
-  workflowExecutionContext?: unknown;
 }
 
 /**
@@ -218,7 +215,6 @@ export async function contextProcessorHandler(
     config.operationConfig,
     async () => {
       // Operation callback: Refresh the tool visibility declaration
-      // DEPRECATED: toolVisibilityCoordinator no longer used in new architecture
       // Tool visibility is now managed by ToolPermissionManager and automatically reflected in LLM calls
     },
   );

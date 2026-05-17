@@ -6,7 +6,6 @@ import type { RuntimeNode } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import type { GlobalContext } from "../../../../core/global-context.js";
 import type { StartFromTriggerHandlerContext } from "./start-from-trigger-handler.js";
-// DEPRECATED: addToolHandler removed in new architecture (replaced by toolVisibilityHandler)
 import { agentLoopHandler, type AgentLoopHandlerContext } from "./agent-loop-handler.js";
 import { contextProcessorHandler, type ContextProcessorHandlerContext } from "./context-processor-handler.js";
 import { continueFromTriggerHandler } from "./continue-from-trigger-handler.js";
@@ -100,5 +99,4 @@ export {
   toolVisibilityHandler,
 };
 
-// DEPRECATED: AddToolHandlerContext removed in new architecture
 export type { ToolVisibilityHandlerContext };

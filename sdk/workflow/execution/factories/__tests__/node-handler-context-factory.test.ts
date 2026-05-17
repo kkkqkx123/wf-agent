@@ -7,7 +7,6 @@ import type { UserInteractionHandler } from '@wf-agent/types';
 import type { HumanRelayHandler } from '@wf-agent/types';
 import type { ConversationSession } from '../../../../core/messaging/conversation-session.js';
 import type { EventRegistry } from '../../../../core/registry/event-registry.js';
-// DEPRECATED: ToolContextStore removed in new architecture
 import type { ToolRegistry } from '../../../../core/registry/tool-registry.js';
 import type { WorkflowExecutionRegistry } from '../../../stores/workflow-execution-registry.js';
 import type { WorkflowExecutionBuilder } from '../workflow-execution-builder.js';
@@ -84,8 +83,6 @@ const createMockUserInteractionHandler = (): UserInteractionHandler => ({
 const createMockHumanRelayHandler = (): HumanRelayHandler => ({
   handleRelay: () => Promise.resolve({}),
 } as any);
-
-// DEPRECATED: createMockToolContextStore removed in new architecture
 
 const createMockToolRegistry = (): ToolRegistry => ({
   tools: new Map(),
@@ -175,7 +172,6 @@ describe('NodeHandlerContextFactory', () => {
       conversationManager: createMockConversationSession(),
       userInteractionHandler: createMockUserInteractionHandler(),
       humanRelayHandler: createMockHumanRelayHandler(),
-      // DEPRECATED: toolContextStore removed in new architecture
       toolService: createMockToolRegistry(),
       agentLoopExecutorFactory: createMockAgentLoopExecutorFactory(),
       workflowExecutionRegistry: createMockWorkflowExecutionRegistry(),
@@ -263,8 +259,6 @@ describe('NodeHandlerContextFactory', () => {
         factoryWithoutWrapper.createHandlerContext(node, executionEntity)
       ).toThrow('LLMWrapper is required for LLM node');
     });
-
-    // DEPRECATED: ADD_TOOL tests removed in new architecture (replaced by TOOL_VISIBILITY)
 
     it('should create AGENT_LOOP context with required dependencies', () => {
       const node = createMockRuntimeNode('AGENT_LOOP');

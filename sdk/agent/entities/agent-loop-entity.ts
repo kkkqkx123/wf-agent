@@ -93,12 +93,6 @@ export class AgentLoopEntity {
   /** Abort Controller */
   abortController?: AbortController;
 
-  /** @deprecated Use hierarchyManager instead. Kept for backward compatibility during migration. */
-  parentExecutionId?: ID;
-
-  /** @deprecated Use hierarchyManager instead. Kept for backward compatibility during migration. */
-  nodeId?: ID;
-
   /** Execution Hierarchy Manager (unified parent-child relationship management) */
   private hierarchyManager: ExecutionHierarchyManager;
 
@@ -265,7 +259,6 @@ export class AgentLoopEntity {
 
   /**
    * Normalizing Message History
-   * @deprecated This method is a no-op kept for API compatibility. Consider removing in future versions.
    */
   normalizeHistory(): void {
     // No-op for compatibility

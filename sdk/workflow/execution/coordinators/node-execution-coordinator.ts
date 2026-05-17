@@ -29,7 +29,6 @@ import type { ConversationSession } from "../../../core/messaging/conversation-s
 import type { GlobalContext } from "../../../core/global-context.js";
 import type { InterruptionState } from "../../../core/types/interruption-state.js";
 import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-registry.js";
-// DEPRECATED: ToolContextStore removed in new architecture
 import type { ToolRegistry } from "../../../core/registry/tool-registry.js";
 import type { LLMWrapper } from "../../../core/llm/wrapper.js";
 import type { WorkflowExecutionBuilder } from "../factories/workflow-execution-builder.js";

@@ -328,7 +328,6 @@ export function configureContainerBindings(
           workflowRegistry: c.get(Identifiers.WorkflowRegistry) as WorkflowRegistry,
           workflowGraphRegistry: c.get(Identifiers.WorkflowGraphRegistry) as WorkflowGraphRegistry,
         },
-        undefined, // DEPRECATED: toolVisibilityStore parameter no longer used
         eventBuilder,
         createCheckpoint,
         emit,

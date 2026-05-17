@@ -76,8 +76,6 @@ export class WorkflowExecutionEntity {
   /** Trigger Management */
   triggerManager?: unknown;
 
-  // DEPRECATED: toolVisibilityCoordinator removed in new architecture
-
   /** Execution Hierarchy Manager (unified parent-child relationship management) */
   private hierarchyManager: ExecutionHierarchyManager;
 
@@ -360,7 +358,6 @@ export class WorkflowExecutionEntity {
 
   /**
    * Get the abort signal
-   * @deprecated Prefer using the InterruptionState injected into coordinators
    * This method is kept for backward compatibility with hooks and handlers
    */
   getAbortSignal(): AbortSignal {

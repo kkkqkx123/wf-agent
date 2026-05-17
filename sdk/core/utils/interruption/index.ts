@@ -10,12 +10,3 @@ export {
   executeWithInterruptionHandling,
   iterateWithInterruptionHandling,
 } from "./interruption-handler.js";
-
-// Backward compatibility exports (deprecated, use execution-* naming)
-export {
-  ExecutionInterruptionCheckResult as WorkflowInterruptionCheckResult,
-  checkWorkflowInterruption,
-  getWorkflowInterruptionType,
-  getWorkflowInterruptionDescription,
-  createInterruptionAbortReason,
-} from "./execution-interruption-utils.js";

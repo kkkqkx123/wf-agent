@@ -15,7 +15,6 @@
 
 import type { LLMMessage, BaseEvent, LLMToolCall, WorkflowConfig } from "@wf-agent/types";
 import { ConversationSession } from "../../../core/messaging/conversation-session.js";
-// DEPRECATED: ToolContextStore removed in new architecture
 import type { ToolPermissionManager } from "../../../core/coordinators/tool-permission-manager.js";
 import { emit } from "../utils/index.js";
 import type { ToolApprovalResult } from "@wf-agent/types";

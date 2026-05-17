@@ -422,23 +422,6 @@ export class TriggeredSubworkflowHandler implements TaskManager {
   }
 
   /**
-   * Cancel the parent-child relationship
-   * @param subgraphEntity Sub-workflow entity
-   * @deprecated Will be removed after migration to unified cleanup
-   */
-  private unregisterParentChildRelationship(subgraphEntity: WorkflowExecutionEntity): void {
-    const parentContext = subgraphEntity.getParentContext();
-    const childExecutionId = subgraphEntity.id;
-
-    if (parentContext) {
-      const parentEntity = this.workflowExecutionRegistry.get(parentContext.parentId);
-      if (parentEntity) {
-        parentEntity.unregisterChild(childExecutionId, 'WORKFLOW');
-      }
-    }
-  }
-
-  /**
    * Get parent entity from child
    */
   private getParentEntity(childEntity: WorkflowExecutionEntity): WorkflowExecutionEntity | undefined {
@@ -568,8 +551,13 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     if (success) {
       const taskInfo = this.taskRegistry.get(taskId);
       if (taskInfo && taskInfo.instanceType === "workflowExecution") {
-        // Cancel the parent-child relationship.
-        this.unregisterParentChildRelationship(taskInfo.instance as WorkflowExecutionEntity);
+        // Use unified cleanup function for parent-child relationship
+        const subgraphEntity = taskInfo.instance as WorkflowExecutionEntity;
+        const parentEntity = this.getParentEntity(subgraphEntity);
+        
+        if (parentEntity) {
+          await cleanupChildExecution(subgraphEntity, parentEntity, 'CANCELLED');
+        }
       }
     }
 

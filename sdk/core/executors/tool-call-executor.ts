@@ -35,7 +35,8 @@ import type { ConversationSession } from "../messaging/conversation-session.js";
 import { WorkflowCheckpointError } from "@wf-agent/types";
 import { MessageBuilder } from "../messaging/message-builder.js";
 import type { CheckpointDependencies } from "../../workflow/checkpoint/utils/checkpoint-utils.js";
-import type { ToolVisibilityStore } from "../../workflow/stores/tool-visibility-store.js";
+// DEPRECATED: ToolVisibilityStore import kept for backward compatibility but no longer used
+// import type { ToolVisibilityStore } from "../../workflow/stores/tool-visibility-store.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 import type { ToolFailureProtectionState } from "../state-managers/tool-failure-protection-state.js";
 import type { ToolMetricsCollector } from "../metrics/tool-collector.js";
@@ -122,7 +123,8 @@ export class ToolCallExecutor {
     private toolService: ToolRegistry,
     private eventManager?: EventRegistry,
     private checkpointDependencies?: CheckpointDependencies,
-    private toolVisibilityStore?: ToolVisibilityStore,
+    // DEPRECATED: toolVisibilityStore parameter is no longer used (replaced by ToolPermissionManager)
+    private _deprecated_toolVisibilityStore?: unknown,
     private eventBuilder?: EventBuilder,
     private createCheckpointFn?: CheckpointCreator,
     private safeEmitFn?: (
@@ -409,70 +411,6 @@ export class ToolCallExecutor {
         undefined,
         getErrorOrNew(error),
       );
-    }
-
-    // Check whether the tool is within the current visibility context.
-    if (executionId && this.toolVisibilityStore) {
-      if (!this.toolVisibilityStore.isToolVisible(executionId, toolCall.name)) {
-        const visibleTools = this.toolVisibilityStore.getVisibleTools(executionId);
-        const errorMessage = `Tool '${toolCall.name}' Not available in the current scope. Currently available tools: [${Array.from(visibleTools).join(", ")}]`;
-
-        // Failed to construct the tool result message using MessageBuilder.
-        const toolMessage = MessageBuilder.buildToolMessage(toolCall.id, {
-          success: false,
-          error: errorMessage,
-          executionTime: diffTimestamp(startTime, now()),
-          retryCount: 0,
-        });
-        conversationState.addMessage(toolMessage);
-
-        // Trigger message addition event
-        if (this.eventManager && this.eventBuilder && this.safeEmitFn) {
-          const messageEvent = this.eventBuilder.buildMessageAddedEvent({
-            executionId: executionId || "",
-            role: toolMessage.role,
-            content:
-              typeof toolMessage.content === "string"
-                ? toolMessage.content
-                : JSON.stringify(toolMessage.content),
-            nodeId,
-          });
-          await this.safeEmitFn(this.eventManager, messageEvent);
-        }
-
-        // Triggering the tool invocation failed event.
-        if (this.eventManager && this.eventBuilder && this.safeEmitFn) {
-          const failedEvent = this.eventBuilder.buildToolCallFailedEvent({
-            executionId: executionId || "",
-            nodeId: nodeId || "",
-            toolId: toolCall.name,
-            toolName: toolCall.name,
-            error: new Error(errorMessage),
-            taskId: taskInfo.taskId,
-            batchId,
-          });
-          await this.safeEmitFn(this.eventManager, failedEvent);
-        }
-
-        // Record tool call failure metrics
-        if (executionId && this.metricsCollector) {
-          this.metricsCollector.recordToolCallComplete(
-            toolCall.name,
-            executionId,
-            diffTimestamp(startTime, now()),
-            false,
-            JSON.stringify(toolCall.arguments).length,
-          );
-        }
-
-        return {
-          toolCallId: toolCall.id,
-          toolId: toolCall.name,
-          success: false,
-          error: errorMessage,
-          executionTime: diffTimestamp(startTime, now()),
-        };
-      }
     }
 
     // Check tool failure protection (NEW)

@@ -14,6 +14,7 @@
  */
 
 import type { WorkflowGraph, WorkflowExecution, WorkflowExecutionOptions, WorkflowConfig, MessageContextRegistry, VariableDefinition } from "@wf-agent/types";
+import { AvailableTools, resolveSchemaTools, resolveInitialTools } from "@wf-agent/types";
 import { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
 import { WorkflowExecutionState } from "../../state-managers/workflow-execution-state.js";
 import { ExecutionState } from "../../state-managers/execution-state.js";
@@ -31,6 +32,7 @@ import { logError, emitErrorEvent } from "../../../core/utils/error-utils.js";
 import type { ExecutionHierarchyRegistry } from "../../../core/registry/execution-hierarchy-registry.js";
 import type { GlobalContext } from "../../../core/global-context.js";
 import type { VariableManager } from "../../state-managers/variable-manager.js";
+import { ToolPermissionManager } from "../../../core/coordinators/tool-permission-manager.js";
 
 const logger = createContextualLogger({ operation: "workflow-execution-builder" });
 
@@ -287,6 +289,32 @@ export class WorkflowExecutionBuilder {
     
     // Attach registry to workflow execution for handlers to access
     (workflowExecution as WorkflowExecution & { messageContextRegistry?: MessageContextRegistry }).messageContextRegistry = messageContextRegistry;
+
+    // Step 7.5: Initialize ToolPermissionManager if AvailableTools is configured
+    if (workflowConfig?.availableTools) {
+      try {
+        const availableToolsConfig = workflowConfig.availableTools as AvailableTools;
+        const schemaTools = resolveSchemaTools(availableToolsConfig);
+        const initialTools = resolveInitialTools(availableToolsConfig);
+        
+        const permissionManager = new ToolPermissionManager(initialTools, schemaTools);
+        
+        // Store in DI container for this execution
+        // Note: This adds a new binding that will take precedence over the placeholder
+        if (this.globalContext) {
+          this.globalContext.container.bind(Identifiers.ToolPermissionManager).toConstantValue(permissionManager);
+        }
+        
+        logger.info('ToolPermissionManager initialized for workflow', {
+          workflowId,
+          executionId,
+          schemaToolsCount: schemaTools.length,
+          initialToolsCount: initialTools.length,
+        });
+      } catch (error) {
+        logger.warn('Failed to initialize ToolPermissionManager', { workflowId, executionId, error });
+      }
+    }
 
     // Step 8: Create ConversationSession
     const conversationManager = new ConversationSession({

@@ -18,6 +18,7 @@ import type { LLMExecutor } from "../../../core/executors/llm-executor.js";
 import type { ToolCallExecutor } from "../../../core/executors/tool-call-executor.js";
 import type { InterruptionDetector } from "../interruption-detector.js";
 import type { CheckpointState } from "../../checkpoint/checkpoint-state-manager.js";
+import type { ToolPermissionManager } from "../../../core/coordinators/tool-permission-manager.js";
 import { ExecutionError } from "@wf-agent/types";
 
 /**
@@ -95,6 +96,8 @@ export interface LLMContextFactoryConfig {
   toolContextStore?: unknown;
   /** Tool Visibility Coordinator */
   toolVisibilityCoordinator?: unknown;
+  /** Tool Permission Manager (NEW ARCHITECTURE) */
+  permissionManager?: ToolPermissionManager | null;
 }
 
 /**
@@ -281,5 +284,12 @@ export class LLMContextFactory {
    */
   getToolVisibilityCoordinator(): unknown {
     return this.config.toolVisibilityCoordinator;
+  }
+
+  /**
+   * Obtain the Tool Permission Manager (NEW ARCHITECTURE)
+   */
+  getPermissionManager(): ToolPermissionManager | null | undefined {
+    return this.config.permissionManager;
   }
 }

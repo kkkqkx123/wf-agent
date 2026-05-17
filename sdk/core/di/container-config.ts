@@ -82,6 +82,8 @@ import { WorkflowConversationSession } from "../../workflow/message/workflow-con
 import { ToolVisibilityStore } from "../../workflow/stores/tool-visibility-store.js";
 import { WorkflowExecutionBuilder } from "../../workflow/execution/factories/workflow-execution-builder.js";
 import { WorkflowExecutor } from "../../workflow/execution/executors/workflow-executor.js";
+import { ToolPermissionManager } from "../coordinators/tool-permission-manager.js";
+import { RejectionMessageBuilder } from "../coordinators/rejection-message-builder.js";
 
 // Execution Layer - Coordinators
 import { WorkflowExecutionCoordinator } from "../../workflow/execution/coordinators/workflow-execution-coordinator.js";
@@ -328,7 +330,7 @@ export function configureContainerBindings(
           workflowRegistry: c.get(Identifiers.WorkflowRegistry) as WorkflowRegistry,
           workflowGraphRegistry: c.get(Identifiers.WorkflowGraphRegistry) as WorkflowGraphRegistry,
         },
-        c.get(Identifiers.ToolVisibilityStore) as ToolVisibilityStore,
+        undefined, // DEPRECATED: toolVisibilityStore parameter no longer used
         eventBuilder,
         createCheckpoint,
         emit,
@@ -385,11 +387,13 @@ export function configureContainerBindings(
     })
     .inSingletonScope();
 
-  // ToolContextStore - A tool context store with no dependencies.
-  container.bind(Identifiers.ToolContextStore).to(ToolContextStore).inSingletonScope();
+  // ToolContextStore - DEPRECATED: No longer used in new architecture (replaced by ToolPermissionManager)
+  // Kept for backward compatibility during migration
+  // container.bind(Identifiers.ToolContextStore).to(ToolContextStore).inSingletonScope();
 
-  // ToolVisibilityStore - Tool Visibility Store (stateful), no dependencies
-  container.bind(Identifiers.ToolVisibilityStore).to(ToolVisibilityStore).inSingletonScope();
+  // ToolVisibilityStore - DEPRECATED: No longer used in new architecture (replaced by ToolPermissionManager)
+  // Kept for backward compatibility during migration
+  // container.bind(Identifiers.ToolVisibilityStore).to(ToolVisibilityStore).inSingletonScope();
 
   // ============================================================
   // Layer six: Depends on the execution layer services of layer five
@@ -601,7 +605,11 @@ export function configureContainerBindings(
             ).create(executionId, nodeId),
             navigator,
             toolService: c.get(Identifiers.ToolRegistry) as ToolRegistry,
-            toolContextStore: c.get(Identifiers.ToolContextStore) as ToolContextStore,
+            // DEPRECATED: toolContextStore no longer used (replaced by permissionManager)
+            // toolContextStore: c.get(Identifiers.ToolContextStore) as ToolContextStore,
+            toolContextStore: undefined,
+            permissionManager: c.get(Identifiers.ToolPermissionManager) as ToolPermissionManager | null,
+            rejectionBuilder: c.get(Identifiers.RejectionMessageBuilder) as RejectionMessageBuilder,
             checkpointDependencies: {
               workflowExecutionRegistry: c.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry,
               checkpointStateManager: c.get(Identifiers.CheckpointState) as CheckpointState,
@@ -851,6 +859,27 @@ export function configureContainerBindings(
       return storage;
     })
     .inSingletonScope();
+
+  // ============================================================
+  // Tool Permission Services (New Architecture)
+  // ============================================================
+
+  // RejectionMessageBuilder - Singleton service for building rejection messages
+  container
+    .bind(Identifiers.RejectionMessageBuilder)
+    .toDynamicValue(() => new RejectionMessageBuilder())
+    .inSingletonScope();
+
+  // ToolPermissionManager - Factory pattern, one instance per execution
+  // Will be initialized in WorkflowExecutionBuilder based on AvailableTools config
+  container
+    .bind(Identifiers.ToolPermissionManager)
+    .toDynamicValue(() => {
+      // This will be overridden by WorkflowExecutionBuilder during initialization
+      // Return a placeholder that will be replaced
+      return null;
+    })
+    .inTransientScope();
 
   // MetricsConfig - Load and merge metrics configuration with priority-based resolution
   // Priority: SDKOptions.metrics > Config file > Environment defaults > Hardcoded defaults

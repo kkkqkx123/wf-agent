@@ -35,6 +35,8 @@ import type { LLMWrapper } from "../../../core/llm/wrapper.js";
 import type { WorkflowExecutionBuilder } from "../factories/workflow-execution-builder.js";
 import type { WorkflowExecutor } from "../executors/workflow-executor.js";
 import type { ForkBranchResult } from "../types/subworkflow-result.types.js";
+import type { ToolPermissionManager } from "../../../core/coordinators/tool-permission-manager.js";
+import type { RejectionMessageBuilder } from "../../../core/coordinators/rejection-message-builder.js";
 import { LLMExecutionCoordinator } from "./llm-execution-coordinator.js";
 import { SDKError } from "@wf-agent/types";
 
@@ -112,6 +114,10 @@ export interface NodeExecutionCoordinatorConfig {
   executionBuilder?: WorkflowExecutionBuilder;
   /** Workflow Executor (optional, required for FORK nodes) */
   workflowExecutor?: WorkflowExecutor;
+  /** Tool Permission Manager (optional, new architecture) */
+  permissionManager?: ToolPermissionManager | null;
+  /** Rejection Message Builder (optional, new architecture) */
+  rejectionBuilder?: RejectionMessageBuilder;
 }
 
 /**
@@ -142,6 +148,10 @@ export class NodeExecutionCoordinator {
   // Metrics Registry
   private metricsRegistry: MetricsRegistry;
 
+  // Tool Permission Services (New Architecture)
+  private permissionManager?: ToolPermissionManager | null;
+  private rejectionBuilder?: RejectionMessageBuilder;
+
   constructor(config: NodeExecutionCoordinatorConfig) {
     // Core Dependencies
     this.globalContext = config.globalContext;
@@ -159,6 +169,10 @@ export class NodeExecutionCoordinator {
     // Get metrics registry from global context
     this.metricsRegistry = this.globalContext.metricsRegistry;
 
+    // Tool Permission Services (New Architecture)
+    this.permissionManager = config.permissionManager;
+    this.rejectionBuilder = config.rejectionBuilder;
+
     // Create a processor context factory
     this.handlerContextFactory = new NodeHandlerContextFactory({
       eventManager: config.eventManager,
@@ -173,6 +187,8 @@ export class NodeExecutionCoordinator {
       workflowExecutionRegistry: config.workflowExecutionRegistry,
       executionBuilder: config.executionBuilder,
       workflowExecutor: config.workflowExecutor,
+      permissionManager: config.permissionManager || undefined,
+      rejectionBuilder: config.rejectionBuilder,
     });
   }
 
@@ -299,6 +315,19 @@ export class NodeExecutionCoordinator {
     const executionId = workflowExecutionEntity.id;
     const signal = options?.abortSignal ?? this.interruptionManager.getAbortSignal();
     const workflowId = workflowExecutionEntity.getWorkflowId();
+
+    // Set permission manager on LLM coordinator for this execution (NEW ARCHITECTURE)
+    if (this.permissionManager) {
+      try {
+        // Access llmCoordinator from handlerContextFactory's config
+        const llmCoordinator = (this.handlerContextFactory as any).config.llmCoordinator;
+        if (llmCoordinator && typeof llmCoordinator.setPermissionManager === 'function') {
+          llmCoordinator.setPermissionManager(this.permissionManager);
+        }
+      } catch (error) {
+        logger.warn('Failed to set permission manager on LLM coordinator', { executionId, error });
+      }
+    }
 
     logger.debug("Starting node execution", { executionId, nodeId, nodeType, nodeName: (node as WorkflowNode).name || ((node as RuntimeNode) as WorkflowNode).originalNode?.name });
 

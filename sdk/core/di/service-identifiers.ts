@@ -62,6 +62,8 @@ import type {
   AgentLoopStorageAdapter as AgentLoopStorageAdapterType,
 } from "@wf-agent/storage";
 import type { MetricsRegistry as MetricsRegistryType } from "../metrics/metrics-registry.js";
+import type { ToolPermissionManager as ToolPermissionManagerType } from "../coordinators/tool-permission-manager.js";
+import type { RejectionMessageBuilder as RejectionMessageBuilderType } from "../coordinators/rejection-message-builder.js";
 
 // ============================================================
 // Storage Layer Service
@@ -440,3 +442,19 @@ export const MetricsRegistry: ServiceIdentifier<MetricsRegistryType> = Symbol("M
  * Provides configuration for the metrics system
  */
 export const MetricsConfig: ServiceIdentifier<import("../../api/shared/types/core-types.js").MetricsConfig> = Symbol("MetricsConfig");
+
+// ============================================================
+// Tool Permission Services (New Architecture)
+// ============================================================
+
+/**
+ * ToolPermissionManager - Tool Permission Manager
+ * Manages runtime tool permissions (enabled/disabled state)
+ */
+export const ToolPermissionManager: ServiceIdentifier<ToolPermissionManagerType> = Symbol("ToolPermissionManager");
+
+/**
+ * RejectionMessageBuilder - Rejection Message Builder
+ * Builds customized rejection messages for blocked tools
+ */
+export const RejectionMessageBuilder: ServiceIdentifier<RejectionMessageBuilderType> = Symbol("RejectionMessageBuilder");

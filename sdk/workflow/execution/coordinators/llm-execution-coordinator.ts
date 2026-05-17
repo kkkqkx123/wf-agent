@@ -16,6 +16,7 @@
 import type { LLMMessage, BaseEvent, LLMToolCall, WorkflowConfig } from "@wf-agent/types";
 import { ConversationSession } from "../../../core/messaging/conversation-session.js";
 import type { ToolContextStore } from "../../stores/tool-context-store.js";
+import type { ToolPermissionManager } from "../../../core/coordinators/tool-permission-manager.js";
 import { emit } from "../utils/index.js";
 import type { ToolApprovalResult } from "@wf-agent/types";
 import { generateId } from "../../../utils/index.js";
@@ -137,6 +138,16 @@ export class LLMExecutionCoordinator {
   }
 
   /**
+   * Set Tool Permission Manager dynamically (called by NodeExecutionCoordinator)
+   * This allows per-execution permission manager to be injected
+   * @param permissionManager - The permission manager for this execution
+   */
+  setPermissionManager(permissionManager: ToolPermissionManager | null): void {
+    // Update the context factory's config
+    (this.contextFactory as any).config.permissionManager = permissionManager;
+  }
+
+  /**
    * Check if it has been aborted
    *
    * @param executionId Execution ID
@@ -238,17 +249,19 @@ export class LLMExecutionCoordinator {
     }
 
     try {
-      // Workflow-specific: Prepare tools from tool context store
+      // Workflow-specific: Prepare tools from permission manager (NEW ARCHITECTURE)
       let availableTools = tools;
-      const toolContextStore = this.contextFactory.getToolContextStore() as
-        | ToolContextStore
+      const permissionManager = this.contextFactory.getPermissionManager?.() as
+        | ToolPermissionManager
         | undefined;
-      if (toolContextStore) {
-        const availableToolIds = toolContextStore.getTools(executionId);
-
-        if (availableToolIds.size > 0) {
+      
+      if (permissionManager) {
+        // New architecture: use permission manager to get enabled tools
+        const enabledToolIds = permissionManager.getEnabledTools();
+        
+        if (enabledToolIds.length > 0) {
           const toolService = this.contextFactory.getToolService();
-          const resolvedTools = Array.from(availableToolIds as Set<string>)
+          const resolvedTools = enabledToolIds
             .map(id => {
               try {
                 return toolService.getTool(id);
@@ -259,6 +272,29 @@ export class LLMExecutionCoordinator {
             .filter(Boolean);
 
           availableTools = resolvedTools;
+        }
+      } else {
+        // Fallback to old architecture for backward compatibility
+        const toolContextStore = this.contextFactory.getToolContextStore() as
+          | ToolContextStore
+          | undefined;
+        if (toolContextStore) {
+          const availableToolIds = toolContextStore.getTools(executionId);
+
+          if (availableToolIds.size > 0) {
+            const toolService = this.contextFactory.getToolService();
+            const resolvedTools = Array.from(availableToolIds as Set<string>)
+              .map(id => {
+                try {
+                  return toolService.getTool(id);
+                } catch {
+                  return null;
+                }
+              })
+              .filter(Boolean);
+
+            availableTools = resolvedTools;
+          }
         }
       }
 

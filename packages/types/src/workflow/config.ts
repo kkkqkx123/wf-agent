@@ -56,6 +56,13 @@ export interface WorkflowConfig {
   toolApproval?: ToolApprovalOptions;
   
   /**
+   * Available Tools Configuration
+   * Defines the complete set of tools that can be used during workflow execution,
+   * with support for initial availability and dynamic visibility control.
+   */
+  availableTools?: import('./tool-config.js').AvailableTools;
+  
+  /**
    * Predefined system messages
    * 
    * Automatically created as 'system' context on execution start.

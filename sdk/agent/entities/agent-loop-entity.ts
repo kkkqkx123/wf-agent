@@ -1,53 +1,24 @@
 /**
  * AgentLoopEntity - Agent Loop Execution Instance
  *
- * A pure data entity that encapsulates the data access operations of an Agent Loop instance.
- * Refer to WorkflowExecutionEntity design pattern.
+ * A pure data entity that encapsulates the execution state and runtime managers of an Agent Loop.
  *
  * ## Architecture Overview
  *
  * This entity wraps three key components:
  * 1. **Config** (immutable): `AgentLoopRuntimeConfig` - defines behavior and callbacks
- * 2. **State** (mutable): `AgentLoopState` - tracks execution progress (serializable)
- * 3. **Managers** (runtime): `ConversationSession` - runtime state manager
- *
- * ## Why Not Separate Data Object?
- *
- * Unlike `WorkflowExecutionEntity` which separates data into `WorkflowExecution` + `WorkflowExecutionState`,
- * `AgentLoopEntity` keeps config and state together because:
- *
- * 1. **Simpler Execution Model**: Linear iteration vs graph traversal
- *    - Agent Loop: Single node, repeated iterations
- *    - Workflow: Multiple nodes, complex graph navigation, parallel execution
- *
- * 2. **Lighter Runtime Data**: Iteration count vs node results + variable scopes
- *    - Agent Loop: ~5-6 fields (iteration, history, status)
- *    - Workflow: ~15+ fields (graph, nodeResults, 4-level variable scopes, subgraph context)
- *
- * 3. **No Need for Separate Serializable Object**
- *    - Agent Loop: Only `AgentLoopState` needs serialization (already separate)
- *    - Workflow: Complex `WorkflowExecution` object needs independent serialization
+ * 2. **State** (mutable, serializable): `AgentLoopState` - tracks execution progress
+ * 3. **Managers** (runtime): `ConversationSession`, `ExecutionHierarchyManager`, `ToolFailureProtectionState`
  *
  * ## Checkpoint Strategy
  *
- * - **Serialized**: `AgentLoopState` (iteration history, tool calls, streaming state)
- * - **NOT Serialized**: `AgentLoopRuntimeConfig` (contains functions), managers (runtime-only)
+ * - **Serialized**: `AgentLoopState` only (iteration history, tool calls, streaming state)
+ * - **NOT Serialized**: Config (contains functions), managers (runtime-only)
  * - **On Restore**: Config is re-provided by application, state is restored from checkpoint
- *
- * ## Comparison with WorkflowExecutionEntity
- *
- * | Aspect | AgentLoopEntity | WorkflowExecutionEntity |
- * |--------|----------------|------------------------|
- * | Data Object | ❌ No separate data object | ✅ WorkflowExecution (complex graph) |
- * | State Manager | ✅ AgentLoopState | ✅ WorkflowExecutionState |
- * | Complexity | Low (linear iteration) | High (graph traversal) |
- * | Serializable Data | State only | Data object + State |
- * | Restoration | Re-provide config + restore state | Restore data object + state |
  *
  * @see AgentLoopRuntimeConfig - Runtime configuration (with callbacks)
  * @see AgentLoopState - Execution state manager (serializable)
  * @see AgentLoopFactory - Factory for creating instances
- * @see WorkflowExecutionEntity - Similar pattern for workflow execution
  */
 
 import type { ID, LLMMessage, AgentLoopRuntimeConfig, AgentLoopStateSnapshot } from "@wf-agent/types";
@@ -107,31 +78,31 @@ export class AgentLoopEntity {
   /** Execution Instance ID */
   readonly id: string;
 
-  /** deployment */
+  /** Runtime configuration (immutable) */
   readonly config: AgentLoopRuntimeConfig;
 
-  /** execution status (computing) */
+  /** Execution state manager (mutable, serializable) */
   readonly state: AgentLoopState;
 
   /** Dialogue Manager (unified message management) */
   conversationManager: ConversationSession;
 
-  /** Tool Failure Protection State Manager (NEW) */
+  /** Tool Failure Protection State Manager */
   readonly toolFailureProtection: ToolFailureProtectionState;
 
   /** Abort Controller */
   abortController?: AbortController;
 
-  /** Parent Execution ID (if executed as a Graph node) */
+  /** @deprecated Use hierarchyManager instead. Kept for backward compatibility during migration. */
   parentExecutionId?: ID;
 
-  /** Node ID (if executed as a Graph node) */
+  /** @deprecated Use hierarchyManager instead. Kept for backward compatibility during migration. */
   nodeId?: ID;
 
-  /** Execution Hierarchy Manager (NEW - unified parent-child relationship management) */
+  /** Execution Hierarchy Manager (unified parent-child relationship management) */
   private hierarchyManager: ExecutionHierarchyManager;
 
-  // ========== Steering & Follow-up (NEW) ==========
+  // ========== Steering & Follow-up ==========
 
   /** Steering message queue (for interrupting tool execution) */
   private steeringQueue: LLMMessage[] = [];
@@ -153,7 +124,7 @@ export class AgentLoopEntity {
   /**
    * Constructor
    * @param id Execution instance ID
-   * @param config Cyclic configuration
+   * @param config Runtime configuration
    * @param state Execution state (optional, new instance created by default)
    * @param conversationManagerConfig conversation manager configuration (optional)
    * @param toolFailureProtectionConfig tool failure protection configuration (optional)
@@ -294,13 +265,13 @@ export class AgentLoopEntity {
 
   /**
    * Normalizing Message History
-   * Note: ConversationSession does not have this method and leaves it empty for compatibility.
+   * @deprecated This method is a no-op kept for API compatibility. Consider removing in future versions.
    */
   normalizeHistory(): void {
     // No-op for compatibility
   }
 
-  // Stop control ============
+  // Stop control ==========
 
   /**
    * Getting the abort signal
@@ -319,7 +290,7 @@ export class AgentLoopEntity {
     return this.abortController?.signal.aborted ?? false;
   }
 
-  // ========== Interrupt Control ----------
+  // ========== Interrupt Control ==========
 
   /**
    * suspension of action
@@ -386,7 +357,7 @@ export class AgentLoopEntity {
     this.state.resetInterrupt();
   }
 
-  // ========== Steering & Follow-up (NEW) ==========
+  // ========== Steering & Follow-up ==========
 
   /**
    * Inject a steering message
@@ -534,10 +505,10 @@ export class AgentLoopEntity {
     return this.followUpQueue.length;
   }
 
-  // ========== Hierarchy Management (NEW) ==========
+  // ========== Hierarchy Management ==========
 
   /**
-   * Set parent execution context (NEW unified API)
+   * Set parent execution context (unified API)
    * 
    * Replaces parentExecutionId and nodeId fields for unified parent-child relationship management.
    * Supports both Workflow and Agent parents with type safety.
@@ -564,7 +535,7 @@ export class AgentLoopEntity {
   }
 
   /**
-   * Get parent execution context (NEW unified API)
+   * Get parent execution context (unified API)
    * 
    * @returns Parent execution context or undefined if root node
    */
@@ -573,7 +544,7 @@ export class AgentLoopEntity {
   }
 
   /**
-   * Register child execution reference (NEW unified API)
+   * Register child execution reference (unified API)
    * 
    * Supports tracking both Workflow and Agent children spawned by this Agent.
    * 
@@ -600,7 +571,7 @@ export class AgentLoopEntity {
   }
 
   /**
-   * Unregister child execution reference (NEW unified API)
+   * Unregister child execution reference (unified API)
    * 
    * @param childId Child execution ID
    * @param childType Child execution type (defaults to 'AGENT_LOOP' for backward compatibility)
@@ -610,7 +581,7 @@ export class AgentLoopEntity {
   }
 
   /**
-   * Get all child execution references (NEW unified API)
+   * Get all child execution references (unified API)
    * 
    * @returns Array of child execution references
    */
@@ -619,7 +590,7 @@ export class AgentLoopEntity {
   }
 
   /**
-   * Get hierarchy depth (NEW unified API)
+   * Get hierarchy depth (unified API)
    * 
    * @returns Depth in hierarchy tree (0 for root)
    */
@@ -628,7 +599,7 @@ export class AgentLoopEntity {
   }
 
   /**
-   * Get root execution ID (NEW unified API)
+   * Get root execution ID (unified API)
    * 
    * @returns Root execution ID
    */
@@ -637,7 +608,7 @@ export class AgentLoopEntity {
   }
 
   /**
-   * Get root execution type (NEW unified API)
+   * Get root execution type (unified API)
    * 
    * @returns Root execution type
    */
@@ -646,7 +617,7 @@ export class AgentLoopEntity {
   }
 
   /**
-   * Check if this is a root execution (NEW unified API)
+   * Check if this is a root execution (unified API)
    * 
    * @returns True if no parent
    */
@@ -655,7 +626,7 @@ export class AgentLoopEntity {
   }
 
   /**
-   * Get complete hierarchy metadata (NEW unified API)
+   * Get complete hierarchy metadata (unified API)
    * 
    * @returns Hierarchy metadata for serialization
    */
@@ -664,7 +635,7 @@ export class AgentLoopEntity {
   }
 
   /**
-   * Restore hierarchy from metadata (NEW unified API)
+   * Restore hierarchy from metadata (unified API)
    * 
    * Used during checkpoint restoration.
    * 
@@ -681,7 +652,7 @@ export class AgentLoopEntity {
     this.hierarchyManager = newManager;
   }
 
-  // ========== Tool Management (NEW) ==========
+  // ========== Tool Management ==========
 
   /**
    * Get currently available tools from configuration
@@ -754,7 +725,10 @@ export class AgentLoopEntity {
     const state = new AgentLoopState();
     state.restoreFromSnapshot(snapshot);
 
-    // Restore config from snapshot (may contain functions, so cast is needed)
+    // Restore config from snapshot
+    // Note: In production, config should be re-provided by application rather than restored from snapshot
+    // because AgentLoopRuntimeConfig contains non-serializable functions.
+    // This cast is a temporary workaround; proper implementation should accept config as a parameter.
     const config = snapshot.config as AgentLoopRuntimeConfig;
 
     // Create entity with restored state and config

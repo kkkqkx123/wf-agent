@@ -64,9 +64,10 @@ export const AgentLoopMetadataSchema = z.record(z.string(), z.unknown());
 
 /**
  * Agent Tool Configuration Schema
+ * Matches AgentToolConfig interface: tools + requireApproval
  */
 export const AgentToolConfigSchema = z.object({
-  allowList: z.array(z.string()).optional(),
+  tools: z.array(z.string()),
   requireApproval: z.array(z.string()).optional(),
 });
 

@@ -41,13 +41,11 @@ export interface ToolVisibilityHandlerContext {
 
 /**
  * Tool visibility node handler
- * @param workflowExecution - Workflow execution instance
  * @param node - Node definition
  * @param context - Handler context
  * @returns Execution result
  */
 export async function toolVisibilityHandler(
-  workflowExecution: WorkflowExecution,
   node: RuntimeNode,
   context: ToolVisibilityHandlerContext,
 ): Promise<ToolVisibilityExecutionResult> {

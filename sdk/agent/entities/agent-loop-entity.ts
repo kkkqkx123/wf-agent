@@ -764,7 +764,6 @@ export class AgentLoopEntity {
     entity.setMessages(snapshot.messages as LLMMessage[]);
 
     // Invalidate cache after restoration to ensure fresh computation
-    entity.toolsChanged = true;
     entity.cachedAvailableTools = undefined;
 
     return entity;

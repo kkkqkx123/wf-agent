@@ -5,10 +5,7 @@
 // Visibility-related templates
 export {
   TOOL_VISIBILITY_DECLARATION_TEMPLATE,
-  TOOL_TABLE_ROW_TEMPLATE,
-  VISIBILITY_CHANGE_TYPE_TEXTS,
 } from "./visibility/declaration.js";
-export type { VisibilityChangeType } from "./visibility/declaration.js";
 
 // Tool Description Render Functions
 export {

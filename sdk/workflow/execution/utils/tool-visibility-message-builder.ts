@@ -10,6 +10,7 @@
 
 import type { ToolScope } from "../../stores/tool-context-store.js";
 import type { ToolRegistry } from "../../../core/registry/tool-registry.js";
+import type { VisibilityChangeType } from "../types/tool-visibility.types.js";
 import { renderTemplate } from "@wf-agent/common-utils";
 import { TOOL_VISIBILITY_DECLARATION_TEMPLATE } from "@wf-agent/prompt-templates";
 
@@ -17,7 +18,74 @@ import { TOOL_VISIBILITY_DECLARATION_TEMPLATE } from "@wf-agent/prompt-templates
  * Tool Visibility Message Builder
  */
 export class ToolVisibilityMessageBuilder {
-  constructor(private toolService: ToolRegistry) {}
+  constructor(private toolService: ToolRegistry) {
+    // toolService is used in buildVisibilityDeclarationMessage
+  }
+
+  /**
+   * Build visibility declaration message
+   * Generates a complete tool visibility declaration for scope changes
+   * 
+   * @param scope Current scope
+   * @param scopeId Scope ID
+   * @param availableTools List of available tool IDs
+   * @param changeType Type of change
+   * @returns Declaration message content
+   */
+  buildVisibilityDeclarationMessage(
+    scope: ToolScope,
+    scopeId: string,
+    availableTools: string[],
+    changeType: VisibilityChangeType,
+  ): string {
+    // Get tool descriptions
+    const toolDescriptions = availableTools
+      .map(toolId => {
+        const tool = this.toolService.getTool(toolId);
+        if (!tool) return null;
+        return `- ${toolId}: ${tool.description || 'No description'}`;
+      })
+      .filter((desc): desc is string => desc !== null)
+      .join('\n');
+
+    // For now, use the simple update notification format
+    // This can be enhanced later with a full declaration template if needed
+    return this.buildUpdateNotification(
+      availableTools.map(id => {
+        const tool = this.toolService.getTool(id);
+        return {
+          id,
+          description: tool?.description || 'No description',
+        };
+      }),
+      undefined,
+    );
+  }
+
+  /**
+   * Build metadata for visibility declaration
+   * 
+   * @param scope Current scope
+   * @param scopeId Scope ID
+   * @param availableTools List of available tool IDs
+   * @param changeType Type of change
+   * @returns Metadata object
+   */
+  buildVisibilityDeclarationMetadata(
+    scope: ToolScope,
+    scopeId: string,
+    availableTools: string[],
+    changeType: VisibilityChangeType,
+  ): Record<string, unknown> {
+    return {
+      type: "tool_visibility_declaration",
+      scope,
+      scopeId,
+      toolIds: availableTools,
+      changeType,
+      timestamp: Date.now(),
+    };
+  }
 
   /**
    * Build lightweight tool update notification

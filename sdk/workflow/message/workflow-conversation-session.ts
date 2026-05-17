@@ -84,7 +84,7 @@ export class WorkflowConversationSession extends ConversationSession {
 
     // Use only the initial set of tools.
     const initialToolIds = this.availableTools.initial;
-    if (initialToolIds.length === 0) {
+    if (!initialToolIds || initialToolIds.length === 0) {
       return null;
     }
 

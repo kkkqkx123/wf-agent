@@ -27,7 +27,7 @@ import {
   buildForkCompletedEvent,
 } from "../../utils/event/index.js";
 import * as Identifiers from "../../../../core/di/service-identifiers.js";
-import { cleanupFailedSubworkflow } from "../../utils/subworkflow-cleanup.js";
+import { cleanupChildExecution } from "../../utils/child-execution-cleanup.js";
 
 const logger = createContextualLogger({ component: "fork-node-handler" });
 
@@ -97,6 +97,9 @@ export async function forkHandler(
   });
 
   const startTime = now();
+  
+  // Track branch creations for cleanup in case of failure
+  let branchCreations: Array<{ pathId: string; branchEntity: any }> = [];
 
   try {
     // Emit FORK_STARTED event
@@ -116,12 +119,14 @@ export async function forkHandler(
       branchCount: forkPaths.length,
     });
 
-    const branchCreations = await Promise.all(
+    branchCreations = await Promise.all(
       forkPaths.map(async (path) => {
-        const buildResult = await builder.createFork(workflowExecutionEntity, {
-          forkId: node.id,
-          forkPathId: path.pathId,
-          startNodeId: path.childNodeId,
+        const buildResult = await builder.createChildExecution(workflowExecutionEntity, {
+          type: 'FORK_BRANCH',
+          config: {
+            forkPathId: path.pathId,
+            startNodeId: path.childNodeId,
+          },
         });
 
         logger.debug("Fork branch entity created", {
@@ -177,19 +182,29 @@ export async function forkHandler(
       })
     );
 
-    // Step 3: Build ForkBranchResult array
-    const results: ForkBranchResult[] = branchCreations.map((branch, index) => {
-      const executionResult = executionResults[index];
-      if (!executionResult) {
-        throw new Error(`Missing execution result for branch ${branch.pathId}`);
-      }
-      return createForkBranchResult(
-        branch.pathId,
-        branch.branchEntity,
-        executionResult,
-        executionResult.executionTime
-      );
-    });
+    // Step 3: Build ForkBranchResult array with cleanup
+    const results: ForkBranchResult[] = await Promise.all(
+      branchCreations.map(async (branch, index) => {
+        const executionResult = executionResults[index];
+        if (!executionResult) {
+          throw new Error(`Missing execution result for branch ${branch.pathId}`);
+        }
+        
+        // Cleanup branch execution entity after completion
+        await cleanupChildExecution(
+          branch.branchEntity,
+          workflowExecutionEntity,
+          executionResult.metadata.status === 'COMPLETED' ? 'COMPLETED' : 'FAILED'
+        );
+        
+        return createForkBranchResult(
+          branch.pathId,
+          branch.branchEntity,
+          executionResult,
+          executionResult.executionTime
+        );
+      })
+    );
 
     // Emit FORK_BRANCH_COMPLETED events for each branch
     if (eventManager) {
@@ -272,8 +287,33 @@ export async function forkHandler(
     });
 
     // Cleanup any created branch entities on failure
-    // Note: In a real scenario, you might want to track which branches were created before the error
-    // For now, we log the failure and let the individual branch executions handle their own cleanup
+    // Track which branches were successfully created before the error
+    if (branchCreations && branchCreations.length > 0) {
+      logger.debug("Cleaning up fork branches due to failure", {
+        nodeId: node.id,
+        branchCount: branchCreations.length,
+      });
+      
+      // Clean up all successfully created branches
+      await Promise.all(
+        branchCreations.map(async (branch) => {
+          try {
+            await cleanupChildExecution(
+              branch.branchEntity,
+              workflowExecutionEntity,
+              'FAILED'
+            );
+          } catch (cleanupError) {
+            logger.warn("Failed to cleanup fork branch", {
+              nodeId: node.id,
+              forkPathId: branch.pathId,
+              branchExecutionId: branch.branchEntity.id,
+              cleanupError,
+            });
+          }
+        })
+      );
+    }
 
     throw errorObj;
   }

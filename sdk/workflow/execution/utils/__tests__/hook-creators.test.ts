@@ -10,7 +10,6 @@ import {
   createPermissionCheckHook,
   createAuditLoggingHook,
 } from "../hook-creators.js";
-import { HookType } from "@wf-agent/types";
 import { ExecutionError } from "@wf-agent/types";
 import type { HookExecutionContext } from "../../handlers/hook-handlers/hook-handler.js";
 import type { WorkflowExecution } from "@wf-agent/types";

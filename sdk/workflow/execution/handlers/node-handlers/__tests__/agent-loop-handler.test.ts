@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { agentLoopHandler } from '../agent-loop-handler.js';
 import type { GlobalContext } from '../../../../../core/global-context.js';
-import type { WorkflowExecution, AgentLoopNodeConfig, LLMMessage, MessageContextRegistry } from '@wf-agent/types';
+import type { WorkflowExecution, AgentLoopNodeConfig } from '@wf-agent/types';
 import type { RuntimeNode } from '@wf-agent/types';
 import type { AgentLoopHandlerContext } from '../agent-loop-handler.js';
 
@@ -19,12 +19,11 @@ const mockConversationManager = {
   getMessages: vi.fn().mockReturnValue([]),
 };
 
-const mockRegistry: MessageContextRegistry = {
+const mockRegistry = {
   get: vi.fn(),
   has: vi.fn(),
   register: vi.fn(),
   update: vi.fn(),
-  remove: vi.fn(),
   getAll: vi.fn(),
 };
 

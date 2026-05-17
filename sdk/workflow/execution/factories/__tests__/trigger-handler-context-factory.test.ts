@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { TriggerHandlerContextFactory, TriggerHandlerContextFactoryConfig, TriggerHandlerContext, LifecycleTriggerContext, SkipNodeTriggerContext, SetVariableTriggerContext, ExecuteSubgraphTriggerContext } from '../trigger-handler-context-factory';
+import { TriggerHandlerContextFactory, TriggerHandlerContextFactoryConfig, TriggerHandlerContext, LifecycleTriggerContext, SkipNodeTriggerContext, SetVariableTriggerContext } from '../trigger-handler-context-factory.js';
 import { DependencyInjectionError } from '@wf-agent/types';
 
 // Mock types for testing

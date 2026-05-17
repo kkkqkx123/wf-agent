@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { startFromTriggerHandler } from '../start-from-trigger-handler.js';
 import type { WorkflowExecutionEntity } from '../../../../entities/workflow-execution-entity.js';
-import type { RuntimeNode, WorkflowStartConfig, LLMMessage, MessageContextRegistry, WorkflowExecution } from '@wf-agent/types';
+import type { RuntimeNode, WorkflowStartConfig, LLMMessage } from '@wf-agent/types';
 import type { StartFromTriggerHandlerContext } from '../start-from-trigger-handler.js';
 
 const mockEntity = {
@@ -25,12 +25,11 @@ const mockConversationManager = {
   addMessages: vi.fn(),
 };
 
-const mockRegistry: MessageContextRegistry = {
+const mockRegistry = {
   get: vi.fn(),
   has: vi.fn(),
   register: vi.fn(),
   update: vi.fn(),
-  remove: vi.fn(),
   getAll: vi.fn(),
 };
 
@@ -41,7 +40,7 @@ beforeEach(() => {
   mockExecution.variables = [];
   mockExecution.errors = [];
   mockExecution.input = {};
-  mockRegistry.register.mockClear();
+  mockRegistry.register.mockReset();
 });
 
 describe('startFromTriggerHandler', () => {

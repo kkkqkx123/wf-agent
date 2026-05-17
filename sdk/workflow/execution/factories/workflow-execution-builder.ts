@@ -45,6 +45,35 @@ export interface WorkflowExecutionBuildResult {
 }
 
 /**
+ * Child Execution Type - Unified type for all child execution scenarios
+ */
+export type ChildExecutionType = 'SUBGRAPH' | 'FORK_BRANCH' | 'TRIGGERED';
+
+/**
+ * Child Execution Configuration
+ */
+export interface ChildExecutionConfig {
+  subworkflowId?: string;      // SUBGRAPH/TRIGGERED
+  forkPathId?: string;         // FORK_BRANCH
+  startNodeId?: string;        // FORK_BRANCH
+  nodeId?: string;             // SUBGRAPH (node ID in parent)
+  variableMapping?: {
+    inputs?: Array<{ externalName: string; internalName: string; required?: boolean; defaultValue?: unknown }>;
+    outputs?: Array<{ internalName: string; externalName: string }>;
+  };
+  inputMapping?: any;          // TRIGGERED - ExecuteTriggeredSubworkflowActionConfig['inputMapping']
+  async?: boolean;             // TRIGGERED
+}
+
+/**
+ * Child Execution Options
+ */
+export interface ChildExecutionOptions {
+  type: ChildExecutionType;
+  config: ChildExecutionConfig;
+}
+
+/**
  * WorkflowExecutionBuilder - Workflow Execution Builder
  *
  * Factory class for creating WorkflowExecutionEntity instances from workflows.
@@ -389,299 +418,336 @@ export class WorkflowExecutionBuilder {
   }
 
   /**
-   * Create a fork sub-WorkflowExecutionEntity
-   *
-   * @param parentWorkflowExecutionEntity Parent WorkflowExecutionEntity
-   * @param forkConfig Fork configuration
-   * @returns WorkflowExecutionBuildResult containing WorkflowExecutionEntity, WorkflowStateCoordinator, and ConversationSession
+   * Unified child execution creation method
+   * 
+   * Replaces createSubgraph(), createFork(), and triggered workflow build() with a single API.
+   * All child execution types share the same creation logic but differ in variable initialization strategies.
+   * 
+   * @param parent Parent workflow execution entity
+   * @param options Child execution type and configuration
+   * @returns WorkflowExecutionBuildResult containing the child entity, state coordinator, and conversation manager
    */
-  async createFork(
-    parentWorkflowExecutionEntity: WorkflowExecutionEntity,
-    forkConfig: { forkId: string; forkPathId?: string; startNodeId?: string },
+  async createChildExecution(
+    parent: WorkflowExecutionEntity,
+    options: ChildExecutionOptions
   ): Promise<WorkflowExecutionBuildResult> {
-    const parentWorkflowExecution = parentWorkflowExecutionEntity.getWorkflowExecutionData();
-    const forkExecutionId = generateId();
-
-    logger.info("Creating fork workflow execution", {
-      parentExecutionId: parentWorkflowExecution.id,
-      forkExecutionId,
-      forkId: forkConfig.forkId,
-      forkPathId: forkConfig.forkPathId,
+    const { type, config } = options;
+    
+    logger.info("Creating child execution", {
+      parentExecutionId: parent.id,
+      childType: type,
+      subworkflowId: config.subworkflowId,
+      forkPathId: config.forkPathId,
     });
 
-    // Separate workflow execution variables from global variables
-    const workflowExecutionVariables = [];
-
-    for (const variable of parentWorkflowExecution.variables) {
-      if (variable.scope === "execution") {
-        workflowExecutionVariables.push({ ...variable });
-      }
-      // Global variables are not copied to child workflow executions; instead, they are shared through references
-    }
-
-    const forkWorkflowExecution: WorkflowExecution = {
-      id: forkExecutionId,
-      workflowId: parentWorkflowExecution.workflowId,
-      workflowVersion: parentWorkflowExecution.workflowVersion,
-      currentNodeId: forkConfig.startNodeId || parentWorkflowExecution.currentNodeId,
-      graph: parentWorkflowExecution.graph,
-      variables: workflowExecutionVariables,
-      // 2-level scopes: global is shared via references, execution creates deep copies
-      variableScopes: {
-        global: parentWorkflowExecution.variableScopes.global,
-        execution: { ...parentWorkflowExecution.variableScopes.execution },
-      },
-      input: { ...parentWorkflowExecution.input },
-      output: {},
-      nodeResults: [],
-      errors: [],
-      executionType: "FORK_JOIN",
-      forkJoinContext: {
-        forkId: forkConfig.forkId,
-        forkPathId: forkConfig.forkPathId || forkConfig.forkId,
-      },
-    };
-
-    // Create WorkflowExecutionState
-    const workflowExecutionState = new WorkflowExecutionState();
-
-    // Create ExecutionState (for subgraph stack management)
-    const executionState = new ExecutionState();
-
-    // Create WorkflowExecutionEntity
-    // Note: Each fork execution has its own VariableManager instance
-    const registry = this.getExecutionHierarchyRegistry();
-    const forkWorkflowExecutionEntity = new WorkflowExecutionEntity(
-      forkWorkflowExecution,
-      executionState,
-      workflowExecutionState,
-      undefined,
-      registry
-    );
-
-    // Copy variable state from parent to fork using deep clone
-    // This ensures complete isolation between fork branches
-    forkWorkflowExecutionEntity.variableStateManager.copyFrom(
-      parentWorkflowExecutionEntity.variableStateManager
+    // Step 1: Validate configuration
+    this.validateChildExecutionConfig(type, config);
+    
+    // Step 2: Get target workflow graph
+    const targetGraph = await this.getTargetGraph(config);
+    
+    // Step 3: Create execution entity (shared logic for all types)
+    const executionId = generateId();
+    const childEntity = this.createExecutionEntity(
+      executionId,
+      targetGraph,
+      type,
+      config,
+      parent
     );
     
-    // TODO Phase 2 Enhancement: Support explicit variable mapping for forks
-    // If fork branch has custom variableMapping config, use importVariables instead:
-    // if (forkBranchConfig.variableMapping) {
-    //   forkWorkflowExecutionEntity.variableStateManager.importVariables(
-    //     parentWorkflowExecutionEntity.variableStateManager,
-    //     forkBranchConfig.variableMapping
-    //   );
-    // }
-
-    // Establish parent-child hierarchy relationship (NEW - unified approach)
-    if (registry) {
-      // Set parent context on fork entity
-      forkWorkflowExecutionEntity.setParentContext({
-        parentType: 'WORKFLOW',
-        parentId: parentWorkflowExecutionEntity.id,
-      });
-      
-      // Register fork entity with hierarchy registry
-      registry.register(forkWorkflowExecutionEntity);
-      
-      // Register child reference in parent entity
-      parentWorkflowExecutionEntity.registerChild({
-        childType: 'WORKFLOW',
-        childId: forkExecutionId,
-        createdAt: Date.now(),
-        forkPathId: forkConfig.forkPathId || forkConfig.forkId,
-      });
-      
-      logger.debug('Fork hierarchy established', {
-        forkExecutionId,
-        parentExecutionId: parentWorkflowExecutionEntity.id,
-        forkPathId: forkConfig.forkPathId || forkConfig.forkId,
-      });
-    } else {
-      logger.warn('Hierarchy registry not available, fork will not have parent-child relationship', {
-        forkExecutionId,
-      });
-    }
-
-    // Create ConversationSession (clone from parent message history)
-    const conversationManager = new ConversationSession({
-      eventManager: this.getEventManager(),
-      workflowExecutionId: forkWorkflowExecution.id,
-      workflowId: forkWorkflowExecution.workflowId,
-      initialMessages: parentWorkflowExecutionEntity.messageHistoryManager.getMessages(),
-    });
-    conversationManager.setContext(forkWorkflowExecution.workflowId, forkWorkflowExecution.id);
-
-    // Create WorkflowStateCoordinator
+    // Step 4: Initialize variables (different strategies per type)
+    await this.initializeVariables(childEntity, parent, type, config);
+    
+    // Step 5: Establish hierarchy relationship (unified using ExecutionHierarchyRegistry)
+    this.establishHierarchy(parent, childEntity, type, config);
+    
+    // Step 6: Create conversation session
+    const conversationManager = this.createConversationSession(
+      childEntity,
+      parent
+    );
+    
+    // Step 7: Create state coordinator
     const stateCoordinator = new WorkflowStateCoordinator({
-      workflowExecutionEntity: forkWorkflowExecutionEntity,
+      workflowExecutionEntity: childEntity,
       conversationManager,
     });
-
-    logger.debug("Fork workflow execution created", {
-      forkExecutionId,
-      parentExecutionId: parentWorkflowExecution.id,
+    
+    logger.debug("Child execution created successfully", {
+      childExecutionId: childEntity.id,
+      parentExecutionId: parent.id,
+      childType: type,
     });
-
+    
     return {
-      workflowExecutionEntity: forkWorkflowExecutionEntity,
+      workflowExecutionEntity: childEntity,
       stateCoordinator,
       conversationManager,
     };
   }
 
   /**
-   * Create a subgraph execution entity (Phase 1: Scheme C - Separate Execution Entity)
-   * 
-   * Creates an independent child workflow execution with explicit variable mapping and complete isolation.
-   * This replaces the old graph expansion model with a proper parent-child execution relationship.
-   *
-   * @param parentEntity Parent workflow execution entity
-   * @param options Subgraph creation options including subworkflow ID and variable mappings
-   * @returns WorkflowExecutionBuildResult containing the child entity, state coordinator, and conversation manager
+   * Validate child execution configuration
    */
-  async createSubgraph(
-    parentEntity: WorkflowExecutionEntity,
-    options: {
-      subworkflowId: string;
-      nodeId: string; // SUBGRAPH node ID in parent workflow
-      variableMapping?: {
-        inputs?: Array<{ externalName: string; internalName: string; required?: boolean; defaultValue?: unknown }>;
-        outputs?: Array<{ internalName: string; externalName: string }>;
-      };
-      async?: boolean;
+  private validateChildExecutionConfig(
+    type: ChildExecutionType,
+    config: ChildExecutionConfig
+  ): void {
+    switch (type) {
+      case 'SUBGRAPH':
+        if (!config.subworkflowId) {
+          throw new RuntimeValidationError('SUBGRAPH requires subworkflowId', {
+            field: 'subworkflowId',
+          });
+        }
+        if (!config.nodeId) {
+          throw new RuntimeValidationError('SUBGRAPH requires nodeId', {
+            field: 'nodeId',
+          });
+        }
+        break;
+        
+      case 'FORK_BRANCH':
+        if (!config.forkPathId) {
+          throw new RuntimeValidationError('FORK_BRANCH requires forkPathId', {
+            field: 'forkPathId',
+          });
+        }
+        if (!config.startNodeId) {
+          throw new RuntimeValidationError('FORK_BRANCH requires startNodeId', {
+            field: 'startNodeId',
+          });
+        }
+        break;
+        
+      case 'TRIGGERED':
+        if (!config.subworkflowId) {
+          throw new RuntimeValidationError('TRIGGERED requires subworkflowId', {
+            field: 'subworkflowId',
+          });
+        }
+        break;
     }
-  ): Promise<WorkflowExecutionBuildResult> {
-    const parentExecution = parentEntity.getWorkflowExecutionData();
-    const subgraphExecutionId = generateId();
+  }
+
+  /**
+   * Get target workflow graph based on configuration
+   */
+  private async getTargetGraph(config: ChildExecutionConfig): Promise<WorkflowGraph> {
+    const subworkflowId = config.subworkflowId;
     
-    logger.info("Creating subgraph execution", {
-      parentExecutionId: parentEntity.id,
-      subgraphExecutionId,
-      subworkflowId: options.subworkflowId,
-    });
-
-    // Step 1: Get the preprocessed subworkflow graph
-    const subgraphGraph = this.getWorkflowGraphRegistry().get(options.subworkflowId);
-    if (!subgraphGraph) {
-      throw new ExecutionError(
-        `Subworkflow '${options.subworkflowId}' not found or not preprocessed`,
-        undefined,
-        options.subworkflowId
-      );
-    }
-
-    // Step 2: Create subworkflow execution data
-    const startNode = Array.from(subgraphGraph.nodes.values()).find(n => n.type === "START");
-    if (!startNode) {
-      throw new RuntimeValidationError("Subworkflow graph must have a START node", {
-        field: "graph.nodes",
+    if (!subworkflowId) {
+      // FORK_BRANCH uses parent's graph
+      throw new RuntimeValidationError('Cannot determine target graph', {
+        field: 'subworkflowId',
       });
     }
+    
+    const graph = this.getWorkflowGraphRegistry().get(subworkflowId);
+    if (!graph) {
+      throw new ExecutionError(
+        `Workflow '${subworkflowId}' not found or not preprocessed`,
+        undefined,
+        subworkflowId
+      );
+    }
+    
+    return graph;
+  }
 
-    const subgraphExecution: WorkflowExecution = {
-      id: subgraphExecutionId,
-      workflowId: options.subworkflowId,
-      workflowVersion: subgraphGraph.workflowVersion,
-      currentNodeId: startNode.id,
-      graph: subgraphGraph,
-      variables: [], // Initially empty, will be populated via importVariables
+  /**
+   * Create execution entity (shared logic for all child types)
+   */
+  private createExecutionEntity(
+    executionId: string,
+    graph: WorkflowGraph,
+    type: ChildExecutionType,
+    config: ChildExecutionConfig,
+    parent: WorkflowExecutionEntity
+  ): WorkflowExecutionEntity {
+    const parentExecution = parent.getWorkflowExecutionData();
+    
+    // Determine start node
+    let startNodeId: string;
+    if (type === 'FORK_BRANCH' && config.startNodeId) {
+      startNodeId = config.startNodeId;
+    } else {
+      const startNode = Array.from(graph.nodes.values()).find(n => n.type === "START");
+      if (!startNode) {
+        throw new RuntimeValidationError("Workflow graph must have a START node", {
+          field: "graph.nodes",
+        });
+      }
+      startNodeId = startNode.id;
+    }
+    
+    // Determine execution type
+    const executionTypeMap: Record<ChildExecutionType, string> = {
+      'SUBGRAPH': 'SUBGRAPH',
+      'FORK_BRANCH': 'FORK_JOIN',
+      'TRIGGERED': 'TRIGGERED_SUBWORKFLOW',
+    };
+    
+    // Create workflow execution data
+    const execution: WorkflowExecution = {
+      id: executionId,
+      workflowId: graph.workflowId,
+      workflowVersion: graph.workflowVersion,
+      currentNodeId: startNodeId,
+      graph,
+      variables: [],
       variableScopes: {
         global: parentExecution.variableScopes.global, // Share global scope by reference
-        execution: {}, // Empty execution scope - will be filled via importVariables
+        execution: {}, // Will be filled via variable initialization
       },
-      input: {}, // Will be populated via variable inputs
+      input: {},
       output: {},
       nodeResults: [],
       errors: [],
-      executionType: "SUBGRAPH", // SUBGRAPH node execution
-      hierarchy: {
+      executionType: executionTypeMap[type] as any,
+    };
+    
+    // Add type-specific context
+    if (type === 'SUBGRAPH') {
+      execution.hierarchy = {
         parent: {
           parentType: 'WORKFLOW',
-          parentId: parentEntity.id,
-          nodeId: options.nodeId, // SUBGRAPH node ID in parent
+          parentId: parent.id,
+          nodeId: config.nodeId,
         },
         children: [],
-        depth: parentEntity.getHierarchyMetadata()?.depth ? 
-               parentEntity.getHierarchyMetadata()!.depth + 1 : 1,
-        rootExecutionId: parentEntity.getRootExecutionId(),
-        rootExecutionType: parentEntity.getRootExecutionType(),
-      },
-    };
-
-    // Step 3: Create ExecutionState and WorkflowExecutionState
+        depth: parent.getHierarchyMetadata()?.depth ? 
+               parent.getHierarchyMetadata()!.depth + 1 : 1,
+        rootExecutionId: parent.getRootExecutionId(),
+        rootExecutionType: parent.getRootExecutionType(),
+      };
+    } else if (type === 'FORK_BRANCH') {
+      execution.forkJoinContext = {
+        forkId: config.forkPathId || '',
+        forkPathId: config.forkPathId || '',
+      };
+    }
+    
+    // Create states
     const executionState = new ExecutionState();
     const workflowExecutionState = new WorkflowExecutionState();
     const registry = this.getExecutionHierarchyRegistry();
-
-    // Step 4: Create WorkflowExecutionEntity
-    const subgraphEntity = new WorkflowExecutionEntity(
-      subgraphExecution,
+    
+    return new WorkflowExecutionEntity(
+      execution,
       executionState,
       workflowExecutionState,
       undefined,
       registry
     );
+  }
 
-    // Step 5: Import variables from parent using explicit mapping (with deep clone)
-    if (options.variableMapping?.inputs && options.variableMapping.inputs.length > 0) {
-      subgraphEntity.variableStateManager.importVariables(
-        parentEntity.variableStateManager,
-        options.variableMapping.inputs
-      );
-      logger.debug("Imported variables to subgraph", {
-        count: options.variableMapping.inputs.length,
-      });
+  /**
+   * Initialize variables based on child execution type
+   */
+  private async initializeVariables(
+    child: WorkflowExecutionEntity,
+    parent: WorkflowExecutionEntity,
+    type: ChildExecutionType,
+    config: ChildExecutionConfig
+  ): Promise<void> {
+    switch (type) {
+      case 'SUBGRAPH':
+        // Subgraph: explicit mapping + deep clone
+        if (config.variableMapping?.inputs && config.variableMapping.inputs.length > 0) {
+          child.variableStateManager.importVariables(
+            parent.variableStateManager,
+            config.variableMapping.inputs
+          );
+          logger.debug("Imported variables to subgraph", {
+            count: config.variableMapping.inputs.length,
+          });
+        }
+        break;
+        
+      case 'FORK_BRANCH':
+        // Fork: complete deep clone
+        child.variableStateManager.copyFrom(parent.variableStateManager);
+        logger.debug("Copied variables to fork branch (deep clone)");
+        break;
+        
+      case 'TRIGGERED':
+        // Triggered: will be handled separately via input mapping
+        // Variables will be set through prepareInputData in triggered-subworkflow-handler
+        logger.debug("Triggered workflow - variables will be set via input mapping");
+        break;
     }
-
-    // Step 6: Initialize variables from subworkflow definitions
+    
+    // All types: initialize variables from workflow definitions
     const variableCoordinator = this.getVariableCoordinator() as {
       initializeFromDefinitions: (
         manager: any,
         variables: VariableDefinition[]
       ) => void;
     };
+    
     variableCoordinator.initializeFromDefinitions(
-      subgraphEntity.variableStateManager,
-      subgraphGraph.variables || []
+      child.variableStateManager,
+      child.getWorkflowExecutionData().graph.variables || []
     );
+  }
 
-    // Step 7: Create ConversationSession (clone from parent message history)
+  /**
+   * Establish parent-child hierarchy relationship
+   */
+  private establishHierarchy(
+    parent: WorkflowExecutionEntity,
+    child: WorkflowExecutionEntity,
+    type: ChildExecutionType,
+    config: ChildExecutionConfig
+  ): void {
+    const registry = this.getExecutionHierarchyRegistry();
+    
+    // 1. Register to global registry
+    registry.register(child);
+    
+    // 2. Set parent context
+    child.setParentContext({
+      parentType: 'WORKFLOW',
+      parentId: parent.id,
+      ...(config.nodeId && { nodeId: config.nodeId }),
+    });
+    
+    // 3. Register child reference in parent entity
+    parent.registerChild({
+      childType: 'WORKFLOW',
+      childId: child.id,
+      createdAt: Date.now(),
+      ...(config.forkPathId && { forkPathId: config.forkPathId }),
+    });
+    
+    logger.debug('Child hierarchy established', {
+      childExecutionId: child.id,
+      parentExecutionId: parent.id,
+      childType: type,
+      forkPathId: config.forkPathId,
+    });
+  }
+
+  /**
+   * Create conversation session for child execution
+   */
+  private createConversationSession(
+    child: WorkflowExecutionEntity,
+    parent: WorkflowExecutionEntity
+  ): ConversationSession {
+    const childExecution = child.getWorkflowExecutionData();
+    
     const conversationManager = new ConversationSession({
       eventManager: this.getEventManager(),
-      workflowExecutionId: subgraphExecutionId,
-      workflowId: options.subworkflowId,
-      initialMessages: parentEntity.messageHistoryManager.getMessages(),
+      workflowExecutionId: childExecution.id,
+      workflowId: childExecution.workflowId,
+      initialMessages: parent.messageHistoryManager.getMessages(),
     });
-    conversationManager.setContext(subgraphExecution.workflowId, subgraphExecutionId);
-
-    // Step 8: Create WorkflowStateCoordinator
-    const stateCoordinator = new WorkflowStateCoordinator({
-      workflowExecutionEntity: subgraphEntity,
-      conversationManager,
-    });
-
-    // Step 9: Register parent-child relationship in hierarchy registry
-    registry.register(subgraphEntity);
-    parentEntity.registerChild({
-      childType: 'WORKFLOW',
-      childId: subgraphExecutionId,
-      createdAt: Date.now(),
-    });
-
-    logger.debug("Subgraph execution created successfully", {
-      subgraphExecutionId,
-      parentExecutionId: parentEntity.id,
-      variableInputCount: options.variableMapping?.inputs?.length || 0,
-      hasOutputs: !!(options.variableMapping?.outputs && options.variableMapping.outputs.length > 0),
-    });
-
-    return {
-      workflowExecutionEntity: subgraphEntity,
-      stateCoordinator,
-      conversationManager,
-    };
+    conversationManager.setContext(childExecution.workflowId, childExecution.id);
+    
+    return conversationManager;
   }
 
   /**

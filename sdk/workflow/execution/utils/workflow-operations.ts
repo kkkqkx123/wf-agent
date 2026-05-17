@@ -110,11 +110,13 @@ export async function fork(
     }
   }
 
-  // Step 2: Create a child WorkflowExecution
-  const { workflowExecutionEntity: childExecutionEntity } = await executionBuilder.createFork(parentExecutionEntity, {
-    forkId: forkConfig.forkId,
-    forkPathId: forkConfig.forkPathId,
-    startNodeId: forkConfig.startNodeId,
+  // Step 2: Create a child WorkflowExecution using unified API
+  const { workflowExecutionEntity: childExecutionEntity } = await executionBuilder.createChildExecution(parentExecutionEntity, {
+    type: 'FORK_BRANCH',
+    config: {
+      forkPathId: forkConfig.forkPathId,
+      startNodeId: forkConfig.startNodeId,
+    },
   });
 
   // Trigger the WORKFLOW_EXECUTION_FORK_COMPLETED event

@@ -5,7 +5,7 @@
  * This replaces the old graph expansion model with proper parent-child execution relationship.
  * 
  * Responsibilities:
- * - Create independent subgraph execution entity using WorkflowExecutionBuilder.createSubgraph()
+ * - Create independent subgraph execution entity using WorkflowExecutionBuilder.createChildExecution()
  * - Execute the subgraph synchronously (async execution should use FORK instead)
  * - Export output variables back to parent workflow upon completion
  * - Handle message context passing (via subgraph-handler utilities)
@@ -31,7 +31,7 @@ import {
   createSubgraphResult,
   type SubgraphExecutionResult,
 } from "../../types/subworkflow-result.types.js";
-import { cleanupFailedSubworkflow } from "../../utils/subworkflow-cleanup.js";
+import { cleanupChildExecution } from "../../utils/child-execution-cleanup.js";
 
 const logger = createContextualLogger({ component: "subgraph-node-handler" });
 
@@ -97,12 +97,15 @@ export async function subgraphHandler(
   const executionStartTime = Date.now();
   
   try {
-    // Step 3: Create independent subgraph execution entity
-    const buildResult = await executionBuilder.createSubgraph(workflowExecutionEntity, {
-      subworkflowId,
-      nodeId: node.id,
-      variableMapping,
-      async: false, // SUBGRAPH always executes synchronously
+    // Step 3: Create independent subgraph execution entity using unified API
+    const buildResult = await executionBuilder.createChildExecution(workflowExecutionEntity, {
+      type: 'SUBGRAPH',
+      config: {
+        subworkflowId,
+        nodeId: node.id,
+        variableMapping,
+        async: false, // SUBGRAPH always executes synchronously
+      },
     });
 
     subgraphEntity = buildResult.workflowExecutionEntity;
@@ -221,15 +224,11 @@ export async function subgraphHandler(
         logger.debug("Cleaning up failed subgraph execution", {
           subgraphExecutionId: subgraphEntity.id,
         });
-
-        const registry = globalContext.container.get(
-          Identifiers.ExecutionHierarchyRegistry
-        ) as any;
         
-        await cleanupFailedSubworkflow(
+        await cleanupChildExecution(
           subgraphEntity,
           workflowExecutionEntity,
-          registry
+          'FAILED'
         );
       } catch (cleanupError) {
         logger.warn("Failed to cleanup subgraph after error", {

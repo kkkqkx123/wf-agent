@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { NodeHandlerContextFactory, NodeHandlerContextFactoryConfig } from '../node-handler-context-factory';
+import { NodeHandlerContextFactory, NodeHandlerContextFactoryConfig } from '../node-handler-context-factory.js';
 import { ExecutionError } from '@wf-agent/types';
 
 // Mock types for testing

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { contextProcessorHandler } from '../context-processor-handler.js';
-import type { WorkflowExecution, ContextProcessorNodeConfig, LLMMessage, MessageContextRegistry } from '@wf-agent/types';
+import type { WorkflowExecution, ContextProcessorNodeConfig } from '@wf-agent/types';
 import type { RuntimeNode } from '@wf-agent/types';
 import type { ContextProcessorHandlerContext } from '../context-processor-handler.js';
 
@@ -11,13 +11,13 @@ const mockConversationManager = {
   addMessages: vi.fn(),
 };
 
-const mockRegistry: MessageContextRegistry = {
+const mockRegistry = {
   get: vi.fn(),
   has: vi.fn(),
   register: vi.fn(),
   update: vi.fn(),
-  remove: vi.fn(),
-  getAll: vi.fn(),
+  delete: vi.fn(),
+  listIds: vi.fn(),
 };
 
 const defaultContext: ContextProcessorHandlerContext = {
@@ -32,13 +32,13 @@ const mockExecution = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockRegistry.get.mockReturnValue({
+  (mockRegistry.get as any).mockReturnValue({
     id: 'current',
     messages: [{ role: 'user', content: 'test' }],
     createdAt: Date.now(),
     updatedAt: Date.now(),
   });
-  mockRegistry.has.mockReturnValue(true);
+  (mockRegistry.has as any).mockReturnValue(true);
   mockConversationManager.getMessages.mockReturnValue([
     { role: 'user', content: 'processed' },
   ]);
@@ -53,13 +53,16 @@ beforeEach(() => {
 describe('contextProcessorHandler', () => {
   it('should execute message operation and return result', async () => {
     const config: ContextProcessorNodeConfig = {
-      operationConfig: { operation: 'truncate', maxMessages: 10 },
+      operationConfig: { 
+        operation: 'TRUNCATE', 
+        strategy: { type: 'KEEP_LAST', count: 10 } 
+      } as any,
     };
     const node = { id: 'cp-node-1', type: 'CONTEXT_PROCESSOR', config } as RuntimeNode;
 
     const result = await contextProcessorHandler(mockExecution, node, defaultContext);
 
-    expect(result.operation).toBe('truncate');
+    expect(result.operation).toBe('TRUNCATE');
     expect(result.messageCount).toBeGreaterThan(0);
     expect(result.stats).toBeDefined();
   });
@@ -74,8 +77,8 @@ describe('contextProcessorHandler', () => {
   });
 
   it('should handle custom source and target contexts', async () => {
-    mockRegistry.has.mockReturnValue(false);
-    mockRegistry.get.mockImplementation((id: string) => {
+    (mockRegistry.has as any).mockReturnValue(false);
+    (mockRegistry.get as any).mockImplementation((id: string) => {
       if (id === 'source') return { id: 'source', messages: [{ role: 'user', content: 'from source' }], createdAt: Date.now(), updatedAt: Date.now() };
       if (id === 'target') return undefined;
       return undefined;
@@ -84,13 +87,13 @@ describe('contextProcessorHandler', () => {
     const config: ContextProcessorNodeConfig = {
       sourceContext: 'source',
       targetContext: 'target',
-      operationConfig: { operation: 'copy' },
+      operationConfig: { operation: 'APPEND', messages: [] } as any,
     };
     const node = { id: 'cp-node-3', type: 'CONTEXT_PROCESSOR', config } as RuntimeNode;
 
     const result = await contextProcessorHandler(mockExecution, node, defaultContext);
 
-    expect(result.operation).toBe('copy');
+    expect(result.operation).toBe('APPEND');
     expect(mockRegistry.register).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'target' })
     );
@@ -123,13 +126,13 @@ describe('contextProcessorHandler', () => {
     };
 
     const config: ContextProcessorNodeConfig = {
-      operationConfig: { operation: 'clear' },
+      operationConfig: { operation: 'CLEAR' },
       operationOptions: { target: 'parent' },
     };
     const node = { id: 'cp-node-4', type: 'CONTEXT_PROCESSOR', config } as RuntimeNode;
 
     const result = await contextProcessorHandler(mockExecution, node, contextWithParent);
 
-    expect(result.operation).toBe('clear');
+    expect(result.operation).toBe('CLEAR');
   });
 });

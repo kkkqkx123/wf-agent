@@ -3,7 +3,7 @@
  * 
  * NOTE: This module now ONLY handles message context passing for subgraphs.
  * Variable import/export is handled directly in the SUBGRAPH node handler
- * using WorkflowExecutionBuilder.createSubgraph() and VariableManager.importVariables/exportVariables.
+ * using WorkflowExecutionBuilder.createChildExecution() and VariableManager.importVariables/exportVariables.
  *
  * Responsibilities:
  * - Handle message context passing when entering/exiting subgraphs

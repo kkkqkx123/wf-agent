@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { continueFromTriggerHandler } from '../continue-from-trigger-handler.js';
 import type { WorkflowExecutionEntity } from '../../../../entities/workflow-execution-entity.js';
-import type { RuntimeNode, ContinueFromTriggerNodeConfig, MessageContextRegistry, WorkflowExecution } from '@wf-agent/types';
+import type { RuntimeNode, ContinueFromTriggerNodeConfig } from '@wf-agent/types';
 import type { ContinueFromTriggerHandlerContext } from '../continue-from-trigger-handler.js';
 
 const mockMainEntity = {
@@ -24,21 +24,19 @@ const mockSubEntity = {
 
 const mockSubExecution = {};
 
-const mockSubRegistry: MessageContextRegistry = {
+const mockSubRegistry = {
   get: vi.fn(),
   has: vi.fn(),
   register: vi.fn(),
   update: vi.fn(),
-  remove: vi.fn(),
   getAll: vi.fn(),
 };
 
-const mockParentRegistry: MessageContextRegistry = {
+const mockParentRegistry = {
   get: vi.fn(),
   has: vi.fn(),
   register: vi.fn(),
   update: vi.fn(),
-  remove: vi.fn(),
   getAll: vi.fn(),
 };
 

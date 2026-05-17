@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { LLMContextFactory, LLMContextFactoryConfig } from '../llm-context-factory';
+import { LLMContextFactory, LLMContextFactoryConfig } from '../llm-context-factory.js';
 import { ExecutionError } from '@wf-agent/types';
 
 // Mock types for testing

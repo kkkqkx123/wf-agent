@@ -1,0 +1,99 @@
+
+> @wf-agent/sdk@1.0.0 typecheck:tests D:\项目\agent\wf-agent\sdk
+> tsc --noEmit -p tsconfig.test.json
+
+workflow/execution/builders/hierarchy-builder.ts(258,35): error TS6133: 'executionId' is declared but its value is never read.
+workflow/execution/factories/__tests__/llm-context-factory.test.ts(2,60): error TS2835: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Did you mean '../llm-context-factory.js'?
+workflow/execution/factories/__tests__/node-handler-context-factory.test.ts(2,76): error TS2835: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Did you mean '../node-handler-context-factory.js'?
+workflow/execution/factories/__tests__/trigger-handler-context-factory.test.ts(2,76): error TS6133: 'TriggerHandlerContext' is declared but its value is never read.
+workflow/execution/factories/__tests__/trigger-handler-context-factory.test.ts(2,212): error TS2835: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Did you mean '../trigger-handler-context-factory.js'?
+workflow/execution/factories/__tests__/workflow-execution-builder.test.ts(2,36): error TS6133: 'WorkflowExecutionBuildResult' is declared but its value is never read.
+workflow/execution/factories/__tests__/workflow-execution-builder.test.ts(2,72): error TS2835: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Did you mean '../workflow-execution-builder.js'?
+workflow/execution/factories/__tests__/workflow-execution-builder.test.ts(4,1): error TS6133: 'generateId' is declared but its value is never read.
+workflow/execution/factories/__tests__/workflow-execution-builder.test.ts(29,10): error TS2304: Cannot find name 'vi'.
+workflow/execution/factories/__tests__/workflow-execution-builder.test.ts(35,8): error TS2304: Cannot find name 'vi'.
+workflow/execution/factories/__tests__/workflow-execution-builder.test.ts(39,8): error TS2304: Cannot find name 'vi'.
+workflow/execution/factories/__tests__/workflow-execution-builder.test.ts(45,13): error TS2304: Cannot find name 'vi'.
+workflow/execution/factories/__tests__/workflow-execution-builder.test.ts(49,30): error TS2304: Cannot find name 'vi'.
+workflow/execution/factories/__tests__/workflow-execution-builder.test.ts(105,19): error TS2339: Property 'container' does not exist on type 'MockGlobalContext'.
+workflow/execution/factories/__tests__/workflow-execution-builder.test.ts(105,35): error TS2304: Cannot find name 'vi'.
+workflow/execution/factories/__tests__/workflow-execution-builder.test.ts(106,19): error TS2339: Property 'container' does not exist on type 'MockGlobalContext'.
+workflow/execution/factories/__tests__/workflow-execution-builder.test.ts(113,19): error TS2339: Property 'eventRegistry' does not exist on type 'MockGlobalContext'.
+workflow/execution/factories/__tests__/workflow-execution-builder.test.ts(221,34): error TS2339: Property 'initializeFromDefinitions' does not exist on type 'MockVariableCoordinator'.
+workflow/execution/factories/__tests__/workflow-execution-builder.test.ts(261,21): error TS2708: Cannot use namespace 'jest' as a value.
+workflow/execution/factories/__tests__/workflow-execution-builder.test.ts(275,82): error TS2339: Property 'id' does not exist on type 'MockWorkflowExecution'.
+workflow/execution/factories/__tests__/workflow-execution-builder.test.ts(289,21): error TS2708: Cannot use namespace 'jest' as a value.
+workflow/execution/factories/__tests__/workflow-execution-builder.test.ts(305,82): error TS2339: Property 'id' does not exist on type 'MockWorkflowExecution'.
+workflow/execution/factories/__tests__/workflow-execution-builder.test.ts(325,21): error TS2708: Cannot use namespace 'jest' as a value.
+workflow/execution/factories/__tests__/workflow-execution-builder.test.ts(326,28): error TS2708: Cannot use namespace 'jest' as a value.
+workflow/execution/factories/__tests__/workflow-execution-builder.test.ts(335,24): error TS2708: Cannot use namespace 'jest' as a value.
+workflow/execution/factories/__tests__/workflow-execution-builder.test.ts(345,54): error TS2339: Property 'graph' does not exist on type 'MockWorkflowExecution'.
+workflow/execution/factories/__tests__/workflow-execution-builder.test.ts(349,21): error TS2339: Property 'container' does not exist on type 'MockGlobalContext'.
+workflow/execution/factories/__tests__/workflow-execution-builder.test.ts(349,37): error TS2708: Cannot use namespace 'jest' as a value.
+workflow/execution/factories/__tests__/workflow-execution-builder.test.ts(350,21): error TS2339: Property 'container' does not exist on type 'MockGlobalContext'.
+workflow/execution/factories/__tests__/workflow-execution-builder.test.ts(378,34): error TS2339: Property 'initializeFromDefinitions' does not exist on type 'MockVariableCoordinator'.
+workflow/execution/factories/__tests__/workflow-execution-builder.test.ts(381,41): error TS2339: Property 'register' does not exist on type 'MockExecutionHierarchyRegistry'.
+workflow/execution/factories/__tests__/workflow-execution-builder.test.ts(391,21): error TS2708: Cannot use namespace 'jest' as a value.
+workflow/execution/factories/__tests__/workflow-execution-builder.test.ts(416,21): error TS2708: Cannot use namespace 'jest' as a value.
+workflow/execution/factories/__tests__/workflow-execution-builder.test.ts(465,17): error TS2339: Property 'workflowId' does not exist on type 'MockWorkflowExecution'.
+workflow/execution/factories/__tests__/workflow-execution-builder.test.ts(468,17): error TS2339: Property 'workflowId' does not exist on type 'MockWorkflowExecution'.
+workflow/execution/factories/__tests__/workflow-execution-builder.test.ts(471,17): error TS2339: Property 'workflowId' does not exist on type 'MockWorkflowExecution'.
+workflow/execution/factories/index.ts(15,10): error TS2300: Duplicate identifier 'WorkflowExecutionBuilder'.
+workflow/execution/factories/index.ts(17,38): error TS2300: Duplicate identifier 'WorkflowExecutionBuilder'.
+workflow/execution/handlers/node-handlers/__tests__/agent-loop-handler.test.ts(4,55): error TS6196: 'LLMMessage' is declared but never used.
+workflow/execution/handlers/node-handlers/__tests__/agent-loop-handler.test.ts(27,3): error TS2353: Object literal may only specify known properties, and 'remove' does not exist in type 'MessageContextRegistry'.
+workflow/execution/handlers/node-handlers/__tests__/agent-loop-handler.test.ts(68,20): error TS2339: Property 'mockReturnValue' does not exist on type '(id: string) => NamedMessageContext | undefined'.
+workflow/execution/handlers/node-handlers/__tests__/agent-loop-handler.test.ts(82,9): error TS2741: Property 'initial' is missing in type 'string[]' but required in type 'AvailableTools'.
+workflow/execution/handlers/node-handlers/__tests__/agent-loop-handler.test.ts(97,7): error TS2741: Property 'profileId' is missing in type '{}' but required in type '{ profileId: string; maxIterations?: number | undefined; availableTools?: AvailableTools | undefined; initialContextRefs?: string[] | undefined; workingContext?: string | undefined; }'.
+workflow/execution/handlers/node-handlers/__tests__/context-processor-handler.test.ts(3,62): error TS6196: 'LLMMessage' is declared but never used.
+workflow/execution/handlers/node-handlers/__tests__/continue-from-trigger-handler.test.ts(4,83): error TS6196: 'WorkflowExecution' is declared but never used.
+workflow/execution/handlers/node-handlers/__tests__/continue-from-trigger-handler.test.ts(32,3): error TS2353: Object literal may only specify known properties, and 'remove' does not exist in type 'MessageContextRegistry'.
+workflow/execution/handlers/node-handlers/__tests__/continue-from-trigger-handler.test.ts(41,3): error TS2353: Object literal may only specify known properties, and 'remove' does not exist in type 'MessageContextRegistry'.
+workflow/execution/handlers/node-handlers/__tests__/continue-from-trigger-handler.test.ts(67,25): error TS2339: Property 'mockReturnValue' does not exist on type '(id: string) => NamedMessageContext | undefined'.
+workflow/execution/handlers/node-handlers/__tests__/continue-from-trigger-handler.test.ts(119,12): error TS18046: 'result' is of type 'unknown'.
+workflow/execution/handlers/node-handlers/__tests__/embed-end-handler.test.ts(46,12): error TS18046: 'result' is of type 'unknown'.
+workflow/execution/handlers/node-handlers/__tests__/embed-end-handler.test.ts(54,12): error TS18046: 'result' is of type 'unknown'.
+workflow/execution/handlers/node-handlers/__tests__/embed-start-handler.test.ts(60,12): error TS18046: 'result' is of type 'unknown'.
+workflow/execution/handlers/node-handlers/__tests__/end-handler.test.ts(63,12): error TS18046: 'result' is of type 'unknown'.
+workflow/execution/handlers/node-handlers/__tests__/fork-handler.test.ts(24,26): error TS2554: Expected 3-4 arguments, but got 2.
+workflow/execution/handlers/node-handlers/__tests__/fork-handler.test.ts(32,26): error TS2554: Expected 3-4 arguments, but got 2.
+workflow/execution/handlers/node-handlers/__tests__/llm-handler.test.ts(3,49): error TS6196: 'LLMMessage' is declared but never used.
+workflow/execution/handlers/node-handlers/__tests__/llm-handler.test.ts(29,3): error TS2353: Object literal may only specify known properties, and 'remove' does not exist in type 'MessageContextRegistry'.
+workflow/execution/handlers/node-handlers/__tests__/llm-handler.test.ts(47,20): error TS2339: Property 'mockReturnValue' does not exist on type '(id: string) => NamedMessageContext | undefined'.
+workflow/execution/handlers/node-handlers/__tests__/llm-handler.test.ts(110,22): error TS2339: Property 'mockReturnValue' does not exist on type '(id: string) => NamedMessageContext | undefined'.
+workflow/execution/handlers/node-handlers/__tests__/llm-handler.test.ts(124,22): error TS2339: Property 'mockImplementation' does not exist on type '(id: string) => NamedMessageContext | undefined'.
+workflow/execution/handlers/node-handlers/__tests__/loop-end-handler.test.ts(91,12): error TS18046: 'result' is of type 'unknown'.
+workflow/execution/handlers/node-handlers/__tests__/loop-end-handler.test.ts(92,12): error TS18046: 'result' is of type 'unknown'.
+workflow/execution/handlers/node-handlers/__tests__/loop-end-handler.test.ts(103,12): error TS18046: 'result' is of type 'unknown'.
+workflow/execution/handlers/node-handlers/__tests__/loop-end-handler.test.ts(112,12): error TS18046: 'result' is of type 'unknown'.
+workflow/execution/handlers/node-handlers/__tests__/loop-start-handler.test.ts(86,12): error TS18046: 'result' is of type 'unknown'.
+workflow/execution/handlers/node-handlers/__tests__/loop-start-handler.test.ts(87,12): error TS18046: 'result' is of type 'unknown'.
+workflow/execution/handlers/node-handlers/__tests__/loop-start-handler.test.ts(88,12): error TS18046: 'result' is of type 'unknown'.
+workflow/execution/handlers/node-handlers/__tests__/loop-start-handler.test.ts(140,12): error TS18046: 'result' is of type 'unknown'.
+workflow/execution/handlers/node-handlers/__tests__/loop-start-handler.test.ts(141,12): error TS18046: 'result' is of type 'unknown'.
+workflow/execution/handlers/node-handlers/__tests__/loop-start-handler.test.ts(150,12): error TS18046: 'result' is of type 'unknown'.
+workflow/execution/handlers/node-handlers/__tests__/route-handler.test.ts(4,45): error TS6196: 'Condition' is declared but never used.
+workflow/execution/handlers/node-handlers/__tests__/route-handler.test.ts(63,18): error TS2352: Conversion of type '{ id: string; type: "ROUTE"; config: { routes: never[]; }; }' to type 'RuntimeNode' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Type '{ id: string; type: "ROUTE"; config: { routes: never[]; }; }' is not comparable to type 'RouteNode'.
+    Type '{ id: string; type: "ROUTE"; config: { routes: never[]; }; }' is missing the following properties from type 'BaseRuntimeNode': workflowId, outgoingEdgeIds, incomingEdgeIds
+workflow/execution/handlers/node-handlers/__tests__/start-from-trigger-handler.test.ts(4,61): error TS6196: 'MessageContextRegistry' is declared but never used.
+workflow/execution/handlers/node-handlers/__tests__/start-from-trigger-handler.test.ts(79,11): error TS6133: 'result' is declared but its value is never read.
+workflow/execution/handlers/node-handlers/__tests__/start-from-trigger-handler.test.ts(119,12): error TS18046: 'result' is of type 'unknown'.
+workflow/execution/handlers/node-handlers/__tests__/start-handler.test.ts(83,12): error TS18046: 'result' is of type 'unknown'.
+workflow/execution/handlers/node-handlers/__tests__/subgraph-handler.test.ts(14,7): error TS6133: 'mockLogger' is declared but its value is never read.
+workflow/execution/handlers/node-handlers/__tests__/subgraph-handler.test.ts(142,45): error TS2339: Property 'variableInputs' does not exist on type 'JoinNodeConfig | WorkflowStartConfig | WorkflowEndConfig | VariableNodeConfig | ForkNodeConfig | ... 9 more ... | AgentLoopNodeConfig'.
+  Property 'variableInputs' does not exist on type 'JoinNodeConfig'.
+workflow/execution/handlers/node-handlers/__tests__/subgraph-handler.test.ts(143,46): error TS2339: Property 'variableOutputs' does not exist on type 'JoinNodeConfig | WorkflowStartConfig | WorkflowEndConfig | VariableNodeConfig | ForkNodeConfig | ... 9 more ... | AgentLoopNodeConfig'.
+  Property 'variableOutputs' does not exist on type 'JoinNodeConfig'.
+workflow/execution/handlers/node-handlers/__tests__/subgraph-handler.test.ts(153,33): error TS2339: Property 'variableOutputs' does not exist on type 'JoinNodeConfig | WorkflowStartConfig | WorkflowEndConfig | VariableNodeConfig | ForkNodeConfig | ... 9 more ... | AgentLoopNodeConfig'.
+  Property 'variableOutputs' does not exist on type 'JoinNodeConfig'.
+workflow/execution/handlers/node-handlers/__tests__/subgraph-handler.test.ts(169,11): error TS2322: Type '{ config: { subgraphId: string; async: false; }; originalNode: { config: { subgraphId: string; async: boolean; }; }; type: "START"; id: ID; hooks?: unknown[]; checkpointBeforeExecute?: boolean; ... 5 more ...; incomingEdgeIds: ID[]; }' is not assignable to type 'RuntimeNode'.
+  Types of property 'config' are incompatible.
+    Object literal may only specify known properties, and 'subgraphId' does not exist in type 'WorkflowStartConfig'.
+workflow/execution/handlers/node-handlers/__tests__/subgraph-handler.test.ts(299,45): error TS2339: Property 'variableInputs' does not exist on type 'JoinNodeConfig | WorkflowStartConfig | WorkflowEndConfig | VariableNodeConfig | ForkNodeConfig | ... 9 more ... | AgentLoopNodeConfig'.
+  Property 'variableInputs' does not exist on type 'JoinNodeConfig'.
+workflow/execution/handlers/node-handlers/__tests__/subgraph-handler.test.ts(300,46): error TS2339: Property 'variableOutputs' does not exist on type 'JoinNodeConfig | WorkflowStartConfig | WorkflowEndConfig | VariableNodeConfig | ForkNodeConfig | ... 9 more ... | AgentLoopNodeConfig'.
+  Property 'variableOutputs' does not exist on type 'JoinNodeConfig'.
+workflow/execution/utils/__tests__/hook-creators.test.ts(13,1): error TS6133: 'HookType' is declared but its value is never read.
+workflow/state-managers/__tests__/variable-manager-subgraph.test.ts(9,1): error TS6133: 'createContextualLogger' is declared but its value is never read.
+ ELIFECYCLE  Command failed with exit code 2.

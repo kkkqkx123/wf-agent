@@ -255,7 +255,7 @@ function getHierarchyRegistry(entity: WorkflowExecutionEntity): ExecutionHierarc
 /**
  * Helper: Get hierarchy registry by execution ID
  */
-function getHierarchyRegistryById(executionId: ID): ExecutionHierarchyRegistry | undefined {
+function getHierarchyRegistryById(_executionId: ID): ExecutionHierarchyRegistry | undefined {
   // Similar workaround as above
   // In a proper implementation, we'd have a global registry accessor
   try {

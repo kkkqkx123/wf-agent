@@ -81,11 +81,11 @@ describe('variableHandler', () => {
 
     const result = await variableHandler(mockEntity, node);
 
-    expect(result.value).toBe(true);
+    expect((result as any).value).toBe(true);
   });
 
   it('should skip readonly variables', async () => {
-    mockExecution.variables = [{ name: 'myVar', readonly: true }];
+    (mockExecution as any).variables = [{ name: 'myVar', readonly: true }];
     const config: VariableNodeConfig = {
       variableName: 'myVar',
       variableType: 'string',
@@ -96,7 +96,7 @@ describe('variableHandler', () => {
 
     const result = await variableHandler(mockEntity, node);
 
-    expect(result.status).toBe('SKIPPED');
+    expect((result as any).status).toBe('SKIPPED');
     expect(mockManager.setVariable).not.toHaveBeenCalled();
   });
 
@@ -111,11 +111,11 @@ describe('variableHandler', () => {
 
     const result = await variableHandler(mockEntity, node);
 
-    expect(result.status).toBe('SKIPPED');
+    expect((result as any).status).toBe('SKIPPED');
   });
 
   it('should update existing variable value', async () => {
-    mockExecution.variables = [{ name: 'myVar', value: 'old', type: 'string', scope: 'execution' }];
+    (mockExecution as any).variables = [{ name: 'myVar', value: 'old', type: 'string', scope: 'execution' }];
     const config: VariableNodeConfig = {
       variableName: 'myVar',
       variableType: 'string',
@@ -126,6 +126,6 @@ describe('variableHandler', () => {
 
     await variableHandler(mockEntity, node);
 
-    expect(mockExecution.variables[0].value).toBe('updated');
+    expect((mockExecution as any).variables[0].value).toBe('updated');
   });
 });

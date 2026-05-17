@@ -6,7 +6,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { VariableManager } from '../variable-manager.js';
 import { RuntimeValidationError } from '@wf-agent/types';
-import { createContextualLogger } from '../../../utils/contextual-logger.js';
 
 // Mock structuredClone
 const mockStructuredClone = vi.fn();

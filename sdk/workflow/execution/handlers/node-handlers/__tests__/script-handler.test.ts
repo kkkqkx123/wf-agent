@@ -31,7 +31,7 @@ describe('scriptHandler', () => {
       value: 'script result',
     });
 
-    const config: ScriptNodeConfig = { scriptName: 'my-script' };
+    const config: ScriptNodeConfig = { scriptName: 'my-script', risk: 'none' };
     const node = { id: 'script-node-1', type: 'SCRIPT', config } as RuntimeNode;
 
     const result = await scriptHandler(mockGlobalContext, mockEntity, node);
@@ -50,7 +50,7 @@ describe('scriptHandler', () => {
       error: scriptError,
     });
 
-    const config: ScriptNodeConfig = { scriptName: 'failing-script' };
+    const config: ScriptNodeConfig = { scriptName: 'failing-script', risk: 'none' };
     const node = { id: 'script-node-2', type: 'SCRIPT', config } as RuntimeNode;
 
     await expect(scriptHandler(mockGlobalContext, mockEntity, node)).rejects.toThrow('Script failed');
@@ -62,7 +62,7 @@ describe('scriptHandler', () => {
   it('should handle script service throwing error', async () => {
     mockScriptService.execute.mockRejectedValue(new Error('Service error'));
 
-    const config: ScriptNodeConfig = { scriptName: 'error-script' };
+    const config: ScriptNodeConfig = { scriptName: 'error-script', risk: 'none' };
     const node = { id: 'script-node-3', type: 'SCRIPT', config } as RuntimeNode;
 
     await expect(scriptHandler(mockGlobalContext, mockEntity, node)).rejects.toThrow('Service error');

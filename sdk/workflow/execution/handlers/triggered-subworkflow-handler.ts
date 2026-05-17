@@ -22,6 +22,7 @@ import { createContextualLogger } from "../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "TriggeredSubworkflowHandler" });
 import type { ExecuteTriggeredSubworkflowActionConfig } from "@wf-agent/types";
+import type { ChildExecutionType, ChildExecutionConfig } from "../factories/workflow-execution-builder.js";
 import { getErrorOrNew, now } from "@wf-agent/common-utils";
 import { TaskRegistry, type TaskManager } from "../../stores/task/task-registry.js";
 import type { WorkflowExecutionPool } from "../workflow-execution-pool.js";
@@ -41,6 +42,7 @@ import {
 } from "../utils/event/index.js";
 import { RuntimeValidationError, SDKError } from "@wf-agent/types";
 import { logError, emitErrorEvent } from "../../../core/utils/error-utils.js";
+import { cleanupChildExecution } from "../utils/child-execution-cleanup.js";
 
 /**
  * Workflow Execution Build Result (simplified interface for TriggeredSubworkflowHandler)
@@ -91,6 +93,10 @@ export class TriggeredSubworkflowHandler implements TaskManager {
       subgraphId: string,
       options: { input: Record<string, unknown> },
     ) => Promise<WorkflowExecutionBuildResultSimple>;
+    createChildExecution?: (
+      parent: WorkflowExecutionEntity,
+      options: { type: ChildExecutionType; config: ChildExecutionConfig }
+    ) => Promise<WorkflowExecutionBuildResultSimple>;
   };
 
   /**
@@ -126,6 +132,10 @@ export class TriggeredSubworkflowHandler implements TaskManager {
       build: (
         subgraphId: string,
         options: { input: Record<string, unknown> },
+      ) => Promise<WorkflowExecutionBuildResultSimple>;
+      createChildExecution?: (
+        parent: WorkflowExecutionEntity,
+        options: { type: ChildExecutionType; config: ChildExecutionConfig }
       ) => Promise<WorkflowExecutionBuildResultSimple>;
     },
     taskQueueManager: TaskQueue,
@@ -169,29 +179,36 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     // Prepare the input data
     const input = this.prepareInputData(task);
 
-    // Create a sub-workflow WorkflowExecutionEntity
-    const subgraphEntity = await this.createSubgraphContext(task, input);
+    // Create a sub-workflow WorkflowExecutionEntity using unified API if available
+    let subgraphEntity: WorkflowExecutionEntity;
+    
+    if (this.executionBuilder.createChildExecution) {
+      // Use new unified API
+      const buildResult = await this.executionBuilder.createChildExecution(
+        task.mainWorkflowExecutionEntity,
+        {
+          type: 'TRIGGERED',
+          config: {
+            subworkflowId: task.subworkflowId,
+            inputMapping: task.config?.inputMapping,
+            async: task.config?.waitForCompletion !== true,
+          },
+        }
+      );
+      subgraphEntity = buildResult.workflowExecutionEntity;
+    } else {
+      // Fallback to old API for backward compatibility during migration
+      const buildResult = await this.executionBuilder.build(task.subworkflowId, {
+        input,
+      });
+      subgraphEntity = buildResult.workflowExecutionEntity;
+      subgraphEntity.setExecutionType("TRIGGERED_SUBWORKFLOW");
+    }
 
     // Register with WorkflowExecutionRegistry
     this.workflowExecutionRegistry.register(subgraphEntity);
 
-    // Establish parent-child execution relationship (NEW unified API)
-    const parentExecutionId = task.mainWorkflowExecutionEntity.id;
-    const childExecutionId = subgraphEntity.id;
-    
-    // Set parent context using new unified API
-    subgraphEntity.setParentContext({
-      parentType: 'WORKFLOW',
-      parentId: parentExecutionId,
-    });
-    
-    // Register child reference in parent entity
-    task.mainWorkflowExecutionEntity.registerChild({
-      childType: 'WORKFLOW',
-      childId: childExecutionId,
-      createdAt: Date.now(),
-    });
-    
+    // Set triggered subworkflow ID
     subgraphEntity.setTriggeredSubworkflowId(task.subworkflowId);
 
     // Trigger the start event
@@ -261,25 +278,6 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     };
   }
 
-  /**
-   * Create a sub-workflow context
-   * @param task: The task that triggers the sub-workflow
-   * @param input: The input data
-   * @returns: The sub-workflow entity
-   */
-  private async createSubgraphContext(
-    task: TriggeredSubworkflowTask,
-    input: Record<string, unknown>,
-  ): Promise<WorkflowExecutionEntity> {
-    const { workflowExecutionEntity: subgraphEntity } = await this.executionBuilder.build(task.subworkflowId, {
-      input,
-    });
-
-    // Set the execution type to TRIGGERED_SUBWORKFLOW
-    subgraphEntity.setExecutionType("TRIGGERED_SUBWORKFLOW");
-
-    return subgraphEntity;
-  }
 
   /**
    * Synchronize execution
@@ -297,13 +295,13 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     try {
       const result = await this.taskQueueManager.submitSync(taskId, subgraphEntity, timeout);
 
-      // Cancel the parent-child relationship
-      this.unregisterParentChildRelationship(subgraphEntity);
+      // Cleanup on success
+      await this.cleanupCompletedTask(subgraphEntity, taskId);
 
       return result;
     } catch (error) {
-      // Cancel the parent-child relationship
-      this.unregisterParentChildRelationship(subgraphEntity);
+      // Cleanup on failure
+      await this.cleanupFailedTask(subgraphEntity, taskId);
       throw error;
     }
   }
@@ -362,17 +360,21 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     // Trigger the completion event
     this.emitCompletedEvent(executionId, result);
 
-    // Cancel the parent-child relationship
-    const subgraphEntity = this.workflowExecutionRegistry.get(executionId);
-    if (subgraphEntity) {
-      this.unregisterParentChildRelationship(subgraphEntity);
-    }
-
-    // Clean up the task records in TaskRegistry.
+    // Get task info for cleanup
     const taskInfo = this.taskRegistry
       .getAll()
       .find(t => t.instanceType === "workflowExecution" && t.instance.id === executionId);
+    
     if (taskInfo) {
+      // Cleanup using unified function
+      const subgraphEntity = taskInfo.instance as WorkflowExecutionEntity;
+      const parentEntity = this.getParentEntity(subgraphEntity);
+      
+      if (parentEntity) {
+        await cleanupChildExecution(subgraphEntity, parentEntity, 'COMPLETED');
+      }
+      
+      // Clean up task records
       this.taskRegistry.delete(taskInfo.id);
     }
 
@@ -393,17 +395,21 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     // Trigger a failure event.
     this.emitFailedEvent(executionId, error);
 
-    // Cancel the parent-child relationship
-    const subgraphEntity = this.workflowExecutionRegistry.get(executionId);
-    if (subgraphEntity) {
-      this.unregisterParentChildRelationship(subgraphEntity);
-    }
-
-    // Clean up task records in the TaskRegistry.
+    // Get task info for cleanup
     const taskInfo = this.taskRegistry
       .getAll()
       .find(t => t.instanceType === "workflowExecution" && t.instance.id === executionId);
+    
     if (taskInfo) {
+      // Cleanup using unified function
+      const subgraphEntity = taskInfo.instance as WorkflowExecutionEntity;
+      const parentEntity = this.getParentEntity(subgraphEntity);
+      
+      if (parentEntity) {
+        await cleanupChildExecution(subgraphEntity, parentEntity, 'FAILED');
+      }
+      
+      // Clean up task records
       this.taskRegistry.delete(taskInfo.id);
     }
 
@@ -418,6 +424,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
   /**
    * Cancel the parent-child relationship
    * @param subgraphEntity Sub-workflow entity
+   * @deprecated Will be removed after migration to unified cleanup
    */
   private unregisterParentChildRelationship(subgraphEntity: WorkflowExecutionEntity): void {
     const parentContext = subgraphEntity.getParentContext();
@@ -429,6 +436,51 @@ export class TriggeredSubworkflowHandler implements TaskManager {
         parentEntity.unregisterChild(childExecutionId, 'WORKFLOW');
       }
     }
+  }
+
+  /**
+   * Get parent entity from child
+   */
+  private getParentEntity(childEntity: WorkflowExecutionEntity): WorkflowExecutionEntity | undefined {
+    const parentContext = childEntity.getParentContext();
+    if (parentContext) {
+      return this.workflowExecutionRegistry.get(parentContext.parentId);
+    }
+    return undefined;
+  }
+
+  /**
+   * Cleanup completed task using unified function
+   */
+  private async cleanupCompletedTask(
+    entity: WorkflowExecutionEntity,
+    taskId: string
+  ): Promise<void> {
+    const parentEntity = this.getParentEntity(entity);
+    
+    if (parentEntity) {
+      await cleanupChildExecution(entity, parentEntity, 'COMPLETED');
+    }
+    
+    this.taskRegistry.delete(taskId);
+    this.activeTasks.delete(entity.id);
+  }
+
+  /**
+   * Cleanup failed task using unified function
+   */
+  private async cleanupFailedTask(
+    entity: WorkflowExecutionEntity,
+    taskId: string
+  ): Promise<void> {
+    const parentEntity = this.getParentEntity(entity);
+    
+    if (parentEntity) {
+      await cleanupChildExecution(entity, parentEntity, 'FAILED');
+    }
+    
+    this.taskRegistry.delete(taskId);
+    this.activeTasks.delete(entity.id);
   }
 
   /**

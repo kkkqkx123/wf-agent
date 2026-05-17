@@ -1,43 +1,70 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { WorkflowExecutionBuilder, WorkflowExecutionBuildResult } from '../workflow-execution-builder';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { WorkflowExecutionBuilder } from '../workflow-execution-builder.js';
 import { ExecutionError, RuntimeValidationError } from '@wf-agent/types';
-import { generateId } from '@wf-agent/common-utils';
+
 
 // Mock types for testing
-interface MockGlobalContext {}
-interface MockWorkflowGraphRegistry {}
-interface MockWorkflowRegistry {}
+interface MockGlobalContext {
+  container: {
+    get: any;
+  };
+  eventRegistry: any;
+}
+interface MockWorkflowGraphRegistry {
+  get: (id: string) => MockWorkflowGraph | undefined;
+}
+interface MockWorkflowRegistry {
+  get: (id: string) => any;
+}
 interface MockEventRegistry {}
 interface MockExecutionHierarchyRegistry {}
 interface MockVariableCoordinator {}
-interface MockWorkflowGraph {}
-interface MockWorkflowExecution {}
+interface MockWorkflowGraph {
+  workflowId: string;
+  workflowVersion: string;
+  nodes: Map<string, any>;
+  variables: MockVariableDefinition[];
+}
+interface MockWorkflowExecution {
+  id: string;
+  workflowId: string;
+  workflowVersion: string;
+  currentNodeId: string;
+  graph: any;
+  variables: any[];
+  variableScopes: any;
+  input: any;
+  output: any;
+  nodeResults: any[];
+  errors: any[];
+  executionType: string;
+}
 interface MockVariableDefinition {}
 
 // Create mock implementations
 const createMockGlobalContext = (): MockGlobalContext => ({
   container: {
-    get: jest.fn()
+    get: vi.fn()
   },
   eventRegistry: {} as MockEventRegistry
 } as MockGlobalContext);
 
 const createMockWorkflowGraphRegistry = (): MockWorkflowGraphRegistry => ({
-  get: jest.fn()
+  get: vi.fn()
 } as MockWorkflowGraphRegistry);
 
 const createMockWorkflowRegistry = (): MockWorkflowRegistry => ({
-  get: jest.fn()
+  get: vi.fn()
 } as MockWorkflowRegistry);
 
 const createMockEventRegistry = (): MockEventRegistry => ({} as MockEventRegistry);
 
 const createMockExecutionHierarchyRegistry = (): MockExecutionHierarchyRegistry => ({
-  register: jest.fn()
+  register: vi.fn()
 } as MockExecutionHierarchyRegistry);
 
 const createMockVariableCoordinator = (): MockVariableCoordinator => ({
-  initializeFromDefinitions: jest.fn()
+  initializeFromDefinitions: vi.fn()
 } as MockVariableCoordinator);
 
 const createMockWorkflowGraph = (workflowId: string = 'workflow123'): MockWorkflowGraph => ({
@@ -93,7 +120,7 @@ describe('WorkflowExecutionBuilder', () => {
     variableCoordinator = createMockVariableCoordinator();
     
     // Set up DI container mock
-    globalContext.container.get = jest.fn();
+    globalContext.container.get = vi.fn();
     globalContext.container.get
       .mockReturnValueOnce(workflowGraphRegistry) // WorkflowGraphRegistry
       .mockReturnValueOnce(variableCoordinator) // VariableCoordinator
@@ -127,10 +154,10 @@ describe('WorkflowExecutionBuilder', () => {
       const workflowGraph = createMockWorkflowGraph(workflowId);
       
       // Mock get method to return workflow graph
-      (workflowGraphRegistry.get as jest.Mock).mockReturnValue(workflowGraph);
+      (workflowGraphRegistry.get as any).mockReturnValue(workflowGraph);
       
       // Mock workflow registry get method
-      (workflowRegistry.get as jest.Mock).mockReturnValue({ config: {} });
+      (workflowRegistry.get as any).mockReturnValue({ config: {} });
       
       const result = await builder.build(workflowId);
       
@@ -146,7 +173,7 @@ describe('WorkflowExecutionBuilder', () => {
       const workflowId = 'nonexistent-workflow';
       
       // Mock get method to return undefined
-      (workflowGraphRegistry.get as jest.Mock).mockReturnValue(undefined);
+      (workflowGraphRegistry.get as any).mockReturnValue(undefined);
       
       await expect(builder.build(workflowId)).rejects.toThrow(ExecutionError);
       await expect(builder.build(workflowId)).rejects.toThrow(`Workflow '${workflowId}' not found or not preprocessed`);
@@ -160,7 +187,7 @@ describe('WorkflowExecutionBuilder', () => {
       workflowGraph.nodes.clear();
       
       // Mock get method to return workflow graph
-      (workflowGraphRegistry.get as jest.Mock).mockReturnValue(workflowGraph);
+      (workflowGraphRegistry.get as any).mockReturnValue(workflowGraph);
       
       await expect(builder.build(workflowId)).rejects.toThrow(RuntimeValidationError);
       await expect(builder.build(workflowId)).rejects.toThrow('Workflow graph must have at least one node');
@@ -174,7 +201,7 @@ describe('WorkflowExecutionBuilder', () => {
       workflowGraph.nodes.delete('start');
       
       // Mock get method to return workflow graph
-      (workflowGraphRegistry.get as jest.Mock).mockReturnValue(workflowGraph);
+      (workflowGraphRegistry.get as any).mockReturnValue(workflowGraph);
       
       await expect(builder.build(workflowId)).rejects.toThrow(RuntimeValidationError);
       await expect(builder.build(workflowId)).rejects.toThrow('Workflow graph must have a START node');
@@ -188,7 +215,7 @@ describe('WorkflowExecutionBuilder', () => {
       workflowGraph.nodes.delete('end');
       
       // Mock get method to return workflow graph
-      (workflowGraphRegistry.get as jest.Mock).mockReturnValue(workflowGraph);
+      (workflowGraphRegistry.get as any).mockReturnValue(workflowGraph);
       
       await expect(builder.build(workflowId)).rejects.toThrow(RuntimeValidationError);
       await expect(builder.build(workflowId)).rejects.toThrow('Workflow graph must have an END node');
@@ -201,10 +228,10 @@ describe('WorkflowExecutionBuilder', () => {
       workflowGraph.variables = [variableDef];
       
       // Mock get method to return workflow graph
-      (workflowGraphRegistry.get as jest.Mock).mockReturnValue(workflowGraph);
+      (workflowGraphRegistry.get as any).mockReturnValue(workflowGraph);
       
       // Mock workflow registry get method
-      (workflowRegistry.get as jest.Mock).mockReturnValue({ config: {} });
+      (workflowRegistry.get as any).mockReturnValue({ config: {} });
       
       await builder.build(workflowId);
       
@@ -249,7 +276,7 @@ describe('WorkflowExecutionBuilder', () => {
       const sourceWorkflowExecutionEntity = {
         getWorkflowExecutionData: () => sourceWorkflowExecution,
         variableStateManager: {
-          copyFrom: jest.fn()
+          copyFrom: vi.fn()
         },
         messageHistoryManager: {
           getMessages: () => []
@@ -277,7 +304,7 @@ describe('WorkflowExecutionBuilder', () => {
       const parentWorkflowExecutionEntity = {
         getWorkflowExecutionData: () => parentWorkflowExecution,
         variableStateManager: {
-          copyFrom: jest.fn()
+          copyFrom: vi.fn()
         },
         messageHistoryManager: {
           getMessages: () => []
@@ -313,8 +340,8 @@ describe('WorkflowExecutionBuilder', () => {
       const parentWorkflowExecutionEntity = {
         getWorkflowExecutionData: () => parentWorkflowExecution,
         variableStateManager: {
-          copyFrom: jest.fn(),
-          importVariables: jest.fn()
+          copyFrom: vi.fn(),
+          importVariables: vi.fn()
         },
         messageHistoryManager: {
           getMessages: () => []
@@ -323,7 +350,7 @@ describe('WorkflowExecutionBuilder', () => {
         getHierarchyMetadata: () => ({ depth: 1 }),
         getRootExecutionId: () => 'root-exec-id',
         getRootExecutionType: () => 'MAIN',
-        registerChild: jest.fn()
+        registerChild: vi.fn()
       } as any;
       
       // Create subgraph workflow
@@ -331,13 +358,13 @@ describe('WorkflowExecutionBuilder', () => {
       const subgraphWorkflowGraph = createMockWorkflowGraph(subgraphWorkflowId);
       
       // Mock get method to return subgraph workflow
-      (workflowGraphRegistry.get as jest.Mock)
+      (workflowGraphRegistry.get as any)
         .mockReturnValueOnce(subgraphWorkflowGraph) // For subgraph
         .mockReturnValueOnce(parentWorkflowExecution.graph); // For parent
       
       // Mock variable coordinator
       const variableCoordinator = createMockVariableCoordinator();
-      globalContext.container.get = jest.fn();
+      globalContext.container.get = vi.fn();
       globalContext.container.get
         .mockReturnValueOnce(workflowGraphRegistry) // WorkflowGraphRegistry
         .mockReturnValueOnce(variableCoordinator) // VariableCoordinator
@@ -379,7 +406,7 @@ describe('WorkflowExecutionBuilder', () => {
       const parentWorkflowExecutionEntity = {
         getWorkflowExecutionData: () => parentWorkflowExecution,
         variableStateManager: {
-          copyFrom: jest.fn()
+          copyFrom: vi.fn()
         },
         messageHistoryManager: {
           getMessages: () => []
@@ -387,7 +414,7 @@ describe('WorkflowExecutionBuilder', () => {
       } as any;
       
       // Mock get method to return undefined for subworkflow
-      (workflowGraphRegistry.get as jest.Mock).mockReturnValue(undefined);
+      (workflowGraphRegistry.get as any).mockReturnValue(undefined);
       
       const options = {
         subworkflowId: 'nonexistent-subworkflow',
@@ -404,7 +431,7 @@ describe('WorkflowExecutionBuilder', () => {
       const parentWorkflowExecutionEntity = {
         getWorkflowExecutionData: () => parentWorkflowExecution,
         variableStateManager: {
-          copyFrom: jest.fn()
+          copyFrom: vi.fn()
         },
         messageHistoryManager: {
           getMessages: () => []
@@ -417,7 +444,7 @@ describe('WorkflowExecutionBuilder', () => {
       subgraphWorkflowGraph.nodes.clear(); // Remove all nodes
       
       // Mock get method to return subgraph workflow
-      (workflowGraphRegistry.get as jest.Mock).mockReturnValue(subgraphWorkflowGraph);
+      (workflowGraphRegistry.get as any).mockReturnValue(subgraphWorkflowGraph);
       
       const options = {
         subworkflowId: subgraphWorkflowId,

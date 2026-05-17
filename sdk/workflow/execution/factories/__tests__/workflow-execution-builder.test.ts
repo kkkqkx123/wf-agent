@@ -14,13 +14,6 @@ interface MockGlobalContext extends GlobalContext {
   eventRegistry: EventRegistry;
 }
 
-interface MockWorkflowGraph extends WorkflowGraph {
-  workflowId: string;
-  workflowVersion: string;
-  nodes: Map<string, any>;
-  variables?: any[];
-}
-
 // Create mock implementations
 const createMockGlobalContext = (): MockGlobalContext => {
   const container = {

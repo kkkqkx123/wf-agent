@@ -43,7 +43,7 @@ describe('embedEndHandler', () => {
 
     const result = await embedEndHandler(mockEntity, mockNode);
 
-    expect(result.status).toBe('SKIPPED');
+    expect((result as any).status).toBe('SKIPPED');
   });
 
   it('should return SKIPPED when node already executed', async () => {
@@ -51,6 +51,6 @@ describe('embedEndHandler', () => {
 
     const result = await embedEndHandler(mockEntity, mockNode);
 
-    expect(result.status).toBe('SKIPPED');
+    expect((result as any).status).toBe('SKIPPED');
   });
 });

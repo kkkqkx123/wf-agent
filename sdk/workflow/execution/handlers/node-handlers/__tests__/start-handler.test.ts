@@ -80,7 +80,7 @@ describe('startHandler', () => {
 
     const result = await startHandler(mockEntity, mockNode);
 
-    expect(result.status).toBe('SKIPPED');
+    expect((result as any).status).toBe('SKIPPED');
   });
 
   it('should initialize variables array if not present', async () => {

@@ -68,8 +68,8 @@ describe('ToolPermissionManager', () => {
       
       const state = manager.getState();
       expect(state.history.length).toBe(2);
-      expect(state.history[0].type).toBe('disable');
-      expect(state.history[1].type).toBe('enable');
+      expect(state.history[0]?.type).toBe('disable');
+      expect(state.history[1]?.type).toBe('enable');
     });
     
     it('should get block reason', () => {

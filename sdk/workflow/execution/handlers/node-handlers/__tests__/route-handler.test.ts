@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { routeHandler } from '../route-handler.js';
 import type { WorkflowExecutionEntity } from '../../../../entities/workflow-execution-entity.js';
-import type { RuntimeNode, RouteNodeConfig, Condition } from '@wf-agent/types';
+import type { RuntimeNode, RouteNodeConfig } from '@wf-agent/types';
 
 const mockEntity = {
   getStatus: vi.fn(),
@@ -60,7 +60,7 @@ describe('routeHandler', () => {
 
   it('should return SKIPPED when status is not RUNNING', async () => {
     (mockEntity.getStatus as any).mockReturnValue('COMPLETED');
-    const node = { id: 'route-node-1', type: 'ROUTE', config: { routes: [] } } as RuntimeNode;
+    const node = { id: 'route-node-1', type: 'ROUTE', config: { routes: [] }, workflowId: 'wf-1', outgoingEdgeIds: [], incomingEdgeIds: [] } as RuntimeNode;
 
     const result = await routeHandler(mockEntity, node);
 

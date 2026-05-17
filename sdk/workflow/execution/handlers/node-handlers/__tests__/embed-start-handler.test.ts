@@ -57,6 +57,6 @@ describe('embedStartHandler', () => {
 
     const result = await embedStartHandler(mockEntity, mockNode);
 
-    expect(result.status).toBe('SKIPPED');
+    expect((result as any).status).toBe('SKIPPED');
   });
 });

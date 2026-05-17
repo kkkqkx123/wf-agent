@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { RejectionMessageBuilder, DEFAULT_REJECTION_CONFIG } from '../rejection-message-builder.js';
+import { RejectionMessageBuilder } from '../rejection-message-builder.js';
 
 describe('RejectionMessageBuilder', () => {
   describe('default configuration', () => {

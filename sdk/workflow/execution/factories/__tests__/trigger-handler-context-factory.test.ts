@@ -1,19 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { TriggerHandlerContextFactory, TriggerHandlerContextFactoryConfig, TriggerHandlerContext, LifecycleTriggerContext, SkipNodeTriggerContext, SetVariableTriggerContext, ExecuteSubgraphTriggerContext } from '../trigger-handler-context-factory.js';
+import { TriggerHandlerContextFactory, TriggerHandlerContextFactoryConfig, LifecycleTriggerContext, SkipNodeTriggerContext, SetVariableTriggerContext, ExecuteSubgraphTriggerContext } from '../trigger-handler-context-factory.js';
 import { DependencyInjectionError } from '@wf-agent/types';
-
-// Mock types for testing
-interface MockTrigger {}
-interface MockWorkflowExecutionRegistry {}
-interface MockWorkflowRegistry {}
-interface MockTriggerState {}
-interface MockGlobalContext {}
-interface MockCheckpointState {}
-interface MockWorkflowGraphRegistry {}
-interface MockEventRegistry {}
-interface MockWorkflowExecutionBuilder {}
-interface MockTaskQueue {}
-interface MockWorkflowStateTransitor {}
 
 // Create mock implementations
 const createMockTrigger = (actionType: string): any => ({

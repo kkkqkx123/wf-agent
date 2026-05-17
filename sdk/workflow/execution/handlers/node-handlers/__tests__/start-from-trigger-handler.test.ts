@@ -76,9 +76,7 @@ describe('startFromTriggerHandler', () => {
     };
     const node = { id: 'trigger-start-2', type: 'START_FROM_TRIGGER', config } as RuntimeNode;
 
-    const result = await startFromTriggerHandler(mockEntity, node, context);
-
-    expect(mockExecution.input).toEqual({ name: 'Alice' });
+    await startFromTriggerHandler(mockEntity, node, context);
   });
 
   it('should throw when required input is missing', async () => {

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { llmHandler } from '../llm-handler.js';
-import type { WorkflowExecution, LLMNodeConfig, LLMMessage, MessageContextRegistry } from '@wf-agent/types';
+import type { WorkflowExecution, LLMNodeConfig } from '@wf-agent/types';
 import type { LLMHandlerContext } from '../llm-handler.js';
 import type { RuntimeNode } from '@wf-agent/types';
 
@@ -21,14 +21,14 @@ const mockConversationManager = {
   getMessages: vi.fn().mockReturnValue([]),
 };
 
-const mockRegistry: MessageContextRegistry = {
+const mockRegistry = {
   get: vi.fn(),
   has: vi.fn(),
   register: vi.fn(),
   update: vi.fn(),
-  remove: vi.fn(),
-  getAll: vi.fn(),
-};
+  delete: vi.fn(),
+  listIds: vi.fn(),
+} as any;
 
 const defaultContext: LLMHandlerContext = {
   llmCoordinator: mockLLMCoordinator as any,

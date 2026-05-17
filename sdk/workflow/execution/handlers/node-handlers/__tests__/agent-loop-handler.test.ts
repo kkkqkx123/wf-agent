@@ -78,17 +78,17 @@ describe('agentLoopHandler', () => {
       inlineConfig: {
         profileId: 'gpt-4-agent',
         maxIterations: 5,
-        availableTools: { initial: ['tool1', 'tool2'] },
+        availableTools: { tools: ['tool1', 'tool2'] },
       },
     };
     const node = { id: 'agent-loop-1', type: 'AGENT_LOOP', config } as RuntimeNode;
 
     const result = await agentLoopHandler(mockGlobalContext, mockExecution, node, defaultContext);
 
-    expect(result.status).toBe('COMPLETED');
-    expect(result.content).toBe('Agent response');
-    expect(result.iterations).toBe(2);
-    expect(result.toolCallCount).toBe(3);
+    expect((result as any).status).toBe('COMPLETED');
+    expect((result as any).content).toBe('Agent response');
+    expect((result as any).iterations).toBe(2);
+    expect((result as any).toolCallCount).toBe(3);
   });
 
   it('should return FAILED when profileId is missing', async () => {

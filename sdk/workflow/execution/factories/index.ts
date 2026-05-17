@@ -13,8 +13,6 @@
  */
 
 export { WorkflowExecutionBuilder } from "./workflow-execution-builder.js";
-// Backward compatibility
-export { WorkflowExecutionBuilder as WorkflowExecutionBuilder } from "./workflow-execution-builder.js";
 
 export {
   NodeHandlerContextFactory,

@@ -83,9 +83,9 @@ describe('loopStartHandler', () => {
 
     const result = await loopStartHandler(mockEntity, node);
 
-    expect(result.shouldContinue).toBe(true);
-    expect(result.currentValue).toBe(2);
-    expect(result.iterationCount).toBe(2);
+    expect((result as any).shouldContinue).toBe(true);
+    expect((result as any).currentValue).toBe(2);
+    expect((result as any).iterationCount).toBe(2);
   });
 
   it('should return shouldContinue false when maxIterations reached', async () => {
@@ -137,8 +137,8 @@ describe('loopStartHandler', () => {
 
     const result = await loopStartHandler(mockEntity, node);
 
-    expect(result.currentValue).toBe('a');
-    expect(result.shouldContinue).toBe(true);
+    expect((result as any).currentValue).toBe('a');
+    expect((result as any).shouldContinue).toBe(true);
   });
 
   it('should return SKIPPED when status is not RUNNING', async () => {
@@ -147,6 +147,6 @@ describe('loopStartHandler', () => {
 
     const result = await loopStartHandler(mockEntity, node);
 
-    expect(result.status).toBe('SKIPPED');
+    expect((result as any).status).toBe('SKIPPED');
   });
 });

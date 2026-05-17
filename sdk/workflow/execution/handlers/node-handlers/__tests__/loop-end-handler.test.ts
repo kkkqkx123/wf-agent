@@ -88,8 +88,8 @@ describe('loopEndHandler', () => {
 
     const result = await loopEndHandler(mockEntity, node);
 
-    expect(result.shouldContinue).toBe(false);
-    expect(result.loopConditionMet).toBe(false);
+    expect((result as any).shouldContinue).toBe(false);
+    expect((result as any).loopConditionMet).toBe(false);
   });
 
   it('should return SKIPPED when loop state not found (canExecute returns false)', async () => {
@@ -100,7 +100,7 @@ describe('loopEndHandler', () => {
 
     const result = await loopEndHandler(mockEntity, node);
 
-    expect(result.status).toBe('SKIPPED');
+    expect((result as any).status).toBe('SKIPPED');
   });
 
   it('should return SKIPPED when status is not RUNNING', async () => {
@@ -109,7 +109,7 @@ describe('loopEndHandler', () => {
 
     const result = await loopEndHandler(mockEntity, node);
 
-    expect(result.status).toBe('SKIPPED');
+    expect((result as any).status).toBe('SKIPPED');
   });
 
   it('should clear loop state when loop ends', async () => {

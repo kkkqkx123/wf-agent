@@ -60,7 +60,7 @@ describe('endHandler', () => {
 
     const result = await endHandler(mockEntity, mockNode);
 
-    expect(result.status).toBe('SKIPPED');
+    expect((result as any).status).toBe('SKIPPED');
   });
 
   it('should handle empty output', async () => {

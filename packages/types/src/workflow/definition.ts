@@ -12,7 +12,7 @@ import type { VariableDefinition } from "../workflow-execution/variables.js";
 import type { WorkflowConfig } from "./config.js";
 import type { WorkflowMetadata } from "./metadata.js";
 import type { TriggeredSubworkflowConfig } from "./config.js";
-import type { AvailableTools } from "../available-tools.js";
+import type { AvailableTools } from "./tool-config.js";
 
 /**
  * Workflow Template Type

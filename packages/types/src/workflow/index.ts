@@ -46,3 +46,13 @@ export {
   isWorkflowStartConfig,
   isWorkflowEndConfig,
 } from "./boundary-config-schema.js";
+
+// Tool Configuration (Static)
+export type { AvailableTools } from "./tool-config.js";
+export {
+  validateAvailableTools,
+  resolveSchemaTools,
+  resolveInitialTools,
+  requiresApproval,
+  isToolAvailable,
+} from "./tool-config.js";

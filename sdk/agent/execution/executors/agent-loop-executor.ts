@@ -24,6 +24,7 @@
 
 import type { AgentLoopResult, AgentHookTriggeredEvent } from "@wf-agent/types";
 import type { ToolApprovalHandler } from "@wf-agent/types";
+import { getAvailableTools } from "@wf-agent/types";
 import type { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import type { ToolRegistry } from "../../../core/registry/tool-registry.js";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
@@ -110,24 +111,20 @@ export class AgentLoopExecutor {
     logger.info("Agent Loop execution started", {
       agentLoopId,
       maxIterations,
-      toolsCount: config.availableTools?.initial.length || 0,
+      toolsCount: getAvailableTools(config.availableTools).length,
       profileId: config.profileId || "DEFAULT",
       initialMessageCount: entity.conversationManager.getMessageCount(),
     });
 
-    // Merge initial and dynamic tools
-    const initialToolIds = config.availableTools?.initial || [];
-    const dynamicToolIds = Array.from(config.availableTools?.dynamic || []);
-    const allToolIds = [...new Set([...initialToolIds, ...dynamicToolIds])];
+    // Get all available tools from config (no dynamic merging)
+    const toolIds = getAvailableTools(config.availableTools);
 
     logger.debug("Tool configuration", {
-      initialCount: initialToolIds.length,
-      dynamicCount: dynamicToolIds.length,
-      totalCount: allToolIds.length,
+      totalCount: toolIds.length,
     });
 
-    // Pass availableTools to apply filtering
-    const toolSchemas = prepareToolSchemas(allToolIds, this.toolService, config.availableTools);
+    // Pass tool IDs directly (no filtering needed - AgentToolConfig already defines the exact tool set)
+    const toolSchemas = prepareToolSchemas(toolIds, this.toolService);
 
     if (toolSchemas) {
       logger.debug("Tool schemas prepared", { agentLoopId, toolsCount: toolSchemas.length });
@@ -156,24 +153,20 @@ export class AgentLoopExecutor {
     logger.info("Agent Loop stream execution started", {
       agentLoopId: entity.id,
       maxIterations,
-      toolsCount: config.availableTools?.initial.length || 0,
+      toolsCount: getAvailableTools(config.availableTools).length,
       profileId: config.profileId || "DEFAULT",
       initialMessageCount: entity.conversationManager.getMessageCount(),
     });
 
-    // Merge initial and dynamic tools
-    const initialToolIds = config.availableTools?.initial || [];
-    const dynamicToolIds = Array.from(config.availableTools?.dynamic || []);
-    const allToolIds = [...new Set([...initialToolIds, ...dynamicToolIds])];
+    // Get effective tools from config (no dynamic merging needed - handled by entity)
+    const toolIds = getAvailableTools(config.availableTools);
 
     logger.debug("Tool configuration", {
-      initialCount: initialToolIds.length,
-      dynamicCount: dynamicToolIds.length,
-      totalCount: allToolIds.length,
+      totalCount: toolIds.length,
     });
 
-    // Pass availableTools to apply filtering
-    const toolSchemas = prepareToolSchemas(allToolIds, this.toolService, config.availableTools);
+    // Pass tool IDs directly (no filtering needed - AgentToolConfig already defines the exact tool set)
+    const toolSchemas = prepareToolSchemas(toolIds, this.toolService);
 
     const coordinator = this.createCoordinator();
     yield* coordinator.executeStream(

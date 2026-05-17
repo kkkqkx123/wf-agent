@@ -9,7 +9,7 @@
  */
 
 import type { ID } from "../../common.js";
-import type { AvailableTools } from "../../available-tools.js";
+import type { AgentToolConfig } from "../../agent/tool-config.js";
 
 /**
  * Agent Loop Node Configuration
@@ -62,7 +62,7 @@ export interface AgentLoopNodeConfig {
      * @description Specifies which tools are available during agent loop execution.
      * If not specified, uses all available tools in the context.
      */
-    availableTools?: AvailableTools;
+    availableTools?: AgentToolConfig;
 
     /**
      * Initial message context references

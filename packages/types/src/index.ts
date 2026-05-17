@@ -5,9 +5,6 @@
 // base type
 export * from "./common.js";
 
-// Unified Available Tools Configuration
-export * from "./available-tools.js";
-
 // Graph Proprietary type
 export * from "./workflow/index.js";
 export * from "./workflow-reference.js";

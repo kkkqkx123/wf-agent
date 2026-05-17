@@ -71,3 +71,42 @@ export interface AddToolNodeConfig {
   /** Tool metadata (optional) */
   metadata?: Record<string, unknown>;
 }
+
+/**
+ * Tool Visibility Node Configuration
+ * 
+ * Manages tool permissions at runtime by blocking/unblocking tools.
+ * This allows phased workflows where different tools are available at different stages.
+ * 
+ * @example
+ * ```typescript
+ * // Phase 1: Disable editing during exploration
+ * const config: ToolVisibilityNodeConfig = {
+ *   action: 'block',
+ *   toolIds: ['write_file', 'edit_file', 'delete_file'],
+ *   reason: 'Complete code exploration first'
+ * };
+ * 
+ * // Phase 2: Enable editing after exploration
+ * const config: ToolVisibilityNodeConfig = {
+ *   action: 'unblock',
+ *   toolIds: ['write_file', 'edit_file']
+ * };
+ * ```
+ */
+export interface ToolVisibilityNodeConfig {
+  /** Action to perform */
+  action: 'block' | 'unblock';
+  
+  /** Tool IDs to block/unblock */
+  toolIds: string[];
+  
+  /** Optional reason for blocking (used in rejection message) */
+  reason?: string;
+  
+  /** Scope of the change (optional, defaults to EXECUTION)
+   * - EXECUTION: Affects entire execution
+   * - LOCAL: Affects only current local/subgraph context
+   */
+  scope?: 'EXECUTION' | 'LOCAL';
+}

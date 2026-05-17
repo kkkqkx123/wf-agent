@@ -21,6 +21,7 @@ import type {
   ScriptNodeConfig,
   LLMNodeConfig,
   AddToolNodeConfig,
+  ToolVisibilityNodeConfig,
 } from "./configs/execution-configs.js";
 import type { UserInteractionNodeConfig } from "./configs/interaction-configs.js";
 import type { ContextProcessorNodeConfig } from "./configs/context-configs.js";
@@ -45,6 +46,7 @@ export type StaticNodeType =
   | "SCRIPT"
   | "LLM"
   | "ADD_TOOL"
+  | "TOOL_VISIBILITY"
   | "USER_INTERACTION"
   | "ROUTE"
   | "CONTEXT_PROCESSOR"
@@ -82,6 +84,7 @@ export interface StaticNodeConfigMap {
   SCRIPT: ScriptNodeConfig;
   LLM: LLMNodeConfig;
   ADD_TOOL: AddToolNodeConfig;
+  TOOL_VISIBILITY: ToolVisibilityNodeConfig;
   USER_INTERACTION: UserInteractionNodeConfig;
   ROUTE: RouteNodeConfig;
   CONTEXT_PROCESSOR: ContextProcessorNodeConfig;
@@ -111,6 +114,7 @@ export type EmbedGraphNode = StaticNodeOfType<"EMBED_GRAPH">;
 export type ScriptNode = StaticNodeOfType<"SCRIPT">;
 export type LLMNode = StaticNodeOfType<"LLM">;
 export type AddToolNode = StaticNodeOfType<"ADD_TOOL">;
+export type ToolVisibilityNode = StaticNodeOfType<"TOOL_VISIBILITY">;
 export type UserInteractionNode = StaticNodeOfType<"USER_INTERACTION">;
 export type RouteNode = StaticNodeOfType<"ROUTE">;
 export type ContextProcessorNode = StaticNodeOfType<"CONTEXT_PROCESSOR">;
@@ -138,6 +142,7 @@ export type StaticNode =
   | ScriptNode
   | LLMNode
   | AddToolNode
+  | ToolVisibilityNode
   | UserInteractionNode
   | RouteNode
   | ContextProcessorNode
@@ -166,6 +171,7 @@ export const isEmbedGraphNode = createStaticNodeTypeGuard("EMBED_GRAPH");
 export const isScriptNode = createStaticNodeTypeGuard("SCRIPT");
 export const isLLMNode = createStaticNodeTypeGuard("LLM");
 export const isAddToolNode = createStaticNodeTypeGuard("ADD_TOOL");
+export const isToolVisibilityNode = createStaticNodeTypeGuard("TOOL_VISIBILITY");
 export const isUserInteractionNode = createStaticNodeTypeGuard("USER_INTERACTION");
 export const isRouteNode = createStaticNodeTypeGuard("ROUTE");
 export const isContextProcessorNode = createStaticNodeTypeGuard("CONTEXT_PROCESSOR");

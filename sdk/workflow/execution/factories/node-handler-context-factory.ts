@@ -21,6 +21,8 @@ import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-
 import type { WorkflowExecutionBuilder } from "../factories/workflow-execution-builder.js";
 import type { WorkflowExecutor } from "../executors/workflow-executor.js";
 import type { LLMWrapper } from "../../../core/llm/wrapper.js";
+import type { ToolPermissionManager } from "../../../core/coordinators/tool-permission-manager.js";
+import type { RejectionMessageBuilder } from "../../../core/coordinators/rejection-message-builder.js";
 import { LLMExecutionCoordinator } from "../coordinators/llm-execution-coordinator.js";
 import { ExecutionError } from "@wf-agent/types";
 
@@ -52,6 +54,10 @@ export interface NodeHandlerContextFactoryConfig {
   executionBuilder?: WorkflowExecutionBuilder;
   /** Workflow Executor (optional, required for FORK nodes) */
   workflowExecutor?: WorkflowExecutor;
+  /** Tool Permission Manager (optional, required for TOOL_VISIBILITY nodes) */
+  permissionManager?: ToolPermissionManager;
+  /** Rejection Message Builder (optional, required for TOOL_VISIBILITY nodes) */
+  rejectionBuilder?: RejectionMessageBuilder;
 }
 
 /**
@@ -93,6 +99,7 @@ export class NodeHandlerContextFactory {
     ["LLM", (node, entity) => this.createLLMContext(node, entity)],
     ["AGENT_LOOP", (node, entity) => this.createAgentLoopContext(node, entity)],
     ["ADD_TOOL", (node, entity) => this.createAddToolContext(node, entity)],
+    ["TOOL_VISIBILITY", (node, entity) => this.createToolVisibilityContext(node, entity)],
     ["FORK", (node, entity) => this.createForkContext(node, entity)],
     ["SUBGRAPH", (node, entity) => this.createSubgraphContext(node, entity)],
     ["START_FROM_TRIGGER", (_node, entity) => this.createStartFromTriggerContext(entity)],
@@ -199,6 +206,36 @@ export class NodeHandlerContextFactory {
       toolService: this.config.toolService,
       eventManager: this.config.eventManager,
       executionEntity,
+    };
+  }
+
+  /**
+   * Create a tool visibility node context
+   * @param node Node definition (for error reporting)
+   * @param executionEntity WorkflowExecution entity (for error reporting)
+   * @returns Context with permissionManager and rejectionBuilder
+   * @throws ExecutionError When permissionManager or rejectionBuilder is not provided
+   */
+  private createToolVisibilityContext(node: RuntimeNode, executionEntity: WorkflowExecutionEntity): Record<string, unknown> {
+    if (!this.config.permissionManager) {
+      throw new ExecutionError(
+        "ToolPermissionManager is required for TOOL_VISIBILITY node",
+        node.id,
+        executionEntity.getWorkflowId(),
+      );
+    }
+
+    if (!this.config.rejectionBuilder) {
+      throw new ExecutionError(
+        "RejectionMessageBuilder is required for TOOL_VISIBILITY node",
+        node.id,
+        executionEntity.getWorkflowId(),
+      );
+    }
+
+    return {
+      permissionManager: this.config.permissionManager,
+      rejectionBuilder: this.config.rejectionBuilder,
     };
   }
 

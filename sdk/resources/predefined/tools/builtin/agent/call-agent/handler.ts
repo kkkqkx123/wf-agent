@@ -93,7 +93,7 @@ export function createCallAgentHandler() {
           profileId: agentProfileId,
           systemPrompt: prompt,
           initialMessages: [],
-          availableTools: { initial: [] },
+          availableTools: { tools: [] },
           maxIterations: 10,
         };
       }
@@ -112,14 +112,14 @@ export function createCallAgentHandler() {
       const toolService = globalContext.container.get(Identifiers.ToolRegistry) as ToolRegistry | undefined;
       let validTools: string[] = [];
       
-      if (runtimeConfig.availableTools?.initial && runtimeConfig.availableTools.initial.length > 0) {
+      if (runtimeConfig.availableTools?.tools && runtimeConfig.availableTools.tools.length > 0) {
         if (!toolService) {
           throw new ConfigurationError("ToolRegistry not available for tool validation");
         }
         
         // Filter out invalid tool IDs/names
         // Note: getTool() now supports both ID and name lookup for LLM compatibility
-        validTools = runtimeConfig.availableTools.initial.filter(toolId => {
+        validTools = runtimeConfig.availableTools.tools.filter((toolId: string) => {
           try {
             toolService.getTool(toolId);
             return true;
@@ -129,7 +129,7 @@ export function createCallAgentHandler() {
           }
         });
         
-        if (validTools.length === 0 && runtimeConfig.availableTools.initial.length > 0) {
+        if (validTools.length === 0 && runtimeConfig.availableTools.tools.length > 0) {
           // All tools were invalid, use empty array
           validTools = [];
         }
@@ -142,7 +142,7 @@ export function createCallAgentHandler() {
           systemPromptTemplateId: runtimeConfig.systemPromptTemplateId,
           systemPromptTemplateVariables: runtimeConfig.systemPromptTemplateVariables,
           initialMessages: [{ role: "user" as const, content: prompt }],
-          availableTools: { initial: validTools },
+          availableTools: { tools: validTools },
           maxIterations: runtimeConfig.maxIterations || 10,
         },
         {

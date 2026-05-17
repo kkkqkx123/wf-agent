@@ -25,6 +25,7 @@ import { embedStartHandler } from "./embed-start-handler.js";
 import { embedEndHandler } from "./embed-end-handler.js";
 import { userInteractionHandler, type UserInteractionHandlerContext } from "./user-interaction-handler.js";
 import { variableHandler } from "./variable-handler.js";
+import { toolVisibilityHandler, type ToolVisibilityHandlerContext } from "./tool-visibility-handler.js";
 
 // NodeHandlerFn signature: all handlers receive globalContext as first parameter
 export type NodeHandlerFn = (
@@ -70,6 +71,8 @@ export function getNodeHandler(nodeType: string): NodeHandlerFn {
     USER_INTERACTION: (_gc, workflowExecutionEntity, node, context) =>
       userInteractionHandler(workflowExecutionEntity.getExecution(), node, context as UserInteractionHandlerContext),
     VARIABLE: (_gc, workflowExecutionEntity, node, _ctx) => variableHandler(workflowExecutionEntity, node),
+    TOOL_VISIBILITY: (_gc, workflowExecutionEntity, node, context) =>
+      toolVisibilityHandler(workflowExecutionEntity.getExecution(), node, context as ToolVisibilityHandlerContext),
   };
 
   const handler = handlers[nodeType];
@@ -97,6 +100,7 @@ export {
   subgraphHandler,
   userInteractionHandler,
   variableHandler,
+  toolVisibilityHandler,
 };
 
-export type { AddToolHandlerContext };
+export type { AddToolHandlerContext, ToolVisibilityHandlerContext };

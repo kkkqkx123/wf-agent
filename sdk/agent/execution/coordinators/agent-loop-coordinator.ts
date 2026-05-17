@@ -7,6 +7,7 @@
 
 import type { ID } from "@wf-agent/types";
 import type { AgentLoopRuntimeConfig, AgentLoopResult } from "@wf-agent/types";
+import { getAvailableTools } from "@wf-agent/types";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import { AgentLoopStatus } from "@wf-agent/types";
@@ -96,7 +97,7 @@ export class AgentLoopCoordinator {
     logger.info("Agent Loop entity created", {
       agentLoopId: entity.id,
       maxIterations: config.maxIterations,
-      toolsCount: config.availableTools?.initial.length || 0,
+      toolsCount: getAvailableTools(config.availableTools).length,
     });
 
     // Record execution start metrics
@@ -186,7 +187,7 @@ export class AgentLoopCoordinator {
     logger.info("Agent Loop entity created for stream execution", {
       agentLoopId: entity.id,
       maxIterations: config.maxIterations,
-      toolsCount: config.availableTools?.initial.length || 0,
+      toolsCount: getAvailableTools(config.availableTools).length,
     });
 
     // 2. Registering entities
@@ -238,7 +239,7 @@ export class AgentLoopCoordinator {
     logger.info("Agent Loop entity created for async execution", {
       agentLoopId: entity.id,
       maxIterations: config.maxIterations,
-      toolsCount: config.availableTools?.initial.length || 0,
+      toolsCount: getAvailableTools(config.availableTools).length,
     });
 
     // 2. Registering entities

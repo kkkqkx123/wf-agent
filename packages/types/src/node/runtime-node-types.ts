@@ -26,6 +26,7 @@ import type {
   ScriptNodeConfig,
   LLMNodeConfig,
   AddToolNodeConfig,
+  ToolVisibilityNodeConfig,
 } from "./configs/execution-configs.js";
 import type { UserInteractionNodeConfig } from "./configs/interaction-configs.js";
 import type { ContextProcessorNodeConfig } from "./configs/context-configs.js";
@@ -57,6 +58,7 @@ export type RuntimeNodeType =
   | "SCRIPT"
   | "LLM"
   | "ADD_TOOL"
+  | "TOOL_VISIBILITY"
   | "USER_INTERACTION"
   | "ROUTE"
   | "CONTEXT_PROCESSOR"
@@ -97,6 +99,7 @@ export interface RuntimeNodeConfigMap {
   SCRIPT: ScriptNodeConfig;
   LLM: LLMNodeConfig;
   ADD_TOOL: AddToolNodeConfig;
+  TOOL_VISIBILITY: ToolVisibilityNodeConfig;
   USER_INTERACTION: UserInteractionNodeConfig;
   ROUTE: RouteNodeConfig;
   CONTEXT_PROCESSOR: ContextProcessorNodeConfig;
@@ -129,6 +132,7 @@ export type SubgraphNode = RuntimeNodeOfType<"SUBGRAPH">;  // Exists at runtime 
 export type ScriptNode = RuntimeNodeOfType<"SCRIPT">;
 export type LLMNode = RuntimeNodeOfType<"LLM">;
 export type AddToolNode = RuntimeNodeOfType<"ADD_TOOL">;
+export type ToolVisibilityNode = RuntimeNodeOfType<"TOOL_VISIBILITY">;
 export type UserInteractionNode = RuntimeNodeOfType<"USER_INTERACTION">;
 export type RouteNode = RuntimeNodeOfType<"ROUTE">;
 export type ContextProcessorNode = RuntimeNodeOfType<"CONTEXT_PROCESSOR">;
@@ -159,6 +163,7 @@ export type RuntimeNode =
   | ScriptNode
   | LLMNode
   | AddToolNode
+  | ToolVisibilityNode
   | UserInteractionNode
   | RouteNode
   | ContextProcessorNode
@@ -188,6 +193,7 @@ export const isSubgraphNode = createRuntimeNodeTypeGuard("SUBGRAPH");  // Exists
 export const isScriptNode = createRuntimeNodeTypeGuard("SCRIPT");
 export const isLLMNode = createRuntimeNodeTypeGuard("LLM");
 export const isAddToolNode = createRuntimeNodeTypeGuard("ADD_TOOL");
+export const isToolVisibilityNode = createRuntimeNodeTypeGuard("TOOL_VISIBILITY");
 export const isUserInteractionNode = createRuntimeNodeTypeGuard("USER_INTERACTION");
 export const isRouteNode = createRuntimeNodeTypeGuard("ROUTE");
 export const isContextProcessorNode = createRuntimeNodeTypeGuard("CONTEXT_PROCESSOR");

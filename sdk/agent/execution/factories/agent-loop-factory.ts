@@ -15,6 +15,7 @@
 
 import { randomUUID } from "crypto";
 import type { LLMMessage, AgentLoopRuntimeConfig, ID } from "@wf-agent/types";
+import { getAvailableTools } from "@wf-agent/types";
 import type { WorkflowExecutionRegistry } from "../../../workflow/stores/workflow-execution-registry.js";
 import { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import type { ConversationSession } from "../../../core/messaging/conversation-session.js";
@@ -115,7 +116,7 @@ export class AgentLoopFactory {
     logger.info("Creating new Agent Loop entity", {
       agentLoopId: id,
       maxIterations: config.maxIterations,
-      toolsCount: config.availableTools?.initial.length || 0,
+      toolsCount: getAvailableTools(config.availableTools).length,
       profileId: config.profileId || "DEFAULT",
     });
 

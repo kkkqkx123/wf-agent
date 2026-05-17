@@ -63,13 +63,11 @@ export const AgentLoopCheckpointConfigSchema = z.object({
 export const AgentLoopMetadataSchema = z.record(z.string(), z.unknown());
 
 /**
- * Available Tools Configuration Schema (Unified)
+ * Agent Tool Configuration Schema
  */
-export const AvailableToolsSchema = z.object({
-  initial: z.array(z.string()),
-  filterMode: z.enum(['none', 'allowlist', 'blocklist']).optional(),
+export const AgentToolConfigSchema = z.object({
   allowList: z.array(z.string()).optional(),
-  blockList: z.array(z.string()).optional(),
+  requireApproval: z.array(z.string()).optional(),
 });
 
 /**
@@ -87,8 +85,8 @@ export const AgentLoopConfigFileSchema = z.object({
   maxIterations: z.number().int().optional(),
   initialMessages: z.array(z.any()).optional(), // Message[] - using z.any() as Message schema not yet available
   
-  // Available tools configuration (unified format)
-  availableTools: AvailableToolsSchema.optional(),
+  // Tool configuration (Agent-specific)
+  availableTools: AgentToolConfigSchema.optional(),
   
   stream: z.boolean().optional(),
   checkpoint: AgentLoopCheckpointConfigSchema.optional(),

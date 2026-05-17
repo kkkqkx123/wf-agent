@@ -8,14 +8,11 @@ import { z } from "zod";
 import type { AgentLoopNodeConfig } from "./agent-loop-configs.js";
 
 /**
- * AvailableTools Schema (matches the AvailableTools interface)
+ * AgentToolConfig Schema (matches the AgentToolConfig interface)
  */
-const AvailableToolsSchema = z.object({
-  initial: z.array(z.string()),
-  dynamic: z.set(z.string()).optional(),
-  filterMode: z.enum(['none', 'allowlist', 'blocklist']).optional(),
-  allowList: z.array(z.string()).optional(),
-  blockList: z.array(z.string()).optional(),
+const AgentToolConfigSchema = z.object({
+  tools: z.array(z.string()),
+  requireApproval: z.array(z.string()).optional(),
 }).optional();
 
 /**
@@ -24,7 +21,7 @@ const AvailableToolsSchema = z.object({
 const InlineConfigSchema = z.object({
   profileId: z.string(),
   maxIterations: z.number().int().positive().optional(),
-  availableTools: AvailableToolsSchema,
+  availableTools: AgentToolConfigSchema,
   systemPrompt: z.string().optional(),
   systemPromptTemplateId: z.string().optional(),
   systemPromptTemplateVariables: z.record(z.string(), z.unknown()).optional(),

@@ -10,7 +10,7 @@ import type { WorkflowGraphAnalysis } from "./analysis.js";
 import type { PreprocessValidationResult, SubgraphMergeLog } from "../workflow/preprocess.js";
 import type { WorkflowTrigger } from "../trigger/index.js";
 import type { VariableDefinition } from "../workflow-execution/variables.js";
-import type { AvailableTools } from "../available-tools.js";
+import type { AvailableTools } from "../workflow/tool-config.js";
 import type { StaticNode } from "../node/index.js";
 
 /**

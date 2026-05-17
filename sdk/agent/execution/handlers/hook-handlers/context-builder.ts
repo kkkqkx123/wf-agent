@@ -7,6 +7,7 @@
 
 import type { AgentLoopEntity } from "../../../entities/agent-loop-entity.js";
 import type { EvaluationContext } from "@wf-agent/types";
+import { getAvailableTools } from "@wf-agent/types";
 
 /**
  * Agent Hook evaluation context (for internal use)
@@ -36,12 +37,8 @@ export interface AgentHookEvaluationContext {
     result?: unknown;
     error?: string;
   };
-  /** Tool management API (NEW) */
+  /** Tool management API */
   tools: {
-    /** Add tools dynamically */
-    add: (toolIds: string[], overwrite?: boolean) => number;
-    /** Remove dynamic tools */
-    remove: (toolIds: string[]) => number;
     /** Check if tool is available */
     isAvailable: (toolId: string) => boolean;
     /** Get all available tools */
@@ -77,13 +74,11 @@ export function buildAgentHookEvaluationContext(
     config: {
       profileId: config.profileId,
       systemPrompt: config.systemPrompt,
-      tools: config.availableTools?.initial,
+      tools: getAvailableTools(config.availableTools),
     },
     toolCall: toolCallInfo,
-    // 【新增】Tool management API
+    // Tool management API
     tools: {
-      add: (toolIds, overwrite) => entity.addTools(toolIds, overwrite),
-      remove: (toolIds) => entity.removeTools(toolIds),
       isAvailable: (toolId) => entity.isToolAvailable(toolId),
       getAll: () => entity.getAvailableTools(),
     },

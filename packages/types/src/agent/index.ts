@@ -36,6 +36,15 @@ export type {
   AgentLoopMetadata,
 } from "./static-config.js";
 
+// Tool Configuration (Static)
+export type { AgentToolConfig } from "./tool-config.js";
+export {
+  validateAgentToolConfig,
+  doesToolRequireApproval,
+  isAgentToolAvailable,
+  getAvailableTools,
+} from "./tool-config.js";
+
 // =============================================================================
 // Runtime Execution Types (re-exported from agent-execution/)
 // =============================================================================

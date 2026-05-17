@@ -36,6 +36,17 @@ export interface AgentHookEvaluationContext {
     result?: unknown;
     error?: string;
   };
+  /** Tool management API (NEW) */
+  tools: {
+    /** Add tools dynamically */
+    add: (toolIds: string[], overwrite?: boolean) => number;
+    /** Remove dynamic tools */
+    remove: (toolIds: string[]) => number;
+    /** Check if tool is available */
+    isAvailable: (toolId: string) => boolean;
+    /** Get all available tools */
+    getAll: () => Set<string>;
+  };
 }
 
 /**
@@ -69,6 +80,13 @@ export function buildAgentHookEvaluationContext(
       tools: config.availableTools?.initial,
     },
     toolCall: toolCallInfo,
+    // 【新增】Tool management API
+    tools: {
+      add: (toolIds, overwrite) => entity.addTools(toolIds, overwrite),
+      remove: (toolIds) => entity.removeTools(toolIds),
+      isAvailable: (toolId) => entity.isToolAvailable(toolId),
+      getAll: () => entity.getAvailableTools(),
+    },
   };
 }
 

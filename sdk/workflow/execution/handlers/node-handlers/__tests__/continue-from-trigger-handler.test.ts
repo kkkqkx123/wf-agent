@@ -112,7 +112,7 @@ describe('continueFromTriggerHandler', () => {
 
     const result = await continueFromTriggerHandler(mockSubEntity, node, {
       mainWorkflowExecutionEntity: mockMainEntity,
-    });
+    }) as any;
 
     expect(result.status).toBe('SKIPPED');
   });

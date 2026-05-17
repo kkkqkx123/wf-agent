@@ -17,6 +17,7 @@ import type { EventRegistry } from "../../../../core/registry/event-registry.js"
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import { buildToolAddedEvent } from "../../../../core/utils/event/builders/tool-events.js";
 import type { ToolRegistry } from "../../../../core/registry/tool-registry.js";
+import type { ToolVisibilityCoordinator } from "../../coordinators/tool-visibility-coordinator.js";
 
 /**
  * Tool adds node execution results
@@ -46,6 +47,8 @@ export interface AddToolHandlerContext {
   eventManager: EventRegistry;
   /** Workflow execution entity (used for tool visibility declarations) */
   workflowExecutionEntity?: WorkflowExecutionEntity;
+  /** Tool Visibility Coordinator (for updating visibility declarations) */
+  toolVisibilityCoordinator?: ToolVisibilityCoordinator;
 }
 
 /**
@@ -94,13 +97,19 @@ export async function addToolHandler(
       config.metadata,
     );
 
+    // Note: AvailableTools.dynamic synchronization with template is handled at a higher level
+    // The ToolContextStore maintains the runtime state of available tools
+
     // 3. Calculate the number of tools that were skipped.
     const skippedCount = validToolIds.length - addedCount;
 
-    // 4. Update tool visibility (if WorkflowExecutionEntity is provided)
-    if (context.workflowExecutionEntity && addedCount > 0) {
-      // Tool visibility updates are handled by ToolVisibilityCoordinator
-      // This is just a placeholder, the actual update is done in the coordinator
+    // 4. Update tool visibility declaration (CRITICAL - makes tools visible to LLM)
+    if (context.toolVisibilityCoordinator && context.workflowExecutionEntity && addedCount > 0) {
+      await context.toolVisibilityCoordinator.addToolsDynamically(
+        context.workflowExecutionEntity,
+        validToolIds,
+        scope,
+      );
     }
 
     // 5. Triggering the tool to add an event

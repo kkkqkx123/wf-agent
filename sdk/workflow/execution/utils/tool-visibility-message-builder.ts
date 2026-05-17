@@ -1,23 +1,17 @@
 /**
- * ToolVisibilityMessageBuilder - A tool for constructing messages related to tool visibility, specifically designed to generate messages regarding tool visibility declarations.
+ * ToolVisibilityMessageBuilder - Constructs lightweight tool update notifications
  *
  * Design principles:
  * - Stateless design: Does not maintain any state.
- * - Single responsibility: Is responsible only for message construction.
- * - Testability: Acts as a pure function, making it easy to perform unit testing.
- * - Use of a template renderer: Utilizes templates from @wf-agent/prompt-templates.
- *
+ * - Single responsibility: Only builds notification messages for tool changes.
+ * - Minimal noise: No timestamps, scope IDs, or other internal details.
+ * - Incremental updates: Only notifies about added/removed tools.
  */
 
 import type { ToolScope } from "../../stores/tool-context-store.js";
-import type { VisibilityChangeType } from "../types/tool-visibility.types.js";
 import type { ToolRegistry } from "../../../core/registry/tool-registry.js";
-import { now, renderTemplate } from "@wf-agent/common-utils";
-import { generateToolTable } from "../../../core/utils/tools/tool-description-generator.js";
-import {
-  TOOL_VISIBILITY_DECLARATION_TEMPLATE,
-  VISIBILITY_CHANGE_TYPE_TEXTS,
-} from "@wf-agent/prompt-templates";
+import { renderTemplate } from "@wf-agent/common-utils";
+import { TOOL_VISIBILITY_DECLARATION_TEMPLATE } from "@wf-agent/prompt-templates";
 
 /**
  * Tool Visibility Message Builder
@@ -26,61 +20,56 @@ export class ToolVisibilityMessageBuilder {
   constructor(private toolService: ToolRegistry) {}
 
   /**
-   * Construct the visibility assertion message content
-   * @param scope  Scope
-   * @param scopeId  Scope ID
-   * @param toolIds  List of tool IDs
-   * @param changeType  Change type
-   * @returns  Assertion message content
+   * Build lightweight tool update notification
+   * Only includes added/removed tools without exposing internal details
+   * 
+   * @param addedTools List of newly added tools with descriptions
+   * @param removedTools List of removed tool IDs
+   * @returns Notification message content
    */
-  buildVisibilityDeclarationMessage(
-    scope: ToolScope,
-    scopeId: string,
-    toolIds: string[],
-    changeType: VisibilityChangeType,
+  buildUpdateNotification(
+    addedTools?: Array<{ id: string; description: string }>,
+    removedTools?: string[],
   ): string {
-    const timestamp = new Date().toISOString();
-    const changeTypeText = VISIBILITY_CHANGE_TYPE_TEXTS[changeType] || changeType;
+    // Format added tools
+    const addedSection = addedTools && addedTools.length > 0
+      ? addedTools.map(t => `- ${t.id}: ${t.description}`).join("\n")
+      : "";
 
-    // Get the list of tool objects.
-    const tools = toolIds.map(id => this.toolService.getTool(id)).filter(Boolean);
+    // Format removed tools
+    const removedSection = removedTools && removedTools.length > 0
+      ? removedTools.map(id => `- ${id}`).join("\n")
+      : "";
 
-    // Use the tool description generator to create a tool table.
-    const toolDescriptions = tools.length > 0 ? generateToolTable(tools) : "No tools available";
-
-    // Use a template renderer to generate messages.
-    const variables = {
-      timestamp,
-      scope,
-      scopeId,
-      changeTypeText,
-      toolDescriptions,
-    };
-
-    return renderTemplate(TOOL_VISIBILITY_DECLARATION_TEMPLATE.content, variables);
+    // Render template (empty sections will be omitted)
+    return renderTemplate(TOOL_VISIBILITY_DECLARATION_TEMPLATE.content, {
+      addedTools: addedSection || "",
+      removedTools: removedSection || "",
+    });
   }
 
   /**
-   * Construct visibility declaration message metadata
-   * @param scope  Scope
-   * @param scopeId  Scope ID
-   * @param toolIds  List of tool IDs
-   * @param changeType  Change type
-   * @returns  Message metadata
+   * Build metadata for tool update event (for logging/debugging)
+   * Note: This is NOT sent to LLM, only used for internal tracking
+   * 
+   * @param scope Scope (internal use only)
+   * @param scopeId Scope ID (internal use only)
+   * @param addedToolIds Added tool IDs
+   * @param removedToolIds Removed tool IDs
+   * @returns Event metadata
    */
-  buildVisibilityDeclarationMetadata(
+  buildEventMetadata(
     scope: ToolScope,
     scopeId: string,
-    toolIds: string[],
-    changeType: VisibilityChangeType,
+    addedToolIds?: string[],
+    removedToolIds?: string[],
   ): Record<string, unknown> {
     return {
-      type: "tool_visibility_declaration",
-      timestamp: now(),
+      type: "tool_update",
       scope,
       scopeId,
-      toolIds,
-      changeType,
+      addedToolIds,
+      removedToolIds,
     };
   }
 }

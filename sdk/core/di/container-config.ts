@@ -592,6 +592,7 @@ export function configureContainerBindings(
             globalContext,
             eventManager: c.get(Identifiers.EventRegistry) as EventRegistry,
             llmCoordinator: c.get(Identifiers.LLMExecutionCoordinator) as LLMExecutionCoordinator,
+            llmWrapper: c.get(Identifiers.LLMWrapper) as LLMWrapper,
             conversationManager: (
               conversationManagerFactory as unknown as OptionalParamsServiceFactory<ConversationSession>
             ).create(executionId),

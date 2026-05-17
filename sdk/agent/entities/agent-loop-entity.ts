@@ -144,6 +144,14 @@ export class AgentLoopEntity {
   /** Follow-up mode */
   private followUpMode: FollowUpMode = "one-at-a-time";
 
+  // ========== Tool Management Cache (Performance Optimization) ==========
+
+  /** Cached available tools set */
+  private cachedAvailableTools?: Set<string>;
+
+  /** Flag indicating if tools have changed since last cache */
+  private toolsChanged: boolean = true;
+
   /**
    * Constructor
    * @param id Execution instance ID
@@ -675,6 +683,106 @@ export class AgentLoopEntity {
     this.hierarchyManager = newManager;
   }
 
+  // ========== Tool Management (NEW) ==========
+
+  /**
+   * Dynamically add tools during execution
+   * 
+   * Updates the availableTools.dynamic set in the config.
+   * New tools will be available in the next iteration.
+   * 
+   * @param toolIds Array of tool IDs to add
+   * @param overwrite Whether to overwrite existing tools (default: false)
+   * @returns Number of tools actually added
+   */
+  addTools(toolIds: string[], overwrite: boolean = false): number {
+    if (!this.config.availableTools) {
+      this.config.availableTools = { initial: [] };
+    }
+    
+    if (!this.config.availableTools.dynamic) {
+      this.config.availableTools.dynamic = new Set();
+    }
+    
+    let addedCount = 0;
+    for (const toolId of toolIds) {
+      if (overwrite || !this.config.availableTools.dynamic.has(toolId)) {
+        this.config.availableTools.dynamic.add(toolId);
+        addedCount++;
+      }
+    }
+    
+    // Invalidate cache when tools change
+    if (addedCount > 0) {
+      this.toolsChanged = true;
+    }
+    
+    return addedCount;
+  }
+
+  /**
+   * Remove dynamically added tools
+   * 
+   * Only removes tools from the dynamic set.
+   * Cannot remove tools from the initial set.
+   * 
+   * @param toolIds Array of tool IDs to remove
+   * @returns Number of tools actually removed
+   */
+  removeTools(toolIds: string[]): number {
+    if (!this.config.availableTools?.dynamic) {
+      return 0;
+    }
+    
+    let removedCount = 0;
+    for (const toolId of toolIds) {
+      if (this.config.availableTools.dynamic.delete(toolId)) {
+        removedCount++;
+      }
+    }
+    
+    // Invalidate cache when tools change
+    if (removedCount > 0) {
+      this.toolsChanged = true;
+    }
+    
+    return removedCount;
+  }
+
+  /**
+   * Get currently available tools (initial + dynamic)
+   * 
+   * Uses caching to avoid recomputing on every call.
+   * Cache is invalidated when tools are added or removed.
+   * 
+   * @returns Set of all available tool IDs
+   */
+  getAvailableTools(): Set<string> {
+    // Return cached result if available and not stale
+    if (this.cachedAvailableTools && !this.toolsChanged) {
+      return this.cachedAvailableTools;
+    }
+    
+    // Recompute and cache
+    const initial = this.config.availableTools?.initial || [];
+    const dynamic = Array.from(this.config.availableTools?.dynamic || []);
+    this.cachedAvailableTools = new Set([...initial, ...dynamic]);
+    this.toolsChanged = false;
+    
+    return this.cachedAvailableTools;
+  }
+
+  /**
+   * Check if a specific tool is available
+   * 
+   * @param toolId Tool ID to check
+   * @returns true if tool is available
+   */
+  isToolAvailable(toolId: string): boolean {
+    const availableTools = this.getAvailableTools();
+    return availableTools.has(toolId);
+  }
+
   // ========== Resource Cleanup ==========
 
   /**
@@ -696,6 +804,10 @@ export class AgentLoopEntity {
 
     // Clear queues
     this.clearAllQueues();
+
+    // Clear tool cache
+    this.cachedAvailableTools = undefined;
+    this.toolsChanged = true;
   }
 
   // ========== Factory Methods ==========
@@ -711,11 +823,27 @@ export class AgentLoopEntity {
     const state = new AgentLoopState();
     state.restoreFromSnapshot(snapshot);
 
-    // Create entity with restored state
-    const entity = new AgentLoopEntity(id, snapshot.config as AgentLoopRuntimeConfig, state);
+    // Restore config from snapshot (may contain functions, so cast is needed)
+    const config = snapshot.config as AgentLoopRuntimeConfig;
+
+    // 【新增】Restore dynamic tools from snapshot
+    const dynamicTools = snapshot['dynamicTools'] as string[] | undefined;
+    if (dynamicTools && dynamicTools.length > 0) {
+      if (!config.availableTools) {
+        config.availableTools = { initial: [] };
+      }
+      config.availableTools.dynamic = new Set(dynamicTools);
+    }
+
+    // Create entity with restored state and config
+    const entity = new AgentLoopEntity(id, config, state);
 
     // Restore messages
     entity.setMessages(snapshot.messages as LLMMessage[]);
+
+    // Invalidate cache after restoration to ensure fresh computation
+    entity.toolsChanged = true;
+    entity.cachedAvailableTools = undefined;
 
     return entity;
   }

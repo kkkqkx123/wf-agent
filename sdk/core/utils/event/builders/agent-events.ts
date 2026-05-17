@@ -155,3 +155,63 @@ export const buildAgentHookTriggeredCoreEvent = (
   nodeId: params.nodeId,
   metadata: params.metadata,
 });
+
+// =============================================================================
+// Agent Tool Management Events (NEW)
+// =============================================================================
+
+/**
+ * Build agent tools added event
+ */
+export function buildAgentToolsAddedEvent(params: {
+  agentLoopId: string;
+  toolIds: string[];
+  addedCount: number;
+  iteration?: number;
+}): AgentHookTriggeredCoreEvent {
+  return {
+    id: crypto.randomUUID(),
+    type: "AGENT_HOOK_TRIGGERED",
+    timestamp: Date.now(),
+    agentLoopId: params.agentLoopId,
+    hookType: "system" as AgentHookType,
+    eventName: "tools_added",
+    eventData: {
+      toolIds: params.toolIds,
+      addedCount: params.addedCount,
+      iteration: params.iteration,
+    },
+    iteration: params.iteration ?? 0,
+    metadata: {
+      component: "AgentLoopEntity",
+    },
+  };
+}
+
+/**
+ * Build agent tools removed event
+ */
+export function buildAgentToolsRemovedEvent(params: {
+  agentLoopId: string;
+  toolIds: string[];
+  removedCount: number;
+  iteration?: number;
+}): AgentHookTriggeredCoreEvent {
+  return {
+    id: crypto.randomUUID(),
+    type: "AGENT_HOOK_TRIGGERED",
+    timestamp: Date.now(),
+    agentLoopId: params.agentLoopId,
+    hookType: "system" as AgentHookType,
+    eventName: "tools_removed",
+    eventData: {
+      toolIds: params.toolIds,
+      removedCount: params.removedCount,
+      iteration: params.iteration,
+    },
+    iteration: params.iteration ?? 0,
+    metadata: {
+      component: "AgentLoopEntity",
+    },
+  };
+}

@@ -37,6 +37,9 @@ import { ToolVisibilityMessageBuilder } from "../utils/tool-visibility-message-b
  * ToolVisibilityCoordinator - Tool Visibility Coordinator
  */
 export class ToolVisibilityCoordinator {
+  /** Tool Service */
+  private toolService: ToolRegistry;
+
   /** Tool Visibility Store (Stateful) */
   private toolVisibilityStore: ToolVisibilityStore;
 
@@ -49,6 +52,7 @@ export class ToolVisibilityCoordinator {
    * @param toolVisibilityStore: Tool visibility store
    */
   constructor(toolService: ToolRegistry, toolVisibilityStore?: ToolVisibilityStore) {
+    this.toolService = toolService;
     this.toolVisibilityStore = toolVisibilityStore || new ToolVisibilityStore();
     this.messageBuilder = new ToolVisibilityMessageBuilder(toolService);
   }
@@ -198,10 +202,10 @@ export class ToolVisibilityCoordinator {
 
   /**
    * Dynamically add tools
-   * Generate incremental visibility declarations
+   * Generate lightweight incremental notification (no scope/timestamp noise)
    * @param executionEntity WorkflowExecution entity
-   * @param toolIds List of tool IDs
-   * @param scope Scope
+   * @param toolIds List of tool IDs to add
+   * @param scope Scope (for internal tracking only, not exposed to LLM)
    */
   async addToolsDynamically(
     executionEntity: WorkflowExecutionEntity,
@@ -215,17 +219,48 @@ export class ToolVisibilityCoordinator {
       throw new Error(`Tool visibility context not found for workflow execution: ${executionId}`);
     }
 
-    // Add the visible tool collection to the store.
+    // Get tool descriptions for notification
+    const addedToolsWithDesc = toolIds.map(id => {
+      const tool = this.toolService.getTool(id);
+      return {
+        id,
+        description: tool?.description || "No description",
+      };
+    });
+
+    // Add to visible tools in store
     this.toolVisibilityStore.addTools(executionId, toolIds);
 
-    // Generate the declaration immediately.
-    await this.updateVisibilityOnScopeChange(
-      executionEntity,
+    // Build lightweight notification (only added tools, no scope/timestamp)
+    const message = this.messageBuilder.buildUpdateNotification(addedToolsWithDesc, undefined);
+
+    // Add to conversation history
+    const llmMessage: LLMMessage = {
+      role: "system",
+      content: message,
+      metadata: this.messageBuilder.buildEventMetadata(
+        scope,
+        context.scopeId,
+        toolIds,
+        undefined,
+      ),
+    };
+
+    executionEntity.addMessage(llmMessage);
+
+    // Update declaration history (for internal tracking)
+    const declaration: VisibilityDeclaration = {
+      timestamp: now(),
       scope,
-      context.scopeId,
-      Array.from(context.visibleTools),
-      "add_tools",
-    );
+      scopeId: context.scopeId,
+      toolIds: Array.from(context.visibleTools),
+      messageIndex: executionEntity.getMessages().length - 1,
+      changeType: "add_tools",
+    };
+
+    const updatedContext = this.getContext(executionId)!;
+    updatedContext.declarationHistory.push(declaration);
+    updatedContext.lastDeclarationIndex = declaration.messageIndex;
   }
 
   /**

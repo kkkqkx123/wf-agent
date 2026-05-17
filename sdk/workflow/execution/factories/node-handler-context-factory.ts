@@ -20,6 +20,7 @@ import type { ToolRegistry } from "../../../core/registry/tool-registry.js";
 import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-registry.js";
 import type { WorkflowExecutionBuilder } from "../factories/workflow-execution-builder.js";
 import type { WorkflowExecutor } from "../executors/workflow-executor.js";
+import type { LLMWrapper } from "../../../core/llm/wrapper.js";
 import { LLMExecutionCoordinator } from "../coordinators/llm-execution-coordinator.js";
 import { ExecutionError } from "@wf-agent/types";
 
@@ -31,6 +32,8 @@ export interface NodeHandlerContextFactoryConfig {
   eventManager: EventRegistry;
   /** LLM Execution Coordinator */
   llmCoordinator: LLMExecutionCoordinator;
+  /** LLM Wrapper (required for LLM nodes to access profiles) */
+  llmWrapper: LLMWrapper;
   /** Dialogue Manager */
   conversationManager: ConversationSession;
   /** User Interaction Handler (optional) */
@@ -87,11 +90,12 @@ export class NodeHandlerContextFactory {
   private contextCreators: Map<string, (node: RuntimeNode, executionEntity: WorkflowExecutionEntity) => Record<string, unknown>> = new Map([
     ["USER_INTERACTION", (node, entity) => this.createUserInteractionContext(node, entity)],
     ["CONTEXT_PROCESSOR", (_node, entity) => this.createContextProcessorContext(entity)],
-    ["LLM", () => this.createLLMContext()],
+    ["LLM", (node, entity) => this.createLLMContext(node, entity)],
     ["AGENT_LOOP", (node, entity) => this.createAgentLoopContext(node, entity)],
     ["ADD_TOOL", (node, entity) => this.createAddToolContext(node, entity)],
     ["FORK", (node, entity) => this.createForkContext(node, entity)],
     ["SUBGRAPH", (node, entity) => this.createSubgraphContext(node, entity)],
+    ["START_FROM_TRIGGER", (_node, entity) => this.createStartFromTriggerContext(entity)],
   ]);
 
   /**
@@ -123,8 +127,17 @@ export class NodeHandlerContextFactory {
    * Create a Context Processor node context
    * @param executionEntity WorkflowExecution entity for context operations
    * @returns Context with conversationManager, executionEntity, and workflowExecutionRegistry
+   * @throws ExecutionError When conversationManager is not provided
    */
   private createContextProcessorContext(executionEntity: WorkflowExecutionEntity): Record<string, unknown> {
+    if (!this.config.conversationManager) {
+      throw new ExecutionError(
+        "ConversationManager is required for CONTEXT_PROCESSOR node",
+        "CONTEXT_PROCESSOR",
+        executionEntity.getWorkflowId(),
+      );
+    }
+
     return {
       conversationManager: this.config.conversationManager,
       executionEntity: executionEntity,
@@ -134,11 +147,23 @@ export class NodeHandlerContextFactory {
 
   /**
    * Create LLM node context
-   * @returns Context with llmCoordinator, eventManager, conversationManager, and optional humanRelayHandler
+   * @param node Node definition (for error reporting)
+   * @param executionEntity WorkflowExecution entity (for error reporting)
+   * @returns Context with llmCoordinator, llmWrapper, eventManager, conversationManager, and optional humanRelayHandler
+   * @throws ExecutionError When required dependencies are not provided
    */
-  private createLLMContext(): Record<string, unknown> {
+  private createLLMContext(node: RuntimeNode, executionEntity: WorkflowExecutionEntity): Record<string, unknown> {
+    if (!this.config.llmWrapper) {
+      throw new ExecutionError(
+        "LLMWrapper is required for LLM node",
+        node.id,
+        executionEntity.getWorkflowId(),
+      );
+    }
+
     return {
       llmCoordinator: this.config.llmCoordinator,
+      llmWrapper: this.config.llmWrapper,
       eventManager: this.config.eventManager,
       conversationManager: this.config.conversationManager,
       humanRelayHandler: this.config.humanRelayHandler,
@@ -263,6 +288,19 @@ export class NodeHandlerContextFactory {
     return {
       executionBuilder: this.config.executionBuilder,
       workflowExecutor: this.config.workflowExecutor,
+    };
+  }
+
+  /**
+   * Create a START_FROM_TRIGGER node context
+   * @param _executionEntity WorkflowExecution entity (unused, kept for signature consistency)
+   * @returns Context with optional triggerInput and conversationManager
+   */
+  private createStartFromTriggerContext(_executionEntity: WorkflowExecutionEntity): Record<string, unknown> {
+    return {
+      conversationManager: this.config.conversationManager,
+      // Note: triggerInput should be passed from the external trigger mechanism,
+      // not created here. It will be injected by the caller when executing the node.
     };
   }
 }

@@ -78,7 +78,7 @@ describe('agentLoopHandler', () => {
       inlineConfig: {
         profileId: 'gpt-4-agent',
         maxIterations: 5,
-        availableTools: ['tool1', 'tool2'],
+        availableTools: { initial: ['tool1', 'tool2'] },
       },
     };
     const node = { id: 'agent-loop-1', type: 'AGENT_LOOP', config } as RuntimeNode;
@@ -93,7 +93,9 @@ describe('agentLoopHandler', () => {
 
   it('should return FAILED when profileId is missing', async () => {
     const config: AgentLoopNodeConfig = {
-      inlineConfig: {},
+      inlineConfig: {
+        profileId: '',
+      },
     };
     const node = { id: 'agent-loop-2', type: 'AGENT_LOOP', config } as RuntimeNode;
 

@@ -115,9 +115,19 @@ export class AgentLoopExecutor {
       initialMessageCount: entity.conversationManager.getMessageCount(),
     });
 
-    // Get tool IDs from availableTools configuration
-    const toolIds = config.availableTools?.initial;
-    const toolSchemas = prepareToolSchemas(toolIds, this.toolService);
+    // Merge initial and dynamic tools
+    const initialToolIds = config.availableTools?.initial || [];
+    const dynamicToolIds = Array.from(config.availableTools?.dynamic || []);
+    const allToolIds = [...new Set([...initialToolIds, ...dynamicToolIds])];
+
+    logger.debug("Tool configuration", {
+      initialCount: initialToolIds.length,
+      dynamicCount: dynamicToolIds.length,
+      totalCount: allToolIds.length,
+    });
+
+    // Pass availableTools to apply filtering
+    const toolSchemas = prepareToolSchemas(allToolIds, this.toolService, config.availableTools);
 
     if (toolSchemas) {
       logger.debug("Tool schemas prepared", { agentLoopId, toolsCount: toolSchemas.length });
@@ -151,9 +161,19 @@ export class AgentLoopExecutor {
       initialMessageCount: entity.conversationManager.getMessageCount(),
     });
 
-    // Get tool IDs from availableTools configuration
-    const toolIds = config.availableTools?.initial;
-    const toolSchemas = prepareToolSchemas(toolIds, this.toolService);
+    // Merge initial and dynamic tools
+    const initialToolIds = config.availableTools?.initial || [];
+    const dynamicToolIds = Array.from(config.availableTools?.dynamic || []);
+    const allToolIds = [...new Set([...initialToolIds, ...dynamicToolIds])];
+
+    logger.debug("Tool configuration", {
+      initialCount: initialToolIds.length,
+      dynamicCount: dynamicToolIds.length,
+      totalCount: allToolIds.length,
+    });
+
+    // Pass availableTools to apply filtering
+    const toolSchemas = prepareToolSchemas(allToolIds, this.toolService, config.availableTools);
 
     const coordinator = this.createCoordinator();
     yield* coordinator.executeStream(

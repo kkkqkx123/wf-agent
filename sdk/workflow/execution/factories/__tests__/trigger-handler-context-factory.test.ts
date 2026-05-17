@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { TriggerHandlerContextFactory, TriggerHandlerContextFactoryConfig, TriggerHandlerContext, LifecycleTriggerContext, SkipNodeTriggerContext, SetVariableTriggerContext } from '../trigger-handler-context-factory.js';
+import { TriggerHandlerContextFactory, TriggerHandlerContextFactoryConfig, TriggerHandlerContext, LifecycleTriggerContext, SkipNodeTriggerContext, SetVariableTriggerContext, ExecuteSubgraphTriggerContext } from '../trigger-handler-context-factory.js';
 import { DependencyInjectionError } from '@wf-agent/types';
 
 // Mock types for testing
@@ -16,26 +16,154 @@ interface MockTaskQueue {}
 interface MockWorkflowStateTransitor {}
 
 // Create mock implementations
-const createMockTrigger = (actionType: string): MockTrigger => ({
+const createMockTrigger = (actionType: string): any => ({
   id: 'trigger123',
   action: { type: actionType },
   executionId: 'exec456'
-} as MockTrigger);
+});
 
-const createMockWorkflowExecutionRegistry = (): MockWorkflowExecutionRegistry => ({} as MockWorkflowExecutionRegistry);
-const createMockWorkflowRegistry = (): MockWorkflowRegistry => ({} as MockWorkflowRegistry);
-const createMockTriggerState = (): MockTriggerState => ({} as MockTriggerState);
-const createMockGlobalContext = (): MockGlobalContext => ({
+const createMockWorkflowExecutionRegistry = (): any => ({
+  workflowExecutionEntities: new Map(),
+  register: () => {},
+  get: () => null,
+  delete: () => {},
+  getAll: () => [],
+  getAllIds: () => [],
+  size: () => 0,
+  clear: () => {},
+  has: () => false,
+  isWorkflowActive: () => false,
+  getByStatus: () => [],
+  getActive: () => [],
+});
+
+const createMockWorkflowRegistry = (): any => ({
+  workflows: new Map(),
+  workflowRelationships: new Map(),
+  activeWorkflows: new Set(),
+  referenceRelations: new Map(),
+  register: () => {},
+  get: () => undefined,
+  has: () => false,
+  unregister: () => false,
+  list: () => [],
+  clear: () => {},
+  size: () => 0,
+  getAllWorkflowIds: () => [],
+});
+
+const createMockTriggerState = (): any => ({
+  states: new Map(),
+  executionId: '',
+  workflowId: '',
+  setWorkflowId: () => {},
+  getWorkflowId: () => '',
+  setExecutionId: () => {},
+  getExecutionId: () => '',
+  getState: () => undefined,
+  setState: () => {},
+  clearState: () => {},
+  hasState: () => false,
+  getAllStates: () => [],
+  clearAllStates: () => {},
+});
+
+const createMockGlobalContext = (): any => ({
   container: {
-    get: () => {}
-  }
-} as MockGlobalContext);
-const createMockCheckpointState = (): MockCheckpointState => ({} as MockCheckpointState);
-const createMockWorkflowGraphRegistry = (): MockWorkflowGraphRegistry => ({} as MockWorkflowGraphRegistry);
-const createMockEventRegistry = (): MockEventRegistry => ({} as MockEventRegistry);
-const createMockWorkflowExecutionBuilder = (): MockWorkflowExecutionBuilder => ({} as MockWorkflowExecutionBuilder);
-const createMockTaskQueue = (): MockTaskQueue => ({} as MockTaskQueue);
-const createMockWorkflowStateTransitor = (): MockWorkflowStateTransitor => ({} as MockWorkflowStateTransitor);
+    get: () => {},
+    set: () => {},
+    has: () => false,
+  },
+  workflowRegistry: undefined,
+  toolRegistry: undefined,
+  scriptRegistry: undefined,
+  eventManager: undefined,
+  llmExecutor: undefined,
+  toolCallExecutor: undefined,
+  conversationSession: undefined,
+  userInteractionHandler: undefined,
+  humanRelayHandler: undefined,
+  interruptionDetector: undefined,
+  checkpointStateManager: undefined,
+  workflowGraphRegistry: undefined,
+  taskQueue: undefined,
+  metricsRegistry: undefined,
+  logger: undefined,
+});
+
+const createMockCheckpointState = (): any => ({
+  cleanupWorkflowExecutionCheckpoints: () => Promise.resolve(),
+  create: () => Promise.resolve(''),
+  get: () => Promise.resolve(undefined),
+  list: () => Promise.resolve([]),
+  restore: () => Promise.resolve({}),
+  delete: () => Promise.resolve(false),
+  exists: () => Promise.resolve(false),
+  update: () => Promise.resolve(false),
+  getLatest: () => Promise.resolve(undefined),
+  getLatestByNode: () => Promise.resolve(undefined),
+  count: () => Promise.resolve(0),
+  clear: () => Promise.resolve(),
+  extractStorageMetadata: () => ({}),
+  buildCreatedEvent: () => ({}),
+  buildDeletedEvent: () => ({}),
+  buildFailedEvent: () => ({}),
+});
+
+const createMockWorkflowGraphRegistry = (): any => ({
+  workflowGraphs: new Map(),
+  register: () => {},
+  get: () => undefined,
+  has: () => false,
+  unregister: () => false,
+  list: () => [],
+  clear: () => {},
+  size: () => 0,
+  getAllWorkflowIds: () => [],
+  registerBatch: () => {},
+  unregisterBatch: () => {},
+});
+
+const createMockEventRegistry = (): any => ({
+  emitters: new Map(),
+  metricsCollector: undefined,
+  getEmitter: () => undefined,
+  on: () => {},
+  off: () => {},
+  emit: () => {},
+  once: () => {},
+  removeAllListeners: () => {},
+  listenerCount: () => 0,
+  listeners: () => [],
+  rawListeners: () => [],
+  waitFor: () => Promise.resolve(),
+  cleanupExecutionListeners: () => {},
+  getExecutionListenerStats: () => ({}),
+  getMetricsCollector: () => undefined,
+});
+
+const createMockWorkflowExecutionBuilder = (): any => ({
+  createChildExecution: () => Promise.resolve({ workflowExecutionEntity: {} }),
+  buildExecutionPlan: () => ({}),
+  validateExecutionPlan: () => true,
+});
+
+const createMockTaskQueue = (): any => ({
+  enqueue: () => {},
+  dequeue: () => undefined,
+  peek: () => undefined,
+  isEmpty: () => true,
+  size: () => 0,
+  clear: () => {},
+  toArray: () => [],
+});
+
+const createMockWorkflowStateTransitor = (): any => ({
+  transitionTo: () => Promise.resolve(),
+  getCurrentState: () => 'RUNNING',
+  canTransition: () => true,
+  getValidTransitions: () => [],
+});
 
 describe('TriggerHandlerContextFactory', () => {
   let factory: TriggerHandlerContextFactory;

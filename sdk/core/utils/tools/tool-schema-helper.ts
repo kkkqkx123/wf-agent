@@ -11,33 +11,54 @@
  */
 
 import type { ToolRegistry } from "../../registry/tool-registry.js";
-import type { ToolSchema, ToolParameterSchema } from "@wf-agent/types";
+import type { ToolSchema, ToolParameterSchema, AvailableTools } from "@wf-agent/types";
+import { isToolAvailable } from "@wf-agent/types";
+import { createLogger } from "@wf-agent/common-utils";
 
 /**
- * Prepare tool schemas from tool IDs
+ * Prepare tool schemas from tool IDs with filtering
  *
  * Converts tool IDs to LLM-compatible tool schemas by looking up
- * tool definitions from ToolRegistry.
+ * tool definitions from ToolRegistry, applying AvailableTools filtering.
  *
- * @param toolIds Array of tool IDs
+ * @param toolIds Array of tool IDs (from ToolContextStore or config)
  * @param toolService Tool service to lookup tool definitions
- * @returns Array of tool schemas, or undefined if no tools
+ * @param availableTools Optional AvailableTools config for filtering
+ * @returns Array of filtered tool schemas, or undefined if no tools
  *
  * @example
  * ```ts
- * const schemas = prepareToolSchemas(['calculator', 'weather'], toolService);
+ * const schemas = prepareToolSchemas(['calculator', 'weather'], toolService, availableTools);
  * // Returns: [{ id: 'calculator', description: '...', parameters: {...} }, ...]
  * ```
  */
 export function prepareToolSchemas(
   toolIds: string[] | undefined,
   toolService: ToolRegistry,
+  availableTools?: AvailableTools,
 ): ToolSchema[] | undefined {
   if (!toolIds || toolIds.length === 0) {
     return undefined;
   }
 
-  const schemas = toolIds
+  const logger = createLogger({ name: "tool-schema-helper" });
+
+  // Apply filtering logic if availableTools is provided
+  let filteredToolIds = toolIds;
+  if (availableTools) {
+    filteredToolIds = toolIds.filter(id => isToolAvailable(availableTools, id));
+
+    if (filteredToolIds.length !== toolIds.length) {
+      const removedTools = toolIds.filter(id => !filteredToolIds.includes(id));
+      logger.debug("Tool filtering applied", {
+        originalCount: toolIds.length,
+        filteredCount: filteredToolIds.length,
+        removedTools,
+      });
+    }
+  }
+
+  const schemas = filteredToolIds
     .map(id => {
       try {
         const tool = toolService.getTool(id);

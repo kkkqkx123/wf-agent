@@ -31,6 +31,7 @@ import type { InterruptionState } from "../../../core/types/interruption-state.j
 import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-registry.js";
 import type { ToolContextStore } from "../../stores/tool-context-store.js";
 import type { ToolRegistry } from "../../../core/registry/tool-registry.js";
+import type { LLMWrapper } from "../../../core/llm/wrapper.js";
 import type { WorkflowExecutionBuilder } from "../factories/workflow-execution-builder.js";
 import type { WorkflowExecutor } from "../executors/workflow-executor.js";
 import type { ForkBranchResult } from "../types/subworkflow-result.types.js";
@@ -77,6 +78,8 @@ export interface NodeExecutionCoordinatorConfig {
   eventManager: EventRegistry;
   /** LLM Execution Coordinator */
   llmCoordinator: LLMExecutionCoordinator;
+  /** LLM Wrapper (required for LLM nodes to access profiles) */
+  llmWrapper: LLMWrapper;
   /** Dialogue Manager */
   conversationManager: ConversationSession;
   /** Interrupt Manager */
@@ -160,6 +163,7 @@ export class NodeExecutionCoordinator {
     this.handlerContextFactory = new NodeHandlerContextFactory({
       eventManager: config.eventManager,
       llmCoordinator: config.llmCoordinator,
+      llmWrapper: config.llmWrapper,
       conversationManager: config.conversationManager,
       userInteractionHandler: config.userInteractionHandler,
       humanRelayHandler: config.humanRelayHandler,

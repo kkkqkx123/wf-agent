@@ -114,7 +114,7 @@ describe('startFromTriggerHandler', () => {
     (mockEntity.getNodeResults as any).mockReturnValue([{ nodeId: 'trigger-start-5' }]);
     const node = { id: 'trigger-start-5', type: 'START_FROM_TRIGGER', config: {} } as RuntimeNode;
 
-    const result = await startFromTriggerHandler(mockEntity, node);
+    const result = await startFromTriggerHandler(mockEntity, node) as any;
 
     expect(result.status).toBe('SKIPPED');
   });

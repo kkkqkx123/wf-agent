@@ -1,67 +1,219 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { NodeHandlerContextFactory, NodeHandlerContextFactoryConfig } from '../node-handler-context-factory.js';
+import { NodeHandlerContextFactory, type NodeHandlerContextFactoryConfig } from '../node-handler-context-factory.js';
 import { ExecutionError } from '@wf-agent/types';
-
-// Mock types for testing
-interface MockRuntimeNode {}
-interface MockWorkflowExecutionEntity {}
-interface MockEventRegistry {}
-interface MockLLMExecutionCoordinator {}
-interface MockConversationSession {}
-interface MockUserInteractionHandler {}
-interface MockHumanRelayHandler {}
+import type { RuntimeNode } from '@wf-agent/types';
+import type { WorkflowExecutionEntity } from '../../../entities/workflow-execution-entity.js';
+import type { UserInteractionHandler } from '@wf-agent/types';
+import type { HumanRelayHandler } from '@wf-agent/types';
+import type { ConversationSession } from '../../../../core/messaging/conversation-session.js';
+import type { EventRegistry } from '../../../../core/registry/event-registry.js';
+import type { ToolContextStore } from '../../../stores/tool-context-store.js';
+import type { ToolRegistry } from '../../../../core/registry/tool-registry.js';
+import type { WorkflowExecutionRegistry } from '../../../stores/workflow-execution-registry.js';
+import type { WorkflowExecutionBuilder } from '../workflow-execution-builder.js';
+import type { WorkflowExecutor } from '../../executors/workflow-executor.js';
+import type { LLMWrapper } from '../../../../core/llm/wrapper.js';
+import { LLMExecutionCoordinator } from '../../coordinators/llm-execution-coordinator.js';
 
 // Create mock implementations
-const createMockRuntimeNode = (type: string): MockRuntimeNode => ({
+const createMockRuntimeNode = (type: string): RuntimeNode => ({
   id: 'node123',
-  type,
-} as MockRuntimeNode);
+  type: type,
+  name: 'Test Node',
+  config: {},
+  workflowId: 'test-workflow',
+  outgoingEdgeIds: [],
+  incomingEdgeIds: [],
+} as any);
 
-const createMockWorkflowExecutionEntity = (): MockWorkflowExecutionEntity => ({
-  getWorkflowId: () => 'workflow123',
-} as MockWorkflowExecutionEntity);
+const createMockWorkflowExecutionEntity = (): WorkflowExecutionEntity => ({
+  id: 'exec123',
+  workflowId: 'workflow456',
+  getWorkflowId: () => 'workflow456',
+  getWorkflowExecutionData: () => ({} as any),
+  variableStateManager: {} as any,
+  messageHistoryManager: {} as any,
+  setParentContext: () => {},
+  registerChild: () => {},
+  getHierarchyMetadata: () => undefined,
+  getRootExecutionId: () => '',
+  getRootExecutionType: () => '',
+} as any);
 
-const createMockEventRegistry = (): MockEventRegistry => ({} as MockEventRegistry);
-const createMockLLMExecutionCoordinator = (): MockLLMExecutionCoordinator => ({} as MockLLMExecutionCoordinator);
-const createMockConversationSession = (): MockConversationSession => ({} as MockConversationSession);
-const createMockUserInteractionHandler = (): MockUserInteractionHandler => ({} as MockUserInteractionHandler);
-const createMockHumanRelayHandler = (): MockHumanRelayHandler => ({} as MockHumanRelayHandler);
+const createMockEventRegistry = (): EventRegistry => ({
+  emitters: new Map(),
+  metricsCollector: undefined,
+  getEmitter: () => undefined,
+  on: () => {},
+  off: () => {},
+  emit: () => {},
+  once: () => {},
+  removeAllListeners: () => {},
+  listenerCount: () => 0,
+  listeners: () => [],
+  rawListeners: () => [],
+  waitFor: () => Promise.resolve(),
+  cleanupExecutionListeners: () => {},
+  getExecutionListenerStats: () => ({}),
+  getMetricsCollector: () => undefined,
+} as any);
+
+const createMockLLMExecutionCoordinator = (): LLMExecutionCoordinator => ({
+  executeLLMCall: () => Promise.resolve({}),
+  handleToolCalls: () => Promise.resolve({}),
+  checkInterruption: () => false,
+} as any);
+
+const createMockLLMWrapper = (): LLMWrapper => ({
+  getProfile: () => undefined,
+  getAllProfiles: () => [],
+  hasProfile: () => false,
+} as any);
+
+const createMockConversationSession = (): ConversationSession => ({
+  addMessage: () => {},
+  getMessages: () => [],
+  getContext: () => ({ workflowId: '', executionId: '' }),
+  setContext: () => {},
+} as any);
+
+const createMockUserInteractionHandler = (): UserInteractionHandler => ({
+  handleInteraction: () => Promise.resolve({}),
+} as any);
+
+const createMockHumanRelayHandler = (): HumanRelayHandler => ({
+  handleRelay: () => Promise.resolve({}),
+} as any);
+
+const createMockToolContextStore = (): ToolContextStore => ({
+  executionContexts: new Map(),
+  getOrCreateExecutionContext: () => ({} as any),
+  addTools: () => {},
+  getTools: () => [],
+  removeTools: () => {},
+  clearTools: () => {},
+  storeToolContext: () => {},
+  getToolContext: () => undefined,
+} as any);
+
+const createMockToolRegistry = (): ToolRegistry => ({
+  tools: new Map(),
+  executors: new Map(),
+  staticValidator: { validate: () => true },
+  runtimeValidator: { validate: () => true },
+  builtinExecutor: { execute: () => Promise.resolve({}) },
+  register: () => {},
+  get: () => undefined,
+  has: () => false,
+  unregister: () => false,
+  list: () => [],
+  clear: () => {},
+  size: () => 0,
+  getAllTools: () => [],
+  getToolNames: () => [],
+  executeTool: () => Promise.resolve({}),
+  validateTool: () => true,
+  getToolExecutor: () => undefined,
+  setToolExecutor: () => {},
+  removeToolExecutor: () => {},
+  hasToolExecutor: () => false,
+  getToolExecutors: () => [],
+  clearToolExecutors: () => {},
+  getToolMetadata: () => undefined,
+  setToolMetadata: () => {},
+  removeToolMetadata: () => {},
+  hasToolMetadata: () => false,
+  getToolMetadatas: () => [],
+  clearToolMetadatas: () => {},
+} as any);
+
+const createMockWorkflowExecutionRegistry = (): WorkflowExecutionRegistry => ({
+  workflowExecutionEntities: new Map(),
+  register: () => {},
+  get: () => null,
+  delete: () => {},
+  getAll: () => [],
+  getAllIds: () => [],
+  size: () => 0,
+  clear: () => {},
+  has: () => false,
+  isWorkflowActive: () => false,
+  getByStatus: () => [],
+  getActive: () => [],
+  getExecutionState: () => undefined,
+  setExecutionState: () => {},
+  getExecutionStates: () => [],
+  clearExecutionStates: () => {},
+  getExecutionMetadata: () => undefined,
+  setExecutionMetadata: () => {},
+  removeExecutionMetadata: () => {},
+  hasExecutionMetadata: () => false,
+  getExecutionMetadatas: () => [],
+  clearExecutionMetadatas: () => {},
+} as any);
+
+const createMockWorkflowExecutionBuilder = (): WorkflowExecutionBuilder => ({
+  build: () => Promise.resolve({ workflowExecutionEntity: {} as any, stateCoordinator: {} as any, conversationManager: {} as any }),
+  buildFromTemplate: () => Promise.resolve({ workflowExecutionEntity: {} as any, stateCoordinator: {} as any, conversationManager: {} as any }),
+  createCopy: () => Promise.resolve({ workflowExecutionEntity: {} as any, stateCoordinator: {} as any, conversationManager: {} as any }),
+  createChildExecution: () => Promise.resolve({ workflowExecutionEntity: {} as any, stateCoordinator: {} as any, conversationManager: {} as any }),
+  clearCache: () => {},
+  invalidateWorkflow: () => {},
+} as any);
+
+const createMockWorkflowExecutor = (): WorkflowExecutor => ({
+  execute: () => Promise.resolve({}),
+} as any);
+
+const createMockAgentLoopExecutorFactory = () => ({
+  create: () => ({
+    execute: () => Promise.resolve({}),
+  }),
+});
 
 describe('NodeHandlerContextFactory', () => {
   let factory: NodeHandlerContextFactory;
   let config: NodeHandlerContextFactoryConfig;
+  let executionEntity: WorkflowExecutionEntity;
 
   beforeEach(() => {
     config = {
       eventManager: createMockEventRegistry(),
       llmCoordinator: createMockLLMExecutionCoordinator(),
+      llmWrapper: createMockLLMWrapper(),
       conversationManager: createMockConversationSession(),
       userInteractionHandler: createMockUserInteractionHandler(),
       humanRelayHandler: createMockHumanRelayHandler(),
-      toolContextStore: {},
-      toolService: {},
-      agentLoopExecutorFactory: {
-        create: () => ({})
-      },
-      executionRegistry: {},
-      workflowExecutionRegistry: {},
+      toolContextStore: createMockToolContextStore(),
+      toolService: createMockToolRegistry(),
+      agentLoopExecutorFactory: createMockAgentLoopExecutorFactory(),
+      workflowExecutionRegistry: createMockWorkflowExecutionRegistry(),
+      executionBuilder: createMockWorkflowExecutionBuilder(),
+      workflowExecutor: createMockWorkflowExecutor(),
     };
     factory = new NodeHandlerContextFactory(config);
+    executionEntity = createMockWorkflowExecutionEntity();
   });
 
   describe('createHandlerContext', () => {
-    it('should create user interaction context when node type is USER_INTERACTION', () => {
-      const node = createMockRuntimeNode('USER_INTERACTION');
-      const executionEntity = createMockWorkflowExecutionEntity();
-      
+    it('should return empty context for unknown node types', () => {
+      const node = createMockRuntimeNode('UNKNOWN_TYPE');
       const result = factory.createHandlerContext(node, executionEntity);
       
-      expect(result.userInteractionHandler).toBe(config.userInteractionHandler);
-      expect(result.conversationManager).toBe(config.conversationManager);
+      expect(result).toEqual({});
     });
 
-    it('should throw ExecutionError when userInteractionHandler is missing and node type is USER_INTERACTION', () => {
-      // Remove userInteractionHandler from config
+    it('should create USER_INTERACTION context with required dependencies', () => {
+      const node = createMockRuntimeNode('USER_INTERACTION');
+      const result = factory.createHandlerContext(node, executionEntity);
+      
+      expect(result).toHaveProperty('userInteractionHandler');
+      expect(result).toHaveProperty('conversationManager');
+      expect((result as any).userInteractionHandler).toBe(config.userInteractionHandler);
+      expect((result as any).conversationManager).toBe(config.conversationManager);
+    });
+
+    it('should throw ExecutionError when userInteractionHandler is missing for USER_INTERACTION node', () => {
       const configWithoutHandler = {
         ...config,
         userInteractionHandler: undefined,
@@ -69,108 +221,263 @@ describe('NodeHandlerContextFactory', () => {
       const factoryWithoutHandler = new NodeHandlerContextFactory(configWithoutHandler);
       
       const node = createMockRuntimeNode('USER_INTERACTION');
-      const executionEntity = createMockWorkflowExecutionEntity();
       
       expect(() => 
         factoryWithoutHandler.createHandlerContext(node, executionEntity)
       ).toThrow(ExecutionError);
       expect(() => 
         factoryWithoutHandler.createHandlerContext(node, executionEntity)
-      ).toThrow('UserInteractionHandler is not provided');
+      ).toThrow('UserInteractionHandler is required for USER_INTERACTION node');
     });
 
-    it('should create context processor context when node type is CONTEXT_PROCESSOR', () => {
+    it('should create CONTEXT_PROCESSOR context with required dependencies', () => {
       const node = createMockRuntimeNode('CONTEXT_PROCESSOR');
-      const executionEntity = createMockWorkflowExecutionEntity();
-      
       const result = factory.createHandlerContext(node, executionEntity);
       
-      expect(result.conversationManager).toBe(config.conversationManager);
-      expect(result.executionEntity).toBe(executionEntity);
-      expect(result.workflowExecutionRegistry).toBe(config.executionRegistry);
+      expect(result).toHaveProperty('conversationManager');
+      expect(result).toHaveProperty('executionEntity');
+      expect(result).toHaveProperty('workflowExecutionRegistry');
+      expect((result as any).conversationManager).toBe(config.conversationManager);
+      expect((result as any).executionEntity).toBe(executionEntity);
+      expect((result as any).workflowExecutionRegistry).toBe(config.workflowExecutionRegistry);
     });
 
-    it('should create LLM context when node type is LLM', () => {
+    it('should create LLM context with required dependencies', () => {
       const node = createMockRuntimeNode('LLM');
-      const executionEntity = createMockWorkflowExecutionEntity();
-      
       const result = factory.createHandlerContext(node, executionEntity);
       
-      expect(result.llmCoordinator).toBe(config.llmCoordinator);
-      expect(result.eventManager).toBe(config.eventManager);
-      expect(result.conversationManager).toBe(config.conversationManager);
-      expect(result.humanRelayHandler).toBe(config.humanRelayHandler);
+      expect(result).toHaveProperty('llmCoordinator');
+      expect(result).toHaveProperty('llmWrapper');
+      expect(result).toHaveProperty('eventManager');
+      expect(result).toHaveProperty('conversationManager');
+      expect(result).toHaveProperty('humanRelayHandler');
+      expect((result as any).llmCoordinator).toBe(config.llmCoordinator);
+      expect((result as any).llmWrapper).toBe(config.llmWrapper);
+      expect((result as any).eventManager).toBe(config.eventManager);
+      expect((result as any).conversationManager).toBe(config.conversationManager);
+      expect((result as any).humanRelayHandler).toBe(config.humanRelayHandler);
     });
 
-    it('should create add tool context when node type is ADD_TOOL', () => {
+    it('should throw ExecutionError when llmWrapper is missing for LLM node', () => {
+      const configWithoutWrapper = {
+        ...config,
+        llmWrapper: undefined,
+      } as any;
+      const factoryWithoutWrapper = new NodeHandlerContextFactory(configWithoutWrapper);
+      
+      const node = createMockRuntimeNode('LLM');
+      
+      expect(() => 
+        factoryWithoutWrapper.createHandlerContext(node, executionEntity)
+      ).toThrow(ExecutionError);
+      expect(() => 
+        factoryWithoutWrapper.createHandlerContext(node, executionEntity)
+      ).toThrow('LLMWrapper is required for LLM node');
+    });
+
+    it('should create ADD_TOOL context with required dependencies', () => {
       const node = createMockRuntimeNode('ADD_TOOL');
-      const executionEntity = createMockWorkflowExecutionEntity();
-      
       const result = factory.createHandlerContext(node, executionEntity);
       
-      expect(result.toolContextStore).toBe(config.toolContextStore);
-      expect(result.toolService).toBe(config.toolService);
-      expect(result.eventManager).toBe(config.eventManager);
-      expect(result.executionEntity).toBe(executionEntity);
+      expect(result).toHaveProperty('toolContextStore');
+      expect(result).toHaveProperty('toolService');
+      expect(result).toHaveProperty('eventManager');
+      expect(result).toHaveProperty('executionEntity');
+      expect((result as any).toolContextStore).toBe(config.toolContextStore);
+      expect((result as any).toolService).toBe(config.toolService);
+      expect((result as any).eventManager).toBe(config.eventManager);
+      expect((result as any).executionEntity).toBe(executionEntity);
     });
 
-    it('should throw ExecutionError when toolContextStore or toolService is missing and node type is ADD_TOOL', () => {
-      // Remove toolContextStore from config
-      const configWithoutToolContext = {
+    it('should throw ExecutionError when toolContextStore is missing for ADD_TOOL node', () => {
+      const configWithoutStore = {
         ...config,
         toolContextStore: undefined,
       };
-      const factoryWithoutToolContext = new NodeHandlerContextFactory(configWithoutToolContext);
+      const factoryWithoutStore = new NodeHandlerContextFactory(configWithoutStore);
       
       const node = createMockRuntimeNode('ADD_TOOL');
-      const executionEntity = createMockWorkflowExecutionEntity();
       
       expect(() => 
-        factoryWithoutToolContext.createHandlerContext(node, executionEntity)
+        factoryWithoutStore.createHandlerContext(node, executionEntity)
       ).toThrow(ExecutionError);
       expect(() => 
-        factoryWithoutToolContext.createHandlerContext(node, executionEntity)
-      ).toThrow('ToolContextStore or ToolRegistry is not provided');
+        factoryWithoutStore.createHandlerContext(node, executionEntity)
+      ).toThrow('ToolContextStore is required for ADD_TOOL node');
     });
 
-    it('should create agent loop context when node type is AGENT_LOOP', () => {
-      const node = createMockRuntimeNode('AGENT_LOOP');
-      const executionEntity = createMockWorkflowExecutionEntity();
+    it('should throw ExecutionError when toolService is missing for ADD_TOOL node', () => {
+      const configWithoutService = {
+        ...config,
+        toolService: undefined,
+      };
+      const factoryWithoutService = new NodeHandlerContextFactory(configWithoutService);
       
+      const node = createMockRuntimeNode('ADD_TOOL');
+      
+      expect(() => 
+        factoryWithoutService.createHandlerContext(node, executionEntity)
+      ).toThrow(ExecutionError);
+      expect(() => 
+        factoryWithoutService.createHandlerContext(node, executionEntity)
+      ).toThrow('ToolRegistry is required for ADD_TOOL node');
+    });
+
+    it('should create AGENT_LOOP context with required dependencies', () => {
+      const node = createMockRuntimeNode('AGENT_LOOP');
       const result = factory.createHandlerContext(node, executionEntity);
       
-      expect(result.agentLoopExecutor).toBeDefined();
-      expect(result.llmCoordinator).toBe(config.llmCoordinator);
-      expect(result.conversationManager).toBe(config.conversationManager);
-      expect(result.eventManager).toBe(config.eventManager);
+      expect(result).toHaveProperty('agentLoopExecutor');
+      expect(result).toHaveProperty('llmCoordinator');
+      expect(result).toHaveProperty('conversationManager');
+      expect(result).toHaveProperty('eventManager');
+      expect((result as any).llmCoordinator).toBe(config.llmCoordinator);
+      expect((result as any).conversationManager).toBe(config.conversationManager);
+      expect((result as any).eventManager).toBe(config.eventManager);
     });
 
-    it('should throw ExecutionError when agentLoopExecutorFactory is missing and node type is AGENT_LOOP', () => {
-      // Remove agentLoopExecutorFactory from config
-      const configWithoutExecutorFactory = {
+    it('should throw ExecutionError when agentLoopExecutorFactory is missing for AGENT_LOOP node', () => {
+      const configWithoutFactory = {
         ...config,
         agentLoopExecutorFactory: undefined,
       };
-      const factoryWithoutExecutorFactory = new NodeHandlerContextFactory(configWithoutExecutorFactory);
+      const factoryWithoutFactory = new NodeHandlerContextFactory(configWithoutFactory);
       
       const node = createMockRuntimeNode('AGENT_LOOP');
-      const executionEntity = createMockWorkflowExecutionEntity();
       
       expect(() => 
-        factoryWithoutExecutorFactory.createHandlerContext(node, executionEntity)
+        factoryWithoutFactory.createHandlerContext(node, executionEntity)
       ).toThrow(ExecutionError);
       expect(() => 
-        factoryWithoutExecutorFactory.createHandlerContext(node, executionEntity)
-      ).toThrow('AgentLoopExecutorFactory is not provided');
+        factoryWithoutFactory.createHandlerContext(node, executionEntity)
+      ).toThrow('AgentLoopExecutorFactory is required for AGENT_LOOP node');
     });
 
-    it('should return empty context for unknown node types', () => {
-      const node = createMockRuntimeNode('UNKNOWN_TYPE');
-      const executionEntity = createMockWorkflowExecutionEntity();
-      
+    it('should create FORK context with required dependencies', () => {
+      const node = createMockRuntimeNode('FORK');
       const result = factory.createHandlerContext(node, executionEntity);
       
+      expect(result).toHaveProperty('executionBuilder');
+      expect(result).toHaveProperty('workflowExecutor');
+      expect((result as any).executionBuilder).toBe(config.executionBuilder);
+      expect((result as any).workflowExecutor).toBe(config.workflowExecutor);
+    });
+
+    it('should throw ExecutionError when executionBuilder is missing for FORK node', () => {
+      const configWithoutBuilder = {
+        ...config,
+        executionBuilder: undefined,
+      };
+      const factoryWithoutBuilder = new NodeHandlerContextFactory(configWithoutBuilder);
+      
+      const node = createMockRuntimeNode('FORK');
+      
+      expect(() => 
+        factoryWithoutBuilder.createHandlerContext(node, executionEntity)
+      ).toThrow(ExecutionError);
+      expect(() => 
+        factoryWithoutBuilder.createHandlerContext(node, executionEntity)
+      ).toThrow('WorkflowExecutionBuilder is required for FORK node');
+    });
+
+    it('should throw ExecutionError when workflowExecutor is missing for FORK node', () => {
+      const configWithoutExecutor = {
+        ...config,
+        workflowExecutor: undefined,
+      };
+      const factoryWithoutExecutor = new NodeHandlerContextFactory(configWithoutExecutor);
+      
+      const node = createMockRuntimeNode('FORK');
+      
+      expect(() => 
+        factoryWithoutExecutor.createHandlerContext(node, executionEntity)
+      ).toThrow(ExecutionError);
+      expect(() => 
+        factoryWithoutExecutor.createHandlerContext(node, executionEntity)
+      ).toThrow('WorkflowExecutor is required for FORK node');
+    });
+
+    it('should create SUBGRAPH context with required dependencies', () => {
+      const node = createMockRuntimeNode('SUBGRAPH');
+      const result = factory.createHandlerContext(node, executionEntity);
+      
+      expect(result).toHaveProperty('executionBuilder');
+      expect(result).toHaveProperty('workflowExecutor');
+      expect((result as any).executionBuilder).toBe(config.executionBuilder);
+      expect((result as any).workflowExecutor).toBe(config.workflowExecutor);
+    });
+
+    it('should throw ExecutionError when executionBuilder is missing for SUBGRAPH node', () => {
+      const configWithoutBuilder = {
+        ...config,
+        executionBuilder: undefined,
+      };
+      const factoryWithoutBuilder = new NodeHandlerContextFactory(configWithoutBuilder);
+      
+      const node = createMockRuntimeNode('SUBGRAPH');
+      
+      expect(() => 
+        factoryWithoutBuilder.createHandlerContext(node, executionEntity)
+      ).toThrow(ExecutionError);
+      expect(() => 
+        factoryWithoutBuilder.createHandlerContext(node, executionEntity)
+      ).toThrow('WorkflowExecutionBuilder is required for SUBGRAPH node');
+    });
+
+    it('should throw ExecutionError when workflowExecutor is missing for SUBGRAPH node', () => {
+      const configWithoutExecutor = {
+        ...config,
+        workflowExecutor: undefined,
+      };
+      const factoryWithoutExecutor = new NodeHandlerContextFactory(configWithoutExecutor);
+      
+      const node = createMockRuntimeNode('SUBGRAPH');
+      
+      expect(() => 
+        factoryWithoutExecutor.createHandlerContext(node, executionEntity)
+      ).toThrow(ExecutionError);
+      expect(() => 
+        factoryWithoutExecutor.createHandlerContext(node, executionEntity)
+      ).toThrow('WorkflowExecutor is required for SUBGRAPH node');
+    });
+
+    it('should create START_FROM_TRIGGER context with conversationManager', () => {
+      const node = createMockRuntimeNode('START_FROM_TRIGGER');
+      const result = factory.createHandlerContext(node, executionEntity);
+      
+      expect(result).toHaveProperty('conversationManager');
+      expect((result as any).conversationManager).toBe(config.conversationManager);
+    });
+
+    it('should create START_FROM_TRIGGER context even without conversationManager (optional)', () => {
+      const configWithoutConversation = {
+        ...config,
+        conversationManager: undefined,
+      } as any;
+      const factoryWithoutConversation = new NodeHandlerContextFactory(configWithoutConversation);
+      
+      const node = createMockRuntimeNode('START_FROM_TRIGGER');
+      const result = factoryWithoutConversation.createHandlerContext(node, executionEntity);
+      
+      // Should not throw, conversationManager is optional for START_FROM_TRIGGER
       expect(result).toEqual({});
+    });
+
+    it('should throw ExecutionError when conversationManager is missing for CONTEXT_PROCESSOR node', () => {
+      const configWithoutConversation = {
+        ...config,
+        conversationManager: undefined,
+      } as any;
+      const factoryWithoutConversation = new NodeHandlerContextFactory(configWithoutConversation);
+      
+      const node = createMockRuntimeNode('CONTEXT_PROCESSOR');
+      
+      expect(() => 
+        factoryWithoutConversation.createHandlerContext(node, executionEntity)
+      ).toThrow(ExecutionError);
+      expect(() => 
+        factoryWithoutConversation.createHandlerContext(node, executionEntity)
+      ).toThrow('ConversationManager is required for CONTEXT_PROCESSOR node');
     });
   });
 });

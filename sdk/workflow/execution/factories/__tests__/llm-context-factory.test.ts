@@ -3,26 +3,221 @@ import { LLMContextFactory, LLMContextFactoryConfig } from '../llm-context-facto
 import { ExecutionError } from '@wf-agent/types';
 
 // Mock types for testing
-interface MockWorkflowExecutionRegistry {}
-interface MockWorkflowRegistry {}
-interface MockWorkflowGraphRegistry {}
-interface MockEventRegistry {}
-interface MockToolRegistry {}
-interface MockLLMExecutor {}
-interface MockToolCallExecutor {}
-interface MockInterruptionDetector {}
-interface MockCheckpointState {}
+interface MockWorkflowExecutionRegistry {
+  get: (id: string) => any;
+  set: (id: string, value: any) => void;
+  has: (id: string) => boolean;
+  delete: (id: string) => boolean;
+  clear: () => void;
+  size: number;
+  [Symbol.iterator]: () => IterableIterator<[string, any]>;
+  entries: () => IterableIterator<[string, any]>;
+  keys: () => IterableIterator<string>;
+  values: () => IterableIterator<any>;
+  forEach: (callbackfn: (value: any, key: string, map: Map<string, any>) => void, thisArg?: any) => void;
+}
+interface MockWorkflowRegistry {
+  get: (id: string) => any;
+  set: (id: string, value: any) => void;
+  has: (id: string) => boolean;
+  delete: (id: string) => boolean;
+  clear: () => void;
+  size: number;
+  [Symbol.iterator]: () => IterableIterator<[string, any]>;
+  entries: () => IterableIterator<[string, any]>;
+  keys: () => IterableIterator<string>;
+  values: () => IterableIterator<any>;
+  forEach: (callbackfn: (value: any, key: string, map: Map<string, any>) => void, thisArg?: any) => void;
+}
+interface MockWorkflowGraphRegistry {
+  workflowGraphs: Map<string, any>;
+  register: (id: string, graph: any) => void;
+  get: (id: string) => any | undefined;
+  has: (id: string) => boolean;
+  unregister: (id: string) => boolean;
+  list: () => string[];
+  clear: () => void;
+}
+interface MockEventRegistry {
+  emitters: Map<string, any>;
+  metricsCollector?: any;
+  getEmitter: (name: string) => any;
+  on: (event: string, handler: (...args: any[]) => void) => void;
+  off: (event: string, handler: (...args: any[]) => void) => void;
+  emit: (event: string, ...args: any[]) => void;
+  once: (event: string, handler: (...args: any[]) => void) => void;
+  removeAllListeners: (event?: string) => void;
+  listenerCount: (event: string) => number;
+  listeners: (event: string) => Array<(...args: any[]) => void>;
+  rawListeners: (event: string) => Array<(...args: any[]) => void>;
+}
+interface MockToolRegistry {
+  tools: Map<string, any>;
+  register: (tool: any) => void;
+  get: (name: string) => any | undefined;
+  has: (name: string) => boolean;
+  unregister: (name: string) => boolean;
+  list: () => any[];
+  clear: () => void;
+}
+interface MockLLMExecutor {
+  execute: (request: any) => Promise<any>;
+  getModelInfo: () => any;
+  supportsStreaming: () => boolean;
+}
+interface MockToolCallExecutor {
+  execute: (toolCall: any) => Promise<any>;
+  validateToolCall: (toolCall: any) => boolean;
+}
+interface MockInterruptionDetector {
+  isInterrupted: () => boolean;
+  checkForInterruption: () => void;
+  reset: () => void;
+}
+interface MockCheckpointState {
+  cleanupWorkflowExecutionCheckpoints: (executionId: string) => Promise<void>;
+  create: (executionId: string, nodeId: string, state: any) => Promise<string>;
+  get: (checkpointId: string) => Promise<any | undefined>;
+  list: (executionId: string) => Promise<any[]>;
+  restore: (checkpointId: string) => Promise<any>;
+  delete: (checkpointId: string) => Promise<boolean>;
+  exists: (checkpointId: string) => Promise<boolean>;
+  update: (checkpointId: string, state: any) => Promise<boolean>;
+  getLatest: (executionId: string) => Promise<any | undefined>;
+  getLatestByNode: (executionId: string, nodeId: string) => Promise<any | undefined>;
+  count: (executionId: string) => Promise<number>;
+  clear: (executionId: string) => Promise<void>;
+}
 
 // Create mock implementations
-const createMockWorkflowExecutionRegistry = (): MockWorkflowExecutionRegistry => ({} as MockWorkflowExecutionRegistry);
-const createMockWorkflowRegistry = (): MockWorkflowRegistry => ({} as MockWorkflowRegistry);
-const createMockWorkflowGraphRegistry = (): MockWorkflowGraphRegistry => ({} as MockWorkflowGraphRegistry);
-const createMockEventRegistry = (): MockEventRegistry => ({} as MockEventRegistry);
-const createMockToolRegistry = (): MockToolRegistry => ({} as MockToolRegistry);
-const createMockLLMExecutor = (): MockLLMExecutor => ({} as MockLLMExecutor);
-const createMockToolCallExecutor = (): MockToolCallExecutor => ({} as MockToolCallExecutor);
-const createMockInterruptionDetector = (): MockInterruptionDetector => ({} as MockInterruptionDetector);
-const createMockCheckpointState = (): MockCheckpointState => ({} as MockCheckpointState);
+const createMockWorkflowExecutionRegistry = (): any => ({
+  workflowExecutionEntities: new Map(),
+  register: () => {},
+  get: () => null,
+  delete: () => {},
+  getAll: () => [],
+  getAllIds: () => [],
+  size: () => 0,
+  clear: () => {},
+  has: () => false,
+  isWorkflowActive: () => false,
+  getByStatus: () => [],
+  getActive: () => [],
+});
+
+const createMockWorkflowRegistry = (): any => ({
+  workflows: new Map(),
+  workflowRelationships: new Map(),
+  activeWorkflows: new Set(),
+  referenceRelations: new Map(),
+  register: () => {},
+  get: () => undefined,
+  has: () => false,
+  unregister: () => false,
+  list: () => [],
+  clear: () => {},
+  size: () => 0,
+  getAllWorkflowIds: () => [],
+});
+
+const createMockWorkflowGraphRegistry = (): any => ({
+  workflowGraphs: new Map(),
+  register: () => {},
+  get: () => undefined,
+  has: () => false,
+  unregister: () => false,
+  list: () => [],
+  clear: () => {},
+  size: () => 0,
+  getAllWorkflowIds: () => [],
+  registerBatch: () => {},
+  unregisterBatch: () => {},
+});
+
+const createMockEventRegistry = (): any => ({
+  emitters: new Map(),
+  metricsCollector: undefined,
+  getEmitter: () => undefined,
+  on: () => {},
+  off: () => {},
+  emit: () => {},
+  once: () => {},
+  removeAllListeners: () => {},
+  listenerCount: () => 0,
+  listeners: () => [],
+  rawListeners: () => [],
+  waitFor: () => Promise.resolve(),
+  cleanupExecutionListeners: () => {},
+  getExecutionListenerStats: () => ({}),
+  getMetricsCollector: () => undefined,
+});
+
+const createMockToolRegistry = (): any => ({
+  tools: new Map(),
+  executors: new Map(),
+  staticValidator: { validate: () => true },
+  runtimeValidator: { validate: () => true },
+  builtinExecutor: { execute: () => Promise.resolve({}) },
+  register: () => {},
+  get: () => undefined,
+  has: () => false,
+  unregister: () => false,
+  list: () => [],
+  clear: () => {},
+  size: () => 0,
+  getAllTools: () => [],
+  getToolNames: () => [],
+  executeTool: () => Promise.resolve({}),
+  validateTool: () => true,
+  getToolExecutor: () => undefined,
+  setToolExecutor: () => {},
+  removeToolExecutor: () => {},
+  hasToolExecutor: () => false,
+  getToolExecutors: () => [],
+  clearToolExecutors: () => {},
+  getToolMetadata: () => undefined,
+  setToolMetadata: () => {},
+  removeToolMetadata: () => {},
+  hasToolMetadata: () => false,
+  getToolMetadatas: () => [],
+  clearToolMetadatas: () => {},
+});
+
+const createMockLLMExecutor = (): any => ({
+  execute: () => Promise.resolve({}),
+  getModelInfo: () => ({}),
+  supportsStreaming: () => false,
+});
+
+const createMockToolCallExecutor = (): any => ({
+  execute: () => Promise.resolve({}),
+  validateToolCall: () => true,
+});
+
+const createMockInterruptionDetector = (): any => ({
+  isInterrupted: () => false,
+  checkForInterruption: () => {},
+  reset: () => {},
+});
+
+const createMockCheckpointState = (): any => ({
+  cleanupWorkflowExecutionCheckpoints: () => Promise.resolve(),
+  create: () => Promise.resolve(''),
+  get: () => Promise.resolve(undefined),
+  list: () => Promise.resolve([]),
+  restore: () => Promise.resolve({}),
+  delete: () => Promise.resolve(false),
+  exists: () => Promise.resolve(false),
+  update: () => Promise.resolve(false),
+  getLatest: () => Promise.resolve(undefined),
+  getLatestByNode: () => Promise.resolve(undefined),
+  count: () => Promise.resolve(0),
+  clear: () => Promise.resolve(),
+  extractStorageMetadata: () => ({}),
+  buildCreatedEvent: () => ({}),
+  buildDeletedEvent: () => ({}),
+  buildFailedEvent: () => ({}),
+});
 
 describe('LLMContextFactory', () => {
   let factory: LLMContextFactory;

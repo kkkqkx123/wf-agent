@@ -34,6 +34,9 @@ export interface AgentLoopStateSnapshot {
   /** Current iteration record (if in progress) */
   currentIterationRecord?: IterationRecord;
 
+  /** Dynamic tools (serialized from Set<string> to string[]) */
+  dynamicTools?: string[];
+
   /** Allow additional properties for extensibility */
   [key: string]: unknown;
 }

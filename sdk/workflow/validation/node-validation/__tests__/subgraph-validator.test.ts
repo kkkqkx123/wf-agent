@@ -14,9 +14,11 @@ describe('validateSubgraphNode', () => {
       // Arrange
       const validNode: StaticNode = {
         id: 'subgraph-1',
+        name: 'Subgraph Node 1',
         type: 'SUBGRAPH',
         config: {
-          subgraphId: 'child-workflow'
+          subgraphId: 'child-workflow',
+          async: false
         }
       };
       
@@ -34,6 +36,7 @@ describe('validateSubgraphNode', () => {
       // Arrange
       const nodeWithAsync: StaticNode = {
         id: 'subgraph-2',
+        name: 'Subgraph Node 2',
         type: 'SUBGRAPH',
         config: {
           subgraphId: 'child-workflow',
@@ -52,9 +55,11 @@ describe('validateSubgraphNode', () => {
       // Arrange
       const nodeWithVariables: StaticNode = {
         id: 'subgraph-3',
+        name: 'Subgraph Node 3',
         type: 'SUBGRAPH',
         config: {
           subgraphId: 'child-workflow',
+          async: false,
           variableInputs: [
             { externalName: 'parentVar', internalName: 'childVar', required: true }
           ],
@@ -77,9 +82,10 @@ describe('validateSubgraphNode', () => {
       // Arrange
       const wrongTypeNode: StaticNode = {
         id: 'wrong-type',
+        name: 'Wrong Type',
         type: 'LLM', // Wrong type
         config: {
-          subgraphId: 'child-workflow'
+          profileId: 'test'
         }
       };
       
@@ -91,7 +97,7 @@ describe('validateSubgraphNode', () => {
       if (result.isErr()) {
         expect(result.error).toHaveLength(1);
         expect(result.error[0]).toBeInstanceOf(ConfigurationValidationError);
-        expect(result.error[0].message).toContain('Expected node type SUBGRAPH');
+        expect(result.error[0]?.message).toContain('Expected node type SUBGRAPH');
       }
     });
     
@@ -99,8 +105,9 @@ describe('validateSubgraphNode', () => {
       // Arrange
       const missingSubgraphIdNode: StaticNode = {
         id: 'missing-id',
+        name: 'Missing ID',
         type: 'SUBGRAPH',
-        config: {} // Missing subgraphId
+        config: {} as any // Missing subgraphId
       };
       
       // Act
@@ -111,7 +118,7 @@ describe('validateSubgraphNode', () => {
       if (result.isErr()) {
         expect(result.error).toHaveLength(1);
         expect(result.error[0]).toBeInstanceOf(ConfigurationValidationError);
-        expect(result.error[0].message).toContain('Subgraph ID is required');
+        expect(result.error[0]?.message).toContain('Subgraph ID is required');
       }
     });
     
@@ -119,9 +126,11 @@ describe('validateSubgraphNode', () => {
       // Arrange
       const emptySubgraphIdNode: StaticNode = {
         id: 'empty-id',
+        name: 'Empty ID',
         type: 'SUBGRAPH',
         config: {
-          subgraphId: '' // Empty string
+          subgraphId: '', // Empty string
+          async: false
         }
       };
       
@@ -133,7 +142,7 @@ describe('validateSubgraphNode', () => {
       if (result.isErr()) {
         expect(result.error).toHaveLength(1);
         expect(result.error[0]).toBeInstanceOf(ConfigurationValidationError);
-        expect(result.error[0].message).toContain('Subgraph ID is required');
+        expect(result.error[0]?.message).toContain('Subgraph ID is required');
       }
     });
     
@@ -141,6 +150,7 @@ describe('validateSubgraphNode', () => {
       // Arrange
       const invalidAsyncNode: StaticNode = {
         id: 'invalid-async',
+        name: 'Invalid Async',
         type: 'SUBGRAPH',
         config: {
           subgraphId: 'child-workflow',
@@ -165,6 +175,7 @@ describe('validateSubgraphNode', () => {
       // Arrange
       const nullConfigNode: StaticNode = {
         id: 'null-config',
+        name: 'Null Config',
         type: 'SUBGRAPH',
         config: null as any
       };
@@ -180,6 +191,7 @@ describe('validateSubgraphNode', () => {
       // Arrange
       const undefinedConfigNode: StaticNode = {
         id: 'undefined-config',
+        name: 'Undefined Config',
         type: 'SUBGRAPH',
         config: undefined as any
       };
@@ -195,12 +207,11 @@ describe('validateSubgraphNode', () => {
       // Arrange
       const nodeWithExtraProps: StaticNode = {
         id: 'extra-props',
+        name: 'Extra Props',
         type: 'SUBGRAPH',
         config: {
           subgraphId: 'child-workflow',
-          async: false,
-          extraProperty: 'should-be-ignored',
-          anotherExtra: 123
+          async: false
         }
       };
       

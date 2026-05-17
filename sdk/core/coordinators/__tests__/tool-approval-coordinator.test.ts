@@ -77,7 +77,7 @@ describe('ToolApprovalCoordinator', () => {
       }
 
       // 4th request should require manual approval due to limit
-      const result = await coordinator.processToolApproval({
+      await coordinator.processToolApproval({
         toolCall: mockToolCall,
         tool: mockTool,
         options,
@@ -288,7 +288,7 @@ describe('ToolApprovalCoordinator', () => {
         },
       };
 
-      const result = await coordinator.processToolApproval({
+      await coordinator.processToolApproval({
         toolCall: invalidToolCall,
         tool: mockTool,
         options: {},
@@ -318,7 +318,7 @@ describe('ToolApprovalCoordinator', () => {
         metadata: { riskLevel: 'EXECUTE' },
       };
 
-      const result = await coordinator.processToolApproval({
+      await coordinator.processToolApproval({
         toolCall: shellToolCall,
         tool: shellTool,
         options: {},

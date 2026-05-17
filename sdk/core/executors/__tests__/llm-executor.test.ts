@@ -116,13 +116,10 @@ describe('LLMExecutor', () => {
 
       const result = await executor.executeLLMCall(messages, requestData);
 
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.result.toolCalls).toBeDefined();
-        expect(result.result.toolCalls?.length).toBe(1);
-        expect(result.result.toolCalls?.[0]?.name).toBe('test-tool');
-        expect(result.result.toolCalls?.[0]?.arguments).toBe('{"param": "value"}');
-      }
+      expect(result.toolCalls).toBeDefined();
+      expect(result.toolCalls?.length).toBe(1);
+      expect(result.toolCalls?.[0]?.name).toBe('test-tool');
+      expect(result.toolCalls?.[0]?.arguments).toBe('{"param": "value"}');
     });
   });
 
@@ -159,10 +156,7 @@ describe('LLMExecutor', () => {
 
       const result = await executor.executeLLMCall(messages, requestData);
 
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.result.content).toBe('Streaming response');
-      }
+      expect(result.content).toBe('Streaming response');
       expect(mockLLMWrapper.generateStream).toHaveBeenCalledTimes(1);
       expect(mockStream.done).toHaveBeenCalledTimes(1);
       expect(mockStream.getFinalResult).toHaveBeenCalledTimes(1);
@@ -278,7 +272,7 @@ describe('LLMExecutor', () => {
 
       const result = await executor.executeLLMCall(messages, requestData);
 
-      expect(result.success).toBe(true);
+      expect(result.content).toBe('Test response');
       expect(mockLLMWrapper.generate).toHaveBeenCalledWith({
         profileId: 'test-profile',
         messages,
@@ -318,7 +312,7 @@ describe('LLMExecutor', () => {
 
       const result = await executor.executeLLMCall(messages, requestData);
 
-      expect(result.success).toBe(true);
+      expect(result.content).toBe('Test response');
       // dynamicTools is not passed to llmWrapper.generate, only tools field is used
       expect(mockLLMWrapper.generate).toHaveBeenCalledWith({
         profileId: 'test-profile',
@@ -356,14 +350,14 @@ describe('LLMExecutor', () => {
 
       const result = await executor.executeLLMCall(messages, requestData);
 
-      expect(result.success).toBe(true);
+      expect(result.content).toBe('Test response');
       // maxToolCallsPerRequest is not passed to llmWrapper.generate
       expect(mockLLMWrapper.generate).toHaveBeenCalled();
     });
   });
 
   describe('executeLLMCall - Interruption handling', () => {
-    it('should return interruption state for PAUSE', async () => {
+    it('should throw error for PAUSE interruption', async () => {
       const messages: LLMMessage[] = [
         { role: 'user', content: 'Hello' },
       ];
@@ -380,24 +374,19 @@ describe('LLMExecutor', () => {
       abortController.abort(pauseReason);
 
       // Create a proper AbortError with the interruption reason as cause
-      const mockError = createAbortError('Paused', abortController.signal);
+      const mockError = new Error('Paused');
+      (mockError as any).name = 'AbortError';
       (mockLLMWrapper.generate as any).mockResolvedValue(err(mockError));
 
-      const result = await executor.executeLLMCall(messages, requestData, {
-        abortSignal: abortController.signal,
-      });
-
-      expect(result.success).toBe(false);
-      if (!result.success) {
-        expect(result.interruption.type).toBe('paused');
-        if (result.interruption.type === 'paused') {
-          expect(result.interruption.executionId).toBe('exec-1');
-          expect(result.interruption.nodeId).toBe('node-1');
-        }
-      }
+      // The executor throws error for interruptions
+      await expect(
+        executor.executeLLMCall(messages, requestData, {
+          abortSignal: abortController.signal,
+        })
+      ).rejects.toThrow();
     });
 
-    it('should return interruption state for STOP', async () => {
+    it('should throw error for STOP interruption', async () => {
       const messages: LLMMessage[] = [
         { role: 'user', content: 'Hello' },
       ];
@@ -414,21 +403,16 @@ describe('LLMExecutor', () => {
       abortController.abort(stopReason);
 
       // Create a proper AbortError with the interruption reason as cause
-      const mockError = createAbortError('Stopped', abortController.signal);
+      const mockError = new Error('Stopped');
+      (mockError as any).name = 'AbortError';
       (mockLLMWrapper.generate as any).mockResolvedValue(err(mockError));
 
-      const result = await executor.executeLLMCall(messages, requestData, {
-        abortSignal: abortController.signal,
-      });
-
-      expect(result.success).toBe(false);
-      if (!result.success) {
-        expect(result.interruption.type).toBe('stopped');
-        if (result.interruption.type === 'stopped') {
-          expect(result.interruption.executionId).toBe('exec-1');
-          expect(result.interruption.nodeId).toBe('node-1');
-        }
-      }
+      // The executor throws error for interruptions
+      await expect(
+        executor.executeLLMCall(messages, requestData, {
+          abortSignal: abortController.signal,
+        })
+      ).rejects.toThrow();
     });
   });
 });

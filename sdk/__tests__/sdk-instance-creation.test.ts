@@ -18,6 +18,10 @@ const createMockCheckpointAdapter = (): CheckpointStorageAdapter => ({
   load: async () => null,
   delete: async () => {},
   list: async () => [],
+  listWithMetadata: async () => [],
+  listByEntityWithMetadata: async () => [],
+  getLatestByEntity: async () => [],
+  deleteByEntity: async () => 0,
   exists: async () => false,
   getMetadata: async () => null,
   getMetrics: async () => ({
@@ -240,13 +244,10 @@ describe('SDK Instance Creation (DI Fix Verification)', () => {
 
   describe('Error Handling', () => {
     it('should handle bootstrap errors gracefully', async () => {
-      let errorCaught = false;
-      
       const sdk = createSDK({
         checkpointStorageAdapter: createMockCheckpointAdapter(),
         hooks: {
-          onBootstrapError: (error) => {
-            errorCaught = true;
+          onBootstrapError: (_error) => {
           },
         },
       });

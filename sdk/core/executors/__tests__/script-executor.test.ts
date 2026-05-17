@@ -209,14 +209,6 @@ describe('ScriptExecutor', () => {
       // Create executor without injecting terminal service
       const defaultExecutor = new ScriptExecutor();
       
-      const script: Script = {
-        id: 'default-service-script',
-        name: 'default-service-script',
-        description: 'Test with default service',
-        content: 'echo test',
-        options: {},
-      };
-
       // This will use the real terminal service, so we just verify it doesn't throw
       // The actual execution may fail due to environment, but constructor should work
       expect(defaultExecutor).toBeDefined();

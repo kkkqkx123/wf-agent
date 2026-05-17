@@ -6,7 +6,6 @@
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { TimeoutManager } from "../timeout-manager.js";
-import type { TimeoutRegistration } from "../../types/timeout.js";
 
 describe("TimeoutManager", () => {
   let manager: TimeoutManager;
@@ -258,8 +257,8 @@ describe("TimeoutManager", () => {
 
       expect(snapshot.version).toBe(1);
       expect(snapshot.timeouts).toHaveLength(1);
-      expect(snapshot.timeouts[0].id).toBe("test-1");
-      expect(snapshot.timeouts[0].metadata).toEqual({ key: "value" });
+      expect(snapshot.timeouts[0]?.id).toBe("test-1");
+      expect(snapshot.timeouts[0]?.metadata).toEqual({ key: "value" });
     });
 
     it("should implement restore() correctly", () => {

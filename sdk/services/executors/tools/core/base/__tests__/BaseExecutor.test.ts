@@ -7,8 +7,8 @@ import { BaseExecutor } from "../BaseExecutor.js";
 import { ParameterValidator } from "../ParameterValidator.js";
 import { RetryStrategy } from "../RetryStrategy.js";
 import { TimeoutController } from "../TimeoutController.js";
-import type { Tool, ToolExecutionResult } from "@wf-agent/types";
-import { RuntimeValidationError, TimeoutError, NetworkError } from "@wf-agent/types";
+import type { Tool } from "@wf-agent/types";
+import { RuntimeValidationError, NetworkError } from "@wf-agent/types";
 
 // Create a specific executor implementation for testing.
 class TestExecutor extends BaseExecutor {

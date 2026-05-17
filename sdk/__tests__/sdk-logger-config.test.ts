@@ -3,7 +3,7 @@
  * Tests the configureSDKLogger function directly without full SDK initialization
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { configureSDKLogger } from '../utils/logger.js';
 import { createConsoleStream } from '@wf-agent/common-utils';
 

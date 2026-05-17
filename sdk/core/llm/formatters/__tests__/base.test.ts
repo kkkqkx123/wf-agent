@@ -14,7 +14,7 @@ class TestFormatter extends BaseFormatter {
     return "TEST";
   }
 
-  buildNativeRequest(request: LLMRequest, config: FormatterConfig) {
+  buildNativeRequest(_request: LLMRequest, _config: FormatterConfig) {
     return {
       httpRequest: {
         url: "/test",
@@ -25,7 +25,7 @@ class TestFormatter extends BaseFormatter {
     };
   }
 
-  parseNativeResponse(data: any, config: FormatterConfig) {
+  parseNativeResponse(data: any, _config: FormatterConfig) {
     return {
       id: "test-id",
       model: "test-model",
@@ -36,7 +36,7 @@ class TestFormatter extends BaseFormatter {
     };
   }
 
-  parseStreamChunk(data: any, config: FormatterConfig): ParseStreamChunkResult {
+  parseStreamChunk(data: any, _config: FormatterConfig): ParseStreamChunkResult {
     return {
       chunk: {
         delta: data.delta || "",

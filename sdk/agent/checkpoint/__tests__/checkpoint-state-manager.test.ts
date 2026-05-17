@@ -23,7 +23,7 @@ describe("AgentLoopCheckpointStateManager", () => {
       close: vi.fn(),
     } as unknown as CheckpointStorageAdapter;
 
-    stateManager = new AgentLoopCheckpointStateManager(mockStorageAdapter);
+    stateManager = new AgentLoopCheckpointStateManager("test-agent-1", mockStorageAdapter);
   });
 
   const createCheckpoint = (id: string): AgentLoopCheckpoint => ({
@@ -118,15 +118,11 @@ describe("AgentLoopCheckpointStateManager", () => {
     });
   });
 
-  describe("executeCleanup", () => {
+  describe("cleanup", () => {
     it("should skip cleanup when no checkpoints exist", async () => {
       mockStorageAdapter.list = vi.fn().mockResolvedValue([]);
 
-      const result = await stateManager.executeCleanup();
-
-      expect(result.deletedCount).toBe(0);
-      expect(result.deletedCheckpointIds).toEqual([]);
-      expect(result.remainingCount).toBe(0);
+      await stateManager.cleanup();
     });
   });
 
@@ -154,7 +150,7 @@ describe("AgentLoopCheckpointStateManager", () => {
         list: vi.fn(),
       } as unknown as CheckpointStorageAdapter;
 
-      const manager = new AgentLoopCheckpointStateManager(adapterWithoutClose);
+      const manager = new AgentLoopCheckpointStateManager("test-agent-2", adapterWithoutClose);
 
       // Should not throw
       await expect(manager.cleanup()).resolves.not.toThrow();

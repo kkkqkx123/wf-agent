@@ -6,7 +6,6 @@
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { TimeoutRegistry } from "../../registry/timeout-registry.js";
-import type { TimeoutRegistration } from "../../types/timeout.js";
 
 describe("TimeoutRegistry Improvements", () => {
   let registry: TimeoutRegistry;

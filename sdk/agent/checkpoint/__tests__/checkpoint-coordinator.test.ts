@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { AgentLoopCheckpointCoordinator } from "../checkpoint-coordinator.js";
 import type { CheckpointDependencies } from "../checkpoint-coordinator.js";
 import type { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
-import type { AgentLoopCheckpoint, AgentLoopStateSnapshot, Message } from "@wf-agent/types";
+import type { AgentLoopCheckpoint, Message } from "@wf-agent/types";
 import { AgentLoopStatus } from "@wf-agent/types";
 
 describe("AgentLoopCheckpointCoordinator", () => {
@@ -104,7 +104,7 @@ describe("AgentLoopCheckpointCoordinator", () => {
       dependencies.getCheckpoint = vi.fn().mockResolvedValue(null);
       dependencies.saveCheckpoint = vi.fn().mockResolvedValue("cp-2");
 
-      const checkpointId = await coordinator.createCheckpoint(entity, dependencies);
+      await coordinator.createCheckpoint(entity, dependencies);
 
       const savedCheckpoint = (dependencies.saveCheckpoint as any).mock.calls[0][0];
       expect(savedCheckpoint.type).toBe("FULL");

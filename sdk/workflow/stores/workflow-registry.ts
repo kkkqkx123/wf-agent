@@ -360,10 +360,7 @@ export class WorkflowRegistry {
     }
 
     // Use WorkflowGraphBuilder to build and validate the graph
-    const { graph, isValid, errors } = WorkflowGraphBuilder.buildAndValidate(workflow, {
-      detectCycles: true,
-      analyzeReachability: true,
-    });
+    const { graph, isValid, errors } = WorkflowGraphBuilder.buildAndValidate(workflow);
 
     if (!isValid) {
       throw new ConfigurationValidationError(

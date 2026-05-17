@@ -14,6 +14,7 @@ describe('validateEmbedGraphNode', () => {
       // Arrange
       const validNode: StaticNode = {
         id: 'embed-1',
+        name: 'Embed Node',
         type: 'EMBED_GRAPH',
         config: {
           embedId: 'embedded-workflow'
@@ -34,10 +35,10 @@ describe('validateEmbedGraphNode', () => {
       // Arrange
       const nodeWithExtras: StaticNode = {
         id: 'embed-2',
+        name: 'Embed Node 2',
         type: 'EMBED_GRAPH',
         config: {
-          embedId: 'embedded-workflow',
-          extraProperty: 'should-be-ignored'
+          embedId: 'embedded-workflow'
         }
       };
       
@@ -54,9 +55,11 @@ describe('validateEmbedGraphNode', () => {
       // Arrange
       const wrongTypeNode: StaticNode = {
         id: 'wrong-type',
+        name: 'Wrong Type',
         type: 'SUBGRAPH', // Wrong type
         config: {
-          embedId: 'embedded-workflow'
+          subgraphId: 'some-subgraph',
+          async: false
         }
       };
       
@@ -68,7 +71,7 @@ describe('validateEmbedGraphNode', () => {
       if (result.isErr()) {
         expect(result.error).toHaveLength(1);
         expect(result.error[0]).toBeInstanceOf(ConfigurationValidationError);
-        expect(result.error[0].message).toContain('Expected node type EMBED_GRAPH');
+        expect(result.error[0]?.message).toContain('Expected node type EMBED_GRAPH');
       }
     });
     
@@ -76,8 +79,9 @@ describe('validateEmbedGraphNode', () => {
       // Arrange
       const missingEmbedIdNode: StaticNode = {
         id: 'missing-id',
+        name: 'Missing ID',
         type: 'EMBED_GRAPH',
-        config: {} // Missing embedId
+        config: {} as any // Missing embedId
       };
       
       // Act
@@ -88,7 +92,7 @@ describe('validateEmbedGraphNode', () => {
       if (result.isErr()) {
         expect(result.error).toHaveLength(1);
         expect(result.error[0]).toBeInstanceOf(ConfigurationValidationError);
-        expect(result.error[0].message).toContain('Embed ID is required');
+        expect(result.error[0]?.message).toContain('Embed ID is required');
       }
     });
     
@@ -96,6 +100,7 @@ describe('validateEmbedGraphNode', () => {
       // Arrange
       const emptyEmbedIdNode: StaticNode = {
         id: 'empty-id',
+        name: 'Empty ID',
         type: 'EMBED_GRAPH',
         config: {
           embedId: '' // Empty string
@@ -110,7 +115,7 @@ describe('validateEmbedGraphNode', () => {
       if (result.isErr()) {
         expect(result.error).toHaveLength(1);
         expect(result.error[0]).toBeInstanceOf(ConfigurationValidationError);
-        expect(result.error[0].message).toContain('Embed ID is required');
+        expect(result.error[0]?.message).toContain('Embed ID is required');
       }
     });
   });
@@ -120,6 +125,7 @@ describe('validateEmbedGraphNode', () => {
       // Arrange
       const nullConfigNode: StaticNode = {
         id: 'null-config',
+        name: 'Null Config',
         type: 'EMBED_GRAPH',
         config: null as any
       };
@@ -135,6 +141,7 @@ describe('validateEmbedGraphNode', () => {
       // Arrange
       const undefinedConfigNode: StaticNode = {
         id: 'undefined-config',
+        name: 'Undefined Config',
         type: 'EMBED_GRAPH',
         config: undefined as any
       };

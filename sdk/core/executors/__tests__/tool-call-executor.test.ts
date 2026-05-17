@@ -6,10 +6,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ToolCallExecutor } from '../tool-call-executor.js';
 import type { ToolRegistry } from '../../registry/tool-registry.js';
-import type { EventRegistry } from '../../registry/event-registry.js';
 import type { ConversationSession } from '../../messaging/conversation-session.js';
 import type { Tool } from '@wf-agent/types';
-import { ok, err, createAbortError } from '@wf-agent/common-utils';
+import { ok, err } from '@wf-agent/common-utils';
 import { createInterruptionAbortReason } from '../../utils/interruption/index.js';
 
 // Mock dependencies
@@ -760,7 +759,8 @@ describe('ToolCallExecutor', () => {
       (mockToolRegistry.getTool as any).mockReturnValue(mockTool);
       
       // Simulate AbortError from tool execution
-      const abortError = createAbortError('Aborted', abortController.signal);
+      const abortError = new Error('Aborted');
+      (abortError as any).name = 'AbortError';
       (mockToolRegistry.execute as any).mockRejectedValue(abortError);
 
       // Should return paused result instead of throwing
@@ -800,7 +800,8 @@ describe('ToolCallExecutor', () => {
       (mockToolRegistry.getTool as any).mockReturnValue(mockTool);
       
       // Simulate AbortError from tool execution
-      const abortError = createAbortError('Aborted', abortController.signal);
+      const abortError = new Error('Aborted');
+      (abortError as any).name = 'AbortError';
       (mockToolRegistry.execute as any).mockRejectedValue(abortError);
 
       // Should return cancelled result instead of throwing

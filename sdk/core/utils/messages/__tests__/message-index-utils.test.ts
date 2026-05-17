@@ -76,7 +76,6 @@ describe("getIndicesByRole", () => {
 
   it("Should return an empty array when the role does not exist", () => {
     const messages = createMixedMessages();
-    const result = getIndicesByRole(messages, "user");
     // Remove all user messages.
     const noUserMessages = messages.filter(m => m.role !== "user");
     const emptyResult = getIndicesByRole(noUserMessages, "user");

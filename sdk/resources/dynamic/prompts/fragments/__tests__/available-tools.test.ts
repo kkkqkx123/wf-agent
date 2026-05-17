@@ -3,7 +3,6 @@ import type { Tool } from "@wf-agent/types";
 import {
   generateAvailableToolsContent,
   generateToolDescriptionMessage,
-  type ToolDescriptionFormat,
 } from "../available-tools.js";
 
 describe("available-tools fragment", () => {

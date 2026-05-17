@@ -4,7 +4,6 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ConversationSession } from '../conversation-session.js';
-import type { LLMMessage } from '@wf-agent/types';
 
 describe('ConversationSession - Execution State', () => {
   let session: ConversationSession;

@@ -116,10 +116,7 @@ export class ToolVisibilityCoordinator {
 
     // Generate a declaration message
     const message = this.messageBuilder.buildVisibilityDeclarationMessage(
-      newScope,
-      newScopeId,
       availableTools,
-      changeType,
     );
 
     // Add to the conversation history

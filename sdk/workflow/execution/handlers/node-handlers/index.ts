@@ -71,8 +71,8 @@ export function getNodeHandler(nodeType: string): NodeHandlerFn {
     USER_INTERACTION: (_gc, workflowExecutionEntity, node, context) =>
       userInteractionHandler(workflowExecutionEntity.getExecution(), node, context as UserInteractionHandlerContext),
     VARIABLE: (_gc, workflowExecutionEntity, node, _ctx) => variableHandler(workflowExecutionEntity, node),
-    TOOL_VISIBILITY: (_gc, workflowExecutionEntity, node, context) =>
-      toolVisibilityHandler(workflowExecutionEntity.getExecution(), node, context as ToolVisibilityHandlerContext),
+    TOOL_VISIBILITY: (_gc, _we, node, context) =>
+      toolVisibilityHandler(node, context as ToolVisibilityHandlerContext),
   };
 
   const handler = handlers[nodeType];

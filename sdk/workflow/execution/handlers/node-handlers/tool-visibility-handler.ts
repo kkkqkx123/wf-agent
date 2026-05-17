@@ -3,7 +3,7 @@
  * Handles TOOL_VISIBILITY nodes to manage tool permissions at runtime
  */
 
-import type { RuntimeNode, ToolVisibilityNodeConfig, WorkflowExecution } from "@wf-agent/types";
+import type { RuntimeNode, ToolVisibilityNodeConfig } from "@wf-agent/types";
 import type { ToolPermissionManager } from "../../../../core/coordinators/tool-permission-manager.js";
 import type { RejectionMessageBuilder } from "../../../../core/coordinators/rejection-message-builder.js";
 import { now } from "@wf-agent/common-utils";

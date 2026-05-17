@@ -414,12 +414,16 @@ export class ToolApprovalCoordinator {
         );
       }
 
-      // Execute tool (placeholder - actual execution happens in coordinators)
-      const startTime = Date.now();
-      const result = await this.executeAutoTool(call, options, contextId);
-      const executionTime = Date.now() - startTime;
+      // Note: Tool execution is handled by the caller (e.g., LLMExecutionCoordinator)
+      // This coordinator only handles approval logic, not actual tool execution
+      const result: ToolExecutionResult = {
+        success: true,
+        result: {},
+        executionTime: 0,
+        retryCount: 0,
+      };
 
-      autoResults.push({ ...result, executionTime });
+      autoResults.push(result);
 
       // Emit end event
       if (eventManager) {
@@ -432,8 +436,8 @@ export class ToolApprovalCoordinator {
             toolName: call.function?.name || "unknown",
             batchId,
             status: result.success ? "success" : "error",
-            result: { ...result, executionTime },
-            executionTime,
+            result,
+            executionTime: 0,
           }),
         );
 
@@ -660,25 +664,6 @@ export class ToolApprovalCoordinator {
       });
       return true;
     }
-  }
-
-  /**
-   * Execute an auto-approved tool (placeholder implementation)
-   * Actual execution happens in coordinators
-   */
-  private async executeAutoTool(
-    _call: LLMToolCall,
-    _options: ToolApprovalOptions,
-    _contextId: string,
-  ): Promise<ToolExecutionResult> {
-    // TODO: Integrate with ToolCallExecutor
-    // For now, return placeholder - actual execution happens in coordinators
-    return {
-      success: true,
-      result: {},
-      executionTime: 0,
-      retryCount: 0,
-    };
   }
 
   /**

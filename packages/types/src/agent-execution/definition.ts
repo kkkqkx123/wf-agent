@@ -80,19 +80,10 @@ export interface AgentLoopExecution {
   /** Error information (if failed) */
   error?: unknown;
 
-  // ========== Context (when executed as Graph node) ==========
-
-  /** Parent Workflow Execution ID (if executed as a Graph node) */
-  parentWorkflowExecutionId?: ID;
-
-  /** Node ID in parent workflow (if executed as a Graph node) */
-  nodeId?: ID;
-
   /**
-   * Execution hierarchy metadata (NEW)
+   * Execution hierarchy metadata
    * 
-   * Replaces the original parentWorkflowExecutionId and nodeId for unified parent-child relationship management.
-   * Supports richer parent-child relationships including Agent → Agent delegation.
+   * Unified parent-child relationship management supporting richer relationships including Agent → Agent delegation.
    * 
    * @example
    * ```typescript

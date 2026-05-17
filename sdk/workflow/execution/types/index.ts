@@ -25,6 +25,3 @@ export {
   type ForkHandlerContext,
   type ForkExecutionConfig,
 } from "./fork.types.js";
-
-// DEPRECATED: tool-visibility.types.ts removed in new architecture
-// ToolVisibilityContext is now defined in llm-context-factory.ts

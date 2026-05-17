@@ -214,8 +214,6 @@ export class AgentLoopExecutor {
           eventName: event.eventName,
           eventData: event.eventData,
           iteration: event.iteration,
-          parentWorkflowExecutionId: event.parentWorkflowExecutionId,
-          nodeId: event.nodeId,
           metadata: event.metadata,
         });
         await emit(this.eventManager, coreEvent);

@@ -281,7 +281,6 @@ export interface FollowupQueuedEvent {
  * Agent Hook Triggered Event
  *
  * Emitted when an agent hook is triggered during execution.
- * This replaces the deprecated AgentCustomEvent with a more structured approach.
  */
 export interface AgentHookTriggeredEvent {
   /** Unique event identifier */
@@ -298,11 +297,7 @@ export interface AgentHookTriggeredEvent {
   eventData: Record<string, unknown>;
   /** Current iteration number */
   iteration: number;
-  /** Parent Workflow Execution ID (if executed as a Graph node) - DEPRECATED, use parentContext */
-  parentWorkflowExecutionId?: ID;
-  /** Node ID (if executed as a Graph node) - DEPRECATED, use parentContext */
-  nodeId?: ID;
-  /** Parent execution context (unified hierarchy) - NEW */
+  /** Parent execution context (unified hierarchy) */
   parentContext?: {
     parentType: 'WORKFLOW' | 'AGENT_LOOP';
     parentId: string;

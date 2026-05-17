@@ -138,8 +138,6 @@ export const buildAgentHookTriggeredCoreEvent = (
     eventName: string;
     eventData: Record<string, unknown>;
     iteration: number;
-    parentWorkflowExecutionId?: string;
-    nodeId?: string;
     metadata?: Metadata;
   },
 ): AgentHookTriggeredCoreEvent => ({
@@ -151,8 +149,6 @@ export const buildAgentHookTriggeredCoreEvent = (
   eventName: params.eventName,
   eventData: params.eventData,
   iteration: params.iteration,
-  parentWorkflowExecutionId: params.parentWorkflowExecutionId,
-  nodeId: params.nodeId,
   metadata: params.metadata,
 });
 

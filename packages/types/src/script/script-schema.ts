@@ -81,7 +81,6 @@ export const ScriptSchema = z
   .object({
     id: z.string().min(1, "Script ID is required"),
     name: z.string().min(1, "Script name is required"),
-    type: z.string().optional(), // Deprecated - kept for backward compatibility
     description: z.string().min(1, "Script description is required"),
     content: z.string().optional(),
     filePath: z.string().optional(),

@@ -99,16 +99,7 @@ export function validateAndMapMessageContexts(
       mapping.inputMapping.set(parentContextId as string, inputDef.internalName);
     }
   }
-  
-  // Validate outputs
-  // Note: messageOutputs has been removed from START node config
-  // Output contexts should be handled through the workflow's output mechanism
-  if (subgraphConfig.messagePassing?.outputs) {
-    logger.warn("messagePassing.outputs is deprecated. Output contexts should be handled through workflow output mechanism.", {
-      subgraphId: subgraphConfig.subgraphId,
-    });
-  }
-  
+
   if (errors.length > 0) {
     return err(errors);
   }

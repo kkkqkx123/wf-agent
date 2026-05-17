@@ -59,20 +59,6 @@ export const VariableDefinitionSchema: z.ZodType<VariableDefinition> = z.object(
 });
 
 /**
- * Legacy: Workflow Variable Schema
- * @deprecated Use VariableDefinitionSchema instead
- */
-export const WorkflowVariableSchema = z.object({
-  name: z.string().min(1, "Variable name is required"),
-  type: variableValueTypeSchema,
-  defaultValue: z.any().optional(),
-  description: z.string().optional(),
-  required: z.boolean().optional(),
-  readonly: z.boolean().optional(),
-  scope: variableScopeSchema.optional(),
-});
-
-/**
  * Checkpoint Configuration Schema
  */
 export const CheckpointConfigSchema: z.ZodType<CheckpointConfig> = z.object({
@@ -176,19 +162,6 @@ export const WorkflowTemplateSchema = z.object({
 export function isVariableDefinition(value: unknown): value is VariableDefinition {
   try {
     VariableDefinitionSchema.parse(value);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Legacy: Check if a value is a valid WorkflowVariable
- * @deprecated Use isVariableDefinition instead
- */
-export function isWorkflowVariable(value: unknown): value is Record<string, unknown> {
-  try {
-    WorkflowVariableSchema.parse(value);
     return true;
   } catch {
     return false;

@@ -10,11 +10,29 @@
  * - Reusable across all modules (SDK, Agent, Workflow, etc.)
  */
 
-import { getAbortReason, createNeverAbortSignal } from "./abort-utils.js";
 import { getGlobalLogger } from "../../logger/global-logger.js";
 
 // Get logger for abort signal utils
 const logger = getGlobalLogger().child("abort-signal-utils", { pkg: "common-utils" });
+
+/**
+ * Get the abort reason for AbortSignal
+ * @param signal AbortSignal
+ * @returns Abort reason (Error or other value)
+ */
+function getAbortReason(signal?: AbortSignal): unknown {
+  return signal?.reason;
+}
+
+/**
+ * Creating an AbortSignal that Never Stops
+ * @returns AbortSignal
+ */
+function createNeverAbortSignal(): AbortSignal {
+  const controller = new AbortController();
+  // Returns a signal that never aborts without calling abort.
+  return controller.signal;
+}
 
 /**
  * Generic interruption check result

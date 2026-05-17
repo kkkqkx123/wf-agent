@@ -96,11 +96,11 @@ describe("Compression Module", () => {
       expect(result.algorithm).toBe("gzip");
     });
 
-    it("should handle deprecated minSize option", async () => {
+    it("should handle threshold option", async () => {
       const data = new Uint8Array(500).fill(65);
       const config: CompressionConfig = {
         enabled: true,
-        minSize: 100, // Using deprecated option
+        threshold: 100,
       };
       const result = await compressBlob(data, config);
 

@@ -27,10 +27,6 @@ export interface AgentHookEventData {
   eventData: Record<string, unknown>;
   /** Current iteration count */
   iteration: number;
-  /** Parent Workflow Execution ID (if executed as a Graph node) */
-  parentWorkflowExecutionId?: string;
-  /** Node ID (if executed as a Graph node) */
-  nodeId?: string;
 }
 
 /**
@@ -56,10 +52,7 @@ export async function emitAgentHookEvent(
     eventName,
     eventData: eventData ?? {},
     iteration: entity.state.currentIteration,
-    // Keep old fields for backward compatibility
-    parentWorkflowExecutionId: parentContext?.parentType === 'WORKFLOW' ? parentContext.parentId : undefined,
-    nodeId: parentContext?.parentType === 'WORKFLOW' ? parentContext.nodeId : undefined,
-    // Add new unified parent context
+    // Unified parent context
     parentContext: parentContext ? {
       parentType: parentContext.parentType,
       parentId: parentContext.parentId,

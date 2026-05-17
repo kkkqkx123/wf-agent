@@ -42,7 +42,6 @@ import { ConfigurationValidationError } from "@wf-agent/types";
 import type { Result } from "@wf-agent/types";
 import { ok, err } from "@wf-agent/common-utils";
 import { WorkflowGraphData } from "../entities/workflow-graph-data.js";
-import { SUBGRAPH_METADATA_KEYS } from "@wf-agent/types";
 import { analyzeWorkflowGraph } from "../builder/utils/workflow-graph-analyzer.js";
 import { detectCycles } from "../builder/utils/workflow-cycle-detector.js";
 import { analyzeReachability } from "../builder/utils/workflow-reachability-analyzer.js";
@@ -215,30 +214,6 @@ export class GraphValidator {
           );
         }
       }
-    }
-
-    // Check whether the START node is unique
-    // Eliminate sub-workflow boundary nodes (START nodes marked as entry)
-    let startNodeCount = 0;
-    for (const node of graph.nodes.values()) {
-      if (node.type === ("START" as StaticNodeType)) {
-        // Check if it is a sub-workflow boundary node.
-        const isSubgraphBoundary =
-          node.internalMetadata?.[SUBGRAPH_METADATA_KEYS.BOUNDARY_TYPE] === "entry";
-        if (!isSubgraphBoundary) {
-          startNodeCount++;
-        }
-      }
-    }
-    if (startNodeCount > 1) {
-      errors.push(
-        new ConfigurationValidationError("A workflow can only contain one START node", {
-          configType: "workflow",
-          context: {
-            code: "MULTIPLE_START_NODES",
-          },
-        }),
-      );
     }
 
     return errors;

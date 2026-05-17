@@ -94,8 +94,6 @@ export interface Script {
   id: ID;
   /** screenplay title */
   name: string;
-  /** Script type - DEPRECATED, kept for backward compatibility. Any string value is accepted. */
-  type?: string;
   /** Script Description */
   description: string;
   /** Script content (inline code) */

@@ -27,7 +27,8 @@ export type WorkflowNode = RuntimeNode & {
   
   /** 
    * Optional node name copied from static node for logging/debugging convenience.
-   * @deprecated Access via originalNode?.name instead for better separation of concerns.
+   * NOTE: Prefer accessing via originalNode?.name for better separation of concerns.
+   * This field may be removed in future versions.
    */
   name?: string;
 };

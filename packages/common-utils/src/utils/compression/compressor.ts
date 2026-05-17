@@ -37,10 +37,8 @@ export interface CompressionConfig {
   algorithm?: "gzip" | "brotli";
   /** Compression threshold (bytes) - data smaller than this won't be compressed */
   threshold?: number;
-  /** Compression level (1-9, where 9 is maximum compression) - deprecated, use algorithm */
+  /** Compression level (1-9, where 9 is maximum compression) */
   level?: number;
-  /** Minimum data size to compress - deprecated, use threshold */
-  minSize?: number;
 }
 
 /**
@@ -78,7 +76,7 @@ export async function compressBlob(
   config: CompressionConfig = DEFAULT_COMPRESSION_CONFIG,
 ): Promise<CompressionResult> {
   const originalSize = data.length;
-  const threshold = config.threshold ?? config.minSize ?? 1024;
+  const threshold = config.threshold ?? 1024;
   const level = config.level ?? 6;
   const algorithm = config.algorithm ?? "gzip";
 
@@ -194,7 +192,7 @@ export function compressBlobSync(
   config: CompressionConfig = DEFAULT_COMPRESSION_CONFIG,
 ): CompressionResult {
   const originalSize = data.length;
-  const threshold = config.threshold ?? config.minSize ?? 1024;
+  const threshold = config.threshold ?? 1024;
   const level = config.level ?? 6;
   const algorithm = config.algorithm ?? "gzip";
 

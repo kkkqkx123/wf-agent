@@ -43,8 +43,6 @@ export const buildAgentHookTriggeredEvent = (params: {
   eventName: string;
   eventData: Record<string, unknown>;
   iteration: number;
-  parentWorkflowExecutionId?: string;
-  nodeId?: string;
   parentContext?: {
     parentType: 'WORKFLOW' | 'AGENT_LOOP';
     parentId: string;
@@ -61,10 +59,7 @@ export const buildAgentHookTriggeredEvent = (params: {
   eventName: params.eventName,
   eventData: params.eventData,
   iteration: params.iteration,
-  // Keep old fields for backward compatibility
-  parentWorkflowExecutionId: params.parentWorkflowExecutionId,
-  nodeId: params.nodeId,
-  // Add new unified parent context
+  // Unified parent context
   parentContext: params.parentContext,
   metadata: params.metadata,
 });

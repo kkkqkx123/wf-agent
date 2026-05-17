@@ -6,9 +6,6 @@
 // Base types and base classes
 export * from "./base.js";
 
-// Interrupt Related Errors
-export * from "./interruption-errors.js";
-
 // Verify related errors
 export * from "./validation-errors.js";
 

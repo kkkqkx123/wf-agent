@@ -20,6 +20,3 @@ export * from "./preprocessed-graph.js";
 
 // Export condition type
 export * from "./condition.js";
-
-// Export subgraph types
-export * from "./subgraph.js";

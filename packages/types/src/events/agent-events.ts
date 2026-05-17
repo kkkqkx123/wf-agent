@@ -23,10 +23,6 @@ export interface AgentStartedEvent extends BaseEvent {
   maxIterations: number;
   /** Initial message count */
   initialMessageCount: number;
-  /** Parent Workflow Execution ID (if executed as a Graph node) */
-  parentWorkflowExecutionId?: ID;
-  /** Node ID (if executed as a Graph node) */
-  nodeId?: ID;
 }
 
 /**
@@ -45,10 +41,6 @@ export interface AgentCompletedEvent extends BaseEvent {
   success: boolean;
   /** Error if failed */
   error?: unknown;
-  /** Parent Workflow Execution ID (if executed as a Graph node) */
-  parentWorkflowExecutionId?: ID;
-  /** Node ID (if executed as a Graph node) */
-  nodeId?: ID;
 }
 
 /**
@@ -61,10 +53,6 @@ export interface AgentTurnStartedEvent extends BaseEvent {
   agentLoopId: ID;
   /** Current iteration number */
   iteration: number;
-  /** Parent Workflow Execution ID (if executed as a Graph node) */
-  parentWorkflowExecutionId?: ID;
-  /** Node ID (if executed as a Graph node) */
-  nodeId?: ID;
 }
 
 /**
@@ -81,10 +69,6 @@ export interface AgentTurnCompletedEvent extends BaseEvent {
   shouldContinue: boolean;
   /** Reason for stopping (if not continuing) */
   stopReason?: string;
-  /** Parent Workflow Execution ID (if executed as a Graph node) */
-  parentWorkflowExecutionId?: ID;
-  /** Node ID (if executed as a Graph node) */
-  nodeId?: ID;
 }
 
 /**
@@ -97,10 +81,6 @@ export interface AgentMessageStartedEvent extends BaseEvent {
   agentLoopId: ID;
   /** Iteration number */
   iteration: number;
-  /** Parent Workflow Execution ID (if executed as a Graph node) */
-  parentWorkflowExecutionId?: ID;
-  /** Node ID (if executed as a Graph node) */
-  nodeId?: ID;
 }
 
 /**
@@ -115,10 +95,6 @@ export interface AgentMessageCompletedEvent extends BaseEvent {
   iteration: number;
   /** Message role */
   role: "assistant" | "user" | "system" | "tool";
-  /** Parent Workflow Execution ID (if executed as a Graph node) */
-  parentWorkflowExecutionId?: ID;
-  /** Node ID (if executed as a Graph node) */
-  nodeId?: ID;
 }
 
 /**
@@ -135,10 +111,6 @@ export interface AgentToolExecutionStartedEvent extends BaseEvent {
   toolName: string;
   /** Iteration number */
   iteration: number;
-  /** Parent Workflow Execution ID (if executed as a Graph node) */
-  parentWorkflowExecutionId?: ID;
-  /** Node ID (if executed as a Graph node) */
-  nodeId?: ID;
 }
 
 /**
@@ -161,10 +133,6 @@ export interface AgentToolExecutionCompletedEvent extends BaseEvent {
   error?: unknown;
   /** Iteration number */
   iteration: number;
-  /** Parent Workflow Execution ID (if executed as a Graph node) */
-  parentWorkflowExecutionId?: ID;
-  /** Node ID (if executed as a Graph node) */
-  nodeId?: ID;
 }
 
 /**
@@ -177,10 +145,6 @@ export interface AgentIterationStartedEvent extends BaseEvent {
   agentLoopId: ID;
   /** Iteration number */
   iteration: number;
-  /** Parent Workflow Execution ID (if executed as a Graph node) */
-  parentWorkflowExecutionId?: ID;
-  /** Node ID (if executed as a Graph node) */
-  nodeId?: ID;
 }
 
 /**
@@ -197,10 +161,6 @@ export interface AgentIterationCompletedEvent extends BaseEvent {
   toolCallCount: number;
   /** Whether to continue to next iteration */
   shouldContinue: boolean;
-  /** Parent Workflow Execution ID (if executed as a Graph node) */
-  parentWorkflowExecutionId?: ID;
-  /** Node ID (if executed as a Graph node) */
-  nodeId?: ID;
 }
 
 /**
@@ -223,10 +183,6 @@ export interface AgentHookTriggeredCoreEvent extends BaseEvent {
   eventData: Record<string, unknown>;
   /** Current iteration number */
   iteration: number;
-  /** Parent Workflow Execution ID (if executed as a Graph node) */
-  parentWorkflowExecutionId?: ID;
-  /** Node ID (if executed as a Graph node) */
-  nodeId?: ID;
   /** Additional metadata */
   metadata?: Metadata;
 }

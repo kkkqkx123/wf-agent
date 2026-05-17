@@ -21,7 +21,7 @@ import { createLogger } from "@wf-agent/common-utils";
  * Converts tool IDs to LLM-compatible tool schemas by looking up
  * tool definitions from ToolRegistry, applying AvailableTools filtering.
  *
- * @param toolIds Array of tool IDs (from ToolContextStore or config)
+ * @param toolIds Array of tool IDs (from ToolPermissionManager or config)
  * @param toolService Tool service to lookup tool definitions
  * @param availableTools Optional AvailableTools config for filtering
  * @returns Array of filtered tool schemas, or undefined if no tools

@@ -18,7 +18,7 @@
 import type { RuntimeNode, ContextProcessorNodeConfig, NamedMessageContext, MessageContextRegistry, LLMMessage } from "@wf-agent/types";
 import type { WorkflowExecution } from "@wf-agent/types";
 import { RuntimeValidationError } from "@wf-agent/types";
-import { now, getErrorOrNew } from "@wf-agent/common-utils";
+import { now } from "@wf-agent/common-utils";
 import { createContextualLogger } from "../../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger();
@@ -86,10 +86,7 @@ export interface ContextProcessorHandlerContext {
         }
       | undefined;
   };
-  /** Tool Visibility Coordinator (optional) */
-  toolVisibilityCoordinator?: {
-    refreshDeclaration: (workflowExecutionContext: unknown) => Promise<void>;
-  };
+  // DEPRECATED: toolVisibilityCoordinator removed in new architecture
   /** Workflow execution context (optional, used for refreshing tool visibility declarations) */
   workflowExecutionContext?: unknown;
 }
@@ -221,26 +218,8 @@ export async function contextProcessorHandler(
     config.operationConfig,
     async () => {
       // Operation callback: Refresh the tool visibility declaration
-      if (context.toolVisibilityCoordinator && context.workflowExecutionContext) {
-        try {
-          await context.toolVisibilityCoordinator.refreshDeclaration(context.workflowExecutionContext);
-        } catch (error) {
-          // Record warning logs without interrupting the execution.
-          logger.warn(
-            "Failed to refresh tool visibility declaration after message operation",
-            {
-              operation: config.operationConfig.operation,
-              nodeId: node.id,
-              executionId: workflowExecution.id,
-              workflowId: workflowExecution.workflowId,
-              suggestion:
-                "Tool visibility may be stale. Check tool visibility coordinator configuration and retry",
-            },
-            undefined,
-            getErrorOrNew(error),
-          );
-        }
-      }
+      // DEPRECATED: toolVisibilityCoordinator no longer used in new architecture
+      // Tool visibility is now managed by ToolPermissionManager and automatically reflected in LLM calls
     },
   );
 

@@ -15,7 +15,7 @@
 
 import type { LLMMessage, BaseEvent, LLMToolCall, WorkflowConfig } from "@wf-agent/types";
 import { ConversationSession } from "../../../core/messaging/conversation-session.js";
-import type { ToolContextStore } from "../../stores/tool-context-store.js";
+// DEPRECATED: ToolContextStore removed in new architecture
 import type { ToolPermissionManager } from "../../../core/coordinators/tool-permission-manager.js";
 import { emit } from "../utils/index.js";
 import type { ToolApprovalResult } from "@wf-agent/types";
@@ -272,29 +272,6 @@ export class LLMExecutionCoordinator {
             .filter(Boolean);
 
           availableTools = resolvedTools;
-        }
-      } else {
-        // Fallback to old architecture for backward compatibility
-        const toolContextStore = this.contextFactory.getToolContextStore() as
-          | ToolContextStore
-          | undefined;
-        if (toolContextStore) {
-          const availableToolIds = toolContextStore.getTools(executionId);
-
-          if (availableToolIds.size > 0) {
-            const toolService = this.contextFactory.getToolService();
-            const resolvedTools = Array.from(availableToolIds as Set<string>)
-              .map(id => {
-                try {
-                  return toolService.getTool(id);
-                } catch {
-                  return null;
-                }
-              })
-              .filter(Boolean);
-
-            availableTools = resolvedTools;
-          }
         }
       }
 

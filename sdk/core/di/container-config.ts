@@ -77,9 +77,7 @@ import {
 } from "../../workflow/execution/utils/event/index.js";
 import { WorkflowStateTransitor } from "../../workflow/execution/coordinators/workflow-state-transitor.js";
 import { CheckpointState } from "../../workflow/checkpoint/checkpoint-state-manager.js";
-import { ToolContextStore } from "../../workflow/stores/tool-context-store.js";
 import { WorkflowConversationSession } from "../../workflow/message/workflow-conversation-session.js";
-import { ToolVisibilityStore } from "../../workflow/stores/tool-visibility-store.js";
 import { WorkflowExecutionBuilder } from "../../workflow/execution/factories/workflow-execution-builder.js";
 import { WorkflowExecutor } from "../../workflow/execution/executors/workflow-executor.js";
 import { ToolPermissionManager } from "../coordinators/tool-permission-manager.js";
@@ -387,14 +385,6 @@ export function configureContainerBindings(
     })
     .inSingletonScope();
 
-  // ToolContextStore - DEPRECATED: No longer used in new architecture (replaced by ToolPermissionManager)
-  // Kept for backward compatibility during migration
-  // container.bind(Identifiers.ToolContextStore).to(ToolContextStore).inSingletonScope();
-
-  // ToolVisibilityStore - DEPRECATED: No longer used in new architecture (replaced by ToolPermissionManager)
-  // Kept for backward compatibility during migration
-  // container.bind(Identifiers.ToolVisibilityStore).to(ToolVisibilityStore).inSingletonScope();
-
   // ============================================================
   // Layer six: Depends on the execution layer services of layer five
   // ============================================================
@@ -605,9 +595,6 @@ export function configureContainerBindings(
             ).create(executionId, nodeId),
             navigator,
             toolService: c.get(Identifiers.ToolRegistry) as ToolRegistry,
-            // DEPRECATED: toolContextStore no longer used (replaced by permissionManager)
-            // toolContextStore: c.get(Identifiers.ToolContextStore) as ToolContextStore,
-            toolContextStore: undefined,
             permissionManager: c.get(Identifiers.ToolPermissionManager) as ToolPermissionManager | null,
             rejectionBuilder: c.get(Identifiers.RejectionMessageBuilder) as RejectionMessageBuilder,
             checkpointDependencies: {

@@ -6,7 +6,7 @@ import type { RuntimeNode } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import type { GlobalContext } from "../../../../core/global-context.js";
 import type { StartFromTriggerHandlerContext } from "./start-from-trigger-handler.js";
-import { addToolHandler, type AddToolHandlerContext } from "./add-tool-handler.js";
+// DEPRECATED: addToolHandler removed in new architecture (replaced by toolVisibilityHandler)
 import { agentLoopHandler, type AgentLoopHandlerContext } from "./agent-loop-handler.js";
 import { contextProcessorHandler, type ContextProcessorHandlerContext } from "./context-processor-handler.js";
 import { continueFromTriggerHandler } from "./continue-from-trigger-handler.js";
@@ -44,8 +44,6 @@ export function getNodeHandler(nodeType: string): NodeHandlerFn {
       scriptHandler(globalContext, workflowExecutionEntity, node, context),
     
     // Handlers that don't use globalContext (ignore it)
-    ADD_TOOL: (_gc, workflowExecutionEntity, node, context) =>
-      addToolHandler(workflowExecutionEntity.getExecution(), node, context as AddToolHandlerContext),
     CONTEXT_PROCESSOR: (_gc, workflowExecutionEntity, node, context) =>
       contextProcessorHandler(workflowExecutionEntity.getExecution(), node, context as ContextProcessorHandlerContext),
     CONTINUE_FROM_TRIGGER: (_gc, workflowExecutionEntity, node, _ctx) =>
@@ -83,7 +81,6 @@ export function getNodeHandler(nodeType: string): NodeHandlerFn {
 }
 
 export {
-  addToolHandler,
   agentLoopHandler,
   contextProcessorHandler,
   continueFromTriggerHandler,
@@ -103,4 +100,5 @@ export {
   toolVisibilityHandler,
 };
 
-export type { AddToolHandlerContext, ToolVisibilityHandlerContext };
+// DEPRECATED: AddToolHandlerContext removed in new architecture
+export type { ToolVisibilityHandlerContext };

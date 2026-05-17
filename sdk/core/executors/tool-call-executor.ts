@@ -35,8 +35,6 @@ import type { ConversationSession } from "../messaging/conversation-session.js";
 import { WorkflowCheckpointError } from "@wf-agent/types";
 import { MessageBuilder } from "../messaging/message-builder.js";
 import type { CheckpointDependencies } from "../../workflow/checkpoint/utils/checkpoint-utils.js";
-// DEPRECATED: ToolVisibilityStore import kept for backward compatibility but no longer used
-// import type { ToolVisibilityStore } from "../../workflow/stores/tool-visibility-store.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 import type { ToolFailureProtectionState } from "../state-managers/tool-failure-protection-state.js";
 import type { ToolMetricsCollector } from "../metrics/tool-collector.js";
@@ -124,7 +122,8 @@ export class ToolCallExecutor {
     private eventManager?: EventRegistry,
     private checkpointDependencies?: CheckpointDependencies,
     // DEPRECATED: toolVisibilityStore parameter is no longer used (replaced by ToolPermissionManager)
-    private _deprecated_toolVisibilityStore?: unknown,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _deprecated_toolVisibilityStore?: unknown,
     private eventBuilder?: EventBuilder,
     private createCheckpointFn?: CheckpointCreator,
     private safeEmitFn?: (

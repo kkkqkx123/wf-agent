@@ -15,7 +15,7 @@ import type { UserInteractionHandler } from "@wf-agent/types";
 import type { HumanRelayHandler } from "@wf-agent/types";
 import type { ConversationSession } from "../../../core/messaging/conversation-session.js";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
-import type { ToolContextStore } from "../../stores/tool-context-store.js";
+// DEPRECATED: ToolContextStore removed in new architecture
 import type { ToolRegistry } from "../../../core/registry/tool-registry.js";
 import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-registry.js";
 import type { WorkflowExecutionBuilder } from "../factories/workflow-execution-builder.js";
@@ -42,8 +42,6 @@ export interface NodeHandlerContextFactoryConfig {
   userInteractionHandler?: UserInteractionHandler;
   /** Manual Relay Processor (optional) */
   humanRelayHandler?: HumanRelayHandler;
-  /** Tool Context Store (optional) */
-  toolContextStore?: ToolContextStore;
   /** Tool Services (Optional) */
   toolService?: ToolRegistry;
   /** Agent Loop Executor Factory (optional) */
@@ -98,7 +96,7 @@ export class NodeHandlerContextFactory {
     ["CONTEXT_PROCESSOR", (_node, entity) => this.createContextProcessorContext(entity)],
     ["LLM", (node, entity) => this.createLLMContext(node, entity)],
     ["AGENT_LOOP", (node, entity) => this.createAgentLoopContext(node, entity)],
-    ["ADD_TOOL", (node, entity) => this.createAddToolContext(node, entity)],
+    // DEPRECATED: ADD_TOOL removed in new architecture (replaced by TOOL_VISIBILITY)
     ["TOOL_VISIBILITY", (node, entity) => this.createToolVisibilityContext(node, entity)],
     ["FORK", (node, entity) => this.createForkContext(node, entity)],
     ["SUBGRAPH", (node, entity) => this.createSubgraphContext(node, entity)],
@@ -174,38 +172,6 @@ export class NodeHandlerContextFactory {
       eventManager: this.config.eventManager,
       conversationManager: this.config.conversationManager,
       humanRelayHandler: this.config.humanRelayHandler,
-    };
-  }
-
-  /**
-   * Create a tool to add node context
-   * @param node Node definition (for error reporting)
-   * @param executionEntity WorkflowExecution entity (for error reporting)
-   * @returns Context with toolContextStore, toolService, eventManager, and executionEntity
-   * @throws ExecutionError When toolContextStore or toolService is not provided
-   */
-  private createAddToolContext(node: RuntimeNode, executionEntity: WorkflowExecutionEntity): Record<string, unknown> {
-    if (!this.config.toolContextStore) {
-      throw new ExecutionError(
-        "ToolContextStore is required for ADD_TOOL node",
-        node.id,
-        executionEntity.getWorkflowId(),
-      );
-    }
-
-    if (!this.config.toolService) {
-      throw new ExecutionError(
-        "ToolRegistry is required for ADD_TOOL node",
-        node.id,
-        executionEntity.getWorkflowId(),
-      );
-    }
-
-    return {
-      toolContextStore: this.config.toolContextStore,
-      toolService: this.config.toolService,
-      eventManager: this.config.eventManager,
-      executionEntity,
     };
   }
 

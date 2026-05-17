@@ -29,7 +29,7 @@ import type { ConversationSession } from "../../../core/messaging/conversation-s
 import type { GlobalContext } from "../../../core/global-context.js";
 import type { InterruptionState } from "../../../core/types/interruption-state.js";
 import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-registry.js";
-import type { ToolContextStore } from "../../stores/tool-context-store.js";
+// DEPRECATED: ToolContextStore removed in new architecture
 import type { ToolRegistry } from "../../../core/registry/tool-registry.js";
 import type { LLMWrapper } from "../../../core/llm/wrapper.js";
 import type { WorkflowExecutionBuilder } from "../factories/workflow-execution-builder.js";
@@ -104,8 +104,6 @@ export interface NodeExecutionCoordinatorConfig {
   userInteractionHandler?: UserInteractionHandler;
   /** Manual Relay Processor (optional) */
   humanRelayHandler?: HumanRelayHandler;
-  /** Tool Context Store (optional) */
-  toolContextStore?: ToolContextStore;
   /** Tool Services (Optional) */
   toolService?: ToolRegistry;
   /** Agent Loop Executor Factory (optional) */
@@ -150,7 +148,6 @@ export class NodeExecutionCoordinator {
 
   // Tool Permission Services (New Architecture)
   private permissionManager?: ToolPermissionManager | null;
-  private rejectionBuilder?: RejectionMessageBuilder;
 
   constructor(config: NodeExecutionCoordinatorConfig) {
     // Core Dependencies
@@ -171,7 +168,6 @@ export class NodeExecutionCoordinator {
 
     // Tool Permission Services (New Architecture)
     this.permissionManager = config.permissionManager;
-    this.rejectionBuilder = config.rejectionBuilder;
 
     // Create a processor context factory
     this.handlerContextFactory = new NodeHandlerContextFactory({
@@ -181,7 +177,6 @@ export class NodeExecutionCoordinator {
       conversationManager: config.conversationManager,
       userInteractionHandler: config.userInteractionHandler,
       humanRelayHandler: config.humanRelayHandler,
-      toolContextStore: config.toolContextStore,
       toolService: config.toolService,
       agentLoopExecutorFactory: config.agentLoopExecutorFactory,
       workflowExecutionRegistry: config.workflowExecutionRegistry,

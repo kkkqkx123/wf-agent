@@ -14,8 +14,8 @@
  * - WorkflowLifecycleCoordinator: Workflow lifecycle coordinator
  * - WorkflowOperationCoordinator: Workflow operation coordinator
  * - VariableCoordinator: Variable coordinator
- * - ToolVisibilityCoordinator: Tool visibility coordinator
  * - WorkflowStateTransitor: Workflow execution state transitor (atomic state operations + cascade operations)
+ * // DEPRECATED: ToolVisibilityCoordinator removed in new architecture
  */
 
 export {
@@ -29,4 +29,4 @@ export { WorkflowExecutionCoordinator } from "./workflow-execution-coordinator.j
 export { VariableCoordinator } from "./variable-coordinator.js";
 export { WorkflowStateTransitor } from "./workflow-state-transitor.js";
 
-export { ToolVisibilityCoordinator } from "./tool-visibility-coordinator.js";
+// DEPRECATED: ToolVisibilityCoordinator removed in new architecture

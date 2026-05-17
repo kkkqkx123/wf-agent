@@ -7,7 +7,7 @@ import type { UserInteractionHandler } from '@wf-agent/types';
 import type { HumanRelayHandler } from '@wf-agent/types';
 import type { ConversationSession } from '../../../../core/messaging/conversation-session.js';
 import type { EventRegistry } from '../../../../core/registry/event-registry.js';
-import type { ToolContextStore } from '../../../stores/tool-context-store.js';
+// DEPRECATED: ToolContextStore removed in new architecture
 import type { ToolRegistry } from '../../../../core/registry/tool-registry.js';
 import type { WorkflowExecutionRegistry } from '../../../stores/workflow-execution-registry.js';
 import type { WorkflowExecutionBuilder } from '../workflow-execution-builder.js';
@@ -85,16 +85,7 @@ const createMockHumanRelayHandler = (): HumanRelayHandler => ({
   handleRelay: () => Promise.resolve({}),
 } as any);
 
-const createMockToolContextStore = (): ToolContextStore => ({
-  executionContexts: new Map(),
-  getOrCreateExecutionContext: () => ({} as any),
-  addTools: () => {},
-  getTools: () => [],
-  removeTools: () => {},
-  clearTools: () => {},
-  storeToolContext: () => {},
-  getToolContext: () => undefined,
-} as any);
+// DEPRECATED: createMockToolContextStore removed in new architecture
 
 const createMockToolRegistry = (): ToolRegistry => ({
   tools: new Map(),
@@ -184,7 +175,7 @@ describe('NodeHandlerContextFactory', () => {
       conversationManager: createMockConversationSession(),
       userInteractionHandler: createMockUserInteractionHandler(),
       humanRelayHandler: createMockHumanRelayHandler(),
-      toolContextStore: createMockToolContextStore(),
+      // DEPRECATED: toolContextStore removed in new architecture
       toolService: createMockToolRegistry(),
       agentLoopExecutorFactory: createMockAgentLoopExecutorFactory(),
       workflowExecutionRegistry: createMockWorkflowExecutionRegistry(),
@@ -250,12 +241,10 @@ describe('NodeHandlerContextFactory', () => {
       expect(result).toHaveProperty('llmWrapper');
       expect(result).toHaveProperty('eventManager');
       expect(result).toHaveProperty('conversationManager');
-      expect(result).toHaveProperty('humanRelayHandler');
       expect((result as any).llmCoordinator).toBe(config.llmCoordinator);
       expect((result as any).llmWrapper).toBe(config.llmWrapper);
       expect((result as any).eventManager).toBe(config.eventManager);
       expect((result as any).conversationManager).toBe(config.conversationManager);
-      expect((result as any).humanRelayHandler).toBe(config.humanRelayHandler);
     });
 
     it('should throw ExecutionError when llmWrapper is missing for LLM node', () => {
@@ -275,53 +264,7 @@ describe('NodeHandlerContextFactory', () => {
       ).toThrow('LLMWrapper is required for LLM node');
     });
 
-    it('should create ADD_TOOL context with required dependencies', () => {
-      const node = createMockRuntimeNode('ADD_TOOL');
-      const result = factory.createHandlerContext(node, executionEntity);
-      
-      expect(result).toHaveProperty('toolContextStore');
-      expect(result).toHaveProperty('toolService');
-      expect(result).toHaveProperty('eventManager');
-      expect(result).toHaveProperty('executionEntity');
-      expect((result as any).toolContextStore).toBe(config.toolContextStore);
-      expect((result as any).toolService).toBe(config.toolService);
-      expect((result as any).eventManager).toBe(config.eventManager);
-      expect((result as any).executionEntity).toBe(executionEntity);
-    });
-
-    it('should throw ExecutionError when toolContextStore is missing for ADD_TOOL node', () => {
-      const configWithoutStore = {
-        ...config,
-        toolContextStore: undefined,
-      };
-      const factoryWithoutStore = new NodeHandlerContextFactory(configWithoutStore);
-      
-      const node = createMockRuntimeNode('ADD_TOOL');
-      
-      expect(() => 
-        factoryWithoutStore.createHandlerContext(node, executionEntity)
-      ).toThrow(ExecutionError);
-      expect(() => 
-        factoryWithoutStore.createHandlerContext(node, executionEntity)
-      ).toThrow('ToolContextStore is required for ADD_TOOL node');
-    });
-
-    it('should throw ExecutionError when toolService is missing for ADD_TOOL node', () => {
-      const configWithoutService = {
-        ...config,
-        toolService: undefined,
-      };
-      const factoryWithoutService = new NodeHandlerContextFactory(configWithoutService);
-      
-      const node = createMockRuntimeNode('ADD_TOOL');
-      
-      expect(() => 
-        factoryWithoutService.createHandlerContext(node, executionEntity)
-      ).toThrow(ExecutionError);
-      expect(() => 
-        factoryWithoutService.createHandlerContext(node, executionEntity)
-      ).toThrow('ToolRegistry is required for ADD_TOOL node');
-    });
+    // DEPRECATED: ADD_TOOL tests removed in new architecture (replaced by TOOL_VISIBILITY)
 
     it('should create AGENT_LOOP context with required dependencies', () => {
       const node = createMockRuntimeNode('AGENT_LOOP');

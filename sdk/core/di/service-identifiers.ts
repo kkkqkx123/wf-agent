@@ -26,7 +26,7 @@ import type { WorkflowExecutor as WorkflowExecutorType } from "../../workflow/ex
 import type { WorkflowLifecycleCoordinator as WorkflowLifecycleCoordinatorType } from "../../workflow/execution/coordinators/workflow-lifecycle-coordinator.js";
 import type { WorkflowStateTransitor as WorkflowStateTransitorType } from "../../workflow/execution/coordinators/workflow-state-transitor.js";
 import type { CheckpointState as CheckpointStateType } from "../../workflow/checkpoint/checkpoint-state-manager.js";
-import type { ToolContextStore as ToolContextStoreType } from "../../workflow/stores/tool-context-store.js";
+// DEPRECATED: ToolContextStore, ToolVisibilityStore, and ToolVisibilityCoordinator removed in new architecture
 import type { WorkflowConversationSession as GraphConversationSessionType } from "../../workflow/message/workflow-conversation-session.js";
 import type { LLMExecutor as LLMExecutorType } from "../executors/llm-executor.js";
 import type { ToolCallExecutor as ToolCallExecutorType } from "../executors/tool-call-executor.js";
@@ -36,8 +36,7 @@ import type { VariableCoordinator as VariableCoordinatorType } from "../../workf
 import type { TriggerCoordinator as TriggerCoordinatorType } from "../../workflow/execution/coordinators/trigger-coordinator.js";
 import type { NodeExecutionCoordinator as NodeExecutionCoordinatorType } from "../../workflow/execution/coordinators/node-execution-coordinator.js";
 import type { LLMExecutionCoordinator as LLMExecutionCoordinatorType } from "../../workflow/execution/coordinators/llm-execution-coordinator.js";
-import type { ToolVisibilityCoordinator as ToolVisibilityCoordinatorType } from "../../workflow/execution/coordinators/tool-visibility-coordinator.js";
-import type { ToolVisibilityStore as ToolVisibilityStoreType } from "../../workflow/stores/tool-visibility-store.js";
+// DEPRECATED: ToolVisibilityCoordinator removed in new architecture
 import type { CheckpointCoordinator as CheckpointCoordinatorType } from "../../workflow/checkpoint/checkpoint-coordinator.js";
 import type { ConversationSession as ConversationSessionType } from "../messaging/conversation-session.js";
 import type { TriggerState as TriggerStateType } from "../../workflow/state-managers/trigger-state.js";
@@ -171,12 +170,6 @@ export const WorkflowStateTransitor: ServiceIdentifier<WorkflowStateTransitorTyp
 export const CheckpointState: ServiceIdentifier<CheckpointStateType> = Symbol("CheckpointState");
 
 /**
- * ToolContextStore - Tool Context Store
- * Manages the execution context of tools
- */
-export const ToolContextStore: ServiceIdentifier<ToolContextStoreType> = Symbol("ToolContextStore");
-
-/**
  * GraphConversationSession - Graph Conversation Session
  * Manages the conversation session for Graph workflows, with execution isolation.
  */
@@ -241,20 +234,6 @@ export const NodeExecutionCoordinator: ServiceIdentifier<NodeExecutionCoordinato
  */
 export const LLMExecutionCoordinator: ServiceIdentifier<LLMExecutionCoordinatorType> =
   Symbol("LLMExecutionCoordinator");
-
-/**
- * ToolVisibilityCoordinator - Tool Visibility Coordinator
- * Manages the runtime visibility of tools and generates visibility declaration messages.
- */
-export const ToolVisibilityCoordinator: ServiceIdentifier<ToolVisibilityCoordinatorType> = Symbol(
-  "ToolVisibilityCoordinator",
-);
-
-/**
- * ToolVisibilityStore - Tool Visibility Store
- * Manages the visibility status of tools
- */
-export const ToolVisibilityStore: ServiceIdentifier<ToolVisibilityStoreType> = Symbol("ToolVisibilityStore");
 
 /**
  * CheckpointCoordinator - The checkpoint coordinator

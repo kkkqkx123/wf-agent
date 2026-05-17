@@ -62,7 +62,7 @@ export interface LLMCallContext {
  * Tool Visibility Context
  */
 export interface ToolVisibilityContext {
-  toolContextStore?: unknown;
+  // DEPRECATED: toolContextStore removed in new architecture
   toolVisibilityCoordinator?: unknown;
   toolService: ToolRegistry;
 }
@@ -92,10 +92,6 @@ export interface LLMContextFactoryConfig {
   workflowRegistry?: WorkflowRegistry;
   /** Image Registry */
   graphRegistry?: WorkflowGraphRegistry;
-  /** Tool Context Store */
-  toolContextStore?: unknown;
-  /** Tool Visibility Coordinator */
-  toolVisibilityCoordinator?: unknown;
   /** Tool Permission Manager (NEW ARCHITECTURE) */
   permissionManager?: ToolPermissionManager | null;
 }
@@ -192,8 +188,7 @@ export class LLMContextFactory {
    */
   createToolVisibilityContext(): ToolVisibilityContext {
     return {
-      toolContextStore: this.config.toolContextStore,
-      toolVisibilityCoordinator: this.config.toolVisibilityCoordinator,
+      // DEPRECATED: toolContextStore and toolVisibilityCoordinator removed in new architecture
       toolService: this.config.toolService,
     };
   }
@@ -270,20 +265,6 @@ export class LLMContextFactory {
    */
   getGraphRegistry(): WorkflowGraphRegistry | undefined {
     return this.config.graphRegistry;
-  }
-
-  /**
-   * Obtain the tool context store
-   */
-  getToolContextStore(): unknown {
-    return this.config.toolContextStore;
-  }
-
-  /**
-   * Obtain the Tool Visibility Coordinator
-   */
-  getToolVisibilityCoordinator(): unknown {
-    return this.config.toolVisibilityCoordinator;
   }
 
   /**

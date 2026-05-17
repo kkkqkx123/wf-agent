@@ -12,10 +12,4 @@ export { WorkflowExecutionRegistry } from "./workflow-execution-registry.js";
 export { TaskRegistry, type TaskManager, type TaskRegistryConfig } from "./task/task-registry.js";
 export { TaskQueue } from "./task/task-queue.js";
 
-export {
-  ToolContextStore,
-  type ToolScope,
-  type ToolMetadata,
-  type ToolContext,
-} from "./tool-context-store.js";
-export { ToolVisibilityStore } from "./tool-visibility-store.js";
+// DEPRECATED: ToolContextStore and ToolVisibilityStore removed in new architecture

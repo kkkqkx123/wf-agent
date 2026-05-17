@@ -76,8 +76,7 @@ export class WorkflowExecutionEntity {
   /** Trigger Management */
   triggerManager?: unknown;
 
-  /** Tool Visibility Coordinator */
-  toolVisibilityCoordinator?: unknown;
+  // DEPRECATED: toolVisibilityCoordinator removed in new architecture
 
   /** Execution Hierarchy Manager (unified parent-child relationship management) */
   private hierarchyManager: ExecutionHierarchyManager;

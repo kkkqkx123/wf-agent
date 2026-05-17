@@ -27,10 +27,7 @@ export interface Terminal {
   // Get terminal dimensions
   get columns(): number;
   get rows(): number;
-
-  // Whether Kitty keyboard protocol is active
-  // Note: This property is deprecated. Use isKittyProtocolActive() from keys module directly.
-
+  
   // Cursor positioning (relative to current position)
   moveBy(lines: number): void;
 

@@ -34,8 +34,6 @@ export const buildNodeCustomEvent = (params: {
 
 /**
  * Build agent hook triggered event
- *
- * This replaces the deprecated AgentCustomEvent with a more structured approach.
  */
 export const buildAgentHookTriggeredEvent = (params: {
   agentLoopId: string;

@@ -12,13 +12,24 @@
  */
 
 import { ReadonlyResourceAPI } from "../generic-resource-api.js";
-import type { Event, EventType, Timestamp } from "@wf-agent/types";
+import type { Event, EventType, Timestamp, BaseEvent } from "@wf-agent/types";
 import { DispatchEventCommand } from "../../operations/events/dispatch-event-command.js";
 import type { APIDependencyManager } from "../../core/sdk-dependencies.js";
 import { CommandExecutor } from "../../common/command-executor.js";
 import { createContextualLogger } from "../../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "EventResourceAPI" });
+
+/**
+ * EventResourceAPI configuration
+ */
+export interface EventResourceAPIConfig {
+  /** Maximum number of events to keep in history (default: 1000) */
+  maxHistorySize?: number;
+  
+  /** Enable automatic subscription to EventRegistry (default: true) */
+  enableAutoSubscription?: boolean;
+}
 
 /**
  * Event filter
@@ -60,20 +71,65 @@ export interface EventStats {
  * EventResourceAPI - Event Resource Management API
  *
  * Refactoring Notes:
- * - Removed invalid memory cache
- * - Collects event history by listening to EventRegistry
+ * - Maintains in-memory event history by listening to EventRegistry
  * - Provides real-time event query and statistics functionality
+ * - Uses circular buffer pattern for bounded memory usage
  */
 export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFilter> {
   private dependencies: APIDependencyManager;
   private executor: CommandExecutor;
+  
+  // Event storage
+  private eventHistory: Event[] = [];
+  private maxHistorySize: number;
+  private subscriptions: Array<() => void> = [];
 
   constructor(
     dependencies: APIDependencyManager,
+    config?: EventResourceAPIConfig
   ) {
     super();
     this.dependencies = dependencies;
     this.executor = new CommandExecutor();
+    this.maxHistorySize = config?.maxHistorySize ?? 1000;
+    
+    // Auto-subscribe if enabled
+    if (config?.enableAutoSubscription !== false) {
+      this.setupEventSubscription();
+    }
+  }
+
+  /**
+   * Setup automatic event subscription
+   * Listens to all events and adds them to history
+   */
+  private setupEventSubscription(): void {
+    const eventManager = this.dependencies.getEventManager();
+    
+    // Subscribe to all events using global listener
+    const unsubscribe = eventManager.onGlobal((event: BaseEvent) => {
+      // Cast to Event since all emitted events should be full Event types
+      this.addToHistory(event as Event);
+    });
+    
+    this.subscriptions.push(unsubscribe);
+    
+    logger.debug('EventResourceAPI subscribed to global event stream', {
+      maxHistorySize: this.maxHistorySize,
+    });
+  }
+
+  /**
+   * Add event to history with size management
+   */
+  private addToHistory(event: Event): void {
+    this.eventHistory.push(event);
+    
+    // Enforce size limit using circular buffer pattern
+    if (this.eventHistory.length > this.maxHistorySize) {
+      // Remove oldest events (keep most recent)
+      this.eventHistory = this.eventHistory.slice(-this.maxHistorySize);
+    }
   }
 
 
@@ -82,7 +138,16 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
    * Cleanup resources
    */
   public dispose(): void {
-    // No cleanup needed - metrics are managed by EventRegistry
+    // Unsubscribe from all event sources
+    for (const unsubscribe of this.subscriptions) {
+      unsubscribe();
+    }
+    this.subscriptions = [];
+    
+    // Clear event history
+    this.eventHistory = [];
+    
+    logger.debug('EventResourceAPI disposed');
   }
 
   // ============================================================================
@@ -142,36 +207,81 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
   // ============================================================================
 
   /**
-   * Get single event
-   * Note: This method is required by ReadonlyResourceAPI template pattern but events are not stored globally.
-   * Always returns null. Use execution-scoped listeners instead.
+   * Get single event by ID
    * @param id Event ID
-   * @returns Always returns null as events are not persisted
+   * @returns Event or null if not found
    */
-  protected async getResource(_id: string): Promise<Event | null> {
-    logger.warn('getResource is deprecated - events are not stored globally');
-    return null;
+  protected async getResource(id: string): Promise<Event | null> {
+    const event = this.eventHistory.find(e => e.id === id);
+    return event || null;
   }
 
   /**
-   * Get all events
-   * Note: This method is required by ReadonlyResourceAPI template pattern but events are not stored globally.
-   * Always returns empty array. Use execution-scoped listeners instead.
-   * @returns Always returns empty array as events are not persisted
+   * Get all events in history
+   * @returns Copy of event history array
    */
   protected async getAllResources(): Promise<Event[]> {
-    logger.warn('getAllResources is deprecated - events are not stored globally');
-    return [];
+    // Return copy to prevent external mutation
+    return [...this.eventHistory];
   }
 
   /**
-   * Apply filter conditions
-   * Note: This method is required by ReadonlyResourceAPI template pattern but filtering requires event history which is not available.
-   * Returns the input array unchanged.
+   * Apply filter conditions to events
+   * Supports filtering by type, execution, workflow, node, time range, etc.
    */
-  protected override applyFilter(events: Event[], _filter: EventFilter): Event[] {
-    logger.warn('applyFilter is deprecated - no event history available for filtering');
-    return events;
+  protected override applyFilter(events: Event[], filter: EventFilter): Event[] {
+    return events.filter(event => {
+      // Filter by event type (single)
+      if (filter.eventType && event.type !== filter.eventType) {
+        return false;
+      }
+      
+      // Filter by event types (multiple, OR logic)
+      if (filter.eventTypes && !filter.eventTypes.includes(event.type)) {
+        return false;
+      }
+      
+      // Filter by execution ID
+      if (filter.executionId && event.executionId !== filter.executionId) {
+        return false;
+      }
+      
+      // Filter by workflow ID
+      if (filter.workflowId && event.workflowId !== filter.workflowId) {
+        return false;
+      }
+      
+      // Filter by node ID (type-safe check)
+      if (filter.nodeId) {
+        if (!('nodeId' in event) || event.nodeId !== filter.nodeId) {
+          return false;
+        }
+      }
+      
+      // Filter by agent loop ID (type-safe check)
+      if (filter.agentLoopId) {
+        if (!('agentLoopId' in event) || event.agentLoopId !== filter.agentLoopId) {
+          return false;
+        }
+      }
+      
+      // Filter by timestamp range
+      if (filter.timestampRange) {
+        if (filter.timestampRange.start && event.timestamp < filter.timestampRange.start) {
+          return false;
+        }
+        if (filter.timestampRange.end && event.timestamp > filter.timestampRange.end) {
+          return false;
+        }
+      }
+      
+      // Filter by event IDs list
+      if (filter.ids && !filter.ids.includes(event.id)) {
+        return false;
+      }
+      
+      return true;
+    });
   }
 
   // ============================================================================
@@ -188,14 +298,105 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
   }
 
   /**
-   * Get event list
-   * Note: Event history is not stored. Use execution-scoped listeners for real-time event collection.
-   * @param filter Filter conditions (ignored)
-   * @returns Always returns empty array
+   * Get event list with optional filtering
+   * @param filter Filter conditions
+   * @returns Filtered events from history
    */
   async getEvents(filter?: EventFilter): Promise<Event[]> {
-    logger.warn('getEvents is deprecated - use execution-scoped listeners instead', { filter });
-    return [];
+    let events = [...this.eventHistory];
+    
+    if (filter) {
+      events = this.applyFilter(events, filter);
+    }
+    
+    return events;
+  }
+
+  /**
+   * Get most recent events
+   * @param count Number of events to retrieve
+   * @param filter Optional filter applied before limiting
+   * @returns Most recent events (sorted by timestamp descending)
+   */
+  async getRecentEvents(count: number, filter?: EventFilter): Promise<Event[]> {
+    let events = [...this.eventHistory];
+    
+    // Apply filter first
+    if (filter) {
+      events = this.applyFilter(events, filter);
+    }
+    
+    // Sort by timestamp (newest first) and take top N
+    events.sort((a, b) => b.timestamp - a.timestamp);
+    return events.slice(0, count);
+  }
+
+  /**
+   * Search events by keyword in relevant fields
+   * @param query Search keyword
+   * @param filter Additional filter conditions
+   * @returns Matching events
+   */
+  async searchEvents(query: string, filter?: EventFilter): Promise<Event[]> {
+    if (!query || query.trim().length === 0) {
+      return [];
+    }
+    
+    const lowerQuery = query.toLowerCase();
+    let events = [...this.eventHistory];
+    
+    // Apply standard filters first
+    if (filter) {
+      events = this.applyFilter(events, filter);
+    }
+    
+    // Search in searchable fields
+    return events.filter(event => {
+      const searchableFields: string[] = [];
+      
+      // Event type
+      searchableFields.push(event.type.toLowerCase());
+      
+      // Execution ID
+      if (event.executionId) {
+        searchableFields.push(event.executionId.toLowerCase());
+      }
+      
+      // Workflow ID
+      if (event.workflowId) {
+        searchableFields.push(event.workflowId.toLowerCase());
+      }
+      
+      // Node ID (if present)
+      if ('nodeId' in event && event.nodeId) {
+        searchableFields.push((event as any).nodeId.toLowerCase());
+      }
+      
+      // Check if query matches any field
+      return searchableFields.some(field => field.includes(lowerQuery));
+    });
+  }
+
+  /**
+   * Get event timeline for specific execution or workflow
+   * @param executionId Optional execution ID filter
+   * @param workflowId Optional workflow ID filter
+   * @returns Events sorted chronologically
+   */
+  async getEventTimeline(executionId?: string, workflowId?: string): Promise<Event[]> {
+    let events = [...this.eventHistory];
+    
+    // Filter by execution or workflow
+    if (executionId) {
+      events = events.filter(e => e.executionId === executionId);
+    } else if (workflowId) {
+      events = events.filter(e => e.workflowId === workflowId);
+    }
+    
+    // Sort by timestamp (chronological order)
+    events.sort((a, b) => a.timestamp - b.timestamp);
+    
+    return events;
   }
 
   /**
@@ -230,41 +431,6 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
     return stats;
   }
 
-  /**
-   * Get recent events
-   * Note: Event history is not stored. Use execution-scoped listeners for real-time event collection.
-   * @param count Event count (ignored)
-   * @param filter Filter conditions (ignored)
-   * @returns Always returns empty array
-   */
-  async getRecentEvents(count: number, filter?: EventFilter): Promise<Event[]> {
-    logger.warn('getRecentEvents is deprecated - use execution-scoped listeners instead', { count, filter });
-    return [];
-  }
-
-  /**
-   * Search events
-   * Note: Event history is not stored. Use execution-scoped listeners for real-time event collection.
-   * @param query Search keyword (ignored)
-   * @param filter Filter conditions (ignored)
-   * @returns Always returns empty array
-   */
-  async searchEvents(query: string, filter?: EventFilter): Promise<Event[]> {
-    logger.warn('searchEvents is deprecated - use execution-scoped listeners instead', { query, filter });
-    return [];
-  }
-
-  /**
-   * Get event timeline
-   * Note: Event history is not stored. Use execution-scoped listeners for real-time event collection.
-   * @param executionId Execution ID (ignored)
-   * @param workflowId Workflow ID (ignored)
-   * @returns Always returns empty array
-   */
-  async getEventTimeline(executionId?: string, workflowId?: string): Promise<Event[]> {
-    logger.warn('getEventTimeline is deprecated - use execution-scoped listeners instead', { executionId, workflowId });
-    return [];
-  }
 
   /**
    * Get event type statistics from metrics collector
@@ -313,31 +479,38 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
   }
 
   /**
-   * Clear event history
-   * Note: Event history is not stored. Metrics cleanup is handled by EventRegistry.
+   * Clear all events from history
+   * Useful for testing or memory management
    */
   async clearEventHistory(): Promise<void> {
-    logger.warn('clearEventHistory is deprecated - metrics are managed by EventRegistry');
+    const clearedCount = this.eventHistory.length;
+    this.eventHistory = [];
+    
+    logger.info('Event history cleared', { clearedCount });
   }
 
   /**
-   * Get event history size
-   * Note: Event history is not stored. Use metrics summary for total event count.
-   * @returns Always returns 0
+   * Get current event history size
+   * @returns Number of events in history
    */
   async getEventHistorySize(): Promise<number> {
-    logger.warn('getEventHistorySize is deprecated - use metrics summary instead');
-    return 0;
+    return this.eventHistory.length;
   }
 
   /**
-   * Get event time range
-   * Note: Event history is not stored. Use metrics for timestamp information.
-   * @returns Always returns null
+   * Get time range of events in history
+   * @returns Start and end timestamps, or null if empty
    */
   async getEventTimeRange(): Promise<{ start: number; end: number } | null> {
-    logger.warn('getEventTimeRange is deprecated - use metrics summary instead');
-    return null;
+    if (this.eventHistory.length === 0) {
+      return null;
+    }
+    
+    const timestamps = this.eventHistory.map(e => e.timestamp);
+    return {
+      start: Math.min(...timestamps),
+      end: Math.max(...timestamps),
+    };
   }
 
   // ============================================================================
@@ -346,35 +519,40 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
 
   /**
    * Get agent execution events
-   * Note: Event history is not stored. Use execution-scoped listeners for agent events.
-   * @param agentLoopId Agent Loop ID (ignored)
-   * @returns Always returns empty array
+   * @param agentLoopId Agent Loop ID
+   * @returns Events related to specific agent loop
    */
   async getAgentEvents(agentLoopId: string): Promise<Event[]> {
-    logger.warn('getAgentEvents is deprecated - use execution-scoped listeners instead', { agentLoopId });
-    return [];
+    return this.eventHistory.filter(event => 
+      'agentLoopId' in event && event.agentLoopId === agentLoopId
+    );
   }
 
   /**
    * Get agent turn events
-   * Note: Event history is not stored. Use execution-scoped listeners for agent events.
-   * @param agentLoopId Agent Loop ID (ignored)
-   * @returns Always returns empty array
+   * @param agentLoopId Agent Loop ID
+   * @returns Turn-related events for agent
    */
   async getAgentTurnEvents(agentLoopId: string): Promise<Event[]> {
-    logger.warn('getAgentTurnEvents is deprecated - use execution-scoped listeners instead', { agentLoopId });
-    return [];
+    return this.eventHistory.filter(event => 
+      'agentLoopId' in event && 
+      event.agentLoopId === agentLoopId &&
+      (event.type === 'AGENT_TURN_STARTED' || event.type === 'AGENT_TURN_COMPLETED')
+    );
   }
 
   /**
    * Get agent tool execution events
-   * Note: Event history is not stored. Use execution-scoped listeners for agent events.
-   * @param agentLoopId Agent Loop ID (ignored)
-   * @returns Always returns empty array
+   * @param agentLoopId Agent Loop ID
+   * @returns Tool execution events for agent
    */
   async getAgentToolExecutionEvents(agentLoopId: string): Promise<Event[]> {
-    logger.warn('getAgentToolExecutionEvents is deprecated - use execution-scoped listeners instead', { agentLoopId });
-    return [];
+    return this.eventHistory.filter(event => 
+      'agentLoopId' in event && 
+      event.agentLoopId === agentLoopId &&
+      (event.type === 'AGENT_TOOL_EXECUTION_STARTED' || 
+       event.type === 'AGENT_TOOL_EXECUTION_COMPLETED')
+    );
   }
 
   /**

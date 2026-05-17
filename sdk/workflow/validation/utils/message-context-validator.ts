@@ -9,9 +9,6 @@ import type { StaticNode, WorkflowStartConfig, SubgraphNodeConfig } from "@wf-ag
 import { ConfigurationValidationError } from "@wf-agent/types";
 import type { Result } from "@wf-agent/types";
 import { ok, err } from "@wf-agent/common-utils";
-import { createContextualLogger } from "../../../utils/contextual-logger.js";
-
-const logger = createContextualLogger({ component: "message-context-validator" });
 
 /**
  * Message context mapping result

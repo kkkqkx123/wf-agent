@@ -2,7 +2,6 @@
  * Agent Hook Event Emitter
  *
  * Responsible for emitting Agent Hook triggered events.
- * Uses the new AgentHookTriggeredEvent type instead of deprecated AgentCustomEvent.
  */
 
 import type { AgentLoopEntity } from "../../../entities/agent-loop-entity.js";

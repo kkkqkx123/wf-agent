@@ -15,6 +15,7 @@
 
 import type { BaseEvent, EventType, EventListener } from "@wf-agent/types";
 import { RuntimeValidationError } from "@wf-agent/types";
+import { getErrorOrNew } from "@wf-agent/common-utils";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 import { EventMetricsCollector, type AggregatedEventStat, type EventMetricsSummary } from "../metrics/event-collector.js";
 import { ExecutionEventEmitter } from "./event-emitter.js";
@@ -40,10 +41,50 @@ class EventRegistry {
   
   // Cross-execution metrics collector (new universal metrics system)
   private metricsCollector: EventMetricsCollector;
+  
+  // Global event listeners (for cross-execution monitoring like EventResourceAPI)
+  private globalListeners: Array<(event: BaseEvent) => void | Promise<void>> = [];
 
   constructor() {
     // Initialize event metrics collector
     this.metricsCollector = new EventMetricsCollector();
+  }
+
+  /**
+   * Register a global event listener that receives all events across all executions
+   * This is useful for monitoring, logging, or debugging purposes
+   * 
+   * @param listener Global event listener function
+   * @returns Unsubscribe function
+   * 
+   * @example
+   * ```typescript
+   * // Listen to all events globally
+   * const unsubscribe = eventRegistry.onGlobal((event) => {
+   *   console.log('Event:', event.type, event.executionId);
+   * });
+   * 
+   * // Later, unsubscribe
+   * unsubscribe();
+   * ```
+   */
+  onGlobal(listener: (event: BaseEvent) => void | Promise<void>): () => void {
+    this.globalListeners.push(listener);
+    
+    logger.debug('Global event listener registered', {
+      totalGlobalListeners: this.globalListeners.length,
+    });
+    
+    // Return unsubscribe function
+    return () => {
+      const index = this.globalListeners.indexOf(listener);
+      if (index !== -1) {
+        this.globalListeners.splice(index, 1);
+        logger.debug('Global event listener removed', {
+          remainingListeners: this.globalListeners.length,
+        });
+      }
+    };
   }
 
   /**
@@ -136,6 +177,27 @@ class EventRegistry {
     
     const emitter = this.getEmitter(event.executionId);
     await emitter.emit(event);
+    
+    // Notify global listeners after successful emission
+    if (this.globalListeners.length > 0) {
+      const errors: Error[] = [];
+      for (const listener of this.globalListeners) {
+        try {
+          await listener(event);
+        } catch (error) {
+          errors.push(getErrorOrNew(error));
+          logger.error('Global listener execution failed', {
+            error: getErrorOrNew(error).message,
+          });
+        }
+      }
+      
+      if (errors.length > 0) {
+        logger.warn(`${errors.length} global listener(s) failed`, {
+          totalErrors: errors.length,
+        });
+      }
+    }
   }
 
 

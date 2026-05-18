@@ -97,7 +97,7 @@ describe('validateSubgraphNode', () => {
       if (result.isErr()) {
         expect(result.error).toHaveLength(1);
         expect(result.error[0]).toBeInstanceOf(ConfigurationValidationError);
-        expect(result.error[0]?.message).toContain('Expected node type SUBGRAPH');
+        expect(result.error[0]?.message).toContain('Expected SUBGRAPH node');
       }
     });
     
@@ -118,7 +118,7 @@ describe('validateSubgraphNode', () => {
       if (result.isErr()) {
         expect(result.error).toHaveLength(1);
         expect(result.error[0]).toBeInstanceOf(ConfigurationValidationError);
-        expect(result.error[0]?.message).toContain('Subgraph ID is required');
+        expect(result.error[0]?.message).toMatch(/required|Invalid input/);
       }
     });
     

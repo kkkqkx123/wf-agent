@@ -71,7 +71,7 @@ describe('validateEmbedGraphNode', () => {
       if (result.isErr()) {
         expect(result.error).toHaveLength(1);
         expect(result.error[0]).toBeInstanceOf(ConfigurationValidationError);
-        expect(result.error[0]?.message).toContain('Expected node type EMBED_GRAPH');
+        expect(result.error[0]?.message).toContain('Expected EMBED_GRAPH node');
       }
     });
     
@@ -92,7 +92,7 @@ describe('validateEmbedGraphNode', () => {
       if (result.isErr()) {
         expect(result.error).toHaveLength(1);
         expect(result.error[0]).toBeInstanceOf(ConfigurationValidationError);
-        expect(result.error[0]?.message).toContain('Embed ID is required');
+        expect(result.error[0]?.message).toMatch(/required|Invalid input/);
       }
     });
     

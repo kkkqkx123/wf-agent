@@ -33,7 +33,7 @@ export function validateContinueFromTriggerNode(
   }
 
   // Verify the configuration logic.
-  const config = node.config as {
+  const config = (node.config || {}) as {
     variableCallback?: {
       includeAll?: boolean;
       includeVariables?: string[];
@@ -44,7 +44,7 @@ export function validateContinueFromTriggerNode(
   if (config.variableCallback?.includeAll && config.variableCallback?.includeVariables) {
     return err([
       new ConfigurationValidationError(
-        "variableCallback cannot have both includeAll and includeVariables",
+        "Cannot specify both includeAll and includeVariables",
         {
           configType: "node",
           configPath: `node.${node.id}.config.variableCallback`,

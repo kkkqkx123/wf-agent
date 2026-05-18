@@ -47,7 +47,7 @@ export function validateNodeType(
   if (node.type !== expectedType) {
     return err([
       new ConfigurationValidationError(
-        `Invalid node type for ${expectedType} validator: ${node.type}`,
+        `Expected ${expectedType} node, got ${node.type}`,
         {
           configType: "node",
           configPath: `node.${node.id}`,

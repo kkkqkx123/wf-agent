@@ -50,7 +50,7 @@ export function validateAddToolNode(
     if (invalidToolIds.length > 0) {
       return err([
         new ConfigurationValidationError(
-          `Tool IDs not found in registry: ${invalidToolIds.join(", ")}`,
+          `Unknown tools: ${invalidToolIds.join(", ")}`,
           {
             configType: "node",
             configPath: `node.${node.id}.config.toolIds`,

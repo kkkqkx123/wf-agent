@@ -13,8 +13,8 @@ import { z } from "zod";
 const workflowVariableUpdateConfigSchema = z.object({
   variableName: z.string().min(1, { message: "Variable name is required" }),
   expression: z.string().min(1, { message: "Expression is required" }),
-  scope: z.enum(["global", "workflowExecution", "subgraph", "loop"], {
-    message: "Variable scope must be one of: global, workflowExecution, subgraph, loop",
+  scope: z.enum(["global", "execution", "subgraph", "loop"], {
+    message: "Variable scope must be one of: global, execution, subgraph, loop",
   }),
 });
 

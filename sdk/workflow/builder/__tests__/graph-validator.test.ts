@@ -5,7 +5,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { WorkflowGraphBuilder } from '../workflow-graph-builder.js';
-import { GraphValidator } from '../../validation/graph-validator.js';
+import { GraphValidator } from '../../validation/graph-validation/graph-validator.js';
 import type { WorkflowTemplate } from '@wf-agent/types';
 
 describe('GraphValidator', () => {

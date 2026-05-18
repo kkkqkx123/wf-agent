@@ -3,7 +3,7 @@
  * Provides functionality for verifying graph structures, workflows, and nodes.
  */
 
-export * from "./graph-validator.js";
+export * from "./graph-validation/index.js";
 export * from "./workflow-validator.js";
 export * from "./node-validator.js";
 export * from "./node-validation/index.js";

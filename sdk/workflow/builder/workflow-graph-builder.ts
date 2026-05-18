@@ -15,7 +15,7 @@ import type {
   SubgraphMergeResult,
 } from "@wf-agent/types";
 import { WorkflowGraphData } from "../entities/workflow-graph-data.js";
-import { GraphValidator } from "../validation/graph-validator.js";
+import { GraphValidator } from "../validation/graph-validation/graph-validator.js";
 import {
   generateNamespacedNodeId,
   generateNamespacedEdgeId,

@@ -108,8 +108,14 @@ export async function executeSingleHook<TContext extends BaseHookContext>(
   const startTime = now();
 
   try {
+    // Inject abortSignal into context if not already present
+    const enhancedContext = {
+      ...context,
+      abortSignal: context.abortSignal ?? config.abortSignal,
+    } as TContext;
+
     // Constructing an evaluation context
-    const evalContext = buildEvalContext(context);
+    const evalContext = buildEvalContext(enhancedContext);
 
     // Evaluation criteria
     if (!evaluateHookCondition(hook, evalContext, config.warnOnConditionFailure)) {
@@ -124,9 +130,9 @@ export async function executeSingleHook<TContext extends BaseHookContext>(
     // Generate event data
     const eventData = resolvePayloadTemplate(hook.eventPayload || {}, evalContext);
 
-    // Execute all processors.
+    // Execute all processors with enhanced context.
     for (const handler of handlers) {
-      await handler(context, hook, eventData);
+      await handler(enhancedContext, hook, eventData);
     }
 
     // Send an event
@@ -182,18 +188,44 @@ export async function executeHooks<TContext extends BaseHookContext>(
   };
 
   if (resolvedConfig.parallel) {
-    // Parallel execution
-    const promises = hooks.map(async (hook) => {
-      // Check for interruption before each hook in parallel mode
-      if (resolvedConfig.abortSignal?.aborted) {
-        const interruption = checkExecutionInterruption(resolvedConfig.abortSignal);
-        if (!shouldContinueExecution(interruption)) {
-          throw new Error(`Hook execution interrupted: ${interruption.type}`);
-        }
+    // Parallel execution with coordinated interruption checking
+    // Check before starting any hooks
+    if (resolvedConfig.abortSignal?.aborted) {
+      const interruption = checkExecutionInterruption(resolvedConfig.abortSignal);
+      if (!shouldContinueExecution(interruption)) {
+        throw new Error(`Hook execution interrupted before start: ${interruption.type}`);
       }
+    }
+
+    // Execute all hooks in parallel
+    const promises = hooks.map(async (hook) => {
       return executeSingleHook(hook, context, buildEvalContext, handlers, emitEvent, resolvedConfig);
     });
+    
     const results = await Promise.allSettled(promises);
+    
+    // Check for interruption after all hooks complete
+    if (resolvedConfig.abortSignal?.aborted) {
+      const interruption = checkExecutionInterruption(resolvedConfig.abortSignal);
+      if (!shouldContinueExecution(interruption)) {
+        // If interrupted, mark all successful results as interrupted
+        return results.map(r =>
+          r.status === "fulfilled"
+            ? {
+                ...r.value,
+                success: false,
+                error: new Error(`Hook execution interrupted: ${interruption.type}`),
+              }
+            : {
+                success: false,
+                eventName: "unknown",
+                executionTime: 0,
+                error: r.reason instanceof Error ? r.reason : new Error(String(r.reason)),
+              },
+        );
+      }
+    }
+    
     return results.map(r =>
       r.status === "fulfilled"
         ? r.value
@@ -205,7 +237,7 @@ export async function executeHooks<TContext extends BaseHookContext>(
           },
     );
   } else {
-    // Serial execution
+    // Serial execution with per-hook interruption checking
     const results: HookExecutionResult[] = [];
     for (const hook of hooks) {
       // Check for interruption before each hook in serial mode

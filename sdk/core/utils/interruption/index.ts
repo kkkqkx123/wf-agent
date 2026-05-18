@@ -15,7 +15,7 @@ export {
 // Execution-specific interruption utilities (generic layer)
 export {
   checkExecutionInterruption,
-  shouldContinue as shouldContinueExecution,
+  shouldContinueExecution,
   getExecutionInterruptionType,
   getExecutionInterruptionDescription,
   type ExecutionInterruptionCheckResult,
@@ -25,6 +25,7 @@ export {
 export {
   executeWithInterruptionHandling,
   iterateWithInterruptionHandling,
+  type StreamInterruptionConfig,
 } from "./interruption-handler.js";
 
 // Interruption state management
@@ -41,3 +42,25 @@ export {
   type PropagationResult,
   InterruptionPropagationError,
 } from "./interruption-propagation-proxy.js";
+
+// Interruption timeout manager
+export {
+  InterruptionTimeoutManager,
+  type TimeoutConfig,
+  DEFAULT_TIMEOUT_CONFIG,
+} from "./interruption-timeout-manager.js";
+
+// Interruption history manager
+export {
+  InterruptionHistoryManager,
+  type InterruptionHistoryEntry,
+  type HistoryFilter,
+} from "./interruption-history-manager.js";
+
+// Recovery strategy manager
+export {
+  RecoveryStrategyManager,
+  type RecoveryStrategy,
+  type RecoveryContext,
+  createAutoSaveStrategy,
+} from "./recovery-strategy-manager.js";

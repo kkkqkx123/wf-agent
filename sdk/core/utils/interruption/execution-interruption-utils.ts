@@ -62,11 +62,11 @@ export function checkExecutionInterruption(signal?: AbortSignal): ExecutionInter
 }
 
 /**
- * Determine whether to continue workflow execution
+ * Determine whether to continue execution
  * @param result The result of the interruption check
  * @returns Whether to continue
  */
-export function shouldContinue(result: ExecutionInterruptionCheckResult): boolean {
+export function shouldContinueExecution(result: ExecutionInterruptionCheckResult): boolean {
   return result.type === "continue";
 }
 

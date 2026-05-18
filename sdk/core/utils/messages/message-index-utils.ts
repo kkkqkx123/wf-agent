@@ -9,6 +9,7 @@
 import type { LLMMessage } from "@wf-agent/types";
 import type { MessageMarkMap } from "@wf-agent/types";
 import { MessageRole } from "@wf-agent/types";
+import { getCurrentBoundary } from "./visible-range-calculator.js";
 
 /**
  * Get the message index for the specified role
@@ -142,9 +143,12 @@ export function getVisibleCountByRole(
   markMap: MessageMarkMap,
   role: MessageRole,
 ): number {
-  const boundary = markMap.batchBoundaries[markMap.currentBatch];
-  if (boundary === undefined) {
-    return 0;
+  const boundary = getCurrentBoundary(markMap);
+  let count = 0;
+  for (let i = boundary; i < messages.length; i++) {
+    if (messages[i]?.role === role) {
+      count++;
+    }
   }
-  return messages.filter(msg => msg.role === role && messages.indexOf(msg) >= boundary).length;
+  return count;
 }

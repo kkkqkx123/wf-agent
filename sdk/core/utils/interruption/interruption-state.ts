@@ -18,6 +18,7 @@
 import { InterruptedException } from "../../types/interruption-types.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import { InterruptionPropagationProxy } from "./interruption-propagation-proxy.js";
+import { InterruptionHistoryManager, type InterruptionHistoryEntry } from "./interruption-history-manager.js";
 
 const logger = createContextualLogger({ component: "InterruptionState" });
 
@@ -81,15 +82,22 @@ export class InterruptionState {
   /** Concurrency control - prevents race conditions */
   private isProcessing: boolean = false;
   private pendingRequests: Array<() => void> = [];
+  
+  /** Pending children registration - solves async creation race condition */
+  private pendingChildren: Map<string, { childState?: InterruptionState; registeredAt: number }> = new Map();
+  
+  /** Interruption history manager */
+  private historyManager: InterruptionHistoryManager;
 
   /**
    * Constructor
    * @param config Configuration options
    */
-  constructor(config: InterruptionStateConfig) {
+  constructor(config: InterruptionStateConfig & { historyMaxSize?: number }) {
     this.contextId = config.contextId;
     this.nodeId = config.nodeId ?? "";
     this.createInterruptionError = config.createInterruptionError;
+    this.historyManager = new InterruptionHistoryManager(config.historyMaxSize ?? 1000);
   }
 
   /**
@@ -105,6 +113,14 @@ export class InterruptionState {
       this.interruptionType = "PAUSE";
       const error = this.createError("Execution paused", "PAUSE");
       this.abortController.abort(error);
+      
+      // Record to history
+      this.historyManager.record({
+        type: "PAUSE",
+        contextId: this.contextId,
+        nodeId: this.nodeId || undefined,
+        triggeredBy: "user",
+      });
       
       // Notify all listeners (including propagation proxy)
       this.notifyInterruptionListeners("PAUSE");
@@ -132,6 +148,14 @@ export class InterruptionState {
       this.interruptionType = "STOP";
       const error = this.createError("Execution stopped", "STOP");
       this.abortController.abort(error);
+      
+      // Record to history
+      this.historyManager.record({
+        type: "STOP",
+        contextId: this.contextId,
+        nodeId: this.nodeId || undefined,
+        triggeredBy: "user",
+      });
       
       // Notify all listeners (including propagation proxy)
       this.notifyInterruptionListeners("STOP");
@@ -165,10 +189,23 @@ export class InterruptionState {
   resume(): void {
     this.enqueueRequest(() => {
       logger.info("Execution resumed", { contextId: this.contextId, nodeId: this.nodeId });
+      
+      // Calculate pause duration before resetting state
+      const pauseDuration = this.historyManager.getPauseDuration(this.contextId);
+      
       this.interruptionType = null;
       
       // Create a new AbortController for fresh state
       this.abortController = new AbortController();
+      
+      // Record to history
+      this.historyManager.record({
+        type: "RESUME",
+        contextId: this.contextId,
+        nodeId: this.nodeId || undefined,
+        triggeredBy: "user",
+        duration: pauseDuration ?? undefined,
+      });
       
       // Notify all listeners to refresh their signal references
       // This prevents stale signal references from causing issues
@@ -335,6 +372,93 @@ export class InterruptionState {
   }
   
   /**
+   * Pre-register a child before async creation to prevent race conditions
+   * 
+   * This method creates a placeholder registration that will be confirmed later.
+   * If an interruption occurs during child creation, it will be applied when confirmed.
+   * 
+   * @param childId Unique identifier for the child (e.g., execution ID)
+   * @returns Function to confirm or cancel the registration
+   * @example
+   * ```typescript
+   * // Before async creation
+   * const confirm = parentState.preRegisterChild(childExecutionId);
+   * 
+   * // Async creation
+   * const childAgent = await createAgentLoop(...);
+   * 
+   * // After creation - confirm registration
+   * confirm(childAgent.getInterruptionState());
+   * ```
+   */
+  preRegisterChild(childId: string): (childState?: InterruptionState) => void {
+    // Record pending registration
+    this.pendingChildren.set(childId, {
+      childState: undefined,
+      registeredAt: Date.now(),
+    });
+    
+    logger.debug("Child pre-registered (pending confirmation)", {
+      parentContextId: this.contextId,
+      childId,
+    });
+    
+    // Return confirmation function
+    return (childState?: InterruptionState) => {
+      this.confirmChildRegistration(childId, childState);
+    };
+  }
+  
+  /**
+   * Confirm a pre-registered child
+   * 
+   * @param childId Child identifier
+   * @param childState Actual child interruption state (optional)
+   */
+  private confirmChildRegistration(childId: string, childState?: InterruptionState): void {
+    const pending = this.pendingChildren.get(childId);
+    if (!pending) {
+      logger.warn("Confirmation for non-existent pending child", { childId });
+      return;
+    }
+    
+    // Update pending entry with actual state
+    pending.childState = childState;
+    
+    // If we have an actual child state, register it normally
+    if (childState) {
+      this.registerChild(childState);
+      logger.info("Child registration confirmed", {
+        parentContextId: this.contextId,
+        childId,
+        childContextId: childState.getContextId(),
+      });
+    } else {
+      // No child state provided - remove from pending
+      logger.debug("Child registration cancelled (no state provided)", { childId });
+    }
+    
+    // Clean up pending entry after a delay to allow for interruption checks
+    setTimeout(() => {
+      this.pendingChildren.delete(childId);
+    }, 1000);
+  }
+  
+  /**
+   * Check if there are any pending child registrations
+   */
+  hasPendingChildren(): boolean {
+    return this.pendingChildren.size > 0;
+  }
+  
+  /**
+   * Get count of pending children
+   */
+  getPendingChildrenCount(): number {
+    return this.pendingChildren.size;
+  }
+  
+  /**
    * Unregister a child interruption state (cleanup)
    */
   unregisterChild(childState: InterruptionState): void {
@@ -402,6 +526,7 @@ export class InterruptionState {
     this.interruptionListeners = [];
     this.resumeListeners = [];
     this.pendingRequests = []; // Clear pending requests
+    this.pendingChildren.clear(); // Clear pending children
     this.isProcessing = false;
     
     // Help GC by nullifying the controller reference
@@ -410,6 +535,25 @@ export class InterruptionState {
     logger.debug("InterruptionState disposed", {
       contextId: this.contextId,
     });
+  }
+  
+  /**
+   * Get interruption history
+   * 
+   * @param filter Optional filter options
+   * @returns Filtered history entries
+   */
+  getHistory(filter?: import("./interruption-history-manager.js").HistoryFilter): InterruptionHistoryEntry[] {
+    return this.historyManager.getHistory(filter);
+  }
+  
+  /**
+   * Get interruption statistics
+   * 
+   * @returns Statistics object
+   */
+  getStatistics() {
+    return this.historyManager.getStatistics();
   }
   
   /**

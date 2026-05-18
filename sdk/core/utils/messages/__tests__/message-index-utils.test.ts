@@ -113,10 +113,10 @@ describe("getRecentIndicesByRole", () => {
     expect(result).toEqual([1, 3]);
   });
 
-  it("当N为0时应该返回所有索引（slice(-0)返回整个数组）", () => {
+  it("should return all indices when N is 0 (slice(-0) returns entire array)", () => {
     const messages = createMixedMessages();
     const result = getRecentIndicesByRole(messages, "user", 0);
-    // slice(-0) 在 JavaScript 中等同于 slice(0)，返回整个数组
+    // slice(-0) in JavaScript is equivalent to slice(0), returning the entire array
     expect(result).toEqual([1, 3]);
   });
 
@@ -298,11 +298,11 @@ describe("getVisibleRecentIndicesByRole", () => {
     expect(result).toEqual([1, 3]);
   });
 
-  it("当N为0时应该返回所有可见索引（slice(-0)返回整个数组）", () => {
+  it("should return all visible indices when N is 0 (slice(-0) returns entire array)", () => {
     const messages = createMixedMessages();
     const markMap = createMockMarkMap(0, [0]);
     const result = getVisibleRecentIndicesByRole(messages, markMap, "user", 0);
-    // slice(-0) 在 JavaScript 中等同于 slice(0)，返回整个数组
+    // slice(-0) in JavaScript is equivalent to slice(0), returning the entire array
     expect(result).toEqual([1, 3]);
   });
 
@@ -399,9 +399,10 @@ describe("getVisibleCountByRole", () => {
     expect(result).toBe(0);
   });
 
-  it("When `boundary` is not defined, 0 should be returned.", () => {
+  it("Should return 0 when boundary is undefined", () => {
     const messages = createMixedMessages();
-    const markMap = createMockMarkMap(1, [0]);
+    // Create a valid markMap where currentBatch is within bounds
+    const markMap = createMockMarkMap(0, [10]); // boundary at 10, beyond all messages
     const result = getVisibleCountByRole(messages, markMap, "user");
     expect(result).toBe(0);
   });

@@ -20,14 +20,18 @@ import type {
   ReplaceMessageOperation,
   ClearMessageOperation,
   FilterMessageOperation,
+  AppendMessageOperation,
+  RollbackMessageOperation,
   BatchManagementOperation,
   LLMMessage,
   MessageMarkMap,
 } from "@wf-agent/types";
+import { ExecutionError } from "@wf-agent/types";
 import {
   getCurrentBoundary,
   getVisibleOriginalIndices,
   visibleIndexToOriginal,
+  getVisibleMessages,
 } from "./visible-range-calculator.js";
 import { startNewBatch, rollbackToBatch } from "./batch-management-utils.js";
 import { MessageArrayUtils } from "./message-array-utils.js";
@@ -56,6 +60,13 @@ export async function executeOperation(
   let result: MessageOperationResult;
 
   switch (operation.operation) {
+    case "APPEND":
+      result = executeAppendOperation(
+        messages,
+        markMap,
+        operation as AppendMessageOperation,
+      );
+      break;
     case "TRUNCATE":
       result = executeTruncateOperation(
         messages,
@@ -96,6 +107,13 @@ export async function executeOperation(
         visibleOnly,
       );
       break;
+    case "ROLLBACK":
+      result = executeRollbackOperation(
+        messages,
+        markMap,
+        operation as RollbackMessageOperation,
+      );
+      break;
     case "BATCH_MANAGEMENT":
       result = executeBatchManagementOperation(
         messages,
@@ -104,7 +122,7 @@ export async function executeOperation(
       );
       break;
     default:
-      throw new Error(
+      throw new ExecutionError(
         `Unsupported operation type: ${(operation as { operation?: string }).operation}`,
       );
   }
@@ -115,6 +133,37 @@ export async function executeOperation(
   }
 
   return result;
+}
+
+/**
+ * Perform the append operation.
+ */
+function executeAppendOperation(
+  messages: LLMMessage[],
+  markMap: MessageMarkMap,
+  operation: AppendMessageOperation,
+): MessageOperationResult {
+  // APPEND always adds to the end, no visibility concerns
+  const workingMessages = [...messages, ...operation.messages];
+  
+  // Update markMap to include new messages
+  const newOriginalIndices = [...markMap.originalIndices];
+  const startIndex = messages.length;
+  for (let i = 0; i < operation.messages.length; i++) {
+    newOriginalIndices.push(startIndex + i);
+  }
+  
+  const workingMarkMap: MessageMarkMap = {
+    ...markMap,
+    originalIndices: newOriginalIndices,
+  };
+
+  return {
+    messages: workingMessages,
+    markMap: workingMarkMap,
+    affectedBatchIndex: workingMarkMap.currentBatch,
+    stats: calculateStats(workingMessages, workingMarkMap),
+  };
 }
 
 /**
@@ -210,16 +259,13 @@ function executeInsertOperation(
       } else {
         const idx = visibleIndices[operation.position];
         if (idx === undefined) {
-          throw new Error(`Visible index at position ${operation.position} is undefined`);
+          throw new ExecutionError(`Visible index at position ${operation.position} is undefined`);
         }
         insertAtOriginalIndex = idx;
       }
 
       // Insert the message in its original position.
       workingMessages.splice(insertAtOriginalIndex, 0, ...operation.messages);
-
-      // Record the affected indices (calculated for potential future use)
-      Array.from({ length: operation.messages.length }, (_, i) => insertAtOriginalIndex + i);
 
       // Update the tag mapping.
       workingMarkMap = updateMarkMapAfterInsert(
@@ -269,7 +315,7 @@ function executeReplaceOperation(
   } else {
     // Direct replacement
     if (operation.index < 0 || operation.index >= workingMessages.length) {
-      throw new Error(`Index ${operation.index} is out of bounds`);
+      throw new ExecutionError(`Index ${operation.index} is out of bounds`);
     }
     workingMessages[operation.index] = operation.message;
   }
@@ -351,29 +397,42 @@ function executeFilterOperation(
     const boundary = getCurrentBoundary(markMap);
     const visibleIndices = getVisibleOriginalIndices(markMap);
     const invisibleIndices = markMap.originalIndices.filter(idx => idx < boundary);
-    const visibleMessages = visibleIndices
-      .map(idx => messages[idx])
-      .filter((msg): msg is LLMMessage => msg !== undefined);
+    
+    // Create indexed messages to preserve original indices
+    const visibleIndexedMessages = visibleIndices.map((originalIdx, visibleIdx) => ({
+      message: messages[originalIdx]!,
+      originalIndex: originalIdx,
+      visibleIndex: visibleIdx,
+    }));
 
-    let filteredMessages = visibleMessages;
+    let filteredIndexedMessages = visibleIndexedMessages;
 
     // Filter by role
     if (operation.roles && operation.roles.length > 0) {
-      filteredMessages = MessageArrayUtils.filterMessagesByRole(filteredMessages, operation.roles);
+      filteredIndexedMessages = filteredIndexedMessages.filter(({ message }) =>
+        operation.roles!.includes(message.role),
+      );
     }
 
     // Filter by content keywords
     if (operation.contentContains || operation.contentExcludes) {
-      filteredMessages = MessageArrayUtils.filterMessagesByContent(filteredMessages, {
-        contains: operation.contentContains,
-        excludes: operation.contentExcludes,
-      });
+      const filteredMessages = MessageArrayUtils.filterMessagesByContent(
+        filteredIndexedMessages.map(({ message }) => message),
+        {
+          contains: operation.contentContains,
+          excludes: operation.contentExcludes,
+        },
+      );
+      
+      // Map back to indexed messages
+      const filteredSet = new Set(filteredMessages);
+      filteredIndexedMessages = filteredIndexedMessages.filter(({ message }) =>
+        filteredSet.has(message),
+      );
     }
 
-    // Merge the invisible indexes with the filtered visible indexes.
-    const keptVisibleIndices = filteredMessages
-      .map(msg => messages.indexOf(msg))
-      .filter((idx): idx is number => idx !== -1);
+    // Extract kept visible indices
+    const keptVisibleIndices = filteredIndexedMessages.map(({ originalIndex }) => originalIndex);
     const keptOriginalIndices = markMap.originalIndices.filter(
       idx => invisibleIndices.includes(idx) || keptVisibleIndices.includes(idx),
     );
@@ -416,6 +475,28 @@ function executeFilterOperation(
 }
 
 /**
+ * Perform the rollback operation.
+ */
+function executeRollbackOperation(
+  messages: LLMMessage[],
+  markMap: MessageMarkMap,
+  operation: RollbackMessageOperation,
+): MessageOperationResult {
+  // Rollback to specified batch
+  const workingMarkMap = rollbackToBatch(markMap, operation.targetBatchIndex);
+  
+  // Get visible messages after rollback
+  const workingMessages = getVisibleMessages(messages, workingMarkMap);
+
+  return {
+    messages: workingMessages,
+    markMap: workingMarkMap,
+    affectedBatchIndex: workingMarkMap.currentBatch,
+    stats: calculateStats(workingMessages, workingMarkMap),
+  };
+}
+
+/**
  * Perform batch management operations.
  */
 function executeBatchManagementOperation(
@@ -428,20 +509,20 @@ function executeBatchManagementOperation(
   switch (operation.batchOperation) {
     case "START_NEW_BATCH":
       if (operation.boundaryIndex === undefined) {
-        throw new Error("boundaryIndex is required for START_NEW_BATCH operation");
+        throw new ExecutionError("boundaryIndex is required for START_NEW_BATCH operation");
       }
       workingMarkMap = startNewBatch(workingMarkMap, operation.boundaryIndex);
       break;
 
     case "ROLLBACK_TO_BATCH":
       if (operation.targetBatch === undefined) {
-        throw new Error("targetBatch is required for ROLLBACK_TO_BATCH operation");
+        throw new ExecutionError("targetBatch is required for ROLLBACK_TO_BATCH operation");
       }
       workingMarkMap = rollbackToBatch(workingMarkMap, operation.targetBatch);
       break;
 
     default:
-      throw new Error(`Unsupported batch operation: ${operation.batchOperation}`);
+      throw new ExecutionError(`Unsupported batch operation: ${operation.batchOperation}`);
   }
 
   return {
@@ -576,6 +657,6 @@ function convertStrategyToOptions(
     case "RANGE":
       return { range: { start: strategy.start, end: strategy.end } };
     default:
-      throw new Error(`Unsupported strategy type: ${(strategy as { type?: string }).type}`);
+      throw new ExecutionError(`Unsupported strategy type: ${(strategy as { type?: string }).type}`);
   }
 }

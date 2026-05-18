@@ -9,6 +9,7 @@ import type { ID } from "@wf-agent/types";
 import type { AgentLoopRuntimeConfig, AgentLoopResult } from "@wf-agent/types";
 import { getAvailableTools } from "@wf-agent/types";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
+import type { WorkflowExecutionRegistry } from "../../../workflow/stores/workflow-execution-registry.js";
 import { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import { AgentLoopStatus } from "@wf-agent/types";
 import { AgentLoopFactory, type AgentLoopEntityOptions } from "../../execution/factories/index.js";
@@ -95,6 +96,35 @@ export class AgentLoopCoordinator {
     logger.debug("InterruptionState set for Agent Loop", {
       agentLoopId: entity.id,
     });
+    
+    // Setup interruption cascade propagation from parent workflow (if exists)
+    if (options.parentExecutionId) {
+      try {
+        const executionRegistry = this.globalContext.container.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry;
+        if (executionRegistry) {
+          const parentEntity = executionRegistry.get(options.parentExecutionId);
+          if (parentEntity) {
+            const parentInterruptionState = parentEntity.getInterruptionState();
+            if (parentInterruptionState && interruptionManager) {
+              // Register child with parent's interruption state
+              parentInterruptionState.registerChild(interruptionManager);
+              
+              logger.info("Interruption cascade established for AgentLoop", {
+                parentExecutionId: options.parentExecutionId,
+                agentLoopId: entity.id,
+              });
+            }
+          }
+        }
+      } catch (error) {
+        // Log error but don't throw - interruption setup failure should not prevent creation
+        logger.warn("Failed to setup interruption cascade for AgentLoop", {
+          agentLoopId: entity.id,
+          parentExecutionId: options.parentExecutionId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
     
     return entity;
   }

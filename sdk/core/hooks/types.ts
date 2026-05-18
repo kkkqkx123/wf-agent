@@ -39,6 +39,8 @@ export interface BaseHookDefinition {
 export interface BaseHookContext {
   /** Execute the ID (for tracking purposes). */
   executionId?: string;
+  /** Abort signal for interruption support (optional) */
+  abortSignal?: AbortSignal;
   /** Custom Data (for extension use) */
   [key: string]: unknown;
 }

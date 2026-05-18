@@ -1,13 +1,13 @@
 /**
- * 可见范围计算器
- * 负责计算当前批次的消息可见范围，提供索引转换功能
+ * Visible Range Calculator
+ * Responsible for calculating the visible message range of the current batch and providing index conversion functionality
  *
- * 核心概念：
- * - 可见消息：当前批次边界之后的消息，会被发送给LLM
- * - 不可见消息：当前批次边界之前的消息，仅存储但不发送给LLM
- * - 批次边界：通过 startNewBatch() 设置，控制消息可见性
+ * Core Concepts:
+ * - Visible Messages: Messages after the current batch boundary, which will be sent to the LLM
+ * - Invisible Messages: Messages before the current batch boundary, stored but not sent to the LLM
+ * - Batch Boundary: Set via startNewBatch(), controls message visibility
  *
- * 所有函数都是纯函数，不持有任何状态
+ * All functions are pure functions and do not hold any state
  */
 
 import type { LLMMessage } from "@wf-agent/types";

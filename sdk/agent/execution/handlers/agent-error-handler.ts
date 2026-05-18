@@ -170,7 +170,7 @@ export async function handleAgentInterruption(
     pendingToolCalls: Array.from(entity.state.pendingToolCalls),
     streamMessageLength: entity.state.streamMessage?.content?.length || 0,
     toolCallCount: entity.state.toolCallCount,
-    abortReason: entity.getAbortSignal()?.reason ? String(entity.getAbortSignal()!.reason) : undefined,
+    abortReason: entity.getAbortSignal()?.aborted ? String(entity.getAbortSignal()!.reason) : undefined,
   });
 
   // Build error context

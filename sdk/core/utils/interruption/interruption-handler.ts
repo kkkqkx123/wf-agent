@@ -15,8 +15,8 @@ import {
 import { isAbortError } from "../error-utils.js";
 import {
   checkExecutionInterruption,
+  shouldContinueExecution,
   type ExecutionInterruptionCheckResult,
-  shouldContinue as shouldContinueExecution,
 } from "./execution-interruption-utils.js";
 
 /**
@@ -108,25 +108,41 @@ export async function executeWithInterruptionHandling<T>(
 }
 
 /**
+ * Configuration for stream interruption checking
+ */
+export interface StreamInterruptionConfig {
+  /** Check frequency - check every N chunks (default: 1, meaning check every chunk) */
+  checkFrequency?: number;
+}
+
+/**
  * Execute an async iterator with interruption handling
  *
  * @param iterable Async iterable source
  * @param signal AbortSignal for cancellation
+ * @param config Optional configuration for check frequency
  * @returns Async generator yielding values or interruption result
  *
  * @example
  * ```typescript
- * for await (const item of iterateWithInterruption(dataStream, signal)) {
+ * // Default: check every chunk
+ * for await (const item of iterateWithInterruptionHandling(dataStream, signal)) {
  *   if (item.type === "interrupted") {
  *     break;
  *   }
  *   process(item.value);
+ * }
+ * 
+ * // Check every 10 chunks for better performance
+ * for await (const item of iterateWithInterruptionHandling(dataStream, signal, { checkFrequency: 10 })) {
+ *   // ...
  * }
  * ```
  */
 export async function* iterateWithInterruptionHandling<T>(
   iterable: AsyncIterable<T>,
   signal?: AbortSignal,
+  config?: StreamInterruptionConfig,
 ): AsyncGenerator<
   | { type: "value"; value: T }
   | { type: "interrupted"; interruption: ExecutionInterruptionCheckResult },
@@ -135,14 +151,18 @@ export async function* iterateWithInterruptionHandling<T>(
 > {
   const effectiveSignal = signal ?? createNeverAbortSignal();
   const iterator = iterable[Symbol.asyncIterator]();
+  const checkFrequency = config?.checkFrequency ?? 1;
+  let chunkCount = 0;
 
   try {
     while (true) {
-      // Check before fetching next value
-      const preCheck = checkExecutionInterruption(effectiveSignal);
-      if (!shouldContinueExecution(preCheck)) {
-        yield { type: "interrupted", interruption: preCheck };
-        return;
+      // Check before fetching next value (only at configured frequency)
+      if (chunkCount % checkFrequency === 0) {
+        const preCheck = checkExecutionInterruption(effectiveSignal);
+        if (!shouldContinueExecution(preCheck)) {
+          yield { type: "interrupted", interruption: preCheck };
+          return;
+        }
       }
 
       let nextResult: IteratorResult<T>;
@@ -162,11 +182,15 @@ export async function* iterateWithInterruptionHandling<T>(
         break;
       }
 
-      // Check after fetching value
-      const postCheck = checkExecutionInterruption(effectiveSignal);
-      if (!shouldContinueExecution(postCheck)) {
-        yield { type: "interrupted", interruption: postCheck };
-        return;
+      chunkCount++;
+
+      // Check after fetching value (only at configured frequency)
+      if (chunkCount % checkFrequency === 0) {
+        const postCheck = checkExecutionInterruption(effectiveSignal);
+        if (!shouldContinueExecution(postCheck)) {
+          yield { type: "interrupted", interruption: postCheck };
+          return;
+        }
       }
 
       yield { type: "value", value: nextResult.value };

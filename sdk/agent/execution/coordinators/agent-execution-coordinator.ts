@@ -33,6 +33,7 @@ import {
   executeWithInterruptionHandling,
   iterateWithInterruptionHandling,
 } from "../../../core/utils/interruption/index.js";
+import { checkAgentInterruption, getAgentInterruptionDescription } from "../utils/agent-interruption-utils.js";
 import { executeAgentHook } from "../handlers/hook-handlers/index.js";
 import { handleAgentError } from "../handlers/agent-error-handler.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
@@ -470,6 +471,21 @@ export class AgentExecutionCoordinator {
     
     await executeAgentHook(entity, "BEFORE_LLM_CALL", this.emitAgentEvent);
 
+    // ✅ Pre-LLM call interruption check
+    const preCheck = checkAgentInterruption(abortSignal, entity.state.currentIteration);
+    if (preCheck.type === "paused" || preCheck.type === "stopped") {
+      logger.info("Agent iteration interrupted before LLM call", {
+        agentLoopId,
+        iteration: entity.state.currentIteration,
+        interruptionType: preCheck.type,
+      });
+      return {
+        success: false,
+        shouldContinue: false,
+        interruption: getAgentInterruptionDescription(preCheck),
+      };
+    }
+
     logger.debug("Calling LLM", {
       agentLoopId,
       iteration: entity.state.currentIteration,
@@ -489,6 +505,21 @@ export class AgentExecutionCoordinator {
       iteration: entity.state.currentIteration,
       hasToolCalls: !!llmResult.toolCalls?.length,
     });
+
+    // ✅ Post-LLM call interruption check
+    const postCheck = checkAgentInterruption(abortSignal, entity.state.currentIteration);
+    if (postCheck.type === "paused" || postCheck.type === "stopped") {
+      logger.info("Agent iteration interrupted after LLM call", {
+        agentLoopId,
+        iteration: entity.state.currentIteration,
+        interruptionType: postCheck.type,
+      });
+      return {
+        success: false,
+        shouldContinue: false,
+        interruption: getAgentInterruptionDescription(postCheck),
+      };
+    }
 
     // LLM Executor now returns result directly (no success/interruption wrapper)
     const response = llmResult;
@@ -576,6 +607,18 @@ export class AgentExecutionCoordinator {
 
     if (llmWrapperResult.isErr()) {
       const error = llmWrapperResult.error;
+      
+      // ✅ Prioritize checking for interruption errors
+      // If it's an abort error and the signal is aborted, let outer handler deal with it
+      if (error.name === "AbortError" && entity.getAbortSignal()?.aborted) {
+        logger.debug("LLM stream call aborted, letting outer handler process", {
+          agentLoopId,
+          iteration: entity.state.currentIteration,
+        });
+        throw error; // Let iterateWithInterruptionHandling catch this
+      }
+      
+      // Process actual errors (non-abort errors)
       return yield* this.handleStreamLLMError(entity, agentLoopId, error);
     }
 

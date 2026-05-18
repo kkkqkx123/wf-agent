@@ -260,4 +260,333 @@ describe('GraphValidator', () => {
       }
     });
   });
+
+  describe('validate - SYNC nodes', () => {
+    it('should validate a workflow with valid SYNC node in fork-join structure', () => {
+      const workflow: WorkflowTemplate = {
+        id: 'sync-workflow',
+        name: 'Sync Workflow',
+        description: 'Workflow with SYNC node',
+        version: '1.0.0',
+        type: 'STANDALONE',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        nodes: [
+          { id: 'start', type: 'START', name: 'Start', config: {} },
+          {
+            id: 'fork',
+            type: 'FORK',
+            name: 'Fork',
+            config: {
+              forkPaths: [
+                { pathId: 'path-a', childNodeId: 'node-a' },
+                { pathId: 'path-b', childNodeId: 'node-b' },
+              ],
+              forkStrategy: 'parallel',
+            } as any,
+          },
+          { id: 'node-a', type: 'LLM', name: 'Node A', config: {} as any },
+          { id: 'node-b', type: 'LLM', name: 'Node B', config: {} as any },
+          {
+            id: 'sync-node',
+            type: 'SYNC',
+            name: 'Sync Node',
+            config: {
+              sourcePathId: 'path-a',
+              targetPathId: 'path-b',
+              variableMappings: [
+                { externalName: 'result_a', internalName: 'synced_result' },
+              ],
+            } as any,
+          },
+          {
+            id: 'join',
+            type: 'JOIN',
+            name: 'Join',
+            config: {
+              forkPathIds: ['path-a', 'path-b'],
+              mainPathId: 'path-a',
+            } as any,
+          },
+          { id: 'end', type: 'END', name: 'End', config: {} },
+        ],
+        edges: [
+          { id: 'e1', sourceNodeId: 'start', targetNodeId: 'fork', type: 'DEFAULT' },
+          { id: 'e2', sourceNodeId: 'fork', targetNodeId: 'node-a', type: 'DEFAULT' },
+          { id: 'e3', sourceNodeId: 'fork', targetNodeId: 'node-b', type: 'DEFAULT' },
+          { id: 'e4', sourceNodeId: 'node-a', targetNodeId: 'sync-node', type: 'DEFAULT' },
+          { id: 'e5', sourceNodeId: 'node-b', targetNodeId: 'sync-node', type: 'DEFAULT' },
+          { id: 'e6', sourceNodeId: 'sync-node', targetNodeId: 'join', type: 'DEFAULT' },
+          { id: 'e7', sourceNodeId: 'join', targetNodeId: 'end', type: 'DEFAULT' },
+        ],
+      };
+
+      const graph = WorkflowGraphBuilder.build(workflow);
+      const result = GraphValidator.validate(graph);
+
+      expect(result.isOk()).toBe(true);
+    });
+
+    it('should fail validation when SYNC node has missing sourcePathId', () => {
+      const workflow: WorkflowTemplate = {
+        id: 'sync-missing-source',
+        name: 'Sync Missing Source',
+        description: 'SYNC node without sourcePathId',
+        version: '1.0.0',
+        type: 'STANDALONE',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        nodes: [
+          { id: 'start', type: 'START', name: 'Start', config: {} },
+          {
+            id: 'fork',
+            type: 'FORK',
+            name: 'Fork',
+            config: {
+              forkPaths: [
+                { pathId: 'path-a', childNodeId: 'node-a' },
+                { pathId: 'path-b', childNodeId: 'node-b' },
+              ],
+              forkStrategy: 'parallel',
+            } as any,
+          },
+          { id: 'node-a', type: 'LLM', name: 'Node A', config: {} as any },
+          { id: 'node-b', type: 'LLM', name: 'Node B', config: {} as any },
+          {
+            id: 'sync-node',
+            type: 'SYNC',
+            name: 'Sync Node',
+            config: {
+              targetPathId: 'path-b',
+            } as any,
+          },
+          {
+            id: 'join',
+            type: 'JOIN',
+            name: 'Join',
+            config: {
+              forkPathIds: ['path-a', 'path-b'],
+              mainPathId: 'path-a',
+            } as any,
+          },
+          { id: 'end', type: 'END', name: 'End', config: {} },
+        ],
+        edges: [
+          { id: 'e1', sourceNodeId: 'start', targetNodeId: 'fork', type: 'DEFAULT' },
+          { id: 'e2', sourceNodeId: 'fork', targetNodeId: 'node-a', type: 'DEFAULT' },
+          { id: 'e3', sourceNodeId: 'fork', targetNodeId: 'node-b', type: 'DEFAULT' },
+          { id: 'e4', sourceNodeId: 'node-a', targetNodeId: 'sync-node', type: 'DEFAULT' },
+          { id: 'e5', sourceNodeId: 'node-b', targetNodeId: 'sync-node', type: 'DEFAULT' },
+          { id: 'e6', sourceNodeId: 'sync-node', targetNodeId: 'join', type: 'DEFAULT' },
+          { id: 'e7', sourceNodeId: 'join', targetNodeId: 'end', type: 'DEFAULT' },
+        ],
+      };
+
+      const graph = WorkflowGraphBuilder.build(workflow);
+      const result = GraphValidator.validate(graph);
+
+      expect(result.isErr()).toBe(true);
+      if (result.isErr()) {
+        expect(result.error.some(e => e.message.includes('SYNC') && e.message.includes('sourcePathId'))).toBe(true);
+      }
+    });
+
+    it('should fail validation when SYNC node has invalid sourcePathId', () => {
+      const workflow: WorkflowTemplate = {
+        id: 'sync-invalid-source',
+        name: 'Sync Invalid Source',
+        description: 'SYNC node with non-existent sourcePathId',
+        version: '1.0.0',
+        type: 'STANDALONE',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        nodes: [
+          { id: 'start', type: 'START', name: 'Start', config: {} },
+          {
+            id: 'fork',
+            type: 'FORK',
+            name: 'Fork',
+            config: {
+              forkPaths: [
+                { pathId: 'path-a', childNodeId: 'node-a' },
+                { pathId: 'path-b', childNodeId: 'node-b' },
+              ],
+              forkStrategy: 'parallel',
+            } as any,
+          },
+          { id: 'node-a', type: 'LLM', name: 'Node A', config: {} as any },
+          { id: 'node-b', type: 'LLM', name: 'Node B', config: {} as any },
+          {
+            id: 'sync-node',
+            type: 'SYNC',
+            name: 'Sync Node',
+            config: {
+              sourcePathId: 'non-existent-path',
+              targetPathId: 'path-b',
+            } as any,
+          },
+          {
+            id: 'join',
+            type: 'JOIN',
+            name: 'Join',
+            config: {
+              forkPathIds: ['path-a', 'path-b'],
+              mainPathId: 'path-a',
+            } as any,
+          },
+          { id: 'end', type: 'END', name: 'End', config: {} },
+        ],
+        edges: [
+          { id: 'e1', sourceNodeId: 'start', targetNodeId: 'fork', type: 'DEFAULT' },
+          { id: 'e2', sourceNodeId: 'fork', targetNodeId: 'node-a', type: 'DEFAULT' },
+          { id: 'e3', sourceNodeId: 'fork', targetNodeId: 'node-b', type: 'DEFAULT' },
+          { id: 'e4', sourceNodeId: 'node-a', targetNodeId: 'sync-node', type: 'DEFAULT' },
+          { id: 'e5', sourceNodeId: 'node-b', targetNodeId: 'sync-node', type: 'DEFAULT' },
+          { id: 'e6', sourceNodeId: 'sync-node', targetNodeId: 'join', type: 'DEFAULT' },
+          { id: 'e7', sourceNodeId: 'join', targetNodeId: 'end', type: 'DEFAULT' },
+        ],
+      };
+
+      const graph = WorkflowGraphBuilder.build(workflow);
+      const result = GraphValidator.validate(graph);
+
+      expect(result.isErr()).toBe(true);
+      if (result.isErr()) {
+        expect(result.error.some(e => e.message.includes('SYNC') && e.message.includes('sourcePathId'))).toBe(true);
+      }
+    });
+
+    it('should fail validation when SYNC node is isolated', () => {
+      const workflow: WorkflowTemplate = {
+        id: 'sync-isolated',
+        name: 'Sync Isolated',
+        description: 'Isolated SYNC node',
+        version: '1.0.0',
+        type: 'STANDALONE',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        nodes: [
+          { id: 'start', type: 'START', name: 'Start', config: {} },
+          {
+            id: 'fork',
+            type: 'FORK',
+            name: 'Fork',
+            config: {
+              forkPaths: [
+                { pathId: 'path-a', childNodeId: 'node-a' },
+                { pathId: 'path-b', childNodeId: 'node-b' },
+              ],
+              forkStrategy: 'parallel',
+            } as any,
+          },
+          { id: 'node-a', type: 'LLM', name: 'Node A', config: {} as any },
+          { id: 'node-b', type: 'LLM', name: 'Node B', config: {} as any },
+          {
+            id: 'sync-node',
+            type: 'SYNC',
+            name: 'Sync Node',
+            config: {
+              sourcePathId: 'path-a',
+              targetPathId: 'path-b',
+            } as any,
+          },
+          {
+            id: 'join',
+            type: 'JOIN',
+            name: 'Join',
+            config: {
+              forkPathIds: ['path-a', 'path-b'],
+              mainPathId: 'path-a',
+            } as any,
+          },
+          { id: 'end', type: 'END', name: 'End', config: {} },
+        ],
+        edges: [
+          { id: 'e1', sourceNodeId: 'start', targetNodeId: 'fork', type: 'DEFAULT' },
+          { id: 'e2', sourceNodeId: 'fork', targetNodeId: 'node-a', type: 'DEFAULT' },
+          { id: 'e3', sourceNodeId: 'fork', targetNodeId: 'node-b', type: 'DEFAULT' },
+          // sync-node has no edges - isolated
+          { id: 'e4', sourceNodeId: 'node-a', targetNodeId: 'join', type: 'DEFAULT' },
+          { id: 'e5', sourceNodeId: 'node-b', targetNodeId: 'join', type: 'DEFAULT' },
+          { id: 'e6', sourceNodeId: 'join', targetNodeId: 'end', type: 'DEFAULT' },
+        ],
+      };
+
+      const graph = WorkflowGraphBuilder.build(workflow);
+      const result = GraphValidator.validate(graph);
+
+      expect(result.isErr()).toBe(true);
+      if (result.isErr()) {
+        expect(result.error.some(e => e.message.includes('SYNC') && e.message.includes('isolated'))).toBe(true);
+      }
+    });
+
+    it('should fail validation when SYNC node has invalid variableMapping', () => {
+      const workflow: WorkflowTemplate = {
+        id: 'sync-invalid-mapping',
+        name: 'Sync Invalid Mapping',
+        description: 'SYNC node with invalid variable mapping',
+        version: '1.0.0',
+        type: 'STANDALONE',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        nodes: [
+          { id: 'start', type: 'START', name: 'Start', config: {} },
+          {
+            id: 'fork',
+            type: 'FORK',
+            name: 'Fork',
+            config: {
+              forkPaths: [
+                { pathId: 'path-a', childNodeId: 'node-a' },
+                { pathId: 'path-b', childNodeId: 'node-b' },
+              ],
+              forkStrategy: 'parallel',
+            } as any,
+          },
+          { id: 'node-a', type: 'LLM', name: 'Node A', config: {} as any },
+          { id: 'node-b', type: 'LLM', name: 'Node B', config: {} as any },
+          {
+            id: 'sync-node',
+            type: 'SYNC',
+            name: 'Sync Node',
+            config: {
+              sourcePathId: 'path-a',
+              targetPathId: 'path-b',
+              variableMappings: [
+                { externalName: '', internalName: 'target_var' }, // Empty externalName
+              ],
+            } as any,
+          },
+          {
+            id: 'join',
+            type: 'JOIN',
+            name: 'Join',
+            config: {
+              forkPathIds: ['path-a', 'path-b'],
+              mainPathId: 'path-a',
+            } as any,
+          },
+          { id: 'end', type: 'END', name: 'End', config: {} },
+        ],
+        edges: [
+          { id: 'e1', sourceNodeId: 'start', targetNodeId: 'fork', type: 'DEFAULT' },
+          { id: 'e2', sourceNodeId: 'fork', targetNodeId: 'node-a', type: 'DEFAULT' },
+          { id: 'e3', sourceNodeId: 'fork', targetNodeId: 'node-b', type: 'DEFAULT' },
+          { id: 'e4', sourceNodeId: 'node-a', targetNodeId: 'sync-node', type: 'DEFAULT' },
+          { id: 'e5', sourceNodeId: 'node-b', targetNodeId: 'sync-node', type: 'DEFAULT' },
+          { id: 'e6', sourceNodeId: 'sync-node', targetNodeId: 'join', type: 'DEFAULT' },
+          { id: 'e7', sourceNodeId: 'join', targetNodeId: 'end', type: 'DEFAULT' },
+        ],
+      };
+
+      const graph = WorkflowGraphBuilder.build(workflow);
+      const result = GraphValidator.validate(graph);
+
+      expect(result.isErr()).toBe(true);
+      if (result.isErr()) {
+        expect(result.error.some(e => e.message.includes('SYNC') && e.message.includes('externalName'))).toBe(true);
+      }
+    });
+  });
 });

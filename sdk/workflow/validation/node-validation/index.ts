@@ -27,6 +27,7 @@ import { validateSubgraphNode } from "./subgraph-validator.js";
 import { validateEmbedGraphNode } from "./embed-graph-validator.js";
 import { validateStartFromTriggerNode } from "./start-from-trigger-validator.js";
 import { validateContinueFromTriggerNode } from "./continue-from-trigger-validator.js";
+import { validateSyncNode } from "./sync-validator.js";
 
 export { validateForkNode } from "./fork-validator.js";
 export { validateJoinNode } from "./join-validator.js";
@@ -45,6 +46,7 @@ export { validateSubgraphNode } from "./subgraph-validator.js";
 export { validateEmbedGraphNode } from "./embed-graph-validator.js";
 export { validateStartFromTriggerNode } from "./start-from-trigger-validator.js";
 export { validateContinueFromTriggerNode } from "./continue-from-trigger-validator.js";
+export { validateSyncNode } from "./sync-validator.js";
 
 /**
  * Verify node configuration based on the node type
@@ -87,6 +89,8 @@ export function validateNodeByType(node: StaticNode): Result<StaticNode, Configu
       return validateStartFromTriggerNode(node);
     case "CONTINUE_FROM_TRIGGER":
       return validateContinueFromTriggerNode(node);
+    case "SYNC":
+      return validateSyncNode(node);
     default:
       return err([
         new ConfigurationValidationError(`Unknown node type: ${node.type}`, {

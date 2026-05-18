@@ -102,8 +102,28 @@ export async function forkHandler(
   let branchCreations: Array<{ pathId: string; branchEntity: any }> = [];
 
   try {
+    // Step 0: Initialize SyncBarrier for parent execution (REQUIRED for FORK nodes)
+    // This must be done BEFORE creating child executions so that path mappings can be registered
+    if (!workflowExecutionEntity.hasSyncBarrier()) {
+      const eventRegistry = globalContext.container.get(Identifiers.EventRegistry);
+      
+      if (!eventRegistry) {
+        throw new Error(
+          'EventRegistry not available in global context. ' +
+          'FORK nodes require EventRegistry for SyncBarrier initialization.'
+        );
+      }
+      
+      workflowExecutionEntity.initializeSyncBarrier(eventRegistry);
+      logger.info("SyncBarrier initialized for FORK node", {
+        nodeId: node.id,
+        executionId: workflowExecutionEntity.id,
+        forkPathCount: forkPaths.length,
+      });
+    }
+
     // Emit FORK_STARTED event
-    const eventManager = globalContext.container.get('EventManager') as any;
+    const eventManager = globalContext.container.get(Identifiers.EventRegistry) as any;
     if (eventManager) {
       await emit(eventManager, buildForkStartedEvent({
         executionId: workflowExecutionEntity.id,
@@ -118,18 +138,6 @@ export async function forkHandler(
       nodeId: node.id,
       branchCount: forkPaths.length,
     });
-
-    // Initialize SyncBarrier for parent execution if not already initialized
-    if (!workflowExecutionEntity.hasSyncBarrier()) {
-      const eventRegistry = globalContext.container.get('EventManager') as any;
-      if (eventRegistry) {
-        workflowExecutionEntity.initializeSyncBarrier(eventRegistry);
-        logger.debug("SyncBarrier initialized for FORK node", {
-          nodeId: node.id,
-          executionId: workflowExecutionEntity.id,
-        });
-      }
-    }
 
     branchCreations = await Promise.all(
       forkPaths.map(async (path) => {

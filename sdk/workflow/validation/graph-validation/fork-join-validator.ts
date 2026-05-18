@@ -28,8 +28,8 @@ export function validateForkJoinPairs(
   const errors: ConfigurationValidationError[] = [];
   
   // Use the first element of forkPathIds array as the pairing identifier
-  const forkNodes = new Map<ID, { nodeId: ID; forkPathIds: ID[] }>(); // forkPathIds[0] -> {nodeId, forkPathIds}
-  const joinNodes = new Map<ID, { nodeId: ID; forkPathIds: ID[]; mainPathId?: ID }>(); // forkPathIds[0] -> {nodeId, forkPathIds, mainPathId}
+  const forkNodes = new Map<ID, { nodeId: ID; forkPathIds: ID[]; hasConfigError: boolean }>(); // forkPathIds[0] -> {nodeId, forkPathIds, hasConfigError}
+  const joinNodes = new Map<ID, { nodeId: ID; forkPathIds: ID[]; mainPathId?: ID; hasConfigError: boolean }>(); // forkPathIds[0] -> {nodeId, forkPathIds, mainPathId, hasConfigError}
   const pairs = new Map<ID, ID>();
   const allForkPathIds = new Set<ID>(); // Used to check global uniqueness of forkPathId
 
@@ -42,6 +42,7 @@ export function validateForkJoinPairs(
       const forkPaths = config?.forkPaths;
 
       // Validate Fork node configuration
+      let hasConfigError = false;
       if (!forkPaths || !Array.isArray(forkPaths) || forkPaths.length === 0) {
         errors.push(
           new ConfigurationValidationError(`FORK node (${node.id}) forkPaths must be a non-empty array`, {
@@ -52,30 +53,33 @@ export function validateForkJoinPairs(
             },
           }),
         );
-        continue;
+        hasConfigError = true;
+        // Don't continue - still try to collect information for pairing check
       }
 
       // Extract pathId and childNodeId from forkPaths
       const forkPathIds: ID[] = [];
       const childNodeIds: string[] = [];
-      for (const forkPath of forkPaths) {
-        if (!forkPath.pathId || !forkPath.childNodeId) {
-          errors.push(
-            new ConfigurationValidationError(
-              `Each element in forkPaths of FORK node (${node.id}) must contain pathId and childNodeId`,
-              {
-                configType: "workflow",
-                context: {
-                  code: "INVALID_FORK_PATH_ITEM",
-                  nodeId: node.id,
+      if (forkPaths && Array.isArray(forkPaths)) {
+        for (const forkPath of forkPaths) {
+          if (!forkPath.pathId || !forkPath.childNodeId) {
+            errors.push(
+              new ConfigurationValidationError(
+                `Each element in forkPaths of FORK node (${node.id}) must contain pathId and childNodeId`,
+                {
+                  configType: "workflow",
+                  context: {
+                    code: "INVALID_FORK_PATH_ITEM",
+                    nodeId: node.id,
+                  },
                 },
-              },
-            ),
-          );
-          continue;
+              ),
+            );
+            continue;
+          }
+          forkPathIds.push(forkPath.pathId);
+          childNodeIds.push(forkPath.childNodeId);
         }
-        forkPathIds.push(forkPath.pathId);
-        childNodeIds.push(forkPath.childNodeId);
       }
 
       // Check if pathId is unique within the workflow definition
@@ -101,6 +105,10 @@ export function validateForkJoinPairs(
 
       // Use the pathId of the first element from forkPaths as the pairing identifier
       if (forkPathIds.length === 0) {
+        // No valid pathIds, skip pairing but node was already collected with hasConfigError
+        if (hasConfigError) {
+          forkNodes.set(node.id + "_invalid", { nodeId: node.id, forkPathIds: [], hasConfigError: true });
+        }
         continue;
       }
       const pairId = forkPathIds[0]!;
@@ -119,7 +127,7 @@ export function validateForkJoinPairs(
           ),
         );
       } else {
-        forkNodes.set(pairId, { nodeId: node.id, forkPathIds });
+        forkNodes.set(pairId, { nodeId: node.id, forkPathIds, hasConfigError });
       }
     } else if (node.type === ("JOIN" as StaticNodeType)) {
       const config = node.originalNode?.config as
@@ -129,6 +137,7 @@ export function validateForkJoinPairs(
       const mainPathId = config?.mainPathId;
 
       // Validate Join node configuration
+      let hasConfigError = false;
       if (!forkPathIds || !Array.isArray(forkPathIds) || forkPathIds.length === 0) {
         errors.push(
           new ConfigurationValidationError(`forkPathIds of JOIN node (${node.id}) must be a non-empty array`, {
@@ -139,11 +148,12 @@ export function validateForkJoinPairs(
             },
           }),
         );
-        continue;
+        hasConfigError = true;
+        // Don't continue - still try to collect information for pairing check
       }
 
       // Validate mainPathId
-      if (mainPathId && !forkPathIds.includes(mainPathId)) {
+      if (mainPathId && forkPathIds && !forkPathIds.includes(mainPathId)) {
         errors.push(
           new ConfigurationValidationError(
             `mainPathId (${mainPathId}) of JOIN node (${node.id}) must be in forkPathIds`,
@@ -157,11 +167,12 @@ export function validateForkJoinPairs(
             },
           ),
         );
-        continue;
+        hasConfigError = true;
+        // Don't continue - still proceed with pairing check
       }
 
       // Use the first element of forkPathIds as the pairing identifier
-      const pairId = forkPathIds[0];
+      const pairId = forkPathIds?.[0];
       if (pairId && joinNodes.has(pairId)) {
         errors.push(
           new ConfigurationValidationError(
@@ -177,7 +188,10 @@ export function validateForkJoinPairs(
           ),
         );
       } else if (pairId) {
-        joinNodes.set(pairId, { nodeId: node.id, forkPathIds, mainPathId });
+        joinNodes.set(pairId, { nodeId: node.id, forkPathIds: forkPathIds || [], mainPathId, hasConfigError });
+      } else if (hasConfigError) {
+        // No valid pairId but has config error, store with special key
+        joinNodes.set(node.id + "_invalid", { nodeId: node.id, forkPathIds: [], mainPathId, hasConfigError: true });
       }
     }
   }
@@ -187,25 +201,60 @@ export function validateForkJoinPairs(
   const unpairedJoins: ID[] = [];
 
   for (const [pairId, forkInfo] of forkNodes) {
+    // Skip nodes that only have config errors and no valid pairId
+    if (forkInfo.hasConfigError && pairId.endsWith("_invalid")) {
+      unpairedForks.push(forkInfo.nodeId);
+      continue;
+    }
+    
     if (joinNodes.has(pairId)) {
       const joinInfo = joinNodes.get(pairId)!;
-      // Verify that forkPathIds arrays of Fork and Join are identical (including order)
-      if (JSON.stringify(forkInfo.forkPathIds) !== JSON.stringify(joinInfo.forkPathIds)) {
-        errors.push(
-          new ConfigurationValidationError(
-            `forkPathIds of FORK node (${forkInfo.nodeId}) and JOIN node (${joinInfo.nodeId}) do not match`,
-            {
-              configType: "workflow",
-              context: {
-                code: "FORK_JOIN_MISMATCH",
-                forkNodeId: forkInfo.nodeId,
-                joinNodeId: joinInfo.nodeId,
-              },
-            },
-          ),
-        );
+      
+      // If either node has config errors, still report them but skip detailed matching
+      if (forkInfo.hasConfigError || joinInfo.hasConfigError) {
+        // Still check if they can be paired (both have valid forkPathIds)
+        if (forkInfo.forkPathIds.length > 0 && joinInfo.forkPathIds.length > 0) {
+          if (JSON.stringify(forkInfo.forkPathIds) !== JSON.stringify(joinInfo.forkPathIds)) {
+            errors.push(
+              new ConfigurationValidationError(
+                `forkPathIds of FORK node (${forkInfo.nodeId}) and JOIN node (${joinInfo.nodeId}) do not match`,
+                {
+                  configType: "workflow",
+                  context: {
+                    code: "FORK_JOIN_MISMATCH",
+                    forkNodeId: forkInfo.nodeId,
+                    joinNodeId: joinInfo.nodeId,
+                  },
+                },
+              ),
+            );
+          } else {
+            pairs.set(forkInfo.nodeId, joinInfo.nodeId);
+          }
+        } else {
+          // Can't pair due to missing forkPathIds
+          unpairedForks.push(forkInfo.nodeId);
+          unpairedJoins.push(joinInfo.nodeId);
+        }
       } else {
-        pairs.set(forkInfo.nodeId, joinInfo.nodeId);
+        // Normal pairing check
+        if (JSON.stringify(forkInfo.forkPathIds) !== JSON.stringify(joinInfo.forkPathIds)) {
+          errors.push(
+            new ConfigurationValidationError(
+              `forkPathIds of FORK node (${forkInfo.nodeId}) and JOIN node (${joinInfo.nodeId}) do not match`,
+              {
+                configType: "workflow",
+                context: {
+                  code: "FORK_JOIN_MISMATCH",
+                  forkNodeId: forkInfo.nodeId,
+                  joinNodeId: joinInfo.nodeId,
+                },
+              },
+            ),
+          );
+        } else {
+          pairs.set(forkInfo.nodeId, joinInfo.nodeId);
+        }
       }
     } else {
       unpairedForks.push(forkInfo.nodeId);
@@ -213,6 +262,14 @@ export function validateForkJoinPairs(
   }
 
   for (const [pairId, joinInfo] of joinNodes) {
+    // Skip nodes that only have config errors and no valid pairId
+    if (joinInfo.hasConfigError && pairId.endsWith("_invalid")) {
+      if (!unpairedJoins.includes(joinInfo.nodeId)) {
+        unpairedJoins.push(joinInfo.nodeId);
+      }
+      continue;
+    }
+    
     if (!forkNodes.has(pairId)) {
       unpairedJoins.push(joinInfo.nodeId);
     }

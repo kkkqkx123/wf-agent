@@ -69,6 +69,7 @@ export function validateSyncNodes(
     const { nodeId, config } = syncNode;
 
     // Check if sourcePathId is present
+    let hasConfigError = false;
     if (!config.sourcePathId || !config.sourcePathId.trim()) {
       errors.push(
         new ConfigurationValidationError(
@@ -82,11 +83,14 @@ export function validateSyncNodes(
           }
         )
       );
-      continue;
+      hasConfigError = true;
+      // Don't continue - still check other configurations and isolation
     }
 
     // Verify sourcePathId exists in a FORK node's forkPaths
-    if (!forkPathMapping.has(config.sourcePathId)) {
+    if (config.sourcePathId && forkPathMapping.has(config.sourcePathId)) {
+      // Valid sourcePathId
+    } else if (config.sourcePathId) {
       errors.push(
         new ConfigurationValidationError(
           `SYNC node '${nodeId}' has sourcePathId '${config.sourcePathId}' that does not exist in any FORK node's forkPaths`,
@@ -100,6 +104,7 @@ export function validateSyncNodes(
           }
         )
       );
+      hasConfigError = true;
     }
 
     // Verify targetPathId if provided
@@ -317,6 +322,8 @@ function validateSyncNodePairing(
   }
 
   // Check for circular dependencies in variable mappings
+  const reportedCycles = new Set<string>(); // Track reported cycles to avoid duplicates
+  
   for (const syncNode of syncNodes) {
     if (!syncNode.config.variableMappings || syncNode.config.variableMappings.length === 0) {
       continue;
@@ -333,6 +340,13 @@ function validateSyncNodePairing(
     );
 
     if (reverseSyncNode && reverseSyncNode.config.variableMappings) {
+      // Create a unique cycle key to avoid duplicate reports
+      const cycleKey = [syncNode.nodeId, reverseSyncNode.nodeId].sort().join('-');
+      
+      if (reportedCycles.has(cycleKey)) {
+        continue; // Already reported this cycle
+      }
+      
       // Check for circular variable dependencies
       for (const forwardMapping of sourceMapping) {
         const reverseMapping = reverseSyncNode.config.variableMappings.find(
@@ -341,6 +355,7 @@ function validateSyncNodePairing(
 
         if (reverseMapping && reverseMapping.internalName === forwardMapping.externalName) {
           // Circular dependency detected: A.x -> B.y and B.y -> A.x
+          reportedCycles.add(cycleKey); // Mark as reported
           errors.push(
             new ConfigurationValidationError(
               `Circular variable dependency detected between SYNC nodes '${syncNode.nodeId}' and '${reverseSyncNode.nodeId}': ` +

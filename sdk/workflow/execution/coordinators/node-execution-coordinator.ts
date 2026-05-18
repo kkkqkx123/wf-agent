@@ -59,9 +59,12 @@ import {
 } from "../utils/event/index.js";
 import type { InterruptionDetector } from "../interruption-detector.js";
 import {
-  getWorkflowInterruptionDescription,
   executeWithInterruptionHandling,
 } from "../../../core/utils/interruption/index.js";
+import {
+  getWorkflowInterruptionDescription,
+  toWorkflowInterruptionResult,
+} from "../utils/workflow-interruption-utils.js";
 import { NodeHandlerContextFactory } from "../factories/node-handler-context-factory.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import type { MetricsRegistry } from "../../../core/metrics/metrics-registry.js";
@@ -556,7 +559,7 @@ export class NodeExecutionCoordinator {
     ).then(result => {
       if (!result.success) {
         // Handle interruption - create checkpoints and trigger events
-        const interruption = result.interruption;
+        const interruption = toWorkflowInterruptionResult(result.interruption, nodeId);
         
         // Return a CANCELLED result
         const cancelledResult: NodeExecutionResult = {

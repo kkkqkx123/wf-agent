@@ -11,7 +11,10 @@ import type { WorkflowNavigator } from "../../builder/workflow-navigator.js";
 import {
   executeWithInterruptionHandling,
 } from "../../../core/utils/interruption/index.js";
-import type { ExecutionInterruptionCheckResult } from "../../../core/utils/interruption/index.js";
+import { 
+  toWorkflowInterruptionResult,
+  type WorkflowInterruptionCheckResult 
+} from "../utils/workflow-interruption-utils.js";
 
 /**
  * WorkflowExecutionCoordinator - Workflow Execution Coordinator
@@ -90,7 +93,11 @@ export class WorkflowExecutionCoordinator {
 
     // Handle interruption gracefully if needed
     if (!result.success) {
-      return await this.handleInterruptionGracefully(result.interruption);
+      const workflowInterruption = toWorkflowInterruptionResult(
+        result.interruption, 
+        this.workflowExecutionEntity.getCurrentNodeId() || "unknown"
+      );
+      return await this.handleInterruptionGracefully(workflowInterruption);
     }
 
     return result.result;
@@ -102,7 +109,7 @@ export class WorkflowExecutionCoordinator {
    * @returns Workflow execution result with interruption status
    */
   private async handleInterruptionGracefully(
-    interruption: ExecutionInterruptionCheckResult,
+    interruption: WorkflowInterruptionCheckResult,
   ): Promise<WorkflowExecutionResult> {
     const type = interruption.type === "paused" ? "PAUSE" : "STOP";
     const currentNodeId = this.workflowExecutionEntity.getCurrentNodeId();

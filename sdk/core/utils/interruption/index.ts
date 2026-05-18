@@ -13,13 +13,12 @@ export {
   type InterruptionCheckResult,
 } from "./abort-signal-utils.js";
 
-// Execution-specific interruption utilities (supports both workflow and agent)
+// Execution-specific interruption utilities (generic layer)
 export {
-  checkWorkflowInterruption,
+  checkExecutionInterruption,
   shouldContinue as shouldContinueExecution,
-  getWorkflowInterruptionType,
-  getWorkflowInterruptionDescription,
-  createInterruptionAbortReason,
+  getExecutionInterruptionType,
+  getExecutionInterruptionDescription,
   type ExecutionInterruptionCheckResult,
 } from "./execution-interruption-utils.js";
 

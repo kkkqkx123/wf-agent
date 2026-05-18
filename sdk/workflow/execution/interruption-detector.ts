@@ -20,7 +20,7 @@ import { isAborted } from "../../core/utils/interruption/index.js";
 import {
   checkWorkflowInterruption,
   getWorkflowInterruptionType,
-} from "../../core/utils/interruption/index.js";
+} from "./utils/workflow-interruption-utils.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "InterruptionDetector" });

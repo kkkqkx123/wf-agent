@@ -20,9 +20,12 @@ import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-
 import type { StaticNode, WorkflowNode, WorkflowStartConfig, NamedMessageContext, MessageContextRegistry, WorkflowExecution, SubgraphNodeConfig } from "@wf-agent/types";
 import { now } from "@wf-agent/common-utils";
 import {
-  getWorkflowInterruptionDescription,
   executeWithInterruptionHandling,
 } from "../../../core/utils/interruption/index.js";
+import {
+  getWorkflowInterruptionDescription,
+  toWorkflowInterruptionResult,
+} from "../utils/workflow-interruption-utils.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import { validateAndMapMessageContexts } from "../../validation/utils/message-context-validator.js";
 
@@ -74,7 +77,7 @@ export async function enterSubgraph(
 
   // Handle interruption gracefully
   if (!result.success) {
-    const interruption = result.interruption;
+    const interruption = toWorkflowInterruptionResult(result.interruption, subgraphNode.id);
     logger.info("Subgraph entry interrupted", {
       executionId: executionEntity.id,
       workflowId,
@@ -115,7 +118,7 @@ export async function exitSubgraph(
 
   // Handle interruption gracefully
   if (!result.success) {
-    const interruption = result.interruption;
+    const interruption = toWorkflowInterruptionResult(result.interruption, subgraphNode.id);
     logger.info("Subgraph exit interrupted", {
       executionId: executionEntity.id,
       interruptionType: interruption.type,

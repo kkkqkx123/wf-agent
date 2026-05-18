@@ -24,7 +24,7 @@ import { ConversationSession } from "../messaging/conversation-session.js";
 import { ExecutionError } from "@wf-agent/types";
 import {
   executeWithInterruptionHandling,
-  getWorkflowInterruptionDescription,
+  getExecutionInterruptionDescription,
 } from "../utils/interruption/index.js";
 import type { ExecutionInterruptionCheckResult } from "../utils/interruption/index.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
@@ -132,7 +132,7 @@ export class LLMExecutionCoordinator {
     // Check if it's an interruption state
     if (typeof result !== "string") {
       // It's an interruption state
-      const description = getWorkflowInterruptionDescription(result);
+      const description = getExecutionInterruptionDescription(result);
       const error = new Error(description);
       // Preserve original interruption info as cause if available
       if (result && typeof result === 'object' && 'reason' in result) {

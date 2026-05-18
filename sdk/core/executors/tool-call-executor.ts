@@ -25,7 +25,7 @@
 import { getErrorOrNew } from "@wf-agent/common-utils";
 import { combineAbortSignals } from "../utils/interruption/index.js";
 import {
-  checkWorkflowInterruption,
+  checkExecutionInterruption,
   type ExecutionInterruptionCheckResult,
 } from "../utils/interruption/index.js";
 import type { ToolRegistry } from "../registry/tool-registry.js";
@@ -162,7 +162,7 @@ export class ToolCallExecutor {
 
     // Check the interrupt signal.
     if (options?.abortSignal && options.abortSignal.aborted) {
-      const result = checkWorkflowInterruption(options.abortSignal);
+      const result = checkExecutionInterruption(options.abortSignal);
       
       // Return interruption info instead of throwing
       // This allows callers to handle interruption gracefully

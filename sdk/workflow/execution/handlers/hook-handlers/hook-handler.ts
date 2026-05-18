@@ -19,9 +19,12 @@ import {
 import { getErrorOrNew } from "@wf-agent/common-utils";
 import {
   executeWithInterruptionHandling,
-  getWorkflowInterruptionDescription,
-  type ExecutionInterruptionCheckResult,
 } from "../../../../core/utils/interruption/index.js";
+import {
+  getWorkflowInterruptionDescription,
+  toWorkflowInterruptionResult,
+  type WorkflowInterruptionCheckResult,
+} from "../../utils/workflow-interruption-utils.js";
 import { createContextualLogger } from "../../../../utils/contextual-logger.js";
 import { buildHookEvaluationContext, convertToEvaluationContext } from "./context-builder.js";
 import { emitHookEvent } from "./event-emitter.js";
@@ -196,7 +199,7 @@ export async function executeHook(
 
   // Handle interruption if needed
   if (!result.success) {
-    const interruption = result.interruption;
+    const interruption = toWorkflowInterruptionResult(result.interruption, node.id);
     logger.info("Hook execution interrupted", {
       executionId: workflowExecutionEntity.id,
       nodeId: node.id,
@@ -207,7 +210,7 @@ export async function executeHook(
     // Throw standard interruption error
     const interruptionError = new Error(
       `Hook execution interrupted: ${getWorkflowInterruptionDescription(interruption)}`
-    ) as Error & { interruption?: ExecutionInterruptionCheckResult };
+    ) as Error & { interruption?: WorkflowInterruptionCheckResult };
     interruptionError.name = "InterruptionError";
     interruptionError.interruption = interruption;
     throw interruptionError;

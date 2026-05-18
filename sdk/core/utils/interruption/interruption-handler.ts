@@ -14,7 +14,7 @@ import {
 } from "./abort-signal-utils.js";
 import { isAbortError } from "../error-utils.js";
 import {
-  checkWorkflowInterruption,
+  checkExecutionInterruption,
   type ExecutionInterruptionCheckResult,
   shouldContinue as shouldContinueExecution,
 } from "./execution-interruption-utils.js";
@@ -59,7 +59,7 @@ export async function executeWithInterruptionHandling<T>(
   const effectiveSignal = signal ?? createNeverAbortSignal();
 
   // Pre-execution check
-  const preCheck = checkWorkflowInterruption(effectiveSignal);
+  const preCheck = checkExecutionInterruption(effectiveSignal);
   if (!shouldContinueExecution(preCheck)) {
     return {
       success: false,
@@ -72,7 +72,7 @@ export async function executeWithInterruptionHandling<T>(
     const result = await operation(effectiveSignal);
 
     // Post-execution check
-    const postCheck = checkWorkflowInterruption(effectiveSignal);
+    const postCheck = checkExecutionInterruption(effectiveSignal);
     if (!shouldContinueExecution(postCheck)) {
       return {
         success: false,
@@ -95,7 +95,7 @@ export async function executeWithInterruptionHandling<T>(
 
     // Handle AbortError
     if (isAbortError(error) && effectiveSignal.aborted) {
-      const interruption = checkWorkflowInterruption(effectiveSignal);
+      const interruption = checkExecutionInterruption(effectiveSignal);
       return {
         success: false,
         interruption,
@@ -139,7 +139,7 @@ export async function* iterateWithInterruptionHandling<T>(
   try {
     while (true) {
       // Check before fetching next value
-      const preCheck = checkWorkflowInterruption(effectiveSignal);
+      const preCheck = checkExecutionInterruption(effectiveSignal);
       if (!shouldContinueExecution(preCheck)) {
         yield { type: "interrupted", interruption: preCheck };
         return;
@@ -151,7 +151,7 @@ export async function* iterateWithInterruptionHandling<T>(
       } catch (error) {
         // Handle AbortError from iterator.next()
         if (isAbortError(error) && effectiveSignal.aborted) {
-          const interruption = checkWorkflowInterruption(effectiveSignal);
+          const interruption = checkExecutionInterruption(effectiveSignal);
           yield { type: "interrupted", interruption };
           return;
         }
@@ -163,7 +163,7 @@ export async function* iterateWithInterruptionHandling<T>(
       }
 
       // Check after fetching value
-      const postCheck = checkWorkflowInterruption(effectiveSignal);
+      const postCheck = checkExecutionInterruption(effectiveSignal);
       if (!shouldContinueExecution(postCheck)) {
         yield { type: "interrupted", interruption: postCheck };
         return;

@@ -113,3 +113,13 @@ export {
   SizeBasedCleanupStrategy,
   createCleanupStrategy,
 } from "../../../core/utils/checkpoint/cleanup-policy.js";
+
+// Workflow-Specific Interruption Utilities
+export {
+  checkWorkflowInterruption,
+  getWorkflowInterruptionType,
+  getWorkflowInterruptionDescription,
+  createWorkflowInterruptionAbortReason,
+  toWorkflowInterruptionResult,
+  type WorkflowInterruptionCheckResult,
+} from "./workflow-interruption-utils.js";

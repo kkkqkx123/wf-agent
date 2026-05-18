@@ -25,8 +25,8 @@ import { CheckpointCoordinator } from "../../checkpoint/checkpoint-coordinator.j
 import { InterruptionDetectorImpl, type InterruptionDetector } from "../interruption-detector.js";
 import {
   getWorkflowInterruptionDescription,
-} from "../../../core/utils/interruption/index.js";
-import type { ExecutionInterruptionCheckResult } from "../../../core/utils/interruption/index.js";
+} from "../utils/workflow-interruption-utils.js";
+import type { WorkflowInterruptionCheckResult } from "../utils/workflow-interruption-utils.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import {
   buildToolApprovalRequestedEvent,
@@ -219,7 +219,7 @@ export class LLMExecutionCoordinator {
   private async executeSingleLLMCall(
     params: LLMExecutionParams,
     conversationState: ConversationSession,
-  ): Promise<string | ExecutionInterruptionCheckResult> {
+  ): Promise<string | WorkflowInterruptionCheckResult> {
     const { prompt, profileId, parameters, tools, maxToolCallsPerRequest, executionId, nodeId } =
       params;
 

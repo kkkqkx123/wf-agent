@@ -37,7 +37,7 @@ import {
 import { buildInitialMessages, type InitialMessagesConfig } from "../../core/prompt/index.js";
 import { ExecutionHierarchyManager } from "../../core/execution/execution-hierarchy-manager.js";
 import type { ExecutionHierarchyRegistry } from "../../core/registry/execution-hierarchy-registry.js";
-import { createInterruptionAbortReason } from "../../core/utils/interruption/index.js";
+import { createAgentInterruptionAbortReason } from "../execution/utils/index.js";
 import { ToolFailureProtectionState } from "../../core/state-managers/tool-failure-protection-state.js";
 import type { ToolFailureProtectionConfig } from "../../core/state-managers/tool-failure-protection-types.js";
 
@@ -338,8 +338,8 @@ export class AgentLoopEntity {
   interrupt(type: "PAUSE" | "STOP"): void {
     this.state.interrupt(type);
     
-    // Create proper abort reason with interruption context
-    const abortReason = createInterruptionAbortReason(type, this.id);
+    // Create proper abort reason with agent context (iteration)
+    const abortReason = createAgentInterruptionAbortReason(type, this.id, this.state.currentIteration);
     this.abortController?.abort(abortReason);
   }
 

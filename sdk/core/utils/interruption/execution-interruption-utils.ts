@@ -1,13 +1,11 @@
 /**
- * Execution-Specific Interruption Utilities
- * Extends generic AbortSignal utilities with execution context (workflow/agent)
+ * Execution-Specific Interruption Utilities (Generic Layer)
  *
  * Design Principles:
- * - Build on top of domain-agnostic interruption utilities from common-utils
- * - Extract execution-specific information (executionId/conversationId, nodeId) from abort reasons
- * - Support both workflow execution and agent loop interruption patterns
- * - Provide execution-aware helper functions for PAUSE/STOP handling
- * - Used by shared core executors and both workflow/agent modules
+ * - Provides domain-agnostic interruption checking and continuation logic
+ * - Extracts basic interruption type from abort reasons
+ * - Workflow and Agent modules should use their own specialized utilities
+ *   for domain-specific context (nodeId for workflow, iteration for agent)
  */
 
 import type { InterruptionType } from "../../types/interruption-types.js";
@@ -16,21 +14,20 @@ import {
 } from "./abort-signal-utils.js";
 
 /**
- * Extended interruption check result with execution context
- * Supports both workflow execution and agent loop interruption patterns
+ * Basic interruption check result (domain-agnostic)
  */
 export type ExecutionInterruptionCheckResult =
   | { type: "continue" }
-  | { type: "paused"; nodeId: string; executionId?: string }
-  | { type: "stopped"; nodeId: string; executionId?: string }
+  | { type: "paused"; executionId?: string }
+  | { type: "stopped"; executionId?: string }
   | { type: "aborted"; reason?: unknown };
 
 /**
- * Check interruption with workflow context extraction
+ * Check interruption and extract basic type
  * @param signal AbortSignal
- * @returns The result of the interruption check with workflow context
+ * @returns The result of the interruption check
  */
-export function checkWorkflowInterruption(signal?: AbortSignal): ExecutionInterruptionCheckResult {
+export function checkExecutionInterruption(signal?: AbortSignal): ExecutionInterruptionCheckResult {
   const baseResult = baseCheckInterruption(signal);
 
   // If not aborted or continue, return as-is
@@ -38,32 +35,29 @@ export function checkWorkflowInterruption(signal?: AbortSignal): ExecutionInterr
     return baseResult;
   }
 
-  // For aborted state, try to extract workflow-specific information
+  // For aborted state, try to extract interruption type
   if (baseResult.type === "aborted") {
     const reason = baseResult.reason;
     if (reason && typeof reason === "object" && "interruptionType" in reason) {
       const interruption = reason as Record<string, unknown>;
       const type = interruption["interruptionType"] as InterruptionType;
       const executionId = interruption["executionId"] as string | undefined;
-      const nodeId = interruption["nodeId"] as string | undefined;
 
       if (type === "PAUSE") {
         return {
           type: "paused",
           executionId: executionId,
-          nodeId: nodeId || "unknown",
         };
       } else if (type === "STOP") {
         return {
           type: "stopped",
           executionId: executionId,
-          nodeId: nodeId || "unknown",
         };
       }
     }
   }
 
-  // Return as generic aborted if no workflow context found
+  // Return as generic aborted if no interruption context found
   return baseResult;
 }
 
@@ -77,11 +71,11 @@ export function shouldContinue(result: ExecutionInterruptionCheckResult): boolea
 }
 
 /**
- * Get the workflow interrupt type
+ * Get the execution interrupt type
  * @param result The result of the interrupt check
  * @returns The interrupt type (PAUSE/STOP/null)
  */
-export function getWorkflowInterruptionType(result: ExecutionInterruptionCheckResult): InterruptionType {
+export function getExecutionInterruptionType(result: ExecutionInterruptionCheckResult): InterruptionType {
   if (result.type === "paused") {
     return "PAUSE";
   } else if (result.type === "stopped") {
@@ -91,59 +85,23 @@ export function getWorkflowInterruptionType(result: ExecutionInterruptionCheckRe
 }
 
 /**
- * Get a user-friendly description for workflow interruptions
+ * Get a user-friendly description for execution interruptions (generic)
  * @param result Interrupt check result
  * @returns Interrupt description string
  */
-export function getWorkflowInterruptionDescription(result: ExecutionInterruptionCheckResult): string {
+export function getExecutionInterruptionDescription(result: ExecutionInterruptionCheckResult): string {
   switch (result.type) {
     case "continue":
-      return "Workflow execution continuing";
+      return "Execution continuing";
     case "paused":
-      return `Workflow execution paused at node: ${result.nodeId}`;
+      return `Execution paused${result.executionId ? ` (ID: ${result.executionId})` : ""}`;
     case "stopped":
-      return `Workflow execution stopped at node: ${result.nodeId}`;
+      return `Execution stopped${result.executionId ? ` (ID: ${result.executionId})` : ""}`;
     case "aborted":
-      return result.reason ? String(result.reason) : "Workflow operation aborted";
+      return result.reason ? String(result.reason) : "Execution operation aborted";
     default:
-      return "Unknown workflow interruption state";
+      return "Unknown execution interruption state";
   }
 }
 
-/**
- * Create an abort reason object for execution interruption
- * Used to properly structure abort signals with interruption context
- *
- * @param type Interruption type (PAUSE or STOP)
- * @param executionId Execution/conversation ID
- * @param nodeId Node ID (optional, for workflow) or agent loop ID
- * @returns Error object with interruption context
- *
- * @example
- * ```typescript
- * // In workflow execution
- * const reason = createInterruptionAbortReason("PAUSE", executionId, nodeId);
- * abortController.abort(reason);
- *
- * // In agent loop
- * const reason = createInterruptionAbortReason("STOP", conversationId, agentLoopId);
- * abortController.abort(reason);
- * ```
- */
-export function createInterruptionAbortReason(
-  type: "PAUSE" | "STOP",
-  executionId: string,
-  nodeId?: string,
-): Error & { interruptionType: "PAUSE" | "STOP"; executionId: string; nodeId?: string } {
-  const error = new Error(type === "PAUSE" ? "Execution paused" : "Execution stopped") as Error & {
-    interruptionType: "PAUSE" | "STOP";
-    executionId: string;
-    nodeId?: string;
-  };
-  error.interruptionType = type;
-  error.executionId = executionId;
-  if (nodeId) {
-    error.nodeId = nodeId;
-  }
-  return error;
-}
+

@@ -23,7 +23,7 @@ import { conditionEvaluator } from "@wf-agent/common-utils";
 import { getErrorMessage, now } from "@wf-agent/common-utils";
 import { buildHookExecutedEvent } from "../utils/event/builders/index.js";
 import { sdkLogger as logger } from "../../utils/logger.js";
-import { checkWorkflowInterruption, shouldContinueExecution } from "../utils/interruption/index.js";
+import { checkExecutionInterruption, shouldContinueExecution } from "../utils/interruption/index.js";
 
 /**
  * Default Executor Configuration
@@ -186,7 +186,7 @@ export async function executeHooks<TContext extends BaseHookContext>(
     const promises = hooks.map(async (hook) => {
       // Check for interruption before each hook in parallel mode
       if (resolvedConfig.abortSignal?.aborted) {
-        const interruption = checkWorkflowInterruption(resolvedConfig.abortSignal);
+        const interruption = checkExecutionInterruption(resolvedConfig.abortSignal);
         if (!shouldContinueExecution(interruption)) {
           throw new Error(`Hook execution interrupted: ${interruption.type}`);
         }
@@ -210,7 +210,7 @@ export async function executeHooks<TContext extends BaseHookContext>(
     for (const hook of hooks) {
       // Check for interruption before each hook in serial mode
       if (resolvedConfig.abortSignal?.aborted) {
-        const interruption = checkWorkflowInterruption(resolvedConfig.abortSignal);
+        const interruption = checkExecutionInterruption(resolvedConfig.abortSignal);
         if (!shouldContinueExecution(interruption)) {
           throw new Error(`Hook execution interrupted: ${interruption.type}`);
         }

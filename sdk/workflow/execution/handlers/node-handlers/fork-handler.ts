@@ -119,6 +119,18 @@ export async function forkHandler(
       branchCount: forkPaths.length,
     });
 
+    // Initialize SyncBarrier for parent execution if not already initialized
+    if (!workflowExecutionEntity.hasSyncBarrier()) {
+      const eventRegistry = globalContext.container.get('EventManager') as any;
+      if (eventRegistry) {
+        workflowExecutionEntity.initializeSyncBarrier(eventRegistry);
+        logger.debug("SyncBarrier initialized for FORK node", {
+          nodeId: node.id,
+          executionId: workflowExecutionEntity.id,
+        });
+      }
+    }
+
     branchCreations = await Promise.all(
       forkPaths.map(async (path) => {
         const buildResult = await builder.createChildExecution(workflowExecutionEntity, {
@@ -134,6 +146,16 @@ export async function forkHandler(
           forkPathId: path.pathId,
           branchExecutionId: buildResult.workflowExecutionEntity.id,
         });
+
+        // Register path-to-execution mapping in SyncBarrier
+        const syncBarrier = workflowExecutionEntity.getSyncBarrier();
+        if (syncBarrier) {
+          syncBarrier.registerPath(path.pathId, buildResult.workflowExecutionEntity.id);
+          logger.debug("Registered fork path in SyncBarrier", {
+            forkPathId: path.pathId,
+            executionId: buildResult.workflowExecutionEntity.id,
+          });
+        }
 
         return {
           pathId: path.pathId,

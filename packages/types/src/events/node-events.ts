@@ -112,3 +112,40 @@ export interface ForkCompletedEvent extends BaseEvent {
   /** Total execution time in milliseconds */
   totalExecutionTime: number;
 }
+
+/**
+ * Sync node start event type
+ */
+export interface NodeSyncStartedEvent extends BaseEvent {
+  type: "NODE_SYNC_STARTED";
+  /** Node ID */
+  nodeId: ID;
+  /** Source path ID - the branch to sync from */
+  sourcePathId: ID;
+}
+
+/**
+ * Sync node completion event type
+ */
+export interface NodeSyncCompletedEvent extends BaseEvent {
+  type: "NODE_SYNC_COMPLETED";
+  /** Node ID */
+  nodeId: ID;
+  /** Source path ID */
+  sourcePathId: ID;
+  /** Number of variables synced */
+  variableCount: number;
+}
+
+/**
+ * Sync node failure event type
+ */
+export interface NodeSyncFailedEvent extends BaseEvent {
+  type: "NODE_SYNC_FAILED";
+  /** Node ID */
+  nodeId: ID;
+  /** Source path ID */
+  sourcePathId: ID;
+  /** Error message */
+  error: string;
+}

@@ -71,7 +71,8 @@ export function getNodeHandler(nodeType: string): NodeHandlerFn {
     VARIABLE: (_gc, workflowExecutionEntity, node, _ctx) => variableHandler(workflowExecutionEntity, node),
     TOOL_VISIBILITY: (_gc, _we, node, context) =>
       toolVisibilityHandler(node, context as ToolVisibilityHandlerContext),
-    SYNC: (_gc, workflowExecutionEntity, node, _ctx) => syncHandler(workflowExecutionEntity, node),
+    SYNC: (globalContext, workflowExecutionEntity, node, _ctx) => 
+      syncHandler(globalContext, workflowExecutionEntity, node),
   };
 
   const handler = handlers[nodeType];

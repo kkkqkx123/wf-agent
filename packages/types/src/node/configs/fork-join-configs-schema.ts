@@ -4,6 +4,7 @@
  */
 
 import { z } from "zod";
+import { WorkflowVariableOutputSchema, WorkflowMessageOutputSchema } from "../../workflow/boundary-config-schema.js";
 
 /**
  * Fork path schema
@@ -42,6 +43,8 @@ export const ForkNodeConfigSchema = z
  * - `timeout` can be 0 (no timeout) or a positive number. A value of 0 indicates that the node will always wait without setting a timeout.
  * - `forkPathIds` must match exactly the `pathId` in the `forkPaths` of the paired FORK node, including the order.
  * - `mainPathId` specifies the path of the main execution and must be one of the values in `forkPathIds`.
+ * - `variableOutputs` allows explicit variable export from branches to parent workflow
+ * - `messageOutputs` defines explicit message context outputs using boundary-config pattern
  */
 export const JoinNodeConfigSchema = z
   .object({
@@ -55,6 +58,13 @@ export const JoinNodeConfigSchema = z
     threshold: z.number().positive("Threshold must be positive").optional(),
     timeout: z.number().nonnegative("Timeout must be non-negative").optional(),
     mainPathId: z.string().min(1, "Main path ID is required"),
+    variableOutputs: z.array(WorkflowVariableOutputSchema).optional(),
+    // Message outputs with sourcePathId to specify which branch the context comes from
+    messageOutputs: z.array(
+      WorkflowMessageOutputSchema.extend({
+        sourcePathId: z.string().min(1, "Source path ID is required for message outputs"),
+      })
+    ).optional(),
   })
   .refine(
     (data) => {

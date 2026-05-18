@@ -28,6 +28,11 @@ import type { ExecutionHierarchyRegistry } from "../../core/registry/execution-h
 import { ToolFailureProtectionState } from "../../core/state-managers/tool-failure-protection-state.js";
 import type { ToolFailureProtectionConfig } from "../../core/state-managers/tool-failure-protection-types.js";
 import type { InterruptionState } from "../../core/utils/interruption/interruption-state.js";
+import type { EventRegistry } from "../../core/registry/event-registry.js";
+import { SyncBarrier } from "../execution/barriers/sync-barrier.js";
+import { createContextualLogger } from "../../utils/contextual-logger.js";
+
+const logger = createContextualLogger({ operation: "WorkflowExecutionEntity" });
 
 /**
  * WorkflowExecutionEntity - Workflow Execution Entity
@@ -78,12 +83,21 @@ export class WorkflowExecutionEntity {
 
   /** Execution Hierarchy Manager (unified parent-child relationship management) */
   private hierarchyManager: ExecutionHierarchyManager;
+  
+  /** Execution Hierarchy Registry reference (for SyncBarrier initialization) */
+  private readonly hierarchyRegistry?: ExecutionHierarchyRegistry;
 
   /** 
    * Interruption State Manager (optional, should be set by coordinator)
    * This ensures that getAbortSignal() returns the same signal used by the coordinator
    */
   private interruptionState?: InterruptionState;
+
+  /**
+   * Sync Barrier for fork/join synchronization (only for parent executions with FORK nodes)
+   * Manages path-to-execution mappings and provides waiting mechanisms
+   */
+  private syncBarrier?: SyncBarrier;
 
   /**
    * Constructor
@@ -120,6 +134,9 @@ export class WorkflowExecutionEntity {
       workflowExecution.hierarchy,
       registry
     );
+    
+    // Store registry reference for SyncBarrier initialization
+    this.hierarchyRegistry = registry;
   }
 
   // Basic Property Access ============
@@ -750,7 +767,10 @@ export class WorkflowExecutionEntity {
     // Note: InterruptionState.dispose() automatically unsubscribes from parent and clears all child subscriptions
     this.interruptionState?.dispose();
     
-    // Step 2: Cleanup other resources
+    // Step 2: Clear sync barrier
+    this.syncBarrier?.clear();
+    
+    // Step 3: Cleanup other resources
     this.state.cleanup();
     this.messageHistoryManager.clearMessages();
     this.variableStateManager.cleanup();
@@ -763,5 +783,43 @@ export class WorkflowExecutionEntity {
       'WORKFLOW',
       undefined
     );
+  }
+
+  // ========== Sync Barrier Management ==========
+
+  /**
+   * Initialize SyncBarrier for this execution
+   * Should be called when a FORK node is encountered in the workflow
+   * 
+   * @param eventRegistry Event registry for cross-execution event listening
+   */
+  initializeSyncBarrier(eventRegistry: EventRegistry): void {
+    if (!this.syncBarrier) {
+      // Pass the execution hierarchy registry to SyncBarrier
+      // This allows SyncBarrier to look up execution entities by ID
+      this.syncBarrier = new SyncBarrier(this.id, eventRegistry, this.hierarchyRegistry);
+      logger.debug("SyncBarrier initialized for execution", {
+        executionId: this.id,
+      });
+    }
+  }
+
+  /**
+   * Get the SyncBarrier instance
+   * Returns undefined if not initialized (no FORK nodes in workflow)
+   * 
+   * @returns SyncBarrier instance or undefined
+   */
+  getSyncBarrier(): SyncBarrier | undefined {
+    return this.syncBarrier;
+  }
+
+  /**
+   * Check if SyncBarrier is initialized
+   * 
+   * @returns True if SyncBarrier exists
+   */
+  hasSyncBarrier(): boolean {
+    return this.syncBarrier !== undefined;
   }
 }

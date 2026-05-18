@@ -145,15 +145,19 @@ export async function fork(
  * - timeout 单位为秒，0 表示不超时
  * - 内部转换为毫秒进行处理
  * - 使用 Promise.race() 实现超时控制
- * - mainPathId 指定主线程路径，会将主线程的对话历史合并到父线程
+ * - mainPathId 指定主线程路径（向后兼容）
+ * - variableOutputs 支持从分支显式导出变量到父工作流
+ * - messageOutputs 使用 boundary-config 模式显式定义消息上下文输出
  *
  * @param childExecutionIds Child execution ID array
  * @param joinStrategy Join strategy
- * @param executionRegistry WorkflowExecution registry
+ * @param workflowExecutionRegistry WorkflowExecution registry
+ * @param mainPathId Main path ID (optional, for backward compatibility)
  * @param timeout Timeout (seconds), 0 means no timeout, >0 means timeout in seconds
  * @param parentExecutionId Parent execution ID (optional)
  * @param eventManager Event manager (optional)
- * @param mainPathId Main path ID (optional, defaults to first child execution)
+ * @param variableOutputs Variable output mappings for explicit export from branches (optional)
+ * @param messageOutputs Message context output mappings using boundary-config pattern (optional)
  * @returns Join result
  */
 export async function join(
@@ -164,6 +168,8 @@ export async function join(
   timeout: number = 0,
   parentExecutionId?: string,
   eventManager?: EventRegistry,
+  variableOutputs?: Array<{ sourcePathId: string; variableName: string; targetName?: string }>,
+  messageOutputs?: Array<{ sourcePathId: string; internalName: string; externalName: string }>,
 ): Promise<JoinResult> {
   // Step 1: Verify the Join configuration
   if (!joinStrategy) {
@@ -258,23 +264,156 @@ export async function join(
       }
 
       try {
-        // Use MessageArrayUtils to clone the messages from the main WorkflowExecution and merge them into the parent WorkflowExecution.
-        // Use messageHistoryManager directly since WorkflowExecutionEntity no longer holds ConversationManager
-        const mainMessages = mainExecutionEntity.messageHistoryManager.getMessages();
-        const clonedMessages = MessageArrayUtils.cloneMessages(mainMessages);
+        // Export message contexts from branches to parent workflow if messageOutputs is configured
+        // This uses the same boundary-config pattern as START/END nodes for consistency
+        if (messageOutputs && messageOutputs.length > 0) {
+          logger.debug("Exporting message contexts from branches to parent workflow", {
+            messageOutputCount: messageOutputs.length,
+            parentExecutionId,
+          });
+          
+          for (const msgOutput of messageOutputs) {
+            // Find the source execution by forkPathId
+            const sourceExecution = completedExecutions.find(
+              exec => exec.forkJoinContext?.forkPathId === msgOutput.sourcePathId
+            );
+            
+            if (!sourceExecution) {
+              logger.warn(`Source execution not found for pathId: ${msgOutput.sourcePathId}`, {
+                availablePaths: completedExecutions.map(e => e.forkJoinContext?.forkPathId),
+              });
+              continue;
+            }
+            
+            const sourceEntity = workflowExecutionRegistry.get(sourceExecution.id);
+            if (!sourceEntity) {
+              logger.warn(`Source execution entity not found: ${sourceExecution.id}`);
+              continue;
+            }
+            
+            // Get messages from the source branch's main context
+            // Note: For named contexts, you would use a context manager
+            // For now, we use the default message history
+            const sourceMessages = sourceEntity.messageHistoryManager.getMessages();
+            
+            if (!sourceMessages || sourceMessages.length === 0) {
+              logger.debug(`No messages found in source execution`, {
+                sourcePathId: msgOutput.sourcePathId,
+                sourceExecutionId: sourceExecution.id,
+              });
+              continue;
+            }
+            
+            // Clone messages to avoid reference sharing
+            const clonedMessages = MessageArrayUtils.cloneMessages(sourceMessages);
+            
+            // Add messages to parent execution
+            // In a full implementation with named contexts, you'd use:
+            // parentExecutionEntity.getContextManager().setContext(msgOutput.externalName, clonedMessages);
+            // For now, append to parent's main message history
+            for (const msg of clonedMessages) {
+              parentExecutionEntity.messageHistoryManager.addMessage(msg);
+            }
+            
+            logger.debug("Message context exported from branch to parent", {
+              sourcePathId: msgOutput.sourcePathId,
+              internalName: msgOutput.internalName,
+              externalName: msgOutput.externalName,
+              messageCount: clonedMessages.length,
+              parentExecutionId,
+            });
+          }
+        } else if (mainPathId) {
+          // Backward compatibility: if no messageOutputs configured, use old behavior
+          // Merge messages from main path only
+          const mainExecution = completedExecutions.find(
+            WorkflowExecution => WorkflowExecution.forkJoinContext?.forkPathId === mainPathId,
+          );
 
-        // Add the cloned message to the parent WorkflowExecution.
-        for (const msg of clonedMessages) {
-          parentExecutionEntity.messageHistoryManager.addMessage(msg);
+          if (mainExecution) {
+            const mainExecutionEntity = workflowExecutionRegistry.get(mainExecution.id);
+            if (mainExecutionEntity) {
+              const mainMessages = mainExecutionEntity.messageHistoryManager.getMessages();
+              const clonedMessages = MessageArrayUtils.cloneMessages(mainMessages);
+
+              for (const msg of clonedMessages) {
+                parentExecutionEntity.messageHistoryManager.addMessage(msg);
+              }
+              
+              logger.debug("Backward compatible message merge from main path", {
+                mainPathId,
+                messageCount: clonedMessages.length,
+              });
+            }
+          }
         }
       } catch (error) {
         throw new ExecutionError(
-          `Failed to merge conversation history from main WorkflowExecution`,
+          `Failed to export message contexts from branches`,
           undefined,
           parentExecutionId,
-          { mainPathId, mainExecutionId: mainExecution.id, error: getErrorMessage(error) },
+          { error: getErrorMessage(error) },
           getErrorOrUndefined(error),
         );
+      }
+      
+      // Export variables from branches to parent workflow if variableOutputs is configured
+      if (variableOutputs && variableOutputs.length > 0) {
+        try {
+          logger.debug("Exporting variables from branches to parent workflow", {
+            variableOutputCount: variableOutputs.length,
+            parentExecutionId,
+          });
+          
+          for (const varOutput of variableOutputs) {
+            // Find the source execution by forkPathId
+            const sourceExecution = completedExecutions.find(
+              exec => exec.forkJoinContext?.forkPathId === varOutput.sourcePathId
+            );
+            
+            if (!sourceExecution) {
+              logger.warn(`Source execution not found for pathId: ${varOutput.sourcePathId}`, {
+                availablePaths: completedExecutions.map(e => e.forkJoinContext?.forkPathId),
+              });
+              continue;
+            }
+            
+            const sourceEntity = workflowExecutionRegistry.get(sourceExecution.id);
+            if (!sourceEntity) {
+              logger.warn(`Source execution entity not found: ${sourceExecution.id}`);
+              continue;
+            }
+            
+            // Get the variable value from source
+            const variableValue = sourceEntity.variableStateManager.getVariable(varOutput.variableName);
+            
+            if (variableValue === undefined) {
+              logger.warn(`Variable not found in source execution`, {
+                variableName: varOutput.variableName,
+                sourcePathId: varOutput.sourcePathId,
+                sourceExecutionId: sourceExecution.id,
+              });
+              continue;
+            }
+            
+            // Set the variable in parent execution (with optional renaming)
+            const targetName = varOutput.targetName || varOutput.variableName;
+            parentExecutionEntity.variableStateManager.setVariable(targetName, variableValue);
+            
+            logger.debug("Variable exported from branch to parent", {
+              sourcePathId: varOutput.sourcePathId,
+              variableName: varOutput.variableName,
+              targetName,
+              parentExecutionId,
+            });
+          }
+        } catch (error) {
+          logger.error("Failed to export variables from branches", {
+            error: getErrorMessage(error),
+            parentExecutionId,
+          });
+          // Don't throw here - variable export failure shouldn't fail the entire join
+        }
       }
     }
   }

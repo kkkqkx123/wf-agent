@@ -3,6 +3,7 @@
  */
 
 import type { ID } from '../../common.js';
+import type { WorkflowVariableOutput, WorkflowMessageOutput } from '../../workflow/boundary-config.js';
 
 /**
  * Forked Path Configuration
@@ -40,6 +41,8 @@ export interface ForkNodeConfig {
  * When timeout > 0, it means wait for the maximum number of seconds, and throws TimeoutError if timeout is exceeded.
  * - forkPathIds must be identical to the paired FORK nodes (including order)
  * - mainPathId specifies the main execution path, must be one of the values in forkPathIds
+ * - variableOutputs allows explicit variable export from branches to parent workflow
+ * - messageOutputs defines explicit message context outputs from branches using boundary-config pattern
  */
 export interface JoinNodeConfig {
   /**
@@ -54,4 +57,15 @@ export interface JoinNodeConfig {
   timeout?: number;
   /** Main execution path ID, must be a value in forkPathIds (required) */
   mainPathId: ID;
+  /** 
+   * Variable outputs mapping - explicitly defines which variables to export from branches to parent workflow
+   * Each mapping specifies source branch path and variable to export
+   */
+  variableOutputs?: WorkflowVariableOutput[];
+  /** 
+   * Message context outputs - explicitly defines which message contexts to export from branches to parent workflow
+   * Uses the same boundary-config pattern as START/END nodes for consistency
+   * Each output maps an internal context from a specific branch to an external context in the parent
+   */
+  messageOutputs?: Array<WorkflowMessageOutput & { sourcePathId: ID }>;
 }

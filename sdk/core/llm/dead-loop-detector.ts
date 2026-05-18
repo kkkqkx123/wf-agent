@@ -22,6 +22,7 @@ export class DeadLoopDetector {
 
   constructor(config: DeadLoopDetectorConfig = {}) {
     this.config = {
+      enabled: config.enabled ?? true,
       checkpoints: config.checkpoints || [500, 1000, 2000],
       shortSequenceWindow: config.shortSequenceWindow || 200,
       minRepeatUnitLength: config.minRepeatUnitLength || 2,

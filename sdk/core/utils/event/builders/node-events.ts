@@ -12,6 +12,9 @@ import type {
   ForkBranchStartedEvent,
   ForkBranchCompletedEvent,
   ForkCompletedEvent,
+  NodeSyncStartedEvent,
+  NodeSyncCompletedEvent,
+  NodeSyncFailedEvent,
 } from "@wf-agent/types";
 
 // =============================================================================
@@ -56,3 +59,22 @@ export const buildForkBranchCompletedEvent = createBuilder<ForkBranchCompletedEv
  * Build fork completed event
  */
 export const buildForkCompletedEvent = createBuilder<ForkCompletedEvent>("FORK_COMPLETED");
+
+// =============================================================================
+// Sync Events
+// =============================================================================
+
+/**
+ * Build sync node started event
+ */
+export const buildNodeSyncStartedEvent = createBuilder<NodeSyncStartedEvent>("NODE_SYNC_STARTED");
+
+/**
+ * Build sync node completed event
+ */
+export const buildNodeSyncCompletedEvent = createBuilder<NodeSyncCompletedEvent>("NODE_SYNC_COMPLETED");
+
+/**
+ * Build sync node failed event
+ */
+export const buildNodeSyncFailedEvent = createErrorBuilder<NodeSyncFailedEvent>("NODE_SYNC_FAILED");

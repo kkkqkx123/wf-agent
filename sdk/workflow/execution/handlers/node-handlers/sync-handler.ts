@@ -15,8 +15,19 @@
 
 import type { RuntimeNode, SyncNodeConfig } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
+import type { GlobalContext } from "../../../../core/global-context.js";
+import type { WorkflowExecutionRegistry } from "../../../stores/workflow-execution-registry.js";
+import type { EventRegistry } from "../../../../core/registry/event-registry.js";
 import { RuntimeValidationError } from "@wf-agent/types";
 import { createContextualLogger } from "../../../../utils/contextual-logger.js";
+import * as Identifiers from "../../../../core/di/service-identifiers.js";
+import {
+  buildNodeSyncStartedEvent,
+  buildNodeSyncCompletedEvent,
+  buildNodeSyncFailedEvent,
+} from "../../utils/event/index.js";
+import { emit } from "../../../../core/utils/event/event-emitter.js";
+import { getErrorOrNew } from "@wf-agent/common-utils";
 
 const logger = createContextualLogger({ component: "sync-handler" });
 
@@ -31,71 +42,146 @@ function canExecute(workflowExecutionEntity: WorkflowExecutionEntity): boolean {
 }
 
 /**
- * Find source branch execution entity by path ID
+ * Find source branch execution entity by path ID using parent's SyncBarrier
  * 
- * TODO: This is a placeholder implementation. The actual mechanism for finding
- * and waiting for sibling executions needs to be designed and implemented.
+ * This implementation uses the SyncBarrier attached to the parent execution
+ * to locate sibling branch executions by their forkPathId.
  * 
- * Current limitations:
- * - No direct access to sibling execution entities from within a branch
- * - Need coordination mechanism to locate executions by forkPathId
- * - Waiting logic needs proper event-based implementation
- * 
- * @param workflowExecutionEntity Current execution entity
+ * @param workflowExecutionEntity Current execution entity (child branch)
  * @param sourcePathId The fork path ID to find
+ * @param executionRegistry Registry to retrieve execution entities
  * @returns Source execution entity or undefined
  */
 async function findSourceExecution(
   workflowExecutionEntity: WorkflowExecutionEntity,
-  sourcePathId: string
+  sourcePathId: string,
+  executionRegistry: WorkflowExecutionRegistry
 ): Promise<WorkflowExecutionEntity | undefined> {
-  // PLACEHOLDER: This needs proper implementation
-  // For now, we'll log the requirement and return undefined
+  // Get parent execution to access its SyncBarrier
+  const parentContext = workflowExecutionEntity.getParentContext();
   
-  logger.warn("SYNC node: Finding source execution by pathId is not yet implemented", {
+  if (!parentContext || parentContext.parentType !== 'WORKFLOW') {
+    logger.warn("SYNC node: Cannot find parent execution", {
+      currentExecutionId: workflowExecutionEntity.id,
+      sourcePathId,
+      note: "SYNC nodes must be executed within a fork branch that has a WORKFLOW parent"
+    });
+    return undefined;
+  }
+  
+  const parentExecutionId = parentContext.parentId;
+  
+  // Get parent execution entity from registry
+  const parentExecutionEntity = executionRegistry.get(parentExecutionId);
+  
+  if (!parentExecutionEntity) {
+    logger.error("SYNC node: Parent execution not found in registry", {
+      currentExecutionId: workflowExecutionEntity.id,
+      parentExecutionId,
+    });
+    return undefined;
+  }
+  
+  // Get parent's SyncBarrier
+  const syncBarrier = parentExecutionEntity.getSyncBarrier();
+  
+  if (!syncBarrier) {
+    logger.error("SYNC node: Parent execution does not have SyncBarrier initialized", {
+      currentExecutionId: workflowExecutionEntity.id,
+      parentExecutionId,
+      note: "This indicates the FORK node was not processed correctly",
+    });
+    return undefined;
+  }
+  
+  // Use SyncBarrier to lookup execution ID by path ID
+  const sourceExecutionId = syncBarrier.getExecutionIdByPath(sourcePathId);
+  
+  if (!sourceExecutionId) {
+    logger.error("SYNC node: Fork path not registered in SyncBarrier", {
+      currentExecutionId: workflowExecutionEntity.id,
+      sourcePathId,
+      availablePaths: syncBarrier.getAllPathIds(),
+    });
+    return undefined;
+  }
+  
+  // Get source execution entity from registry
+  const sourceExecutionEntity = executionRegistry.get(sourceExecutionId);
+  
+  if (!sourceExecutionEntity) {
+    logger.error("SYNC node: Source execution not found in registry", {
+      currentExecutionId: workflowExecutionEntity.id,
+      sourceExecutionId,
+      sourcePathId,
+    });
+    return undefined;
+  }
+  
+  logger.debug("Found source execution via SyncBarrier", {
     currentExecutionId: workflowExecutionEntity.id,
     sourcePathId,
-    note: "This requires coordination with parent execution to locate sibling branches"
+    sourceExecutionId,
+    parentExecutionId,
   });
   
-  // TODO: Implement proper lookup mechanism
-  // Options:
-  // 1. Pass parent execution reference to child executions
-  // 2. Use execution registry to query by forkPathId
-  // 3. Store sibling execution IDs in execution context during FORK
-  
-  return undefined;
+  return sourceExecutionEntity;
 }
 
 /**
- * Wait for source execution to complete (placeholder)
+ * Wait for source execution to complete using SyncBarrier
  * 
- * TODO: Implement proper waiting mechanism using events or polling
+ * Uses the parent execution's SyncBarrier to wait for the source branch
+ * to complete via event-driven mechanism with optional timeout.
  * 
- * @param sourceExecutionEntity Source execution to wait for
+ * @param workflowExecutionEntity Current execution entity
+ * @param sourcePathId The fork path ID to wait for
  * @param timeout Timeout in seconds (0 = no timeout)
- * @returns Promise that resolves when source completes or timeout occurs
+ * @param executionRegistry Registry to retrieve execution entities
  */
 async function waitForSourceCompletion(
-  sourceExecutionEntity: WorkflowExecutionEntity,
-  timeout: number
+  workflowExecutionEntity: WorkflowExecutionEntity,
+  sourcePathId: string,
+  timeout: number,
+  executionRegistry: WorkflowExecutionRegistry
 ): Promise<void> {
-  // PLACEHOLDER: This needs proper implementation
+  // Get parent execution to access its SyncBarrier
+  const parentContext = workflowExecutionEntity.getParentContext();
   
-  logger.warn("SYNC node: Waiting for source execution completion is not yet implemented", {
-    sourceExecutionId: sourceExecutionEntity.id,
-    timeout,
-    note: "Need to implement event-based waiting or polling mechanism"
+  if (!parentContext || parentContext.parentType !== 'WORKFLOW') {
+    throw new Error(
+      `SYNC node cannot wait for completion: No WORKFLOW parent found for execution ${workflowExecutionEntity.id}`
+    );
+  }
+  
+  const parentExecutionEntity = executionRegistry.get(parentContext.parentId);
+  
+  if (!parentExecutionEntity) {
+    throw new Error(
+      `SYNC node cannot wait for completion: Parent execution not found: ${parentContext.parentId}`
+    );
+  }
+  
+  // Get parent's SyncBarrier
+  const syncBarrier = parentExecutionEntity.getSyncBarrier();
+  
+  if (!syncBarrier) {
+    throw new Error(
+      `SYNC node cannot wait for completion: Parent execution has no SyncBarrier`
+    );
+  }
+  
+  // Use SyncBarrier to wait for branch completion (reuses existing logic)
+  logger.debug("Waiting for source branch completion via SyncBarrier", {
+    sourcePathId,
+    timeout: timeout > 0 ? `${timeout}s` : "infinite",
   });
   
-  // TODO: Implement waiting mechanism
-  // Options:
-  // 1. Use eventManager.waitForExecutionCompleted()
-  // 2. Poll execution status with interval
-  // 3. Use Promise with timeout via Promise.race()
+  await syncBarrier.waitForBranchCompletion(sourcePathId, timeout);
   
-  // For now, just return immediately (no actual waiting)
-  return Promise.resolve();
+  logger.debug("Source branch completed", {
+    sourcePathId,
+  });
 }
 
 /**
@@ -104,11 +190,13 @@ async function waitForSourceCompletion(
  * Performs explicit variable synchronization from source branch to target branch
  * with deep cloning to maintain complete isolation.
  * 
+ * @param globalContext Global application context (for event emission and registry access)
  * @param workflowExecutionEntity Current workflow execution entity (target branch)
  * @param node Runtime node definition containing sync configuration
  * @returns Execution result
  */
 export async function syncHandler(
+  globalContext: GlobalContext,
   workflowExecutionEntity: WorkflowExecutionEntity,
   node: RuntimeNode
 ): Promise<unknown> {
@@ -150,59 +238,77 @@ export async function syncHandler(
     waitForCompletion: config.waitForCompletion ?? true,
   });
 
-  // Step 1: Find source execution entity
-  const sourceExecutionEntity = await findSourceExecution(
-    workflowExecutionEntity,
-    config.sourcePathId
-  );
+  // Get required dependencies from global context
+  const executionRegistry = globalContext.container.get(
+    Identifiers.WorkflowExecutionRegistry
+  ) as WorkflowExecutionRegistry;
+  
+  const eventManager = globalContext.container.get(
+    Identifiers.EventRegistry
+  ) as EventRegistry;
 
-  if (!sourceExecutionEntity) {
-    // If source not found and no mappings, skip silently
-    if (!config.variableMappings || config.variableMappings.length === 0) {
-      logger.info("SYNC node skipped - no source found and no variable mappings", {
-        nodeId: node.id,
-        sourcePathId: config.sourcePathId,
-      });
-      return {
-        synced: false,
-        reason: "Source execution not found (placeholder implementation)",
-      };
-    }
-    
-    throw new RuntimeValidationError(
-      `Source execution not found for pathId: ${config.sourcePathId}`,
-      {
-        operation: "syncHandler",
-        field: "sourcePathId",
-        context: {
-          nodeId: node.id,
-          sourcePathId: config.sourcePathId,
-          currentExecutionId: workflowExecutionEntity.id,
-        },
-      }
+  if (!executionRegistry) {
+    throw new Error("WorkflowExecutionRegistry not available in global context");
+  }
+  
+  if (!eventManager) {
+    throw new Error("EventRegistry not available in global context");
+  }
+
+  // Emit NODE_SYNC_STARTED event
+  await emit(eventManager, buildNodeSyncStartedEvent({
+    executionId: workflowExecutionEntity.id,
+    workflowId: workflowExecutionEntity.getWorkflowId(),
+    nodeId: node.id,
+    sourcePathId: config.sourcePathId,
+  }));
+
+  try {
+    // Step 1: Find source execution entity via SyncBarrier
+    const sourceExecutionEntity = await findSourceExecution(
+      workflowExecutionEntity,
+      config.sourcePathId,
+      executionRegistry
     );
-  }
 
-  // Step 2: Wait for source completion if configured
-  const shouldWait = config.waitForCompletion ?? true;
-  if (shouldWait) {
-    const timeout = config.timeout ?? 0;
-    logger.debug("Waiting for source execution completion", {
-      sourceExecutionId: sourceExecutionEntity.id,
-      timeout,
-    });
-    
-    await waitForSourceCompletion(sourceExecutionEntity, timeout);
-  }
+    if (!sourceExecutionEntity) {
+      throw new RuntimeValidationError(
+        `Source execution not found for pathId: ${config.sourcePathId}`,
+        {
+          operation: "syncHandler",
+          field: "sourcePathId",
+          context: {
+            nodeId: node.id,
+            sourcePathId: config.sourcePathId,
+            currentExecutionId: workflowExecutionEntity.id,
+          },
+        }
+      );
+    }
 
-  // Step 3: Import variables from source to target with deep cloning
-  if (config.variableMappings && config.variableMappings.length > 0) {
-    logger.debug("Importing variables from source to target", {
-      mappingCount: config.variableMappings.length,
-    });
+    // Step 2: Wait for source completion if configured
+    const shouldWait = config.waitForCompletion ?? true;
+    if (shouldWait) {
+      const timeout = config.timeout ?? 0;
+      logger.debug("Waiting for source execution completion", {
+        sourceExecutionId: sourceExecutionEntity.id,
+        timeout,
+      });
+      
+      await waitForSourceCompletion(
+        workflowExecutionEntity,
+        config.sourcePathId,
+        timeout,
+        executionRegistry
+      );
+    }
 
-    try {
-      // Use VariableManager's importVariables method which handles deep cloning
+    // Step 3: Import variables from source to target with deep cloning
+    if (config.variableMappings && config.variableMappings.length > 0) {
+      logger.debug("Importing variables from source to target", {
+        mappingCount: config.variableMappings.length,
+      });
+
       workflowExecutionEntity.variableStateManager.importVariables(
         sourceExecutionEntity.variableStateManager,
         config.variableMappings
@@ -212,31 +318,33 @@ export async function syncHandler(
         nodeId: node.id,
         importedVariableCount: config.variableMappings.length,
       });
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error("Failed to import variables during SYNC", {
-        nodeId: node.id,
-        error: errorMessage,
-      });
-      
-      throw new RuntimeValidationError(
-        `Failed to sync variables: ${errorMessage}`,
-        {
-          operation: "syncHandler",
-          field: "variableMappings",
-          context: {
-            nodeId: node.id,
-            originalError: error,
-          },
-        }
-      );
     }
-  }
 
-  // Return execution result
-  return {
-    synced: true,
-    sourcePathId: config.sourcePathId,
-    variableCount: config.variableMappings?.length || 0,
-  };
+    // Emit NODE_SYNC_COMPLETED event
+    await emit(eventManager, buildNodeSyncCompletedEvent({
+      executionId: workflowExecutionEntity.id,
+      workflowId: workflowExecutionEntity.getWorkflowId(),
+      nodeId: node.id,
+      sourcePathId: config.sourcePathId,
+      variableCount: config.variableMappings?.length || 0,
+    }));
+
+    return {
+      synced: true,
+      sourcePathId: config.sourcePathId,
+      variableCount: config.variableMappings?.length || 0,
+    };
+    
+  } catch (error) {
+    // Emit NODE_SYNC_FAILED event
+    await emit(eventManager, buildNodeSyncFailedEvent({
+      executionId: workflowExecutionEntity.id,
+      workflowId: workflowExecutionEntity.getWorkflowId(),
+      nodeId: node.id,
+      sourcePathId: config.sourcePathId,
+      error: getErrorOrNew(error),
+    }));
+    
+    throw error;
+  }
 }

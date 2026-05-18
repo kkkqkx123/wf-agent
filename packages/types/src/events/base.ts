@@ -171,7 +171,13 @@ export type EventType =
   /** Tool queue update (progressive) */
   | "TOOL_QUEUE_UPDATE"
   /** Tool approval annotated */
-  | "TOOL_APPROVAL_ANNOTATED";
+  | "TOOL_APPROVAL_ANNOTATED"
+  /** SYNC node started */
+  | "NODE_SYNC_STARTED"
+  /** SYNC node completed */
+  | "NODE_SYNC_COMPLETED"
+  /** SYNC node failed */
+  | "NODE_SYNC_FAILED";
 
 /**
  * Basic Event Types

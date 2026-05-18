@@ -537,6 +537,19 @@ export class AgentLoopEntity {
   }
 
   /**
+   * Get node ID from parent context (if parent is a workflow)
+   * 
+   * @returns Node ID if parent is a workflow, undefined otherwise
+   */
+  get nodeId(): string | undefined {
+    const parent = this.hierarchyManager.getParent();
+    if (parent && parent.parentType === 'WORKFLOW') {
+      return parent.nodeId;
+    }
+    return undefined;
+  }
+
+  /**
    * Register child execution reference (unified API)
    * 
    * Supports tracking both Workflow and Agent children spawned by this Agent.

@@ -26,7 +26,7 @@ import { InterruptionDetectorImpl, type InterruptionDetector } from "../interrup
 import {
   getWorkflowInterruptionDescription,
 } from "../../../core/utils/interruption/index.js";
-import type { WorkflowInterruptionCheckResult } from "../../../core/utils/interruption/index.js";
+import type { ExecutionInterruptionCheckResult } from "../../../core/utils/interruption/index.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import {
   buildToolApprovalRequestedEvent,
@@ -219,7 +219,7 @@ export class LLMExecutionCoordinator {
   private async executeSingleLLMCall(
     params: LLMExecutionParams,
     conversationState: ConversationSession,
-  ): Promise<string | WorkflowInterruptionCheckResult> {
+  ): Promise<string | ExecutionInterruptionCheckResult> {
     const { prompt, profileId, parameters, tools, maxToolCallsPerRequest, executionId, nodeId } =
       params;
 

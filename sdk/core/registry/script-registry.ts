@@ -121,15 +121,6 @@ class ScriptRegistry {
   }
 
   /**
-   * List scripts by type
-   * @param type: Script type
-   * @returns: Array of script definitions
-   */
-  listScriptsByType(type: string): Script[] {
-    return this.listScripts().filter(script => script.type === type);
-  }
-
-  /**
    * List scripts by category
    * @param category Script category
    * @returns Array of script definitions
@@ -242,13 +233,6 @@ class ScriptRegistry {
       throw new ConfigurationValidationError("Script name is required and must be a string", {
         configType: "script",
         field: "name",
-      });
-    }
-
-    if (!script.type || typeof script.type !== "string") {
-      throw new ConfigurationValidationError("Script type is required and must be a string", {
-        configType: "script",
-        field: "type",
       });
     }
 

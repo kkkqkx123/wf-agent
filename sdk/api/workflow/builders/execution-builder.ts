@@ -5,7 +5,8 @@
  */
 
 import type { WorkflowExecutionResult, WorkflowExecutionOptions, Event } from "@wf-agent/types";
-import { ok, err, getErrorOrNew, withAbortSignal, now } from "@wf-agent/common-utils";
+import { ok, err, getErrorOrNew, now } from "@wf-agent/common-utils";
+import { withAbortSignal } from "../../../core/utils/interruption/index.js";
 import type { Result, EventType } from "@wf-agent/types";
 import { Observable, create, type Observer } from "../../shared/utils/observable.js";
 import { ExecuteWorkflowCommand } from "../operations/execution/execute-workflow-command.js";
@@ -271,7 +272,7 @@ export class ExecutionBuilder {
    */
   private async executeWithSignal(signal: AbortSignal): Promise<Result<WorkflowExecutionResult, Error>> {
     // Wrapping execution logic with withAbortSignal
-    return withAbortSignal(async () => {
+    const result = await withAbortSignal(async () => {
       // Workflow execution using Command mode
       const command = new ExecuteWorkflowCommand(
         {
@@ -294,6 +295,13 @@ export class ExecutionBuilder {
         );
       }
     }, signal);
+
+    // Convert to Result type
+    if (result.ok) {
+      return result.value;
+    } else {
+      return err(result.error);
+    }
   }
 
   /**

@@ -13,7 +13,7 @@
 import type { InterruptionType } from "../../types/interruption-types.js";
 import {
   checkInterruption as baseCheckInterruption,
-} from "@wf-agent/common-utils";
+} from "./abort-signal-utils.js";
 
 /**
  * Extended interruption check result with execution context

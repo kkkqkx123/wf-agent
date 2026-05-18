@@ -6,8 +6,7 @@
 import {
   validateRequiredFields,
   validateStringLength,
-  validateBoolean,
-  validateEnum
+  validateBoolean
 } from '../../validation/validation-strategy.js';
 
 import type { Script } from '@wf-agent/types';
@@ -134,7 +133,7 @@ export class ScriptRegistryAPI extends CrudResourceAPI<Script, string, ScriptFil
     const errors: string[] = [];
 
     // Use a simplified validation tool to verify the required fields.
-    const requiredResult = validateRequiredFields(script, ['name', 'type', 'description'], 'script');
+    const requiredResult = validateRequiredFields(script, ['name', 'description'], 'script');
     if (requiredResult.isErr()) {
       errors.push(...requiredResult.unwrapOrElse(err => err.map(error => error.message)));
     }
@@ -165,15 +164,6 @@ export class ScriptRegistryAPI extends CrudResourceAPI<Script, string, ScriptFil
       const enabledResult = validateBoolean(script.enabled, 'enabled');
       if (enabledResult.isErr()) {
         errors.push(...enabledResult.unwrapOrElse(err => err.map(error => error.message)));
-      }
-    }
-
-    // Verify type enumeration values
-    if (script.type) {
-      const validTypes = ['javascript', 'typescript', 'python', 'shell'];
-      const typeResult = validateEnum(script.type, 'Script Type', validTypes);
-      if (typeResult.isErr()) {
-        errors.push(...typeResult.unwrapOrElse(err => err.map(error => error.message)));
       }
     }
 

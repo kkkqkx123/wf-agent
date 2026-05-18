@@ -216,10 +216,9 @@ export function formatScript(script: ScriptWithLanguage, options?: { verbose?: b
     return formatter.json(script);
   }
 
-  const type = script.type || "N/A";
   const language = script.language || "N/A";
 
-  return `${script.name || "unnamed"} (${script.id || "N/A"}) - ${type} - ${language}`;
+  return `${script.name || "unnamed"} (${script.id || "N/A"}) - ${language}`;
 }
 
 export function formatScriptList(scripts: ScriptWithLanguage[], options?: { table?: boolean }): string {
@@ -229,11 +228,10 @@ export function formatScriptList(scripts: ScriptWithLanguage[], options?: { tabl
   }
 
   if (options?.table) {
-    const headers = ["ID", "name", "typology", "multilingualism", "descriptive"];
+    const headers = ["ID", "name", "multilingualism", "descriptive"];
     const rows = scripts.map(s => [
       s.id?.substring(0, 8) || "N/A",
       s.name || "unnamed",
-      s.type || "N/A",
       s.language || "N/A",
       s.description || "-",
     ]);

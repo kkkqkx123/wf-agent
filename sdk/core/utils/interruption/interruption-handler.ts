@@ -11,7 +11,7 @@
 
 import {
   createNeverAbortSignal,
-} from "@wf-agent/common-utils";
+} from "./abort-signal-utils.js";
 import { isAbortError } from "../error-utils.js";
 import {
   checkWorkflowInterruption,

@@ -53,6 +53,11 @@ export interface InterruptionStateConfig {
 }
 
 /**
+ * Maximum number of event listeners to prevent performance degradation
+ */
+const MAX_EVENT_LISTENERS = 100;
+
+/**
  * Interruption State
  *
  * A general-purpose interrupt management component that supports shared use by both the Graph module and the Agent module.
@@ -72,58 +77,65 @@ export class InterruptionState {
   
   /** Event listeners for interruption notifications (PAUSE/STOP/RESUME) */
   private interruptionListeners: Array<(type: "PAUSE" | "STOP" | "RESUME") => void> = [];
+  
+  /** Concurrency control - prevents race conditions */
+  private isProcessing: boolean = false;
+  private pendingRequests: Array<() => void> = [];
 
   /**
    * Constructor
    * @param config Configuration options
    */
-  constructor(config: InterruptionStateConfig);
-
-  constructor(configOrContextId: InterruptionStateConfig | string, nodeId?: string) {
-    if (typeof configOrContextId === "string") {
-      // Backward compatibility: The old form of the constructor
-      this.contextId = configOrContextId;
-      this.nodeId = nodeId ?? "";
-    } else {
-      // New configuration object format
-      this.contextId = configOrContextId.contextId;
-      this.nodeId = configOrContextId.nodeId ?? "";
-      this.createInterruptionError = configOrContextId.createInterruptionError;
-    }
+  constructor(config: InterruptionStateConfig) {
+    this.contextId = config.contextId;
+    this.nodeId = config.nodeId ?? "";
+    this.createInterruptionError = config.createInterruptionError;
   }
 
   /**
    * Request to pause
    */
   requestPause(): void {
-    if (this.interruptionType === "PAUSE") {
-      return; // It is already in a paused state.
-    }
+    this.enqueueRequest(() => {
+      if (this.interruptionType === "PAUSE") {
+        return; // It is already in a paused state.
+      }
 
-    logger.info("Execution pause requested", { contextId: this.contextId, nodeId: this.nodeId });
-    this.interruptionType = "PAUSE";
-    const error = this.createError("Execution paused", "PAUSE");
-    this.abortController.abort(error);
-    
-    // Notify all listeners (including propagation proxy)
-    this.notifyInterruptionListeners("PAUSE");
+      logger.info("Execution pause requested", { contextId: this.contextId, nodeId: this.nodeId });
+      this.interruptionType = "PAUSE";
+      const error = this.createError("Execution paused", "PAUSE");
+      this.abortController.abort(error);
+      
+      // Notify all listeners (including propagation proxy)
+      this.notifyInterruptionListeners("PAUSE");
+    });
   }
 
   /**
    * Request to stop
    */
   requestStop(): void {
-    if (this.interruptionType === "STOP") {
-      return; // It is already in a stopped state.
-    }
+    this.enqueueRequest(() => {
+      if (this.interruptionType === "STOP") {
+        return; // It is already in a stopped state.
+      }
 
-    logger.info("Execution stop requested", { contextId: this.contextId, nodeId: this.nodeId });
-    this.interruptionType = "STOP";
-    const error = this.createError("Execution stopped", "STOP");
-    this.abortController.abort(error);
-    
-    // Notify all listeners (including propagation proxy)
-    this.notifyInterruptionListeners("STOP");
+      // If already PAUSE, upgrade to STOP
+      if (this.interruptionType === "PAUSE") {
+        logger.info("Upgrading PAUSE to STOP", {
+          contextId: this.contextId,
+          nodeId: this.nodeId,
+        });
+      }
+
+      logger.info("Execution stop requested", { contextId: this.contextId, nodeId: this.nodeId });
+      this.interruptionType = "STOP";
+      const error = this.createError("Execution stopped", "STOP");
+      this.abortController.abort(error);
+      
+      // Notify all listeners (including propagation proxy)
+      this.notifyInterruptionListeners("STOP");
+    });
   }
 
   /**
@@ -133,40 +145,53 @@ export class InterruptionState {
    * All registered resume listeners will be notified to refresh their signal references.
    * 
    * IMPORTANT: External code should NOT cache AbortSignal references across pause/resume cycles.
-   * Always call getAbortSignal() or getFreshAbortSignal() after resume() to obtain the current signal.
+   * Always call getAbortSignal() after resume() to obtain the current signal.
    * 
    * NOTE: Resume now automatically propagates to all children via event propagation,
    * consistent with PAUSE/STOP behavior. This ensures state consistency across the entire
    * execution hierarchy.
+   * 
+   * LISTENER BEHAVIOR:
+   * - All resume listeners are called once and then cleared to prevent memory leaks
+   * - If you need persistent listening, re-register after each resume using the unsubscribe pattern:
+   *   ```typescript
+   *   let unsubscribe = interruptionState.onResumed(() => {
+   *     // Handle resume
+   *     // Re-register for next resume
+   *     unsubscribe = interruptionState.onResumed(/* ... *\/);
+   *   });
+   *   ```
    */
   resume(): void {
-    logger.info("Execution resumed", { contextId: this.contextId, nodeId: this.nodeId });
-    this.interruptionType = null;
-    
-    // Create a new AbortController for fresh state
-    this.abortController = new AbortController();
-    
-    // Notify all listeners to refresh their signal references
-    // This prevents stale signal references from causing issues
-    const listeners = [...this.resumeListeners];
-    this.resumeListeners = []; // Clear listeners to prevent memory leaks
-    listeners.forEach(listener => {
-      try {
-        listener();
-      } catch (error) {
-        logger.warn("Error in resume listener", { 
-          contextId: this.contextId, 
-          error: error instanceof Error ? error.message : String(error) 
-        });
-      }
+    this.enqueueRequest(() => {
+      logger.info("Execution resumed", { contextId: this.contextId, nodeId: this.nodeId });
+      this.interruptionType = null;
+      
+      // Create a new AbortController for fresh state
+      this.abortController = new AbortController();
+      
+      // Notify all listeners to refresh their signal references
+      // This prevents stale signal references from causing issues
+      const listeners = [...this.resumeListeners];
+      this.resumeListeners = []; // Clear listeners to prevent memory leaks
+      listeners.forEach(listener => {
+        try {
+          listener();
+        } catch (error) {
+          logger.warn("Error in resume listener", { 
+            contextId: this.contextId, 
+            error: error instanceof Error ? error.message : String(error) 
+          });
+        }
+      });
+      
+      // Auto-propagate resume to children (consistent with pause/stop)
+      this.notifyInterruptionListeners("RESUME");
+      
+      // Help GC by removing references to old controller
+      // Note: The old controller's signal may still be referenced externally,
+      // but we've done our part to notify listeners
     });
-    
-    // Auto-propagate resume to children (consistent with pause/stop)
-    this.notifyInterruptionListeners("RESUME");
-    
-    // Help GC by removing references to old controller
-    // Note: The old controller's signal may still be referenced externally,
-    // but we've done our part to notify listeners
   }
   
   /**
@@ -191,6 +216,14 @@ export class InterruptionState {
    * ```
    */
   onResumed(callback: () => void): () => void {
+    if (this.resumeListeners.length >= MAX_EVENT_LISTENERS) {
+      logger.warn("Too many resume listeners registered", {
+        count: this.resumeListeners.length,
+        limit: MAX_EVENT_LISTENERS,
+        contextId: this.contextId,
+      });
+    }
+    
     this.resumeListeners.push(callback);
     
     // Return unsubscribe function
@@ -227,20 +260,6 @@ export class InterruptionState {
    */
   getAbortSignal(): AbortSignal {
     return this.abortController.signal;
-  }
-
-  /**
-   * Get a fresh AbortSignal (guaranteed to be current)
-   * 
-   * This is an alias for getAbortSignal() but makes it explicit that
-   * you're getting the most recent signal.
-   * 
-   * RECOMMENDED: Use this method after resume() or in conjunction with onResumed().
-   * 
-   * @returns The current AbortSignal
-   */
-  getFreshAbortSignal(): AbortSignal {
-    return this.getAbortSignal();
   }
 
   /**
@@ -335,6 +354,14 @@ export class InterruptionState {
    * ```
    */
   onInterrupted(callback: (type: "PAUSE" | "STOP" | "RESUME") => void): () => void {
+    if (this.interruptionListeners.length >= MAX_EVENT_LISTENERS) {
+      logger.warn("Too many interruption listeners registered", {
+        count: this.interruptionListeners.length,
+        limit: MAX_EVENT_LISTENERS,
+        contextId: this.contextId,
+      });
+    }
+    
     this.interruptionListeners.push(callback);
     
     return () => {
@@ -366,13 +393,60 @@ export class InterruptionState {
    * Cleanup resources (prevent memory leaks)
    */
   dispose(): void {
+    // Abort the controller to release any pending operations
+    if (!this.abortController.signal.aborted) {
+      this.abortController.abort(new Error('InterruptionState disposed'));
+    }
+    
     this.propagationProxy?.dispose();
     this.interruptionListeners = [];
     this.resumeListeners = [];
+    this.pendingRequests = []; // Clear pending requests
+    this.isProcessing = false;
+    
+    // Help GC by nullifying the controller reference
+    (this as any).abortController = null;
     
     logger.debug("InterruptionState disposed", {
       contextId: this.contextId,
     });
+  }
+  
+  /**
+   * Enqueue request for sequential processing (prevents race conditions)
+   */
+  private enqueueRequest(request: () => void): void {
+    if (this.isProcessing) {
+      // Queue the request for later processing
+      this.pendingRequests.push(request);
+      return;
+    }
+    
+    this.isProcessing = true;
+    try {
+      request();
+    } finally {
+      this.isProcessing = false;
+      // Process any pending requests
+      this.processPendingRequests();
+    }
+  }
+  
+  /**
+   * Process pending requests sequentially
+   */
+  private processPendingRequests(): void {
+    while (this.pendingRequests.length > 0) {
+      const request = this.pendingRequests.shift();
+      if (request) {
+        this.isProcessing = true;
+        try {
+          request();
+        } finally {
+          this.isProcessing = false;
+        }
+      }
+    }
   }
   
   /**
@@ -392,9 +466,10 @@ export class InterruptionState {
 
     // Default: throw a generic interruption exception.
     // Callers should provide createInterruptionError callback for module-specific exceptions.
+    // Use InterruptionInfo as the context to avoid duplication
     return new InterruptedException(message, type, {
-      contextId: this.contextId,
-      nodeId: this.nodeId,
+      contextId: info.contextId,
+      nodeId: info.nodeId,
     });
   }
 }

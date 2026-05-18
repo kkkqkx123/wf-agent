@@ -26,6 +26,38 @@ export interface PropagationResult {
 }
 
 /**
+ * Propagation failure type classification
+ */
+export enum PropagationFailureType {
+  TEMPORARY = 'TEMPORARY',    // Temporary failure, retryable
+  PERMANENT = 'PERMANENT',    // Permanent failure, not retryable
+  PARTIAL = 'PARTIAL',        // Partial failure
+}
+
+/**
+ * Propagation error with classification
+ */
+export interface PropagationError extends Error {
+  readonly name: string;
+  readonly failureType: PropagationFailureType;
+  readonly childContextId: string;
+  readonly retryable: boolean;
+}
+
+/**
+ * Aggregate error for multiple propagation failures
+ */
+export class AggregatePropagationError extends Error {
+  constructor(
+    public failures: Array<{ contextId: string; error: PropagationError }>,
+    public interruptionType: string
+  ) {
+    super(`Propagation failed for ${failures.length} children`);
+    this.name = 'AggregatePropagationError';
+  }
+}
+
+/**
  * Error thrown when propagation fails critically
  */
 export class InterruptionPropagationError extends Error {
@@ -52,7 +84,7 @@ export class InterruptionPropagationProxy {
   
   // Performance monitoring
   private static MAX_RECOMMENDED_DEPTH = 10;
-  private currentDepth: number = 0;
+  private static MAX_ACCEPTABLE_LATENCY_MS = 100;
   
   /**
    * Attach to parent interruption state
@@ -85,10 +117,12 @@ export class InterruptionPropagationProxy {
    * The child will receive all future interruption events from this proxy
    */
   registerChild(childState: InterruptionState): void {
-    // Detect circular reference
-    if (this.parentState === childState) {
-      throw new Error("Cannot register parent as child");
+    // Detect circular reference (including indirect references)
+    const visited = new Set<string>();
+    if (this.parentState) {
+      visited.add(this.parentState.getContextId());
     }
+    this.detectCircularReference(childState, visited);
     
     this.childStates.add(childState);
     
@@ -106,6 +140,35 @@ export class InterruptionPropagationProxy {
       childContextId: childState.getContextId(),
       totalChildren: this.childStates.size,
     });
+  }
+  
+  /**
+   * Detect circular reference in the interruption state hierarchy
+   * Uses DFS to traverse the entire tree and check for cycles
+   */
+  private detectCircularReference(
+    childState: InterruptionState,
+    visited: Set<string>
+  ): void {
+    const childId = childState.getContextId();
+    
+    // Check if we've already visited this node
+    if (visited.has(childId)) {
+      throw new Error(
+        `Circular reference detected: ${childId}. ` +
+        `Visited path: ${Array.from(visited).join(' -> ')}`
+      );
+    }
+    
+    visited.add(childId);
+    
+    // Recursively check the child's children (if it has a propagation proxy)
+    const childProxy = (childState as any).propagationProxy as InterruptionPropagationProxy | undefined;
+    if (childProxy) {
+      for (const grandChild of childProxy.childStates) {
+        this.detectCircularReference(grandChild, new Set(visited));
+      }
+    }
   }
   
   /**
@@ -127,56 +190,103 @@ export class InterruptionPropagationProxy {
    * Propagate interruption to all registered children
    * @returns Propagation result with success status and failed children list
    */
-  private propagateToInterruption(type: "PAUSE" | "STOP" | "RESUME"): PropagationResult {
-    this.currentDepth++;
+  private propagateToInterruption(
+    type: "PAUSE" | "STOP" | "RESUME",
+    currentDepth: number = 0
+  ): PropagationResult {
+    const startTime = performance.now();
+    const depth = currentDepth + 1;
     
-    const failedChildren: string[] = [];
+    const failedChildren: Array<{ contextId: string; error: PropagationError }> = [];
     const totalChildren = this.childStates.size;
     
     // Monitor deep nesting
-    if (this.currentDepth > InterruptionPropagationProxy.MAX_RECOMMENDED_DEPTH) {
+    if (depth > InterruptionPropagationProxy.MAX_RECOMMENDED_DEPTH) {
       logger.warn("Deep interruption propagation detected", {
-        depth: this.currentDepth,
+        depth,
         type,
         parentContextId: this.parentState?.getContextId(),
         maxRecommendedDepth: InterruptionPropagationProxy.MAX_RECOMMENDED_DEPTH,
       });
+      
+      // Report metric
+      this.reportMetric('propagation_depth', depth);
     }
     
     logger.debug("Propagating interruption to children", {
       type,
       childCount: totalChildren,
-      depth: this.currentDepth,
+      depth,
     });
     
     for (const childState of this.childStates) {
       try {
         this.syncChildState(childState, type);
+        // Recursively propagate to grandchildren with incremented depth
+        const childProxy = (childState as any).propagationProxy as InterruptionPropagationProxy | undefined;
+        if (childProxy && childProxy.childStates.size > 0) {
+          childProxy.propagateToInterruption(type, depth);
+        }
       } catch (error) {
-        failedChildren.push(childState.getContextId());
-        logger.error("Critical: Failed to propagate to child", {
-          childContextId: childState.getContextId(),
-          type,
-          error: error instanceof Error ? error.message : String(error),
+        const propError = this.classifyError(error, childState);
+        failedChildren.push({
+          contextId: childState.getContextId(),
+          error: propError,
         });
+        
+        // Attempt retry for temporary failures
+        if (propError.retryable) {
+          this.retryPropagation(childState, type, propError).catch((retryError) => {
+            logger.error("Propagation retry exhausted", {
+              childContextId: childState.getContextId(),
+              attempts: 3,
+              originalError: propError.message,
+              retryError: retryError instanceof Error ? retryError.message : String(retryError),
+            });
+          });
+        } else {
+          logger.error("Non-retryable propagation failure", {
+            childContextId: childState.getContextId(),
+            type,
+            error: propError.message,
+            failureType: propError.failureType,
+          });
+        }
       }
     }
     
-    this.currentDepth--;
+    const elapsed = performance.now() - startTime;
     
+    // Monitor latency
+    if (elapsed > InterruptionPropagationProxy.MAX_ACCEPTABLE_LATENCY_MS) {
+      logger.warn("Slow interruption propagation", {
+        latencyMs: elapsed,
+        depth,
+        type,
+        childCount: totalChildren,
+      });
+      
+      // Report metric
+      this.reportMetric('propagation_latency', elapsed);
+    }
+    
+    const failedIds = failedChildren.map(f => f.contextId);
     const result: PropagationResult = {
-      success: failedChildren.length === 0,
-      failedChildren,
+      success: failedIds.length === 0,
+      failedChildren: failedIds,
       totalChildren,
     };
     
     if (!result.success) {
       logger.error("Interruption propagation partially failed", {
         type,
-        failedCount: failedChildren.length,
+        failedCount: failedIds.length,
         totalCount: totalChildren,
-        failedChildren,
+        failedChildren: failedIds,
       });
+      
+      // Throw aggregate error for caller to handle
+      throw new AggregatePropagationError(failedChildren, type);
     }
     
     return result;
@@ -205,6 +315,108 @@ export class InterruptionPropagationProxy {
   }
   
   /**
+   * Classify error for appropriate handling
+   */
+  private classifyError(error: any, childState: InterruptionState): PropagationError {
+    // Check for timeout errors (temporary)
+    if (error instanceof Error && error.message.includes('timeout')) {
+      return {
+        name: 'PropagationTimeoutError',
+        message: error.message,
+        failureType: PropagationFailureType.TEMPORARY,
+        childContextId: childState.getContextId(),
+        retryable: true,
+      };
+    }
+    
+    // Check for null/undefined state errors (permanent)
+    if (error instanceof TypeError && error.message.includes('null') || error.message.includes('undefined')) {
+      return {
+        name: 'StateCorruptionError',
+        message: error.message,
+        failureType: PropagationFailureType.PERMANENT,
+        childContextId: childState.getContextId(),
+        retryable: false,
+      };
+    }
+    
+    // Default to temporary failure for unknown errors
+    return {
+      name: 'UnknownPropagationError',
+      message: error instanceof Error ? error.message : String(error),
+      failureType: PropagationFailureType.TEMPORARY,
+      childContextId: childState.getContextId(),
+      retryable: true,
+    };
+  }
+  
+  /**
+   * Retry propagation for temporary failures
+   */
+  private async retryPropagation(
+    childState: InterruptionState,
+    type: "PAUSE" | "STOP" | "RESUME",
+    error: PropagationError,
+    maxRetries: number = 3
+  ): Promise<void> {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        // Exponential backoff (skip delay on first attempt)
+        if (attempt > 1) {
+          await this.delay(100 * Math.pow(2, attempt - 2));
+        }
+        
+        this.syncChildState(childState, type);
+        
+        logger.info("Propagation retry succeeded", {
+          childContextId: childState.getContextId(),
+          attempt,
+          type,
+        });
+        return;
+      } catch (retryError) {
+        if (attempt === maxRetries) {
+          logger.error("Propagation retry exhausted", {
+            childContextId: childState.getContextId(),
+            attempts: maxRetries,
+            originalError: error.message,
+            retryError: retryError instanceof Error ? retryError.message : String(retryError),
+          });
+          throw retryError;
+        }
+        
+        logger.debug("Propagation retry attempt failed", {
+          childContextId: childState.getContextId(),
+          attempt,
+          maxRetries,
+        });
+      }
+    }
+  }
+  
+  /**
+   * Delay utility for retry backoff
+   */
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+  
+  /**
+   * Report performance metric
+   * @param name Metric name
+   * @param value Metric value
+   */
+  private reportMetric(name: string, value: number): void {
+    // Integration point for metrics system
+    // Example: metrics.histogram(`interruption.${name}`, value);
+    logger.debug("Interruption propagation metric", {
+      metric: name,
+      value,
+      parentContextId: this.parentState?.getContextId(),
+    });
+  }
+  
+  /**
    * Cleanup all subscriptions (prevent memory leaks)
    */
   dispose(): void {
@@ -216,7 +428,6 @@ export class InterruptionPropagationProxy {
     const childCount = this.childStates.size;
     this.childStates.clear();
     this.parentState = undefined;
-    this.currentDepth = 0;
     
     logger.debug("Propagation proxy disposed", {
       cleanedUpChildren: childCount,

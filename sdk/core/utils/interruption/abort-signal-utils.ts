@@ -89,27 +89,43 @@ export async function withAbortSignal<T>(
 ): Promise<{ ok: true; value: T } | { ok: false; error: Error }> {
   try {
     if (signal?.aborted) {
+      const originalError = signal.reason as Error;
+      const newError = new Error(originalError?.message || 'Operation aborted');
+      // Preserve the original error in the cause chain for debugging
+      if (originalError) {
+        newError.cause = originalError;
+      }
       return {
         ok: false,
-        error: new Error((signal.reason as Error)?.message || 'Operation aborted'),
+        error: newError,
       };
     }
     
     const result = await fn();
     
     if (signal?.aborted) {
+      const originalError = signal.reason as Error;
+      const newError = new Error(originalError?.message || 'Operation aborted');
+      if (originalError) {
+        newError.cause = originalError;
+      }
       return {
         ok: false,
-        error: new Error((signal.reason as Error)?.message || 'Operation aborted'),
+        error: newError,
       };
     }
     
     return { ok: true, value: result };
   } catch (error) {
     if (signal?.aborted && (error instanceof DOMException || (error instanceof Error && error.name === 'AbortError'))) {
+      const originalError = signal.reason as Error;
+      const newError = new Error(originalError?.message || 'Operation aborted');
+      if (originalError) {
+        newError.cause = originalError;
+      }
       return {
         ok: false,
-        error: new Error((signal.reason as Error)?.message || 'Operation aborted'),
+        error: newError,
       };
     }
     return {
@@ -149,13 +165,4 @@ export function checkInterruption(signal?: AbortSignal): InterruptionCheckResult
     type: "aborted",
     reason,
   };
-}
-
-/**
- * Determine whether to continue execution
- * @param result The result of the interruption check
- * @returns Whether to continue
- */
-export function shouldContinue(result: InterruptionCheckResult): boolean {
-  return result.type === "continue";
 }

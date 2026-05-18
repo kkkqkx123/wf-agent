@@ -40,6 +40,7 @@ import type { ExecutionHierarchyRegistry } from "../../core/registry/execution-h
 import { createAgentInterruptionAbortReason } from "../execution/utils/index.js";
 import { ToolFailureProtectionState } from "../../core/state-managers/tool-failure-protection-state.js";
 import type { ToolFailureProtectionConfig } from "../../core/state-managers/tool-failure-protection-types.js";
+import type { InterruptionState } from "../../core/utils/interruption/interruption-state.js";
 
 /**
  * Steering Mode
@@ -95,6 +96,12 @@ export class AgentLoopEntity {
 
   /** Execution Hierarchy Manager (unified parent-child relationship management) */
   private hierarchyManager: ExecutionHierarchyManager;
+
+  /** 
+   * Interruption State Manager (optional, should be set by coordinator)
+   * This ensures that getAbortSignal() returns the same signal used by the coordinator
+   */
+  private interruptionState?: InterruptionState;
 
   // ========== Steering & Follow-up ==========
 
@@ -267,13 +274,27 @@ export class AgentLoopEntity {
   // Stop control ==========
 
   /**
-   * Getting the abort signal
+   * Set the interruption state manager (called by coordinator after creation)
+   * @param interruptionState The InterruptionState instance to use
    */
-  getAbortSignal(): AbortSignal {
-    if (!this.abortController) {
-      this.abortController = new AbortController();
-    }
-    return this.abortController.signal;
+  setInterruptionState(interruptionState: InterruptionState): void {
+    this.interruptionState = interruptionState;
+  }
+  
+  /**
+   * Get the interruption state manager
+   * @returns The InterruptionState instance or undefined if not set
+   */
+  getInterruptionState(): InterruptionState | undefined {
+    return this.interruptionState;
+  }
+
+  /**
+   * Get the AbortSignal from the interruption state
+   * @returns The current AbortSignal or undefined if interruption state is not set
+   */
+  getAbortSignal(): AbortSignal | undefined {
+    return this.interruptionState?.getAbortSignal();
   }
 
   /**
@@ -345,9 +366,17 @@ export class AgentLoopEntity {
 
   /**
    * Reset interrupt flag
+   * 
+   * NOTE: This method now also calls interruptionState.resume() to trigger
+   * automatic cascade propagation to all children (if interruption state is set).
    */
   resetInterrupt(): void {
     this.state.resetInterrupt();
+    
+    // Trigger resume on interruption state to auto-propagate to children
+    if (this.interruptionState) {
+      this.interruptionState.resume();
+    }
   }
 
   // ========== Steering & Follow-up ==========
@@ -699,23 +728,28 @@ export class AgentLoopEntity {
    * This method should be called when the entity is no longer needed.
    */
   cleanup(): void {
-    // Cleanup state
+    // Step 1: Dispose interruption state (cleans up all listeners and child references)
+    // Note: InterruptionState.dispose() automatically unsubscribes from parent and clears all child subscriptions
+    this.interruptionState?.dispose();
+    
+    // Step 2: Cleanup other resources
     this.state.cleanup();
-
-    // Cleanup conversation manager
     this.conversationManager.cleanup();
-
-    // Cleanup tool failure protection state
     this.toolFailureProtection.cleanup();
-
-    // Clear abort controller
     this.abortController = undefined;
-
+    
     // Clear queues
     this.clearAllQueues();
-
+    
     // Clear tool cache
     this.cachedAvailableTools = undefined;
+    
+    // Clear hierarchy manager
+    this.hierarchyManager = new ExecutionHierarchyManager(
+      this.id,
+      'AGENT_LOOP',
+      undefined
+    );
   }
 
   // ========== Factory Methods ==========

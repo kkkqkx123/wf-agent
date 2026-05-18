@@ -24,7 +24,7 @@ SDK 采用了**分层中断处理架构**：
 #### 执行上下文层 (`sdk/core/utils/interruption`)
 - ✅ `ExecutionInterruptionCheckResult` - 扩展的中断检查结果类型
 - ✅ `checkWorkflowInterruption()` - 解析 AbortSignal 并提取执行上下文
-- ✅ `shouldContinue()` - 判断是否继续执行
+- ✅ `shouldContinueExecution()` - 判断是否继续执行
 - ✅ `getWorkflowInterruptionDescription()` - 生成用户友好的描述
 
 #### 统一处理器层 (`sdk/core/utils/interruption/interruption-handler.ts`)
@@ -120,7 +120,7 @@ if (!result.success) {
 const abortSignal = workflowExecutionEntity.getAbortSignal();
 const interruption = checkWorkflowInterruption(abortSignal);
 
-if (!shouldContinue(interruption)) {
+if (!shouldContinueExecution(interruption)) {
   logger.info("Hook execution interrupted", {...});
   throw new Error(`Hook execution interrupted: ${getWorkflowInterruptionDescription(interruption)}`);
 }
@@ -207,12 +207,12 @@ if (error instanceof Error && error.name === "AbortError") {
 // 当前实现（手动检查）
 while (entity.state.currentIteration < maxIterations) {
   const preLLMInterruption = checkWorkflowInterruption(entity.getAbortSignal());
-  if (!shouldContinue(preLLMInterruption)) {
+  if (!shouldContinueExecution(preLLMInterruption)) {
     // 处理中断
   }
   // 执行 LLM 调用
   const postLLMInterruption = checkWorkflowInterruption(entity.getAbortSignal());
-  if (!shouldContinue(postLLMInterruption)) {
+  if (!shouldContinueExecution(postLLMInterruption)) {
     // 处理中断
   }
 }
@@ -241,11 +241,6 @@ const result = await executeWithInterruptionHandling(
 
 **当前实现**：
 ```typescript
-const interrupt = checkWorkflowInterruption(abortSignal);
-if (!shouldContinue(interrupt)) {
-  throw new Error(`Hook execution interrupted: ...`);
-}
-
 // 执行 Hooks（可能耗时较长）
 await executeHooks(hooks, context, ...);
 ```

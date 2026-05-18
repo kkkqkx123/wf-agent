@@ -9,7 +9,6 @@ export {
   combineAbortSignals,
   withAbortSignal,
   checkInterruption,
-  shouldContinue,
   type InterruptionCheckResult,
 } from "./abort-signal-utils.js";
 

@@ -27,7 +27,25 @@ const mockParentEntity = {
   getHierarchyMetadata: vi.fn().mockReturnValue({ depth: 0 }),
   getRootExecutionId: vi.fn().mockReturnValue('root-execution-123'),
   getRootExecutionType: vi.fn().mockReturnValue('WORKFLOW'),
-  registerChild: vi.fn()
+  registerChild: vi.fn(),
+  getAbortSignal: vi.fn().mockReturnValue({ aborted: false }),
+  getWorkflowExecutionData: vi.fn().mockReturnValue({ 
+    id: 'parent-execution-123',
+    messageContextRegistry: {} // Add registry for parent entity
+  }),
+  getGraph: vi.fn().mockReturnValue({
+    startNodeId: 'start-node',
+    getNode: vi.fn().mockReturnValue({
+      id: 'start-node',
+      type: 'START'
+    })
+  }),
+  enterSubgraph: vi.fn(),
+  getCurrentSubgraphContext: vi.fn().mockReturnValue({
+    workflowId: 'child-workflow',
+    nodeId: 'subgraph-node-1'
+  }),
+  exitSubgraph: vi.fn()
 } as unknown as WorkflowExecutionEntity;
 
 const createMockSubgraphNode = (config?: Partial<SubgraphNodeConfig>): RuntimeNode => {
@@ -40,7 +58,11 @@ const createMockSubgraphNode = (config?: Partial<SubgraphNodeConfig>): RuntimeNo
     ],
     variableOutputs: [
       { internalName: 'childResult', externalName: 'parentResult' }
-    ]
+    ],
+    messagePassing: {
+      inputs: {},
+      outputs: {}
+    }
   };
 
   const mergedConfig = { ...baseConfig, ...config };
@@ -68,7 +90,23 @@ const mockSubgraphEntity = {
   variableStateManager: {
     exportVariables: vi.fn()
   },
-  getHierarchyMetadata: vi.fn().mockReturnValue({ depth: 1 })
+  getHierarchyMetadata: vi.fn().mockReturnValue({ depth: 1 }),
+  getAbortSignal: vi.fn().mockReturnValue({ aborted: false }),
+  getWorkflowExecutionData: vi.fn().mockReturnValue({ 
+    id: 'subgraph-execution-456',
+    messageContextRegistry: {} // Add registry to the returned object
+  }),
+  getGraph: vi.fn().mockReturnValue({
+    startNodeId: 'start-node',
+    getNode: vi.fn().mockReturnValue({
+      id: 'start-node',
+      type: 'START'
+    })
+  }),
+  getParentContext: vi.fn().mockReturnValue({
+    parentType: 'WORKFLOW',
+    parentId: 'parent-execution-123'
+  })
 } as unknown as WorkflowExecutionEntity;
 
 const mockExecutionBuilder = {
@@ -137,7 +175,7 @@ describe('subgraphHandler', () => {
     );
     
     expect(result).toEqual({
-      subworkflowEntity: mockSubgraphEntity,
+      subgraphEntity: mockSubgraphEntity,
       executionResult: { success: true, output: { result: 'success' } },
       executionTime: expect.any(Number)
     });
@@ -235,6 +273,13 @@ describe('subgraphHandler', () => {
         { internalName: 'optionalResult', externalName: 'parentOptionalResult' }
       ]
     });
+    
+    // Reset mock to return success (previous test set it to reject)
+    mockWorkflowExecutor.executeWorkflow.mockResolvedValue({
+      success: true,
+      output: { result: 'success' }
+    });
+    
     const context = {
       executionBuilder: mockExecutionBuilder as any,
       workflowExecutor: mockWorkflowExecutor as any

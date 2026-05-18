@@ -127,6 +127,8 @@ export type ChildExecutionReference =
       createdAt: Timestamp;
       /** Fork path ID (for FORK_JOIN executions) */
       forkPathId?: ID;
+      /** Whether child inherits parent's interruption state */
+      inheritsInterruption?: boolean;
     }
   | {
       /** Child is an Agent Loop execution */
@@ -135,6 +137,8 @@ export type ChildExecutionReference =
       childId: ID;
       /** Creation timestamp */
       createdAt: Timestamp;
+      /** Whether child inherits parent's interruption state */
+      inheritsInterruption?: boolean;
     };
 
 /**

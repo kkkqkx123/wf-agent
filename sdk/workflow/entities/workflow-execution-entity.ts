@@ -740,4 +740,28 @@ export class WorkflowExecutionEntity {
     } as unknown as P;
     return builder(fullParams);
   }
+
+  /**
+   * Cleanup all resources held by this entity
+   * This method should be called when the entity is no longer needed.
+   */
+  cleanup(): void {
+    // Step 1: Dispose interruption state (cleans up all listeners and child references)
+    // Note: InterruptionState.dispose() automatically unsubscribes from parent and clears all child subscriptions
+    this.interruptionState?.dispose();
+    
+    // Step 2: Cleanup other resources
+    this.state.cleanup();
+    this.messageHistoryManager.clearMessages();
+    this.variableStateManager.cleanup();
+    this.toolFailureProtection.cleanup();
+    this.abortController = undefined;
+    
+    // Clear hierarchy manager
+    this.hierarchyManager = new ExecutionHierarchyManager(
+      this.id,
+      'WORKFLOW',
+      undefined
+    );
+  }
 }

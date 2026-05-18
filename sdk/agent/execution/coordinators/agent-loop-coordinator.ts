@@ -19,6 +19,9 @@ import type { GlobalContext } from "../../../core/global-context.js";
 import { AgentLoopStateTransitor } from "./agent-loop-state-transitor.js";
 import type { AgentLoopMetricsCollector } from "../../../core/metrics/agent-loop-collector.js";
 import { now } from "@wf-agent/common-utils";
+import * as Identifiers from "../../../core/di/service-identifiers.js";
+import type { InterruptionStateFactory } from "../../../core/di/factory-types.js";
+import type { InterruptionState } from "../../../core/utils/interruption/interruption-state.js";
 
 const logger = createContextualLogger({ component: "AgentLoopCoordinator" });
 
@@ -78,7 +81,22 @@ export class AgentLoopCoordinator {
     }
 
     // Create a new instance using the factory method.
-    return AgentLoopFactory.create(this.globalContext, config, options);
+    const entity = await AgentLoopFactory.create(this.globalContext, config, options);
+    
+    // Create and set InterruptionState for the agent loop
+    const interruptionManagerFactory = this.globalContext.container.get(Identifiers.InterruptionState);
+    const interruptionManager = (
+      interruptionManagerFactory as unknown as InterruptionStateFactory<InterruptionState>
+    ).create(entity.id, ''); // Agent loops don't have nodeId concept
+    
+    // Set the interruption state on the entity so getAbortSignal() returns the same signal
+    entity.setInterruptionState(interruptionManager);
+    
+    logger.debug("InterruptionState set for Agent Loop", {
+      agentLoopId: entity.id,
+    });
+    
+    return entity;
   }
 
   /**

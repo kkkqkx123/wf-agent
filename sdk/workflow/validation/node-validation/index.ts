@@ -1,6 +1,7 @@
 /**
- * Node Validation Function Module
- * Provides validation functions for all types of nodes
+ * Static node Validation Function Module
+ * Provides simple static validation functions for all types of nodes
+ * Only use zod schema to verify config
  *
  * Subgraph nodes do not exist during the execution phase, therefore no processing is required.
  */

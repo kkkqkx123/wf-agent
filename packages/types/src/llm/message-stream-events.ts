@@ -20,7 +20,8 @@ export type MessageStreamEventType =
   | "finalMessage" /** Final message confirmation */
   | "error" /** Error occurred */
   | "abort" /** Stream aborted */
-  | "end"; /** Stream ended */
+  | "end" /** Stream ended */
+  | "reasoningText"; /** Reasoning content increment */
 
 /**
  * Message Flow Event Types
@@ -35,7 +36,8 @@ export type MessageStreamEvent =
   | MessageStreamFinalMessageEvent
   | MessageStreamErrorEvent
   | MessageStreamAbortEvent
-  | MessageStreamEndEvent;
+  | MessageStreamEndEvent
+  | MessageStreamReasoningTextEvent;
 
 /**
  * Message stream connection event
@@ -174,3 +176,18 @@ export interface MessageStreamEndEvent {
  * End event listener type
  */
 export type EndEventListener = () => void;
+
+/**
+ * Message Stream Reasoning Content Incremental Event
+ * Emitted for each reasoning content delta received from the LLM
+ */
+export interface MessageStreamReasoningTextEvent {
+  type: "reasoningText";
+  delta: string;
+  snapshot: string;
+}
+
+/**
+ * Reasoning text event listener type
+ */
+export type ReasoningTextEventListener = (delta: string, snapshot: string) => void;

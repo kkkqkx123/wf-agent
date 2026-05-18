@@ -113,8 +113,16 @@ export class LLMWrapper {
     const client = this.clientFactory.createClient(profile);
     const startTime = now();
 
-    // Create a MessageStream
-    const stream = new MessageStream();
+    // Create a MessageStream with dead loop detection configuration
+    const deadLoopConfig = request.deadLoopDetection;
+    const streamOptions = {
+      enableDeadLoopDetection: deadLoopConfig?.enabled !== false,
+      deadLoopConfig: deadLoopConfig?.enabled !== false ? deadLoopConfig : undefined,
+    };
+    const stream = new MessageStream(streamOptions);
+    
+    // Reset dead loop detector for new request
+    stream.resetDeadLoopDetector();
 
     // Flowing statistical information
     let chunkCount = 0;
@@ -142,6 +150,11 @@ export class LLMWrapper {
           // Push the text content to MessageStream.
           if (chunk.content) {
             stream.pushText(chunk.content);
+          }
+
+          // Push reasoning content to MessageStream
+          if (chunk.reasoningContent) {
+            stream.pushReasoning(chunk.reasoningContent);
           }
 
           if (chunk.finishReason) {

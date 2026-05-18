@@ -18,9 +18,11 @@ import {
   MessageStreamErrorEvent,
   MessageStreamAbortEvent,
   MessageStreamEndEvent,
+  MessageStreamReasoningTextEvent,
 } from "@wf-agent/types";
 import { getErrorOrNew } from "@wf-agent/common-utils";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
+import { DeadLoopDetector, DeadLoopDetectionResult, DeadLoopDetectorConfig } from "./dead-loop-detector.js";
 
 const logger = createContextualLogger({ component: "MessageStream" });
 
@@ -46,6 +48,18 @@ interface InternalStreamEvent {
 }
 
 /**
+ * MessageStream configuration options
+ */
+export interface MessageStreamOptions {
+  /** Enable dead loop detection for reasoning content (default: true) */
+  enableDeadLoopDetection?: boolean;
+  /** Dead loop detector configuration */
+  deadLoopConfig?: DeadLoopDetectorConfig;
+  /** Callback when dead loop is detected */
+  onDeadLoopDetected?: (result: DeadLoopDetectionResult) => void;
+}
+
+/**
  * Message flow
  */
 export class MessageStream implements AsyncIterable<InternalStreamEvent> {
@@ -66,8 +80,13 @@ export class MessageStream implements AsyncIterable<InternalStreamEvent> {
   private catchingPromiseCreated: boolean;
   private pushQueue: InternalStreamEvent[];
   private readQueue: Array<(event: InternalStreamEvent) => void>;
+  
+  // Dead loop detection fields
+  private reasoningMessage: string = "";
+  private deadLoopDetector?: DeadLoopDetector;
+  private onDeadLoopDetected?: (result: DeadLoopDetectionResult) => void;
 
-  constructor() {
+  constructor(options?: MessageStreamOptions) {
     this.receivedMessages = [];
     this.currentMessageSnapshot = null;
     this.currentTextSnapshot = "";
@@ -82,6 +101,12 @@ export class MessageStream implements AsyncIterable<InternalStreamEvent> {
     this.catchingPromiseCreated = false;
     this.pushQueue = [];
     this.readQueue = [];
+    
+    // Initialize dead loop detector if enabled
+    if (options?.enableDeadLoopDetection !== false) {
+      this.deadLoopDetector = new DeadLoopDetector(options?.deadLoopConfig);
+      this.onDeadLoopDetected = options?.onDeadLoopDetected;
+    }
 
     // Create an end Promise
     this.endPromise = new Promise((resolve, reject) => {
@@ -280,6 +305,63 @@ export class MessageStream implements AsyncIterable<InternalStreamEvent> {
       delta,
       snapshot: this.currentTextSnapshot,
     } as MessageStreamTextEvent);
+  }
+
+  /**
+   * Push reasoning content increment
+   * @param delta Reasoning content increment
+   */
+  pushReasoning(delta: string): void {
+    if (this.ended || this.errored || this.aborted) {
+      return;
+    }
+
+    this.reasoningMessage += delta;
+    
+    // Check for dead loop if detector is enabled
+    if (this.deadLoopDetector) {
+      try {
+        const detectionResult = this.deadLoopDetector.detect(this.reasoningMessage);
+        if (detectionResult.detected) {
+          logger.warn('Dead loop detected in reasoning content', {
+            type: detectionResult.type,
+            details: detectionResult.details,
+            reasoningLength: this.reasoningMessage.length,
+            requestId: this.requestId,
+          });
+          
+          // Trigger callback if provided
+          if (this.onDeadLoopDetected) {
+            this.onDeadLoopDetected(detectionResult);
+          }
+          
+          // Automatically abort the stream
+          this.abort();
+          return;
+        }
+      } catch (error) {
+        logger.error('Dead loop detector error, skipping detection', { 
+          error: getErrorOrNew(error),
+          requestId: this.requestId,
+        });
+        // Continue normal flow without interrupting
+      }
+    }
+    
+    // Emit reasoning text event
+    this.emit("reasoningText", {
+      type: "reasoningText",
+      delta,
+      snapshot: this.reasoningMessage,
+    } as MessageStreamReasoningTextEvent);
+  }
+
+  /**
+   * Reset dead loop detector (called at the start of a new API request)
+   */
+  resetDeadLoopDetector(): void {
+    this.reasoningMessage = "";
+    this.deadLoopDetector?.reset();
   }
 
   /**

@@ -7,6 +7,26 @@ import type { Message } from "../message/index.js";
 import type { ToolSchema } from "../tool/index.js";
 
 /**
+ * Dead loop detection configuration for LLM requests
+ */
+export interface DeadLoopDetectionConfig {
+  /** Enable dead loop detection (default: true) */
+  enabled?: boolean;
+  /** Checkpoint thresholds (character count) */
+  checkpoints?: number[];
+  /** Short sequence detection window size (characters) */
+  shortSequenceWindow?: number;
+  /** Minimum repeat unit length (characters) */
+  minRepeatUnitLength?: number;
+  /** Minimum repeat count */
+  minRepeatCount?: number;
+  /** Minimum period elements (blocks/lines) */
+  minPeriodElements?: number;
+  /** Maximum period length */
+  maxPeriodLength?: number;
+}
+
+/**
  * LLM Request Type
  */
 export interface LLMRequest {
@@ -22,4 +42,6 @@ export interface LLMRequest {
   stream?: boolean;
   /** AbortSignal for interrupt requests */
   signal?: AbortSignal;
+  /** Dead loop detection configuration */
+  deadLoopDetection?: DeadLoopDetectionConfig;
 }

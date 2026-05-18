@@ -32,6 +32,7 @@ import type { UserInteractionNodeConfig } from "./configs/interaction-configs.js
 import type { ContextProcessorNodeConfig } from "./configs/context-configs.js";
 import type { AgentLoopNodeConfig } from "./configs/agent-loop-configs.js";
 import type { SubgraphNodeConfig } from "./configs/subgraph-configs.js";
+import type { SyncNodeConfig } from "./configs/sync-configs.js";
 // Import boundary configs for START/END nodes and trigger nodes
 import type { WorkflowStartConfig, WorkflowEndConfig } from "../workflow/boundary-config.js";
 
@@ -53,6 +54,7 @@ export type RuntimeNodeType =
   | "VARIABLE"
   | "FORK"
   | "JOIN"
+  | "SYNC"  // Explicit synchronization between fork branches
   | "SUBGRAPH"  // Exists at runtime, handled by subgraphHandler (Phase 1: Scheme C)
   // EMBED_GRAPH is removed - expanded during preprocessing (Phase 3)
   | "SCRIPT"
@@ -95,6 +97,7 @@ export interface RuntimeNodeConfigMap {
   VARIABLE: VariableNodeConfig;
   FORK: ForkNodeConfig;
   JOIN: JoinNodeConfig;
+  SYNC: SyncNodeConfig;
   SUBGRAPH: SubgraphNodeConfig;
   SCRIPT: ScriptNodeConfig;
   LLM: LLMNodeConfig;
@@ -128,6 +131,7 @@ export type EndNode = RuntimeNodeOfType<"END">;
 export type VariableNode = RuntimeNodeOfType<"VARIABLE">;
 export type ForkNode = RuntimeNodeOfType<"FORK">;
 export type JoinNode = RuntimeNodeOfType<"JOIN">;
+export type SyncNode = RuntimeNodeOfType<"SYNC">;
 export type SubgraphNode = RuntimeNodeOfType<"SUBGRAPH">;  // Exists at runtime (Phase 1: Scheme C)
 export type ScriptNode = RuntimeNodeOfType<"SCRIPT">;
 export type LLMNode = RuntimeNodeOfType<"LLM">;
@@ -159,6 +163,7 @@ export type RuntimeNode =
   | VariableNode
   | ForkNode
   | JoinNode
+  | SyncNode
   | SubgraphNode  // Exists at runtime
   | ScriptNode
   | LLMNode
@@ -189,6 +194,7 @@ export const isEndNode = createRuntimeNodeTypeGuard("END");
 export const isVariableNode = createRuntimeNodeTypeGuard("VARIABLE");
 export const isForkNode = createRuntimeNodeTypeGuard("FORK");
 export const isJoinNode = createRuntimeNodeTypeGuard("JOIN");
+export const isSyncNode = createRuntimeNodeTypeGuard("SYNC");
 export const isSubgraphNode = createRuntimeNodeTypeGuard("SUBGRAPH");  // Exists at runtime
 export const isScriptNode = createRuntimeNodeTypeGuard("SCRIPT");
 export const isLLMNode = createRuntimeNodeTypeGuard("LLM");

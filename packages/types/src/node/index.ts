@@ -28,6 +28,7 @@ export {
   VariableNode as StaticVariableNode,
   ForkNode as StaticForkNode,
   JoinNode as StaticJoinNode,
+  SyncNode as StaticSyncNode,
   SubgraphNode,
   EmbedGraphNode,
   ScriptNode as StaticScriptNode,
@@ -49,6 +50,7 @@ export {
   isVariableNode as isStaticVariableNode,
   isForkNode as isStaticForkNode,
   isJoinNode as isStaticJoinNode,
+  isSyncNode as isStaticSyncNode,
   isSubgraphNode,
   isEmbedGraphNode,
   isScriptNode as isStaticScriptNode,
@@ -77,6 +79,7 @@ export {
   VariableNode as RuntimeVariableNode,
   ForkNode as RuntimeForkNode,
   JoinNode as RuntimeJoinNode,
+  SyncNode as RuntimeSyncNode,
   SubgraphNode as RuntimeSubgraphNode,  // Exists at runtime (Phase 1: Scheme C)
   ScriptNode as RuntimeScriptNode,
   LLMNode as RuntimeLLMNode,
@@ -100,6 +103,7 @@ export {
   isVariableNode as isRuntimeVariableNode,
   isForkNode as isRuntimeForkNode,
   isJoinNode as isRuntimeJoinNode,
+  isSyncNode as isRuntimeSyncNode,
   isSubgraphNode as isRuntimeSubgraphNode,  // Exists at runtime
   isScriptNode as isRuntimeScriptNode,
   isLLMNode as isRuntimeLLMNode,

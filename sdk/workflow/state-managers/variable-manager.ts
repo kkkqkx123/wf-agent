@@ -514,15 +514,33 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
    * @param source Source VariableManager
    * 
    * Note: 
-   * - Global scope variables are shared by reference (as designed for cross-execution sharing)
-   * - Execution scope variables are DEEP CLONED to ensure complete isolation
-   * - This is different from importVariables() which uses explicit mapping
-   * 
-   * For explicit variable passing with custom mapping, use importVariables() instead.
+   * - Both global and execution scope variables are DEEP CLONED to ensure complete isolation
+   * - This eliminates implicit state sharing between fork branches
+   * - For explicit variable passing with custom mapping, use importVariables() instead.
    */
   copyFrom(source: VariableManager): void {
-    // Share global variables by reference (intentional for cross-execution sharing)
-    this.global = source.global;
+    // Deep clone global variables to ensure complete isolation
+    this.global = new Map();
+    for (const [name, entry] of source.global) {
+      try {
+        // Deep clone the value to prevent shared state
+        const clonedValue = structuredClone(entry.value);
+        this.global.set(name, {
+          definition: { ...entry.definition },
+          value: clonedValue,
+        });
+      } catch (error) {
+        // Fallback to shallow copy if structuredClone fails
+        logger.warn("structuredClone failed in copyFrom for global scope, using shallow copy", {
+          variableName: name,
+          error
+        });
+        this.global.set(name, {
+          definition: { ...entry.definition },
+          value: entry.value,
+        });
+      }
+    }
     
     // Deep clone execution variables to ensure isolation
     this.execution = new Map();
@@ -536,7 +554,7 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
         });
       } catch (error) {
         // Fallback to shallow copy if structuredClone fails
-        logger.warn("structuredClone failed in copyFrom, using shallow copy", {
+        logger.warn("structuredClone failed in copyFor for execution scope, using shallow copy", {
           variableName: name,
           error
         });
@@ -552,7 +570,7 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
       this.cache.clear();
     }
     
-    logger.debug("VariableManager copied from source with deep clone", {
+    logger.debug("VariableManager copied from source with complete deep clone", {
       globalCount: this.global.size,
       executionCount: this.execution.size,
     });

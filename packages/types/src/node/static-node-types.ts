@@ -27,6 +27,7 @@ import type { UserInteractionNodeConfig } from "./configs/interaction-configs.js
 import type { ContextProcessorNodeConfig } from "./configs/context-configs.js";
 import type { SubgraphNodeConfig } from "./configs/subgraph-configs.js";
 import type { AgentLoopNodeConfig } from "./configs/agent-loop-configs.js";
+import type { SyncNodeConfig } from "./configs/sync-configs.js";
 // Import boundary configs for START/END/SUBGRAPH_START and trigger nodes
 import type { WorkflowStartConfig, WorkflowEndConfig } from "../workflow/boundary-config.js";
 import type { EmbedGraphNodeConfig } from "./configs/embed-graph-configs.js";
@@ -41,6 +42,7 @@ export type StaticNodeType =
   | "VARIABLE"
   | "FORK"
   | "JOIN"
+  | "SYNC"  // Explicit synchronization between fork branches
   | "SUBGRAPH"  // Creates independent execution entity (Phase 1: Scheme C)
   | "EMBED_GRAPH"  // Lightweight graph expansion for control flow reuse (Phase 3)
   | "SCRIPT"
@@ -79,6 +81,7 @@ export interface StaticNodeConfigMap {
   VARIABLE: VariableNodeConfig;
   FORK: ForkNodeConfig;
   JOIN: JoinNodeConfig;
+  SYNC: SyncNodeConfig;
   SUBGRAPH: SubgraphNodeConfig;
   EMBED_GRAPH: EmbedGraphNodeConfig;
   SCRIPT: ScriptNodeConfig;
@@ -109,6 +112,7 @@ export type EndNode = StaticNodeOfType<"END">;
 export type VariableNode = StaticNodeOfType<"VARIABLE">;
 export type ForkNode = StaticNodeOfType<"FORK">;
 export type JoinNode = StaticNodeOfType<"JOIN">;
+export type SyncNode = StaticNodeOfType<"SYNC">;
 export type SubgraphNode = StaticNodeOfType<"SUBGRAPH">;
 export type EmbedGraphNode = StaticNodeOfType<"EMBED_GRAPH">;
 export type ScriptNode = StaticNodeOfType<"SCRIPT">;
@@ -137,6 +141,7 @@ export type StaticNode =
   | VariableNode
   | ForkNode
   | JoinNode
+  | SyncNode
   | SubgraphNode
   | EmbedGraphNode
   | ScriptNode
@@ -166,6 +171,7 @@ export const isEndNode = createStaticNodeTypeGuard("END");
 export const isVariableNode = createStaticNodeTypeGuard("VARIABLE");
 export const isForkNode = createStaticNodeTypeGuard("FORK");
 export const isJoinNode = createStaticNodeTypeGuard("JOIN");
+export const isSyncNode = createStaticNodeTypeGuard("SYNC");
 export const isSubgraphNode = createStaticNodeTypeGuard("SUBGRAPH");
 export const isEmbedGraphNode = createStaticNodeTypeGuard("EMBED_GRAPH");
 export const isScriptNode = createStaticNodeTypeGuard("SCRIPT");

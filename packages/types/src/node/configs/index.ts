@@ -39,6 +39,9 @@ export {
 // Export agent loop node configuration
 export * from './agent-loop-configs.js';
 
+// Export sync node configuration
+export * from './sync-configs.js';
+
 // Export Zod Schemas for Node Configurations
 export {
   ContextProcessorNodeConfigSchema,
@@ -104,3 +107,8 @@ export {
   AgentLoopNodeConfigSchema,
   isAgentLoopNodeConfig,
 } from './agent-loop-configs-schema.js';
+
+export {
+  SyncNodeConfigSchema,
+  isSyncNodeConfig,
+} from './sync-configs-schema.js';

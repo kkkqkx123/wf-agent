@@ -25,6 +25,7 @@ import { embedEndHandler } from "./embed-end-handler.js";
 import { userInteractionHandler, type UserInteractionHandlerContext } from "./user-interaction-handler.js";
 import { variableHandler } from "./variable-handler.js";
 import { toolVisibilityHandler, type ToolVisibilityHandlerContext } from "./tool-visibility-handler.js";
+import { syncHandler } from "./sync-handler.js";
 
 // NodeHandlerFn signature: all handlers receive globalContext as first parameter
 export type NodeHandlerFn = (
@@ -70,6 +71,7 @@ export function getNodeHandler(nodeType: string): NodeHandlerFn {
     VARIABLE: (_gc, workflowExecutionEntity, node, _ctx) => variableHandler(workflowExecutionEntity, node),
     TOOL_VISIBILITY: (_gc, _we, node, context) =>
       toolVisibilityHandler(node, context as ToolVisibilityHandlerContext),
+    SYNC: (_gc, workflowExecutionEntity, node, _ctx) => syncHandler(workflowExecutionEntity, node),
   };
 
   const handler = handlers[nodeType];
@@ -86,6 +88,7 @@ export {
   endHandler,
   forkHandler,
   joinHandler,
+  syncHandler,
   llmHandler,
   loopEndHandler,
   loopStartHandler,

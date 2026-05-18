@@ -42,7 +42,7 @@ export function buildHookEvaluationContext(context: HookExecutionContext): HookE
     status: result?.status || "PENDING",
     executionTime: result?.executionTime || 0,
     error: result?.error,
-    variables: workflowExecution.variableScopes.execution,
+    variables: workflowExecutionEntity.variableStateManager.getAllVariables(),
     config: node.config,
     metadata: node.metadata,
   };

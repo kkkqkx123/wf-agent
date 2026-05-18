@@ -4,9 +4,6 @@
  * WorkflowExecution contains complete graph structure information, making it a self-contained execution unit
  */
 
-// Exporting Scope Definitions
-export * from "./scopes.js";
-
 // Exporting workflow execution definitions
 export * from "./definition.js";
 

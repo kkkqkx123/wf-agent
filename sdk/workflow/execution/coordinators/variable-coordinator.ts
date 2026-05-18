@@ -16,12 +16,11 @@
  */
 
 import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
-import type { VariableScope, VariableDefinition } from "@wf-agent/types";
+import type { VariableDefinition } from "@wf-agent/types";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import { getErrorOrNew } from "@wf-agent/common-utils";
 import { RuntimeValidationError } from "@wf-agent/types";
 import { VariableManager } from "../../state-managers/variable-manager.js";
-import { VariableAccessor } from "../utils/variable-accessor.js";
 import { emit } from "../../../core/utils/event/event-emitter.js";
 import { buildVariableChangedEvent } from "../utils/event/index.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
@@ -83,14 +82,12 @@ export class VariableCoordinator {
    * @param executionEntity WorkflowExecutionEntity instance
    * @param name Variable name
    * @param value New variable value
-   * @param explicitScope Explicitly specified scope (optional)
    */
   async updateVariable(
     manager: VariableManager,
     executionEntity: WorkflowExecutionEntity,
     name: string,
     value: unknown,
-    explicitScope?: VariableScope,
   ): Promise<void> {
     const variableDef = manager.getVariableDefinition(name);
 
@@ -133,21 +130,11 @@ export class VariableCoordinator {
       );
     }
 
-    // If an explicit scope is specified, verify it matches the definition
-    if (explicitScope && explicitScope !== variableDef.scope) {
-      logger.warn("Explicit scope differs from variable definition scope", {
-        name,
-        definitionScope: variableDef.scope,
-        explicitScope,
-      });
-      // Use the definition's scope (more restrictive approach)
-    }
-
     // Delegate to VariableManager
     manager.setVariable(name, value);
 
     // Trigger a variable change event
-    await this.emitVariableChangedEvent(executionEntity, name, value, variableDef.scope);
+    await this.emitVariableChangedEvent(executionEntity, name, value);
   }
 
   /**
@@ -168,16 +155,6 @@ export class VariableCoordinator {
    */
   getAllVariables(manager: VariableManager): Record<string, unknown> {
     return manager.getAllVariables();
-  }
-
-  /**
-   * Get the variable within the specified scope
-   * @param manager The VariableManager instance to use
-   * @param scope Variable scope
-   * @returns Variable key-value pair within the specified scope
-   */
-  getVariablesByScope(manager: VariableManager, scope: VariableScope): Record<string, unknown> {
-    return manager.getVariablesByScope(scope);
   }
 
   /**
@@ -223,43 +200,6 @@ export class VariableCoordinator {
   }
 
   /**
-   * Create a variable accessor
-   * Provide a unified interface for accessing variables, supporting nested path resolution
-   * @param executionEntity: WorkflowExecution entity
-   * @returns: VariableAccessor instance
-   */
-  createAccessor(executionEntity: WorkflowExecutionEntity): VariableAccessor {
-    return new VariableAccessor(executionEntity);
-  }
-
-  /**
-   * 通过路径获取变量值
-   * 支持嵌套路径和命名空间
-   * @param executionEntity WorkflowExecution entity
-   * @param path 变量路径
-   * @returns 变量值
-   *
-   * @example
-   * // 简单变量
-   * getVariableByPath(entity, 'userName')
-   *
-   * // 嵌套路径
-   * getVariableByPath(entity, 'user.profile.name')
-   *
-   * // 命名空间
-   * getVariableByPath(entity, 'input.userName')
-   * getVariableByPath(entity, 'output.result')
-   * getVariableByPath(entity, 'global.config')
-   * getVariableByPath(entity, 'workflowExecution.state')
-   * getVariableByPath(entity, 'subgraph.temp')
-   * getVariableByPath(entity, 'loop.item')
-   */
-  getVariableByPath(executionEntity: WorkflowExecutionEntity, path: string): unknown {
-    const accessor = this.createAccessor(executionEntity);
-    return accessor.get(path);
-  }
-
-  /**
    * Trigger a variable change event
    * Note: This is for observability only. If no listeners need to act on variable changes,
    * consider removing this and just using logger.debug().
@@ -267,13 +207,11 @@ export class VariableCoordinator {
    * @param executionEntity WorkflowExecutionEntity instance
    * @param name Variable name
    * @param value New value
-   * @param scope Scope of the variable
    */
   private async emitVariableChangedEvent(
     executionEntity: WorkflowExecutionEntity,
     name: string,
     value: unknown,
-    scope: VariableScope,
   ): Promise<void> {
     if (!this.eventManager) {
       // No event manager available - just log for observability
@@ -281,7 +219,6 @@ export class VariableCoordinator {
         executionId: executionEntity.id,
         workflowId: executionEntity.getWorkflowId(),
         variableName: name,
-        variableScope: scope,
       });
       return;
     }
@@ -292,7 +229,6 @@ export class VariableCoordinator {
         workflowId: executionEntity.getWorkflowId(),
         variableName: name,
         variableValue: value,
-        variableScope: scope,
       });
       await emit(this.eventManager, event);
     } catch (error) {

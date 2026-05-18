@@ -25,10 +25,10 @@ describe('VariableManager - SUBGRAPH Variable Passing', () => {
     parentManager = new VariableManager();
     childManager = new VariableManager();
     
-    // Setup parent variables
-    parentManager.setVariable('parentVar1', 'value1');
-    parentManager.setVariable('parentVar2', { nested: { data: 'test' } });
-    parentManager.setVariable('parentVar3', [1, 2, 3]);
+    // Setup parent variables - need to register them first
+    parentManager.registerVariable({ name: 'parentVar1', type: 'string', value: 'value1', readonly: false });
+    parentManager.registerVariable({ name: 'parentVar2', type: 'object', value: { nested: { data: 'test' } }, readonly: false });
+    parentManager.registerVariable({ name: 'parentVar3', type: 'array', value: [1, 2, 3], readonly: false });
   });
   
   describe('importVariables', () => {
@@ -120,7 +120,7 @@ describe('VariableManager - SUBGRAPH Variable Passing', () => {
       const circularReference: any = { data: 'test' };
       circularReference.self = circularReference; // Circular reference
       
-      parentManager.setVariable('circularVar', circularReference);
+      parentManager.registerVariable({ name: 'circularVar', type: 'object', value: circularReference, readonly: false });
       
       // Mock structuredClone to fail
       mockStructuredClone.mockImplementation(() => {
@@ -159,10 +159,10 @@ describe('VariableManager - SUBGRAPH Variable Passing', () => {
   
   describe('exportVariables', () => {
     beforeEach(() => {
-      // Setup child variables
-      childManager.setVariable('childResult', 'success');
-      childManager.setVariable('childData', { result: 'data' });
-      childManager.setVariable('childArray', [1, 2, 3]);
+      // Setup child variables - need to register them first
+      childManager.registerVariable({ name: 'childResult', type: 'string', value: 'success', readonly: false });
+      childManager.registerVariable({ name: 'childData', type: 'object', value: { result: 'data' }, readonly: false });
+      childManager.registerVariable({ name: 'childArray', type: 'array', value: [1, 2, 3], readonly: false });
     });
     
     it('should export variable successfully with deep clone', () => {
@@ -218,7 +218,7 @@ describe('VariableManager - SUBGRAPH Variable Passing', () => {
       const circularReference: any = { data: 'test' };
       circularReference.self = circularReference; // Circular reference
       
-      childManager.setVariable('circularResult', circularReference);
+      childManager.registerVariable({ name: 'circularResult', type: 'object', value: circularReference, readonly: false });
       
       // Mock structuredClone to fail
       mockStructuredClone.mockImplementation(() => {
@@ -268,7 +268,7 @@ describe('VariableManager - SUBGRAPH Variable Passing', () => {
       
       // Setup parent input
       const originalInput = { data: 'original', nested: { value: 1 } };
-      parentManager.setVariable('parentInput', originalInput);
+      parentManager.registerVariable({ name: 'parentInput', type: 'object', value: originalInput, readonly: false });
       
       // Act - Import phase
       childManager.importVariables(parentManager, inputMappings);
@@ -280,7 +280,7 @@ describe('VariableManager - SUBGRAPH Variable Passing', () => {
       
       // Set child output
       const childOutput = { result: 'processed', input: childInput };
-      childManager.setVariable('childOutput', childOutput);
+      childManager.registerVariable({ name: 'childOutput', type: 'object', value: childOutput, readonly: false });
       
       // Export phase
       childManager.exportVariables(parentManager, outputMappings);

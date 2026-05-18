@@ -51,8 +51,6 @@ export interface VariableChangedEvent extends BaseEvent {
   variableName: string;
   /** variable value */
   variableValue: unknown;
-  /** variable scope */
-  variableScope: string;
 }
 
 /**

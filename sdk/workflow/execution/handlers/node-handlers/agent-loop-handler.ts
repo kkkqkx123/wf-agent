@@ -65,6 +65,8 @@ export interface AgentLoopHandlerContext {
   agentLoopRegistry?: AgentLoopRegistry;
   /** Execution Registry (used for checking interrupts) */
   executionRegistry?: unknown;
+  /** WorkflowExecutionEntity reference (for VariableManager access) */
+  workflowExecutionEntity?: any;
 }
 
 /**
@@ -129,10 +131,11 @@ function createCoordinator(globalContext: GlobalContext, context: AgentLoopHandl
  */
 export async function agentLoopHandler(
   globalContext: GlobalContext,
-  execution: WorkflowExecution,
+  executionEntity: any, // WorkflowExecutionEntity - using any to avoid circular dependency
   node: RuntimeNode,
-  context: AgentLoopHandlerContext,
+  context: AgentLoopHandlerContext & { workflowExecutionEntity?: any },
 ): Promise<AgentLoopExecutionResult> {
+  const execution = executionEntity.getExecution();
   const config = node.config as AgentLoopNodeConfig;
   const startTime = now();
 
@@ -153,8 +156,9 @@ export async function agentLoopHandler(
     const initialMessages = collectInitialMessages(config, execution);
     
     // Add input prompt if available
+    const inputPromptManager = context.workflowExecutionEntity?.variableStateManager;
     const inputPrompt =
-      execution.variableScopes?.execution?.["input"] || execution.variableScopes?.execution?.["prompt"];
+      inputPromptManager?.getVariable("input") || inputPromptManager?.getVariable("prompt");
 
     if (inputPrompt && typeof inputPrompt === "string") {
       initialMessages.push({ role: "user", content: inputPrompt });
@@ -231,11 +235,12 @@ export async function agentLoopHandler(
       logger.debug("Failed to emit CONVERSATION_STATE_CHANGED event", { error });
     }
 
-    // 4. Update the variable
-    if (execution.variableScopes?.execution) {
-      execution.variableScopes.execution["output"] = result.content;
-      execution.variableScopes.execution["agentLoopIterations"] = result.iterations;
-      execution.variableScopes.execution["agentLoopToolCallCount"] = result.toolCallCount;
+    // 4. Update the variable using VariableManager API
+    const updateVarManager = context.workflowExecutionEntity?.variableStateManager;
+    if (updateVarManager) {
+      updateVarManager.setVariable("output", result.content);
+      updateVarManager.setVariable("agentLoopIterations", result.iterations);
+      updateVarManager.setVariable("agentLoopToolCallCount", result.toolCallCount);
     }
 
     return {
@@ -283,8 +288,9 @@ export async function* agentLoopStreamHandler(
     const initialMessages = collectInitialMessages(config, execution);
     
     // Add input prompt if available
+    const inputPromptManager = context.workflowExecutionEntity?.variableStateManager;
     const inputPrompt =
-      execution.variableScopes?.execution?.["input"] || execution.variableScopes?.execution?.["prompt"];
+      inputPromptManager?.getVariable("input") || inputPromptManager?.getVariable("prompt");
 
     if (inputPrompt && typeof inputPrompt === "string") {
       initialMessages.push({ role: "user", content: inputPrompt });
@@ -325,11 +331,12 @@ export async function* agentLoopStreamHandler(
       .filter((m: { role: string; content: unknown }) => m.role === "assistant")
       .pop()?.content;
 
-    // 4. Update the variable
-    if (execution.variableScopes?.execution) {
-      execution.variableScopes.execution["output"] = content;
-      execution.variableScopes.execution["agentLoopIterations"] = iterations;
-      execution.variableScopes.execution["agentLoopToolCallCount"] = toolCallCount;
+    // 4. Update the variable using VariableManager API
+    const updateManager = context.workflowExecutionEntity?.variableStateManager;
+    if (updateManager) {
+      updateManager.setVariable("output", content);
+      updateManager.setVariable("agentLoopIterations", iterations);
+      updateManager.setVariable("agentLoopToolCallCount", toolCallCount);
     }
 
     return {

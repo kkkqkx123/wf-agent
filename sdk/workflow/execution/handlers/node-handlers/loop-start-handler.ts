@@ -51,9 +51,13 @@ function isValidIterable(iterable: unknown): boolean {
  *
  * Supported formats:
  * - Direct values: [1,2,3], {a:1}, 5, "hello"
- * - Variable expressions: {{input.list}}, {{workflowExecution.items}}, {{global.data}}
+ * - Variable expressions: {{input.list}}, {{execution.items}}, {{global.data}}
  */
-function resolveIterable(iterableConfig: unknown, workflowExecution: WorkflowExecution): unknown {
+function resolveIterable(
+  iterableConfig: unknown,
+  workflowExecution: WorkflowExecution,
+  executionEntity?: WorkflowExecutionEntity,
+): unknown {
   // If no iterable configuration is provided, return null (counting loop mode).
   if (iterableConfig === undefined || iterableConfig === null) {
     return null;
@@ -90,15 +94,13 @@ function resolveIterable(iterableConfig: unknown, workflowExecution: WorkflowExe
             }
             break;
 
-          case "global":
-            value = workflowExecution.variableScopes.global;
-            for (let i = 1; i < parts.length; i++) {
-              value = (value as Record<string, unknown>)?.[parts[i]!];
-            }
-            break;
-
           case "execution":
-            value = workflowExecution.variableScopes.execution;
+            // Use VariableManager API to get execution variable
+            if (executionEntity?.variableStateManager) {
+              value = executionEntity.variableStateManager.getAllVariables();
+            } else {
+              value = {};
+            }
             for (let i = 1; i < parts.length; i++) {
               value = (value as Record<string, unknown>)?.[parts[i]!];
             }
@@ -106,7 +108,7 @@ function resolveIterable(iterableConfig: unknown, workflowExecution: WorkflowExe
 
           default:
             throw new RuntimeValidationError(
-              `Invalid variable scope '${scope}'. Supported scopes: input, output, global, workflowExecution`,
+              `Invalid variable scope '${scope}'. Supported scopes: input, output, execution`,
               {
                 operation: "handle",
                 field: "loop.scope",
@@ -307,7 +309,7 @@ export async function loopStartHandler(
     // If a dataSource is provided, then the iterable and variableName are parsed.
     if (config.dataSource) {
       // Parse an iterable (which can be a direct value or a variable expression).
-      resolvedIterable = resolveIterable(config.dataSource.iterable, workflowExecution);
+      resolvedIterable = resolveIterable(config.dataSource.iterable, workflowExecution, executionEntity);
       variableName = config.dataSource.variableName;
     }
 
@@ -325,11 +327,9 @@ export async function loopStartHandler(
     // For now, scope isolation is removed. Loop variables will be handled through explicit mappings.
     // executionEntity.variableStateManager.enterSubgraphScope();
     
-    // Initialize loop-scoped variables from definitions
+    // Initialize loop-scoped variables from definitions (all go to flat structure now)
     for (const variable of workflowExecution.variables) {
-      if (variable.scope === "loop") {
-        executionEntity.variableStateManager.setVariable(variable.name, variable.value);
-      }
+      executionEntity.variableStateManager.setVariable(variable.name, variable.value);
     }
     
     setLoopState(executionEntity, loopState);

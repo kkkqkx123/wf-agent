@@ -68,11 +68,16 @@ function clearLoopState(executionEntity: WorkflowExecutionEntity): void {
 /**
  * Evaluating interrupt conditions
  */
-function evaluateBreakCondition(breakCondition: Condition, workflowExecution: WorkflowExecution): boolean {
+function evaluateBreakCondition(
+  breakCondition: Condition,
+  workflowExecution: WorkflowExecution,
+  executionEntity?: WorkflowExecutionEntity,
+): boolean {
   try {
     // Constructing the evaluation context
+    const variables = executionEntity?.variableStateManager.getAllVariables() || {};
     const context: EvaluationContext = {
-      variables: workflowExecution.variableScopes.execution || {},
+      variables,
       input: workflowExecution.input || {},
       output: workflowExecution.output || {},
     };
@@ -86,7 +91,7 @@ function evaluateBreakCondition(breakCondition: Condition, workflowExecution: Wo
       workflowExecution.workflowId,
       {
         breakCondition,
-        variables: workflowExecution.variableScopes.execution,
+        variables: executionEntity?.variableStateManager.getAllVariables(),
         input: workflowExecution.input,
         output: workflowExecution.output,
       },
@@ -189,7 +194,7 @@ export async function loopEndHandler(
   // Evaluating interrupt conditions
   let shouldBreak = false;
   if (config.breakCondition) {
-    shouldBreak = evaluateBreakCondition(config.breakCondition, workflowExecution);
+    shouldBreak = evaluateBreakCondition(config.breakCondition, workflowExecution, workflowExecutionEntity);
   }
 
   // Check the loop condition.

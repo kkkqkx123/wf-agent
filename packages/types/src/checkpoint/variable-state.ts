@@ -2,12 +2,12 @@
  * Checkpoint Variable State
  *
  * This type represents the complete variable state for checkpoint serialization.
- * It is separate from the runtime VariableScopes to avoid coupling between
- * runtime data structures and persistence formats.
+ * It is separate from runtime data structures to avoid coupling between
+ * runtime and persistence formats.
  *
  * Design Principles:
- * - Clear separation: Runtime scopes vs. checkpoint serialization format
- * - Complete state: Includes all scopes (global, execution, and temporary scopes)
+ * - Clear separation: Runtime vs. checkpoint serialization format
+ * - Complete state: All variables in a flat structure
  * - Serializable: Uses plain objects/arrays for easy JSON serialization
  * - Independent evolution: Can change without affecting runtime types
  */
@@ -15,26 +15,17 @@
 /**
  * Checkpoint Variable State Structure
  *
- * This structure captures the complete variable state at a point in time,
- * including both persistent scopes (global, execution).
+ * This structure captures the complete variable state at a point in time.
+ * All variables are stored in a single flat map.
  *
  * Usage:
  * - WorkflowExecutionStateSnapshot.variableState - checkpoint state storage
  * - Checkpoint serialization/deserialization
- *
- * Note: After architecture refactoring (Phase 1-3), scopeStack has been removed.
- * Subgraph now uses independent execution entities with their own variable managers.
  */
 export interface CheckpointVariableState {
   /**
-   * Global Scope Variables
-   * Shared across all executions with same object reference
+   * All Variables (Flat Structure)
+   * No scope distinction - all variables managed uniformly
    */
-  global: Record<string, unknown>;
-
-  /**
-   * Execution Scope Variables
-   * Independent per execution, deep copied on fork
-   */
-  execution: Record<string, unknown>;
+  variables: Record<string, unknown>;
 }

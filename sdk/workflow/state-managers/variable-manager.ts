@@ -1,49 +1,36 @@
 /**
- * VariableManager - Simplified Variable State Manager (REFACTORED)
+ * VariableManager - Simplified Variable State Manager
  * 
  * Design Philosophy:
- * - Two scopes only: global (shared) and execution (isolated per workflow)
+ * - Flat variable storage: All variables in a single Map
  * - Explicit variable passing through importVariables/exportVariables
  * - No implicit scope inheritance - all cross-boundary transfers are explicit
  * - Deep clone on import/export to ensure complete isolation
  * 
  * Key Features:
- * - Simple structure: Only global and execution scopes
+ * - Simple structure: Single flat Map for all variables
  * - Explicit data flow: Variables must be explicitly mapped at boundaries
  * - Automatic deep cloning: Prevents accidental state pollution
  * - Runtime validation: Checks variable access against declared inputs
- * 
- * Usage Example:
- * ```typescript
- * const manager = new VariableManager();
- * 
- * // Register variables
- * manager.registerVariable({
- *   name: 'config',
- *   type: 'object',
- *   value: { timeout: 5000 },
- *   scope: 'global',
- *   readonly: true
- * });
- * 
- * // Import from parent (with deep clone)
- * manager.importVariables(parentManager, [
- *   { externalName: 'user_id', internalName: 'uid' }
- * ]);
- * 
- * // Export to parent (with deep clone)
- * manager.exportVariables(parentManager, [
- *   { internalName: 'result', externalName: 'output' }
- * ]);
- * ```
  */
 
-import type { VariableDefinition, VariableScope, WorkflowVariableInput, WorkflowVariableOutput } from "@wf-agent/types";
+import type { VariableDefinition, WorkflowVariableInput, WorkflowVariableOutput } from "@wf-agent/types";
 import { RuntimeValidationError } from "@wf-agent/types";
 import type { StateManager } from "../../core/types/state-manager.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "variable-manager" });
+
+/**
+ * Helper function to infer variable type from value
+ */
+function inferVariableType(value: unknown): "number" | "string" | "boolean" | "array" | "object" {
+  if (Array.isArray(value)) return "array";
+  if (value === null) return "object";
+  const t = typeof value;
+  if (t === "number" || t === "string" || t === "boolean") return t;
+  return "object";
+}
 
 /**
  * Variable Entry - Internal representation
@@ -57,8 +44,7 @@ interface VariableEntry {
  * VariableManager Snapshot
  */
 export interface VariableManagerSnapshot {
-  global: Map<string, VariableEntry>;
-  execution: Map<string, VariableEntry>;
+  variables: Map<string, VariableEntry>;
 }
 
 /**
@@ -88,42 +74,10 @@ export interface VariableManagerSnapshot {
  * 2. Always use setVariable() to update values, never modify objects directly
  * 3. If needed, manually deep clone before setting: setVariable("data", structuredClone(obj))
  * 4. Use freeze option in variable definition to prevent mutation: { name: "config", freeze: true }
- * 
- * Usage Example:
- * ```typescript
- * const manager = new VariableManager();
- * 
- * // Register variables with freeze
- * manager.registerVariable({
- *   name: 'config',
- *   type: 'object',
- *   value: { timeout: 5000 },
- *   scope: 'global',
- *   readonly: true,
- *   freeze: true  // Auto-freeze on registration
- * });
- * 
- * // Get/Set variables
- * manager.setVariable('counter', 5);
- * const value = manager.getVariable('counter'); // 5
- * 
- * // Import from parent (Phase 2 feature)
- * // manager.importVariables(parentManager, [
- * //   { externalName: 'user_id', internalName: 'uid' }
- * // ]);
- * 
- * // Export to parent (Phase 2 feature)
- * // manager.exportVariables(parentManager, [
- * //   { internalName: 'result', externalName: 'output' }
- * // ]);
- * ```
  */
 export class VariableManager implements StateManager<VariableManagerSnapshot> {
-  /** Global scope - shared across all executions */
-  private global: Map<string, VariableEntry> = new Map();
-  
-  /** Execution scope - isolated per execution */
-  private execution: Map<string, VariableEntry> = new Map();
+  /** All variables stored in a single flat Map */
+  private variables: Map<string, VariableEntry> = new Map();
 
   /**
    * Optional reference to WorkflowExecutionEntity for runtime validation
@@ -164,8 +118,7 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
   initializeFromDefinitions(variableDefinitions: VariableDefinition[]): void {
     logger.debug("Initializing from variable definitions", { count: variableDefinitions?.length || 0 });
 
-    this.global.clear();
-    this.execution.clear();
+    this.variables.clear();
 
     if (!variableDefinitions || variableDefinitions.length === 0) {
       return;
@@ -177,13 +130,12 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
   }
 
   /**
-   * Register a variable (similar to MessageHistory.addMessage)
+   * Register a variable
    * @param definition Variable definition
    */
   registerVariable(definition: VariableDefinition): void {
     logger.debug("Registering variable", { 
-      name: definition.name, 
-      scope: definition.scope,
+      name: definition.name,
       freeze: definition.freeze 
     });
 
@@ -200,22 +152,12 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
       value,
     };
 
-    // Store in appropriate scope based on definition
-    if (definition.scope === "global") {
-      this.global.set(definition.name, entry);
-    } else {
-      // All other scopes (execution, subgraph, loop) go to execution scope
-      this.execution.set(definition.name, entry);
-    }
+    // Store in the flat variables Map
+    this.variables.set(definition.name, entry);
   }
 
   /**
-   * Get variable value by name (unified entry point)
-   * Priority: execution > global
-   * 
-   * Search order:
-   * 1. Execution scope
-   * 2. Global scope
+   * Get variable value by name
    * 
    * Runtime Validation (development mode only):
    * - Checks if the variable is declared in current node's variableInputs
@@ -234,21 +176,9 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
       }
     }
     
-    // Check execution scope
-    if (this.execution.has(name)) {
-      const value = this.execution.get(name)!.value;
-      
-      // Update cache
-      if (this.cacheEnabled && this.cache) {
-        this.cache.set(name, { value, timestamp: Date.now() });
-      }
-      
-      return value;
-    }
-    
-    // Check global scope
-    if (this.global.has(name)) {
-      const value = this.global.get(name)!.value;
+    // Check variables Map
+    if (this.variables.has(name)) {
+      const value = this.variables.get(name)!.value;
       
       // Update cache
       if (this.cacheEnabled && this.cache) {
@@ -291,7 +221,8 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
         );
         
         // Also check if it's a global variable (always accessible)
-        const isGlobal = this.global.has(name);
+        // Note: In the new flat structure, all variables are in the same Map
+        const isGlobal = this.variables.has(name);
         
         if (!isDeclared && !isGlobal) {
           logger.warn(
@@ -308,11 +239,7 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
   }
 
   /**
-   * Set variable value (unified entry point)
-   * Variables are stored in execution scope
-   * Use explicit API to set global variables
-   * 
-   * Storage location: Execution scope
+   * Set variable value
    * 
    * @param name Variable name
    * @param value New value
@@ -320,21 +247,10 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
    * @throws RuntimeValidationError if variable is readonly or doesn't exist
    */
   setVariable(name: string, value: unknown, freeze?: boolean): void {
-    let entry: VariableEntry | undefined;
-    
-    // Check execution scope first
-    entry = this.execution.get(name);
-    
-    // If not found in execution, check global
-    if (!entry) {
-      entry = this.global.get(name);
-    }
+    const entry = this.variables.get(name);
     
     if (!entry) {
-      const availableVars = [
-        ...Array.from(this.execution.keys()),
-        ...Array.from(this.global.keys())
-      ];
+      const availableVars = Array.from(this.variables.keys());
       throw new RuntimeValidationError(
         `Variable '${name}' is not defined. Available variables: ${availableVars.length > 0 ? availableVars.join(', ') : '(none)'}`,
         {
@@ -363,8 +279,7 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
     const shouldFreeze = freeze ?? entry.definition.freeze ?? false;
 
     logger.debug("Setting variable", { 
-      name, 
-      scope: entry.definition.scope, 
+      name,
       freeze: shouldFreeze
     });
 
@@ -384,22 +299,20 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
 
   /**
    * Check if variable exists
-   * Checks execution and global scopes
    * @param name Variable name
    * @returns true if variable is defined
    */
   hasVariable(name: string): boolean {
-    return this.execution.has(name) || this.global.has(name);
+    return this.variables.has(name);
   }
 
   /**
    * Get variable definition
-   * Searches through execution and global scopes to find the variable definition
    * @param name Variable name
    * @returns Variable definition or undefined
    */
   getVariableDefinition(name: string): VariableDefinition | undefined {
-    return this.execution.get(name)?.definition || this.global.get(name)?.definition;
+    return this.variables.get(name)?.definition;
   }
 
   /**
@@ -408,32 +321,20 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
    */
   getAllVariableDefinitions(): VariableDefinition[] {
     const definitions: VariableDefinition[] = [];
-    for (const entry of this.execution.values()) {
-      definitions.push(entry.definition);
-    }
-    for (const entry of this.global.values()) {
+    for (const entry of this.variables.values()) {
       definitions.push(entry.definition);
     }
     return definitions;
   }
 
   /**
-   * Get all variables (merged by scope priority)
-   * @returns Record of all accessible variable key-value pairs
+   * Get all variables
+   * @returns Record of all variable key-value pairs
    */
   getAllVariables(): Record<string, unknown> {
     const result: Record<string, unknown> = {};
 
-    // Add global variables first
-    for (const [name] of this.global) {
-      const value = this.getVariable(name);
-      if (value !== undefined) {
-        result[name] = value;
-      }
-    }
-
-    // Add execution variables (may override global)
-    for (const [name] of this.execution) {
+    for (const [name] of this.variables) {
       const value = this.getVariable(name);
       if (value !== undefined) {
         result[name] = value;
@@ -443,45 +344,23 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
     return result;
   }
 
-  /**
-   * Get variables by scope
-   * @param scope Variable scope
-   * @returns Record of variables in that scope
-   */
-  getVariablesByScope(scope: VariableScope): Record<string, unknown> {
-    const result: Record<string, unknown> = {};
-
-    // For backward compatibility - map old scopes to new structure
-    const targetMap = scope === "global" ? this.global : this.execution;
-
-    for (const [name] of targetMap) {
-      const value = this.getVariable(name);
-      if (value !== undefined) {
-        result[name] = value;
-      }
-    }
-
-    return result;
-  }
 
   /**
    * Delete variable
-   * Tries to delete from execution and global scopes
    * @param name Variable name
    * @returns true if deleted successfully
    */
   deleteVariable(name: string): boolean {
     logger.debug("Deleting variable", { name });
 
-    const deletedFromExecution = this.execution.delete(name);
-    const deletedFromGlobal = this.global.delete(name);
+    const deleted = this.variables.delete(name);
 
     // Invalidate cache
     if (this.cacheEnabled && this.cache) {
       this.cache.delete(name);
     }
 
-    return deletedFromExecution || deletedFromGlobal;
+    return deleted;
   }
 
   /**
@@ -490,8 +369,7 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
    */
   createSnapshot(): VariableManagerSnapshot {
     return {
-      global: new Map(this.global),
-      execution: new Map(this.execution),
+      variables: new Map(this.variables),
     };
   }
 
@@ -500,8 +378,7 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
    * @param snapshot State snapshot
    */
   restoreFromSnapshot(snapshot: VariableManagerSnapshot): void {
-    this.global = new Map(snapshot.global);
-    this.execution = new Map(snapshot.execution);
+    this.variables = new Map(snapshot.variables);
 
     // Clear cache after restore
     if (this.cacheEnabled && this.cache) {
@@ -514,51 +391,28 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
    * @param source Source VariableManager
    * 
    * Note: 
-   * - Both global and execution scope variables are DEEP CLONED to ensure complete isolation
+   * - All variables are DEEP CLONED to ensure complete isolation
    * - This eliminates implicit state sharing between fork branches
    * - For explicit variable passing with custom mapping, use importVariables() instead.
    */
   copyFrom(source: VariableManager): void {
-    // Deep clone global variables to ensure complete isolation
-    this.global = new Map();
-    for (const [name, entry] of source.global) {
+    // Deep clone all variables to ensure complete isolation
+    this.variables = new Map();
+    for (const [name, entry] of source.variables) {
       try {
         // Deep clone the value to prevent shared state
         const clonedValue = structuredClone(entry.value);
-        this.global.set(name, {
+        this.variables.set(name, {
           definition: { ...entry.definition },
           value: clonedValue,
         });
       } catch (error) {
         // Fallback to shallow copy if structuredClone fails
-        logger.warn("structuredClone failed in copyFrom for global scope, using shallow copy", {
+        logger.warn("structuredClone failed in copyFrom, using shallow copy", {
           variableName: name,
           error
         });
-        this.global.set(name, {
-          definition: { ...entry.definition },
-          value: entry.value,
-        });
-      }
-    }
-    
-    // Deep clone execution variables to ensure isolation
-    this.execution = new Map();
-    for (const [name, entry] of source.execution) {
-      try {
-        // Deep clone the value to prevent shared state
-        const clonedValue = structuredClone(entry.value);
-        this.execution.set(name, {
-          definition: { ...entry.definition },
-          value: clonedValue,
-        });
-      } catch (error) {
-        // Fallback to shallow copy if structuredClone fails
-        logger.warn("structuredClone failed in copyFor for execution scope, using shallow copy", {
-          variableName: name,
-          error
-        });
-        this.execution.set(name, {
+        this.variables.set(name, {
           definition: { ...entry.definition },
           value: entry.value,
         });
@@ -571,8 +425,7 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
     }
     
     logger.debug("VariableManager copied from source with complete deep clone", {
-      globalCount: this.global.size,
-      executionCount: this.execution.size,
+      variableCount: this.variables.size,
     });
   }
 
@@ -622,7 +475,13 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
         if (mapping.defaultValue !== undefined) {
           // Deep clone default value to avoid shared references
           const clonedDefault = structuredClone(mapping.defaultValue);
-          this.setVariable(mapping.internalName, clonedDefault);
+          // Auto-register variable during import
+          this.registerVariable({
+            name: mapping.internalName,
+            type: inferVariableType(clonedDefault),
+            value: clonedDefault,
+            readonly: false,
+          });
           logger.debug("Used default value for optional input", {
             internalName: mapping.internalName
           });
@@ -631,7 +490,13 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
         // Always deep clone to ensure isolation
         try {
           const clonedValue = structuredClone(value);
-          this.setVariable(mapping.internalName, clonedValue);
+          // Auto-register variable during import
+          this.registerVariable({
+            name: mapping.internalName,
+            type: inferVariableType(clonedValue),
+            value: clonedValue,
+            readonly: false,
+          });
           logger.debug("Imported variable with deep clone", {
             externalName: mapping.externalName,
             internalName: mapping.internalName
@@ -642,7 +507,13 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
             externalName: mapping.externalName,
             error
           });
-          this.setVariable(mapping.internalName, value);
+          // Auto-register variable during import
+          this.registerVariable({
+            name: mapping.internalName,
+            type: inferVariableType(value),
+            value: value,
+            readonly: false,
+          });
         }
       }
     }
@@ -678,7 +549,17 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
         try {
           // Deep clone before exporting
           const clonedValue = structuredClone(value);
-          target.setVariable(mapping.externalName, clonedValue);
+          // Auto-register variable in target if not exists
+          if (!target.hasVariable(mapping.externalName)) {
+            target.registerVariable({
+              name: mapping.externalName,
+              type: inferVariableType(clonedValue),
+              value: clonedValue,
+              readonly: false,
+            });
+          } else {
+            target.setVariable(mapping.externalName, clonedValue);
+          }
           logger.debug("Exported variable with deep clone", {
             internalName: mapping.internalName,
             externalName: mapping.externalName
@@ -689,7 +570,17 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
             internalName: mapping.internalName,
             error
           });
-          target.setVariable(mapping.externalName, value);
+          // Auto-register variable in target if not exists
+          if (!target.hasVariable(mapping.externalName)) {
+            target.registerVariable({
+              name: mapping.externalName,
+              type: inferVariableType(value),
+              value: value,
+              readonly: false,
+            });
+          } else {
+            target.setVariable(mapping.externalName, value);
+          }
         }
       } else {
         // Variable doesn't exist - silently skip (optional outputs)
@@ -705,8 +596,7 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
    * Clean up resources
    */
   cleanup(): void {
-    this.global.clear();
-    this.execution.clear();
+    this.variables.clear();
 
     if (this.cacheEnabled && this.cache) {
       this.cache.clear();
@@ -716,11 +606,11 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
   }
 
   /**
-   * Get the number of variables across all scopes
+   * Get the number of variables
    * @returns Count of registered variables
    */
   size(): number {
-    return this.global.size + this.execution.size;
+    return this.variables.size;
   }
 
   /**
@@ -728,7 +618,7 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
    * @returns true if no variables registered
    */
   isEmpty(): boolean {
-    return this.global.size === 0 && this.execution.size === 0;
+    return this.variables.size === 0;
   }
 
   /**

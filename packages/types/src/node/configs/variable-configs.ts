@@ -2,8 +2,6 @@
  * Variable Node Configuration Type Definition
  */
 
-import type { VariableScope } from '../../workflow-execution/scopes.js';
-
 /**
  * Variable Operation Node Configuration
  */
@@ -14,8 +12,6 @@ export interface VariableNodeConfig {
   variableType: 'number' | 'string' | 'boolean' | 'array' | 'object';
   /** Expression for the operation [directly overriding the corresponding variable with an expression] */
   expression: string;
-  /** variable scope */
-  scope?: VariableScope;
   /** Read-only or not */
   readonly?: boolean;
 }

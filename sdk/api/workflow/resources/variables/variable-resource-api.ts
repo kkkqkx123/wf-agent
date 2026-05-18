@@ -190,43 +190,32 @@ export class VariableResourceAPI extends ReadonlyResourceAPI<unknown, string, Va
   }
 
   /**
-   * Obtain variable scope information
-   * Note: subgraph and loop scopes are temporary and managed internally by VariableManager's scopeStack
-   * This method provides visibility into the current scope state for debugging purposes
+   * Get variable scopes information (deprecated - scope mechanism removed)
+   * This method is kept for backward compatibility but returns simplified data
    * @param executionId Execution ID
-   * @returns Scope information including current scope depth and active scopes
+   * @returns Scope information (all variables in execution field)
    */
   async getVariableScopes(executionId: string): Promise<{
     execution: Record<string, unknown>;
     global: Record<string, unknown>;
-    subgraph: Record<string, unknown>; // Always empty - internal use only
-    loop: Record<string, unknown>; // Always empty - internal use only
+    subgraph: Record<string, unknown>; // Always empty - deprecated
+    loop: Record<string, unknown>; // Always empty - deprecated
     currentScopeDepth: number;
     hasActiveTemporaryScope: boolean;
   }> {
     const executionEntity = await this.getWorkflowExecutionEntity(executionId);
     const manager = executionEntity.variableStateManager;
     
-    // Get persistent scopes
-    const executionVars = manager.getVariablesByScope('execution');
-    const globalVars = manager.getVariablesByScope('global');
-    
-    // Get current scope stack state (for debugging/monitoring)
-    // Note: We can't directly access private scopeStack, but we can infer from size()
-    const totalVars = Object.keys(executionVars).length + Object.keys(globalVars).length;
-    const allVarsCount = manager.size();
-    const tempScopeVarCount = allVarsCount - totalVars;
+    // Get all variables (flat structure)
+    const allVars = manager.getAllVariables();
     
     return {
-      execution: executionVars,
-      global: globalVars,
-      // Temporary scopes are not exposed as they are transient
-      // Return empty objects to maintain API compatibility
-      subgraph: {},
-      loop: {},
-      // Provide metadata about current scope state
-      currentScopeDepth: tempScopeVarCount > 0 ? 1 : 0, // Simplified: just indicate if there are temp vars
-      hasActiveTemporaryScope: tempScopeVarCount > 0,
+      execution: allVars,
+      global: {}, // Deprecated - no longer used
+      subgraph: {}, // Always empty - internal use only
+      loop: {}, // Always empty - internal use only
+      currentScopeDepth: 0, // Deprecated - no scope stack
+      hasActiveTemporaryScope: false, // Deprecated - no scope stack
     };
   }
 

@@ -7,7 +7,6 @@
  */
 
 import { z } from "zod";
-import type { VariableScope } from "../workflow-execution/scopes.js";
 import type { VariableValueType } from "../workflow-execution/variables.js";
 
 // Import the types to ensure schema stays in sync
@@ -21,16 +20,6 @@ import type { VariableDefinition } from "../workflow-execution/variables.js";
 import { ToolApprovalOptionsSchema } from "../tool/tool-schema.js";
 
 /**
- * Variable Scope Schema
- */
-export const variableScopeSchema: z.ZodType<VariableScope> = z.enum([
-  "global",
-  "execution",
-  "subgraph",
-  "loop",
-]);
-
-/**
  * Variable Value Type Schema
  */
 export const variableValueTypeSchema: z.ZodType<VariableValueType> = z.enum([
@@ -42,14 +31,13 @@ export const variableValueTypeSchema: z.ZodType<VariableValueType> = z.enum([
 ]);
 
 /**
- * Variable Definition Schema (NEW - Unified)
+ * Variable Definition Schema (SIMPLIFIED)
  * Replaces WorkflowVariable with VariableDefinition
  */
 export const VariableDefinitionSchema: z.ZodType<VariableDefinition> = z.object({
   name: z.string().min(1, "Variable name is required"),
   type: variableValueTypeSchema,
   value: z.any(),
-  scope: variableScopeSchema,
   readonly: z.boolean(),
   freeze: z.boolean().optional().default(false),
   metadata: z.object({

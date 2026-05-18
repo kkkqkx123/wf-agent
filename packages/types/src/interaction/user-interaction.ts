@@ -10,7 +10,6 @@
  */
 
 import type { ID, Metadata } from "../common.js";
-import type { VariableScope } from "../workflow-execution/scopes.js";
 
 /**
  * Types of user interactions (App-level UI interactions)
@@ -84,11 +83,11 @@ export interface UserInteractionContext {
   /** Node ID */
   nodeId: ID;
   /** Getting the value of a variable */
-  getVariable(variableName: string, scope?: VariableScope): unknown;
+  getVariable(variableName: string): unknown;
   /** Setting variable values */
-  setVariable(variableName: string, value: unknown, scope?: VariableScope): Promise<void>;
+  setVariable(variableName: string, value: unknown): Promise<void>;
   /** Get all variables */
-  getVariables(scope?: VariableScope): Record<string, unknown>;
+  getVariables(): Record<string, unknown>;
   /** timeout control */
   timeout: number;
   /** Cancel Token */

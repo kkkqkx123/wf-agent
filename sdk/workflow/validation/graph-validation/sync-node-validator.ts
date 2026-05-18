@@ -69,7 +69,6 @@ export function validateSyncNodes(
     const { nodeId, config } = syncNode;
 
     // Check if sourcePathId is present
-    let hasConfigError = false;
     if (!config.sourcePathId || !config.sourcePathId.trim()) {
       errors.push(
         new ConfigurationValidationError(
@@ -83,7 +82,6 @@ export function validateSyncNodes(
           }
         )
       );
-      hasConfigError = true;
       // Don't continue - still check other configurations and isolation
     }
 
@@ -104,7 +102,6 @@ export function validateSyncNodes(
           }
         )
       );
-      hasConfigError = true;
     }
 
     // Verify targetPathId if provided

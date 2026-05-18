@@ -309,14 +309,12 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
       required?: boolean;
       readonly?: boolean;
       freeze?: boolean;
-      scope?: "global" | "execution" | "subgraph" | "loop"; // Updated to new naming
     },
   ): this {
     const variable: VariableDefinition = {
       name,
       type,
       value: options?.defaultValue ?? undefined,
-      scope: options?.scope || "execution",
       readonly: options?.readonly || false,
       freeze: options?.freeze,
       metadata: {

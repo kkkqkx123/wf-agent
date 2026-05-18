@@ -237,9 +237,8 @@ export class CheckpointCoordinator {
     // Create a variable snapshot using VariableManager
     const vmSnapshot = workflowExecutionEntity.variableStateManager.createSnapshot();
     
-    // Convert Maps to arrays for backward compatibility with checkpoint format
-    const globalVarsArray = Array.from(vmSnapshot.global.values()).map(entry => entry.definition);
-    const executionVarsArray = Array.from(vmSnapshot.execution.values()).map(entry => entry.definition);
+    // Convert Map to array for checkpoint format
+    const variablesArray = Array.from(vmSnapshot.variables.values()).map(entry => entry.definition);
 
     // Convert the `nodeResults` array into Record format.
     const nodeResultsRecord: Record<string, NodeExecutionResult> = {};
@@ -275,14 +274,13 @@ export class CheckpointCoordinator {
 
     // Build CheckpointVariableState from VariableManager snapshot
     const variableState: import("@wf-agent/types").CheckpointVariableState = {
-      global: Object.fromEntries(vmSnapshot.global.entries()),
-      execution: Object.fromEntries(vmSnapshot.execution.entries()),
+      variables: Object.fromEntries(vmSnapshot.variables.entries()),
     };
 
     return {
       status: workflowExecutionEntity.getStatus(),
       currentNodeId: workflowExecution.currentNodeId,
-      variables: [...globalVarsArray, ...executionVarsArray],
+      variables: variablesArray,
       variableState,
       input: workflowExecution.input,
       output: workflowExecution.output,
@@ -400,10 +398,6 @@ export class CheckpointCoordinator {
       errors: workflowExecutionState.errors,
       forkJoinContext: workflowExecutionState.forkJoinContext,
       triggeredSubworkflowContext: workflowExecutionState.triggeredSubworkflowContext,
-      variableScopes: {
-        global: workflowExecutionState.variableState.global,
-        execution: workflowExecutionState.variableState.execution,
-      },
       graph,
     };
 
@@ -416,34 +410,22 @@ export class CheckpointCoordinator {
 
     // Step 7: Restore the variable snapshot using VariableManager
     // Convert from CheckpointVariableState back to VariableManager format
-    const globalMap = new Map();
-    const executionMap = new Map();
+    const variablesMap = new Map();
     
     const variableState = workflowExecutionState.variableState;
     
-    // Restore global variables
-    if (variableState.global) {
-      for (const [name, value] of Object.entries(variableState.global)) {
-        globalMap.set(name, {
-          definition: { name, type: typeof value, value, scope: 'global' as const },
-          value,
-        });
-      }
-    }
-    
-    // Restore execution variables
-    if (variableState.execution) {
-      for (const [name, value] of Object.entries(variableState.execution)) {
-        executionMap.set(name, {
-          definition: { name, type: typeof value, value, scope: 'execution' as const },
+    // Restore all variables from flat structure
+    if (variableState.variables) {
+      for (const [name, value] of Object.entries(variableState.variables)) {
+        variablesMap.set(name, {
+          definition: { name, type: typeof value, value, readonly: false },
           value,
         });
       }
     }
     
     workflowExecutionEntity.variableStateManager.restoreFromSnapshot({
-      global: globalMap,
-      execution: executionMap,
+      variables: variablesMap,
     });
 
     // Step 8: Create the ConversationSession

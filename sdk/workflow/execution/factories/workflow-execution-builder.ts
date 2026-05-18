@@ -227,10 +227,6 @@ export class WorkflowExecutionBuilder {
       currentNodeId: startNode.id,
       graph: workflowExecutionGraphData,
       variables: [],
-      variableScopes: {
-        global: {},
-        execution: {},
-      },
       input: options.input || {},
       output: {},
       nodeResults: [],
@@ -379,11 +375,6 @@ export class WorkflowExecutionBuilder {
       currentNodeId: sourceWorkflowExecution.currentNodeId,
       graph: sourceWorkflowExecution.graph,
       variables: sourceWorkflowExecution.variables.map(v => ({ ...v })),
-      // 2-level scopes: global is shared through references, execution creates deep copies
-      variableScopes: {
-        global: sourceWorkflowExecution.variableScopes.global,
-        execution: { ...sourceWorkflowExecution.variableScopes.execution },
-      },
       input: { ...sourceWorkflowExecution.input },
       output: { ...sourceWorkflowExecution.output },
       nodeResults: sourceWorkflowExecution.nodeResults.map(h => ({ ...h })),
@@ -594,7 +585,6 @@ export class WorkflowExecutionBuilder {
     config: ChildExecutionConfig,
     parent: WorkflowExecutionEntity
   ): WorkflowExecutionEntity {
-    const parentExecution = parent.getWorkflowExecutionData();
     
     // Determine start node
     let startNodeId: string;
@@ -625,18 +615,12 @@ export class WorkflowExecutionBuilder {
       currentNodeId: startNodeId,
       graph,
       variables: [],
-      variableScopes: {
-        global: parentExecution.variableScopes.global, // Share global scope by reference
-        execution: {}, // Will be filled via variable initialization
-      },
       input: {},
       output: {},
       nodeResults: [],
       errors: [],
       executionType: executionTypeMap[type] as any,
     };
-    
-    // Add type-specific context
     if (type === 'SUBGRAPH') {
       execution.hierarchy = {
         parent: {

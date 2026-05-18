@@ -96,8 +96,6 @@ export interface SetVariableActionParameters {
   executionId: ID;
   /** variable key-value pair */
   variables: Record<string, unknown>;
-  /** variable scope */
-  scope?: "global" | "execution" | "subgraph" | "loop";
 }
 
 /**

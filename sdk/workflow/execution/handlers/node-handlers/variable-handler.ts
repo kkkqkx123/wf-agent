@@ -165,7 +165,6 @@ export async function variableHandler(
 
   // Update the variable using VariableManager
   const variable = workflowExecution.variables.find((v) => v.name === config.variableName);
-  const variableScope = config.scope || "execution";
 
   if (variable) {
     variable.value = typedResult;
@@ -174,7 +173,6 @@ export async function variableHandler(
       name: config.variableName,
       value: typedResult,
       type: config.variableType,
-      scope: variableScope,
       readonly: config.readonly || false,
     });
   }

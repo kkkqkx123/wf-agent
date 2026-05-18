@@ -5,8 +5,6 @@
  * This is NOT part of the general interaction protocol - it's workflow state management.
  */
 
-import type { VariableScope } from '../../workflow-execution/scopes.js';
-
 /**
  * Variable Update Configuration (Workflow-specific)
  * Used to update workflow variables based on user input
@@ -16,8 +14,6 @@ export interface WorkflowVariableUpdateConfig {
   variableName: string;
   /** Variable update expression (may contain {{input}} placeholders) */
   expression: string;
-  /** Variable scope */
-  scope: VariableScope;
 }
 
 /**

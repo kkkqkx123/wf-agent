@@ -69,7 +69,7 @@ export class AgentScreen implements Screen {
           categories: [MessageCategory.AGENT],
           entityIds: [this.currentAgentId],
         },
-        (message) => this.handleAgentMessage(message)
+        (message: BaseComponentMessage) => this.handleAgentMessage(message)
       );
       this.subscriptions.push(agentSubscription);
     } else {
@@ -85,7 +85,7 @@ export class AgentScreen implements Screen {
             AgentMessageType.AGENT_CANCEL,
           ],
         },
-        (message) => this.handleAgentLifecycleMessage(message)
+        (message: BaseComponentMessage) => this.handleAgentLifecycleMessage(message)
       );
       this.subscriptions.push(lifecycleSubscription);
 
@@ -98,7 +98,7 @@ export class AgentScreen implements Screen {
             AgentMessageType.ITERATION_END,
           ],
         },
-        (message) => this.handleIterationMessage(message)
+        (message: BaseComponentMessage) => this.handleIterationMessage(message)
       );
       this.subscriptions.push(iterationSubscription);
 
@@ -108,7 +108,7 @@ export class AgentScreen implements Screen {
           categories: [MessageCategory.AGENT],
           types: [AgentMessageType.LLM_STREAM],
         },
-        (message) => this.handleLLMStreamMessage(message)
+        (message: BaseComponentMessage) => this.handleLLMStreamMessage(message)
       );
       this.subscriptions.push(llmSubscription);
 
@@ -121,7 +121,7 @@ export class AgentScreen implements Screen {
             AgentMessageType.TOOL_CALL_END,
           ],
         },
-        (message) => this.handleToolMessage(message)
+        (message: BaseComponentMessage) => this.handleToolMessage(message)
       );
       this.subscriptions.push(toolSubscription);
     }

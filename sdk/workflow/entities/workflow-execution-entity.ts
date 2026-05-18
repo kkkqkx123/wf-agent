@@ -27,7 +27,7 @@ import { ExecutionHierarchyManager } from "../../core/execution/execution-hierar
 import type { ExecutionHierarchyRegistry } from "../../core/registry/execution-hierarchy-registry.js";
 import { ToolFailureProtectionState } from "../../core/state-managers/tool-failure-protection-state.js";
 import type { ToolFailureProtectionConfig } from "../../core/state-managers/tool-failure-protection-types.js";
-import type { InterruptionState } from "../../core/types/interruption-state.js";
+import type { InterruptionState } from "../../core/utils/interruption/interruption-state.js";
 
 /**
  * WorkflowExecutionEntity - Workflow Execution Entity
@@ -355,6 +355,14 @@ export class WorkflowExecutionEntity {
   setInterruptionState(interruptionState: InterruptionState): void {
     this.interruptionState = interruptionState;
   }
+  
+  /**
+   * Get the interruption state manager
+   * @returns The InterruptionState instance or undefined if not set
+   */
+  getInterruptionState(): InterruptionState | undefined {
+    return this.interruptionState;
+  }
 
   /**
    * Get the abort signal
@@ -517,9 +525,17 @@ export class WorkflowExecutionEntity {
 
   /**
    * Reset the interrupt flag
+   * 
+   * NOTE: This method now also calls interruptionState.resume() to trigger
+   * automatic cascade propagation to all children (if interruption state is set).
    */
   resetInterrupt(): void {
     this.state.interrupted = false;
+    
+    // Trigger resume on interruption state to auto-propagate to children
+    if (this.interruptionState) {
+      this.interruptionState.resume();
+    }
   }
 
   // Parent-Child Execution Management ============

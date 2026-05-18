@@ -11,6 +11,7 @@ import type { InterruptionType } from "../../../core/types/interruption-types.js
 import {
   checkExecutionInterruption as baseCheckInterruption,
 } from "../../../core/utils/interruption/index.js";
+import { AgentExecutionInterruptedException } from "../types/agent-interruption-types.js";
 
 /**
  * Agent interruption check result with iteration context
@@ -106,7 +107,7 @@ export function getAgentInterruptionDescription(result: AgentInterruptionCheckRe
  * @param type Interruption type (PAUSE or STOP)
  * @param executionId Agent loop ID (conversation ID)
  * @param iteration Current iteration number
- * @returns Error object with agent interruption context
+ * @returns AgentExecutionInterruptedException with agent interruption context
  *
  * @example
  * ```typescript
@@ -118,14 +119,11 @@ export function createAgentInterruptionAbortReason(
   type: "PAUSE" | "STOP",
   executionId: string,
   iteration: number,
-): Error & { interruptionType: "PAUSE" | "STOP"; executionId: string; iteration: number } {
-  const error = new Error(type === "PAUSE" ? "Agent loop paused" : "Agent loop stopped") as Error & {
-    interruptionType: "PAUSE" | "STOP";
-    executionId: string;
-    iteration: number;
-  };
-  error.interruptionType = type;
-  error.executionId = executionId;
-  error.iteration = iteration;
-  return error;
+): AgentExecutionInterruptedException {
+  return new AgentExecutionInterruptedException(
+    type === "PAUSE" ? "Agent loop paused" : "Agent loop stopped",
+    type,
+    executionId,
+    iteration,
+  );
 }

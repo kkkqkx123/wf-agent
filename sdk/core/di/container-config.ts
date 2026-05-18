@@ -77,7 +77,6 @@ import {
 } from "../../workflow/execution/utils/event/index.js";
 import { WorkflowStateTransitor } from "../../workflow/execution/coordinators/workflow-state-transitor.js";
 import { CheckpointState } from "../../workflow/checkpoint/checkpoint-state-manager.js";
-import { WorkflowConversationSession } from "../../workflow/message/workflow-conversation-session.js";
 import { WorkflowExecutionBuilder } from "../../workflow/execution/factories/workflow-execution-builder.js";
 import { WorkflowExecutor } from "../../workflow/execution/executors/workflow-executor.js";
 import { ToolPermissionManager } from "../coordinators/tool-permission-manager.js";
@@ -98,7 +97,7 @@ import { WorkflowLifecycleCoordinator } from "../../workflow/execution/coordinat
 import { ConversationSession } from "../messaging/conversation-session.js";
 import { VariableManager } from "../../workflow/state-managers/variable-manager.js";
 import { TriggerState } from "../../workflow/state-managers/trigger-state.js";
-import { InterruptionState } from "../types/interruption-state.js";
+import { InterruptionState } from "../utils/interruption/interruption-state.js";
 import { AgentLoopExecutor } from "../../agent/execution/executors/agent-loop-executor.js";
 import { AgentLoopRegistry } from "../../agent/stores/agent-loop-registry.js";
 import { ExecutionHierarchyRegistry } from "../registry/execution-hierarchy-registry.js";
@@ -344,14 +343,14 @@ export function configureContainerBindings(
     })
     .inSingletonScope();
 
-  // WorkflowConversationSession - Workflow Conversation Session Factory
-  // WorkflowConversationSession is execution-isolated and requires a separate instance for each execution.
+  // ConversationSession Factory - Execution-isolated conversation session
+  // Each workflow execution requires a separate instance of the conversation session.
   // Create instances using the factory pattern to ensure data isolation between executions
   container
     .bind(Identifiers.GraphConversationSession)
-    .toDynamicValue((): IdBasedServiceFactory<WorkflowConversationSession> => {
-      const factory: IdBasedServiceFactory<WorkflowConversationSession> = {
-        create: (executionId: string) => new WorkflowConversationSession({ executionId }),
+    .toDynamicValue((): IdBasedServiceFactory<ConversationSession> => {
+      const factory: IdBasedServiceFactory<ConversationSession> = {
+        create: (executionId: string) => new ConversationSession({ executionId }),
       };
       return factory;
     })
@@ -369,7 +368,7 @@ export function configureContainerBindings(
       const factory: IdBasedServiceFactory<WorkflowStateTransitor> = {
         create: (executionId: string) => {
           const workflowConversationSession = (
-            workflowConversationSessionFactory as unknown as IdBasedServiceFactory<WorkflowConversationSession>
+            workflowConversationSessionFactory as unknown as IdBasedServiceFactory<ConversationSession>
           ).create(executionId);
           const globalContext = c.get(Identifiers.GlobalContext) as GlobalContext;
           return new WorkflowStateTransitor(

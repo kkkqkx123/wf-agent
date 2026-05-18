@@ -81,3 +81,6 @@ export {
   isRecoverableAgentError,
   createAgentExecutionError,
 } from "./execution/handlers/agent-error-handler.js";
+
+// Agent-specific Types
+export { AgentExecutionInterruptedException } from "./execution/types/index.js";

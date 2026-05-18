@@ -100,7 +100,7 @@ export class DashboardScreen implements Screen {
           AgentMessageType.AGENT_END,
         ],
       },
-      (message) => this.handleAgentMessage(message)
+      (message: BaseComponentMessage) => this.handleAgentMessage(message)
     );
     this.subscriptions.push(agentSubscription);
 
@@ -113,7 +113,7 @@ export class DashboardScreen implements Screen {
           WorkflowExecutionMessageType.EXECUTION_END,
         ],
       },
-      (message) => this.handleWorkflowMessage(message)
+      (message: BaseComponentMessage) => this.handleWorkflowMessage(message)
     );
     this.subscriptions.push(workflowSubscription);
   }

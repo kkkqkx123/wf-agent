@@ -25,3 +25,5 @@ export {
   type ForkHandlerContext,
   type ForkExecutionConfig,
 } from "./fork.types.js";
+
+export { WorkflowExecutionInterruptedException } from "./workflow-interruption-types.js";

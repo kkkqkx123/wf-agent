@@ -5,7 +5,7 @@
 
 import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
 import type { WorkflowExecutionResult } from "@wf-agent/types";
-import type { InterruptionState } from "../../../core/types/interruption-state.js";
+import type { InterruptionState } from "../../../core/utils/interruption/interruption-state.js";
 import type { NodeExecutionCoordinator } from "./node-execution-coordinator.js";
 import type { WorkflowNavigator } from "../../builder/workflow-navigator.js";
 import {

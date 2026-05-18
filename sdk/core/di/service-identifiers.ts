@@ -26,7 +26,7 @@ import type { WorkflowExecutor as WorkflowExecutorType } from "../../workflow/ex
 import type { WorkflowLifecycleCoordinator as WorkflowLifecycleCoordinatorType } from "../../workflow/execution/coordinators/workflow-lifecycle-coordinator.js";
 import type { WorkflowStateTransitor as WorkflowStateTransitorType } from "../../workflow/execution/coordinators/workflow-state-transitor.js";
 import type { CheckpointState as CheckpointStateType } from "../../workflow/checkpoint/checkpoint-state-manager.js";
-import type { WorkflowConversationSession as GraphConversationSessionType } from "../../workflow/message/workflow-conversation-session.js";
+import type { ConversationSession as GraphConversationSessionType } from "../messaging/conversation-session.js";
 import type { LLMExecutor as LLMExecutorType } from "../executors/llm-executor.js";
 import type { ToolCallExecutor as ToolCallExecutorType } from "../executors/tool-call-executor.js";
 import type { ToolApprovalCoordinator as ToolApprovalCoordinatorType } from "../coordinators/tool-approval-coordinator.js";
@@ -38,7 +38,7 @@ import type { LLMExecutionCoordinator as LLMExecutionCoordinatorType } from "../
 import type { CheckpointCoordinator as CheckpointCoordinatorType } from "../../workflow/checkpoint/checkpoint-coordinator.js";
 import type { ConversationSession as ConversationSessionType } from "../messaging/conversation-session.js";
 import type { TriggerState as TriggerStateType } from "../../workflow/state-managers/trigger-state.js";
-import type { InterruptionState as InterruptionStateType } from "../types/interruption-state.js";
+import type { InterruptionState as InterruptionStateType } from "../utils/interruption/interruption-state.js";
 import type { SDKInstance as SDKInstanceType } from "../../api/shared/core/sdk-instance.js";
 import type { TriggeredSubworkflowHandler as TriggeredSubworkflowHandlerType } from "../../workflow/execution/handlers/triggered-subworkflow-handler.js";
 import type { WorkflowExecutionPool as WorkflowExecutionPoolType } from "../../workflow/execution/workflow-execution-pool.js";

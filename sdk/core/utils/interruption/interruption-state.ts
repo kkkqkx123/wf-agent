@@ -15,8 +15,9 @@
  * - Portability: Can be shared by both the Graph module and the Agent module
  */
 
-import { InterruptedException, WorkflowExecutionInterruptedException } from "./interruption-types.js";
-import { createContextualLogger } from "../../utils/contextual-logger.js";
+import { InterruptedException } from "../../types/interruption-types.js";
+import { createContextualLogger } from "../../../utils/contextual-logger.js";
+import { InterruptionPropagationProxy } from "./interruption-propagation-proxy.js";
 
 const logger = createContextualLogger({ component: "InterruptionState" });
 
@@ -65,6 +66,12 @@ export class InterruptionState {
   
   /** Event listeners for resume notifications */
   private resumeListeners: Array<() => void> = [];
+  
+  /** Interruption propagation proxy (manages parent-child sync) */
+  private propagationProxy?: InterruptionPropagationProxy;
+  
+  /** Event listeners for interruption notifications (PAUSE/STOP/RESUME) */
+  private interruptionListeners: Array<(type: "PAUSE" | "STOP" | "RESUME") => void> = [];
 
   /**
    * Constructor
@@ -97,6 +104,9 @@ export class InterruptionState {
     this.interruptionType = "PAUSE";
     const error = this.createError("Execution paused", "PAUSE");
     this.abortController.abort(error);
+    
+    // Notify all listeners (including propagation proxy)
+    this.notifyInterruptionListeners("PAUSE");
   }
 
   /**
@@ -111,6 +121,9 @@ export class InterruptionState {
     this.interruptionType = "STOP";
     const error = this.createError("Execution stopped", "STOP");
     this.abortController.abort(error);
+    
+    // Notify all listeners (including propagation proxy)
+    this.notifyInterruptionListeners("STOP");
   }
 
   /**
@@ -121,6 +134,10 @@ export class InterruptionState {
    * 
    * IMPORTANT: External code should NOT cache AbortSignal references across pause/resume cycles.
    * Always call getAbortSignal() or getFreshAbortSignal() after resume() to obtain the current signal.
+   * 
+   * NOTE: Resume now automatically propagates to all children via event propagation,
+   * consistent with PAUSE/STOP behavior. This ensures state consistency across the entire
+   * execution hierarchy.
    */
   resume(): void {
     logger.info("Execution resumed", { contextId: this.contextId, nodeId: this.nodeId });
@@ -143,6 +160,9 @@ export class InterruptionState {
         });
       }
     });
+    
+    // Auto-propagate resume to children (consistent with pause/stop)
+    this.notifyInterruptionListeners("RESUME");
     
     // Help GC by removing references to old controller
     // Note: The old controller's signal may still be referenced externally,
@@ -271,7 +291,90 @@ export class InterruptionState {
   getNodeId(): string {
     return this.nodeId;
   }
+  
+  /**
+   * Register a child interruption state for cascade propagation
+   * 
+   * @param childState Child's interruption state
+   * @example
+   * ```typescript
+   * parentInterruptionState.registerChild(childInterruptionState);
+   * ```
+   */
+  registerChild(childState: InterruptionState): void {
+    if (!this.propagationProxy) {
+      this.propagationProxy = new InterruptionPropagationProxy();
+      // Attach to self (this is the parent)
+      this.propagationProxy.attachToParent(this);
+    }
+    this.propagationProxy.registerChild(childState);
+    
+    logger.debug("Child interruption state registered", {
+      parentContextId: this.contextId,
+      childContextId: childState.getContextId(),
+    });
+  }
+  
+  /**
+   * Unregister a child interruption state (cleanup)
+   */
+  unregisterChild(childState: InterruptionState): void {
+    this.propagationProxy?.unregisterChild(childState);
+  }
+  
+  /**
+   * Subscribe to interruption events
+   * 
+   * @param callback Called when pause/stop/resume is requested
+   * @returns Unsubscribe function
+   * @example
+   * ```typescript
+   * const unsubscribe = interruptionState.onInterrupted((type) => {
+   *   console.log(`Interrupted: ${type}`);
+   * });
+   * ```
+   */
+  onInterrupted(callback: (type: "PAUSE" | "STOP" | "RESUME") => void): () => void {
+    this.interruptionListeners.push(callback);
+    
+    return () => {
+      const index = this.interruptionListeners.indexOf(callback);
+      if (index !== -1) {
+        this.interruptionListeners.splice(index, 1);
+      }
+    };
+  }
+  
+  /**
+   * Notify all interruption listeners
+   */
+  private notifyInterruptionListeners(type: "PAUSE" | "STOP" | "RESUME"): void {
+    const listeners = [...this.interruptionListeners];
+    listeners.forEach(listener => {
+      try {
+        listener(type);
+      } catch (error) {
+        logger.warn("Error in interruption listener", { 
+          contextId: this.contextId,
+          error: error instanceof Error ? error.message : String(error) 
+        });
+      }
+    });
+  }
 
+  /**
+   * Cleanup resources (prevent memory leaks)
+   */
+  dispose(): void {
+    this.propagationProxy?.dispose();
+    this.interruptionListeners = [];
+    this.resumeListeners = [];
+    
+    logger.debug("InterruptionState disposed", {
+      contextId: this.contextId,
+    });
+  }
+  
   /**
    * Create an interrupt error
    */
@@ -287,7 +390,11 @@ export class InterruptionState {
       return this.createInterruptionError(info);
     }
 
-    // The default is to use WorkflowExecutionInterruptedException (for backward compatibility).
-    return new WorkflowExecutionInterruptedException(message, type, this.contextId, this.nodeId);
+    // Default: throw a generic interruption exception.
+    // Callers should provide createInterruptionError callback for module-specific exceptions.
+    return new InterruptedException(message, type, {
+      contextId: this.contextId,
+      nodeId: this.nodeId,
+    });
   }
 }

@@ -80,7 +80,7 @@ export class WorkflowScreen implements Screen {
           WorkflowExecutionMessageType.NODE_SKIP,
         ],
       },
-      (message) => this.handleNodeMessage(message)
+      (message: BaseComponentMessage) => this.handleNodeMessage(message)
     );
     this.subscriptions.push(nodeSubscription);
 
@@ -93,7 +93,7 @@ export class WorkflowScreen implements Screen {
           WorkflowExecutionMessageType.EXECUTION_END,
         ],
       },
-      (message) => this.handleWorkflowMessage(message)
+      (message: BaseComponentMessage) => this.handleWorkflowMessage(message)
     );
     this.subscriptions.push(workflowSubscription);
   }

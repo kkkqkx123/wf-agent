@@ -21,7 +21,7 @@ import type { WorkflowExecutionStatus, WorkflowExecutionResult } from "@wf-agent
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-registry.js";
 import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
-import { WorkflowConversationSession } from "../../message/workflow-conversation-session.js";
+import type { ConversationSession } from "../../../core/messaging/conversation-session.js";
 import { validateTransition, isTerminalStatus } from "../utils/workflow-state-validator.js";
 import {
   buildWorkflowExecutionStartedEvent,
@@ -49,7 +49,7 @@ const logger = createContextualLogger({ component: "WorkflowStateTransitor" });
 export class WorkflowStateTransitor {
   constructor(
     private eventManager: EventRegistry,
-    private workflowConversationSession: WorkflowConversationSession,
+    private workflowConversationSession: ConversationSession,
     private workflowExecutionRegistry: WorkflowExecutionRegistry,
     private readonly globalContext: GlobalContext,
   ) {}

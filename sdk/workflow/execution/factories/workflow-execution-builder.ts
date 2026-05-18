@@ -722,7 +722,7 @@ export class WorkflowExecutionBuilder {
   }
 
   /**
-   * Establish parent-child hierarchy relationship
+   * Establish parent-child hierarchy relationship WITH interruption cascade propagation
    */
   private establishHierarchy(
     parent: WorkflowExecutionEntity,
@@ -732,29 +732,49 @@ export class WorkflowExecutionBuilder {
   ): void {
     const registry = this.getExecutionHierarchyRegistry();
     
-    // 1. Register to global registry
+    // Step 1: Register to global registry
     registry.register(child);
     
-    // 2. Set parent context
+    // Step 2: Set parent context
     child.setParentContext({
       parentType: 'WORKFLOW',
       parentId: parent.id,
       ...(config.nodeId && { nodeId: config.nodeId }),
     });
     
-    // 3. Register child reference in parent entity
+    // Step 3: Register child reference in parent entity
+    const shouldInheritInterruption = this.shouldInheritInterruption(type, config);
     parent.registerChild({
       childType: 'WORKFLOW',
       childId: child.id,
       createdAt: Date.now(),
       ...(config.forkPathId && { forkPathId: config.forkPathId }),
+      inheritsInterruption: shouldInheritInterruption,
     });
+    
+    // Step 4: Setup interruption cascade propagation (NEW)
+    if (shouldInheritInterruption) {
+      const parentInterruptionState = parent.getInterruptionState();
+      const childInterruptionState = child.getInterruptionState();
+      
+      if (parentInterruptionState && childInterruptionState) {
+        // Register child with parent's interruption state
+        parentInterruptionState.registerChild(childInterruptionState);
+        
+        logger.info("Interruption cascade established", {
+          parentExecutionId: parent.id,
+          childExecutionId: child.id,
+          childType: type,
+        });
+      }
+    }
     
     logger.debug('Child hierarchy established', {
       childExecutionId: child.id,
       parentExecutionId: parent.id,
       childType: type,
       forkPathId: config.forkPathId,
+      inheritsInterruption: shouldInheritInterruption,
     });
   }
 
@@ -776,6 +796,30 @@ export class WorkflowExecutionBuilder {
     conversationManager.setContext(childExecution.workflowId, childExecution.id);
     
     return conversationManager;
+  }
+  
+  /**
+   * Determine whether child should inherit parent's interruption state
+   */
+  private shouldInheritInterruption(
+    type: ChildExecutionType,
+    config: ChildExecutionConfig
+  ): boolean {
+    switch (type) {
+      case 'SUBGRAPH':
+        return true; // Synchronous, always inherits
+        
+      case 'FORK_BRANCH':
+        return true; // Synchronous, always inherits
+        
+      case 'TRIGGERED':
+        // Explicitly check execution mode for clarity
+        // Default to false (asynchronous, independent) if not specified
+        return config.async === true ? false : true;
+        
+      default:
+        return false;
+    }
   }
 
   /**

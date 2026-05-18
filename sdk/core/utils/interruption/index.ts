@@ -27,3 +27,18 @@ export {
   executeWithInterruptionHandling,
   iterateWithInterruptionHandling,
 } from "./interruption-handler.js";
+
+// Interruption state management
+export {
+  InterruptionState,
+  type InterruptionType,
+  type InterruptionInfo,
+  type InterruptionStateConfig,
+} from "./interruption-state.js";
+
+// Interruption propagation proxy
+export {
+  InterruptionPropagationProxy,
+  type PropagationResult,
+  InterruptionPropagationError,
+} from "./interruption-propagation-proxy.js";

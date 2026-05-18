@@ -23,5 +23,6 @@ export * as api from "./api/index.js";
 export * as core from "./core/index.js";
 export * as services from "./services/index.js";
 export * as agent from "./agent/index.js";
+export * as workflow from "./workflow/index.js";
 export * as utils from "./utils/index.js";
 export * as resources from "./resources/index.js";

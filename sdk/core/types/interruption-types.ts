@@ -44,28 +44,6 @@ export class InterruptedException extends SDKError {
 }
 
 /**
- * Workflow Execution Interrupt Exception Type (Graph Module)
- * 
- * @description
- * 1. Used to indicate that workflow execution in the Graph module is interrupted by user request (pause or stop)
- * 2. Inherits from InterruptedException, adding Graph module specific context
- * 3. After the executor catches this exception, it will handle it according to the interruption type
- * 
- * @internal SDK internal use only
- */
-export class WorkflowExecutionInterruptedException extends InterruptedException {
-  constructor(
-    message: string,
-    interruptionType: InterruptionType,
-    public readonly executionId?: string,
-    public readonly nodeId?: string,
-    context?: Record<string, unknown>,
-  ) {
-    super(message, interruptionType, { ...context, executionId, nodeId });
-  }
-}
-
-/**
  * AbortError - Operation Abort Error
  * 
  * @description

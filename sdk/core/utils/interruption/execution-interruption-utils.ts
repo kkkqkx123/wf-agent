@@ -1,11 +1,7 @@
 /**
- * Execution-Specific Interruption Utilities (Generic Layer)
+ * Execution-Specific Interruption Utilities
  *
- * Design Principles:
- * - Provides domain-agnostic interruption checking and continuation logic
- * - Extracts basic interruption type from abort reasons
- * - Workflow and Agent modules should use their own specialized utilities
- *   for domain-specific context (nodeId for workflow, iteration for agent)
+ * Provides domain-agnostic interruption checking and continuation logic.
  */
 
 import type { InterruptionType } from "../../types/interruption-types.js";
@@ -14,7 +10,7 @@ import {
 } from "./abort-signal-utils.js";
 
 /**
- * Basic interruption check result (domain-agnostic)
+ * Basic interruption check result
  */
 export type ExecutionInterruptionCheckResult =
   | { type: "continue" }
@@ -24,13 +20,11 @@ export type ExecutionInterruptionCheckResult =
 
 /**
  * Check interruption and extract basic type
- * @param signal AbortSignal
- * @returns The result of the interruption check
  */
 export function checkExecutionInterruption(signal?: AbortSignal): ExecutionInterruptionCheckResult {
   const baseResult = baseCheckInterruption(signal);
 
-  // If not aborted or continue, return as-is
+  // If not aborted, return as-is
   if (baseResult.type === "continue") {
     return baseResult;
   }
@@ -44,27 +38,18 @@ export function checkExecutionInterruption(signal?: AbortSignal): ExecutionInter
       const executionId = interruption["executionId"] as string | undefined;
 
       if (type === "PAUSE") {
-        return {
-          type: "paused",
-          executionId: executionId,
-        };
+        return { type: "paused", executionId };
       } else if (type === "STOP") {
-        return {
-          type: "stopped",
-          executionId: executionId,
-        };
+        return { type: "stopped", executionId };
       }
     }
   }
 
-  // Return as generic aborted if no interruption context found
   return baseResult;
 }
 
 /**
  * Determine whether to continue execution
- * @param result The result of the interruption check
- * @returns Whether to continue
  */
 export function shouldContinueExecution(result: ExecutionInterruptionCheckResult): boolean {
   return result.type === "continue";
@@ -72,8 +57,6 @@ export function shouldContinueExecution(result: ExecutionInterruptionCheckResult
 
 /**
  * Get the execution interrupt type
- * @param result The result of the interrupt check
- * @returns The interrupt type (PAUSE/STOP/null)
  */
 export function getExecutionInterruptionType(result: ExecutionInterruptionCheckResult): InterruptionType {
   if (result.type === "paused") {
@@ -85,9 +68,7 @@ export function getExecutionInterruptionType(result: ExecutionInterruptionCheckR
 }
 
 /**
- * Get a user-friendly description for execution interruptions (generic)
- * @param result Interrupt check result
- * @returns Interrupt description string
+ * Get a user-friendly description for execution interruptions
  */
 export function getExecutionInterruptionDescription(result: ExecutionInterruptionCheckResult): string {
   switch (result.type) {

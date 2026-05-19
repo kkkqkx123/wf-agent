@@ -9,12 +9,9 @@ import { InterruptedException } from "../../../core/types/interruption-types.js"
 import type { InterruptionType } from "../../../core/utils/interruption/interruption-state.js";
 
 /**
- * Agent Execution Interrupt Exception Type
+ * Agent Execution Interrupt Exception
  * 
- * @description
- * 1. Used to indicate that agent loop execution is interrupted by user request (pause or stop)
- * 2. Inherits from InterruptedException, adding agent-specific context (iteration, agentLoopId)
- * 3. After the executor catches this exception, it will handle it according to the interruption type
+ * Extends InterruptedException with agent-specific context (iteration, agentLoopId).
  */
 export class AgentExecutionInterruptedException extends InterruptedException {
   constructor(

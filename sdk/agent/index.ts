@@ -84,3 +84,9 @@ export {
 
 // Agent-specific Types
 export { AgentExecutionInterruptedException } from "./execution/types/index.js";
+
+// Validation Layer
+export {
+  validateAgentLoopConfig,
+  getAgentLoopValidationWarnings,
+} from "./validation/index.js";

@@ -6,7 +6,6 @@ import { describe, it, expect } from "vitest";
 import type {
   LLMMessage,
   MessageMarkMap,
-  MessageOperationConfig,
   AppendMessageOperation,
   TruncateMessageOperation,
   InsertMessageOperation,

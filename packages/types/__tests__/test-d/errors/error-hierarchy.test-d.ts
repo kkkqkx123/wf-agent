@@ -7,7 +7,7 @@
  * - Error severity types
  * - ErrorContext interface
  * - ValidationError hierarchy
- * - ConfigurationValidationError, RuntimeValidationError, SchemaValidationError
+ * - ConfigurationValidationError, RuntimeValidationError
  * - instanceof type guards
  * - toJSON serialization
  */
@@ -20,7 +20,6 @@ import {
   NotFoundError,
   ConfigurationValidationError,
   RuntimeValidationError,
-  SchemaValidationError,
   ErrorSeverity,
   ErrorContext,
 } from "../../../src/index.js";
@@ -200,34 +199,7 @@ if (runtimeError.context) {
 }
 
 // ============================================================================
-// Test 8: SchemaValidationError
-// ============================================================================
-
-const schemaError = new SchemaValidationError(
-  "Schema validation failed",
-  {
-    schemaPath: "#/properties/name",
-    validationErrors: [
-      { path: "/name", message: "Required field missing" },
-    ],
-    field: "name",
-    value: undefined,
-  }
-);
-expectType<string>(schemaError.message);
-expectType<ErrorSeverity>(schemaError.severity);
-expectType<string | undefined>(schemaError.field);
-expectType<unknown>(schemaError.value);
-
-if (schemaError.context) {
-  expectType<string | undefined>(schemaError.context["schemaPath"] as string | undefined);
-  expectType<Array<{ path: string; message: string }> | undefined>(
-    schemaError.context["validationErrors"] as Array<{ path: string; message: string }> | undefined
-  );
-}
-
-// ============================================================================
-// Test 9: ExecutionError structure
+// Test 8: ExecutionError structure
 // ============================================================================
 
 const execError = new ExecutionError(
@@ -310,13 +282,6 @@ if (error instanceof RuntimeValidationError) {
   }
 }
 
-if (error instanceof SchemaValidationError) {
-  expectType<SchemaValidationError>(error);
-  if (error.context) {
-    expectType<string | undefined>(error.context["schemaPath"] as string | undefined);
-  }
-}
-
 if (error instanceof ExecutionError) {
   expectType<ExecutionError>(error);
   expectType<string | undefined>(error.nodeId);
@@ -342,7 +307,6 @@ if (error instanceof ValidationError) {
 // All specific errors should be instances of SDKError
 const configErr = new ConfigurationValidationError("test");
 const runtimeErr = new RuntimeValidationError("test");
-const schemaErr = new SchemaValidationError("test");
 const execErr = new ExecutionError("test");
 const notFoundErr = new NotFoundError("test", "type", "id");
 const validationErr = new ValidationError("test");
@@ -350,7 +314,6 @@ const validationErr = new ValidationError("test");
 // These should all be assignable to SDKError
 expectAssignable<SDKError>(configErr);
 expectAssignable<SDKError>(runtimeErr);
-expectAssignable<SDKError>(schemaErr);
 expectAssignable<SDKError>(execErr);
 expectAssignable<SDKError>(notFoundErr);
 expectAssignable<SDKError>(validationErr);

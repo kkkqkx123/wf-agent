@@ -55,8 +55,8 @@ describe('MessageStream with Dead Loop Detection', () => {
       stream.pushReasoning('Second part');
 
       expect(reasoningEvents).toHaveLength(2);
-      expect(reasoningEvents[0].delta).toBe('First part ');
-      expect(reasoningEvents[1].snapshot).toBe('First part Second part');
+      expect(reasoningEvents[0]!.delta).toBe('First part ');
+      expect(reasoningEvents[1]!.snapshot).toBe('First part Second part');
     });
 
     it('should respect custom checkpoint configuration', () => {
@@ -125,7 +125,7 @@ describe('MessageStream with Dead Loop Detection', () => {
       stream.pushReasoning('Some reasoning');
 
       expect(reasoningEvents).toHaveLength(1);
-      expect(reasoningEvents[0].delta).toBe('Some reasoning');
+      expect(reasoningEvents[0]!.delta).toBe('Some reasoning');
     });
   });
 

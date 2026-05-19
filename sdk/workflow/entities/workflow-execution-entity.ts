@@ -28,6 +28,7 @@ import type { ExecutionHierarchyRegistry } from "../../core/registry/execution-h
 import { ToolFailureProtectionState } from "../../core/state-managers/tool-failure-protection-state.js";
 import type { ToolFailureProtectionConfig } from "../../core/state-managers/tool-failure-protection-types.js";
 import type { InterruptionState } from "../../core/utils/interruption/interruption-state.js";
+import { createWorkflowInterruptionAbortReason } from "../execution/utils/workflow-interruption-utils.js";
 import type { EventRegistry } from "../../core/registry/event-registry.js";
 import { SyncBarrier } from "../execution/barriers/sync-barrier.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
@@ -535,9 +536,17 @@ export class WorkflowExecutionEntity {
 
   /**
    * Interrupt the workflow execution
+   * @param type Interrupt type (PAUSE or STOP)
    */
-  interrupt(): void {
-    this.state.interrupted = true;
+  interrupt(type: "PAUSE" | "STOP"): void {
+    this.state.interrupt(type);
+    
+    // Create proper abort reason with workflow context (nodeId)
+    const currentNodeId = this.getCurrentNodeId();
+    if (currentNodeId && this.abortController) {
+      const abortReason = createWorkflowInterruptionAbortReason(type, this.id, currentNodeId);
+      this.abortController.abort(abortReason);
+    }
   }
 
   /**

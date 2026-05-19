@@ -9,8 +9,10 @@ export * from "./common.js";
 export * from "./workflow/index.js";
 export * from "./workflow-reference.js";
 export * from "./node-template.js";
+export * from "./node-template-schema.js";
 export * from "./graph/index.js";
 export * from "./edge.js";
+export * from "./edge-schema.js";
 export * from "./node/index.js";
 
 // Agent Proprietary type

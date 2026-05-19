@@ -9,10 +9,6 @@ import { ConfigFormat } from "../types.js";
 import type { Result } from "@wf-agent/types";
 import { ValidationError, ConfigurationError } from "@wf-agent/types";
 import { validateWorkflowTrigger } from "../../../../core/validation/trigger-validator.js";
-import {
-  validateRequiredFields,
-  validateNumberField,
-} from "../validators/validation-helpers.js";
 import { ok, err } from "@wf-agent/common-utils";
 import type { TriggerTemplate } from "@wf-agent/types";
 import { stringifyJson } from "../parsers/json-parser.js";
@@ -20,6 +16,7 @@ import { substituteParameters } from "../utils/config-utils.js";
 
 /**
  * Verify TriggerTemplate configuration
+ * Uses validateWorkflowTrigger for validation
  * @param config The parsed configuration object
  * @returns The verification result
  */
@@ -27,59 +24,25 @@ export function validateTriggerTemplate(
   config: ParsedConfig<"trigger_template">,
 ): Result<ParsedConfig<"trigger_template">, ValidationError[]> {
   const template = config.config as TriggerTemplate;
-  const errors: ValidationError[] = [];
 
-  // Verify required fields
-  errors.push(
-    ...validateRequiredFields(
-      template as unknown as Record<string, unknown>,
-      ["name", "condition", "action", "createdAt", "updatedAt"],
-      "TriggerTemplate",
-    ),
-  );
-
-  // Verify the timestamp
-  if (template.createdAt !== undefined) {
-    errors.push(
-      ...validateNumberField(template.createdAt, "TriggerTemplate.createdAt", {
-        integer: true,
-        min: 0,
-      }),
-    );
-  }
-
-  if (template.updatedAt !== undefined) {
-    errors.push(
-      ...validateNumberField(template.updatedAt, "TriggerTemplate.updatedAt", {
-        integer: true,
-        min: 0,
-      }),
-    );
-  }
-
-  // Trigger configuration validation fully delegated to the core validator
-  // Create a temporary WorkflowTrigger object to be used for validation.
-  const tempTrigger = {
-    id: "temp-trigger-id",
+  // Convert TriggerTemplate to Trigger format for validation
+  const triggerForValidation = {
+    id: `template-${template.name}`,
     name: template.name,
-    description: template.description,
     condition: template.condition,
     action: template.action,
-    enabled: template.enabled,
+    enabled: template.enabled ?? true,
     maxTriggers: template.maxTriggers,
     metadata: template.metadata,
   };
 
-  const triggerResult = validateWorkflowTrigger(tempTrigger, "TriggerTemplate");
-  if (triggerResult.isErr()) {
-    errors.push(...triggerResult.error);
+  const result = validateWorkflowTrigger(triggerForValidation, "trigger_template");
+
+  if (result.isErr()) {
+    return err(result.error);
   }
 
-  if (errors.length > 0) {
-    return err(errors) as Result<ParsedConfig<"trigger_template">, ValidationError[]>;
-  }
-
-  return ok(config) as Result<ParsedConfig<"trigger_template">, ValidationError[]>;
+  return ok(config);
 }
 
 /**

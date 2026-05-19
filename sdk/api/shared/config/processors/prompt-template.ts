@@ -7,16 +7,17 @@
 import type { ParsedConfig } from "../types.js";
 import { ConfigFormat } from "../types.js";
 import type { Result } from "@wf-agent/types";
-import { ValidationError, ConfigurationError, SchemaValidationError } from "@wf-agent/types";
+import { ValidationError, ConfigurationError, ConfigurationValidationError } from "@wf-agent/types";
 import { ok, err } from "@wf-agent/common-utils";
 import type { PromptTemplate } from "@wf-agent/prompt-templates";
-import { PromptTemplateSchema } from "@wf-agent/prompt-templates";
 import type { PromptTemplateConfigFile } from "../types.js";
+import { PromptTemplateSchema } from "@wf-agent/prompt-templates";
 import { loadPromptTemplateConfig, mergePromptTemplateConfig } from "../loaders/prompt-template-loader.js";
 import { stringifyJson } from "../parsers/json-parser.js";
 
 /**
  * Verify PromptTemplate configuration
+ * Uses Zod schema for validation
  * @param config The parsed configuration object
  * @returns The verification result
  */
@@ -29,7 +30,12 @@ export function validatePromptTemplate(
   const result = PromptTemplateSchema.safeParse(cfg);
   
   if (!result.success) {
-    const errors = result.error.issues.map((e) => new SchemaValidationError(e.message));
+    const errors = result.error.issues.map((e) => 
+      new ConfigurationValidationError(e.message, {
+        configType: "schema",
+        field: e.path.join("."),
+      })
+    );
     return err(errors);
   }
   

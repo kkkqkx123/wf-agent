@@ -3,7 +3,7 @@
  * Provides unified validation functions, returning Result<T, ValidationError[]> type
  */
 
-import { ValidationError, SchemaValidationError } from "@wf-agent/types";
+import { ValidationError, ConfigurationValidationError } from "@wf-agent/types";
 import type { Result } from "@wf-agent/types";
 import { ok, err } from "@wf-agent/common-utils";
 
@@ -25,7 +25,7 @@ export function validateRequiredFields<T>(
     const value = data[field];
     if (value === null || value === undefined || value === "") {
       errors.push(
-        new SchemaValidationError(`${String(field)} cannot be empty`, {
+        new ConfigurationValidationError(`${String(field)} cannot be empty`, {
           field: `${fieldName}.${String(field)}`,
           value: value,
         }),
@@ -58,7 +58,7 @@ export function validateStringLength(
 
   if (typeof value !== "string") {
     errors.push(
-      new SchemaValidationError(`${fieldName} must be a string`, {
+      new ConfigurationValidationError(`${fieldName} must be a string`, {
         field: fieldName,
         value: value,
       }),
@@ -68,7 +68,7 @@ export function validateStringLength(
 
   if (value.length < min) {
     errors.push(
-      new SchemaValidationError(`${fieldName} length must be at least ${min}`, {
+      new ConfigurationValidationError(`${fieldName} length must be at least ${min}`, {
         field: fieldName,
         value: value,
       }),
@@ -76,7 +76,7 @@ export function validateStringLength(
   }
   if (value.length > max) {
     errors.push(
-      new SchemaValidationError(`${fieldName} length must not exceed ${max}`, {
+      new ConfigurationValidationError(`${fieldName} length must not exceed ${max}`, {
         field: fieldName,
         value: value,
       }),
@@ -104,7 +104,7 @@ export function validatePositiveNumber(
 
   if (typeof value !== "number" || isNaN(value)) {
     errors.push(
-      new SchemaValidationError(`${fieldName} must be a number`, {
+      new ConfigurationValidationError(`${fieldName} must be a number`, {
         field: fieldName,
         value: value,
       }),
@@ -114,7 +114,7 @@ export function validatePositiveNumber(
 
   if (value < 0) {
     errors.push(
-      new SchemaValidationError(`${fieldName} cannot be a negative number`, {
+      new ConfigurationValidationError(`${fieldName} cannot be a negative number`, {
         field: fieldName,
         value: value,
       }),
@@ -142,14 +142,14 @@ export function validateObject(
 
   if (value === null || value === undefined) {
     errors.push(
-      new SchemaValidationError(`${fieldName} cannot be empty`, {
+      new ConfigurationValidationError(`${fieldName} cannot be empty`, {
         field: fieldName,
         value: value,
       }),
     );
   } else if (typeof value !== "object" || Array.isArray(value)) {
     errors.push(
-      new SchemaValidationError(`${fieldName} must be a valid object`, {
+      new ConfigurationValidationError(`${fieldName} must be a valid object`, {
         field: fieldName,
         value: value,
       }),
@@ -179,14 +179,14 @@ export function validateArray(
 
   if (!Array.isArray(value)) {
     errors.push(
-      new SchemaValidationError(`${fieldName} must be an array`, {
+      new ConfigurationValidationError(`${fieldName} must be an array`, {
         field: fieldName,
         value: value,
       }),
     );
   } else if (value.length < minLength) {
     errors.push(
-      new SchemaValidationError(`${fieldName} requires at least ${minLength} elements`, {
+      new ConfigurationValidationError(`${fieldName} requires at least ${minLength} elements`, {
         field: fieldName,
         value: value,
       }),
@@ -214,7 +214,7 @@ export function validateBoolean(
 
   if (typeof value !== "boolean") {
     errors.push(
-      new SchemaValidationError(`${fieldName} must be a boolean`, {
+      new ConfigurationValidationError(`${fieldName} must be a boolean`, {
         field: fieldName,
         value: value,
       }),
@@ -246,7 +246,7 @@ export function validatePattern(
 
   if (typeof value !== "string") {
     errors.push(
-      new SchemaValidationError(`${fieldName} must be a string`, {
+      new ConfigurationValidationError(`${fieldName} must be a string`, {
         field: fieldName,
         value: value,
       }),
@@ -256,7 +256,7 @@ export function validatePattern(
 
   if (!regex.test(value)) {
     errors.push(
-      new SchemaValidationError(message || `${fieldName} format is invalid`, {
+      new ConfigurationValidationError(message || `${fieldName} format is invalid`, {
         field: fieldName,
         value: value,
       }),
@@ -286,7 +286,7 @@ export function validateEnum<T>(
 
   if (!enumValues.includes(value)) {
     errors.push(
-      new SchemaValidationError(`${fieldName} must be one of: ${enumValues.join(", ")}`, {
+      new ConfigurationValidationError(`${fieldName} must be one of: ${enumValues.join(", ")}`, {
         field: fieldName,
         value: value,
       }),

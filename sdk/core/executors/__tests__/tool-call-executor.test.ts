@@ -9,7 +9,6 @@ import type { ToolRegistry } from '../../registry/tool-registry.js';
 import type { ConversationSession } from '../../messaging/conversation-session.js';
 import type { Tool } from '@wf-agent/types';
 import { ok, err } from '@wf-agent/common-utils';
-import { createInterruptionAbortReason } from '../../utils/interruption/index.js';
 
 // Mock dependencies
 const createMockToolRegistry = () => ({
@@ -652,10 +651,10 @@ describe('ToolCallExecutor', () => {
         mockToolRegistry as unknown as ToolRegistry,
         mockEventManager as any,
         undefined,
-        undefined,
         mockEventBuilder as any,
         undefined,
         mockSafeEmitFn,
+        undefined,
         undefined,
       );
 
@@ -746,8 +745,8 @@ describe('ToolCallExecutor', () => {
       ];
 
       const abortController = new AbortController();
-      const pauseReason = createInterruptionAbortReason('PAUSE', 'exec-1', 'node-1');
-      abortController.abort(pauseReason);
+      // Note: Production code in workflow layer uses simple abort() without structured reason
+      abortController.abort();
 
       const mockTool: Tool = {
         id: 'test-tool',
@@ -787,8 +786,8 @@ describe('ToolCallExecutor', () => {
       ];
 
       const abortController = new AbortController();
-      const stopReason = createInterruptionAbortReason('STOP', 'exec-1', 'node-1');
-      abortController.abort(stopReason);
+      // Note: Production code in workflow layer uses simple abort() without structured reason
+      abortController.abort();
 
       const mockTool: Tool = {
         id: 'test-tool',

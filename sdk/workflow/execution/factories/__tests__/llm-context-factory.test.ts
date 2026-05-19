@@ -147,8 +147,6 @@ describe('LLMContextFactory', () => {
       checkpointStateManager: createMockCheckpointState(),
       workflowRegistry: createMockWorkflowRegistry(),
       graphRegistry: createMockWorkflowGraphRegistry(),
-      toolContextStore: {},
-      toolVisibilityCoordinator: {},
     };
     factory = new LLMContextFactory(config);
   });
@@ -321,14 +319,6 @@ describe('LLMContextFactory', () => {
 
     it('should return graph registry', () => {
       expect(factory.getGraphRegistry()).toBe(config.graphRegistry);
-    });
-
-    it('should return tool context store', () => {
-      expect(factory.getToolContextStore()).toBe(config.toolContextStore);
-    });
-
-    it('should return tool visibility coordinator', () => {
-      expect(factory.getToolVisibilityCoordinator()).toBe(config.toolVisibilityCoordinator);
     });
   });
 });

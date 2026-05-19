@@ -150,11 +150,15 @@ async function getUserInput(
     }, request.timeout);
   });
 
-  // Cancel control
+  // Cancel control with proper cleanup
+  let cancelInterval: NodeJS.Timeout | null = null;
   const cancelPromise = new Promise((_, reject) => {
-    const checkCancel = setInterval(() => {
+    cancelInterval = setInterval(() => {
       if (context.cancelToken.cancelled) {
-        clearInterval(checkCancel);
+        if (cancelInterval) {
+          clearInterval(cancelInterval);
+          cancelInterval = null;
+        }
         reject(new Error("User interaction cancelled"));
       }
     }, 100);
@@ -177,6 +181,11 @@ async function getUserInput(
     // Competition: User input, timeouts, cancellations
     return await Promise.race([handler.handle(appRequest, context), timeoutPromise, cancelPromise]);
   } finally {
+    // Properly clean up interval to prevent memory leaks
+    if (cancelInterval) {
+      clearInterval(cancelInterval);
+      cancelInterval = null;
+    }
     // Clean up the cancellation check.
     context.cancelToken.cancel();
   }

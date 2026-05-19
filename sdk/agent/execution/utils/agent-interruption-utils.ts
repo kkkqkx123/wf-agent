@@ -1,10 +1,7 @@
 /**
  * Agent-Specific Interruption Utilities
  *
- * Design Principles:
- * - Extends generic interruption utilities with agent-specific context (iteration)
- * - Provides agent-aware helper functions for PAUSE/STOP handling
- * - Used by agent loop coordinators and executors
+ * Extends generic interruption utilities with agent-specific context (iteration).
  */
 
 import type { InterruptionType } from "../../../core/types/interruption-types.js";
@@ -24,8 +21,6 @@ export type AgentInterruptionCheckResult =
 
 /**
  * Check interruption with agent context extraction (iteration)
- * @param signal AbortSignal
- * @returns The result of the interruption check with agent context
  */
 export function checkAgentInterruption(
   signal?: AbortSignal,
@@ -47,29 +42,18 @@ export function checkAgentInterruption(
       const executionId = interruption["executionId"] as string | undefined;
 
       if (type === "PAUSE") {
-        return {
-          type: "paused",
-          executionId: executionId,
-          iteration: currentIteration ?? 0,
-        };
+        return { type: "paused", executionId, iteration: currentIteration ?? 0 };
       } else if (type === "STOP") {
-        return {
-          type: "stopped",
-          executionId: executionId,
-          iteration: currentIteration ?? 0,
-        };
+        return { type: "stopped", executionId, iteration: currentIteration ?? 0 };
       }
     }
   }
 
-  // Return as generic aborted if no agent context found
   return baseResult as AgentInterruptionCheckResult;
 }
 
 /**
  * Get the agent interrupt type
- * @param result The result of the interrupt check
- * @returns The interrupt type (PAUSE/STOP/null)
  */
 export function getAgentInterruptionType(result: AgentInterruptionCheckResult): InterruptionType {
   if (result.type === "paused") {
@@ -82,8 +66,6 @@ export function getAgentInterruptionType(result: AgentInterruptionCheckResult): 
 
 /**
  * Get a user-friendly description for agent interruptions
- * @param result Interrupt check result
- * @returns Interrupt description string
  */
 export function getAgentInterruptionDescription(result: AgentInterruptionCheckResult): string {
   switch (result.type) {
@@ -101,19 +83,7 @@ export function getAgentInterruptionDescription(result: AgentInterruptionCheckRe
 }
 
 /**
- * Create an abort reason object for agent interruption
- * Used to properly structure abort signals with agent context
- *
- * @param type Interruption type (PAUSE or STOP)
- * @param executionId Agent loop ID (conversation ID)
- * @param iteration Current iteration number
- * @returns AgentExecutionInterruptedException with agent interruption context
- *
- * @example
- * ```typescript
- * const reason = createAgentInterruptionAbortReason("PAUSE", agentLoopId, currentIteration);
- * abortController.abort(reason);
- * ```
+ * Create an abort reason object for agent interruption with context
  */
 export function createAgentInterruptionAbortReason(
   type: "PAUSE" | "STOP",

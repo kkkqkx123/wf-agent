@@ -37,7 +37,7 @@ describe('userInteractionHandler', () => {
       operationType: 'UPDATE_VARIABLES',
       prompt: 'Enter value:',
       variables: [
-        { variableName: 'userName', expression: '{{input}}', scope: 'execution' },
+        { variableName: 'userName', expression: '{{input}}' },
       ],
       timeout: 5000,
     };

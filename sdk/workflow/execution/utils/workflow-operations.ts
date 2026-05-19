@@ -27,8 +27,6 @@ import {
   waitForAnyWorkflowExecutionCompletion,
 } from "./event/event-waiter.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
-import { withTimeout, delay } from "../../../core/utils/timeout/timeout-utils.js";
-import { mergeTimeoutWithDefaults } from "../../../api/shared/config/index.js";
 
 const logger = createContextualLogger({ component: "WorkflowOperations" });
 
@@ -483,12 +481,15 @@ export async function copy(
 }
 
 /**
- * Wait for child executions to complete
+ * Wait for child executions to complete using event-driven approach
  * @param childExecutionIds Array of child execution IDs
  * @param joinStrategy Join strategy
  * @param executionRegistry WorkflowExecution registry
  * @param timeout Timeout period in milliseconds
+ * @param parentExecutionId Parent execution ID for event emission
+ * @param eventManager Event registry (required)
  * @returns Array of completed and failed executions
+ * @throws Error if eventManager is not provided
  */
 async function waitForCompletion(
   childExecutionIds: string[],
@@ -498,20 +499,17 @@ async function waitForCompletion(
   parentExecutionId?: string,
   eventManager?: EventRegistry,
 ): Promise<{ completedExecutions: WorkflowExecution[]; failedExecutions: WorkflowExecution[] }> {
-  const completedExecutions: WorkflowExecution[] = [];
-  const failedExecutions: WorkflowExecution[] = [];
-
-  // If there is no event manager, use a polling approach.
+  // EventManager is required - no fallback to polling
   if (!eventManager) {
-    return await waitForCompletionByPolling(
-      childExecutionIds,
-      joinStrategy,
-      workflowExecutionRegistry,
-      timeout,
-      parentExecutionId,
-      eventManager,
+    throw new ExecutionError(
+      "EventManager is required for waiting on child executions. Polling fallback has been removed.",
+      undefined,
+      "MISSING_EVENT_MANAGER"
     );
   }
+
+  const completedExecutions: WorkflowExecution[] = [];
+  const failedExecutions: WorkflowExecution[] = [];
 
   // Waiting using an event-driven approach
   // Choose your waiting method according to your strategy
@@ -646,114 +644,7 @@ async function waitForCompletion(
   return { completedExecutions, failedExecutions };
 }
 
-/**
- * Use polling to wait for workflow executions to complete (alternate scenario)
- *
- * Description:
- * - timeout is the timeout value (in milliseconds) passed into Promise.race.
- * - Timeout is no longer checked when polling, it is managed by the outer Promise.race.
- * - The polling period is 100ms
- */
-async function waitForCompletionByPolling(
-  childExecutionIds: string[],
-  joinStrategy: JoinStrategy,
-  workflowExecutionRegistry: WorkflowExecutionRegistry,
-  timeout: number | undefined,
-  parentExecutionId?: string,
-  eventManager?: EventRegistry,
-): Promise<{ completedExecutions: WorkflowExecution[]; failedExecutions: WorkflowExecution[] }> {
-  const completedExecutions: WorkflowExecution[] = [];
-  const failedExecutions: WorkflowExecution[] = [];
-  const pendingExecutions = new Set(childExecutionIds);
-  let conditionMet = false;
 
-  try {
-    // Use withTimeout to wrap the entire polling process
-    await withTimeout(
-      async () => {
-        // Enter the waiting loop
-        while (pendingExecutions.size > 0) {
-          // Check the status of the sub-WorkflowExecution.
-          for (const executionId of Array.from(pendingExecutions)) {
-            const executionEntity = workflowExecutionRegistry.get(executionId);
-            if (!executionEntity) {
-              continue;
-            }
-
-            const WorkflowExecution = executionEntity.getExecution();
-            const status = executionEntity.getStatus();
-            if (status === "COMPLETED") {
-              completedExecutions.push(WorkflowExecution);
-              pendingExecutions.delete(executionId);
-            } else if (status === "FAILED" || status === "CANCELLED") {
-              failedExecutions.push(WorkflowExecution);
-              pendingExecutions.delete(executionId);
-            }
-          }
-
-          // Determine whether to exit based on the strategy.
-          if (
-            shouldExitWait(
-              completedExecutions,
-              failedExecutions,
-              childExecutionIds,
-              joinStrategy,
-              pendingExecutions.size,
-            )
-          ) {
-            conditionMet = true;
-            break;
-          }
-
-          // Use delay instead of setTimeout for better interruptibility
-          await delay(100);
-        }
-      },
-      timeout ?? mergeTimeoutWithDefaults({}).pollingWait,  // Default 30 seconds timeout
-      {
-        message: `Polling timeout for child executions: ${childExecutionIds.join(', ')}`,
-        onTimeout: () => {
-          logger.warn("Polling timed out", {
-            timeout,
-            pendingCount: pendingExecutions.size,
-            pendingExecutions: Array.from(pendingExecutions),
-            completedCount: completedExecutions.length,
-            failedCount: failedExecutions.length,
-          });
-        }
-      }
-    );
-  } catch (error) {
-    // Timeout error is already logged in onTimeout callback
-    // Just continue with partial results
-    logger.debug("Polling completed with timeout or error", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-
-  // Trigger the WORKFLOW_EXECUTION_JOIN_CONDITION_MET event
-  if (eventManager && parentExecutionId && conditionMet) {
-    const parentExecutionEntity = workflowExecutionRegistry.get(parentExecutionId);
-    if (parentExecutionEntity) {
-      const joinConditionMetEvent = buildWorkflowExecutionJoinConditionMetEvent({
-        executionId: parentExecutionEntity.id,
-        workflowId: parentExecutionEntity.getWorkflowId(),
-        parentExecutionId: parentExecutionEntity.id,
-        childExecutionIds: childExecutionIds,
-        condition: joinStrategy,
-      });
-      
-      try {
-        await emit(eventManager, joinConditionMetEvent);
-      } catch (error) {
-        logger.warn("Failed to emit WORKFLOW_EXECUTION_JOIN_CONDITION_MET event", { error });
-      }
-    }
-  }
-
-  // Step 7: Return the completed WorkflowExecution array
-  return { completedExecutions, failedExecutions };
-}
 
 /**
  * Verify whether the Join strategy is satisfied
@@ -786,38 +677,6 @@ function validateJoinStrategy(
   }
 }
 
-/**
- * Determine whether to exit the waiting state
- * @param completedExecutions: Array of completed executions
- * @param failedExecutions: Array of failed executions
- * @param childExecutionIds: Array of child execution IDs
- * @param joinStrategy: Join strategy
- * @param pendingCount: Number of pending executions
- * @returns: Whether it is time to exit
- */
-function shouldExitWait(
-  completedExecutions: WorkflowExecution[],
-  failedExecutions: WorkflowExecution[],
-  childExecutionIds: string[],
-  joinStrategy: JoinStrategy,
-  pendingCount: number,
-): boolean {
-  switch (joinStrategy) {
-    case "ALL_COMPLETED":
-      return pendingCount === 0;
-    case "ANY_COMPLETED":
-      return completedExecutions.length > 0;
-    case "ALL_FAILED":
-      return pendingCount === 0 && failedExecutions.length === childExecutionIds.length;
-    case "ANY_FAILED":
-      return failedExecutions.length > 0;
-    case "SUCCESS_COUNT_THRESHOLD":
-      // An additional threshold parameter is required; for now, we are handling it in a simplified manner.
-      return completedExecutions.length > 0;
-    default:
-      return false;
-  }
-}
 
 /**
  * Merge the results

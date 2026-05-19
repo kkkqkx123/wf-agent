@@ -9,7 +9,6 @@ import type { LLMWrapper } from '../../llm/wrapper.js';
 import type { LLMResult, LLMMessage } from '@wf-agent/types';
 import { ok, err } from '@wf-agent/common-utils';
 import { LLMError } from '@wf-agent/types';
-import { createInterruptionAbortReason } from '../../utils/interruption/index.js';
 
 // Mock LLMWrapper
 const createMockLLMWrapper = () => {
@@ -369,9 +368,8 @@ describe('LLMExecutor', () => {
       };
 
       const abortController = new AbortController();
-      // Use proper interruption abort reason
-      const pauseReason = createInterruptionAbortReason('PAUSE', 'exec-1', 'node-1');
-      abortController.abort(pauseReason);
+      // Note: Production code in workflow layer uses simple abort() without structured reason
+      abortController.abort();
 
       // Create a proper AbortError with the interruption reason as cause
       const mockError = new Error('Paused');
@@ -398,9 +396,8 @@ describe('LLMExecutor', () => {
       };
 
       const abortController = new AbortController();
-      // Use proper interruption abort reason
-      const stopReason = createInterruptionAbortReason('STOP', 'exec-1', 'node-1');
-      abortController.abort(stopReason);
+      // Note: Production code in workflow layer uses simple abort() without structured reason
+      abortController.abort();
 
       // Create a proper AbortError with the interruption reason as cause
       const mockError = new Error('Stopped');

@@ -22,7 +22,7 @@ import { ValidationError, ConfigurationError } from "@wf-agent/types";
 import {
   validateAgentLoopConfig,
   getAgentLoopValidationWarnings,
-} from "../validators/agent-loop-validator.js";
+} from "../../../../agent/validation/agent-loop-validator.js";
 import { stringifyJson } from "../parsers/json-parser.js";
 
 /**

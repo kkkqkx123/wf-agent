@@ -7,20 +7,17 @@
 import type { ParsedConfig } from "../types.js";
 import { ConfigFormat } from "../types.js";
 import type { Result } from "@wf-agent/types";
-import { ValidationError, SchemaValidationError } from "@wf-agent/types";
-import { WorkflowValidator } from "../../../../workflow/validation/workflow-validator.js";
+import { ValidationError } from "@wf-agent/types";
+import { validateWorkflowConfig } from "../../../../workflow/validation/workflow-config-validation.js";
 import { ConfigTransformer } from "../utils/config-transformer.js";
 import type { WorkflowTemplate } from "@wf-agent/types";
-import { WorkflowTemplateSchema } from "@wf-agent/types";
 import { stringifyJson } from "../parsers/json-parser.js";
 import { ConfigurationError } from "@wf-agent/types";
-import { ok, err } from "@wf-agent/common-utils";
+import { ok } from "@wf-agent/common-utils";
 
 /**
  * Verify Workflow configuration
- * Two-phase validation:
- * 1. Lightweight Schema validation (fast, catches format errors)
- * 2. Deep business logic validation (WorkflowValidator)
+ * Delegates to the unified config validator in core/validation
  * @param config The parsed configuration object
  * @returns The verification result
  */
@@ -29,16 +26,8 @@ export function validateWorkflow(
 ): Result<ParsedConfig<"workflow">, ValidationError[]> {
   const workflow = config.config as WorkflowTemplate;
   
-  // Phase 1: Lightweight Schema validation
-  const schemaResult = WorkflowTemplateSchema.safeParse(workflow);
-  if (!schemaResult.success) {
-    const errors = schemaResult.error.issues.map((e) => new SchemaValidationError(e.message));
-    return err(errors);
-  }
-  
-  // Phase 2: Deep business logic validation
-  const workflowValidator = new WorkflowValidator();
-  const result = workflowValidator.validate(workflow);
+  // Delegate to unified config validator
+  const result = validateWorkflowConfig(workflow);
 
   // Use `andThen` for type conversion
   // ConfigurationValidationError[] is assignable to ValidationError[] (subtype relationship)

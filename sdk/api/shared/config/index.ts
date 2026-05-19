@@ -87,15 +87,7 @@ export {
 
 // Validator
 // Validation Tool Function Export (moved to validators for better organization)
-export {
-  validateRequiredFields,
-  validateStringField,
-  validateNumberField,
-  validateBooleanField,
-  validateArrayField,
-  validateObjectField,
-  validateEnumField,
-} from "./validators/index.js";
+// Note: Use validation functions from sdk/api/shared/validation/validation-strategy.js instead
 
 // Configuration Validation Function Export (removed as they are now integrated into processors)
 // Batch Validation Function Export

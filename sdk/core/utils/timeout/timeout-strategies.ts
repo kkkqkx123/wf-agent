@@ -130,7 +130,10 @@ export function registerHierarchicalTimeout(
   const childCleanupFunctions: Array<() => void> = [];
 
   children.forEach((child) => {
-    // Monitor child status by polling (since we can't directly hook into child expiration)
+    // Monitor child status by polling
+    // NOTE: This polling is necessary because TimeoutHandle doesn't provide event notifications
+    // for expiration/cancellation. If TimeoutHandle adds event support in the future, this
+    // should be refactored to use events instead of polling.
     const checkInterval = setInterval(() => {
       if (!child.isActive()) {
         // Child has expired or been cancelled

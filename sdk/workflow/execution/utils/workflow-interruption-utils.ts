@@ -1,16 +1,14 @@
 /**
  * Workflow-Specific Interruption Utilities
  *
- * Design Principles:
- * - Extends generic interruption utilities with workflow-specific context (nodeId)
- * - Provides workflow-aware helper functions for PAUSE/STOP handling
- * - Used by workflow execution coordinators and node handlers
+ * Extends generic interruption utilities with workflow-specific context (nodeId).
  */
 
 import type { InterruptionType } from "../../../core/types/interruption-types.js";
 import {
   checkExecutionInterruption as baseCheckInterruption,
 } from "../../../core/utils/interruption/index.js";
+import { WorkflowExecutionInterruptedException } from "../types/workflow-interruption-types.js";
 
 /**
  * Workflow interruption check result with node context
@@ -23,13 +21,11 @@ export type WorkflowInterruptionCheckResult =
 
 /**
  * Check interruption with workflow context extraction (nodeId)
- * @param signal AbortSignal
- * @returns The result of the interruption check with workflow context
  */
 export function checkWorkflowInterruption(signal?: AbortSignal): WorkflowInterruptionCheckResult {
   const baseResult = baseCheckInterruption(signal);
 
-  // If not aborted or continue, return as-is
+  // If not aborted, return as-is
   if (baseResult.type === "continue") {
     return baseResult;
   }
@@ -65,8 +61,6 @@ export function checkWorkflowInterruption(signal?: AbortSignal): WorkflowInterru
 
 /**
  * Get the workflow interrupt type
- * @param result The result of the interrupt check
- * @returns The interrupt type (PAUSE/STOP/null)
  */
 export function getWorkflowInterruptionType(result: WorkflowInterruptionCheckResult): InterruptionType {
   if (result.type === "paused") {
@@ -79,8 +73,6 @@ export function getWorkflowInterruptionType(result: WorkflowInterruptionCheckRes
 
 /**
  * Get a user-friendly description for workflow interruptions
- * @param result Interrupt check result
- * @returns Interrupt description string
  */
 export function getWorkflowInterruptionDescription(result: WorkflowInterruptionCheckResult): string {
   switch (result.type) {
@@ -99,9 +91,6 @@ export function getWorkflowInterruptionDescription(result: WorkflowInterruptionC
 
 /**
  * Convert generic interruption result to workflow-specific result
- * @param result Generic interruption check result
- * @param nodeId Node ID for workflow context
- * @returns Workflow-specific interruption check result
  */
 export function toWorkflowInterruptionResult(
   result: import("../../../core/utils/interruption/index.js").ExecutionInterruptionCheckResult,
@@ -117,32 +106,18 @@ export function toWorkflowInterruptionResult(
 }
 
 /**
- * Create an abort reason object for workflow interruption
- * Used to properly structure abort signals with workflow context
- *
- * @param type Interruption type (PAUSE or STOP)
- * @param executionId Workflow execution ID
- * @param nodeId Node ID where interruption occurred
- * @returns Error object with workflow interruption context
- *
- * @example
- * ```typescript
- * const reason = createWorkflowInterruptionAbortReason("PAUSE", executionId, nodeId);
- * abortController.abort(reason);
- * ```
+ * Create an abort reason object for workflow interruption with node context
  */
 export function createWorkflowInterruptionAbortReason(
   type: "PAUSE" | "STOP",
   executionId: string,
   nodeId: string,
-): Error & { interruptionType: "PAUSE" | "STOP"; executionId: string; nodeId: string } {
-  const error = new Error(type === "PAUSE" ? "Workflow execution paused" : "Workflow execution stopped") as Error & {
-    interruptionType: "PAUSE" | "STOP";
-    executionId: string;
-    nodeId: string;
-  };
-  error.interruptionType = type;
-  error.executionId = executionId;
-  error.nodeId = nodeId;
-  return error;
+): WorkflowExecutionInterruptedException {
+  return new WorkflowExecutionInterruptedException(
+    type === "PAUSE" ? "Workflow execution paused" : "Workflow execution stopped",
+    type,
+    executionId,
+    nodeId,
+  );
 }
+

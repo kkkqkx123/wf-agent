@@ -5,6 +5,19 @@
 
 import { z } from "zod";
 
+// Re-export metrics and timeout schemas
+export {
+  MetricsConfigSchema,
+  MetricCollectorConfigSchema,
+  isMetricsConfig,
+  isMetricCollectorConfig,
+} from "./metrics-schema.js";
+
+export {
+  TimeoutConfigSchema,
+  isTimeoutConfig,
+} from "./timeout-schema.js";
+
 // ============================================================================
 // Storage Configuration Schemas
 // ============================================================================

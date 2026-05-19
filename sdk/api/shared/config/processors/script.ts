@@ -9,10 +9,6 @@ import { ConfigFormat } from "../types.js";
 import type { Result } from "@wf-agent/types";
 import { ValidationError, ConfigurationError } from "@wf-agent/types";
 import { CodeConfigValidator } from "../../../../workflow/validation/script-config-validator.js";
-import {
-  validateRequiredFields,
-  validateBooleanField,
-} from "../validators/validation-helpers.js";
 import { ok, err } from "@wf-agent/common-utils";
 import type { Script } from "@wf-agent/types";
 import { stringifyJson } from "../parsers/json-parser.js";
@@ -20,6 +16,7 @@ import { substituteParameters } from "../utils/config-utils.js";
 
 /**
  * Verify Script Configuration
+ * Uses CodeConfigValidator for validation
  * @param config The parsed configuration object
  * @returns The verification result
  */
@@ -27,34 +24,16 @@ export function validateScript(
   config: ParsedConfig<"script">,
 ): Result<ParsedConfig<"script">, ValidationError[]> {
   const script = config.config as Script;
-  const errors: ValidationError[] = [];
-  const codeConfigValidator = new CodeConfigValidator();
 
-  // Verify required fields
-  errors.push(
-    ...validateRequiredFields(
-      script as unknown as Record<string, unknown>,
-      ["id", "name", "description", "options"],
-      "Script",
-    ),
-  );
+  // Use CodeConfigValidator for validation
+  const validator = new CodeConfigValidator();
+  const result = validator.validateScript(script);
 
-  // Verify the activation status.
-  if (script.enabled !== undefined) {
-    errors.push(...validateBooleanField(script.enabled, "Script.enabled"));
+  if (result.isErr()) {
+    return err(result.error);
   }
 
-  // Fully delegate the script configuration validation to CodeConfigValidator.
-  const scriptResult = codeConfigValidator.validateScript(script);
-  if (scriptResult.isErr()) {
-    errors.push(...scriptResult.error);
-  }
-
-  if (errors.length > 0) {
-    return err(errors) as Result<ParsedConfig<"script">, ValidationError[]>;
-  }
-
-  return ok(config) as Result<ParsedConfig<"script">, ValidationError[]>;
+  return ok(config);
 }
 
 /**

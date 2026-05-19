@@ -35,7 +35,6 @@ describe('variableHandler', () => {
       variableName: 'myVar',
       variableType: 'string',
       expression: "'hello'",
-      scope: 'execution',
     };
     const node = { id: 'var-node-1', type: 'VARIABLE', config } as RuntimeNode;
 
@@ -57,7 +56,6 @@ describe('variableHandler', () => {
       variableName: 'numVar',
       variableType: 'number',
       expression: '42',
-      scope: 'execution',
     };
     const node = { id: 'var-node-2', type: 'VARIABLE', config } as RuntimeNode;
 
@@ -75,7 +73,6 @@ describe('variableHandler', () => {
       variableName: 'boolVar',
       variableType: 'boolean',
       expression: 'true',
-      scope: 'execution',
     };
     const node = { id: 'var-node-3', type: 'VARIABLE', config } as RuntimeNode;
 
@@ -90,7 +87,6 @@ describe('variableHandler', () => {
       variableName: 'myVar',
       variableType: 'string',
       expression: "'new value'",
-      scope: 'execution',
     };
     const node = { id: 'var-node-4', type: 'VARIABLE', config } as RuntimeNode;
 
@@ -115,12 +111,11 @@ describe('variableHandler', () => {
   });
 
   it('should update existing variable value', async () => {
-    (mockExecution as any).variables = [{ name: 'myVar', value: 'old', type: 'string', scope: 'execution' }];
+    (mockExecution as any).variables = [{ name: 'myVar', value: 'old', type: 'string' }];
     const config: VariableNodeConfig = {
       variableName: 'myVar',
       variableType: 'string',
       expression: "'updated'",
-      scope: 'execution',
     };
     const node = { id: 'var-node-6', type: 'VARIABLE', config } as RuntimeNode;
 

@@ -32,10 +32,9 @@ function createMockExecutionContext(
     graph: {} as any,
     variables: [],
     executionType: "MAIN",
-    variableScopes: {
-      global: {},
-      execution: {},
-    },
+    // NOTE: variableScopes is deprecated, using any to avoid type errors in legacy tests
+    // TODO: Update tests to use variableStateManager
+    ...( {} as any ),
   };
 
   // Mock entity with getStatus method
@@ -230,7 +229,7 @@ describe("createPermissionCheckHook", () => {
         getExecution: () => ({
           ...mockWorkflowExecution,
           variableScopes: {
-            ...mockWorkflowExecution.variableScopes,
+            ...(mockWorkflowExecution as any).variableScopes,
             workflowExecution: { permissions: ["read", "write", "delete"] },
           },
         }),
@@ -250,7 +249,7 @@ describe("createPermissionCheckHook", () => {
         getExecution: () => ({
           ...mockWorkflowExecution,
           variableScopes: {
-            ...mockWorkflowExecution.variableScopes,
+            ...(mockWorkflowExecution as any).variableScopes,
             workflowExecution: { permissions: ["read"] },
           },
         }),
@@ -274,7 +273,7 @@ describe("createPermissionCheckHook", () => {
         getExecution: () => ({
           ...mockWorkflowExecution,
           variableScopes: {
-            ...mockWorkflowExecution.variableScopes,
+            ...(mockWorkflowExecution as any).variableScopes,
             workflowExecution: { permissions: [] },
           },
         }),
@@ -296,7 +295,7 @@ describe("createPermissionCheckHook", () => {
         getExecution: () => ({
           ...mockWorkflowExecution,
           variableScopes: {
-            ...mockWorkflowExecution.variableScopes,
+            ...(mockWorkflowExecution as any).variableScopes,
             workflowExecution: {},
           },
         }),
@@ -334,7 +333,7 @@ describe("createAuditLoggingHook", () => {
         getExecution: () => ({
           ...mockWorkflowExecution,
           variableScopes: {
-            ...mockWorkflowExecution.variableScopes,
+            ...(mockWorkflowExecution as any).variableScopes,
             workflowExecution: { userId: "user-123" },
           },
         }),

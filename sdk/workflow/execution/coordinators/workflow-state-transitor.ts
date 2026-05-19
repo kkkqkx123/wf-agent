@@ -22,7 +22,7 @@ import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-registry.js";
 import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
 import type { ConversationSession } from "../../../core/messaging/conversation-session.js";
-import { validateTransition, isTerminalStatus } from "../utils/workflow-state-validator.js";
+import { validateTransition } from "../utils/workflow-state-validator.js";
 import {
   buildWorkflowExecutionStartedEvent,
   buildWorkflowExecutionStateChangedEvent,
@@ -38,6 +38,9 @@ import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import type { GlobalContext } from "../../../core/global-context.js";
 import * as Identifiers from "../../../core/di/service-identifiers.js";
 import type { ExecutionHierarchyRegistry } from "../../../core/registry/execution-hierarchy-registry.js";
+import { waitForMultipleWorkflowExecutionsCompleted } from "../utils/index.js";
+import { executeWithSharedTimeout, isTimeoutError } from "../../../core/utils/timeout/index.js";
+import { DEFAULT_TIMEOUTS } from "../../../core/config/timeout-config.js";
 
 const logger = createContextualLogger({ component: "WorkflowStateTransitor" });
 
@@ -258,9 +261,16 @@ export class WorkflowStateTransitor {
    * Cascade cancellation of all child workflow executions
    *
    * @param parentExecutionId Parent workflow execution ID
+   * @param options Optional configuration for timeout and strategy
    * @returns Number of child workflow executions that were canceled
    */
-  async cascadeCancel(parentExecutionId: string): Promise<number> {
+  async cascadeCancel(
+    parentExecutionId: string,
+    options?: {
+      timeout?: number;  // Overall timeout in milliseconds (default: 30000)
+      strategy?: 'sequential' | 'parallel';  // Cancellation strategy (default: 'parallel')
+    }
+  ): Promise<number> {
     const parentContext = this.workflowExecutionRegistry.get(parentExecutionId);
     if (!parentContext) {
       return 0;
@@ -271,28 +281,97 @@ export class WorkflowStateTransitor {
       return 0;
     }
 
-    let cancelledCount = 0;
+    const timeout = options?.timeout ?? DEFAULT_TIMEOUTS.CASCADE_CANCEL;
+    const strategy = options?.strategy ?? 'parallel';
 
-    for (const childExecutionId of childExecutionIds) {
-      try {
-        const success = await this.cancelChildWorkflowExecution(childExecutionId);
-        if (success) {
-          cancelledCount++;
+    logger.debug("Starting cascade cancel", {
+      parentExecutionId,
+      childCount: childExecutionIds.length,
+      timeout,
+      strategy,
+    });
+
+    try {
+      if (strategy === 'parallel') {
+        // Parallel cancellation with shared timeout
+        const cancelOperations: Record<string, () => Promise<boolean>> = {};
+        for (const childExecutionId of childExecutionIds) {
+          cancelOperations[childExecutionId] = () =>
+            this.cancelChildWorkflowExecution(childExecutionId);
         }
-      } catch (error) {
-        throw new StateManagementError(
-          `Failed to cancel child workflow execution ${childExecutionId}`,
-          "workflowExecution",
-          "delete",
-          childExecutionId,
-          undefined,
-          undefined,
-          { childExecutionId, originalError: getErrorOrNew(error) },
-        );
-      }
-    }
 
-    return cancelledCount;
+        const results = await executeWithSharedTimeout(
+          cancelOperations,
+          timeout,
+          { message: `Cascade cancel timed out for parent: ${parentExecutionId}` }
+        );
+
+        const cancelledCount = Array.from(results.values()).filter(Boolean).length;
+        logger.info("Parallel cascade cancel completed", {
+          parentExecutionId,
+          totalChildren: childExecutionIds.length,
+          cancelledCount,
+        });
+        return cancelledCount;
+      } else {
+        // Sequential cancellation with per-operation timeout
+        let cancelledCount = 0;
+        const perOperationTimeout = timeout / childExecutionIds.length;
+
+        for (const childExecutionId of childExecutionIds) {
+          try {
+            const success = await executeWithSharedTimeout(
+              { cancel: () => this.cancelChildWorkflowExecution(childExecutionId) },
+              perOperationTimeout,
+              { message: `Cancel child ${childExecutionId} timed out` }
+            );
+
+            if (success.get('cancel')) {
+              cancelledCount++;
+            }
+          } catch (error) {
+            if (isTimeoutError(error)) {
+              logger.warn("Individual child cancel timed out", {
+                childExecutionId,
+                perOperationTimeout,
+              });
+              // Continue with next child instead of throwing
+            } else {
+              throw error;
+            }
+          }
+        }
+
+        logger.info("Sequential cascade cancel completed", {
+          parentExecutionId,
+          totalChildren: childExecutionIds.length,
+          cancelledCount,
+        });
+        return cancelledCount;
+      }
+    } catch (error) {
+      if (isTimeoutError(error)) {
+        logger.warn("Cascade cancel timed out", {
+          parentExecutionId,
+          timeout,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        // Return partial success count instead of throwing
+        // Note: In parallel mode, we may have already cancelled some children
+        return 0; // Conservative estimate
+      }
+
+      // Re-throw non-timeout errors
+      throw new StateManagementError(
+        `Failed to cascade cancel child workflow executions`,
+        "workflowExecution",
+        "delete",
+        parentExecutionId,
+        undefined,
+        undefined,
+        { parentExecutionId, originalError: getErrorOrNew(error) },
+      );
+    }
   }
 
   /**
@@ -397,7 +476,7 @@ export class WorkflowStateTransitor {
    */
   async waitForChildExecutionsCompletion(
     parentExecutionId: string,
-    timeout: number = 30000,
+    timeout: number = DEFAULT_TIMEOUTS.CHILD_EXECUTION_WAIT,
   ): Promise<boolean> {
     const parentContext = this.workflowExecutionRegistry.get(parentExecutionId);
     if (!parentContext) {
@@ -409,51 +488,43 @@ export class WorkflowStateTransitor {
       return true;
     }
 
-    const completionPromises = childExecutionIds.map((childExecutionId: string) => {
-      return this.waitForChildExecutionCompletion(childExecutionId, timeout);
-    });
-
-    try {
-      await Promise.all(completionPromises);
-      return true;
-    } catch {
+    // Get event manager from global context
+    const eventManager = this.globalContext.container.get(Identifiers.EventRegistry) as EventRegistry;
+    if (!eventManager) {
+      logger.error("EventRegistry not available for waiting", { parentExecutionId });
       return false;
     }
-  }
 
-  /**
-   * Wait for a single child workflow execution to complete
-   *
-   * @param childExecutionId The ID of the child workflow execution
-   * @param timeout Timeout in milliseconds
-   * @returns Promise that resolves when the workflow execution completes
-   * @private
-   */
-  private async waitForChildExecutionCompletion(
-    childExecutionId: string,
-    timeout: number,
-  ): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const checkInterval = setInterval(() => {
-        const childContext = this.workflowExecutionRegistry.get(childExecutionId);
-        if (!childContext) {
-          clearInterval(checkInterval);
-          resolve();
-          return;
-        }
-
-        const status = childContext.getStatus();
-        if (isTerminalStatus(status as WorkflowExecutionStatus)) {
-          clearInterval(checkInterval);
-          resolve();
-        }
-      }, 100);
-
-      setTimeout(() => {
-        clearInterval(checkInterval);
-        reject(new Error(`Timeout waiting for child workflow execution ${childExecutionId}`));
-      }, timeout);
-    });
+    try {
+      // Use event-driven waiting with shared timeout
+      await executeWithSharedTimeout(
+        {
+          wait: () => waitForMultipleWorkflowExecutionsCompleted(
+            eventManager,
+            childExecutionIds,
+            undefined,  // No individual timeout, use shared timeout
+            { timeoutMode: 'shared' }  // Use shared timeout mode
+          )
+        },
+        timeout,
+        { message: `Timeout waiting for all child executions of ${parentExecutionId}` }
+      );
+      return true;
+    } catch (error) {
+      if (isTimeoutError(error)) {
+        logger.warn("Timeout waiting for child executions", {
+          parentExecutionId,
+          childExecutionIds,
+          timeout,
+        });
+        return false;
+      }
+      logger.error("Error waiting for child executions", {
+        parentExecutionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
   }
 
 

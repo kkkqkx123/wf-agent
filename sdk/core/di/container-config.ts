@@ -104,9 +104,9 @@ import { ExecutionHierarchyRegistry } from "../registry/execution-hierarchy-regi
 import { AgentLoopCoordinator } from "../../agent/execution/coordinators/agent-loop-coordinator.js";
 import { WorkflowExecutionEntity } from "../../workflow/entities/workflow-execution-entity.js";
 import { MetricsRegistry } from "../metrics/metrics-registry.js";
+import type { MetricsConfig } from "@wf-agent/types";
 import type { SDKOptions } from "../../api/shared/types/core-types.js";
-import { loadMetricsConfigFromFile, mergeWithDefaults, getEnvironmentDefaults } from "../config/metrics-config-loader.js";
-import type { MetricsConfig } from "../../api/shared/types/core-types.js";
+import { loadMetricsConfigFromFile, mergeMetricsWithDefaults, getMetricsEnvironmentDefaults } from "../../api/shared/config/index.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "ContainerConfig" });
@@ -877,7 +877,7 @@ export function configureContainerBindings(
       // Priority 1: SDKOptions.metrics (programmatic override)
       if (sdkOptions?.metrics) {
         logger.info("Using metrics config from SDKOptions");
-        return mergeWithDefaults(sdkOptions.metrics);
+        return mergeMetricsWithDefaults(sdkOptions.metrics);
       }
       
       // Priority 2: Config file
@@ -899,7 +899,7 @@ export function configureContainerBindings(
       // Priority 3: Environment-based defaults
       const env = process.env["NODE_ENV"] || "development";
       logger.info("Using environment-based metrics defaults", { env });
-      return getEnvironmentDefaults(env as "development" | "production");
+      return getMetricsEnvironmentDefaults(env as "development" | "production");
     })
     .inSingletonScope();
 

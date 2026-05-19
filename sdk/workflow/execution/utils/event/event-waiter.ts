@@ -23,6 +23,8 @@ import {
   waitForAllConditions,
   waitForAnyCondition,
 } from "../../../../core/utils/event/condition-waiter.js";
+import { executeWithSharedTimeout } from "../../../../core/utils/timeout/timeout-utils.js";
+import { DEFAULT_TIMEOUTS } from "../../../../core/config/timeout-config.js";
 
 // Reexport the generic conditional waiter
 export { WAIT_FOREVER, waitForCondition, waitForAllConditions, waitForAnyCondition };
@@ -50,7 +52,7 @@ export { WAIT_FOREVER, waitForCondition, waitForAllConditions, waitForAnyConditi
 export async function waitForWorkflowExecutionPaused(
   eventManager: EventRegistry,
   executionId: string,
-  timeout: number = 5000,
+  timeout: number = DEFAULT_TIMEOUTS.WORKFLOW_EXECUTION_PAUSE,
 ): Promise<void> {
   const actualTimeout = timeout === WAIT_FOREVER ? undefined : timeout;
   await eventManager.waitFor("WORKFLOW_EXECUTION_PAUSED", executionId, actualTimeout, event => event.executionId === executionId);
@@ -67,7 +69,7 @@ export async function waitForWorkflowExecutionPaused(
 export async function waitForWorkflowExecutionCancelled(
   eventManager: EventRegistry,
   executionId: string,
-  timeout: number = 5000,
+  timeout: number = DEFAULT_TIMEOUTS.WORKFLOW_EXECUTION_PAUSE,
 ): Promise<void> {
   const actualTimeout = timeout === WAIT_FOREVER ? undefined : timeout;
   await eventManager.waitFor(
@@ -83,13 +85,13 @@ export async function waitForWorkflowExecutionCancelled(
  *
  * @param eventManager  Event manager
  * @param executionId  Execution ID
- * @param timeout  Timeout period in milliseconds; the default is 30000ms. Use WAIT_foreVER or -1 to indicate waiting indefinitely
+ * @param timeout  Timeout period in milliseconds; the default is 30000ms. Use WAIT_forever or -1 to indicate waiting indefinitely
  * @returns Promise: Resolves when the timeout occurs or the event is triggered
  */
 export async function waitForWorkflowExecutionCompleted(
   eventManager: EventRegistry,
   executionId: string,
-  timeout: number = 30000,
+  timeout: number = DEFAULT_TIMEOUTS.WORKFLOW_EXECUTION_COMPLETION,
 ): Promise<void> {
   const actualTimeout = timeout === WAIT_FOREVER ? undefined : timeout;
   await eventManager.waitFor(
@@ -111,7 +113,7 @@ export async function waitForWorkflowExecutionCompleted(
 export async function waitForWorkflowExecutionFailed(
   eventManager: EventRegistry,
   executionId: string,
-  timeout: number = 30000,
+  timeout: number = DEFAULT_TIMEOUTS.WORKFLOW_EXECUTION_COMPLETION,
 ): Promise<void> {
   const actualTimeout = timeout === WAIT_FOREVER ? undefined : timeout;
   await eventManager.waitFor("WORKFLOW_EXECUTION_FAILED", executionId, actualTimeout, event => event.executionId === executionId);
@@ -122,13 +124,13 @@ export async function waitForWorkflowExecutionFailed(
  *
  * @param eventManager: Event manager
  * @param executionId: Execution ID
- * @param timeout: Timeout period in milliseconds; the default is 5000ms. Use WAIT_foreVER or -1 to indicate waiting indefinitely
+ * @param timeout: Timeout period in milliseconds; the default is 5000ms. Use WAIT_forever or -1 to indicate waiting indefinitely
  * @returns: Promise, resolved when the timeout is reached or the event is triggered
  */
 export async function waitForWorkflowExecutionResumed(
   eventManager: EventRegistry,
   executionId: string,
-  timeout: number = 5000,
+  timeout: number = DEFAULT_TIMEOUTS.WORKFLOW_EXECUTION_RESUME,
 ): Promise<void> {
   const actualTimeout = timeout === WAIT_FOREVER ? undefined : timeout;
   await eventManager.waitFor("WORKFLOW_EXECUTION_RESUMED", executionId, actualTimeout, event => event.executionId === executionId);
@@ -139,13 +141,13 @@ export async function waitForWorkflowExecutionResumed(
  *
  * @param eventManager  Event manager
  * @param executionId  Execution ID
- * @param timeout  Timeout period in milliseconds; the default is 5000ms. Use WAIT_foreVER or -1 to wait indefinitely
+ * @param timeout  Timeout period in milliseconds; the default is 5000ms. Use WAIT_forever or -1 to wait indefinitely
  * @returns Promise: Resolved when the timeout occurs or any lifecycle event is triggered
  */
 export async function waitForAnyLifecycleEvent(
   eventManager: EventRegistry,
   executionId: string,
-  timeout: number = 5000,
+  timeout: number = DEFAULT_TIMEOUTS.LIFECYCLE_EVENT,
 ): Promise<void> {
   const actualTimeout = timeout === WAIT_FOREVER ? undefined : timeout;
 
@@ -172,19 +174,46 @@ export async function waitForAnyLifecycleEvent(
  *
  * @param eventManager  Event manager
  * @param executionIds  Array of execution IDs
- * @param timeout  Timeout period in milliseconds; the default is 30000ms. Use WAIT_foreVER or -1 to indicate waiting indefinitely
+ * @param timeout  Timeout period in milliseconds; the default is 30000ms. Use WAIT_forever or -1 to indicate waiting indefinitely
+ * @param options  Optional configuration for timeout mode
  * @returns Promise: Resolved when all executions have completed or the timeout has expired
  */
 export async function waitForMultipleWorkflowExecutionsCompleted(
   eventManager: EventRegistry,
   executionIds: string[],
-  timeout: number = 30000,
+  timeout: number = DEFAULT_TIMEOUTS.WORKFLOW_EXECUTION_COMPLETION,
+  options?: {
+    /**
+     * Timeout mode:
+     * - 'individual': Each execution has its own timeout (legacy behavior, default)
+     * - 'shared': All executions share a single timeout (recommended)
+     */
+    timeoutMode?: 'individual' | 'shared';
+  }
 ): Promise<void> {
-  const promises = executionIds.map(executionId =>
-    waitForWorkflowExecutionCompleted(eventManager, executionId, timeout),
-  );
+  const timeoutMode = options?.timeoutMode ?? 'individual';
 
-  await Promise.all(promises);
+  if (timeoutMode === 'shared') {
+    // New behavior: shared timeout for all executions
+    await executeWithSharedTimeout(
+      {
+        wait: () => Promise.all(
+          executionIds.map(id =>
+            waitForWorkflowExecutionCompleted(eventManager, id, WAIT_FOREVER)
+          )
+        )
+      },
+      timeout,
+      { message: `Timeout waiting for multiple executions: ${executionIds.join(', ')}` }
+    );
+  } else {
+    // Legacy behavior: each execution has independent timeout
+    const promises = executionIds.map(executionId =>
+      waitForWorkflowExecutionCompleted(eventManager, executionId, timeout),
+    );
+
+    await Promise.all(promises);
+  }
 }
 
 /**
@@ -198,7 +227,7 @@ export async function waitForMultipleWorkflowExecutionsCompleted(
 export async function waitForAnyWorkflowExecutionCompleted(
   eventManager: EventRegistry,
   executionIds: string[],
-  timeout: number = 30000,
+  timeout: number = DEFAULT_TIMEOUTS.WORKFLOW_EXECUTION_COMPLETION,
 ): Promise<string> {
   const promises = executionIds.map(executionId =>
     waitForWorkflowExecutionCompleted(eventManager, executionId, timeout).then(() => executionId),
@@ -218,7 +247,7 @@ export async function waitForAnyWorkflowExecutionCompleted(
 export async function waitForAnyWorkflowExecutionCompletion(
   eventManager: EventRegistry,
   executionIds: string[],
-  timeout: number = 30000,
+  timeout: number = DEFAULT_TIMEOUTS.WORKFLOW_EXECUTION_COMPLETION,
 ): Promise<{ executionId: string; status: "COMPLETED" | "FAILED" }> {
   const completedPromises = executionIds.map(executionId =>
     waitForWorkflowExecutionCompleted(eventManager, executionId, timeout).then(() => ({
@@ -250,7 +279,7 @@ export async function waitForNodeCompleted(
   eventManager: EventRegistry,
   executionId: string,
   nodeId: string,
-  timeout: number = 30000,
+  timeout: number = DEFAULT_TIMEOUTS.NODE_COMPLETION,
 ): Promise<void> {
   const actualTimeout = timeout === WAIT_FOREVER ? undefined : timeout;
   await eventManager.waitFor(
@@ -268,14 +297,14 @@ export async function waitForNodeCompleted(
  * @param eventManager  Event manager
  * @param executionId  Execution ID
  * @param nodeId  Node ID
- * @param timeout  Timeout period in milliseconds; the default is 30000ms. Use WAIT_foreVER or -1 to indicate waiting indefinitely
+ * @param timeout  Timeout period in milliseconds; the default is 30000ms. Use WAIT_forever or -1 to indicate waiting indefinitely
  * @returns Promise, resolved when the timeout is reached or the event is triggered
  */
 export async function waitForNodeFailed(
   eventManager: EventRegistry,
   executionId: string,
   nodeId: string,
-  timeout: number = 30000,
+  timeout: number = DEFAULT_TIMEOUTS.NODE_FAILED,
 ): Promise<void> {
   const actualTimeout = timeout === WAIT_FOREVER ? undefined : timeout;
   await eventManager.waitFor(

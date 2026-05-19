@@ -150,6 +150,14 @@ export type EventType =
   | "AGENT_TOOL_EXECUTION_STARTED"
   /** Agent tool execution completed */
   | "AGENT_TOOL_EXECUTION_COMPLETED"
+  /** Timeout registered */
+  | "TIMEOUT_REGISTERED"
+  /** Timeout expired */
+  | "TIMEOUT_EXPIRED"
+  /** Timeout cancelled */
+  | "TIMEOUT_CANCELLED"
+  /** Timeout warning threshold reached */
+  | "TIMEOUT_WARNING"
   /** Agent iteration started */
   | "AGENT_ITERATION_STARTED"
   /** Agent iteration completed */

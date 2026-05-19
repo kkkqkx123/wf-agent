@@ -139,6 +139,9 @@ export {
   parseAndValidateAgentLoopConfig,
   transformToAgentLoopConfig,
   exportAgentLoopConfig,
+  // Metrics
+  mergeMetricsWithDefaults,
+  getMetricsEnvironmentDefaults,
 } from "./processors/index.js";
 
 // Cue word template loader export
@@ -147,3 +150,8 @@ export {
   mergePromptTemplateConfig,
   loadAndMergePromptTemplate,
 } from "./prompt-template-loader.js";
+
+// Metrics configuration loader export (with file I/O)
+export {
+  loadMetricsConfigFromFile,
+} from "./metrics-config-loader.js";

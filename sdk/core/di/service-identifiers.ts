@@ -418,7 +418,7 @@ export const MetricsRegistry: ServiceIdentifier<MetricsRegistryType> = Symbol("M
  * MetricsConfig - Metrics Configuration
  * Provides configuration for the metrics system
  */
-export const MetricsConfig: ServiceIdentifier<import("../../api/shared/types/core-types.js").MetricsConfig> = Symbol("MetricsConfig");
+export const MetricsConfig: ServiceIdentifier<import("@wf-agent/types").MetricsConfig> = Symbol("MetricsConfig");
 
 // ============================================================
 // Tool Permission Services (New Architecture)

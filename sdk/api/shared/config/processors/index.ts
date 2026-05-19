@@ -41,3 +41,9 @@ export {
   transformToAgentLoopConfig,
   exportAgentLoopConfig,
 } from "./agent-loop.js";
+
+// Metrics configuration processing function
+export {
+  mergeMetricsWithDefaults,
+  getMetricsEnvironmentDefaults,
+} from "./metrics.js";

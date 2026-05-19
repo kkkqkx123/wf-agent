@@ -3,14 +3,8 @@
  * 
  * Manages timeout for paused workflow executions.
  * 
- * Note: This manager uses direct setTimeout implementation rather than TimeoutManager
- * because it has specialized business logic:
- * - Monitors workflow pause state over extended periods (up to 24 hours)
- * - Emits warning events before timeout
- * - Integrates with WorkflowExecutionRegistry and EventRegistry
- * - Requires persistent monitoring that doesn't fit the typical TimeoutManager use case
- * 
- * For short-lived, operation-specific timeouts, use TimeoutManager instead.
+ * This manager now uses the unified TimeoutManager system instead of direct setTimeout
+ * to ensure consistency across the SDK and better resource management.
  */
 
 import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-registry.js";
@@ -19,6 +13,8 @@ import type { BaseEvent } from "@wf-agent/types";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import { buildWorkflowExecutionCancelledEvent } from "../../../core/utils/event/builders/workflow-execution-events.js";
 import { emit } from "../../../core/utils/event/event-emitter.js";
+import { TimeoutRegistry } from "../../../core/registry/timeout-registry.js";
+import type { TimeoutHandle } from "../../../core/types/timeout.js";
 
 const logger = createContextualLogger({ component: "pause-timeout-manager" });
 
@@ -47,7 +43,7 @@ interface PauseTimeoutEntry {
   executionId: string;
   pausedAt: number;
   warningEmitted: boolean;
-  timerId?: NodeJS.Timeout;
+  timeoutHandle?: TimeoutHandle;
 }
 
 /**
@@ -57,6 +53,7 @@ interface PauseTimeoutEntry {
 export class PauseTimeoutManager {
   private entries: Map<string, PauseTimeoutEntry> = new Map();
   private config: PauseTimeoutConfig;
+  private timeoutRegistry: TimeoutRegistry;
 
   constructor(
     private registry: WorkflowExecutionRegistry,
@@ -64,6 +61,8 @@ export class PauseTimeoutManager {
     config?: Partial<PauseTimeoutConfig>,
   ) {
     this.config = { ...DEFAULT_CONFIG, ...config };
+    // Create a dedicated TimeoutRegistry for pause timeouts
+    this.timeoutRegistry = new TimeoutRegistry();
   }
 
   /**
@@ -73,27 +72,42 @@ export class PauseTimeoutManager {
     // Clear any existing monitoring
     this.stopMonitoring(executionId);
 
+    const pausedAt = Date.now();
+    
+    // Register the main timeout using the unified TimeoutManager system
+    const timeoutManager = this.timeoutRegistry.getManager(executionId);
+    
+    // Get the interruption state from the workflow execution entity if available
+    const workflowExecutionEntity = this.registry.get(executionId);
+    const interruptionState = workflowExecutionEntity?.getInterruptionState();
+    
+    const handle = timeoutManager.register({
+      id: `pause-${executionId}`,
+      duration: this.config.maxPauseDuration,
+      onTimeout: async () => {
+        await this.handleTimeout(executionId);
+      },
+      warningThreshold: this.config.warningThreshold,
+      onWarning: async () => {
+        await this.emitWarning(executionId);
+      },
+      interruptionState, // Bind to interruption state for automatic cancellation
+      tag: 'workflow-pause',
+      metadata: { 
+        executionId,
+        pausedAt,
+        maxPauseDuration: this.config.maxPauseDuration,
+        warningThreshold: this.config.warningThreshold
+      }
+    });
+
     const entry: PauseTimeoutEntry = {
       executionId,
-      pausedAt: Date.now(),
+      pausedAt,
       warningEmitted: false,
+      timeoutHandle: handle
     };
 
-    // Set up warning timer
-    const warningDelay = this.config.maxPauseDuration - this.config.warningThreshold;
-    if (warningDelay > 0) {
-      entry.timerId = setTimeout(() => {
-        this.emitWarning(executionId);
-      }, warningDelay);
-    }
-
-    // Set up timeout timer
-    const timeoutTimerId = setTimeout(() => {
-      this.handleTimeout(executionId);
-    }, this.config.maxPauseDuration);
-
-    // Store both timers (we'll use the timeout timer as the main reference)
-    entry.timerId = timeoutTimerId;
     this.entries.set(executionId, entry);
 
     logger.debug("Started monitoring paused workflow", {
@@ -109,9 +123,14 @@ export class PauseTimeoutManager {
   stopMonitoring(executionId: string): void {
     const entry = this.entries.get(executionId);
     if (entry) {
-      if (entry.timerId) {
-        clearTimeout(entry.timerId);
+      // Cancel the timeout using the unified system
+      if (entry.timeoutHandle) {
+        entry.timeoutHandle.cancel();
       }
+      
+      // Clean up the timeout manager for this execution
+      this.timeoutRegistry.cleanup(executionId);
+      
       this.entries.delete(executionId);
       logger.debug("Stopped monitoring paused workflow", { executionId });
     }
@@ -245,9 +264,17 @@ export class PauseTimeoutManager {
    * Clean up all monitoring
    */
   cleanup(): void {
+    // Cancel all timeouts using the unified system
     for (const [executionId] of this.entries) {
-      this.stopMonitoring(executionId);
+      const entry = this.entries.get(executionId);
+      if (entry?.timeoutHandle) {
+        entry.timeoutHandle.cancel();
+      }
     }
+    
+    // Clean up all timeout managers
+    this.timeoutRegistry.cleanupAll();
+    
     this.entries.clear();
   }
 }

@@ -21,6 +21,7 @@ import { ConfigMetricsCollector } from "./config-collector.js";
 import { ErrorMetricsCollector } from "./error-collector.js";
 import { ResourceMetricsCollector } from "./resource-collector.js";
 import { AgentLoopMetricsCollector } from "./agent-loop-collector.js";
+import { TimeoutMetricsCollector } from "./timeout-collector.js";
 import type { MetricCollectorConfig, MetricReport, MetricType } from "./types.js";
 import { BaseMetricCollector } from "./base-collector.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
@@ -41,7 +42,8 @@ type CollectorName =
   | 'config' 
   | 'error' 
   | 'resource' 
-  | 'agentLoop';
+  | 'agentLoop'
+  | 'timeout';
 
 /**
  * Type mapping from collector name to collector type
@@ -58,6 +60,7 @@ type CollectorTypeMap = {
   error: ErrorMetricsCollector;
   resource: ResourceMetricsCollector;
   agentLoop: AgentLoopMetricsCollector;
+  timeout: TimeoutMetricsCollector;
 };
 
 export interface MetricsRegistryConfig {
@@ -72,6 +75,7 @@ export interface MetricsRegistryConfig {
   errorMetrics?: MetricCollectorConfig;
   resourceMetrics?: MetricCollectorConfig;
   agentLoopMetrics?: MetricCollectorConfig;
+  timeoutMetrics?: MetricCollectorConfig;
   enablePeriodicReporting?: boolean;
   reportingInterval?: number;
 }
@@ -97,6 +101,7 @@ export class MetricsRegistry {
     this.registerCollector('error', new ErrorMetricsCollector(config?.errorMetrics));
     this.registerCollector('resource', new ResourceMetricsCollector(config?.resourceMetrics));
     this.registerCollector('agentLoop', new AgentLoopMetricsCollector(config?.agentLoopMetrics));
+    this.registerCollector('timeout', new TimeoutMetricsCollector(config?.timeoutMetrics));
 
     // Setup periodic reporting if enabled
     if (config?.enablePeriodicReporting) {
@@ -178,6 +183,10 @@ export class MetricsRegistry {
 
   getAgentLoopCollector(): AgentLoopMetricsCollector | undefined {
     return this.collectors.get('agentLoop') as AgentLoopMetricsCollector | undefined;
+  }
+
+  getTimeoutCollector(): TimeoutMetricsCollector | undefined {
+    return this.collectors.get('timeout') as TimeoutMetricsCollector | undefined;
   }
 
   /**

@@ -1,19 +1,16 @@
 /**
- * Metrics Configuration Loader
+ * Metrics Configuration Processor
  * 
- * Loads and merges metrics configuration from various sources with priority-based resolution.
+ * Provides functions for processing and merging metrics configuration.
+ * This module handles the business logic for metrics config without file I/O.
  * 
- * Configuration Priority (highest to lowest):
- * 1. SDKOptions.metrics (programmatic override)
- * 2. Config file (configs/metrics.toml or metrics.json)
- * 3. Environment-specific defaults (development/production)
- * 4. Hardcoded defaults (current values as fallback)
+ * Following the project architecture pattern:
+ * - All configuration processing happens in api/shared/config layer
+ * - Pure functions, no side effects
+ * - No file I/O operations
  */
 
-import type { MetricsConfig, MetricCollectorConfig } from "../../api/shared/types/core-types.js";
-import { createContextualLogger } from "../../utils/contextual-logger.js";
-
-const logger = createContextualLogger({ component: "MetricsConfigLoader" });
+import type { MetricsConfig, MetricCollectorConfig } from "@wf-agent/types";
 
 /**
  * Default metrics configuration
@@ -43,7 +40,7 @@ const DEFAULT_METRICS_CONFIG: MetricsConfig = {
  * @param userConfig - User-provided partial configuration
  * @returns Merged configuration with defaults applied
  */
-export function mergeWithDefaults(userConfig: Partial<MetricsConfig>): MetricsConfig {
+export function mergeMetricsWithDefaults(userConfig: Partial<MetricsConfig>): MetricsConfig {
   // Start with defaults
   const merged: MetricsConfig = { ...DEFAULT_METRICS_CONFIG };
   
@@ -84,7 +81,7 @@ export function mergeWithDefaults(userConfig: Partial<MetricsConfig>): MetricsCo
  * @param env - Environment name ("development" or "production")
  * @returns Environment-specific default configuration
  */
-export function getEnvironmentDefaults(env: "development" | "production"): MetricsConfig {
+export function getMetricsEnvironmentDefaults(env: "development" | "production"): MetricsConfig {
   if (env === "development") {
     return {
       ...DEFAULT_METRICS_CONFIG,
@@ -109,55 +106,4 @@ export function getEnvironmentDefaults(env: "development" | "production"): Metri
       enablePeriodicReporting: false,
     },
   };
-}
-
-/**
- * Load metrics configuration from TOML or JSON file
- * 
- * @param filePath - Path to configuration file
- * @returns Parsed and merged metrics configuration
- */
-export async function loadMetricsConfigFromFile(filePath: string): Promise<MetricsConfig> {
-  try {
-    const fs = await import('fs/promises');
-    const path = await import('path');
-    
-    // Resolve absolute path
-    const resolvedPath = path.resolve(filePath);
-    
-    // Check if file exists
-    try {
-      await fs.access(resolvedPath);
-    } catch {
-      logger.warn("Metrics config file not found", { filePath: resolvedPath });
-      return { ...DEFAULT_METRICS_CONFIG };
-    }
-    
-    // Read file content
-    const content = await fs.readFile(resolvedPath, 'utf-8');
-    
-    // Determine format based on extension
-    const ext = path.extname(resolvedPath).toLowerCase();
-    let parsed: unknown;
-    
-    if (ext === '.toml') {
-      // Parse TOML
-      const { parseToml } = await import('../../api/shared/config/toml-parser.js');
-      parsed = parseToml(content);
-    } else if (ext === '.json') {
-      // Parse JSON
-      parsed = JSON.parse(content);
-    } else {
-      throw new Error(`Unsupported config file format: ${ext}`);
-    }
-    
-    logger.info("Loaded metrics config from file", { filePath: resolvedPath });
-    return mergeWithDefaults(parsed as Partial<MetricsConfig>);
-  } catch (error) {
-    logger.warn("Failed to load metrics config from file, using defaults", { 
-      filePath, 
-      error: error instanceof Error ? error.message : String(error) 
-    });
-    return { ...DEFAULT_METRICS_CONFIG };
-  }
 }

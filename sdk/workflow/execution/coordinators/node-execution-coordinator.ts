@@ -641,6 +641,95 @@ export class NodeExecutionCoordinator {
       startTime,
       endTime,
       executionTime: diffTimestamp(startTime, endTime),
+      // NEW: Preserve sanitized node output
+      output: this.sanitizeNodeOutput(output, node.type),
     };
+  }
+
+  /**
+   * Sanitize node output to remove internal metadata
+   * Preserves user-facing data while stripping implementation details
+   * 
+   * @param output Raw output from node handler
+   @param nodeType Type of the node
+   * @returns Sanitized output suitable for hook conditions and external access
+   */
+  private sanitizeNodeOutput(output: unknown, nodeType: string): unknown {
+    // Skip if no output or primitive type
+    if (!output || typeof output !== 'object') {
+      return output;
+    }
+
+    // For structured results, extract relevant fields based on node type
+    switch (nodeType) {
+      case 'SCRIPT':
+        // Script returns raw value - preserve as-is
+        return output;
+      
+      case 'LLM': {
+        // Extract content and tool calls from LLM result
+        const llmResult = output as any;
+        return {
+          content: llmResult.content,
+          toolCalls: llmResult.toolCalls,
+        };
+      }
+      
+      case 'AGENT_LOOP': {
+        // Extract key metrics from agent loop result
+        const agentResult = output as any;
+        return {
+          finalResponse: agentResult.finalResponse,
+          toolCallCount: agentResult.toolCallCount,
+          iterationCount: agentResult.iterationCount,
+        };
+      }
+      
+      case 'SUBGRAPH': {
+        // Extract subgraph execution summary
+        const subgraphResult = output as any;
+        return {
+          executionResult: {
+            output: subgraphResult.executionResult?.output,
+            status: subgraphResult.executionResult?.metadata?.status,
+          },
+          duration: subgraphResult.duration,
+        };
+      }
+      
+      case 'FORK': {
+        // Extract fork branch summaries
+        const forkResults = output as any[];
+        if (Array.isArray(forkResults)) {
+          return forkResults.map(branch => ({
+            forkPathId: branch.forkPathId,
+            output: branch.branchOutput,
+            status: branch.executionResult?.metadata?.status,
+          }));
+        }
+        return output;
+      }
+      
+      case 'JOIN':
+        // JOIN output is set by coordinator aggregation logic
+        return output;
+      
+      case 'END': {
+        // END node includes workflow output
+        const endResult = output as any;
+        return {
+          output: endResult.output,
+        };
+      }
+      
+      default:
+        // For other nodes, return as-is or strip internal fields
+        // Remove nodeId, nodeType, status, etc. if present
+        if ('nodeId' in (output as object) || 'nodeType' in (output as object)) {
+          const { nodeId, nodeType: _nt, status: _s, ...rest } = output as any;
+          return Object.keys(rest).length > 0 ? rest : undefined;
+        }
+        return output;
+    }
   }
 }

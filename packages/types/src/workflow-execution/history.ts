@@ -26,6 +26,8 @@ export interface NodeExecutionResult {
   endTime?: Timestamp;
   /** Timestamp */
   timestamp?: Timestamp;
+  /** Node execution output data (optional) */
+  output?: unknown;
 }
 
 /**

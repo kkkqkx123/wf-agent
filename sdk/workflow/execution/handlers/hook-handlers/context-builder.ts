@@ -11,8 +11,14 @@ import type { EvaluationContext } from "@wf-agent/types";
  * Hook evaluation context (for internal use)
  */
 export interface HookEvaluationContext {
-  /** Node execution result */
+  /** Workflow input data */
+  workflowInput: Record<string, unknown>;
+  /** Current node's output (from execution result) */
+  nodeOutput?: unknown;
+  /** Final workflow output */
   output: unknown;
+  /** Message history */
+  messages: unknown[];
   /** Node status */
   status: string;
   /** Execution time (ms) */
@@ -38,7 +44,18 @@ export function buildHookEvaluationContext(context: HookExecutionContext): HookE
   const workflowExecution = workflowExecutionEntity.getExecution();
 
   return {
+    // NEW: Expose workflow input
+    workflowInput: workflowExecutionEntity.getInput(),
+    
+    // NEW: Current node's output (from execution result)
+    nodeOutput: result?.output,
+    
+    // Existing: Final workflow output
     output: workflowExecution.output,
+    
+    // NEW: Message history if available
+    messages: workflowExecutionEntity.messageHistoryManager?.getMessages() || [],
+    
     status: result?.status || "PENDING",
     executionTime: result?.executionTime || 0,
     error: result?.error,
@@ -56,9 +73,14 @@ export function buildHookEvaluationContext(context: HookExecutionContext): HookE
  */
 export function convertToEvaluationContext(hookContext: HookEvaluationContext): EvaluationContext {
   return {
-    input: {},
+    // NEW: Expose workflow input and messages
+    input: {
+      ...hookContext.workflowInput,
+      messages: hookContext.messages,
+    },
     output: {
       result: hookContext.output,
+      nodeOutput: hookContext.nodeOutput,  // NEW: Node-specific output
       status: hookContext.status,
       executionTime: hookContext.executionTime,
       error: hookContext.error,

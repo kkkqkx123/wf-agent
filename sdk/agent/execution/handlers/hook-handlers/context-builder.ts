@@ -44,6 +44,13 @@ export interface AgentHookEvaluationContext {
     /** Get all available tools */
     getAll: () => Set<string>;
   };
+  /** Conversation manager reference (for accessing messages) */
+  conversationManager: {
+    /** Get all messages including invisible ones */
+    getAllMessages: () => import("@wf-agent/types").LLMMessage[];
+    /** Get visible messages only */
+    getMessages: () => import("@wf-agent/types").LLMMessage[];
+  };
 }
 
 /**
@@ -82,6 +89,11 @@ export function buildAgentHookEvaluationContext(
       isAvailable: (toolId) => entity.isToolAvailable(toolId),
       getAll: () => entity.getAvailableTools(),
     },
+    // Conversation manager reference for message access
+    conversationManager: {
+      getAllMessages: () => entity.conversationManager.getAllMessages(),
+      getMessages: () => entity.conversationManager.getMessages(),
+    },
   };
 }
 
@@ -94,11 +106,21 @@ export function buildAgentHookEvaluationContext(
 export function convertToEvaluationContext(
   hookContext: AgentHookEvaluationContext,
 ): EvaluationContext {
+  // Extract messages from conversation manager
+  const messages = hookContext.conversationManager.getAllMessages();
+  const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
+
   return {
     input: {
       iteration: hookContext.iteration,
       maxIterations: hookContext.maxIterations,
       toolCallCount: hookContext.toolCallCount,
+      
+      // NEW: Full message history for conditional logic
+      messages: messages,
+      
+      // NEW: Convenience accessor for last message
+      lastMessage: lastMessage,
     },
     output: {
       status: hookContext.status,

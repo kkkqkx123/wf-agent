@@ -18,8 +18,8 @@ import {
 } from "../validators/validation-helpers.js";
 import { ok, err } from "@wf-agent/common-utils";
 import type { NodeTemplate, StaticNode } from "@wf-agent/types";
-import { stringifyJson } from "../json-parser.js";
-import { substituteParameters } from "../config-utils.js";
+import { stringifyJson } from "../parsers/json-parser.js";
+import { substituteParameters } from "../utils/config-utils.js";
 
 /**
  * Verify NodeTemplate configuration

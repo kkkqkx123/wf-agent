@@ -9,10 +9,10 @@ import { ConfigFormat } from "../types.js";
 import type { Result } from "@wf-agent/types";
 import { ValidationError, SchemaValidationError } from "@wf-agent/types";
 import { WorkflowValidator } from "../../../../workflow/validation/workflow-validator.js";
-import { ConfigTransformer } from "../config-transformer.js";
+import { ConfigTransformer } from "../utils/config-transformer.js";
 import type { WorkflowTemplate } from "@wf-agent/types";
 import { WorkflowTemplateSchema } from "@wf-agent/types";
-import { stringifyJson } from "../json-parser.js";
+import { stringifyJson } from "../parsers/json-parser.js";
 import { ConfigurationError } from "@wf-agent/types";
 import { ok, err } from "@wf-agent/common-utils";
 

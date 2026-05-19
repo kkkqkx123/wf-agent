@@ -11,8 +11,8 @@ import { ValidationError, ConfigurationError, SchemaValidationError } from "@wf-
 import { ok, err } from "@wf-agent/common-utils";
 import type { LLMProfile } from "@wf-agent/types";
 import { LLMProfileSchema } from "@wf-agent/types";
-import { stringifyJson } from "../json-parser.js";
-import { substituteParameters } from "../config-utils.js";
+import { stringifyJson } from "../parsers/json-parser.js";
+import { substituteParameters } from "../utils/config-utils.js";
 
 /**
  * Verify LLM Profile configuration

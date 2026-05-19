@@ -12,7 +12,7 @@
 
 import * as fs from "fs/promises";
 import * as path from "path";
-import { ConfigFormat } from "./types.js";
+import { ConfigFormat } from "../types.js";
 
 /**
  * Read configuration file content

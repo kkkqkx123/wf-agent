@@ -10,7 +10,7 @@ import type { ToolRegistry } from "@sdk/core/registry/tool-registry.js";
 import { resolveSystemPrompt } from "@sdk/core/prompt/system-prompt-resolver.js";
 import { transformToAgentLoopConfig } from "@sdk/api/shared/config/processors/agent-loop.js";
 import { existsSync } from "fs";
-import { loadAgentLoopConfig } from "@sdk/api/shared/config/config-utils.js";
+import { loadAgentLoopConfig } from "@sdk/api/shared/config/utils/config-utils.js";
 import type { ServiceFactory } from "@sdk/core/di/factory-types.js";
 import type { AgentLoopCoordinator } from "@sdk/agent/execution/coordinators/agent-loop-coordinator.js";
 

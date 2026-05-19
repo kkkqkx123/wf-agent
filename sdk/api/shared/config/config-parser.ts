@@ -13,8 +13,8 @@
 import type { ParsedConfig, IConfigParser } from "./types.js";
 import { ConfigFormat, ConfigType } from "./types.js";
 import type { WorkflowTemplate } from "@wf-agent/types";
-import { parseToml } from "./toml-parser.js";
-import { parseJson } from "./json-parser.js";
+import { parseToml } from "./parsers/toml-parser.js";
+import { parseJson } from "./parsers/json-parser.js";
 import { ConfigurationError } from "@wf-agent/types";
 import { transformWorkflow } from "./processors/workflow.js";
 import {

@@ -3,7 +3,7 @@
  * Responsible for parsing configuration files in JSON format
  */
 
-import type { WorkflowConfigFile } from "./types.js";
+import type { WorkflowConfigFile } from "../types.js";
 import { ConfigurationError } from "@wf-agent/types";
 import { isError } from "@wf-agent/common-utils";
 

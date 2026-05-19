@@ -14,10 +14,10 @@
  */
 
 import type { PromptTemplate, VariableDefinition } from "@wf-agent/prompt-templates";
-import { ConfigFormat } from "./types.js";
-import type { PromptTemplateConfigFile } from "./types.js";
-import { parseToml } from "./toml-parser.js";
-import { parseJson } from "./json-parser.js";
+import { ConfigFormat } from "../types.js";
+import type { PromptTemplateConfigFile } from "../types.js";
+import { parseToml } from "../parsers/toml-parser.js";
+import { parseJson } from "../parsers/json-parser.js";
 import { ConfigurationError } from "@wf-agent/types";
 
 /**

@@ -3,10 +3,10 @@
  * Responsible for converting the configuration file format to WorkflowTemplate
  */
 
-import type { WorkflowConfigFile, IConfigTransformer } from "./types.js";
+import type { WorkflowConfigFile, IConfigTransformer } from "../types.js";
 import type { WorkflowTemplate, StaticNode } from "@wf-agent/types";
 import type { Edge as EdgeType } from "@wf-agent/types";
-import { generateId } from "../../../utils/id-utils.js";
+import { generateId } from "../../../../utils/id-utils.js";
 import { substituteParameters } from "./config-utils.js";
 
 /**

@@ -45,6 +45,20 @@ export {
   getAvailableTools,
 } from "./tool-config.js";
 
+// Zod Schemas for validation
+export {
+  AgentLoopDefinitionSchema,
+  AgentHookConfigFileSchema,
+  AgentTriggerConfigFileSchema,
+  AgentTriggerActionSchema,
+  AgentLoopCheckpointConfigSchema,
+  AgentLoopMetadataSchema,
+  AgentToolConfigSchema,
+  isAgentLoopDefinition,
+  isAgentHookStatic,
+  isAgentTriggerStatic,
+} from "./schemas.js";
+
 // =============================================================================
 // Runtime Execution Types (re-exported from agent-execution/)
 // =============================================================================

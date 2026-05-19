@@ -42,15 +42,15 @@ export {
 // analyzer
 export { ConfigParser } from "./config-parser.js";
 
-// Configuration Tool Functions (re-exported from config-file-loader for backward compatibility)
+// Configuration Tool Functions (re-exported from utils for backward compatibility)
 export {
   loadAgentLoopConfig,
-} from "./config-utils.js";
+} from "./utils/config-utils.js";
 
 // Parameter Substitution Utility
-export { substituteParameters } from "./config-utils.js";
+export { substituteParameters } from "./utils/config-utils.js";
 
-// Configuration File Loader (File I/O operations)
+// Configuration File Loader (File I/O operations) - from loaders/
 export {
   readConfigFile,
   getConfigFormatFromPath,
@@ -58,16 +58,16 @@ export {
   // Backward compatibility aliases
   getConfigFormatFromPath as detectConfigFormat,
   loadConfigFile as loadConfigContent,
-} from "./config-file-loader.js";
+} from "./loaders/index.js";
 
-// JSON Parsing Functions
-export { parseJson, stringifyJson, validateJsonSyntax } from "./json-parser.js";
+// JSON Parsing Functions - from parsers/
+export { parseJson, stringifyJson, validateJsonSyntax } from "./parsers/index.js";
 
-// TOML parsing function
-export { parseToml, validateTomlSyntax } from "./toml-parser.js";
+// TOML parsing function - from parsers/
+export { parseToml, validateTomlSyntax } from "./parsers/index.js";
 
-// resolver
-export { ConfigTransformer } from "./config-transformer.js";
+// resolver - from utils/
+export { ConfigTransformer } from "./utils/index.js";
 
 // Configure parsing functions (recommended)
 export {
@@ -147,19 +147,19 @@ export {
   getTimeoutEnvironmentDefaults,
 } from "./processors/index.js";
 
-// Cue word template loader export
+// Cue word template loader export - from loaders/
 export {
   loadPromptTemplateConfig,
   mergePromptTemplateConfig,
   loadAndMergePromptTemplate,
-} from "./prompt-template-loader.js";
+} from "./loaders/prompt-template-loader.js";
 
-// Metrics configuration loader export (with file I/O)
+// Metrics configuration loader export (with file I/O) - from loaders/
 export {
   loadMetricsConfigFromFile,
-} from "./metrics-config-loader.js";
+} from "./loaders/metrics-config-loader.js";
 
-// Timeout configuration loader export (with file I/O)
+// Timeout configuration loader export (with file I/O) - from loaders/
 export {
   loadTimeoutConfigFromFile,
-} from "./timeout-config-loader.js";
+} from "./loaders/timeout-config-loader.js";

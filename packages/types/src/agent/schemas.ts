@@ -1,14 +1,19 @@
 /**
- * Agent Loop Configuration File Zod Schemas
+ * Agent Loop Configuration Zod Schemas
  * 
- * Provides validation schemas for AgentLoopConfigFile (file-based configuration).
+ * Provides validation schemas for AgentLoopDefinition (file-based configuration).
  * These schemas validate TOML/JSON configuration files before transformation to runtime config.
+ * 
+ * Design Principle:
+ * - Schemas live in types package alongside type definitions
+ * - Validators and business logic remain in SDK's config module
  */
 
 import { z } from "zod";
 
 /**
  * Agent Hook Configuration File Schema
+ * Validates AgentHookStatic structure from file configuration
  */
 export const AgentHookConfigFileSchema = z.object({
   hookType: z.enum([
@@ -38,6 +43,7 @@ export const AgentTriggerActionSchema = z.object({
 
 /**
  * Agent Trigger Configuration File Schema
+ * Validates AgentTriggerStatic structure from file configuration
  */
 export const AgentTriggerConfigFileSchema = z.object({
   id: z.string(),
@@ -50,6 +56,7 @@ export const AgentTriggerConfigFileSchema = z.object({
 
 /**
  * Checkpoint Configuration Schema
+ * Validates AgentCheckpointConfig structure
  */
 export const AgentLoopCheckpointConfigSchema = z.object({
   createOnEnd: z.boolean().optional(),
@@ -59,6 +66,7 @@ export const AgentLoopCheckpointConfigSchema = z.object({
 
 /**
  * Metadata Schema
+ * Validates AgentLoopMetadata structure
  */
 export const AgentLoopMetadataSchema = z.record(z.string(), z.unknown());
 
@@ -72,17 +80,19 @@ export const AgentToolConfigSchema = z.object({
 });
 
 /**
- * Agent Loop Config File Schema
+ * Agent Loop Definition Schema
  * Validates the entire Agent Loop configuration file structure
+ * This schema corresponds to AgentLoopDefinition type
  */
-export const AgentLoopConfigFileSchema = z.object({
+export const AgentLoopDefinitionSchema = z.object({
   id: z.string().min(1, "Agent loop ID is required"),
   name: z.string().optional(),
   description: z.string().optional(),
   version: z.string().optional(),
   profileId: z.string().optional(),
   systemPrompt: z.string().optional(),
-  systemPromptTemplate: z.string().optional(),
+  systemPromptTemplateId: z.string().optional(),
+  systemPromptTemplateVariables: z.record(z.string(), z.unknown()).optional(),
   maxIterations: z.number().int().optional(),
   initialMessages: z.array(z.any()).optional(), // Message[] - using z.any() as Message schema not yet available
   
@@ -94,4 +104,32 @@ export const AgentLoopConfigFileSchema = z.object({
   hooks: z.array(AgentHookConfigFileSchema).optional(),
   triggers: z.array(AgentTriggerConfigFileSchema).optional(),
   metadata: AgentLoopMetadataSchema.optional(),
+  
+  createdAt: z.number().optional(),
+  updatedAt: z.number().optional(),
 });
+
+/**
+ * Type Guards
+ */
+
+/**
+ * Check if a value is a valid AgentLoopDefinition
+ */
+export function isAgentLoopDefinition(value: unknown): value is z.infer<typeof AgentLoopDefinitionSchema> {
+  return AgentLoopDefinitionSchema.safeParse(value).success;
+}
+
+/**
+ * Check if a value is a valid AgentHookStatic
+ */
+export function isAgentHookStatic(value: unknown): value is z.infer<typeof AgentHookConfigFileSchema> {
+  return AgentHookConfigFileSchema.safeParse(value).success;
+}
+
+/**
+ * Check if a value is a valid AgentTriggerStatic
+ */
+export function isAgentTriggerStatic(value: unknown): value is z.infer<typeof AgentTriggerConfigFileSchema> {
+  return AgentTriggerConfigFileSchema.safeParse(value).success;
+}

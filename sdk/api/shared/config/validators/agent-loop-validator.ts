@@ -1,13 +1,13 @@
 /**
  * Agent Loop Configuration Validator
- * Provides validation logic for AgentLoopConfigFile using Zod schema
+ * Provides validation logic for AgentLoopConfigFile using Zod schema from @wf-agent/types
  */
 
 import type { AgentLoopConfigFile } from "../types.js";
 import type { Result } from "@wf-agent/types";
 import { ValidationError, SchemaValidationError } from "@wf-agent/types";
 import { ok, err } from "@wf-agent/common-utils";
-import { AgentLoopConfigFileSchema } from "./agent-loop-schema.js";
+import { AgentLoopDefinitionSchema } from "@wf-agent/types";
 
 /**
  * Validate Agent Loop configuration using Zod schema
@@ -17,10 +17,10 @@ import { AgentLoopConfigFileSchema } from "./agent-loop-schema.js";
 export function validateAgentLoopConfig(
   config: AgentLoopConfigFile,
 ): Result<AgentLoopConfigFile, ValidationError[]> {
-  const result = AgentLoopConfigFileSchema.safeParse(config);
+  const result = AgentLoopDefinitionSchema.safeParse(config);
 
   if (!result.success) {
-    const errors = result.error.issues.map((issue) => {
+    const errors = result.error.issues.map((issue: any) => {
       const fieldPath = issue.path.join(".");
       
       // Build base issue details (all ZodIssue variants have these properties)

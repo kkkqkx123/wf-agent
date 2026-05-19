@@ -16,14 +16,14 @@ import type {
   ParsedAgentLoopConfig,
   ConfigFormat,
 } from "../types.js";
-import { parseToml } from "../toml-parser.js";
-import { parseJson } from "../json-parser.js";
+import { parseToml } from "../parsers/toml-parser.js";
+import { parseJson } from "../parsers/json-parser.js";
 import { ValidationError, ConfigurationError } from "@wf-agent/types";
 import {
   validateAgentLoopConfig,
   getAgentLoopValidationWarnings,
 } from "../validators/agent-loop-validator.js";
-import { stringifyJson } from "../json-parser.js";
+import { stringifyJson } from "../parsers/json-parser.js";
 
 /**
  * Basic structure check: Verify whether the parsed result has the basic structure of AgentLoopConfigFile

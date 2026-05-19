@@ -12,10 +12,10 @@
  */
 
 import type { TimeoutConfig } from "@wf-agent/types";
-import { mergeTimeoutWithDefaults } from "./processors/timeout.js";
-import { parseToml } from "./toml-parser.js";
-import { parseJson } from "./json-parser.js";
-import { createContextualLogger } from "../../../utils/contextual-logger.js";
+import { mergeTimeoutWithDefaults } from "../processors/timeout.js";
+import { parseToml } from "../parsers/toml-parser.js";
+import { parseJson } from "../parsers/json-parser.js";
+import { createContextualLogger } from "../../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "TimeoutConfigLoader" });
 

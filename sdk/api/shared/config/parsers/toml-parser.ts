@@ -9,9 +9,9 @@
  * - Maintain a consistent interface to avoid impacting existing code
  */
 
-import type { WorkflowConfigFile } from "./types.js";
+import type { WorkflowConfigFile } from "../types.js";
 import { ConfigurationError } from "@wf-agent/types";
-import { TomlParserManager } from "../../../utils/toml-parser-manager.js";
+import { TomlParserManager } from "../../../../utils/toml-parser-manager.js";
 import { isError } from "@wf-agent/common-utils";
 
 /**

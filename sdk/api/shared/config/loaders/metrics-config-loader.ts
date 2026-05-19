@@ -12,10 +12,10 @@
  */
 
 import type { MetricsConfig } from "@wf-agent/types";
-import { mergeMetricsWithDefaults } from "./processors/metrics.js";
-import { parseToml } from "./toml-parser.js";
-import { parseJson } from "./json-parser.js";
-import { createContextualLogger } from "../../../utils/contextual-logger.js";
+import { mergeMetricsWithDefaults } from "../processors/metrics.js";
+import { parseToml } from "../parsers/toml-parser.js";
+import { parseJson } from "../parsers/json-parser.js";
+import { createContextualLogger } from "../../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "MetricsConfigLoader" });
 

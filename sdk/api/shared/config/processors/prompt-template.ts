@@ -12,8 +12,8 @@ import { ok, err } from "@wf-agent/common-utils";
 import type { PromptTemplate } from "@wf-agent/prompt-templates";
 import { PromptTemplateSchema } from "@wf-agent/prompt-templates";
 import type { PromptTemplateConfigFile } from "../types.js";
-import { loadPromptTemplateConfig, mergePromptTemplateConfig } from "../prompt-template-loader.js";
-import { stringifyJson } from "../json-parser.js";
+import { loadPromptTemplateConfig, mergePromptTemplateConfig } from "../loaders/prompt-template-loader.js";
+import { stringifyJson } from "../parsers/json-parser.js";
 
 /**
  * Verify PromptTemplate configuration

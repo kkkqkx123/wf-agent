@@ -7,9 +7,9 @@
  * Note: File I/O operations have been moved to config-file-loader.ts
  */
 
-import { parseAndValidateAgentLoopConfig } from "./processors/agent-loop.js";
-import type { ParsedAgentLoopConfig } from "./types.js";
-import { loadConfigFile } from "./config-file-loader.js";
+import { parseAndValidateAgentLoopConfig } from "../processors/agent-loop.js";
+import type { ParsedAgentLoopConfig } from "../types.js";
+import { loadConfigFile } from "../loaders/config-file-loader.js";
 
 /**
  * Load and parse Agent Loop configuration from file

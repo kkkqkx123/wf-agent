@@ -94,8 +94,6 @@ export {
   isActiveStatus,
 } from "./workflow-state-validator.js";
 
-export { VariableAccessor, VariableNamespace } from "./variable-accessor.js";
-
 export { checkWorkflowReferences } from "./workflow-reference-checker.js";
 
 // Hook Creator Tool (reexports the common parts from core/utils/hook)

@@ -40,9 +40,12 @@ import * as Identifiers from "../../../core/di/service-identifiers.js";
 import type { ExecutionHierarchyRegistry } from "../../../core/registry/execution-hierarchy-registry.js";
 import { waitForMultipleWorkflowExecutionsCompleted } from "../utils/index.js";
 import { executeWithSharedTimeout, isTimeoutError } from "../../../core/utils/timeout/index.js";
-import { DEFAULT_TIMEOUTS } from "../../../core/config/timeout-config.js";
+import { mergeTimeoutWithDefaults } from "../../../api/shared/config/index.js";
 
 const logger = createContextualLogger({ component: "WorkflowStateTransitor" });
+
+// Default timeout values for state transitor operations
+const DEFAULT_TIMEOUT_CONFIG = mergeTimeoutWithDefaults({});
 
 /**
  * WorkflowStateTransitor - Workflow State Transitor
@@ -281,7 +284,7 @@ export class WorkflowStateTransitor {
       return 0;
     }
 
-    const timeout = options?.timeout ?? DEFAULT_TIMEOUTS.CASCADE_CANCEL;
+    const timeout = options?.timeout ?? DEFAULT_TIMEOUT_CONFIG.cascadeCancel;
     const strategy = options?.strategy ?? 'parallel';
 
     logger.debug("Starting cascade cancel", {
@@ -476,7 +479,7 @@ export class WorkflowStateTransitor {
    */
   async waitForChildExecutionsCompletion(
     parentExecutionId: string,
-    timeout: number = DEFAULT_TIMEOUTS.CHILD_EXECUTION_WAIT,
+    timeout: number = DEFAULT_TIMEOUT_CONFIG.childExecutionWait,
   ): Promise<boolean> {
     const parentContext = this.workflowExecutionRegistry.get(parentExecutionId);
     if (!parentContext) {

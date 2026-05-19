@@ -28,7 +28,7 @@ import {
 } from "./event/event-waiter.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import { withTimeout, delay } from "../../../core/utils/timeout/timeout-utils.js";
-import { DEFAULT_TIMEOUTS } from "../../../core/config/timeout-config.js";
+import { mergeTimeoutWithDefaults } from "../../../api/shared/config/index.js";
 
 const logger = createContextualLogger({ component: "WorkflowOperations" });
 
@@ -709,7 +709,7 @@ async function waitForCompletionByPolling(
           await delay(100);
         }
       },
-      timeout ?? DEFAULT_TIMEOUTS.POLLING_WAIT,  // Default 30 seconds timeout
+      timeout ?? mergeTimeoutWithDefaults({}).pollingWait,  // Default 30 seconds timeout
       {
         message: `Polling timeout for child executions: ${childExecutionIds.join(', ')}`,
         onTimeout: () => {

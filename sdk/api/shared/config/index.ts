@@ -142,6 +142,9 @@ export {
   // Metrics
   mergeMetricsWithDefaults,
   getMetricsEnvironmentDefaults,
+  // Timeout
+  mergeTimeoutWithDefaults,
+  getTimeoutEnvironmentDefaults,
 } from "./processors/index.js";
 
 // Cue word template loader export
@@ -155,3 +158,8 @@ export {
 export {
   loadMetricsConfigFromFile,
 } from "./metrics-config-loader.js";
+
+// Timeout configuration loader export (with file I/O)
+export {
+  loadTimeoutConfigFromFile,
+} from "./timeout-config-loader.js";

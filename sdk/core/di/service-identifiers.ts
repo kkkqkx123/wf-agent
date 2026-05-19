@@ -420,6 +420,12 @@ export const MetricsRegistry: ServiceIdentifier<MetricsRegistryType> = Symbol("M
  */
 export const MetricsConfig: ServiceIdentifier<import("@wf-agent/types").MetricsConfig> = Symbol("MetricsConfig");
 
+/**
+ * TimeoutConfig - Timeout Configuration
+ * Provides configuration for timeout values across SDK operations
+ */
+export const TimeoutConfig: ServiceIdentifier<Required<import("@wf-agent/types").TimeoutConfig>> = Symbol("TimeoutConfig");
+
 // ============================================================
 // Tool Permission Services (New Architecture)
 // ============================================================

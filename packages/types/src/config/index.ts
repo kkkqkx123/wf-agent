@@ -8,3 +8,4 @@ export * from "./presets.js";
 export * from "./output.js";
 export * from "./schemas.js";
 export * from "./metrics.js";
+export * from "./timeout.js";

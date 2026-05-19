@@ -104,9 +104,16 @@ import { ExecutionHierarchyRegistry } from "../registry/execution-hierarchy-regi
 import { AgentLoopCoordinator } from "../../agent/execution/coordinators/agent-loop-coordinator.js";
 import { WorkflowExecutionEntity } from "../../workflow/entities/workflow-execution-entity.js";
 import { MetricsRegistry } from "../metrics/metrics-registry.js";
-import type { MetricsConfig } from "@wf-agent/types";
+import type { MetricsConfig, TimeoutConfig } from "@wf-agent/types";
 import type { SDKOptions } from "../../api/shared/types/core-types.js";
-import { loadMetricsConfigFromFile, mergeMetricsWithDefaults, getMetricsEnvironmentDefaults } from "../../api/shared/config/index.js";
+import { 
+  loadMetricsConfigFromFile, 
+  mergeMetricsWithDefaults, 
+  getMetricsEnvironmentDefaults,
+  loadTimeoutConfigFromFile,
+  mergeTimeoutWithDefaults,
+  getTimeoutEnvironmentDefaults,
+} from "../../api/shared/config/index.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "ContainerConfig" });
@@ -924,6 +931,43 @@ export function configureContainerBindings(
       });
       
       return new MetricsRegistry(config);
+    })
+    .inSingletonScope();
+
+  // TimeoutConfig - Load and merge timeout configuration with priority-based resolution
+  // Priority: SDKOptions.timeout > Config file > Environment defaults > Hardcoded defaults
+  container
+    .bind(Identifiers.TimeoutConfig)
+    .toDynamicValue(async (c: IContainer): Promise<Required<TimeoutConfig>> => {
+      // Get SDK options from container
+      const sdkOptions = c.get(Identifiers.SDKOptions) as SDKOptions | undefined;
+      
+      // Priority 1: SDKOptions.timeout (programmatic override)
+      if (sdkOptions?.timeout) {
+        logger.info("Using timeout config from SDKOptions");
+        return mergeTimeoutWithDefaults(sdkOptions.timeout);
+      }
+      
+      // Priority 2: Config file
+      const configPaths = [
+        './configs/timeout.toml',
+        './configs/timeout.json',
+      ];
+      
+      for (const path of configPaths) {
+        try {
+          const config = await loadTimeoutConfigFromFile(path);
+          logger.info("Loaded timeout config from file", { path });
+          return config;
+        } catch {
+          // Try next path
+        }
+      }
+      
+      // Priority 3: Environment-based defaults
+      const env = process.env["NODE_ENV"] || "development";
+      logger.info("Using environment-based timeout defaults", { env });
+      return getTimeoutEnvironmentDefaults(env as "development" | "production");
     })
     .inSingletonScope();
 

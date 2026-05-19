@@ -47,3 +47,13 @@ export {
   mergeMetricsWithDefaults,
   getMetricsEnvironmentDefaults,
 } from "./metrics.js";
+
+// Timeout configuration processing function
+export {
+  mergeTimeoutWithDefaults,
+  getTimeoutEnvironmentDefaults,
+  validateTimeout,
+  isWaitForever,
+  toActualTimeout,
+  WAIT_FOREVER,
+} from "./timeout.js";

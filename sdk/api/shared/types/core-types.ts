@@ -3,7 +3,7 @@
  * Defines types related to core execution
  */
 
-import type { WorkflowExecutionOptions, PresetsConfig, MetricsConfig } from "@wf-agent/types";
+import type { WorkflowExecutionOptions, PresetsConfig, MetricsConfig, TimeoutConfig } from "@wf-agent/types";
 import type {
   CheckpointStorageAdapter,
   WorkflowStorageAdapter,
@@ -210,6 +210,8 @@ export interface SDKOptions {
   gracefulShutdown?: GracefulShutdownConfig;
   /** Metrics system configuration */
   metrics?: MetricsConfig;
+  /** Timeout configuration for SDK operations */
+  timeout?: TimeoutConfig;
 }
 
 export type { WorkflowExecutionOptions };

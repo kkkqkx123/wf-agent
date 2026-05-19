@@ -17,6 +17,7 @@ export type {
   StringMethodNode,
   TernaryNode,
   ArrayMethodNode,
+  ArrayMethodComparisonNode,
   ArrayMethodName,
 } from "./ast-types.js";
 
@@ -43,3 +44,11 @@ export {
   validateValueType,
   SECURITY_CONFIG,
 } from "./security-validator.js";
+
+// Type Validator
+export {
+  validateComparisonTypes,
+  validateArrayMethodResult,
+  isValidNumber,
+  isArray,
+} from "./type-validator.js";

@@ -21,15 +21,21 @@ import {
   StringMethodNode,
   TernaryNode,
   ArrayMethodNode,
+  ArrayMethodComparisonNode,
   ArrayMethodName,
 } from "./ast-types.js";
 import { parseAST } from "./expression-parser.js";
+import { validateComparisonTypes } from "./type-validator.js";
 
 /**
  * Expression evaluator
  */
 export class ExpressionEvaluator {
   private logger = getGlobalLogger().child("ExpressionEvaluator", { pkg: "common-utils" });
+  
+  // Cache for array method results
+  private cache = new Map<string, { value: unknown; timestamp: number }>();
+  private readonly CACHE_TTL = 1000; // 1 second TTL
 
   /**
    * Evaluation Expression
@@ -38,6 +44,9 @@ export class ExpressionEvaluator {
    * @returns: The evaluation result
    */
   evaluate(expression: string, context: EvaluationContext): unknown {
+    // Clear cache before each new evaluation to avoid stale data
+    this.cache.clear();
+    
     // Parse into AST
     const ast = parseAST(expression);
 
@@ -85,6 +94,9 @@ export class ExpressionEvaluator {
 
       case "arrayMethod":
         return this.evaluateArrayMethod(node as ArrayMethodNode, context);
+
+      case "arrayMethodComparison":
+        return this.evaluateArrayMethodComparison(node as ArrayMethodComparisonNode, context);
 
       default:
         throw new RuntimeValidationError(
@@ -388,15 +400,65 @@ export class ExpressionEvaluator {
    * Evaluate Array Methods
    */
   private evaluateArrayMethod(node: ArrayMethodNode, context: EvaluationContext): unknown {
+    // Create cache key from method, path, and arguments
+    const cacheKey = `${node.method}:${node.arrayPath}:${node.propertyName}:${JSON.stringify(node.value)}`;
+    
+    // Check cache first
+    const cached = this.cache.get(cacheKey);
+    const now = Date.now();
+    
+    if (cached && (now - cached.timestamp) < this.CACHE_TTL) {
+      this.logger.debug(`Cache hit for array method: ${cacheKey}`);
+      return cached.value;
+    }
+    
+    // Compute result
+    const result = this.computeArrayMethod(node, context);
+    
+    // Store in cache
+    this.cache.set(cacheKey, { value: result, timestamp: now });
+    
+    // Clean old entries if cache is too large
+    if (this.cache.size > 100) {
+      this.cleanCache(now);
+    }
+    
+    return result;
+  }
+  
+  /**
+   * Compute array method result (actual implementation)
+   */
+  private computeArrayMethod(node: ArrayMethodNode, context: EvaluationContext): unknown {
     const array = this.getVariableValue(node.arrayPath, context);
     
-    if (!Array.isArray(array)) {
+    if (array === undefined || array === null) {
       this.logger.warn(
-        `Expected array for ${node.method}, got ${typeof array}`,
-        { arrayPath: node.arrayPath, method: node.method }
+        `Array path '${node.arrayPath}' resolved to ${array === undefined ? 'undefined' : 'null'}`,
+        { 
+          arrayPath: node.arrayPath, 
+          method: node.method,
+          contextKeys: Object.keys(context)
+        }
+      );
+      return this.handleEmptyArray(node.method);
+    }
+    
+    if (!Array.isArray(array)) {
+      this.logger.error(
+        `Expected array for method '${node.method}', got ${typeof array}`,
+        { 
+          arrayPath: node.arrayPath, 
+          method: node.method,
+          actualType: typeof array,
+          actualValue: array
+        }
       );
       return false;
     }
+    
+    // Validate arguments
+    this.validateArrayMethodArgs(node.method, node.propertyName, node.value);
     
     if (array.length === 0) {
       return this.handleEmptyArray(node.method);
@@ -445,6 +507,75 @@ export class ExpressionEvaluator {
           return typeof propValue === 'string' && propValue.includes(String(node.value));
         });
       
+      // Phase 3.1: Aggregation functions
+      case 'sum':
+        return array.reduce((acc, item) => {
+          const val = this.getPropertyValue(item, node.propertyName);
+          return typeof val === 'number' ? acc + val : acc;
+        }, 0);
+      
+      case 'avg': {
+        const numericValues = array.map(item => this.getPropertyValue(item, node.propertyName))
+                                    .filter(v => typeof v === 'number');
+        if (numericValues.length === 0) {
+          return 0;
+        }
+        const sum = numericValues.reduce((acc, val) => acc + val, 0);
+        return sum / numericValues.length;
+      }
+      
+      case 'min': {
+        const values = array.map(item => this.getPropertyValue(item, node.propertyName))
+                            .filter(v => typeof v === 'number');
+        return values.length > 0 ? Math.min(...values) : null;
+      }
+      
+      case 'max': {
+        const maxValues = array.map(item => this.getPropertyValue(item, node.propertyName))
+                               .filter(v => typeof v === 'number');
+        return maxValues.length > 0 ? Math.max(...maxValues) : null;
+      }
+      
+      // Phase 3.2: Comparison-based filters
+      case 'someGreaterThan':
+        return array.some(item => {
+          const val = this.getPropertyValue(item, node.propertyName);
+          return typeof val === 'number' && val > (node.value as number);
+        });
+      
+      case 'someLessThan':
+        return array.some(item => {
+          const val = this.getPropertyValue(item, node.propertyName);
+          return typeof val === 'number' && val < (node.value as number);
+        });
+      
+      case 'everyGreaterThan':
+        return array.every(item => {
+          const val = this.getPropertyValue(item, node.propertyName);
+          return typeof val === 'number' && val > (node.value as number);
+        });
+      
+      case 'everyLessThan':
+        return array.every(item => {
+          const val = this.getPropertyValue(item, node.propertyName);
+          return typeof val === 'number' && val < (node.value as number);
+        });
+      
+      // Phase 3.4: Array transformation methods
+      case 'map':
+        return array.map(item => this.getPropertyValue(item, node.propertyName));
+      
+      case 'distinct': {
+        const distinctValues = array.map(item => this.getPropertyValue(item, node.propertyName));
+        return [...new Set(distinctValues)];
+      }
+      
+      case 'first':
+        return array.length > 0 ? array[0] : null;
+      
+      case 'last':
+        return array.length > 0 ? array[array.length - 1] : null;
+      
       default:
         throw new RuntimeValidationError(`Unknown array method: ${node.method}`, {
           operation: "array_method_evaluation",
@@ -453,15 +584,132 @@ export class ExpressionEvaluator {
         });
     }
   }
+  
+  /**
+   * Clean expired cache entries
+   */
+  private cleanCache(now: number): void {
+    for (const [key, entry] of this.cache.entries()) {
+      if (now - entry.timestamp > this.CACHE_TTL) {
+        this.cache.delete(key);
+      }
+    }
+  }
+
+  /**
+   * Evaluate Array Method Comparison
+   * Handles expressions like: input.messages.countWhere('role', 'user') > 5
+   */
+  private evaluateArrayMethodComparison(node: ArrayMethodComparisonNode, context: EvaluationContext): boolean {
+    // First evaluate the array method
+    const methodResult = this.evaluateArrayMethod(node.methodNode, context);
+    
+    // Handle variable references in compare value
+    let compareValue = node.compareValue;
+    if (compareValue && typeof compareValue === "object" && 
+        (compareValue as Record<string, unknown>)["__isVariableRef"]) {
+      compareValue = this.getVariableValue(
+        (compareValue as Record<string, unknown>)["path"] as string,
+        context
+      );
+    }
+    
+    // Validate types before comparison
+    if (!validateComparisonTypes(node.operator, methodResult, compareValue, {
+      method: node.methodNode.method,
+      propertyPath: node.methodNode.arrayPath
+    })) {
+      return false;
+    }
+    
+    // Perform comparison based on operator
+    switch (node.operator) {
+      case "==":
+        return methodResult === compareValue;
+      case "!=":
+        return methodResult !== compareValue;
+      case ">":
+        return typeof methodResult === 'number' && typeof compareValue === 'number' && 
+               methodResult > compareValue;
+      case "<":
+        return typeof methodResult === 'number' && typeof compareValue === 'number' && 
+               methodResult < compareValue;
+      case ">=":
+        return typeof methodResult === 'number' && typeof compareValue === 'number' && 
+               methodResult >= compareValue;
+      case "<=":
+        return typeof methodResult === 'number' && typeof compareValue === 'number' && 
+               methodResult <= compareValue;
+      default:
+        this.logger.warn(`Unsupported operator ${node.operator} for array method comparison`);
+        return false;
+    }
+  }
+
+  /**
+   * Validate array method arguments
+   */
+  private validateArrayMethodArgs(method: ArrayMethodName, propertyName: string, value?: unknown): void {
+    // Methods that don't require property name
+    const noArgMethods = ['first', 'last'];
+    if (noArgMethods.includes(method)) {
+      return;
+    }
+    
+    if (!propertyName || propertyName.trim() === '') {
+      throw new RuntimeValidationError(
+        `Property name cannot be empty for method ${method}`,
+        { 
+          operation: "validate_array_method_args",
+          context: { method, propertyName }
+        }
+      );
+    }
+    
+    // Type-specific validations
+    if (method.includes('Contains') && value !== undefined) {
+      if (typeof value !== 'string') {
+        this.logger.warn(
+          `Method ${method} expects string value for contains check, got ${typeof value}`,
+          { method, value, valueType: typeof value }
+        );
+      }
+    }
+  }
 
   /**
    * Get property value from object
+   * Supports nested property access using dot notation (e.g., 'metadata.tags.name')
    */
-  private getPropertyValue(obj: unknown, propertyName: string): unknown {
+  private getPropertyValue(obj: unknown, propertyPath: string): unknown {
     if (typeof obj !== 'object' || obj === null) {
       return undefined;
     }
-    return (obj as Record<string, unknown>)[propertyName];
+    
+    // Support dot notation: metadata.tags.name
+    const parts = propertyPath.split('.');
+    let current: unknown = obj;
+    
+    for (const part of parts) {
+      if (typeof current !== 'object' || current === null) {
+        this.logger.debug(
+          `Cannot access property '${part}' on non-object value`,
+          { propertyPath, currentType: typeof current }
+        );
+        return undefined;
+      }
+      current = (current as Record<string, unknown>)[part];
+      
+      if (current === undefined) {
+        this.logger.debug(
+          `Property '${part}' not found in object`,
+          { propertyPath, availableKeys: current && typeof current === 'object' ? Object.keys(current) : [] }
+        );
+        return undefined;
+      }
+    }
+    
+    return current;
   }
 
   /**
@@ -473,19 +721,37 @@ export class ExpressionEvaluator {
       case 'someContains':
       case 'has':
       case 'hasContains':
+      case 'someGreaterThan':
+      case 'someLessThan':
         return false;  // No items match
       
       case 'everyEqual':
       case 'everyHas':
+      case 'everyGreaterThan':
+      case 'everyLessThan':
         return true;   // Vacuously true
       
       case 'countWhere':
       case 'countWhereContains':
-        return 0;      // Zero matches
+      case 'sum':
+        return 0;      // Zero matches or sum
       
       case 'findEqual':
       case 'findContains':
+      case 'first':
+      case 'last':
         return null;   // No item found
+      
+      case 'avg':
+        return 0;   // Return 0 for empty arrays (more intuitive for average)
+      
+      case 'min':
+      case 'max':
+        return null;   // Cannot compute min/max on empty array
+      
+      case 'map':
+      case 'distinct':
+        return [];     // Empty array result
       
       default:
         return false;

@@ -17,7 +17,8 @@ export type ASTNode =
   | ArithmeticNode
   | StringMethodNode
   | TernaryNode
-  | ArrayMethodNode;
+  | ArrayMethodNode
+  | ArrayMethodComparisonNode;
 
 /**
  * Boolean Literals node
@@ -121,6 +122,18 @@ export interface ArrayMethodNode {
 }
 
 /**
+ * Array Method Comparison Node
+ * Represents comparison operations with array method results
+ * Example: input.messages.countWhere('role', 'user') > 5
+ */
+export interface ArrayMethodComparisonNode {
+  type: "arrayMethodComparison";
+  methodNode: ArrayMethodNode;
+  operator: "==" | "!=" | ">" | "<" | ">=" | "<=";
+  compareValue: unknown;
+}
+
+/**
  * Array Method Names
  */
 export type ArrayMethodName =
@@ -133,4 +146,19 @@ export type ArrayMethodName =
   | "findEqual"
   | "findContains"
   | "has"
-  | "hasContains";
+  | "hasContains"
+  // Aggregation functions (Phase 3.1)
+  | "sum"
+  | "avg"
+  | "min"
+  | "max"
+  // Comparison-based filters (Phase 3.2)
+  | "someGreaterThan"
+  | "someLessThan"
+  | "everyGreaterThan"
+  | "everyLessThan"
+  // Array transformation methods (Phase 3.4)
+  | "map"
+  | "distinct"
+  | "first"
+  | "last";

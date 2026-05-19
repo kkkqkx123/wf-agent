@@ -26,8 +26,21 @@ import {
   StringMethodNode,
   TernaryNode,
   ArrayMethodNode,
+  ArrayMethodComparisonNode,
   ArrayMethodName,
 } from "./ast-types.js";
+
+/**
+ * Array method names pattern for regex
+ * Includes all methods from Phase 1, 2, and 3
+ */
+const ARRAY_METHOD_NAMES = 
+  'someEqual|someContains|everyEqual|everyHas|' +
+  'countWhere|countWhereContains|findEqual|findContains|' +
+  'has|hasContains|' +
+  'sum|avg|min|max|' +
+  'someGreaterThan|someLessThan|everyGreaterThan|everyLessThan|' +
+  'map|distinct|first|last';
 
 /**
  * Parsing value strings
@@ -153,6 +166,32 @@ export function parseAST(expression: string): ASTNode {
     return { type: "string", value: trimmed.slice(1, -1) } as StringLiteralNode;
   }
 
+  // Find the outermost logical operator (|| has lower priority than &&)
+  // Check this BEFORE array method comparisons to avoid greedy matching issues
+  const orIndex = findTopLevelOperator(trimmed, "||");
+  if (orIndex !== -1) {
+    const left = trimmed.slice(0, orIndex).trim();
+    const right = trimmed.slice(orIndex + 2).trim();
+    return {
+      type: "logical",
+      operator: "||",
+      left: parseAST(left),
+      right: parseAST(right),
+    } as LogicalNode;
+  }
+
+  const andIndex = findTopLevelOperator(trimmed, "&&");
+  if (andIndex !== -1) {
+    const left = trimmed.slice(0, andIndex).trim();
+    const right = trimmed.slice(andIndex + 2).trim();
+    return {
+      type: "logical",
+      operator: "&&",
+      left: parseAST(left),
+      right: parseAST(right),
+    } as LogicalNode;
+  }
+
   // String handling methods
   const stringMethodMatch = trimmed.match(
     /^(.+?)\.(startsWith|endsWith|length|toLowerCase|toUpperCase|trim)(?:\((.*?)\))?$/,
@@ -172,12 +211,24 @@ export function parseAST(expression: string): ASTNode {
 
   // Array method calls
   const arrayMethodMatch = trimmed.match(
-    /^(.+)\.(someEqual|someContains|everyEqual|everyHas|countWhere|countWhereContains|findEqual|findContains|has|hasContains)\((.+)\)$/,
+    new RegExp(`^(.+)\\.(${ARRAY_METHOD_NAMES})\\((.*)\\)$`),
   );
-  if (arrayMethodMatch && arrayMethodMatch[1] && arrayMethodMatch[2] && arrayMethodMatch[3]) {
+  if (arrayMethodMatch && arrayMethodMatch[1] && arrayMethodMatch[2]) {
     const arrayPath = arrayMethodMatch[1].trim();
     const methodName = arrayMethodMatch[2] as ArrayMethodName;
-    const argsStr = arrayMethodMatch[3].trim();
+    const argsStr = (arrayMethodMatch[3] || '').trim();
+    
+    // Methods that don't require arguments: first(), last()
+    const noArgMethods = ['first', 'last'];
+    if (noArgMethods.includes(methodName)) {
+      return {
+        type: "arrayMethod",
+        method: methodName,
+        arrayPath,
+        propertyName: '',
+        value: undefined,
+      } as ArrayMethodNode;
+    }
     
     // Parse arguments: propertyName, value?
     const rawArgs = parseFunctionArguments(argsStr);
@@ -215,29 +266,55 @@ export function parseAST(expression: string): ASTNode {
     } as ArrayMethodNode;
   }
 
-  // Find the outermost logical operator (|| has lower priority than &&)
-  const orIndex = findTopLevelOperator(trimmed, "||");
-  if (orIndex !== -1) {
-    const left = trimmed.slice(0, orIndex).trim();
-    const right = trimmed.slice(orIndex + 2).trim();
+  // Check for pattern: arrayPath.method(args) OP value
+  const arrayMethodComparisonMatch = trimmed.match(
+    new RegExp(`^(.+)\\.(${ARRAY_METHOD_NAMES})\\((.+)\\)\\s*(==|!=|>=|<=|>|<)\\s*(.+)$`),
+  );
+  if (arrayMethodComparisonMatch && arrayMethodComparisonMatch[1] && arrayMethodComparisonMatch[2] && arrayMethodComparisonMatch[3] && arrayMethodComparisonMatch[4] && arrayMethodComparisonMatch[5]) {
+    const [, arrayPath, methodName, argsStr, operator, compareValueStr] = arrayMethodComparisonMatch;
+    
+    // Parse the array method part
+    const rawArgs = parseFunctionArguments(argsStr!.trim());
+    
+    if (rawArgs.length < 1 || rawArgs.length > 2) {
+      throw new RuntimeValidationError(
+        `Array method ${methodName} requires 1-2 arguments: (propertyName, value?)`,
+        {
+          operation: "parse_array_method_comparison",
+          field: "arguments",
+          value: argsStr,
+        },
+      );
+    }
+    
+    let propertyName = rawArgs[0] || '';
+    if ((propertyName.startsWith("'") && propertyName.endsWith("'")) || 
+        (propertyName.startsWith('"') && propertyName.endsWith('"'))) {
+      propertyName = propertyName.slice(1, -1);
+    }
+    
+    let value: unknown = undefined;
+    if (rawArgs.length === 2 && rawArgs[1] !== undefined) {
+      value = parseValue(rawArgs[1]);
+    }
+    
+    const methodNode: ArrayMethodNode = {
+      type: "arrayMethod",
+      method: methodName as ArrayMethodName,
+      arrayPath: arrayPath!.trim(),
+      propertyName,
+      value,
+    };
+    
+    // Parse the comparison value
+    const compareValue = parseValue(compareValueStr!.trim());
+    
     return {
-      type: "logical",
-      operator: "||",
-      left: parseAST(left),
-      right: parseAST(right),
-    } as LogicalNode;
-  }
-
-  const andIndex = findTopLevelOperator(trimmed, "&&");
-  if (andIndex !== -1) {
-    const left = trimmed.slice(0, andIndex).trim();
-    const right = trimmed.slice(andIndex + 2).trim();
-    return {
-      type: "logical",
-      operator: "&&",
-      left: parseAST(left),
-      right: parseAST(right),
-    } as LogicalNode;
+      type: "arrayMethodComparison",
+      methodNode,
+      operator: operator as ComparisonNode["operator"],
+      compareValue,
+    } as ArrayMethodComparisonNode;
   }
 
   // Parsing comparison expressions (priority over arithmetic operations)
@@ -377,7 +454,7 @@ function parseComparisonExpression(
   }
 
   // Check if left side is an array method call
-  const arrayMethodPattern = /^(.+)\.(someEqual|someContains|everyEqual|everyHas|countWhere|countWhereContains|findEqual|findContains|has|hasContains)\((.+)\)$/;
+  const arrayMethodPattern = new RegExp(`^(.+)\\.(${ARRAY_METHOD_NAMES})\\((.+)\\)$`);
   
   // Trying to match various operators
   const operators = [

@@ -49,8 +49,9 @@ Returns the **count** of items where the property equals the value.
 // Count user messages
 input.messages.countWhere('role', 'user')
 
-// Use in conditions (requires future parser enhancement)
-// input.messages.countWhere('role', 'user') > 5
+// Use in comparisons (Phase 1.1 - Now Supported)
+input.messages.countWhere('role', 'user') > 5
+input.messages.countWhere('role', 'assistant') >= 2
 ```
 
 #### `countWhereContains(propertyName, substring)`
@@ -169,32 +170,104 @@ This works with these common properties: `role`, `name`, `type`, `id`, `status`,
 
 ## Limitations (Current Version)
 
-The following features require enhanced parser support and are planned for future iterations:
+All major limitations from earlier versions have been addressed. The following features are now fully supported:
 
-1. **Direct comparisons with array method results**:
-   ```typescript
-   // Not yet supported (will be added in future)
-   input.messages.countWhere('role', 'user') > 5
-   ```
+✅ **Comparison operators with array methods** (Phase 1.1):
+```typescript
+input.messages.countWhere('role', 'user') > 5
+output.results.avg('score') >= 80
+```
 
-2. **Combining array methods with logical operators**:
-   ```typescript
-   // Not yet supported (will be added in future)
-   input.messages.someEqual('role', 'user') && input.messages.countWhere('role', 'assistant') >= 2
-   ```
+✅ **Logical operator combinations** (Phase 2.1):
+```typescript
+input.messages.someEqual('role', 'user') && input.messages.countWhere('role', 'assistant') >= 2
+```
 
-3. **Array methods in ternary conditions**:
-   ```typescript
-   // Not yet supported (will be added in future)
-   input.messages.countWhere('role', 'user') > 10 ? 'long' : 'short'
-   ```
+✅ **Ternary expressions** (Phase 2.2):
+```typescript
+input.messages.countWhere('role', 'user') > 10 ? 'long' : 'short'
+```
 
-### Workarounds
+✅ **Nested property access** (Phase 1.3):
+```typescript
+input.messages.someEqual('metadata.tags.0', 'important')
+```
 
-For now, you can:
-- Use array methods as standalone boolean conditions
-- Use count methods to get numeric values (available in event data)
-- Combine simple conditions with logical operators
+### New Advanced Features (Phase 3)
+
+#### Aggregation Functions (Phase 3.1)
+
+##### `sum(propertyName)`
+Returns the sum of all numeric property values.
+
+```typescript
+// Sum all scores
+input.results.sum('score')
+```
+
+##### `avg(propertyName)`
+Returns the average of all numeric property values.
+
+```toml
+[[nodes.hooks]]
+hookType = "AFTER_EXECUTE"
+condition = { expression = "output.results.avg('score') > 80" }
+eventName = "high.average.score"
+```
+
+##### `min(propertyName)` / `max(propertyName)`
+Returns the minimum or maximum numeric property value.
+
+```toml
+[[nodes.hooks]]
+hookType = "AFTER_EXECUTE"
+condition = { expression = "output.results.max('duration') < 5000" }
+eventName = "fast.execution"
+```
+
+#### Comparison-based Filters (Phase 3.2)
+
+##### `someGreaterThan(prop, value)` / `someLessThan(prop, value)`
+Returns true if any item's property is greater/less than the value.
+
+```typescript
+input.scores.someGreaterThan('value', 50)
+input.scores.someLessThan('value', 10)
+```
+
+##### `everyGreaterThan(prop, value)` / `everyLessThan(prop, value)`
+Returns true if all items' properties are greater/less than the value.
+
+```typescript
+input.scores.everyGreaterThan('value', 5)
+input.scores.everyLessThan('value', 150)
+```
+
+#### Array Transformation Methods (Phase 3.4)
+
+##### `map(propertyName)`
+Extracts property values into a new array.
+
+```typescript
+// Get all user names
+input.users.map('name')  // ['Alice', 'Bob', 'Charlie']
+```
+
+##### `distinct(propertyName)`
+Returns unique values of a property.
+
+```typescript
+// Get unique roles
+input.users.distinct('role')  // ['admin', 'user', 'moderator']
+```
+
+##### `first()` / `last()`
+Returns the first or last element of the array.
+
+```typescript
+input.users.first()   // First user object
+input.users.last()    // Last user object
+```
 
 ## Best Practices
 
@@ -209,10 +282,9 @@ For now, you can:
 
 ## Future Enhancements
 
-Planned improvements for future versions:
+Potential improvements for future versions:
 
-1. Support for arithmetic comparisons with count methods
-2. Full integration with logical operators (&&, ||)
-3. Support in ternary expressions
-4. Additional aggregation functions (sum, avg, min, max)
-5. Nested property access (e.g., `messages[*].metadata.tags`)
+1. Generic filter expressions with custom predicates (requires advanced parser)
+2. Additional string manipulation methods
+3. Date/time comparison functions
+4. Regular expression support in contains checks

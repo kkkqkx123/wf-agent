@@ -234,3 +234,100 @@ export function isTimeoutError(error: unknown): boolean {
     error.name === "TimeoutError"
   );
 }
+
+/**
+ * Create a timeout error with standardized format
+ * 
+ * @param timeoutId Timeout identifier
+ * @param duration Configured timeout duration in milliseconds
+ * @param actualDuration Actual elapsed time in milliseconds
+ * @param tag Optional tag for categorization
+ * @returns Standardized TimeoutError
+ * 
+ * @example
+ * ```typescript
+ * const error = createTimeoutError('llm-call-001', 5000, 5023, 'llm-call');
+ * // Error: Timeout 'llm-call-001' expired after 5023ms (configured: 5000ms, tag: llm-call)
+ * ```
+ */
+export function createTimeoutError(
+  timeoutId: string,
+  duration: number,
+  actualDuration: number,
+  tag?: string
+): Error {
+  const tagInfo = tag ? `, tag: ${tag}` : '';
+  const message = `Timeout '${timeoutId}' expired after ${actualDuration}ms (configured: ${duration}ms${tagInfo})`;
+  const error = new Error(message);
+  error.name = 'TimeoutError';
+  return error;
+}
+
+/**
+ * Execute multiple operations with a shared timeout
+ * 
+ * All operations must complete within the timeout period.
+ * If any operation fails or times out, all pending operations are cancelled.
+ * 
+ * @param operations Map of operation name to operation function
+ * @param duration Shared timeout duration in milliseconds
+ * @param options Optional configuration
+ * @returns Map of operation results
+ * 
+ * @example
+ * ```typescript
+ * const results = await executeWithSharedTimeout(
+ *   {
+ *     fetch: () => fetchData(),
+ *     process: () => processData()
+ *   },
+ *   10000
+ * );
+ * ```
+ */
+export async function executeWithSharedTimeout<T>(
+  operations: Record<string, () => Promise<T>>,
+  duration: number,
+  options?: {
+    onTimeout?: () => void | Promise<void>;
+    message?: string;
+  }
+): Promise<Map<string, T>> {
+  const controller = new AbortController();
+  const results = new Map<string, T>();
+  let timedOut = false;
+
+  // Set up shared timeout
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(async () => {
+      timedOut = true;
+      controller.abort();
+      if (options?.onTimeout) {
+        await options.onTimeout();
+      }
+      reject(new Error(options?.message || `Operations timed out after ${duration}ms`));
+    }, duration);
+  });
+
+  // Execute all operations concurrently
+  const operationPromises = Object.entries(operations).map(async ([name, fn]) => {
+    try {
+      const result = await fn();
+      results.set(name, result);
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        throw error;
+      }
+    }
+  });
+
+  try {
+    await Promise.race([Promise.all(operationPromises), timeoutPromise]);
+    return results;
+  } catch (error) {
+    if (timedOut) {
+      throw error;
+    }
+    throw error;
+  }
+}

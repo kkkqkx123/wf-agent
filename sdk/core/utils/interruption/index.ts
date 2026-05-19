@@ -43,12 +43,9 @@ export {
   InterruptionPropagationError,
 } from "./interruption-propagation-proxy.js";
 
-// Interruption timeout manager
-export {
-  InterruptionTimeoutManager,
-  type TimeoutConfig,
-  DEFAULT_TIMEOUT_CONFIG,
-} from "./interruption-timeout-manager.js";
+// NOTE: InterruptionTimeoutManager has been removed.
+// Use TimeoutManager from sdk/core/state-managers/timeout-manager.js instead.
+// See docs/refactoring/phase2-migration-guide.md for migration guide.
 
 // Interruption history manager
 export {

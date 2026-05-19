@@ -19,6 +19,7 @@ import type {
   ResolvedTimeoutManagerConfig,
 } from "../types/timeout-config.js";
 import { DEFAULT_TIMEOUT_MANAGER_CONFIG } from "../types/timeout-config.js";
+import { isValidTimeoutTag } from "../types/timeout-tags.js";
 
 /**
  * Timeout entry with handle methods
@@ -100,8 +101,20 @@ export class TimeoutManager implements StateManager<TimeoutSnapshot> {
       metadata,
     } = options;
 
+    // Validate timeout ID
+    if (!id || id.trim().length === 0) {
+      throw new Error("Timeout ID cannot be empty");
+    }
+
     // Validate duration
     const validatedDuration = this.validateDuration(duration);
+
+    // Validate tag if provided
+    if (tag && !isValidTimeoutTag(tag)) {
+      console.warn(
+        `Timeout '${id}' uses non-standard tag '${tag}'. Consider using standard tags from timeout-tags.ts`
+      );
+    }
 
     // Check if timeout already exists
     if (this.timeouts.has(id)) {
@@ -119,6 +132,18 @@ export class TimeoutManager implements StateManager<TimeoutSnapshot> {
     const effectiveWarningThreshold =
       warningThreshold ??
       (this.config.enableWarnings ? this.config.defaultWarningThreshold : undefined);
+
+    // Validate warning threshold
+    if (effectiveWarningThreshold !== undefined) {
+      if (effectiveWarningThreshold <= 0) {
+        throw new Error("Warning threshold must be positive");
+      }
+      if (effectiveWarningThreshold >= validatedDuration) {
+        console.warn(
+          `Timeout '${id}': warning threshold (${effectiveWarningThreshold}ms) is greater than or equal to duration (${validatedDuration}ms)`
+        );
+      }
+    }
 
     const startTime = Date.now();
 
@@ -171,6 +196,39 @@ export class TimeoutManager implements StateManager<TimeoutSnapshot> {
     }
 
     return handle;
+  }
+
+  /**
+   * Register a timeout with automatic interruption protection
+   * 
+   * This is a convenience method that automatically binds the timeout to the
+   * current interruption state, ensuring it's cancelled when execution is interrupted.
+   * 
+   * @param options Timeout registration options (interruptionState will be set automatically)
+   * @param interruptionState The interruption state to bind to
+   * @returns TimeoutHandle for managing the timeout
+   * 
+   * @example
+   * ```typescript
+   * const handle = manager.registerWithInterruptionProtection(
+   *   {
+   *     id: 'llm-call',
+   *     duration: 30000,
+   *     onTimeout: () => cancelLLMCall(),
+   *     tag: 'llm-call'
+   *   },
+   *   interruptionState
+   * );
+   * ```
+   */
+  registerWithInterruptionProtection(
+    options: Omit<TimeoutRegistration, 'interruptionState'>,
+    interruptionState: InterruptionStateReference
+  ): TimeoutHandle {
+    return this.register({
+      ...options,
+      interruptionState,
+    });
   }
 
   /**
@@ -478,15 +536,27 @@ export class TimeoutManager implements StateManager<TimeoutSnapshot> {
     // Update status
     entry.status = "expired";
 
+    // Calculate actual duration
+    const actualDuration = Date.now() - entry.startTime;
+
     // Update statistics
     this.stats.timedOutCount++;
-    this.stats.durations.push(entry.duration);
+    this.stats.durations.push(actualDuration);
 
-    // Execute timeout callback
+    // Log timeout expiration
+    const tagInfo = entry.metadata?.['tag'] ? ` (tag: ${entry.metadata['tag']})` : '';
+    console.debug(
+      `Timeout '${entry.id}' expired after ${actualDuration}ms${tagInfo}`
+    );
+
+    // Execute timeout callback with error handling
     try {
       await entry.onTimeout();
     } catch (error) {
-      console.error(`Error in timeout callback for ${entry.id}:`, error);
+      console.error(
+        `Error in timeout callback for '${entry.id}':`,
+        error instanceof Error ? error.message : error
+      );
     }
   }
 
@@ -495,7 +565,7 @@ export class TimeoutManager implements StateManager<TimeoutSnapshot> {
    */
   private async handleWarning(
     entry: TimeoutEntryWithHandle,
-    _warningThreshold: number
+    warningThreshold: number
   ): Promise<void> {
     if (entry.status !== "active" || entry.warningEmitted) {
       return;
@@ -503,12 +573,24 @@ export class TimeoutManager implements StateManager<TimeoutSnapshot> {
 
     entry.warningEmitted = true;
 
-    // Execute warning callback
+    // Calculate remaining time
+    const remainingTime = this.getRemainingTimeFromEntry(entry);
+
+    // Log warning
+    const tagInfo = entry.metadata?.['tag'] ? ` (tag: ${entry.metadata['tag']})` : '';
+    console.debug(
+      `Timeout '${entry.id}' warning: ${remainingTime}ms remaining (threshold: ${warningThreshold}ms)${tagInfo}`
+    );
+
+    // Execute warning callback with error handling
     if (entry.onWarning) {
       try {
         await entry.onWarning();
       } catch (error) {
-        console.error(`Error in warning callback for ${entry.id}:`, error);
+        console.error(
+          `Error in warning callback for '${entry.id}':`,
+          error instanceof Error ? error.message : error
+        );
       }
     }
   }

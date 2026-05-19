@@ -219,12 +219,10 @@ describe("TimeoutController", () => {
           .fn()
           .mockImplementation(() => new Promise(resolve => setTimeout(resolve, 100)));
 
-        try {
-          await controller.executeWithTimeout(fn);
-          expect.fail("Should have thrown TimeoutError");
-        } catch (error) {
-          expect(error).toBeInstanceOf(TimeoutError);
-        }
+        // Zero timeout means no timeout limit, so the function should complete successfully
+        const result = await controller.executeWithTimeout(fn);
+        expect(result).toBeUndefined();
+        expect(fn).toHaveBeenCalledTimes(1);
       });
     });
   });

@@ -1,16 +1,15 @@
 /**
  * Timeout Controller
- * Responsible for controlling execution timeouts
+ * 
+ * Lightweight wrapper for tool execution timeout control.
+ * Internally reuses core timeout utility functions to avoid code duplication.
+ * 
+ * Note: This is a specialized controller for services layer that doesn't need
+ * full state management. For complex timeout scenarios, use TimeoutManager instead.
  */
 
 import { TimeoutError } from "@wf-agent/types";
-
-/**
- * Create an abort error for timeout
- */
-function createTimeoutAbortError(message: string): Error {
-  return new Error(message);
-}
+import { combineTimeoutWithSignal } from "../../../../../core/utils/timeout/index.js";
 
 /**
  * Timeout Controller
@@ -22,6 +21,7 @@ export class TimeoutController {
    * Timed execution
    * @param fn The function to be executed
    * @param timeout The timeout period in milliseconds, using the default value set by the constructor by default
+   * @param signal Optional abort signal for external cancellation
    * @returns The execution result
    * @throws TimeoutError If the timeout is reached
    */
@@ -31,50 +31,39 @@ export class TimeoutController {
     signal?: AbortSignal,
   ): Promise<T> {
     const actualTimeout = timeout ?? this.defaultTimeout;
-    let timeoutId: NodeJS.Timeout | undefined;
-    let abortListener: (() => void) | undefined;
 
-    // Create a timeout Promise
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      timeoutId = setTimeout(() => {
-        reject(new TimeoutError(`Tool execution timeout after ${actualTimeout}ms`, actualTimeout));
-      }, actualTimeout);
-    });
-
-    // Create a cancelable Promise
-    let abortPromise: Promise<never> | undefined;
-    if (signal) {
-      abortPromise = new Promise<never>((_, reject) => {
-        const onAbort = () => {
-          reject(createTimeoutAbortError("Tool execution aborted"));
-        };
-
-        if (signal.aborted) {
-          onAbort();
-        } else {
-          abortListener = () => {
-            onAbort();
-          };
-          signal.addEventListener("abort", abortListener);
-        }
-      });
+    // Handle zero or negative timeout (no timeout)
+    if (actualTimeout <= 0) {
+      return await fn();
     }
 
+    // Combine timeout with abort signal if provided
+    const { clearTimeout } = combineTimeoutWithSignal(
+      actualTimeout,
+      signal,
+    );
+
     try {
-      // Competitive execution, timeouts, and termination
-      const promises: Array<Promise<T | never>> = [fn(), timeoutPromise];
-      if (abortPromise) {
-        promises.push(abortPromise);
+      // Execute function and race against timeout
+      const result = await Promise.race([
+        fn(),
+        new Promise<never>((_, reject) => {
+          setTimeout(() => {
+            reject(new TimeoutError(`Tool execution timeout after ${actualTimeout}ms`, actualTimeout));
+          }, actualTimeout);
+        }),
+      ]);
+
+      return result;
+    } catch (error) {
+      // If aborted via signal, throw appropriate error
+      if (signal?.aborted) {
+        throw new Error("Tool execution aborted");
       }
-      return await Promise.race(promises);
+      throw error;
     } finally {
       // Clean up resources
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
-      if (abortListener && signal) {
-        signal.removeEventListener("abort", abortListener);
-      }
+      clearTimeout();
     }
   }
 

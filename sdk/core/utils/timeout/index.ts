@@ -12,6 +12,8 @@ export {
   delay,
   withTimeout,
   isTimeoutError,
+  createTimeoutError,
+  executeWithSharedTimeout,
 } from "./timeout-utils.js";
 
 // Timeout strategies

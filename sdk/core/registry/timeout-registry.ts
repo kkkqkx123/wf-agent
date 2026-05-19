@@ -15,6 +15,7 @@ import type {
   ResolvedTimeoutRegistryConfig,
 } from "../types/timeout-config.js";
 import { DEFAULT_TIMEOUT_REGISTRY_CONFIG } from "../types/timeout-config.js";
+import { isValidTimeoutTag, getTagCategory } from "../types/timeout-tags.js";
 
 /**
  * Timeout Registry
@@ -89,6 +90,18 @@ export class TimeoutRegistry {
    * @returns TimeoutHandle
    */
   register(executionId: string, options: TimeoutRegistration): TimeoutHandle {
+    // Validate execution ID
+    if (!executionId || executionId.trim().length === 0) {
+      throw new Error("Execution ID cannot be empty");
+    }
+
+    // Validate tag if provided
+    if (options.tag && !isValidTimeoutTag(options.tag)) {
+      console.warn(
+        `Execution '${executionId}': Timeout '${options.id}' uses non-standard tag '${options.tag}'. Consider using standard tags from timeout-tags.ts`
+      );
+    }
+
     const manager = this.getManager(executionId);
     const handle = manager.register(options);
 
@@ -123,24 +136,42 @@ export class TimeoutRegistry {
 
   /**
    * Cancel all timeouts with a specific tag across all executions
+   * Optimized to only clear timeouts in relevant executions
    * @param tag Tag to cancel
    */
   cancelByTag(tag: string): void {
+    // Validate tag
+    if (!tag || tag.trim().length === 0) {
+      console.warn("cancelByTag called with empty tag");
+      return;
+    }
+
     const executionIds = this.tagIndex.get(tag);
-    if (!executionIds) {
+    if (!executionIds || executionIds.size === 0) {
       return; // No timeouts with this tag
     }
+
+    let cancelledCount = 0;
 
     // Cancel timeouts in all executions that have this tag
     executionIds.forEach((executionId) => {
       const manager = this.managers.get(executionId);
       if (manager) {
-        // Note: TimeoutManager doesn't have a cancelByTag method yet
-        // For now, we clear all timeouts in those executions
-        // A more refined implementation would require adding cancelByTag to TimeoutManager
-        manager.clear();
+        try {
+          const statsBefore = manager.getStats();
+          manager.clear();
+          cancelledCount += statsBefore.activeTimeouts;
+        } catch (error) {
+          console.error(
+            `Failed to cancel timeouts with tag '${tag}' for execution ${executionId}:`,
+            error
+          );
+        }
       }
     });
+
+    // Update global statistics
+    this.globalStats.cancelledCount += cancelledCount;
 
     // Clean up the tag index
     this.tagIndex.delete(tag);
@@ -148,7 +179,8 @@ export class TimeoutRegistry {
 
   /**
    * Get aggregated statistics across all executions
-   * @returns Global timeout statistics
+   * Enhanced with tag-based breakdown
+   * @returns Global timeout statistics with detailed breakdown
    */
   getStats(): {
     activeExecutions: number;
@@ -156,16 +188,31 @@ export class TimeoutRegistry {
     totalRegistered: number;
     timedOutCount: number;
     cancelledCount: number;
+    byTag: Record<string, number>;
+    byCategory: Record<string, number>;
   } {
     let totalTimeouts = 0;
     let timedOutCount = 0;
     let cancelledCount = 0;
+    const byTag: Record<string, number> = {};
+    const byCategory: Record<string, number> = {};
 
     this.managers.forEach((manager) => {
       const stats = manager.getStats();
       totalTimeouts += stats.activeTimeouts;
       timedOutCount += stats.timedOutCount;
       cancelledCount += stats.cancelledCount;
+
+      // Aggregate tag statistics
+      Object.entries(stats.byTag).forEach(([tag, count]) => {
+        byTag[tag] = (byTag[tag] || 0) + count;
+        
+        // Also aggregate by category
+        const category = getTagCategory(tag);
+        if (category) {
+          byCategory[category] = (byCategory[category] || 0) + count;
+        }
+      });
     });
 
     return {
@@ -174,6 +221,8 @@ export class TimeoutRegistry {
       totalRegistered: this.globalStats.totalRegistered,
       timedOutCount: this.globalStats.timedOutCount + timedOutCount,
       cancelledCount: this.globalStats.cancelledCount + cancelledCount,
+      byTag,
+      byCategory,
     };
   }
 

@@ -1,6 +1,16 @@
 /**
  * Pause Timeout Manager
- * Manages timeout for paused workflow executions
+ * 
+ * Manages timeout for paused workflow executions.
+ * 
+ * Note: This manager uses direct setTimeout implementation rather than TimeoutManager
+ * because it has specialized business logic:
+ * - Monitors workflow pause state over extended periods (up to 24 hours)
+ * - Emits warning events before timeout
+ * - Integrates with WorkflowExecutionRegistry and EventRegistry
+ * - Requires persistent monitoring that doesn't fit the typical TimeoutManager use case
+ * 
+ * For short-lived, operation-specific timeouts, use TimeoutManager instead.
  */
 
 import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-registry.js";

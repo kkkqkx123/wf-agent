@@ -44,7 +44,7 @@ describe("Workflow Hook Context Builder", () => {
       id: "test-node-1",
       type: "SCRIPT",
       name: "Test Script",
-      config: { scriptName: "test_script" },
+      config: { scriptName: "test_script", risk: "low" },
       metadata: { description: "Test node" },
       hooks: [],
     } as StaticNode;
@@ -210,7 +210,7 @@ describe("Workflow Hook Context Builder", () => {
       const evalContext = convertToEvaluationContext(hookContext);
 
       expect(evalContext.input.param1).toBe("value1");
-      expect(evalContext.input.messages.length).toBe(1);
+      expect((evalContext.input.messages as any[]).length).toBe(1);
       expect(evalContext.output.result).toEqual({ result: "final" });
       expect(evalContext.output.nodeOutput).toEqual({ data: "test" });
       expect(evalContext.output.status).toBe("FAILED");
@@ -238,7 +238,11 @@ describe("Workflow Hook Context Builder", () => {
 
       const context: HookExecutionContext = {
         workflowExecutionEntity: mockEntity,
-        node: { ...mockNode, type: "SCRIPT" },
+        node: { 
+          ...mockNode, 
+          type: "SCRIPT",
+          config: { scriptName: "test_script", risk: "low" }
+        },
         result: scriptResult,
       };
 
@@ -274,7 +278,11 @@ describe("Workflow Hook Context Builder", () => {
 
       const context: HookExecutionContext = {
         workflowExecutionEntity: mockEntity,
-        node: { ...mockNode, type: "SUBGRAPH" },
+        node: { 
+          ...mockNode, 
+          type: "SUBGRAPH",
+          config: { subgraphId: "test-subgraph", async: false }
+        },
         result: subgraphResult,
       };
 
@@ -301,7 +309,11 @@ describe("Workflow Hook Context Builder", () => {
 
       const context: HookExecutionContext = {
         workflowExecutionEntity: mockEntity,
-        node: { ...mockNode, type: "LLM" },
+        node: { 
+          ...mockNode, 
+          type: "LLM",
+          config: { profileId: "test-profile" }
+        },
         result: llmResult,
       };
 

@@ -25,6 +25,8 @@ import {
   ArithmeticNode,
   StringMethodNode,
   TernaryNode,
+  ArrayMethodNode,
+  ArrayMethodName,
 } from "./ast-types.js";
 
 /**
@@ -166,6 +168,51 @@ export function parseAST(expression: string): ASTNode {
       method,
       argument,
     } as StringMethodNode;
+  }
+
+  // Array method calls
+  const arrayMethodMatch = trimmed.match(
+    /^(.+)\.(someEqual|someContains|everyEqual|everyHas|countWhere|countWhereContains|findEqual|findContains|has|hasContains)\((.+)\)$/,
+  );
+  if (arrayMethodMatch && arrayMethodMatch[1] && arrayMethodMatch[2] && arrayMethodMatch[3]) {
+    const arrayPath = arrayMethodMatch[1].trim();
+    const methodName = arrayMethodMatch[2] as ArrayMethodName;
+    const argsStr = arrayMethodMatch[3].trim();
+    
+    // Parse arguments: propertyName, value?
+    const rawArgs = parseFunctionArguments(argsStr);
+    
+    if (rawArgs.length < 1 || rawArgs.length > 2) {
+      throw new RuntimeValidationError(
+        `Array method ${methodName} requires 1-2 arguments: (propertyName, value?)`,
+        {
+          operation: "parse_array_method",
+          field: "arguments",
+          value: argsStr,
+        },
+      );
+    }
+    
+    // First argument is property name (remove quotes if present)
+    let propertyName = rawArgs[0] || '';
+    if ((propertyName.startsWith("'") && propertyName.endsWith("'")) || 
+        (propertyName.startsWith('"') && propertyName.endsWith('"'))) {
+      propertyName = propertyName.slice(1, -1);
+    }
+    
+    // Second argument (optional) should be parsed as a value
+    let value: unknown = undefined;
+    if (rawArgs.length === 2 && rawArgs[1] !== undefined) {
+      value = parseValue(rawArgs[1]);
+    }
+    
+    return {
+      type: "arrayMethod",
+      method: methodName,
+      arrayPath,
+      propertyName,
+      value,
+    } as ArrayMethodNode;
   }
 
   // Find the outermost logical operator (|| has lower priority than &&)
@@ -329,6 +376,9 @@ function parseComparisonExpression(
     };
   }
 
+  // Check if left side is an array method call
+  const arrayMethodPattern = /^(.+)\.(someEqual|someContains|everyEqual|everyHas|countWhere|countWhereContains|findEqual|findContains|has|hasContains)\((.+)\)$/;
+  
   // Trying to match various operators
   const operators = [
     { pattern: /(.+?)\s*===\s*(.+)/, op: "==" },
@@ -346,8 +396,20 @@ function parseComparisonExpression(
   for (const { pattern, op } of operators) {
     const match = trimmed.match(pattern);
     if (match && match[1] && match[2]) {
-      const variablePath = match[1].trim();
+      let variablePath = match[1].trim();
       const valueStr = match[2].trim();
+      
+      // If the left side looks like an array method call, wrap it as a special marker
+      // This will be handled by the evaluator
+      if (arrayMethodPattern.test(variablePath)) {
+        // Return with a flag indicating this is an array method expression
+        const value = parseValue(valueStr);
+        return { 
+          variablePath: `__ARRAY_METHOD__:${variablePath}`, 
+          operator: op, 
+          value 
+        };
+      }
 
       const value = parseValue(valueStr);
       return { variablePath, operator: op, value };
@@ -355,4 +417,49 @@ function parseComparisonExpression(
   }
 
   return null;
+}
+
+/**
+ * Parse function arguments (comma-separated, respecting quotes and parentheses)
+ * @param argsStr Arguments string
+ * @returns Array of parsed argument strings
+ */
+function parseFunctionArguments(argsStr: string): string[] {
+  const args: string[] = [];
+  let currentArg = '';
+  let depth = 0;
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+  
+  for (let i = 0; i < argsStr.length; i++) {
+    const char = argsStr[i];
+    
+    // Handle quotes
+    if (char === "'" && !inDoubleQuote) {
+      inSingleQuote = !inSingleQuote;
+      currentArg += char;
+    } else if (char === '"' && !inSingleQuote) {
+      inDoubleQuote = !inDoubleQuote;
+      currentArg += char;
+    } else if ((char === '(' || char === '[') && !inSingleQuote && !inDoubleQuote) {
+      depth++;
+      currentArg += char;
+    } else if ((char === ')' || char === ']') && !inSingleQuote && !inDoubleQuote) {
+      depth--;
+      currentArg += char;
+    } else if (char === ',' && depth === 0 && !inSingleQuote && !inDoubleQuote) {
+      // Comma at top level separates arguments
+      args.push(currentArg.trim());
+      currentArg = '';
+    } else {
+      currentArg += char;
+    }
+  }
+  
+  // Add the last argument
+  if (currentArg.trim()) {
+    args.push(currentArg.trim());
+  }
+  
+  return args;
 }

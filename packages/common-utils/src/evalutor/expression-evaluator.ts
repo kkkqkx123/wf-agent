@@ -20,6 +20,8 @@ import {
   ArithmeticNode,
   StringMethodNode,
   TernaryNode,
+  ArrayMethodNode,
+  ArrayMethodName,
 } from "./ast-types.js";
 import { parseAST } from "./expression-parser.js";
 
@@ -81,6 +83,9 @@ export class ExpressionEvaluator {
       case "ternary":
         return this.evaluateTernary(node as TernaryNode, context);
 
+      case "arrayMethod":
+        return this.evaluateArrayMethod(node as ArrayMethodNode, context);
+
       default:
         throw new RuntimeValidationError(
           `Unknown AST node type: ${(node as { type?: string }).type}`,
@@ -125,6 +130,36 @@ export class ExpressionEvaluator {
    * Evaluate and compare operations
    */
   private evaluateComparison(node: ComparisonNode, context: EvaluationContext): boolean {
+    // Check if this is an array method expression
+    if (node.variablePath.startsWith('__ARRAY_METHOD__:')) {
+      const methodExpression = node.variablePath.substring(15); // Remove '__ARRAY_METHOD__:'
+      const methodAst = parseAST(methodExpression);
+      
+      if (methodAst.type === 'arrayMethod') {
+        const methodResult = this.evaluateArrayMethod(methodAst as ArrayMethodNode, context);
+        const compareValue = node.value;
+        
+        // Perform the comparison
+        switch (node.operator) {
+          case "==":
+            return methodResult === compareValue;
+          case "!=":
+            return methodResult !== compareValue;
+          case ">":
+            return typeof methodResult === 'number' && typeof compareValue === 'number' && methodResult > compareValue;
+          case "<":
+            return typeof methodResult === 'number' && typeof compareValue === 'number' && methodResult < compareValue;
+          case ">=":
+            return typeof methodResult === 'number' && typeof compareValue === 'number' && methodResult >= compareValue;
+          case "<=":
+            return typeof methodResult === 'number' && typeof compareValue === 'number' && methodResult <= compareValue;
+          default:
+            this.logger.warn(`Operator ${node.operator} not supported for array method comparison`);
+            return false;
+        }
+      }
+    }
+    
     const variableValue = this.getVariableValue(node.variablePath, context);
 
     // Handle variable references
@@ -200,6 +235,20 @@ export class ExpressionEvaluator {
           );
           return false;
         }
+        
+        // ENHANCED: Support checking if object's common properties are in array
+        if (typeof variableValue === 'object' && variableValue !== null && !Array.isArray(variableValue)) {
+          // Try common property names for message-like objects
+          const commonProps = ['role', 'name', 'type', 'id', 'status', 'nodeType'];
+          for (const prop of commonProps) {
+            if (prop in variableValue && compareValue.includes((variableValue as Record<string, unknown>)[prop])) {
+              return true;
+            }
+          }
+          return false;
+        }
+        
+        // Original behavior for primitive values
         return compareValue.includes(variableValue);
       default:
         throw new RuntimeValidationError(`Unknown operator "${node.operator}"`, {
@@ -332,6 +381,114 @@ export class ExpressionEvaluator {
       return this.evaluateAST(node.consequent, context);
     } else {
       return this.evaluateAST(node.alternate, context);
+    }
+  }
+
+  /**
+   * Evaluate Array Methods
+   */
+  private evaluateArrayMethod(node: ArrayMethodNode, context: EvaluationContext): unknown {
+    const array = this.getVariableValue(node.arrayPath, context);
+    
+    if (!Array.isArray(array)) {
+      this.logger.warn(
+        `Expected array for ${node.method}, got ${typeof array}`,
+        { arrayPath: node.arrayPath, method: node.method }
+      );
+      return false;
+    }
+    
+    if (array.length === 0) {
+      return this.handleEmptyArray(node.method);
+    }
+    
+    switch (node.method) {
+      case 'someEqual':
+        return array.some(item => this.getPropertyValue(item, node.propertyName) === node.value);
+      
+      case 'someContains':
+        return array.some(item => {
+          const propValue = this.getPropertyValue(item, node.propertyName);
+          return typeof propValue === 'string' && propValue.includes(String(node.value));
+        });
+      
+      case 'everyEqual':
+        return array.every(item => this.getPropertyValue(item, node.propertyName) === node.value);
+      
+      case 'everyHas':
+        return array.every(item => node.propertyName in item && item[node.propertyName] != null);
+      
+      case 'countWhere':
+        return array.filter(item => this.getPropertyValue(item, node.propertyName) === node.value).length;
+      
+      case 'countWhereContains':
+        return array.filter(item => {
+          const propValue = this.getPropertyValue(item, node.propertyName);
+          return typeof propValue === 'string' && propValue.includes(String(node.value));
+        }).length;
+      
+      case 'findEqual':
+        return array.find(item => this.getPropertyValue(item, node.propertyName) === node.value) ?? null;
+      
+      case 'findContains':
+        return array.find(item => {
+          const propValue = this.getPropertyValue(item, node.propertyName);
+          return typeof propValue === 'string' && propValue.includes(String(node.value));
+        }) ?? null;
+      
+      case 'has':
+        return array.some(item => this.getPropertyValue(item, node.propertyName) === node.value);
+      
+      case 'hasContains':
+        return array.some(item => {
+          const propValue = this.getPropertyValue(item, node.propertyName);
+          return typeof propValue === 'string' && propValue.includes(String(node.value));
+        });
+      
+      default:
+        throw new RuntimeValidationError(`Unknown array method: ${node.method}`, {
+          operation: "array_method_evaluation",
+          field: "method",
+          value: node.method
+        });
+    }
+  }
+
+  /**
+   * Get property value from object
+   */
+  private getPropertyValue(obj: unknown, propertyName: string): unknown {
+    if (typeof obj !== 'object' || obj === null) {
+      return undefined;
+    }
+    return (obj as Record<string, unknown>)[propertyName];
+  }
+
+  /**
+   * Handle empty array edge cases
+   */
+  private handleEmptyArray(method: ArrayMethodName): unknown {
+    switch (method) {
+      case 'someEqual':
+      case 'someContains':
+      case 'has':
+      case 'hasContains':
+        return false;  // No items match
+      
+      case 'everyEqual':
+      case 'everyHas':
+        return true;   // Vacuously true
+      
+      case 'countWhere':
+      case 'countWhereContains':
+        return 0;      // Zero matches
+      
+      case 'findEqual':
+      case 'findContains':
+        return null;   // No item found
+      
+      default:
+        return false;
     }
   }
 

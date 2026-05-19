@@ -16,6 +16,8 @@ export type {
   ArithmeticNode,
   StringMethodNode,
   TernaryNode,
+  ArrayMethodNode,
+  ArrayMethodName,
 } from "./ast-types.js";
 
 // Expression parser

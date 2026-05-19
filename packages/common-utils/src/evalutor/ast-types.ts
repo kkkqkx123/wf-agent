@@ -16,7 +16,8 @@ export type ASTNode =
   | NotNode
   | ArithmeticNode
   | StringMethodNode
-  | TernaryNode;
+  | TernaryNode
+  | ArrayMethodNode;
 
 /**
  * Boolean Literals node
@@ -107,3 +108,29 @@ export interface TernaryNode {
   consequent: ASTNode;
   alternate: ASTNode;
 }
+
+/**
+ * Array Method Node
+ */
+export interface ArrayMethodNode {
+  type: "arrayMethod";
+  method: ArrayMethodName;
+  arrayPath: string;
+  propertyName: string;
+  value?: unknown;
+}
+
+/**
+ * Array Method Names
+ */
+export type ArrayMethodName =
+  | "someEqual"
+  | "someContains"
+  | "everyEqual"
+  | "everyHas"
+  | "countWhere"
+  | "countWhereContains"
+  | "findEqual"
+  | "findContains"
+  | "has"
+  | "hasContains";

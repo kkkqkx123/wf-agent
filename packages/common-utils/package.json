@@ -27,7 +27,7 @@
   "dependencies": {
     "@wf-agent/types": "workspace:*",
     "zod": "^4.3.6",
-    "peggy": "^5.1.0"
+    "chevrotain": "^12.0.0"
   },
   "devDependencies": {
     "tsd": "^0.33.0"

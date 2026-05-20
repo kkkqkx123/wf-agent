@@ -4,6 +4,34 @@
  */
 
 /**
+ * Source Location Information
+ * Represents the position of a node in the original expression string
+ */
+export interface SourceLocation {
+  /** Start position (0-based index) */
+  start: number;
+  /** End position (0-based index, exclusive) */
+  end: number;
+  /** Line number (1-based) */
+  line?: number;
+  /** Column number (1-based) */
+  column?: number;
+}
+
+/**
+ * Metadata for AST nodes
+ * Contains additional information like comments and source location
+ */
+export interface NodeMetadata {
+  /** Source code location */
+  location?: SourceLocation;
+  /** Comments associated with this node */
+  comments?: string[];
+  /** Custom metadata (extensible) */
+  custom?: Record<string, unknown>;
+}
+
+/**
  * AST Node Base Type
  */
 export type ASTNode =
@@ -18,7 +46,9 @@ export type ASTNode =
   | StringMethodNode
   | TernaryNode
   | ArrayMethodNode
-  | ArrayMethodComparisonNode;
+  | ArrayMethodComparisonNode
+  | FunctionCallNode
+  | MemberAccessNode;
 
 /**
  * Boolean Literals node
@@ -26,6 +56,7 @@ export type ASTNode =
 export interface BooleanLiteralNode {
   type: "boolean";
   value: boolean;
+  metadata?: NodeMetadata;
 }
 
 /**
@@ -34,6 +65,7 @@ export interface BooleanLiteralNode {
 export interface NumberLiteralNode {
   type: "number";
   value: number;
+  metadata?: NodeMetadata;
 }
 
 /**
@@ -42,6 +74,7 @@ export interface NumberLiteralNode {
 export interface StringLiteralNode {
   type: "string";
   value: string;
+  metadata?: NodeMetadata;
 }
 
 /**
@@ -50,6 +83,7 @@ export interface StringLiteralNode {
 export interface NullLiteralNode {
   type: "null";
   value: null;
+  metadata?: NodeMetadata;
 }
 
 /**
@@ -60,6 +94,7 @@ export interface ComparisonNode {
   variablePath: string;
   operator: "==" | "!=" | ">" | "<" | ">=" | "<=" | "contains" | "in";
   value: unknown;
+  metadata?: NodeMetadata;
 }
 
 /**
@@ -70,6 +105,7 @@ export interface LogicalNode {
   operator: "&&" | "||";
   left: ASTNode;
   right: ASTNode;
+  metadata?: NodeMetadata;
 }
 
 /**
@@ -78,6 +114,7 @@ export interface LogicalNode {
 export interface NotNode {
   type: "not";
   operand: ASTNode;
+  metadata?: NodeMetadata;
 }
 
 /**
@@ -88,6 +125,7 @@ export interface ArithmeticNode {
   operator: "+" | "-" | "*" | "/" | "%";
   left: ASTNode;
   right: ASTNode;
+  metadata?: NodeMetadata;
 }
 
 /**
@@ -98,6 +136,7 @@ export interface StringMethodNode {
   method: "startsWith" | "endsWith" | "length" | "toLowerCase" | "toUpperCase" | "trim";
   variablePath: string;
   argument?: unknown;
+  metadata?: NodeMetadata;
 }
 
 /**
@@ -108,6 +147,7 @@ export interface TernaryNode {
   condition: ASTNode;
   consequent: ASTNode;
   alternate: ASTNode;
+  metadata?: NodeMetadata;
 }
 
 /**
@@ -119,6 +159,7 @@ export interface ArrayMethodNode {
   arrayPath: string;
   propertyName: string;
   value?: unknown;
+  metadata?: NodeMetadata;
 }
 
 /**
@@ -131,6 +172,7 @@ export interface ArrayMethodComparisonNode {
   methodNode: ArrayMethodNode;
   operator: "==" | "!=" | ">" | "<" | ">=" | "<=";
   compareValue: unknown;
+  metadata?: NodeMetadata;
 }
 
 /**
@@ -162,3 +204,27 @@ export type ArrayMethodName =
   | "distinct"
   | "first"
   | "last";
+
+/**
+ * Function Call Node
+ * Supports custom function invocation for extensibility
+ * Example: formatDate(user.createdAt, 'YYYY-MM-DD')
+ */
+export interface FunctionCallNode {
+  type: "functionCall";
+  functionName: string;
+  arguments: ASTNode[];
+  metadata?: NodeMetadata;
+}
+
+/**
+ * Member Access Node
+ * Represents property access on objects with better static analysis
+ * Example: user.name, user.address.city
+ */
+export interface MemberAccessNode {
+  type: "memberAccess";
+  object: ASTNode;
+  property: string;
+  metadata?: NodeMetadata;
+}

@@ -22,6 +22,8 @@ import {
   TernaryNode,
   ArrayMethodNode,
   ArrayMethodComparisonNode,
+  FunctionCallNode,
+  MemberAccessNode,
   ArrayMethodName,
 } from "./ast-types.js";
 import { parseAST } from "./expression-parser.js";
@@ -36,6 +38,9 @@ export class ExpressionEvaluator {
   // Cache for array method results
   private cache = new Map<string, { value: unknown; timestamp: number }>();
   private readonly CACHE_TTL = 1000; // 1 second TTL
+  
+  // Registered custom functions
+  private registeredFunctions = new Map<string, (...args: any[]) => any>();
 
   /**
    * Evaluation Expression
@@ -98,6 +103,12 @@ export class ExpressionEvaluator {
       case "arrayMethodComparison":
         return this.evaluateArrayMethodComparison(node as ArrayMethodComparisonNode, context);
 
+      case "functionCall":
+        return this.evaluateFunctionCall(node as FunctionCallNode, context);
+
+      case "memberAccess":
+        return this.evaluateMemberAccess(node as MemberAccessNode, context);
+
       default:
         throw new RuntimeValidationError(
           `Unknown AST node type: ${(node as { type?: string }).type}`,
@@ -141,7 +152,74 @@ export class ExpressionEvaluator {
   /**
    * Evaluate and compare operations
    */
-  private evaluateComparison(node: ComparisonNode, context: EvaluationContext): boolean {
+  private evaluateComparison(node: ComparisonNode, context: EvaluationContext): unknown {
+    // Check if this is a member access expression
+    if (node.variablePath.startsWith('__MEMBER_ACCESS__:')) {
+      const memberAccessNodeJson = node.variablePath.substring(18); // Remove '__MEMBER_ACCESS__:'
+      const memberAccessNode = JSON.parse(memberAccessNodeJson) as MemberAccessNode;
+      
+      // Evaluate the member access
+      const memberValue = this.evaluateMemberAccess(memberAccessNode, context);
+      
+      // Handle special case: if value has __resolveVariable flag, return the member value directly
+      if (
+        node.value &&
+        typeof node.value === "object" &&
+        (node.value as Record<string, unknown>)["__resolveVariable"]
+      ) {
+        return memberValue;
+      }
+      
+      // Otherwise perform comparison
+      const compareValue = node.value;
+      switch (node.operator) {
+        case "==":
+          return memberValue === compareValue;
+        case "!=":
+          return memberValue !== compareValue;
+        case ">":
+          return typeof memberValue === 'number' && typeof compareValue === 'number' && memberValue > compareValue;
+        case "<":
+          return typeof memberValue === 'number' && typeof compareValue === 'number' && memberValue < compareValue;
+        case ">=":
+          return typeof memberValue === 'number' && typeof compareValue === 'number' && memberValue >= compareValue;
+        case "<=":
+          return typeof memberValue === 'number' && typeof compareValue === 'number' && memberValue <= compareValue;
+        default:
+          this.logger.warn(`Operator ${node.operator} not supported for member access comparison`);
+          return false;
+      }
+    }
+    
+    // Check if this is a function call expression
+    if (node.variablePath.startsWith('__FUNCTION_CALL__:')) {
+      const functionNodeJson = node.variablePath.substring(18); // Remove '__FUNCTION_CALL__:'
+      const functionNode = JSON.parse(functionNodeJson) as FunctionCallNode;
+      
+      // Evaluate the function call
+      const functionResult = this.evaluateFunctionCall(functionNode, context);
+      const compareValue = node.value;
+      
+      // Perform the comparison
+      switch (node.operator) {
+        case "==":
+          return functionResult === compareValue;
+        case "!=":
+          return functionResult !== compareValue;
+        case ">":
+          return typeof functionResult === 'number' && typeof compareValue === 'number' && functionResult > compareValue;
+        case "<":
+          return typeof functionResult === 'number' && typeof compareValue === 'number' && functionResult < compareValue;
+        case ">=":
+          return typeof functionResult === 'number' && typeof compareValue === 'number' && functionResult >= compareValue;
+        case "<=":
+          return typeof functionResult === 'number' && typeof compareValue === 'number' && functionResult <= compareValue;
+        default:
+          this.logger.warn(`Operator ${node.operator} not supported for function call comparison`);
+          return false;
+      }
+    }
+    
     // Check if this is an array method expression
     if (node.variablePath.startsWith('__ARRAY_METHOD__:')) {
       const methodExpression = node.variablePath.substring(15); // Remove '__ARRAY_METHOD__:'
@@ -173,6 +251,15 @@ export class ExpressionEvaluator {
     }
     
     const variableValue = this.getVariableValue(node.variablePath, context);
+
+    // Handle special case: if value has __resolveVariable flag, return the variable value directly
+    if (
+      node.value &&
+      typeof node.value === "object" &&
+      (node.value as Record<string, unknown>)["__resolveVariable"]
+    ) {
+      return variableValue;
+    }
 
     // Handle variable references
     let compareValue = node.value;
@@ -802,6 +889,138 @@ export class ExpressionEvaluator {
       // Simple variable names: Retrieved only from `variables` (syntactic sugar, equivalent to `variables.xxx`).
       return context.variables[variablePath];
     }
+  }
+
+  /**
+   * Evaluate Function Call
+   * Supports custom function invocation for extensibility
+   * @param node Function call AST node
+   * @param context Evaluation context
+   * @returns Function execution result
+   */
+  private evaluateFunctionCall(node: FunctionCallNode, context: EvaluationContext): unknown {
+    const func = this.registeredFunctions.get(node.functionName);
+    
+    if (!func) {
+      throw new RuntimeValidationError(
+        `Unknown function: ${node.functionName}`,
+        {
+          operation: "function_call_evaluation",
+          field: "functionName",
+          value: node.functionName,
+          context: {
+            availableFunctions: Array.from(this.registeredFunctions.keys()),
+          },
+        },
+      );
+    }
+    
+    try {
+      // Evaluate all arguments
+      const args = node.arguments.map(arg => this.evaluateAST(arg, context));
+      
+      // Execute the function
+      return func(...args);
+    } catch (error) {
+      this.logger.error(
+        `Function execution failed: ${node.functionName}`,
+        {
+          functionName: node.functionName,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      throw new RuntimeValidationError(
+        `Function execution failed: ${node.functionName} - ${error instanceof Error ? error.message : String(error)}`,
+        {
+          operation: "function_call_execution",
+          field: "functionName",
+          value: node.functionName,
+        },
+      );
+    }
+  }
+
+  /**
+   * Register a custom function
+   * @param name Function name
+   * @param fn Function implementation
+   */
+  registerFunction(name: string, fn: (...args: any[]) => any): void {
+    this.registeredFunctions.set(name, fn);
+    this.logger.info(`Registered custom function: ${name}`);
+  }
+
+  /**
+   * Evaluate Member Access (property access on objects)
+   * Provides better static analysis and error messages for property access
+   * @param node MemberAccessNode
+   * @param context Evaluation context
+   * @returns The accessed property value
+   */
+  private evaluateMemberAccess(node: MemberAccessNode, context: EvaluationContext): unknown {
+    // First evaluate the object
+    const obj = this.evaluateAST(node.object, context);
+    
+    // Check if object is null or undefined
+    if (obj === null || obj === undefined) {
+      this.logger.warn(
+        `Cannot access property '${node.property}' on ${obj}`,
+        { property: node.property, objectType: typeof obj }
+      );
+      return undefined;
+    }
+    
+    // Check if object is actually an object type
+    if (typeof obj !== 'object') {
+      this.logger.warn(
+        `Cannot access property '${node.property}' on non-object type: ${typeof obj}`,
+        { property: node.property, objectType: typeof obj, value: obj }
+      );
+      return undefined;
+    }
+    
+    // Security check: prevent prototype pollution
+    if (node.property === '__proto__' || node.property === 'constructor' || node.property === 'prototype') {
+      this.logger.warn(
+        `Blocked access to forbidden property: ${node.property}`,
+        { property: node.property }
+      );
+      throw new RuntimeValidationError(
+        `Access to forbidden property '${node.property}' is not allowed`,
+        {
+          operation: "member_access_evaluation",
+          field: "property",
+          value: node.property,
+        }
+      );
+    }
+    
+    // Access the property
+    const result = (obj as Record<string, unknown>)[node.property];
+    
+    this.logger.debug(
+      `Member access: ${node.property} = ${result}`,
+      { property: node.property, resultType: typeof result }
+    );
+    
+    return result;
+  }
+
+  /**
+   * Unregister a custom function
+   * @param name Function name
+   */
+  unregisterFunction(name: string): void {
+    this.registeredFunctions.delete(name);
+    this.logger.info(`Unregistered custom function: ${name}`);
+  }
+
+  /**
+   * Get list of registered functions
+   * @returns Array of registered function names
+   */
+  getRegisteredFunctions(): string[] {
+    return Array.from(this.registeredFunctions.keys());
   }
 }
 

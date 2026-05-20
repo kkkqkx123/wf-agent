@@ -27,6 +27,8 @@ import {
   TernaryNode,
   ArrayMethodNode,
   ArrayMethodComparisonNode,
+  FunctionCallNode,
+  MemberAccessNode,
   ArrayMethodName,
 } from "./ast-types.js";
 
@@ -317,6 +319,24 @@ export function parseAST(expression: string): ASTNode {
     } as ArrayMethodComparisonNode;
   }
 
+  // Check for function call pattern: functionName(args)
+  // Must check BEFORE comparison expressions to avoid misinterpretation
+  const functionCallMatch = trimmed.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\((.*)\)$/s);
+  if (functionCallMatch && functionCallMatch[1] && functionCallMatch[2] !== undefined) {
+    const functionName = functionCallMatch[1];
+    const argsStr = functionCallMatch[2].trim();
+    
+    // Parse function arguments
+    const rawArgs = parseFunctionArguments(argsStr);
+    const arguments_nodes = rawArgs.map(arg => parseAST(arg));
+    
+    return {
+      type: "functionCall",
+      functionName,
+      arguments: arguments_nodes,
+    } as FunctionCallNode;
+  }
+
   // Parsing comparison expressions (priority over arithmetic operations)
   const comparisonResult = parseComparisonExpression(trimmed);
   if (comparisonResult) {
@@ -355,13 +375,19 @@ export function parseAST(expression: string): ASTNode {
     } as ArithmeticNode;
   }
 
-  // If neither, it may be a variable reference, treated as a comparison expression
+  // If neither, it may be a variable reference
+  // For standalone variables, we want to return their actual value, not compare them
   if (trimmed && !trimmed.includes(" ")) {
+    // Parse as member access if it contains dots
+    const memberAccessNode = parseMemberAccess(trimmed);
+    
+    // Return as a comparison that will resolve to the variable's actual value
+    // Using a special operator that means "resolve this variable"
     return {
       type: "comparison",
-      variablePath: trimmed,
+      variablePath: `__MEMBER_ACCESS__:${JSON.stringify(memberAccessNode)}`,
       operator: "==",
-      value: true,
+      value: { __resolveVariable: true },
     } as ComparisonNode;
   }
 
@@ -476,6 +502,33 @@ function parseComparisonExpression(
       let variablePath = match[1].trim();
       const valueStr = match[2].trim();
       
+      // Check if the left side is a function call
+      const funcCallMatch = variablePath.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\((.*)\)$/s);
+      if (funcCallMatch && funcCallMatch[1] && funcCallMatch[2] !== undefined) {
+        // Parse as: comparison between function call result and value
+        const functionName = funcCallMatch[1];
+        const argsStr = funcCallMatch[2].trim();
+        const rawArgs = parseFunctionArguments(argsStr);
+        const arguments_nodes = rawArgs.map(arg => parseAST(arg));
+        
+        const functionNode: FunctionCallNode = {
+          type: "functionCall",
+          functionName,
+          arguments: arguments_nodes,
+        };
+        
+        const compareValue = parseValue(valueStr);
+        
+        // Return a comparison node where left side is the function call
+        // We'll use a special format that the evaluator can understand
+        return {
+          type: "comparison",
+          variablePath: `__FUNCTION_CALL__:${JSON.stringify(functionNode)}`,
+          operator: op,
+          value: compareValue,
+        } as ComparisonNode;
+      }
+      
       // If the left side looks like an array method call, wrap it as a special marker
       // This will be handled by the evaluator
       if (arrayMethodPattern.test(variablePath)) {
@@ -539,4 +592,43 @@ function parseFunctionArguments(argsStr: string): string[] {
   }
   
   return args;
+}
+
+/**
+ * Parse member access expression (e.g., user.name, user.address.city)
+ * Converts dot-separated paths into nested MemberAccessNode structures
+ * @param path Variable path with dots
+ * @returns AST node representing the member access
+ */
+function parseMemberAccess(path: string): ASTNode {
+  const parts = path.split('.');
+  
+  if (parts.length === 1) {
+    // Single variable name - return as comparison node that resolves to variable value
+    return {
+      type: "comparison",
+      variablePath: path,
+      operator: "==",
+      value: { __resolveVariable: true },
+    } as ComparisonNode;
+  }
+  
+  // Build nested MemberAccessNode from left to right
+  // user.address.city => MemberAccess(MemberAccess(user, address), city)
+  let object: ASTNode = {
+    type: "comparison",
+    variablePath: parts[0],
+    operator: "==",
+    value: { __resolveVariable: true },
+  } as ComparisonNode;
+  
+  for (let i = 1; i < parts.length; i++) {
+    object = {
+      type: "memberAccess",
+      object: object,
+      property: parts[i],
+    } as MemberAccessNode;
+  }
+  
+  return object;
 }

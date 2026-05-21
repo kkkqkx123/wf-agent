@@ -140,13 +140,17 @@ private notExpr = this.RULE("notExpr", () => {
 
 ### Comparison Operators (Left-Associative)
 
-Comparison operators include `==`, `!=`, `>=`, `<=`, `>`, `<`, `contains`, and `in`.
+Comparison operators include `==`, `!=`, `>=`, `<=`, `>`, `<`, `contains`, and `in`. The `contains` and `in` are separate tokens (not part of `ComparisonOp`).
 
 ```typescript
 private comparison = this.RULE("comparison", () => {
   this.SUBRULE(this.addition);      // Left operand
   this.OPTION(() => {
-    this.CONSUME(ComparisonOp);     // Optional operator
+    this.OR([
+      { ALT: () => this.CONSUME(ComparisonOp) },  // ==, !=, >=, <=, >, <
+      { ALT: () => this.CONSUME(Contains) },      // contains
+      { ALT: () => this.CONSUME(In) }             // in
+    ]);
     this.SUBRULE2(this.addition);   // Right operand
   });
 });
@@ -158,8 +162,10 @@ interface ComparisonCstNode {
   name: "comparison";
   children: {
     addition: CstNode[];            // Left operand
-    ComparisonOp?: IToken[];        // Optional operator
-    addition?: CstNode[];           // Optional right operand
+    ComparisonOp?: IToken[];        // Optional comparison operator
+    Contains?: IToken[];            // Optional contains keyword
+    In?: IToken[];                  // Optional in keyword
+    addition2?: CstNode[];          // Optional right operand
   };
 }
 ```
@@ -168,14 +174,21 @@ interface ComparisonCstNode {
 ```typescript
 visitComparison(ctx: any): Expression {
   const left = this.visit(ctx.addition[0]);
-  if (!ctx.ComparisonOp || ctx.ComparisonOp.length === 0) {
+  let operator: string | undefined;
+  if (ctx.ComparisonOp && ctx.ComparisonOp.length > 0) {
+    operator = ctx.ComparisonOp[0].image;
+  } else if (ctx.Contains && ctx.Contains.length > 0) {
+    operator = "contains";
+  } else if (ctx.In && ctx.In.length > 0) {
+    operator = "in";
+  }
+  if (!operator) {
     return left;  // No operator, just return the operand
   }
-  const operator = ctx.ComparisonOp[0].image;
   const right = this.visit(ctx.addition[1]);
   return {
     type: "binary",
-    operator,
+    operator: operator as BinaryOperator,
     left,
     right
   };
@@ -215,7 +228,7 @@ private multiplication = this.RULE("multiplication", () => {
 
 ### Unary Minus (Right-Associative)
 
-Unary minus is explicitly handled as a separate node type (`unaryMinus`) instead of the old `0 - x` hack.
+Unary minus is explicitly handled as a separate node type (`unaryMinus`) instead of the old `0 - x` hack. It delegates to `memberAccess` (which includes primary) for the base case.
 
 ```typescript
 private unary = this.RULE("unary", () => {
@@ -225,7 +238,7 @@ private unary = this.RULE("unary", () => {
         this.SUBRULE(this.unary);     // Nested unary (for --x, etc.)
       }
     },
-    { ALT: () => this.SUBRULE(this.primary) }  // Base case
+    { ALT: () => this.SUBRULE(this.memberAccess) }  // Base case
   ]);
 });
 ```
@@ -241,25 +254,24 @@ visitUnary(ctx: any): Expression {
       metadata: this.extractMetadata(ctx)
     };
   }
-  return this.visit(ctx.primary[0]);
+  return this.visit(ctx.memberAccess[0]);
 }
 ```
 
 ### Primary Expressions
 
-Primary expressions are the base cases that cannot be decomposed further.
+Primary expressions are the base cases that cannot be decomposed further. They do **not** recurse back to `memberAccess` — that is handled by the caller (`unary` → `memberAccess`).
 
 ```typescript
 private primary = this.RULE("primary", () => {
   this.OR([
-    { ALT: () => this.SUBRULE(this.functionCall) },   // Function calls
     { ALT: () => this.SUBRULE(this.arrayLiteral) },   // Array literals [1, 2, 3]
     { ALT: () => this.CONSUME(StringLiteral) },       // String literals
     { ALT: () => this.CONSUME(NumberLiteral) },       // Number literals
     { ALT: () => this.CONSUME(True) },                // true
     { ALT: () => this.CONSUME(False) },               // false
     { ALT: () => this.CONSUME(Null) },                // null
-    { ALT: () => this.SUBRULE(this.memberAccess) },   // Property access chains
+    { ALT: () => this.SUBRULE(this.identifierExpr) }, // Identifier or function call
     { ALT: () => {                                   // Parenthesized expressions
         this.CONSUME(LParen);
         this.SUBRULE(this.expression);
@@ -272,18 +284,45 @@ private primary = this.RULE("primary", () => {
 
 ### Member Access Chain
 
-Member access supports chained property access and method calls: `obj.prop1.prop2.method(args)`.
+Member access supports chained property access, method calls, and subscript access: `obj.prop1.prop2.method(args)` or `arr[0].prop`.
 
 ```typescript
 private memberAccess = this.RULE("memberAccess", () => {
   this.SUBRULE(this.primary);       // Start with a primary (usually identifier)
   this.MANY(() => {
-    this.CONSUME(Dot);              // . token
     this.OR([
-      { ALT: () => this.SUBRULE(this.methodCall) },  // Method call
-      { ALT: () => this.CONSUME(Identifier, { LABEL: "property" }) }  // Property access
+      {
+        ALT: () => {
+          this.CONSUME(Dot);            // . token
+          this.SUBRULE(this.dotAccess); // .property or .method()
+        },
+      },
+      {
+        ALT: () => this.SUBRULE(this.subscript),  // [expr] subscript
+      },
     ]);
   });
+});
+
+// Dot access: .methodCall() or .property
+private dotAccess = this.RULE("dotAccess", () => {
+  this.OR([
+    { ALT: () => this.SUBRULE(this.methodCall) },
+    { ALT: () => this.CONSUME(Identifier, { LABEL: "property" }) },
+    { ALT: () => this.CONSUME(ArrayMethod, { LABEL: "property" }) },
+    { ALT: () => this.CONSUME(StringMethod, { LABEL: "property" }) },
+  ]);
+});
+
+// Subscript access: [expr]
+private subscript = this.RULE("subscript", () => {
+  this.CONSUME(LBracket);
+  this.OR([
+    { ALT: () => this.CONSUME(NumberLiteral) },
+    { ALT: () => this.CONSUME(StringLiteral) },
+    { ALT: () => this.CONSUME(Identifier) },
+  ]);
+  this.CONSUME(RBracket);
 });
 ```
 
@@ -293,9 +332,28 @@ interface MemberAccessCstNode {
   name: "memberAccess";
   children: {
     primary: CstNode[];              // Leftmost primary (e.g., "obj")
-    Dot: IToken[];                   // Multiple . tokens
-    Identifier?: CstNode[];          // Property names (if any)
-    methodCall?: CstNode[];          // Method calls (if any)
+    Dot?: IToken[];                  // Multiple . tokens
+    dotAccess?: CstNode[];           // Dot access nodes (methodCall or property)
+    subscript?: CstNode[];           // Subscript nodes [expr]
+  };
+}
+
+interface DotAccessCstNode {
+  name: "dotAccess";
+  children: {
+    methodCall?: CstNode[];          // Method call subs
+    property?: IToken[];             // Property name (Identifier/ArrayMethod/StringMethod)
+  };
+}
+
+interface SubscriptCstNode {
+  name: "subscript";
+  children: {
+    LBracket: IToken[];
+    NumberLiteral?: IToken[];
+    StringLiteral?: IToken[];
+    Identifier?: IToken[];
+    RBracket: IToken[];
   };
 }
 ```
@@ -304,37 +362,80 @@ interface MemberAccessCstNode {
 ```typescript
 visitMemberAccess(ctx: any): Expression {
   let obj = this.visit(ctx.primary[0]);  // Start with leftmost primary
-  
-  // Process each suffix (.prop or .method())
-  for (let i = 0; i < ctx.Dot.length; i++) {
-    if (ctx.Identifier && ctx.Identifier[i + 1]) {
-      // Property access: obj.prop
-      const propName = ctx.Identifier[i + 1][0].image;
-      obj = {
-        type: "memberAccess",
-        object: obj,
-        property: propName
-      };
-    } else if (ctx.methodCall && ctx.methodCall[i]) {
-      // Method call: obj.method()
-      const methodCallCtx = ctx.methodCall[i];
-      const methodName = this.extractMethodName(methodCallCtx);
-      const args = this.visit(methodCallCtx.children.argumentList);
-      
-      obj = {
-        type: "call",
-        callee: {
-          type: "memberAccess",
-          object: obj,
-          property: methodName
-        },
-        arguments: args,
-        methodKind: this.determineMethodKind(methodName)
-      };
+  let dotIdx = 0;
+  let subscriptIdx = 0;
+  const totalDots = ctx.Dot?.length || 0;
+  const totalSubscripts = ctx.subscript?.length || 0;
+
+  while (dotIdx < totalDots || subscriptIdx < totalSubscripts) {
+    if (dotIdx >= totalDots) {
+      obj = this.processSubscript(obj, ctx.subscript[subscriptIdx++]);
+      continue;
+    }
+    if (subscriptIdx >= totalSubscripts) {
+      obj = this.processDotAccess(obj, ctx.dotAccess[dotIdx]);
+      dotIdx++;
+      continue;
+    }
+    // Order by position in source
+    const dotPos = ctx.Dot[dotIdx].startOffset;
+    const subPos = ctx.subscript[subscriptIdx].children.LBracket[0].startOffset;
+    if (dotPos < subPos) {
+      obj = this.processDotAccess(obj, ctx.dotAccess[dotIdx]);
+      dotIdx++;
+    } else {
+      obj = this.processSubscript(obj, ctx.subscript[subscriptIdx++]);
     }
   }
-  
   return obj;
+}
+
+private processDotAccess(obj: Expression, dotAccessNode: any): Expression {
+  const children = dotAccessNode.children;
+  if (children.methodCall && children.methodCall.length > 0) {
+    const methodCallCtx = children.methodCall[0].children;
+    const methodName = this.extractMethodName(methodCallCtx);
+    const argChildren = methodCallCtx.argumentList?.[0]?.children;
+    const args = argChildren ? this.visitArgumentList(argChildren) : [];
+    return {
+      type: "call",
+      callee: {
+        type: "memberAccess",
+        object: obj,
+        property: methodName
+      },
+      arguments: args,
+      methodKind: this.determineMethodKind(methodName)
+    };
+  }
+  if (children.property && children.property.length > 0) {
+    const propName = children.property[0].image;
+    return {
+      type: "memberAccess",
+      object: obj,
+      property: propName
+    };
+  }
+  return obj;
+}
+
+private processSubscript(obj: Expression, subscriptCtx: any): Expression {
+  let index: string;
+  const children = subscriptCtx.children;
+  if (children.NumberLiteral) {
+    index = children.NumberLiteral[0].image;
+  } else if (children.StringLiteral) {
+    index = children.StringLiteral[0].image.slice(1, -1);
+  } else if (children.Identifier) {
+    index = children.Identifier[0].image;
+  } else {
+    return obj;
+  }
+  return {
+    type: "memberAccess",
+    object: obj,
+    property: index
+  };
 }
 ```
 
@@ -400,32 +501,42 @@ private determineMethodKind(methodName: string): "arrayMethod" | "stringMethod" 
 }
 ```
 
-### Function Call
+### Identifier Expression
 
-Function calls can use any identifier as the function name.
+Identifier expressions handle both plain identifiers and function calls. A bare `Identifier` produces an `identifier` AST node; an `Identifier` followed by `(...)` produces a `call` AST node.
 
 ```typescript
-private functionCall = this.RULE("functionCall", () => {
-  this.CONSUME(Identifier);       // Function name
-  this.CONSUME(LParen);
-  this.SUBRULE(this.argumentList);
-  this.CONSUME(RParen);
+private identifierExpr = this.RULE("identifierExpr", () => {
+  this.CONSUME(Identifier);       // Identifier name
+  this.OPTION(() => {
+    this.CONSUME(LParen);
+    this.SUBRULE(this.argumentList);
+    this.CONSUME(RParen);
+  });
 });
 ```
 
 **Visitor Conversion:**
 ```typescript
-visitFunctionCall(ctx: any): CallExpr {
-  const functionName = ctx.Identifier[0].image;
-  const args = this.visit(ctx.argumentList);
-  
+visitIdentifierExpr(ctx: any): Expression {
+  const name = ctx.Identifier[0].image;
+  if (ctx.LParen && ctx.LParen.length > 0) {
+    // Function call: func(args)
+    const argChildren = ctx.argumentList?.[0]?.children;
+    const args = argChildren ? this.visitArgumentList(argChildren) : [];
+    return {
+      type: "call",
+      callee: {
+        type: "identifier",
+        name
+      },
+      arguments: args
+    };
+  }
+  // Plain identifier: name
   return {
-    type: "call",
-    callee: {
-      type: "identifier",
-      name: functionName
-    },
-    arguments: args
+    type: "identifier",
+    name
   };
 }
 ```
@@ -615,7 +726,8 @@ The grammar maps to the following unified AST node types:
 | `NumberLiteral`       | `literal`          | Numeric literal              |
 | `StringLiteral`       | `literal`          | String literal               |
 | `Null`                | `literal`          | Null literal                 |
-| `Identifier`          | `identifier`       | Variable/identifier          |
+| `identifierExpr` (bare) | `identifier`    | Variable/identifier          |
+| `identifierExpr` (with args) | `call`      | Function call                |
 | `comparison`          | `binary`           | Comparison operation         |
 | `logicalOr`           | `binary`           | Logical OR (`||`)            |
 | `logicalAnd`          | `binary`           | Logical AND (`&&`)           |
@@ -624,8 +736,9 @@ The grammar maps to the following unified AST node types:
 | `multiplication`      | `binary`           | Arithmetic (*, /, %)         |
 | `unary` (with `-`)    | `unaryMinus`       | Unary minus                  |
 | `methodCall`          | `call`             | Array/string method call     |
-| `functionCall`        | `call`             | Custom function invocation   |
 | `memberAccess`        | `memberAccess`     | Property access chain        |
+| `dotAccess` (property) | `memberAccess`   | Property access via `.`      |
+| `subscript`           | `memberAccess`     | Subscript access via `[expr]`|
 | `ternary`             | `ternary`          | Ternary conditional          |
 | `arrayLiteral`        | `arrayLiteral`     | Array literal                |
 

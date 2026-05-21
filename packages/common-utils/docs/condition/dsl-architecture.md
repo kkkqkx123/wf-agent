@@ -34,7 +34,6 @@ The DSL module within `common-utils` follows this package layout:
 ```
 src/evalutor/
 ├── index.ts                    # Public API exports
-├── ast-types.ts                # AST type definitions (UPDATED)
 ├── ast-metadata.ts             # Metadata utilities (existing)
 │
 ├── dsl/                        # NEW: DSL parser module (Chevrotain)
@@ -43,7 +42,7 @@ src/evalutor/
 │   ├── condition-parser.ts     # Chevrotain parser definition
 │   ├── condition-cst-to-ast.ts # CST → AST visitor/converter
 │   ├── tokens.ts               # Token type definitions
-│   └── types.ts                # DSL-internal types
+│   └── types.ts                # AST types + DSL-internal types (consolidated)
 │
 ├── expression-compiler.ts      # Expression compiler (existing)
 ├── expression-evaluator.ts     # AST evaluator (UPDATED for new AST)
@@ -109,7 +108,7 @@ expression
              └── notExpr
                    ├── "!" notExpr
                    └── comparison
-                         ├── addition comparisonOp addition
+                         ├── addition (ComparisonOp|Contains|In) addition
                          └── addition
                                ├── multiplication "+" addition
                                ├── multiplication "-" addition
@@ -118,12 +117,17 @@ expression
                                      ├── unary "/" ...
                                      ├── unary "%" ...
                                      ├── unary "-" unary (unary minus)
-                                     └── primary
-                                           ├── functionCall
-                                           ├── arrayLiteral
-                                           ├── literal (string, number, boolean, null)
-                                           ├── memberAccess (with method calls)
-                                           └── "(" expression ")"
+                                     └── memberAccess (with subscript & dotAccess)
+                                           ├── primary
+                                           │     ├── identifierExpr
+                                           │     │     ├── Identifier (plain)
+                                           │     │     └── Identifier "(" argumentList ")" (functionCall)
+                                           │     ├── arrayLiteral
+                                           │     ├── literal (string, number, boolean, null)
+                                           │     └── "(" expression ")"
+                                           └── MANY: (Dot dotAccess | subscript)
+                                                 ├── dotAccess: methodCall | Identifier(property)
+                                                 └── subscript: "[" (NumberLiteral|StringLiteral|Identifier) "]"
 ```
 
 **Key Grammar Features:**
@@ -187,11 +191,12 @@ class ConditionCstToAstVisitor extends CstVisitor {
 
 | CST Pattern | AST Node Produced |
 |-------------|-------------------|
-| `memberAccess` alone | `identifier` or `memberAccess` |
-| `memberAccess.methodCall` | `call` with `callee.memberAccess` |
+| `identifierExpr` (Identifier alone) | `identifier` |
+| `identifierExpr` (Identifier + args) | `call` with `callee.identifier` |
+| `memberAccess` with `.property` | `memberAccess` |
+| `memberAccess` with `[subscript]` | `memberAccess` (subscript converted to property) |
+| `memberAccess` with `.methodCall(args)` | `call` with `callee.memberAccess` |
 | `comparison` with binary operator | `binary` node |
-| `identifier(args)` | `call` with `callee.identifier` |
-| `primary.methodCall(args)` | `call` with `callee.memberAccess` |
 | `"-" unary` | `unaryMinus` node |
 | `"!" notExpr` | `not` node |
 
@@ -422,14 +427,14 @@ const In = createToken({
 // Array method names (prevent confusion with regular identifiers)
 const ArrayMethod = createToken({
   name: "ArrayMethod",
-  pattern: /someEqual|someContains|everyEqual|everyHas|countWhere|countWhereContains|findEqual|findContains|has|hasContains|sum|avg|min|max|someGreaterThan|someLessThan|everyGreaterThan|everyLessThan|map|distinct|first|last/,
+  pattern: /\b(someEqual|someContains|everyEqual|everyHas|countWhere|countWhereContains|findEqual|findContains|has|hasContains|sum|avg|min|max|someGreaterThan|someLessThan|everyGreaterThan|everyLessThan|map|distinct|first|last)\b/,
   longer_alt: Identifier
 });
 
-// String method names
+// String method names (length is NOT a token; it's handled by the evaluator as a property access)
 const StringMethod = createToken({
   name: "StringMethod",
-  pattern: /startsWith|endsWith|length|toLowerCase|toUpperCase|trim/,
+  pattern: /\b(startsWith|endsWith|toLowerCase|toUpperCase|trim)\b/,
   longer_alt: Identifier
 });
 
@@ -537,11 +542,15 @@ class ConditionParser extends CstParser {
     ]);
   });
 
-  // Comparison operators
+  // Comparison operators (==, !=, >, <, >=, <=, contains, in)
   private comparison = this.RULE("comparison", () => {
     this.SUBRULE(this.addition);
     this.OPTION(() => {
-      this.CONSUME(ComparisonOp);
+      this.OR([
+        { ALT: () => this.CONSUME(ComparisonOp) },
+        { ALT: () => this.CONSUME(Contains) },
+        { ALT: () => this.CONSUME(In) }
+      ]);
       this.SUBRULE2(this.addition);
     });
   });
@@ -571,39 +580,65 @@ class ConditionParser extends CstParser {
     });
   });
 
-  // Unary minus (right-associative)
+  // Unary minus (right-associative) - delegates to memberAccess
   private unary = this.RULE("unary", () => {
     this.OR([
       { ALT: () => { this.CONSUME(Minus); this.SUBRULE(this.unary); } },
-      { ALT: () => this.SUBRULE(this.primary) }
+      { ALT: () => this.SUBRULE(this.memberAccess) }
     ]);
   });
 
-  // Primary expressions
+  // Primary expressions (no recursion back to memberAccess)
   private primary = this.RULE("primary", () => {
     this.OR([
-      { ALT: () => this.SUBRULE(this.functionCall) },
       { ALT: () => this.SUBRULE(this.arrayLiteral) },
       { ALT: () => this.CONSUME(StringLiteral) },
       { ALT: () => this.CONSUME(NumberLiteral) },
       { ALT: () => this.CONSUME(True) },
       { ALT: () => this.CONSUME(False) },
       { ALT: () => this.CONSUME(Null) },
-      { ALT: () => this.SUBRULE(this.memberAccess) },
+      { ALT: () => this.SUBRULE(this.identifierExpr) },
       { ALT: () => { this.CONSUME(LParen); this.SUBRULE(this.expression); this.CONSUME(RParen); } }
     ]);
   });
 
-  // Member access chain (obj.prop1.prop2.method())
+  // Member access chain: identifier(.prop|.methodCall|[subscript])*
   private memberAccess = this.RULE("memberAccess", () => {
     this.SUBRULE(this.primary);
     this.MANY(() => {
-      this.CONSUME(Dot);
       this.OR([
-        { ALT: () => this.SUBRULE(this.methodCall) },
-        { ALT: () => this.CONSUME(Identifier, { LABEL: "property" }) }
+        {
+          ALT: () => {
+            this.CONSUME(Dot);
+            this.SUBRULE(this.dotAccess);
+          },
+        },
+        {
+          ALT: () => this.SUBRULE(this.subscript),
+        },
       ]);
     });
+  });
+
+  // Dot access: .methodCall() or .property
+  private dotAccess = this.RULE("dotAccess", () => {
+    this.OR([
+      { ALT: () => this.SUBRULE(this.methodCall) },
+      { ALT: () => this.CONSUME(Identifier, { LABEL: "property" }) },
+      { ALT: () => this.CONSUME(ArrayMethod, { LABEL: "property" }) },
+      { ALT: () => this.CONSUME(StringMethod, { LABEL: "property" }) },
+    ]);
+  });
+
+  // Subscript access: [expr]
+  private subscript = this.RULE("subscript", () => {
+    this.CONSUME(LBracket);
+    this.OR([
+      { ALT: () => this.CONSUME(NumberLiteral) },
+      { ALT: () => this.CONSUME(StringLiteral) },
+      { ALT: () => this.CONSUME(Identifier) },
+    ]);
+    this.CONSUME(RBracket);
   });
 
   // Method call (array/string methods)
@@ -617,12 +652,14 @@ class ConditionParser extends CstParser {
     this.CONSUME(RParen);
   });
 
-  // Function call
-  private functionCall = this.RULE("functionCall", () => {
+  // Identifier expression: plain identifier or function call
+  private identifierExpr = this.RULE("identifierExpr", () => {
     this.CONSUME(Identifier);
-    this.CONSUME(LParen);
-    this.SUBRULE(this.argumentList);
-    this.CONSUME(RParen);
+    this.OPTION(() => {
+      this.CONSUME(LParen);
+      this.SUBRULE(this.argumentList);
+      this.CONSUME(RParen);
+    });
   });
 
   // Array literal

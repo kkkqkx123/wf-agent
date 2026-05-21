@@ -3,18 +3,14 @@
  * Tests the complete logger system including streams, registry, and async context
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   createLogger,
   createPackageLogger,
   createConsoleLogger,
   createNoopLogger,
-  BaseLogger,
-  ConsoleStream,
   createConsoleStream,
-  AsyncStream,
   createAsyncStream,
-  Multistream,
   createMultistream,
   loggerRegistry,
   registerLogger,
@@ -34,11 +30,6 @@ import {
   hasContext,
   generateTraceId,
   generateSpanId,
-  TRACE_ID_KEY,
-  SPAN_ID_KEY,
-  PARENT_SPAN_ID_KEY,
-  type LogEntry,
-  type LogLevel,
 } from "../src/logger/index.js";
 
 describe("Logger Module Integration Tests", () => {
@@ -527,7 +518,7 @@ describe("Logger Module Integration Tests", () => {
       return new Promise<void>((resolve) => {
         // Create logger with async stream
         const consoleStream = createConsoleStream();
-        const asyncStream = createAsyncStream(consoleStream, {
+        createAsyncStream(consoleStream, {
           batchSize: 5
         });
         

@@ -8,9 +8,7 @@ import {
   detectDataType,
   selectCompressionStrategy,
   logCompressionDecision,
-  type DataType,
 } from "../adaptive-compression.js";
-import type { CompressionConfig } from "../compressor.js";
 
 describe("Adaptive Compression Module", () => {
   describe("detectDataType", () => {
@@ -275,6 +273,8 @@ describe("Adaptive Compression Module", () => {
   describe("logCompressionDecision", () => {
     let consoleInfoSpy: any;
     let consoleDebugSpy: any;
+    void consoleInfoSpy;
+    void consoleDebugSpy;
 
     beforeEach(() => {
       consoleInfoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
@@ -449,7 +449,7 @@ describe("Adaptive Compression Module", () => {
         { data: new Uint8Array(150000).fill(0), desc: "large-binary" },
       ];
 
-      testCases.forEach(({ data, desc }) => {
+      testCases.forEach(({ data, desc: _desc }) => {
         const config = selectCompressionStrategy(data);
         
         // Validate config structure

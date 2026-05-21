@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { parseAST } from "../expression-parser.js";
+import { dslParse } from "../dsl/index.js";
 import {
   extractAllMetadata,
   findNodeAtPosition,
@@ -13,7 +13,7 @@ import {
   createMetadata,
   addComment,
 } from "../ast-metadata.js";
-import type { NodeMetadata } from "../ast-types.js";
+import type { NodeMetadata, Expression } from "../dsl/types.js";
 
 describe("AST Metadata Utilities", () => {
   describe("createMetadata", () => {
@@ -62,49 +62,49 @@ describe("AST Metadata Utilities", () => {
   });
 
   describe("extractAllMetadata", () => {
-    it("should return empty array when no metadata exists", () => {
-      const ast = parseAST("user.age > 18");
-      const metadata = extractAllMetadata(ast);
-      expect(metadata).toEqual([]);
+    it("should return all metadata from parsed expressions", () => {
+      const ast = dslParse("user.age > 18");
+      const metadata = extractAllMetadata(ast!);
+      expect(metadata.length).toBeGreaterThan(0);
+      expect(metadata[0]).toHaveProperty("node");
+      expect(metadata[0]).toHaveProperty("metadata");
     });
 
     it("should extract metadata from nodes that have it", () => {
-      // Note: Current parser doesn't attach metadata yet
-      // This test will pass once we enhance the parser
-      const ast = parseAST("true && false");
-      const metadata = extractAllMetadata(ast);
-      // Currently returns empty because parser doesn't set metadata
+      const ast = dslParse("true && false");
+      const metadata = extractAllMetadata(ast!);
       expect(Array.isArray(metadata)).toBe(true);
     });
   });
 
   describe("findNodeAtPosition", () => {
-    it("should return null when node has no location", () => {
-      const ast = parseAST("user.name");
-      const node = findNodeAtPosition(ast, 5);
-      expect(node).toBeNull();
+    it("should find node at specific position when metadata exists", () => {
+      const ast = dslParse("user.name");
+      const node = findNodeAtPosition(ast!, 5);
+      expect(node).not.toBeNull();
+      expect(node!.type).toBe("memberAccess");
     });
 
     it("should find node at specific position when metadata exists", () => {
-      // This test will be more meaningful once parser attaches location info
-      const ast = parseAST("x > 5");
-      const node = findNodeAtPosition(ast, 2);
-      // Currently returns null because no location metadata
+      const ast = dslParse("x > 5");
+      const node = findNodeAtPosition(ast!, 2);
       expect(node === null || node !== null).toBe(true);
     });
   });
 
   describe("getNodeLocationDescription", () => {
-    it("should return 'Unknown location' when no metadata", () => {
-      const ast = parseAST("test");
-      const desc = getNodeLocationDescription(ast);
-      expect(desc).toBe("Unknown location");
+    it("should return location description when metadata exists", () => {
+      const ast = dslParse("x > 5");
+      const desc = getNodeLocationDescription(ast!);
+      expect(desc).toContain("Line 1");
+      expect(desc).toContain("Column 1");
+      expect(desc).toContain("Position 0-2");
     });
 
     it("should include line and column when available", () => {
-      const ast = parseAST("test");
-      if (ast.type === "comparison" && !ast.metadata) {
-        ast.metadata = createMetadata(0, 4, 1, 1);
+      const ast = dslParse("x > 5") as Expression;
+      if (ast && !ast.metadata) {
+        (ast as any).metadata = createMetadata(0, 4, 1, 1);
       }
       const desc = getNodeLocationDescription(ast);
       expect(desc).toContain("Line 1");
@@ -112,72 +112,72 @@ describe("AST Metadata Utilities", () => {
     });
 
     it("should include position range", () => {
-      const ast = parseAST("test");
-      if (ast.type === "comparison" && !ast.metadata) {
-        ast.metadata = createMetadata(0, 4);
+      const ast = dslParse("x > 5") as Expression;
+      if (ast && !ast.metadata) {
+        (ast as any).metadata = createMetadata(0, 2);
       }
       const desc = getNodeLocationDescription(ast);
-      expect(desc).toContain("Position 0-4");
+      expect(desc).toContain("Position 0-2");
     });
   });
 
   describe("extractComments", () => {
     it("should return empty array when no comments exist", () => {
-      const ast = parseAST("user.age > 18");
-      const comments = extractComments(ast);
+      const ast = dslParse("user.age > 18");
+      const comments = extractComments(ast!);
       expect(comments).toEqual([]);
     });
 
     it("should extract comments from nodes", () => {
-      // Create a mock AST with comments
-      const mockAst = {
-        type: "logical" as const,
-        operator: "&&" as const,
+      const mockAst: Expression = {
+        type: "binary",
+        operator: "&&",
         left: {
-          type: "comparison" as const,
-          variablePath: "x",
-          operator: ">" as const,
-          value: 5,
+          type: "binary",
+          operator: ">",
+          left: { type: "identifier", name: "x" },
+          right: { type: "literal", valueType: "number", value: 5 },
           metadata: { comments: ["Check x"] },
         },
         right: {
-          type: "comparison" as const,
-          variablePath: "y",
-          operator: "<" as const,
-          value: 10,
+          type: "binary",
+          operator: "<",
+          left: { type: "identifier", name: "y" },
+          right: { type: "literal", valueType: "number", value: 10 },
           metadata: { comments: ["Check y"] },
         },
       };
-      const comments = extractComments(mockAst as any);
+      const comments = extractComments(mockAst);
       expect(comments).toEqual(["Check x", "Check y"]);
     });
   });
 
   describe("Integration with parsed expressions", () => {
     it("should handle simple comparison", () => {
-      const ast = parseAST("user.age > 18");
-      expect(ast.type).toBe("comparison");
-      
-      // Extract metadata (currently empty)
-      const metadata = extractAllMetadata(ast);
-      expect(metadata.length).toBe(0);
+      const ast = dslParse("user.age > 18");
+      expect(ast).not.toBeNull();
+      expect(ast!.type).toBe("binary");
+
+      const metadata = extractAllMetadata(ast!);
+      expect(metadata.length).toBeGreaterThan(0);
     });
 
     it("should handle logical expressions", () => {
-      const ast = parseAST("user.age > 18 && user.active == true");
-      expect(ast.type).toBe("logical");
-      
-      const comments = extractComments(ast);
+      const ast = dslParse("user.age > 18 && user.active == true");
+      expect(ast).not.toBeNull();
+      expect(ast!.type).toBe("binary");
+
+      const comments = extractComments(ast!);
       expect(comments.length).toBe(0);
     });
 
     it("should handle nested member access", () => {
-      const ast = parseAST("user.address.city == 'Beijing'");
-      expect(ast.type).toBe("comparison");
-      
-      // Should work even without metadata
-      const location = getNodeLocationDescription(ast);
-      expect(location).toBe("Unknown location");
+      const ast = dslParse("user.address.city == 'Beijing'");
+      expect(ast).not.toBeNull();
+
+      const location = getNodeLocationDescription(ast!);
+      expect(location).toContain("Position");
+      expect(location).toContain("Line 1");
     });
   });
 });

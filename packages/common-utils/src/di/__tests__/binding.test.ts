@@ -9,7 +9,7 @@ const IDatabase = Symbol.for("IDatabase");
 // Classes for testing
 class TestService {
   static $inject = [IDatabase] as const;
-  constructor(private db: unknown) {}
+  constructor(_db: unknown) {}
 }
 
 class DatabaseService {}

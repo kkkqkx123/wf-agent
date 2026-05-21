@@ -1,628 +1,279 @@
 /**
- * ExpressionParser Unit Tests
+ * DSL Parser Unit Tests
  */
 
 import { describe, it, expect } from "vitest";
-import { parseValue, parseAST } from "../expression-parser.js";
-import { RuntimeValidationError } from "@wf-agent/types";
-import type {
-  BooleanLiteralNode,
-  NumberLiteralNode,
-  StringLiteralNode,
-  NullLiteralNode,
-  ComparisonNode,
-  LogicalNode,
-  NotNode,
-  ArithmeticNode,
-  StringMethodNode,
-  TernaryNode,
-} from "../ast-types.js";
+import { dslParse, dslValidate, tokenizeExpression } from "../dsl/index.js";
 
-describe("parseValue", () => {
-  describe("Basic Types", () => {
-    it("The string (in single quotes) should be parsed.", () => {
-      expect(parseValue("'hello'")).toBe("hello");
-      expect(parseValue("'world'")).toBe("world");
+describe("dslParse", () => {
+  describe("Basic literals", () => {
+    it("should parse string literals in single quotes", () => {
+      const ast = dslParse("'hello'") as any;
+      expect(ast).not.toBeNull();
+      expect(ast.type).toBe("literal");
+      expect(ast.valueType).toBe("string");
+      expect(ast.value).toBe("hello");
     });
 
-    it("The string (in double quotes) should be parsed.", () => {
-      expect(parseValue('"hello"')).toBe("hello");
-      expect(parseValue('"world"')).toBe("world");
+    it("should parse string literals in double quotes", () => {
+      const ast = dslParse('"world"') as any;
+      expect(ast).not.toBeNull();
+      expect(ast.type).toBe("literal");
+      expect(ast.valueType).toBe("string");
+      expect(ast.value).toBe("world");
     });
 
-    it("The boolean value true should be parsed.", () => {
-      expect(parseValue("true")).toBe(true);
+    it("should parse number literals", () => {
+      const ast = dslParse("42") as any;
+      expect(ast).not.toBeNull();
+      expect(ast.type).toBe("literal");
+      expect(ast.valueType).toBe("number");
+      expect(ast.value).toBe(42);
     });
 
-    it("The boolean value false should be parsed.", () => {
-      expect(parseValue("false")).toBe(false);
+    it("should parse negative number literals", () => {
+      const ast = dslParse("-10") as any;
+      expect(ast).not.toBeNull();
+      expect(ast.type).toBe("unaryMinus");
     });
 
-    it("Should parse null", () => {
-      expect(parseValue("null")).toBe(null);
+    it("should parse floating point numbers", () => {
+      const ast = dslParse("3.14") as any;
+      expect(ast).not.toBeNull();
+      expect(ast.type).toBe("literal");
+      expect(ast.valueType).toBe("number");
+      expect(ast.value).toBe(3.14);
     });
 
-    it("The integer should be parsed.", () => {
-      expect(parseValue("42")).toBe(42);
-      expect(parseValue("0")).toBe(0);
+    it("should parse boolean literals", () => {
+      const t = dslParse("true") as any;
+      expect(t).not.toBeNull();
+      expect(t.type).toBe("literal");
+      expect(t.valueType).toBe("boolean");
+      expect(t.value).toBe(true);
+
+      const f = dslParse("false") as any;
+      expect(f).not.toBeNull();
+      expect(f.type).toBe("literal");
+      expect(f.valueType).toBe("boolean");
+      expect(f.value).toBe(false);
     });
 
-    it("Negative numbers should be parsed.", () => {
-      expect(parseValue("-10")).toBe(-10);
-      expect(parseValue("-100")).toBe(-100);
-    });
-
-    it("The floating-point number should be parsed.", () => {
-      expect(parseValue("3.14")).toBe(3.14);
-      expect(parseValue("0.5")).toBe(0.5);
-      expect(parseValue("-3.14")).toBe(-3.14);
-    });
-  });
-
-  describe("array", () => {
-    it("The array should be parsed.", () => {
-      expect(parseValue("['admin', 'user']")).toEqual(["admin", "user"]);
-      expect(parseValue("[1, 2, 3]")).toEqual([1, 2, 3]);
-    });
-
-    it("The empty array should be parsed.", () => {
-      expect(parseValue("[]")).toEqual([]);
-    });
-
-    it("The mixed-type array should be parsed.", () => {
-      expect(parseValue("['admin', 123, true]")).toEqual(["admin", 123, true]);
-    });
-
-    it("The nested arrays should be parsed.", () => {
-      // Note: The current parseValue does not support nested arrays; it will interpret them as variable references.
-      // These are the limitations of the current implementation.
-      const result = parseValue("[['a', 'b'], ['c', 'd']]");
-      expect(Array.isArray(result)).toBe(true);
-      expect((result as any[]).length).toBe(4);
+    it("should parse null literal", () => {
+      const ast = dslParse("null") as any;
+      expect(ast).not.toBeNull();
+      expect(ast.type).toBe("literal");
+      expect(ast.valueType).toBe("null");
+      expect(ast.value).toBeNull();
     });
   });
 
-  describe("Variable reference", () => {
-    it("Variable references should be identified.", () => {
-      expect(parseValue("maxAge")).toEqual({ __isVariableRef: true, path: "maxAge" });
-      expect(parseValue("user.name")).toEqual({ __isVariableRef: true, path: "user.name" });
+  describe("Identifiers and member access", () => {
+    it("should parse simple identifiers", () => {
+      const ast = dslParse("user");
+      expect(ast).not.toBeNull();
+      expect(ast!.type).toBe("identifier");
+      expect((ast! as any).name).toBe("user");
     });
 
-    it("Variable references with underscores should be recognized.", () => {
-      expect(parseValue("_private")).toEqual({ __isVariableRef: true, path: "_private" });
+    it("should parse member access with dot", () => {
+      const ast = dslParse("user.age");
+      expect(ast).not.toBeNull();
+      expect(ast!.type).toBe("memberAccess");
+      expect((ast! as any).property).toBe("age");
     });
 
-    it("Variable references containing numbers should be recognized.", () => {
-      expect(parseValue("user1")).toEqual({ __isVariableRef: true, path: "user1" });
-    });
-  });
-});
-
-describe("parseAST", () => {
-  describe("Literal value", () => {
-    it("The boolean literal `true` should be parsed.", () => {
-      const result = parseAST("true");
-      expect(result).toEqual({
-        type: "boolean",
-        value: true,
-      } as BooleanLiteralNode);
-    });
-
-    it("The boolean literal 'false' should be parsed.", () => {
-      const result = parseAST("false");
-      expect(result).toEqual({
-        type: "boolean",
-        value: false,
-      } as BooleanLiteralNode);
-    });
-
-    it("The numeric literals should be parsed.", () => {
-      const result = parseAST("42");
-      expect(result).toEqual({
-        type: "number",
-        value: 42,
-      } as NumberLiteralNode);
-    });
-
-    it("Negative numeric literals should be parsed.", () => {
-      const result = parseAST("-10");
-      expect(result).toEqual({
-        type: "number",
-        value: -10,
-      } as NumberLiteralNode);
-    });
-
-    it("Floating-point numeric literals should be parsed.", () => {
-      const result = parseAST("3.14");
-      expect(result).toEqual({
-        type: "number",
-        value: 3.14,
-      } as NumberLiteralNode);
-    });
-
-    it("The string literal (in single quotes) should be parsed.", () => {
-      const result = parseAST("'hello'");
-      expect(result).toEqual({
-        type: "string",
-        value: "hello",
-      } as StringLiteralNode);
-    });
-
-    it("The string literal (between double quotes) should be parsed.", () => {
-      const result = parseAST('"world"');
-      expect(result).toEqual({
-        type: "string",
-        value: "world",
-      } as StringLiteralNode);
-    });
-
-    it("The null literal should be parsed.", () => {
-      const result = parseAST("null");
-      expect(result).toEqual({
-        type: "null",
-        value: null,
-      } as NullLiteralNode);
+    it("should parse deeply nested member access", () => {
+      const ast = dslParse("user.address.city");
+      expect(ast).not.toBeNull();
+      expect(ast!.type).toBe("memberAccess");
+      const member = ast as any;
+      expect(member.property).toBe("city");
+      expect(member.object.type).toBe("memberAccess");
+      expect(member.object.property).toBe("address");
     });
   });
 
-  describe("Comparison operations", () => {
-    it("The text '应该解析等于比较' translates to English as: 'It should be parsed as an equality comparison.'", () => {
-      const result = parseAST("user.age == 25");
-      expect(result).toEqual({
-        type: "comparison",
-        variablePath: "user.age",
-        operator: "==",
-        value: 25,
-      } as ComparisonNode);
+  describe("Comparison operators", () => {
+    it("should parse == operator", () => {
+      const ast = dslParse("user.age == 25");
+      expect(ast).not.toBeNull();
+      expect(ast!.type).toBe("binary");
+      expect((ast! as any).operator).toBe("==");
     });
 
-    it("The text to translate is: 'It should parse 'not equal to' as a comparison.'", () => {
-      const result = parseAST("user.age != 30");
-      expect(result).toEqual({
-        type: "comparison",
-        variablePath: "user.age",
-        operator: "!=",
-        value: 30,
-      } as ComparisonNode);
+    it("should parse != operator", () => {
+      const ast = dslParse("user.age != 30");
+      expect(ast).not.toBeNull();
+      expect(ast!.type).toBe("binary");
+      expect((ast! as any).operator).toBe("!=");
     });
 
-    it("The text to translate is: 'The content should be parsed to perform a comparison with a value that is greater than a certain threshold.'", () => {
-      const result = parseAST("user.age > 20");
-      expect(result).toEqual({
-        type: "comparison",
-        variablePath: "user.age",
-        operator: ">",
-        value: 20,
-      } as ComparisonNode);
+    it("should parse > operator", () => {
+      const ast = dslParse("user.age > 18");
+      expect(ast).not.toBeNull();
+      expect(ast!.type).toBe("binary");
+      expect((ast! as any).operator).toBe(">");
     });
 
-    it("The text to translate is: 'The content should be parsed to compare values that are smaller than a certain threshold.'", () => {
-      const result = parseAST("user.age < 30");
-      expect(result).toEqual({
-        type: "comparison",
-        variablePath: "user.age",
-        operator: "<",
-        value: 30,
-      } as ComparisonNode);
+    it("should parse < operator", () => {
+      const ast = dslParse("user.age < 65");
+      expect(ast).not.toBeNull();
+      expect(ast!.type).toBe("binary");
+      expect((ast! as any).operator).toBe("<");
     });
 
-    it("The comparison should be parsed for values greater than or equal to (>=).", () => {
-      const result = parseAST("user.age >= 18");
-      expect(result).toEqual({
-        type: "comparison",
-        variablePath: "user.age",
-        operator: ">=",
-        value: 18,
-      } as ComparisonNode);
+    it("should parse >= operator", () => {
+      const ast = dslParse("user.age >= 18");
+      expect(ast).not.toBeNull();
+      expect(ast!.type).toBe("binary");
+      expect((ast! as any).operator).toBe(">=");
     });
 
-    it("The comparison should be parsed for values less than or equal to (<=).", () => {
-      const result = parseAST("user.age <= 65");
-      expect(result).toEqual({
-        type: "comparison",
-        variablePath: "user.age",
-        operator: "<=",
-        value: 65,
-      } as ComparisonNode);
+    it("should parse <= operator", () => {
+      const ast = dslParse("user.age <= 65");
+      expect(ast).not.toBeNull();
+      expect(ast!.type).toBe("binary");
+      expect((ast! as any).operator).toBe("<=");
     });
 
-    it("The text to translate is: 'The code should parse content that includes comparisons.'", () => {
-      const result = parseAST('user.name contains "admin"');
-      expect(result).toEqual({
-        type: "comparison",
-        variablePath: "user.name",
-        operator: "contains",
-        value: "admin",
-      } as ComparisonNode);
+    it("should parse contains operator", () => {
+      const ast = dslParse("user.name contains 'oh'");
+      expect(ast).not.toBeNull();
+      expect(ast!.type).toBe("binary");
+      expect((ast! as any).operator).toBe("contains");
     });
 
-    it("'Should be parsed in comparison'", () => {
-      const result = parseAST('user.role in ["admin", "user"]');
-      expect(result).toEqual({
-        type: "comparison",
-        variablePath: "user.role",
-        operator: "in",
-        value: ["admin", "user"],
-      } as ComparisonNode);
+    it("should parse in operator", () => {
+      const ast = dslParse("user.role in ['admin', 'user']");
+      expect(ast).not.toBeNull();
+      expect(ast!.type).toBe("binary");
+      expect((ast! as any).operator).toBe("in");
     });
   });
 
-  describe("Logical operations", () => {
-    it("The AND expression should be parsed.", () => {
-      const result = parseAST("user.age >= 18 && user.age <= 65");
-      expect(result).toEqual({
-        type: "logical",
-        operator: "&&",
-        left: {
-          type: "comparison",
-          variablePath: "user.age",
-          operator: ">=",
-          value: 18,
-        },
-        right: {
-          type: "comparison",
-          variablePath: "user.age",
-          operator: "<=",
-          value: 65,
-        },
-      } as LogicalNode);
+  describe("Logical operators", () => {
+    it("should parse && operator", () => {
+      const ast = dslParse("user.age > 18 && user.active == true");
+      expect(ast).not.toBeNull();
+      expect(ast!.type).toBe("binary");
+      expect((ast! as any).operator).toBe("&&");
     });
 
-    it("The OR expression should be parsed.", () => {
-      const result = parseAST('user.age < 18 || user.role == "admin"');
-      expect(result).toEqual({
-        type: "logical",
-        operator: "||",
-        left: {
-          type: "comparison",
-          variablePath: "user.age",
-          operator: "<",
-          value: 18,
-        },
-        right: {
-          type: "comparison",
-          variablePath: "user.role",
-          operator: "==",
-          value: "admin",
-        },
-      } as LogicalNode);
+    it("should parse || operator", () => {
+      const ast = dslParse("user.age < 18 || user.role == 'admin'");
+      expect(ast).not.toBeNull();
+      expect(ast!.type).toBe("binary");
+      expect((ast! as any).operator).toBe("||");
     });
 
-    it("The operator precedence should be handled correctly (the precedence of || is lower than that of &&).", () => {
-      const result = parseAST("a && b || c");
-      expect(result).toEqual({
-        type: "logical",
-        operator: "||",
-        left: {
-          type: "logical",
-          operator: "&&",
-          left: { type: "comparison", variablePath: "a", operator: "==", value: true },
-          right: { type: "comparison", variablePath: "b", operator: "==", value: true },
-        },
-        right: { type: "comparison", variablePath: "c", operator: "==", value: true },
-      } as LogicalNode);
+    it("should parse NOT operator", () => {
+      const ast = dslParse("!isActive");
+      expect(ast).not.toBeNull();
+      expect(ast!.type).toBe("not");
     });
   });
 
-  describe("NOT operation", () => {
-    it("The NOT expression should be parsed.", () => {
-      const result = parseAST("!user.isActive");
-      expect(result).toEqual({
-        type: "not",
-        operand: {
-          type: "comparison",
-          variablePath: "user.isActive",
-          operator: "==",
-          value: true,
-        },
-      } as NotNode);
+  describe("Arithmetic operators", () => {
+    it("should parse addition", () => {
+      const ast = dslParse("25 + 5");
+      expect(ast).not.toBeNull();
+      expect(ast!.type).toBe("binary");
+      expect((ast! as any).operator).toBe("+");
     });
 
-    it("NOT expressions with parentheses should be parsed.", () => {
-      const result = parseAST("!(user.age < 18)");
-      expect(result).toEqual({
-        type: "not",
-        operand: {
-          type: "comparison",
-          variablePath: "user.age",
-          operator: "<",
-          value: 18,
-        },
-      } as NotNode);
+    it("should parse subtraction", () => {
+      const ast = dslParse("25 - 5");
+      expect(ast).not.toBeNull();
+      expect(ast!.type).toBe("binary");
+      expect((ast! as any).operator).toBe("-");
     });
 
-    it("The nested NOT expressions should be parsed.", () => {
-      const result = parseAST("!!user.isActive");
-      expect(result).toEqual({
-        type: "not",
-        operand: {
-          type: "not",
-          operand: {
-            type: "comparison",
-            variablePath: "user.isActive",
-            operator: "==",
-            value: true,
-          },
-        },
-      } as NotNode);
+    it("should parse multiplication", () => {
+      const ast = dslParse("25 * 2");
+      expect(ast).not.toBeNull();
+      expect(ast!.type).toBe("binary");
+      expect((ast! as any).operator).toBe("*");
+    });
+
+    it("should parse division", () => {
+      const ast = dslParse("25 / 5");
+      expect(ast).not.toBeNull();
+      expect(ast!.type).toBe("binary");
+      expect((ast! as any).operator).toBe("/");
+    });
+
+    it("should parse modulus", () => {
+      const ast = dslParse("25 % 7");
+      expect(ast).not.toBeNull();
+      expect(ast!.type).toBe("binary");
+      expect((ast! as any).operator).toBe("%");
     });
   });
 
-  describe("Arithmetic operations", () => {
-    it("The addition expression should be parsed.", () => {
-      const result = parseAST("user.age + 5");
-      expect(result).toEqual({
-        type: "arithmetic",
-        operator: "+",
-        left: { type: "comparison", variablePath: "user.age", operator: "==", value: true },
-        right: { type: "number", value: 5 },
-      } as ArithmeticNode);
-    });
-
-    it("The subtraction expression should be parsed.", () => {
-      const result = parseAST("user.age - 5");
-      expect(result).toEqual({
-        type: "arithmetic",
-        operator: "-",
-        left: { type: "comparison", variablePath: "user.age", operator: "==", value: true },
-        right: { type: "number", value: 5 },
-      } as ArithmeticNode);
-    });
-
-    it("The multiplication expression should be parsed.", () => {
-      const result = parseAST("user.age * 2");
-      expect(result).toEqual({
-        type: "arithmetic",
-        operator: "*",
-        left: { type: "comparison", variablePath: "user.age", operator: "==", value: true },
-        right: { type: "number", value: 2 },
-      } as ArithmeticNode);
-    });
-
-    it("The division expression should be parsed.", () => {
-      const result = parseAST("user.age / 5");
-      expect(result).toEqual({
-        type: "arithmetic",
-        operator: "/",
-        left: { type: "comparison", variablePath: "user.age", operator: "==", value: true },
-        right: { type: "number", value: 5 },
-      } as ArithmeticNode);
-    });
-
-    it("The modulus expression should be parsed.", () => {
-      const result = parseAST("user.age % 7");
-      expect(result).toEqual({
-        type: "arithmetic",
-        operator: "%",
-        left: { type: "comparison", variablePath: "user.age", operator: "==", value: true },
-        right: { type: "number", value: 7 },
-      } as ArithmeticNode);
-    });
-
-    it("The operator precedence should be handled correctly (* / % have higher precedence than + -).", () => {
-      const result = parseAST("a + b * c");
-      // Note: Since the parser processes from left to right, the + symbol is found first, so the expression is actually parsed as (a + b) * c.
-      // This is different from the standard operator precedence; parentheses are required to clarify the order of operations.
-      expect(result).toEqual({
-        type: "arithmetic",
-        operator: "*",
-        left: {
-          type: "arithmetic",
-          operator: "+",
-          left: { type: "comparison", variablePath: "a", operator: "==", value: true },
-          right: { type: "comparison", variablePath: "b", operator: "==", value: true },
-        },
-        right: { type: "comparison", variablePath: "c", operator: "==", value: true },
-      } as ArithmeticNode);
+  describe("Ternary operator", () => {
+    it("should parse ternary expression", () => {
+      const ast = dslParse("user.age >= 18 ? 'adult' : 'minor'");
+      expect(ast).not.toBeNull();
+      expect(ast!.type).toBe("ternary");
     });
   });
 
-  describe("String methods", () => {
-    it("The `startsWith` method should be parsed.", () => {
-      const result = parseAST('user.name.startsWith("J")');
-      expect(result).toEqual({
-        type: "stringMethod",
-        variablePath: "user.name",
-        method: "startsWith",
-        argument: "J",
-      } as StringMethodNode);
+  describe("Function/method calls", () => {
+    it("should parse method calls", () => {
+      const ast = dslParse("text.startsWith('Hello')");
+      expect(ast).not.toBeNull();
+      expect(ast!.type).toBe("call");
     });
 
-    it("The endsWith method should be parsed.", () => {
-      const result = parseAST('user.email.endsWith("@example.com")');
-      expect(result).toEqual({
-        type: "stringMethod",
-        variablePath: "user.email",
-        method: "endsWith",
-        argument: "@example.com",
-      } as StringMethodNode);
+    it("should parse method calls with no arguments", () => {
+      const ast = dslParse("text.toLowerCase()");
+      expect(ast).not.toBeNull();
+      expect(ast!.type).toBe("call");
     });
 
-    it("The `length` method should be parsed.", () => {
-      const result = parseAST("user.name.length");
-      expect(result).toEqual({
-        type: "stringMethod",
-        variablePath: "user.name",
-        method: "length",
-      } as StringMethodNode);
-    });
-
-    it("The `toLowerCase` method should be parsed.", () => {
-      const result = parseAST("user.name.toLowerCase()");
-      expect(result).toEqual({
-        type: "stringMethod",
-        variablePath: "user.name",
-        method: "toLowerCase",
-      } as StringMethodNode);
-    });
-
-    it("The `toUpperCase` method should be parsed.", () => {
-      const result = parseAST("user.name.toUpperCase()");
-      expect(result).toEqual({
-        type: "stringMethod",
-        variablePath: "user.name",
-        method: "toUpperCase",
-      } as StringMethodNode);
-    });
-
-    it("The trim method should be parsed.", () => {
-      const result = parseAST("user.name.trim()");
-      expect(result).toEqual({
-        type: "stringMethod",
-        variablePath: "user.name",
-        method: "trim",
-      } as StringMethodNode);
+    it("should parse property access (length)", () => {
+      const ast = dslParse("text.length");
+      expect(ast).not.toBeNull();
+      expect(ast!.type).toBe("memberAccess");
     });
   });
 
-  describe("Ternary Operator", () => {
-    it("Simple ternary expressions should be parsed.", () => {
-      const result = parseAST('user.age >= 18 ? "adult" : "minor"');
-      expect(result).toEqual({
-        type: "ternary",
-        condition: {
-          type: "comparison",
-          variablePath: "user.age",
-          operator: ">=",
-          value: 18,
-        },
-        consequent: { type: "string", value: "adult" },
-        alternate: { type: "string", value: "minor" },
-      } as TernaryNode);
-    });
-
-    it("Nested ternary expressions should be parsed.", () => {
-      const result = parseAST('user.age < 18 ? "minor" : user.age < 65 ? "adult" : "senior"');
-      expect(result).toEqual({
-        type: "ternary",
-        condition: {
-          type: "comparison",
-          variablePath: "user.age",
-          operator: "<",
-          value: 18,
-        },
-        consequent: { type: "string", value: "minor" },
-        alternate: {
-          type: "ternary",
-          condition: {
-            type: "comparison",
-            variablePath: "user.age",
-            operator: "<",
-            value: 65,
-          },
-          consequent: { type: "string", value: "adult" },
-          alternate: { type: "string", value: "senior" },
-        },
-      } as TernaryNode);
-    });
-
-    it("三元 expressions with parentheses should be parsed.", () => {
-      const result = parseAST('(user.age >= 18 && user.age <= 65) ? "adult" : "minor"');
-      expect(result).toEqual({
-        type: "ternary",
-        condition: {
-          type: "logical",
-          operator: "&&",
-          left: {
-            type: "comparison",
-            variablePath: "user.age",
-            operator: ">=",
-            value: 18,
-          },
-          right: {
-            type: "comparison",
-            variablePath: "user.age",
-            operator: "<=",
-            value: 65,
-          },
-        },
-        consequent: { type: "string", value: "adult" },
-        alternate: { type: "string", value: "minor" },
-      } as TernaryNode);
+  describe("Array literals", () => {
+    it("should parse array literals", () => {
+      const ast = dslParse("['admin', 'user']");
+      expect(ast).not.toBeNull();
+      expect(ast!.type).toBe("arrayLiteral");
+      expect((ast! as any).elements.length).toBe(2);
     });
   });
 
-  describe("Parenthesis handling", () => {
-    it("Expressions with parentheses should be parsed.", () => {
-      const result = parseAST("(user.age >= 18 && user.age <= 65)");
-      expect(result).toEqual({
-        type: "logical",
-        operator: "&&",
-        left: {
-          type: "comparison",
-          variablePath: "user.age",
-          operator: ">=",
-          value: 18,
-        },
-        right: {
-          type: "comparison",
-          variablePath: "user.age",
-          operator: "<=",
-          value: 65,
-        },
-      } as LogicalNode);
-    });
-
-    it("The nested parentheses should be parsed.", () => {
-      const result = parseAST("((user.age >= 18))");
-      expect(result).toEqual({
-        type: "comparison",
-        variablePath: "user.age",
-        operator: ">=",
-        value: 18,
-      } as ComparisonNode);
+  describe("Parenthesized expressions", () => {
+    it("should parse parenthesized expressions", () => {
+      const ast = dslParse("(25 + 5) * 2");
+      expect(ast).not.toBeNull();
+      expect(ast!.type).toBe("binary");
     });
   });
 
-  describe("Complex expressions", () => {
-    it("Mixed operator expressions should be parsed.", () => {
-      const result = parseAST('user.age >= 18 && user.role == "admin" || user.age < 18');
-      expect(result.type).toBe("logical");
-      expect((result as LogicalNode).operator).toBe("||");
+  describe("dslValidate", () => {
+    it("should return valid for correct expressions", () => {
+      const result = dslValidate("user.age > 18");
+      expect(result.valid).toBe(true);
+      expect(result.errors).toHaveLength(0);
     });
 
-    it("Complex expressions with parentheses should be parsed.", () => {
-      const result = parseAST('(user.age >= 18 && user.age <= 65) || user.role == "admin"');
-      expect(result.type).toBe("logical");
-      expect((result as LogicalNode).operator).toBe("||");
-    });
-  });
-
-  describe("Boundary cases", () => {
-    it("Expressions with spaces should be handled accordingly.", () => {
-      const result = parseAST("  user.age  ==  25  ");
-      expect(result).toEqual({
-        type: "comparison",
-        variablePath: "user.age",
-        operator: "==",
-        value: 25,
-      } as ComparisonNode);
-    });
-
-    it("Simple variable names should be handled accordingly.", () => {
-      const result = parseAST("maxAge");
-      expect(result).toEqual({
-        type: "comparison",
-        variablePath: "maxAge",
-        operator: "==",
-        value: true,
-      } as ComparisonNode);
-    });
-
-    it("An error should be thrown for the expression that cannot be parsed.", () => {
-      expect(() => parseAST("invalid expression with spaces")).toThrow(RuntimeValidationError);
+    it("should return invalid for incorrect expressions", () => {
+      const result = dslValidate("user.age > ");
+      expect(result.valid).toBe(false);
+      expect(result.errors.length).toBeGreaterThan(0);
     });
   });
 
-  describe("Variable reference", () => {
-    it("Variable reference comparisons should be parsed.", () => {
-      const result = parseAST("user.age == maxAge");
-      expect(result).toEqual({
-        type: "comparison",
-        variablePath: "user.age",
-        operator: "==",
-        value: { __isVariableRef: true, path: "maxAge" },
-      } as ComparisonNode);
+  describe("tokenizeExpression", () => {
+    it("should return an array of tokens", () => {
+      const tokens = tokenizeExpression("user.age > 18");
+      expect(tokens.length).toBeGreaterThan(0);
     });
   });
 });

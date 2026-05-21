@@ -42,7 +42,7 @@ describe("Dependency Tracking", () => {
       manager.register("test", "user.age > 18", context);
       
       // Change the variable
-      (context.variables.user as any).age = 25;
+      (context.variables["user"] as any).age = 25;
       
       const changed = manager.hasDependenciesChanged("test", context);
       expect(changed).toBe(true);
@@ -133,7 +133,7 @@ describe("Dependency Tracking", () => {
       expect(result1).toBe(true);
       
       // Change dependency
-      (context.variables.user as any).age = 15;
+      (context.variables["user"] as any).age = 15;
       
       // Should re-evaluate and get different result
       const result2 = manager.evaluateIfChanged("expr1", context);
@@ -248,7 +248,7 @@ describe("Dependency Tracking", () => {
       );
       
       // Change one dependency
-      (context.variables.user as any).age = 25;
+      (context.variables["user"] as any).age = 25;
       
       const changed = manager.hasDependenciesChanged("complex", context);
       expect(changed).toBe(true);

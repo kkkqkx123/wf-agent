@@ -2,7 +2,7 @@
  * Condition Evaluator Unit Testing
  */
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { ConditionEvaluator, conditionEvaluator } from "../condition-evaluator.js";
 import { RuntimeValidationError } from "@wf-agent/types";
 import type { Condition, EvaluationContext } from "@wf-agent/types";

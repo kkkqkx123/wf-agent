@@ -188,6 +188,7 @@ describe("resolvePath", () => {
       // This is a security design measure to prevent potential injection attacks.
       // If support for numeric attribute names is required, the rules of the security validator need to be modified.
       const obj = { "0": "zero", "1": "one" };
+      void obj;
       // Due to security restrictions, these tests will fail.
       // expect(resolvePath('0', obj)).toBe('zero');
       // expect(resolvePath('1', obj)).toBe('one');

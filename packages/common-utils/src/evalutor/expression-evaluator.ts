@@ -1,375 +1,161 @@
 /**
  * ExpressionEvaluator - Expression Evaluator
- * Provides the functionality to evaluate expressions, supporting the recursive evaluation of AST (Abstract Syntax Tree) nodes.
+ * Evaluates expressions using the new unified AST types from the DSL module.
  */
 
 import type { EvaluationContext } from "@wf-agent/types";
 import { RuntimeValidationError } from "@wf-agent/types";
-import { validatePath } from "./security-validator.js";
+import { validatePath, validateExpression, SECURITY_CONFIG } from "./security-validator.js";
 import { resolvePath } from "./path-resolver.js";
 import { getGlobalLogger } from "../logger/index.js";
-import type { ASTNode } from "./ast-types.js";
-import {
-  BooleanLiteralNode,
-  NumberLiteralNode,
-  StringLiteralNode,
-  NullLiteralNode,
-  ComparisonNode,
-  LogicalNode,
-  NotNode,
-  ArithmeticNode,
-  StringMethodNode,
-  TernaryNode,
-  ArrayMethodNode,
-  ArrayMethodComparisonNode,
-  FunctionCallNode,
-  MemberAccessNode,
-  ArrayMethodName,
-} from "./ast-types.js";
-import { parseAST } from "./expression-parser.js";
-import { validateComparisonTypes } from "./type-validator.js";
+import { dslParse } from "./dsl/index.js";
+import type {
+  Expression,
+  LiteralExpr,
+  IdentifierExpr,
+  MemberAccessExpr,
+  UnaryMinusExpr,
+  BinaryExpr,
+  NotExpr,
+  TernaryExpr,
+  CallExpr,
+  ArrayLiteralExpr,
+} from "./dsl/types.js";
 
-/**
- * Expression evaluator
- */
 export class ExpressionEvaluator {
   private logger = getGlobalLogger().child("ExpressionEvaluator", { pkg: "common-utils" });
-  
-  // Cache for array method results
+
   private cache = new Map<string, { value: unknown; timestamp: number }>();
-  private readonly CACHE_TTL = 1000; // 1 second TTL
-  
-  // Registered custom functions
+  private readonly CACHE_TTL = 1000;
+
   private registeredFunctions = new Map<string, (...args: any[]) => any>();
 
-  /**
-   * Evaluation Expression
-   * @param expression: The expression string
-   * @param context: The evaluation context
-   * @returns: The evaluation result
-   */
   evaluate(expression: string, context: EvaluationContext): unknown {
-    // Clear cache before each new evaluation to avoid stale data
     this.cache.clear();
-    
-    // Parse into AST
-    const ast = parseAST(expression);
+    validateExpression(expression);
 
-    // Evaluating the AST
+    let ast: Expression;
+    try {
+      ast = dslParse(expression);
+    } catch (e) {
+      throw new RuntimeValidationError(
+        `Failed to evaluate expression: ${expression}`,
+        { operation: "evaluate", field: "expression", value: expression },
+      );
+    }
+
+    this.validateMemberAccessDepth(ast);
+
     return this.evaluateAST(ast, context);
   }
 
-  /**
-   * Evaluating an AST node
-   * @param node: The AST node
-   * @param context: The evaluation context
-   * @returns: The evaluation result
-   */
-  evaluateAST(node: ASTNode, context: EvaluationContext): unknown {
+  private validateMemberAccessDepth(node: Expression, depth: number = 0): void {
+    if (node.type === "memberAccess") {
+      const newDepth = depth + 1;
+      if (newDepth >= SECURITY_CONFIG.MAX_PATH_DEPTH) {
+        throw new RuntimeValidationError(
+          `Path depth exceeds maximum limit of ${SECURITY_CONFIG.MAX_PATH_DEPTH}`,
+          { operation: "validateMemberAccessDepth", field: "depth", value: newDepth },
+        );
+      }
+      this.validateMemberAccessDepth((node as MemberAccessExpr).object, newDepth);
+    } else if (node.type === "binary") {
+      const binNode = node as BinaryExpr;
+      this.validateMemberAccessDepth(binNode.left, depth);
+      this.validateMemberAccessDepth(binNode.right, depth);
+    } else if (node.type === "not") {
+      this.validateMemberAccessDepth((node as NotExpr).operand, depth);
+    } else if (node.type === "unaryMinus") {
+      this.validateMemberAccessDepth((node as UnaryMinusExpr).operand, depth);
+    } else if (node.type === "ternary") {
+      const ternNode = node as TernaryExpr;
+      this.validateMemberAccessDepth(ternNode.condition, depth);
+      this.validateMemberAccessDepth(ternNode.consequent, depth);
+      this.validateMemberAccessDepth(ternNode.alternate, depth);
+    } else if (node.type === "call") {
+      const callNode = node as CallExpr;
+      this.validateMemberAccessDepth(callNode.callee, depth);
+      for (const arg of callNode.arguments) {
+        this.validateMemberAccessDepth(arg, depth);
+      }
+    } else if (node.type === "arrayLiteral") {
+      for (const el of (node as ArrayLiteralExpr).elements) {
+        this.validateMemberAccessDepth(el, depth);
+      }
+    }
+  }
+
+  evaluateAST(node: Expression, context: EvaluationContext): unknown {
     switch (node.type) {
-      case "boolean":
-        return this.evaluateBooleanLiteral(node as BooleanLiteralNode);
+      case "literal":
+        return this.evaluateLiteral(node as LiteralExpr);
 
-      case "number":
-        return this.evaluateNumberLiteral(node as NumberLiteralNode);
-
-      case "string":
-        return this.evaluateStringLiteral(node as StringLiteralNode);
-
-      case "null":
-        return this.evaluateNullLiteral(node as NullLiteralNode);
-
-      case "comparison":
-        return this.evaluateComparison(node as ComparisonNode, context);
-
-      case "logical":
-        return this.evaluateLogical(node as LogicalNode, context);
-
-      case "not":
-        return this.evaluateNot(node as NotNode, context);
-
-      case "arithmetic":
-        return this.evaluateArithmetic(node as ArithmeticNode, context);
-
-      case "stringMethod":
-        return this.evaluateStringMethod(node as StringMethodNode, context);
-
-      case "ternary":
-        return this.evaluateTernary(node as TernaryNode, context);
-
-      case "arrayMethod":
-        return this.evaluateArrayMethod(node as ArrayMethodNode, context);
-
-      case "arrayMethodComparison":
-        return this.evaluateArrayMethodComparison(node as ArrayMethodComparisonNode, context);
-
-      case "functionCall":
-        return this.evaluateFunctionCall(node as FunctionCallNode, context);
+      case "identifier":
+        return this.evaluateIdentifier(node as IdentifierExpr, context);
 
       case "memberAccess":
-        return this.evaluateMemberAccess(node as MemberAccessNode, context);
+        return this.evaluateMemberAccess(node as MemberAccessExpr, context);
+
+      case "unaryMinus":
+        return this.evaluateUnaryMinus(node as UnaryMinusExpr, context);
+
+      case "binary":
+        return this.evaluateBinary(node as BinaryExpr, context);
+
+      case "not":
+        return this.evaluateNot(node as NotExpr, context);
+
+      case "ternary":
+        return this.evaluateTernary(node as TernaryExpr, context);
+
+      case "call":
+        return this.evaluateCall(node as CallExpr, context);
+
+      case "arrayLiteral":
+        return this.evaluateArrayLiteral(node as ArrayLiteralExpr, context);
 
       default:
         throw new RuntimeValidationError(
           `Unknown AST node type: ${(node as { type?: string }).type}`,
-          {
-            operation: "ast_evaluation",
-            field: "node",
-            value: node,
-          },
+          { operation: "ast_evaluation", field: "node", value: node },
         );
     }
   }
 
-  /**
-   * Evaluating Boolean Literals
-   */
-  private evaluateBooleanLiteral(node: BooleanLiteralNode): boolean {
+  private evaluateLiteral(node: LiteralExpr): unknown {
     return node.value;
   }
 
-  /**
-   * Evaluating numeric literals
-   */
-  private evaluateNumberLiteral(node: NumberLiteralNode): number {
-    return node.value;
+  private evaluateIdentifier(node: IdentifierExpr, context: EvaluationContext): unknown {
+    return this.getVariableValue(node.name, context);
   }
 
-  /**
-   * Evaluating string literals
-   */
-  private evaluateStringLiteral(node: StringLiteralNode): string {
-    return node.value;
+  private evaluateUnaryMinus(node: UnaryMinusExpr, context: EvaluationContext): number {
+    const operand = this.evaluateAST(node.operand, context);
+    if (typeof operand !== "number") {
+      this.logger.warn(`Unary minus on non-number: ${typeof operand}`, { operand });
+      return NaN;
+    }
+    return -operand;
   }
 
-  /**
-   * Evaluating the null literal
-   */
-  private evaluateNullLiteral(node: NullLiteralNode): null {
-    return node.value;
+  private evaluateBinary(node: BinaryExpr, context: EvaluationContext): unknown {
+    const { operator } = node;
+
+    if (operator === "&&" || operator === "||") {
+      return this.evaluateLogical(node, context);
+    }
+
+    if (["+", "-", "*", "/", "%"].includes(operator)) {
+      return this.evaluateArithmetic(node, context);
+    }
+
+    return this.evaluateComparison(node, context);
   }
 
-  /**
-   * Evaluate and compare operations
-   */
-  private evaluateComparison(node: ComparisonNode, context: EvaluationContext): unknown {
-    // Check if this is a member access expression
-    if (node.variablePath.startsWith('__MEMBER_ACCESS__:')) {
-      const memberAccessNodeJson = node.variablePath.substring(18); // Remove '__MEMBER_ACCESS__:'
-      const memberAccessNode = JSON.parse(memberAccessNodeJson) as MemberAccessNode;
-      
-      // Evaluate the member access
-      const memberValue = this.evaluateMemberAccess(memberAccessNode, context);
-      
-      // Handle special case: if value has __resolveVariable flag, return the member value directly
-      if (
-        node.value &&
-        typeof node.value === "object" &&
-        (node.value as Record<string, unknown>)["__resolveVariable"]
-      ) {
-        return memberValue;
-      }
-      
-      // Otherwise perform comparison
-      const compareValue = node.value;
-      switch (node.operator) {
-        case "==":
-          return memberValue === compareValue;
-        case "!=":
-          return memberValue !== compareValue;
-        case ">":
-          return typeof memberValue === 'number' && typeof compareValue === 'number' && memberValue > compareValue;
-        case "<":
-          return typeof memberValue === 'number' && typeof compareValue === 'number' && memberValue < compareValue;
-        case ">=":
-          return typeof memberValue === 'number' && typeof compareValue === 'number' && memberValue >= compareValue;
-        case "<=":
-          return typeof memberValue === 'number' && typeof compareValue === 'number' && memberValue <= compareValue;
-        default:
-          this.logger.warn(`Operator ${node.operator} not supported for member access comparison`);
-          return false;
-      }
-    }
-    
-    // Check if this is a function call expression
-    if (node.variablePath.startsWith('__FUNCTION_CALL__:')) {
-      const functionNodeJson = node.variablePath.substring(18); // Remove '__FUNCTION_CALL__:'
-      const functionNode = JSON.parse(functionNodeJson) as FunctionCallNode;
-      
-      // Evaluate the function call
-      const functionResult = this.evaluateFunctionCall(functionNode, context);
-      const compareValue = node.value;
-      
-      // Perform the comparison
-      switch (node.operator) {
-        case "==":
-          return functionResult === compareValue;
-        case "!=":
-          return functionResult !== compareValue;
-        case ">":
-          return typeof functionResult === 'number' && typeof compareValue === 'number' && functionResult > compareValue;
-        case "<":
-          return typeof functionResult === 'number' && typeof compareValue === 'number' && functionResult < compareValue;
-        case ">=":
-          return typeof functionResult === 'number' && typeof compareValue === 'number' && functionResult >= compareValue;
-        case "<=":
-          return typeof functionResult === 'number' && typeof compareValue === 'number' && functionResult <= compareValue;
-        default:
-          this.logger.warn(`Operator ${node.operator} not supported for function call comparison`);
-          return false;
-      }
-    }
-    
-    // Check if this is an array method expression
-    if (node.variablePath.startsWith('__ARRAY_METHOD__:')) {
-      const methodExpression = node.variablePath.substring(15); // Remove '__ARRAY_METHOD__:'
-      const methodAst = parseAST(methodExpression);
-      
-      if (methodAst.type === 'arrayMethod') {
-        const methodResult = this.evaluateArrayMethod(methodAst as ArrayMethodNode, context);
-        const compareValue = node.value;
-        
-        // Perform the comparison
-        switch (node.operator) {
-          case "==":
-            return methodResult === compareValue;
-          case "!=":
-            return methodResult !== compareValue;
-          case ">":
-            return typeof methodResult === 'number' && typeof compareValue === 'number' && methodResult > compareValue;
-          case "<":
-            return typeof methodResult === 'number' && typeof compareValue === 'number' && methodResult < compareValue;
-          case ">=":
-            return typeof methodResult === 'number' && typeof compareValue === 'number' && methodResult >= compareValue;
-          case "<=":
-            return typeof methodResult === 'number' && typeof compareValue === 'number' && methodResult <= compareValue;
-          default:
-            this.logger.warn(`Operator ${node.operator} not supported for array method comparison`);
-            return false;
-        }
-      }
-    }
-    
-    const variableValue = this.getVariableValue(node.variablePath, context);
-
-    // Handle special case: if value has __resolveVariable flag, return the variable value directly
-    if (
-      node.value &&
-      typeof node.value === "object" &&
-      (node.value as Record<string, unknown>)["__resolveVariable"]
-    ) {
-      return variableValue;
-    }
-
-    // Handle variable references
-    let compareValue = node.value;
-    if (
-      compareValue &&
-      typeof compareValue === "object" &&
-      (compareValue as Record<string, unknown>)["__isVariableRef"]
-    ) {
-      compareValue = this.getVariableValue(
-        (compareValue as Record<string, unknown>)["path"] as string,
-        context,
-      );
-    }
-
-    // If the variable does not exist, record a warning log but do not return false, allowing the comparison operator to proceed as normal.
-    if (variableValue === undefined) {
-      this.logger.warn(`Variable not found in condition evaluation: ${node.variablePath}`, {
-        variablePath: node.variablePath,
-        operator: node.operator,
-        compareValue,
-      });
-    }
-
-    switch (node.operator) {
-      case "==":
-        return variableValue === compareValue;
-      case "!=":
-        return variableValue !== compareValue;
-      case ">":
-        if (typeof variableValue !== "number" || typeof compareValue !== "number") {
-          this.logger.warn(
-            `Type mismatch in comparison: ${node.variablePath} (${typeof variableValue}) > ${typeof compareValue}`,
-            { variablePath: node.variablePath, variableValue, compareValue },
-          );
-          return false;
-        }
-        return variableValue > compareValue;
-      case "<":
-        if (typeof variableValue !== "number" || typeof compareValue !== "number") {
-          this.logger.warn(
-            `Type mismatch in comparison: ${node.variablePath} (${typeof variableValue}) < ${typeof compareValue}`,
-            { variablePath: node.variablePath, variableValue, compareValue },
-          );
-          return false;
-        }
-        return variableValue < compareValue;
-      case ">=":
-        if (typeof variableValue !== "number" || typeof compareValue !== "number") {
-          this.logger.warn(
-            `Type mismatch in comparison: ${node.variablePath} (${typeof variableValue}) >= ${typeof compareValue}`,
-            { variablePath: node.variablePath, variableValue, compareValue },
-          );
-          return false;
-        }
-        return variableValue >= compareValue;
-      case "<=":
-        if (typeof variableValue !== "number" || typeof compareValue !== "number") {
-          this.logger.warn(
-            `Type mismatch in comparison: ${node.variablePath} (${typeof variableValue}) <= ${typeof compareValue}`,
-            { variablePath: node.variablePath, variableValue, compareValue },
-          );
-          return false;
-        }
-        return variableValue <= compareValue;
-      case "contains":
-        return String(variableValue).includes(String(compareValue));
-      case "in":
-        if (!Array.isArray(compareValue)) {
-          this.logger.warn(
-            `Right operand of 'in' operator must be an array: ${typeof compareValue}`,
-            { variablePath: node.variablePath, compareValue },
-          );
-          return false;
-        }
-        
-        // ENHANCED: Support checking if object's common properties are in array
-        if (typeof variableValue === 'object' && variableValue !== null && !Array.isArray(variableValue)) {
-          // Try common property names for message-like objects
-          const commonProps = ['role', 'name', 'type', 'id', 'status', 'nodeType'];
-          for (const prop of commonProps) {
-            if (prop in variableValue && compareValue.includes((variableValue as Record<string, unknown>)[prop])) {
-              return true;
-            }
-          }
-          return false;
-        }
-        
-        // Original behavior for primitive values
-        return compareValue.includes(variableValue);
-      default:
-        throw new RuntimeValidationError(`Unknown operator "${node.operator}"`, {
-          operation: "comparison_evaluation",
-          field: "operator",
-          value: node.operator,
-          context: {
-            variablePath: node.variablePath,
-            variableValue,
-            compareValue,
-          },
-        });
-    }
-  }
-
-  /**
-   * Evaluate logical operations
-   */
-  private evaluateLogical(node: LogicalNode, context: EvaluationContext): boolean {
+  private evaluateLogical(node: BinaryExpr, context: EvaluationContext): boolean {
     const leftResult = this.evaluateAST(node.left, context);
 
-    // Short-circuit evaluation
     if (node.operator === "&&" && !leftResult) {
       return false;
     }
@@ -381,29 +167,22 @@ export class ExpressionEvaluator {
 
     if (node.operator === "&&") {
       return Boolean(leftResult && rightResult);
-    } else {
-      return Boolean(leftResult || rightResult);
     }
+    return Boolean(leftResult || rightResult);
   }
 
-  /**
-   * Evaluate the NOT operation
-   */
-  private evaluateNot(node: NotNode, context: EvaluationContext): boolean {
-    const operandResult = this.evaluateAST(node.operand, context);
-    return Boolean(!operandResult);
+  private evaluateNot(node: NotExpr, context: EvaluationContext): boolean {
+    const operand = this.evaluateAST(node.operand, context);
+    return !operand;
   }
 
-  /**
-   * Evaluating Arithmetic Operations
-   */
-  private evaluateArithmetic(node: ArithmeticNode, context: EvaluationContext): number {
+  private evaluateArithmetic(node: BinaryExpr, context: EvaluationContext): number {
     const leftValue = this.evaluateAST(node.left, context);
     const rightValue = this.evaluateAST(node.right, context);
 
     if (typeof leftValue !== "number" || typeof rightValue !== "number") {
       this.logger.warn(
-        `Type mismatch in arithmetic operation: ${typeof leftValue} ${node.operator} ${typeof rightValue}`,
+        `Type mismatch in arithmetic: ${typeof leftValue} ${node.operator} ${typeof rightValue}`,
         { leftValue, rightValue, operator: node.operator },
       );
       return NaN;
@@ -433,26 +212,177 @@ export class ExpressionEvaluator {
     }
   }
 
-  /**
-   * Evaluate String Methods
-   */
-  private evaluateStringMethod(node: StringMethodNode, context: EvaluationContext): unknown {
-    const stringValue = this.getVariableValue(node.variablePath, context);
+  private evaluateComparison(node: BinaryExpr, context: EvaluationContext): unknown {
+    const leftValue = this.evaluateAST(node.left, context);
+    const rightValue = this.evaluateAST(node.right, context);
 
+    const { operator } = node;
+
+    if (leftValue === undefined) {
+      this.logger.warn(`Left operand evaluated to undefined`, { operator, rightValue });
+    }
+
+    switch (operator) {
+      case "==":
+        return leftValue === rightValue;
+      case "!=":
+        return leftValue !== rightValue;
+      case ">":
+        if (typeof leftValue !== "number" || typeof rightValue !== "number") {
+          this.logger.warn(`Type mismatch in > comparison`, { leftValue, rightValue });
+          return false;
+        }
+        return leftValue > rightValue;
+      case "<":
+        if (typeof leftValue !== "number" || typeof rightValue !== "number") {
+          this.logger.warn(`Type mismatch in < comparison`, { leftValue, rightValue });
+          return false;
+        }
+        return leftValue < rightValue;
+      case ">=":
+        if (typeof leftValue !== "number" || typeof rightValue !== "number") {
+          this.logger.warn(`Type mismatch in >= comparison`, { leftValue, rightValue });
+          return false;
+        }
+        return leftValue >= rightValue;
+      case "<=":
+        if (typeof leftValue !== "number" || typeof rightValue !== "number") {
+          this.logger.warn(`Type mismatch in <= comparison`, { leftValue, rightValue });
+          return false;
+        }
+        return leftValue <= rightValue;
+      case "contains":
+        return String(leftValue).includes(String(rightValue));
+      case "in":
+        if (!Array.isArray(rightValue)) {
+          this.logger.warn(`Right operand of 'in' must be an array`, { rightValue });
+          return false;
+        }
+        if (typeof leftValue === "object" && leftValue !== null && !Array.isArray(leftValue)) {
+          const commonProps = ["role", "name", "type", "id", "status", "nodeType"];
+          for (const prop of commonProps) {
+            if (
+              prop in (leftValue as Record<string, unknown>) &&
+              rightValue.includes((leftValue as Record<string, unknown>)[prop])
+            ) {
+              return true;
+            }
+          }
+          return false;
+        }
+        return rightValue.includes(leftValue);
+      default:
+        throw new RuntimeValidationError(`Unknown comparison operator: ${operator}`, {
+          operation: "comparison_evaluation",
+          field: "operator",
+          value: operator,
+        });
+    }
+  }
+
+  private evaluateTernary(node: TernaryExpr, context: EvaluationContext): unknown {
+    const condition = this.evaluateAST(node.condition, context);
+    if (condition) {
+      return this.evaluateAST(node.consequent, context);
+    }
+    return this.evaluateAST(node.alternate, context);
+  }
+
+  private evaluateCall(node: CallExpr, context: EvaluationContext): unknown {
+    if (node.callee.type === "memberAccess") {
+      const methodCallee = node.callee as MemberAccessExpr;
+      const methodName = methodCallee.property;
+      let methodKind = node.methodKind;
+
+      if (!methodKind) {
+        methodKind = this.determineMethodKind(methodName);
+      }
+
+      if (methodKind === "arrayMethod" || methodKind === "stringMethod") {
+        const obj = this.evaluateAST(methodCallee.object, context);
+
+        if (methodKind === "stringMethod") {
+          return this.evaluateStringMethod(methodName, obj, node, context);
+        }
+        return this.evaluateArrayMethod(methodName, obj, node, context);
+      }
+    }
+
+    if (node.callee.type === "identifier") {
+      const funcName = (node.callee as IdentifierExpr).name;
+      const func = this.registeredFunctions.get(funcName);
+      if (!func) {
+        throw new RuntimeValidationError(`Unknown function: ${funcName}`, {
+          operation: "function_call_evaluation",
+          field: "functionName",
+          value: funcName,
+          context: { availableFunctions: Array.from(this.registeredFunctions.keys()) },
+        });
+      }
+      try {
+        const args = node.arguments.map((arg) => this.evaluateAST(arg, context));
+        return func(...args);
+      } catch (error) {
+        this.logger.error(`Function execution failed: ${funcName}`, {
+          functionName: funcName,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        throw new RuntimeValidationError(
+          `Function execution failed: ${funcName} - ${error instanceof Error ? error.message : String(error)}`,
+          { operation: "function_call_execution", field: "functionName", value: funcName },
+        );
+      }
+    }
+
+    throw new RuntimeValidationError("Unknown call expression type", {
+      operation: "call_evaluation",
+      field: "callee",
+      value: node.callee,
+    });
+  }
+
+  private determineMethodKind(methodName: string): "arrayMethod" | "stringMethod" | "function" {
+    const arrayMethods = [
+      "someEqual", "someContains", "everyEqual", "everyHas",
+      "countWhere", "countWhereContains", "findEqual", "findContains",
+      "has", "hasContains", "sum", "avg", "min", "max",
+      "someGreaterThan", "someLessThan", "everyGreaterThan", "everyLessThan",
+      "map", "distinct", "first", "last",
+    ];
+
+    if (arrayMethods.includes(methodName)) {
+      return "arrayMethod";
+    }
+
+    const stringMethods = ["startsWith", "endsWith", "toLowerCase", "toUpperCase", "trim"];
+    if (stringMethods.includes(methodName)) {
+      return "stringMethod";
+    }
+
+    return "function";
+  }
+
+  private evaluateStringMethod(
+    methodName: string,
+    stringValue: unknown,
+    node: CallExpr,
+    context: EvaluationContext,
+  ): unknown {
     if (typeof stringValue !== "string") {
-      this.logger.warn(`String method called on non-string value: ${typeof stringValue}`, {
-        variablePath: node.variablePath,
-        value: stringValue,
-        method: node.method,
+      this.logger.warn(`String method '${methodName}' called on non-string`, {
+        method: methodName,
+        valueType: typeof stringValue,
       });
       return false;
     }
 
-    switch (node.method) {
+    const args = node.arguments.map((arg) => this.evaluateAST(arg, context));
+
+    switch (methodName) {
       case "startsWith":
-        return stringValue.startsWith(String(node.argument || ""));
+        return stringValue.startsWith(String(args[0] || ""));
       case "endsWith":
-        return stringValue.endsWith(String(node.argument || ""));
+        return stringValue.endsWith(String(args[0] || ""));
       case "length":
         return stringValue.length;
       case "toLowerCase":
@@ -462,219 +392,277 @@ export class ExpressionEvaluator {
       case "trim":
         return stringValue.trim();
       default:
-        throw new RuntimeValidationError(`Unknown string method: ${node.method}`, {
+        throw new RuntimeValidationError(`Unknown string method: ${methodName}`, {
           operation: "string_method_evaluation",
           field: "method",
-          value: node.method,
+          value: methodName,
         });
     }
   }
 
-  /**
-   * Evaluating the ternary operator
-   */
-  private evaluateTernary(node: TernaryNode, context: EvaluationContext): unknown {
-    const conditionResult = this.evaluateAST(node.condition, context);
-
-    if (conditionResult) {
-      return this.evaluateAST(node.consequent, context);
-    } else {
-      return this.evaluateAST(node.alternate, context);
-    }
-  }
-
-  /**
-   * Evaluate Array Methods
-   */
-  private evaluateArrayMethod(node: ArrayMethodNode, context: EvaluationContext): unknown {
-    // Create cache key from method, path, and arguments
-    const cacheKey = `${node.method}:${node.arrayPath}:${node.propertyName}:${JSON.stringify(node.value)}`;
-    
-    // Check cache first
+  private evaluateArrayMethod(
+    methodName: string,
+    array: unknown,
+    node: CallExpr,
+    context: EvaluationContext,
+  ): unknown {
+    const cacheKey = `${methodName}:${JSON.stringify(node.arguments.map((a) => this.evaluateAST(a, context)))}`;
     const cached = this.cache.get(cacheKey);
     const now = Date.now();
-    
-    if (cached && (now - cached.timestamp) < this.CACHE_TTL) {
-      this.logger.debug(`Cache hit for array method: ${cacheKey}`);
+    if (cached && now - cached.timestamp < this.CACHE_TTL) {
       return cached.value;
     }
-    
-    // Compute result
-    const result = this.computeArrayMethod(node, context);
-    
-    // Store in cache
+
+    const result = this.computeArrayMethod(methodName, array, node, context);
+
     this.cache.set(cacheKey, { value: result, timestamp: now });
-    
-    // Clean old entries if cache is too large
     if (this.cache.size > 100) {
       this.cleanCache(now);
     }
-    
     return result;
   }
-  
-  /**
-   * Compute array method result (actual implementation)
-   */
-  private computeArrayMethod(node: ArrayMethodNode, context: EvaluationContext): unknown {
-    const array = this.getVariableValue(node.arrayPath, context);
-    
+
+  private computeArrayMethod(
+    methodName: string,
+    array: unknown,
+    node: CallExpr,
+    context: EvaluationContext,
+  ): unknown {
     if (array === undefined || array === null) {
-      this.logger.warn(
-        `Array path '${node.arrayPath}' resolved to ${array === undefined ? 'undefined' : 'null'}`,
-        { 
-          arrayPath: node.arrayPath, 
-          method: node.method,
-          contextKeys: Object.keys(context)
-        }
-      );
-      return this.handleEmptyArray(node.method);
+      this.logger.warn(`Array resolved to ${array === undefined ? "undefined" : "null"}`, {
+        method: methodName,
+      });
+      return this.handleEmptyArray(methodName);
     }
-    
+
     if (!Array.isArray(array)) {
-      this.logger.error(
-        `Expected array for method '${node.method}', got ${typeof array}`,
-        { 
-          arrayPath: node.arrayPath, 
-          method: node.method,
-          actualType: typeof array,
-          actualValue: array
-        }
-      );
+      this.logger.warn(`Expected array for method '${methodName}', got ${typeof array}`, {
+        method: methodName,
+        actualType: typeof array,
+      });
       return false;
     }
-    
-    // Validate arguments
-    this.validateArrayMethodArgs(node.method, node.propertyName, node.value);
-    
+
+    const args = node.arguments.map((arg) => this.evaluateAST(arg, context));
+    const propertyName = args.length > 0 ? String(args[0]) : "";
+    const value = args.length > 1 ? args[1] : undefined;
+
     if (array.length === 0) {
-      return this.handleEmptyArray(node.method);
+      return this.handleEmptyArray(methodName);
     }
-    
-    switch (node.method) {
-      case 'someEqual':
-        return array.some(item => this.getPropertyValue(item, node.propertyName) === node.value);
-      
-      case 'someContains':
-        return array.some(item => {
-          const propValue = this.getPropertyValue(item, node.propertyName);
-          return typeof propValue === 'string' && propValue.includes(String(node.value));
+
+    switch (methodName) {
+      case "someEqual":
+        return array.some((item) => this.getPropertyValue(item, propertyName) === value);
+      case "someContains":
+        return array.some((item) => {
+          const propValue = this.getPropertyValue(item, propertyName);
+          return typeof propValue === "string" && propValue.includes(String(value));
         });
-      
-      case 'everyEqual':
-        return array.every(item => this.getPropertyValue(item, node.propertyName) === node.value);
-      
-      case 'everyHas':
-        return array.every(item => node.propertyName in item && item[node.propertyName] != null);
-      
-      case 'countWhere':
-        return array.filter(item => this.getPropertyValue(item, node.propertyName) === node.value).length;
-      
-      case 'countWhereContains':
-        return array.filter(item => {
-          const propValue = this.getPropertyValue(item, node.propertyName);
-          return typeof propValue === 'string' && propValue.includes(String(node.value));
+      case "everyEqual":
+        return array.every((item) => this.getPropertyValue(item, propertyName) === value);
+      case "everyHas":
+        return array.every((item) => propertyName in item && item[propertyName] != null);
+      case "countWhere":
+        return array.filter((item) => this.getPropertyValue(item, propertyName) === value).length;
+      case "countWhereContains":
+        return array.filter((item) => {
+          const propValue = this.getPropertyValue(item, propertyName);
+          return typeof propValue === "string" && propValue.includes(String(value));
         }).length;
-      
-      case 'findEqual':
-        return array.find(item => this.getPropertyValue(item, node.propertyName) === node.value) ?? null;
-      
-      case 'findContains':
-        return array.find(item => {
-          const propValue = this.getPropertyValue(item, node.propertyName);
-          return typeof propValue === 'string' && propValue.includes(String(node.value));
-        }) ?? null;
-      
-      case 'has':
-        return array.some(item => this.getPropertyValue(item, node.propertyName) === node.value);
-      
-      case 'hasContains':
-        return array.some(item => {
-          const propValue = this.getPropertyValue(item, node.propertyName);
-          return typeof propValue === 'string' && propValue.includes(String(node.value));
+      case "findEqual":
+        return array.find((item) => this.getPropertyValue(item, propertyName) === value) ?? null;
+      case "findContains":
+        return (
+          array.find((item) => {
+            const propValue = this.getPropertyValue(item, propertyName);
+            return typeof propValue === "string" && propValue.includes(String(value));
+          }) ?? null
+        );
+      case "has":
+        return array.some((item) => this.getPropertyValue(item, propertyName) === value);
+      case "hasContains":
+        return array.some((item) => {
+          const propValue = this.getPropertyValue(item, propertyName);
+          return typeof propValue === "string" && propValue.includes(String(value));
         });
-      
-      // Phase 3.1: Aggregation functions
-      case 'sum':
+      case "sum":
         return array.reduce((acc, item) => {
-          const val = this.getPropertyValue(item, node.propertyName);
-          return typeof val === 'number' ? acc + val : acc;
+          const val = this.getPropertyValue(item, propertyName);
+          return typeof val === "number" ? acc + val : acc;
         }, 0);
-      
-      case 'avg': {
-        const numericValues = array.map(item => this.getPropertyValue(item, node.propertyName))
-                                    .filter(v => typeof v === 'number');
-        if (numericValues.length === 0) {
-          return 0;
-        }
-        const sum = numericValues.reduce((acc, val) => acc + val, 0);
-        return sum / numericValues.length;
+      case "avg": {
+        const numericValues = array
+          .map((item) => this.getPropertyValue(item, propertyName))
+          .filter((v) => typeof v === "number");
+        if (numericValues.length === 0) return 0;
+        return numericValues.reduce((acc, val) => acc + val, 0) / numericValues.length;
       }
-      
-      case 'min': {
-        const values = array.map(item => this.getPropertyValue(item, node.propertyName))
-                            .filter(v => typeof v === 'number');
+      case "min": {
+        const values = array
+          .map((item) => this.getPropertyValue(item, propertyName))
+          .filter((v) => typeof v === "number");
         return values.length > 0 ? Math.min(...values) : null;
       }
-      
-      case 'max': {
-        const maxValues = array.map(item => this.getPropertyValue(item, node.propertyName))
-                               .filter(v => typeof v === 'number');
+      case "max": {
+        const maxValues = array
+          .map((item) => this.getPropertyValue(item, propertyName))
+          .filter((v) => typeof v === "number");
         return maxValues.length > 0 ? Math.max(...maxValues) : null;
       }
-      
-      // Phase 3.2: Comparison-based filters
-      case 'someGreaterThan':
-        return array.some(item => {
-          const val = this.getPropertyValue(item, node.propertyName);
-          return typeof val === 'number' && val > (node.value as number);
+      case "someGreaterThan":
+        return array.some((item) => {
+          const val = this.getPropertyValue(item, propertyName);
+          return typeof val === "number" && val > (value as number);
         });
-      
-      case 'someLessThan':
-        return array.some(item => {
-          const val = this.getPropertyValue(item, node.propertyName);
-          return typeof val === 'number' && val < (node.value as number);
+      case "someLessThan":
+        return array.some((item) => {
+          const val = this.getPropertyValue(item, propertyName);
+          return typeof val === "number" && val < (value as number);
         });
-      
-      case 'everyGreaterThan':
-        return array.every(item => {
-          const val = this.getPropertyValue(item, node.propertyName);
-          return typeof val === 'number' && val > (node.value as number);
+      case "everyGreaterThan":
+        return array.every((item) => {
+          const val = this.getPropertyValue(item, propertyName);
+          return typeof val === "number" && val > (value as number);
         });
-      
-      case 'everyLessThan':
-        return array.every(item => {
-          const val = this.getPropertyValue(item, node.propertyName);
-          return typeof val === 'number' && val < (node.value as number);
+      case "everyLessThan":
+        return array.every((item) => {
+          const val = this.getPropertyValue(item, propertyName);
+          return typeof val === "number" && val < (value as number);
         });
-      
-      // Phase 3.4: Array transformation methods
-      case 'map':
-        return array.map(item => this.getPropertyValue(item, node.propertyName));
-      
-      case 'distinct': {
-        const distinctValues = array.map(item => this.getPropertyValue(item, node.propertyName));
+      case "map":
+        return array.map((item) => this.getPropertyValue(item, propertyName));
+      case "distinct": {
+        const distinctValues = array.map((item) => this.getPropertyValue(item, propertyName));
         return [...new Set(distinctValues)];
       }
-      
-      case 'first':
+      case "first":
         return array.length > 0 ? array[0] : null;
-      
-      case 'last':
+      case "last":
         return array.length > 0 ? array[array.length - 1] : null;
-      
       default:
-        throw new RuntimeValidationError(`Unknown array method: ${node.method}`, {
+        throw new RuntimeValidationError(`Unknown array method: ${methodName}`, {
           operation: "array_method_evaluation",
           field: "method",
-          value: node.method
+          value: methodName,
         });
     }
   }
-  
-  /**
-   * Clean expired cache entries
-   */
+
+  private handleEmptyArray(method: string): unknown {
+    const boolFalse = ["someEqual", "someContains", "has", "hasContains", "someGreaterThan", "someLessThan"];
+    const boolTrue = ["everyEqual", "everyHas", "everyGreaterThan", "everyLessThan"];
+    const zero = ["countWhere", "countWhereContains", "sum"];
+    const nullResult = ["findEqual", "findContains", "first", "last", "min", "max"];
+    const emptyArray = ["map", "distinct"];
+
+    if (boolFalse.includes(method)) return false;
+    if (boolTrue.includes(method)) return true;
+    if (zero.includes(method)) return 0;
+    if (nullResult.includes(method)) return null;
+    if (emptyArray.includes(method)) return [];
+    if (method === "avg") return 0;
+    return false;
+  }
+
+  private getPropertyValue(obj: unknown, propertyPath: string): unknown {
+    if (typeof obj !== "object" || obj === null) {
+      return undefined;
+    }
+    const parts = propertyPath.split(".");
+    let current: unknown = obj;
+    for (const part of parts) {
+      if (typeof current !== "object" || current === null) {
+        return undefined;
+      }
+      current = (current as Record<string, unknown>)[part];
+      if (current === undefined) {
+        return undefined;
+      }
+    }
+    return current;
+  }
+
+  private evaluateArrayLiteral(node: ArrayLiteralExpr, context: EvaluationContext): unknown[] {
+    return node.elements.map((el) => this.evaluateAST(el, context));
+  }
+
+  private getVariableValue(variablePath: string, context: EvaluationContext): unknown {
+    validatePath(variablePath);
+
+    if (variablePath === "input") return context.input;
+    if (variablePath === "output") return context.output;
+    if (variablePath === "variables") return context.variables;
+
+    const isNestedPath = variablePath.includes(".") || variablePath.includes("[");
+
+    if (isNestedPath) {
+      if (variablePath.startsWith("input.")) {
+        return resolvePath(variablePath.substring(6), context.input);
+      }
+      if (variablePath.startsWith("output.")) {
+        return resolvePath(variablePath.substring(7), context.output);
+      }
+      if (variablePath.startsWith("variables.")) {
+        return resolvePath(variablePath.substring(10), context.variables);
+      }
+      return resolvePath(variablePath, context.variables);
+    }
+    return context.variables[variablePath];
+  }
+
+  private evaluateMemberAccess(node: MemberAccessExpr, context: EvaluationContext): unknown {
+    const obj = this.evaluateAST(node.object, context);
+
+    if (obj === null || obj === undefined) {
+      this.logger.warn(`Cannot access property '${node.property}' on ${obj}`, {
+        property: node.property,
+      });
+      return undefined;
+    }
+
+    if (typeof obj === "string" || typeof obj === "number" || typeof obj === "boolean") {
+      return (obj as any)[node.property];
+    }
+
+    if (typeof obj !== "object") {
+      this.logger.warn(`Cannot access property '${node.property}' on non-object: ${typeof obj}`, {
+        property: node.property,
+        objectType: typeof obj,
+      });
+      return undefined;
+    }
+
+    if (node.property === "__proto__" || node.property === "constructor" || node.property === "prototype") {
+      this.logger.warn(`Blocked access to forbidden property: ${node.property}`);
+      throw new RuntimeValidationError(
+        `Access to forbidden property '${node.property}' is not allowed`,
+        { operation: "member_access_evaluation", field: "property", value: node.property },
+      );
+    }
+
+    const result = (obj as Record<string, unknown>)[node.property];
+    this.logger.debug(`Member access: ${node.property} = ${result}`, {
+      property: node.property,
+      resultType: typeof result,
+    });
+    return result;
+  }
+
+  registerFunction(name: string, fn: (...args: any[]) => any): void {
+    this.registeredFunctions.set(name, fn);
+    this.logger.info(`Registered custom function: ${name}`);
+  }
+
+  unregisterFunction(name: string): void {
+    this.registeredFunctions.delete(name);
+    this.logger.info(`Unregistered custom function: ${name}`);
+  }
+
+  getRegisteredFunctions(): string[] {
+    return Array.from(this.registeredFunctions.keys());
+  }
+
   private cleanCache(now: number): void {
     for (const [key, entry] of this.cache.entries()) {
       if (now - entry.timestamp > this.CACHE_TTL) {
@@ -682,347 +670,6 @@ export class ExpressionEvaluator {
       }
     }
   }
-
-  /**
-   * Evaluate Array Method Comparison
-   * Handles expressions like: input.messages.countWhere('role', 'user') > 5
-   */
-  private evaluateArrayMethodComparison(node: ArrayMethodComparisonNode, context: EvaluationContext): boolean {
-    // First evaluate the array method
-    const methodResult = this.evaluateArrayMethod(node.methodNode, context);
-    
-    // Handle variable references in compare value
-    let compareValue = node.compareValue;
-    if (compareValue && typeof compareValue === "object" && 
-        (compareValue as Record<string, unknown>)["__isVariableRef"]) {
-      compareValue = this.getVariableValue(
-        (compareValue as Record<string, unknown>)["path"] as string,
-        context
-      );
-    }
-    
-    // Validate types before comparison
-    if (!validateComparisonTypes(node.operator, methodResult, compareValue, {
-      method: node.methodNode.method,
-      propertyPath: node.methodNode.arrayPath
-    })) {
-      return false;
-    }
-    
-    // Perform comparison based on operator
-    switch (node.operator) {
-      case "==":
-        return methodResult === compareValue;
-      case "!=":
-        return methodResult !== compareValue;
-      case ">":
-        return typeof methodResult === 'number' && typeof compareValue === 'number' && 
-               methodResult > compareValue;
-      case "<":
-        return typeof methodResult === 'number' && typeof compareValue === 'number' && 
-               methodResult < compareValue;
-      case ">=":
-        return typeof methodResult === 'number' && typeof compareValue === 'number' && 
-               methodResult >= compareValue;
-      case "<=":
-        return typeof methodResult === 'number' && typeof compareValue === 'number' && 
-               methodResult <= compareValue;
-      default:
-        this.logger.warn(`Unsupported operator ${node.operator} for array method comparison`);
-        return false;
-    }
-  }
-
-  /**
-   * Validate array method arguments
-   */
-  private validateArrayMethodArgs(method: ArrayMethodName, propertyName: string, value?: unknown): void {
-    // Methods that don't require property name
-    const noArgMethods = ['first', 'last'];
-    if (noArgMethods.includes(method)) {
-      return;
-    }
-    
-    if (!propertyName || propertyName.trim() === '') {
-      throw new RuntimeValidationError(
-        `Property name cannot be empty for method ${method}`,
-        { 
-          operation: "validate_array_method_args",
-          context: { method, propertyName }
-        }
-      );
-    }
-    
-    // Type-specific validations
-    if (method.includes('Contains') && value !== undefined) {
-      if (typeof value !== 'string') {
-        this.logger.warn(
-          `Method ${method} expects string value for contains check, got ${typeof value}`,
-          { method, value, valueType: typeof value }
-        );
-      }
-    }
-  }
-
-  /**
-   * Get property value from object
-   * Supports nested property access using dot notation (e.g., 'metadata.tags.name')
-   */
-  private getPropertyValue(obj: unknown, propertyPath: string): unknown {
-    if (typeof obj !== 'object' || obj === null) {
-      return undefined;
-    }
-    
-    // Support dot notation: metadata.tags.name
-    const parts = propertyPath.split('.');
-    let current: unknown = obj;
-    
-    for (const part of parts) {
-      if (typeof current !== 'object' || current === null) {
-        this.logger.debug(
-          `Cannot access property '${part}' on non-object value`,
-          { propertyPath, currentType: typeof current }
-        );
-        return undefined;
-      }
-      current = (current as Record<string, unknown>)[part];
-      
-      if (current === undefined) {
-        this.logger.debug(
-          `Property '${part}' not found in object`,
-          { propertyPath, availableKeys: current && typeof current === 'object' ? Object.keys(current) : [] }
-        );
-        return undefined;
-      }
-    }
-    
-    return current;
-  }
-
-  /**
-   * Handle empty array edge cases
-   */
-  private handleEmptyArray(method: ArrayMethodName): unknown {
-    switch (method) {
-      case 'someEqual':
-      case 'someContains':
-      case 'has':
-      case 'hasContains':
-      case 'someGreaterThan':
-      case 'someLessThan':
-        return false;  // No items match
-      
-      case 'everyEqual':
-      case 'everyHas':
-      case 'everyGreaterThan':
-      case 'everyLessThan':
-        return true;   // Vacuously true
-      
-      case 'countWhere':
-      case 'countWhereContains':
-      case 'sum':
-        return 0;      // Zero matches or sum
-      
-      case 'findEqual':
-      case 'findContains':
-      case 'first':
-      case 'last':
-        return null;   // No item found
-      
-      case 'avg':
-        return 0;   // Return 0 for empty arrays (more intuitive for average)
-      
-      case 'min':
-      case 'max':
-        return null;   // Cannot compute min/max on empty array
-      
-      case 'map':
-      case 'distinct':
-        return [];     // Empty array result
-      
-      default:
-        return false;
-    }
-  }
-
-  /**
-   * Getting the value of a variable
-   *
-   * Data source access rules:
-   * - Explicit prefixes: input.xxx, output.xxx, variables.xxx - get from the specified data source
-   * - Simple variable names: xxx - only from variables (syntactic sugar, equivalent to variables.xxx)
-   * - Other nested paths: user.name - get from variables (equivalent to variables.user.name)
-   *
-   * @param variablePath variablePath
-   * @param context Evaluation context
-   * @returns Variable value
-   */
-  private getVariableValue(variablePath: string, context: EvaluationContext): unknown {
-    // Verify path security
-    validatePath(variablePath);
-
-    // Determine whether it is a nested path.
-    const isNestedPath = variablePath.includes(".") || variablePath.includes("[");
-
-    if (isNestedPath) {
-      // Check if it starts with 'input.'
-      if (variablePath.startsWith("input.")) {
-        const subPath = variablePath.substring(6); // Remove 'input.'
-        return resolvePath(subPath, context.input);
-      }
-
-      // Check if it starts with "output.".
-      if (variablePath.startsWith("output.")) {
-        const subPath = variablePath.substring(7); // Remove 'output.'
-        return resolvePath(subPath, context.output);
-      }
-
-      // Check if it starts with "variables.".
-      if (variablePath.startsWith("variables.")) {
-        const subPath = variablePath.substring(10); // Remove 'variables.'
-        return resolvePath(subPath, context.variables);
-      }
-
-      // Other nested paths: Obtained from variables (equivalent to variables.xxx)
-      return resolvePath(variablePath, context.variables);
-    } else {
-      // Simple variable names: Retrieved only from `variables` (syntactic sugar, equivalent to `variables.xxx`).
-      return context.variables[variablePath];
-    }
-  }
-
-  /**
-   * Evaluate Function Call
-   * Supports custom function invocation for extensibility
-   * @param node Function call AST node
-   * @param context Evaluation context
-   * @returns Function execution result
-   */
-  private evaluateFunctionCall(node: FunctionCallNode, context: EvaluationContext): unknown {
-    const func = this.registeredFunctions.get(node.functionName);
-    
-    if (!func) {
-      throw new RuntimeValidationError(
-        `Unknown function: ${node.functionName}`,
-        {
-          operation: "function_call_evaluation",
-          field: "functionName",
-          value: node.functionName,
-          context: {
-            availableFunctions: Array.from(this.registeredFunctions.keys()),
-          },
-        },
-      );
-    }
-    
-    try {
-      // Evaluate all arguments
-      const args = node.arguments.map(arg => this.evaluateAST(arg, context));
-      
-      // Execute the function
-      return func(...args);
-    } catch (error) {
-      this.logger.error(
-        `Function execution failed: ${node.functionName}`,
-        {
-          functionName: node.functionName,
-          error: error instanceof Error ? error.message : String(error),
-        },
-      );
-      throw new RuntimeValidationError(
-        `Function execution failed: ${node.functionName} - ${error instanceof Error ? error.message : String(error)}`,
-        {
-          operation: "function_call_execution",
-          field: "functionName",
-          value: node.functionName,
-        },
-      );
-    }
-  }
-
-  /**
-   * Register a custom function
-   * @param name Function name
-   * @param fn Function implementation
-   */
-  registerFunction(name: string, fn: (...args: any[]) => any): void {
-    this.registeredFunctions.set(name, fn);
-    this.logger.info(`Registered custom function: ${name}`);
-  }
-
-  /**
-   * Evaluate Member Access (property access on objects)
-   * Provides better static analysis and error messages for property access
-   * @param node MemberAccessNode
-   * @param context Evaluation context
-   * @returns The accessed property value
-   */
-  private evaluateMemberAccess(node: MemberAccessNode, context: EvaluationContext): unknown {
-    // First evaluate the object
-    const obj = this.evaluateAST(node.object, context);
-    
-    // Check if object is null or undefined
-    if (obj === null || obj === undefined) {
-      this.logger.warn(
-        `Cannot access property '${node.property}' on ${obj}`,
-        { property: node.property, objectType: typeof obj }
-      );
-      return undefined;
-    }
-    
-    // Check if object is actually an object type
-    if (typeof obj !== 'object') {
-      this.logger.warn(
-        `Cannot access property '${node.property}' on non-object type: ${typeof obj}`,
-        { property: node.property, objectType: typeof obj, value: obj }
-      );
-      return undefined;
-    }
-    
-    // Security check: prevent prototype pollution
-    if (node.property === '__proto__' || node.property === 'constructor' || node.property === 'prototype') {
-      this.logger.warn(
-        `Blocked access to forbidden property: ${node.property}`,
-        { property: node.property }
-      );
-      throw new RuntimeValidationError(
-        `Access to forbidden property '${node.property}' is not allowed`,
-        {
-          operation: "member_access_evaluation",
-          field: "property",
-          value: node.property,
-        }
-      );
-    }
-    
-    // Access the property
-    const result = (obj as Record<string, unknown>)[node.property];
-    
-    this.logger.debug(
-      `Member access: ${node.property} = ${result}`,
-      { property: node.property, resultType: typeof result }
-    );
-    
-    return result;
-  }
-
-  /**
-   * Unregister a custom function
-   * @param name Function name
-   */
-  unregisterFunction(name: string): void {
-    this.registeredFunctions.delete(name);
-    this.logger.info(`Unregistered custom function: ${name}`);
-  }
-
-  /**
-   * Get list of registered functions
-   * @returns Array of registered function names
-   */
-  getRegisteredFunctions(): string[] {
-    return Array.from(this.registeredFunctions.keys());
-  }
 }
 
-// Export a singleton instance
 export const expressionEvaluator = new ExpressionEvaluator();

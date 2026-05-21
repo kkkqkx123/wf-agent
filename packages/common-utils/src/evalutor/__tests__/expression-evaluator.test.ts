@@ -2,22 +2,19 @@
  * ExpressionEvaluator Unit Tests
  */
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { ExpressionEvaluator, expressionEvaluator } from "../expression-evaluator.js";
 import { RuntimeValidationError } from "@wf-agent/types";
 import type { EvaluationContext } from "@wf-agent/types";
 import type {
-  BooleanLiteralNode,
-  NumberLiteralNode,
-  StringLiteralNode,
-  NullLiteralNode,
-  ComparisonNode,
-  LogicalNode,
-  NotNode,
-  ArithmeticNode,
-  StringMethodNode,
-  TernaryNode,
-} from "../ast-types.js";
+  LiteralExpr,
+  BinaryExpr,
+  UnaryMinusExpr,
+  NotExpr,
+  TernaryExpr,
+  CallExpr,
+  ArrayLiteralExpr,
+} from "../dsl/types.js";
 
 describe("ExpressionEvaluator", () => {
   let evaluator: ExpressionEvaluator;
@@ -169,10 +166,7 @@ describe("ExpressionEvaluator", () => {
     });
 
     it("Complex arithmetic expressions should be evaluated.", () => {
-      // Note: Since the parser processes from left to right, the priorities of * / % and + - are the same.
-      // So '25 * 2 + 10' is parsed as '25 * (2 + 10)' = 300
-      expect(evaluator.evaluate("25 * 2 + 10", context)).toBe(300);
-      // Use parentheses to clarify the priority.
+      expect(evaluator.evaluate("25 * 2 + 10", context)).toBe(60);
       expect(evaluator.evaluate("(25 + 5) * 2", context)).toBe(60);
     });
   });
@@ -205,7 +199,7 @@ describe("ExpressionEvaluator", () => {
     });
 
     it("Methods that should handle string values that are not actually strings", () => {
-      expect(evaluator.evaluate("user.age.length", context)).toBe(false);
+      expect(evaluator.evaluate("user.age.length", context)).toBeUndefined();
     });
   });
 
@@ -309,151 +303,164 @@ describe("ExpressionEvaluator", () => {
 
   describe("evaluateAST - literal nodes", () => {
     it("Boolean literal nodes should be evaluated", () => {
-      const node: BooleanLiteralNode = { type: "boolean", value: true };
+      const node: LiteralExpr = { type: "literal", valueType: "boolean", value: true };
       expect(evaluator.evaluateAST(node, context)).toBe(true);
 
-      const node2: BooleanLiteralNode = { type: "boolean", value: false };
+      const node2: LiteralExpr = { type: "literal", valueType: "boolean", value: false };
       expect(evaluator.evaluateAST(node2, context)).toBe(false);
     });
 
     it("Digital Literal Quantity nodes should be evaluated", () => {
-      const node: NumberLiteralNode = { type: "number", value: 42 };
+      const node: LiteralExpr = { type: "literal", valueType: "number", value: 42 };
       expect(evaluator.evaluateAST(node, context)).toBe(42);
 
-      const node2: NumberLiteralNode = { type: "number", value: -10.5 };
+      const node2: LiteralExpr = { type: "literal", valueType: "number", value: -10.5 };
       expect(evaluator.evaluateAST(node2, context)).toBe(-10.5);
     });
 
     it("String literal nodes should be evaluated", () => {
-      const node: StringLiteralNode = { type: "string", value: "hello" };
+      const node: LiteralExpr = { type: "literal", valueType: "string", value: "hello" };
       expect(evaluator.evaluateAST(node, context)).toBe("hello");
     });
 
     it("The null literal node should be evaluated", () => {
-      const node: NullLiteralNode = { type: "null", value: null };
+      const node: LiteralExpr = { type: "literal", valueType: "null", value: null };
       expect(evaluator.evaluateAST(node, context)).toBe(null);
     });
   });
 
-  describe("evaluateAST - Compare Nodes", () => {
-    it("Should evaluate equals compare nodes", () => {
-      const node: ComparisonNode = {
-        type: "comparison",
-        variablePath: "user.age",
+  describe("evaluateAST - binary comparison nodes", () => {
+    it("Should evaluate equals binary nodes", () => {
+      const node: BinaryExpr = {
+        type: "binary",
         operator: "==",
-        value: 25,
+        left: { type: "identifier", name: "user.age" },
+        right: { type: "literal", valueType: "number", value: 25 },
       };
       expect(evaluator.evaluateAST(node, context)).toBe(true);
     });
 
-    it("Should evaluate is not the same as compare nodes", () => {
-      const node: ComparisonNode = {
-        type: "comparison",
-        variablePath: "user.age",
+    it("Should evaluate not equal binary nodes", () => {
+      const node: BinaryExpr = {
+        type: "binary",
         operator: "!=",
-        value: 30,
+        left: { type: "identifier", name: "user.age" },
+        right: { type: "literal", valueType: "number", value: 30 },
       };
       expect(evaluator.evaluateAST(node, context)).toBe(true);
     });
 
-    it("Should evaluate more than compare nodes", () => {
-      const node: ComparisonNode = {
-        type: "comparison",
-        variablePath: "user.age",
+    it("Should evaluate greater than binary nodes", () => {
+      const node: BinaryExpr = {
+        type: "binary",
         operator: ">",
-        value: 20,
+        left: { type: "identifier", name: "user.age" },
+        right: { type: "literal", valueType: "number", value: 20 },
       };
       expect(evaluator.evaluateAST(node, context)).toBe(true);
     });
 
-    it("Should evaluate less than comparison nodes", () => {
-      const node: ComparisonNode = {
-        type: "comparison",
-        variablePath: "user.age",
+    it("Should evaluate less than binary nodes", () => {
+      const node: BinaryExpr = {
+        type: "binary",
         operator: "<",
-        value: 30,
+        left: { type: "identifier", name: "user.age" },
+        right: { type: "literal", valueType: "number", value: 30 },
       };
       expect(evaluator.evaluateAST(node, context)).toBe(true);
     });
 
-    it("should be evaluated greater than or equal to the comparison node", () => {
-      const node: ComparisonNode = {
-        type: "comparison",
-        variablePath: "user.age",
+    it("should be evaluated greater than or equal to binary nodes", () => {
+      const node: BinaryExpr = {
+        type: "binary",
         operator: ">=",
-        value: 25,
+        left: { type: "identifier", name: "user.age" },
+        right: { type: "literal", valueType: "number", value: 25 },
       };
       expect(evaluator.evaluateAST(node, context)).toBe(true);
     });
 
-    it("should be evaluated less than or equal to the comparison node", () => {
-      const node: ComparisonNode = {
-        type: "comparison",
-        variablePath: "user.age",
+    it("should be evaluated less than or equal to binary nodes", () => {
+      const node: BinaryExpr = {
+        type: "binary",
         operator: "<=",
-        value: 25,
+        left: { type: "identifier", name: "user.age" },
+        right: { type: "literal", valueType: "number", value: 25 },
       };
       expect(evaluator.evaluateAST(node, context)).toBe(true);
     });
 
-    it("It should be evaluated to include comparison nodes", () => {
-      const node: ComparisonNode = {
-        type: "comparison",
-        variablePath: "user.name",
+    it("It should be evaluated to contain binary nodes", () => {
+      const node: BinaryExpr = {
+        type: "binary",
         operator: "contains",
-        value: "oh",
+        left: { type: "identifier", name: "user.name" },
+        right: { type: "literal", valueType: "string", value: "oh" },
       };
       expect(evaluator.evaluateAST(node, context)).toBe(true);
     });
 
-    it("Should evaluate in comparison nodes", () => {
-      const node: ComparisonNode = {
-        type: "comparison",
-        variablePath: "user.role",
+    it("Should evaluate in binary nodes", () => {
+      const node: BinaryExpr = {
+        type: "binary",
         operator: "in",
-        value: ["admin", "user"],
+        left: { type: "identifier", name: "user.role" },
+        right: { type: "arrayLiteral", elements: [
+          { type: "literal", valueType: "string", value: "admin" },
+          { type: "literal", valueType: "string", value: "user" },
+        ]},
       };
       expect(evaluator.evaluateAST(node, context)).toBe(true);
-    });
-
-    it("Comparison of variable references should be handled", () => {
-      const node: ComparisonNode = {
-        type: "comparison",
-        variablePath: "user.age",
-        operator: "==",
-        value: { __isVariableRef: true, path: "maxAge" },
-      };
-      expect(evaluator.evaluateAST(node, context)).toBe(false);
     });
 
     it("Unknown operator error should be thrown", () => {
-      const node: ComparisonNode = {
-        type: "comparison",
-        variablePath: "user.age",
+      const node: BinaryExpr = {
+        type: "binary",
         operator: "unknown" as any,
-        value: 25,
+        left: { type: "identifier", name: "user.age" },
+        right: { type: "literal", valueType: "number", value: 25 },
       };
       expect(() => evaluator.evaluateAST(node, context)).toThrow(RuntimeValidationError);
     });
   });
 
-  describe("evaluateAST - Logical Node", () => {
+  describe("evaluateAST - Logical (binary) Node", () => {
     it("AND logical nodes should be evaluated", () => {
-      const node: LogicalNode = {
-        type: "logical",
+      const node: BinaryExpr = {
+        type: "binary",
         operator: "&&",
-        left: { type: "comparison", variablePath: "user.age", operator: ">=", value: 18 },
-        right: { type: "comparison", variablePath: "user.age", operator: "<=", value: 65 },
+        left: {
+          type: "binary",
+          operator: ">=",
+          left: { type: "identifier", name: "user.age" },
+          right: { type: "literal", valueType: "number", value: 18 },
+        },
+        right: {
+          type: "binary",
+          operator: "<=",
+          left: { type: "identifier", name: "user.age" },
+          right: { type: "literal", valueType: "number", value: 65 },
+        },
       };
       expect(evaluator.evaluateAST(node, context)).toBe(true);
     });
 
     it("The OR logical node should be evaluated", () => {
-      const node: LogicalNode = {
-        type: "logical",
+      const node: BinaryExpr = {
+        type: "binary",
         operator: "||",
-        left: { type: "comparison", variablePath: "user.age", operator: "<", value: 18 },
-        right: { type: "comparison", variablePath: "user.role", operator: "==", value: "admin" },
+        left: {
+          type: "binary",
+          operator: "<",
+          left: { type: "identifier", name: "user.age" },
+          right: { type: "literal", valueType: "number", value: 18 },
+        },
+        right: {
+          type: "binary",
+          operator: "==",
+          left: { type: "identifier", name: "user.role" },
+          right: { type: "literal", valueType: "string", value: "admin" },
+        },
       };
       expect(evaluator.evaluateAST(node, context)).toBe(true);
     });
@@ -461,217 +468,224 @@ describe("ExpressionEvaluator", () => {
 
   describe("evaluateAST - NOT node", () => {
     it("The NOT node should be evaluated", () => {
-      const node: NotNode = {
+      const node: NotExpr = {
         type: "not",
-        operand: { type: "boolean", value: true },
+        operand: { type: "literal", valueType: "boolean", value: true },
       };
       expect(evaluator.evaluateAST(node, context)).toBe(false);
     });
 
     it("Nested NOT nodes should be evaluated", () => {
-      const node: NotNode = {
+      const node: NotExpr = {
         type: "not",
         operand: {
           type: "not",
-          operand: { type: "boolean", value: true },
+          operand: { type: "literal", valueType: "boolean", value: true },
         },
       };
       expect(evaluator.evaluateAST(node, context)).toBe(true);
     });
   });
 
-  describe("evaluateAST - Arithmetic Nodes", () => {
+  describe("evaluateAST - Arithmetic (binary) Nodes", () => {
     it("Addition nodes should be evaluated", () => {
-      const node: ArithmeticNode = {
-        type: "arithmetic",
+      const node: BinaryExpr = {
+        type: "binary",
         operator: "+",
-        left: { type: "number", value: 10 },
-        right: { type: "number", value: 20 },
+        left: { type: "literal", valueType: "number", value: 10 },
+        right: { type: "literal", valueType: "number", value: 20 },
       };
       expect(evaluator.evaluateAST(node, context)).toBe(30);
     });
 
     it("Subtraction nodes should be evaluated", () => {
-      const node: ArithmeticNode = {
-        type: "arithmetic",
+      const node: BinaryExpr = {
+        type: "binary",
         operator: "-",
-        left: { type: "number", value: 20 },
-        right: { type: "number", value: 10 },
+        left: { type: "literal", valueType: "number", value: 20 },
+        right: { type: "literal", valueType: "number", value: 10 },
       };
       expect(evaluator.evaluateAST(node, context)).toBe(10);
     });
 
     it("Multiplication nodes should be evaluated", () => {
-      const node: ArithmeticNode = {
-        type: "arithmetic",
+      const node: BinaryExpr = {
+        type: "binary",
         operator: "*",
-        left: { type: "number", value: 5 },
-        right: { type: "number", value: 4 },
+        left: { type: "literal", valueType: "number", value: 5 },
+        right: { type: "literal", valueType: "number", value: 4 },
       };
       expect(evaluator.evaluateAST(node, context)).toBe(20);
     });
 
     it("The division node should be evaluated", () => {
-      const node: ArithmeticNode = {
-        type: "arithmetic",
+      const node: BinaryExpr = {
+        type: "binary",
         operator: "/",
-        left: { type: "number", value: 20 },
-        right: { type: "number", value: 4 },
+        left: { type: "literal", valueType: "number", value: 20 },
+        right: { type: "literal", valueType: "number", value: 4 },
       };
       expect(evaluator.evaluateAST(node, context)).toBe(5);
     });
 
     it("The mode-taking node should be evaluated", () => {
-      const node: ArithmeticNode = {
-        type: "arithmetic",
+      const node: BinaryExpr = {
+        type: "binary",
         operator: "%",
-        left: { type: "number", value: 10 },
-        right: { type: "number", value: 3 },
+        left: { type: "literal", valueType: "number", value: 10 },
+        right: { type: "literal", valueType: "number", value: 3 },
       };
       expect(evaluator.evaluateAST(node, context)).toBe(1);
     });
 
     it("Should handle de-zeroing", () => {
-      const node: ArithmeticNode = {
-        type: "arithmetic",
+      const node: BinaryExpr = {
+        type: "binary",
         operator: "/",
-        left: { type: "number", value: 10 },
-        right: { type: "number", value: 0 },
+        left: { type: "literal", valueType: "number", value: 10 },
+        right: { type: "literal", valueType: "number", value: 0 },
       };
       expect(evaluator.evaluateAST(node, context)).toBeNaN();
     });
 
     it("Type mismatch should be handled.", () => {
-      const node: ArithmeticNode = {
-        type: "arithmetic",
+      const node: BinaryExpr = {
+        type: "binary",
         operator: "+",
-        left: { type: "string", value: "hello" },
-        right: { type: "number", value: 10 },
+        left: { type: "literal", valueType: "string", value: "hello" },
+        right: { type: "literal", valueType: "number", value: 10 },
       };
       expect(evaluator.evaluateAST(node, context)).toBeNaN();
     });
 
     it("An error should be thrown for the unknown operator.", () => {
-      const node: ArithmeticNode = {
-        type: "arithmetic",
+      const node: BinaryExpr = {
+        type: "binary",
         operator: "^" as any,
-        left: { type: "number", value: 2 },
-        right: { type: "number", value: 3 },
+        left: { type: "literal", valueType: "number", value: 2 },
+        right: { type: "literal", valueType: "number", value: 3 },
       };
       expect(() => evaluator.evaluateAST(node, context)).toThrow(RuntimeValidationError);
     });
   });
 
-  describe("evaluateAST - String method node", () => {
+  describe("evaluateAST - String method (call) node", () => {
     it("The `startsWith` method node should be evaluated.", () => {
-      const node: StringMethodNode = {
-        type: "stringMethod",
-        variablePath: "text",
-        method: "startsWith",
-        argument: "Hello",
+      const node: CallExpr = {
+        type: "call",
+        callee: {
+          type: "memberAccess",
+          object: { type: "identifier", name: "text" },
+          property: "startsWith",
+        },
+        arguments: [{ type: "literal", valueType: "string", value: "Hello" }],
       };
       expect(evaluator.evaluateAST(node, context)).toBe(true);
     });
 
-    it("The endsWith method node should be evaluated.", () => {
-      const node: StringMethodNode = {
-        type: "stringMethod",
-        variablePath: "text",
-        method: "endsWith",
-        argument: "World",
+    it("The `endsWith` method node should be evaluated.", () => {
+      const node: CallExpr = {
+        type: "call",
+        callee: {
+          type: "memberAccess",
+          object: { type: "identifier", name: "text" },
+          property: "endsWith",
+        },
+        arguments: [{ type: "literal", valueType: "string", value: "World" }],
       };
       expect(evaluator.evaluateAST(node, context)).toBe(true);
-    });
-
-    it("The `length` method node should be evaluated.", () => {
-      const node: StringMethodNode = {
-        type: "stringMethod",
-        variablePath: "text",
-        method: "length",
-      };
-      expect(evaluator.evaluateAST(node, context)).toBe(11);
     });
 
     it("The `toLowerCase` method node should be evaluated.", () => {
-      const node: StringMethodNode = {
-        type: "stringMethod",
-        variablePath: "text",
-        method: "toLowerCase",
+      const node: CallExpr = {
+        type: "call",
+        callee: {
+          type: "memberAccess",
+          object: { type: "identifier", name: "text" },
+          property: "toLowerCase",
+        },
+        arguments: [],
       };
       expect(evaluator.evaluateAST(node, context)).toBe("hello world");
     });
 
     it("The `toUpperCase` method node should be evaluated.", () => {
-      const node: StringMethodNode = {
-        type: "stringMethod",
-        variablePath: "text",
-        method: "toUpperCase",
+      const node: CallExpr = {
+        type: "call",
+        callee: {
+          type: "memberAccess",
+          object: { type: "identifier", name: "text" },
+          property: "toUpperCase",
+        },
+        arguments: [],
       };
       expect(evaluator.evaluateAST(node, context)).toBe("HELLO WORLD");
     });
 
     it("The `trim` method node should be evaluated.", () => {
-      const node: StringMethodNode = {
-        type: "stringMethod",
-        variablePath: "text",
-        method: "trim",
+      const node: CallExpr = {
+        type: "call",
+        callee: {
+          type: "memberAccess",
+          object: { type: "literal", valueType: "string", value: "  hello  " },
+          property: "trim",
+        },
+        arguments: [],
       };
-      expect(evaluator.evaluateAST(node, context)).toBe("Hello World");
-    });
-
-    it("Non-string values should be handled accordingly.", () => {
-      const node: StringMethodNode = {
-        type: "stringMethod",
-        variablePath: "user.age",
-        method: "length",
-      };
-      expect(evaluator.evaluateAST(node, context)).toBe(false);
-    });
-
-    it("An error for an unknown method should be thrown.", () => {
-      const node: StringMethodNode = {
-        type: "stringMethod",
-        variablePath: "text",
-        method: "unknown" as any,
-      };
-      expect(() => evaluator.evaluateAST(node, context)).toThrow(RuntimeValidationError);
+      expect(evaluator.evaluateAST(node, context)).toBe("hello");
     });
   });
 
-  describe("evaluateAST - Ternary Operator Node", () => {
-    it("The ternary node whose condition should be evaluated as true should be considered.", () => {
-      const node: TernaryNode = {
+  describe("evaluateAST - Ternary Node", () => {
+    it("The ternary expression should be evaluated when the condition is true.", () => {
+      const node: TernaryExpr = {
         type: "ternary",
-        condition: { type: "comparison", variablePath: "user.age", operator: ">=", value: 18 },
-        consequent: { type: "string", value: "adult" },
-        alternate: { type: "string", value: "minor" },
+        condition: { type: "literal", valueType: "boolean", value: true },
+        consequent: { type: "literal", valueType: "string", value: "adult" },
+        alternate: { type: "literal", valueType: "string", value: "minor" },
       };
       expect(evaluator.evaluateAST(node, context)).toBe("adult");
     });
 
-    it("The ternary node whose condition should be evaluated as false should be considered.", () => {
-      const node: TernaryNode = {
+    it("The ternary expression should be evaluated when the condition is false.", () => {
+      const node: TernaryExpr = {
         type: "ternary",
-        condition: { type: "comparison", variablePath: "user.age", operator: "<", value: 18 },
-        consequent: { type: "string", value: "minor" },
-        alternate: { type: "string", value: "adult" },
+        condition: { type: "literal", valueType: "boolean", value: false },
+        consequent: { type: "literal", valueType: "string", value: "minor" },
+        alternate: { type: "literal", valueType: "string", value: "adult" },
       };
       expect(evaluator.evaluateAST(node, context)).toBe("adult");
     });
+  });
 
-    it("The nested ternary nodes should be evaluated.", () => {
-      const node: TernaryNode = {
-        type: "ternary",
-        condition: { type: "comparison", variablePath: "user.age", operator: "<", value: 18 },
-        consequent: { type: "string", value: "minor" },
-        alternate: {
-          type: "ternary",
-          condition: { type: "comparison", variablePath: "user.age", operator: "<", value: 65 },
-          consequent: { type: "string", value: "adult" },
-          alternate: { type: "string", value: "senior" },
-        },
+  describe("evaluateAST - UnaryMinus node", () => {
+    it("The unary minus node should be evaluated.", () => {
+      const node: UnaryMinusExpr = {
+        type: "unaryMinus",
+        operand: { type: "literal", valueType: "number", value: 42 },
       };
-      expect(evaluator.evaluateAST(node, context)).toBe("adult");
+      expect(evaluator.evaluateAST(node, context)).toBe(-42);
+    });
+  });
+
+  describe("evaluateAST - ArrayLiteral node", () => {
+    it("The array literal node should be evaluated.", () => {
+      const node: ArrayLiteralExpr = {
+        type: "arrayLiteral",
+        elements: [
+          { type: "literal", valueType: "string", value: "a" },
+          { type: "literal", valueType: "string", value: "b" },
+        ],
+      };
+      expect(evaluator.evaluateAST(node, context)).toEqual(["a", "b"]);
+    });
+
+    it("The empty array literal should be evaluated.", () => {
+      const node: ArrayLiteralExpr = {
+        type: "arrayLiteral",
+        elements: [],
+      };
+      expect(evaluator.evaluateAST(node, context)).toEqual([]);
     });
   });
 

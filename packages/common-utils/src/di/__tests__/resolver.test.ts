@@ -17,14 +17,6 @@ class Service {
   constructor(public dep: Dependency) {}
 }
 
-class ServiceWithMultipleDeps {
-  static $inject = [IDependency, IService] as const;
-  constructor(
-    public dep: Dependency,
-    public service: Service,
-  ) {}
-}
-
 // Create a simulation container
 function createMockContainer(resolveMap: Map<ServiceIdentifier, unknown> = new Map()): Container {
   return {
@@ -45,7 +37,7 @@ function createMockContainer(resolveMap: Map<ServiceIdentifier, unknown> = new M
     isBound: (id: ServiceIdentifier): boolean => {
       return resolveMap.has(id);
     },
-    getWithRequest: <T>(id: ServiceIdentifier<T>, request: Request): T => {
+    getWithRequest: <T>(id: ServiceIdentifier<T>, _request: Request): T => {
       const value = resolveMap.get(id);
       if (value === undefined) {
         throw new Error(`No binding found for ${String(id)}`);
@@ -55,9 +47,9 @@ function createMockContainer(resolveMap: Map<ServiceIdentifier, unknown> = new M
     createChild: () => createMockContainer(resolveMap),
     clearScopedCache: () => {},
     clearAllCaches: () => {},
-    bind: <T>() => {
-      throw new Error("Not implemented in mock container");
-    },
+    bind: <T>(..._args: any[]): T => {
+        throw new Error("Not implemented in mock container");
+      },
     addBinding: () => {},
   };
 }

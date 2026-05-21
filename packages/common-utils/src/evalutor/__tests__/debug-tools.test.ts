@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { parseAST } from "../expression-parser.js";
+import { dslParse } from "../dsl/index.js";
 import { visualizeAST, traceEvaluation, formatTrace } from "../debug-tools.js";
 import type { EvaluationContext } from "@wf-agent/types";
 
@@ -23,26 +23,24 @@ describe("Debugging Tools", () => {
 
   describe("visualizeAST", () => {
     it("should visualize simple comparison", () => {
-      const ast = parseAST("user.age > 18");
-      const tree = visualizeAST(ast);
+      const ast = dslParse("user.age > 18");
+      const tree = visualizeAST(ast!);
       
-      expect(tree).toContain("Comparison");
-      expect(tree).toContain("user.age");
+      expect(tree).toContain("Binary");
       expect(tree).toContain(">");
     });
 
     it("should visualize logical expression", () => {
-      const ast = parseAST("user.age > 18 && user.active == true");
-      const tree = visualizeAST(ast);
+      const ast = dslParse("user.age > 18 && user.active == true");
+      const tree = visualizeAST(ast!);
       
-      expect(tree).toContain("Logical");
+      expect(tree).toContain("Binary");
       expect(tree).toContain("&&");
-      expect(tree).toContain("Comparison");
     });
 
     it("should visualize nested structure with indentation", () => {
-      const ast = parseAST("user.age > 18 && user.active == true");
-      const tree = visualizeAST(ast);
+      const ast = dslParse("user.age > 18 && user.active == true");
+      const tree = visualizeAST(ast!);
       
       // Should have multiple lines
       const lines = tree.split("\n");
@@ -53,26 +51,26 @@ describe("Debugging Tools", () => {
     });
 
     it("should visualize arithmetic expression", () => {
-      const ast = parseAST("user.age * 2");
-      const tree = visualizeAST(ast);
+      const ast = dslParse("user.age * 2");
+      const tree = visualizeAST(ast!);
       
-      expect(tree).toContain("Arithmetic");
+      expect(tree).toContain("Binary");
       expect(tree).toContain("*");
     });
 
     it("should visualize boolean literal", () => {
-      const ast = parseAST("true");
-      const tree = visualizeAST(ast);
+      const ast = dslParse("true");
+      const tree = visualizeAST(ast!);
       
-      expect(tree).toContain("Boolean");
+      expect(tree).toContain("Literal");
       expect(tree).toContain("true");
     });
 
     it("should visualize string literal", () => {
-      const ast = parseAST("'hello'");
-      const tree = visualizeAST(ast);
+      const ast = dslParse("'hello'");
+      const tree = visualizeAST(ast!);
       
-      expect(tree).toContain("String");
+      expect(tree).toContain("Literal");
       expect(tree).toContain("hello");
     });
   });
@@ -91,7 +89,7 @@ describe("Debugging Tools", () => {
       const trace = traceEvaluation("user.age > 18 && user.active == true", context);
       
       expect(trace.result).toBe(true);
-      expect(trace.root.type).toBe("logical");
+      expect(trace.root.type).toBe("binary");
       expect(trace.root.children).toBeDefined();
       expect(trace.root.children?.length).toBe(2);
     });
@@ -113,7 +111,7 @@ describe("Debugging Tools", () => {
       const trace = traceEvaluation("user.age * 2", context);
       
       expect(trace.result).toBe(60);
-      expect(trace.root.type).toBe("arithmetic");
+      expect(trace.root.type).toBe("binary");
     });
   });
 
@@ -132,7 +130,7 @@ describe("Debugging Tools", () => {
       const trace = traceEvaluation("user.age > 18", context);
       const formatted = formatTrace(trace);
       
-      expect(formatted).toContain("[comparison]");
+      expect(formatted).toContain("[binary]");
     });
 
     it("should include execution times", () => {
@@ -166,12 +164,12 @@ describe("Debugging Tools", () => {
       const expression = "user.age > 18 && user.active == true";
       
       // Parse
-      const ast = parseAST(expression);
-      expect(ast.type).toBe("logical");
+      const ast = dslParse(expression);
+      expect(ast!.type).toBe("binary");
       
       // Visualize
-      const tree = visualizeAST(ast);
-      expect(tree).toContain("Logical");
+      const tree = visualizeAST(ast!);
+      expect(tree).toContain("Binary");
       
       // Trace
       const trace = traceEvaluation(expression, context);

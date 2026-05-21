@@ -38,10 +38,6 @@ class Service {
   }
 }
 
-class Config {
-  value = "test-config";
-}
-
 describe("Container", () => {
   let container: Container;
 

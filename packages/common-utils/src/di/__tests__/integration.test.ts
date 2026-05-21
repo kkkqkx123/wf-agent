@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { Container, BindingScope } from "../index.js";
+import { Container } from "../index.js";
 
 // ============================================================
 // Integration testing - Verifying the integrity of the overall functionality
@@ -75,7 +75,7 @@ describe("Integration testing", () => {
       static $inject = [ILogger, IConfig] as const;
       constructor(
         private logger: Logger,
-        private config: Config,
+        _config: Config,
       ) {}
 
       query(sql: string): any[] {
@@ -90,7 +90,7 @@ describe("Integration testing", () => {
 
       constructor(
         private logger: Logger,
-        private config: Config,
+        _config: Config,
       ) {}
 
       get(key: string): any | undefined {
@@ -364,7 +364,7 @@ describe("Integration testing", () => {
       static $inject = [ILogger, IConfig] as const;
       constructor(
         private logger: Logger,
-        private config: Config,
+        _config: Config,
       ) {}
       send(to: string, subject: string): void {
         this.logger.info(`[MOCK EMAIL] To: ${to}, Subject: ${subject}`);
@@ -841,7 +841,6 @@ describe("Integration testing", () => {
   // ============================================================
   describe("Factory and dynamic values", () => {
     const IConfig = Symbol.for("IConfig");
-    const IConnection = Symbol.for("IConnection");
     const IConnectionFactory = Symbol.for("IConnectionFactory");
 
     interface Config {
@@ -861,7 +860,7 @@ describe("Integration testing", () => {
     class DatabaseConnection implements Connection {
       static nextId = 1;
       id = DatabaseConnection.nextId++;
-      constructor(private config: Config) {}
+      constructor(_config: Config) {}
       query(sql: string): any[] {
         return [{ query: sql, connectionId: this.id }];
       }

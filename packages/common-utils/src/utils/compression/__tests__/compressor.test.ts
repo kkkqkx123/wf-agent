@@ -3,7 +3,7 @@
  * Comprehensive test suite for compression utilities
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import {
   compressBlob,
   decompressBlob,

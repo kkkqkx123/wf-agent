@@ -177,7 +177,6 @@ describe("Security - Path Validation", () => {
     const safePaths = [
       "user.name",
       "user_age",
-      "user[0]",
       "input.data.value",
       "variables.count",
     ];

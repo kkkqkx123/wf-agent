@@ -10,6 +10,7 @@
 
 import type { ID } from "../../common.js";
 import type { AgentToolConfig } from "../../agent/tool-config.js";
+import type { WorkflowDataInput } from "../../workflow/boundary-config.js";
 
 /**
  * Agent Loop Node Output
@@ -90,5 +91,19 @@ export interface AgentLoopNodeConfig {
      * Defaults to 'current' if not specified.
      */
     workingContext?: string;
+
+    /**
+     * Data inputs - maps fields from the workflow execution input to internal variables.
+     *
+     * This enables explicit data passing from the workflow's execution input data
+     * into the agent loop's variable system, similar to how START_FROM_TRIGGER
+     * processes dataInputs.
+     *
+     * Example:
+     *   Workflow execution input: { query: "hello", userId: "abc" }
+     *   dataInputs: [{ parentField: "query", internalName: "query_text" }]
+     *   Result: variable "query_text" gets "hello"
+     */
+    dataInputs?: WorkflowDataInput[];
   };
 }

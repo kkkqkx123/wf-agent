@@ -48,6 +48,17 @@ export async function endHandler(
   // Use workflowExecution.output as the final output of the workflow (explicitly set by a node or the END node).
   const output = workflowExecutionEntity.getOutput() || {};
 
+  // Process dataOutputs from END node config: map internal variables to output keys
+  const endConfig = node.config as { dataOutputs?: Array<{ internalName: string; outputKey: string; description?: string }> } | undefined;
+  if (endConfig?.dataOutputs && endConfig.dataOutputs.length > 0) {
+    for (const dataOutput of endConfig.dataOutputs) {
+      const value = workflowExecutionEntity.variableStateManager.getVariable(dataOutput.internalName);
+      if (value !== undefined) {
+        (output as Record<string, unknown>)[dataOutput.outputKey] = value;
+      }
+    }
+  }
+
   // Set the WorkflowExecution output (without modifying the status; the status is managed by the WorkflowLifecycleCoordinator).
   workflowExecutionEntity.setOutput(output);
 

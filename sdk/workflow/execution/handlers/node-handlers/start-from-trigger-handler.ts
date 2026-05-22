@@ -172,6 +172,27 @@ export async function startFromTriggerHandler(
     }
   }
 
+  // Handle data inputs if configured: map execution input data fields to internal variables
+  if (config?.dataInputs && config.dataInputs.length > 0) {
+    const executionInput = workflowExecutionEntity.getInput();
+    for (const inputDef of config.dataInputs) {
+      const { parentField, internalName, required, defaultValue } = inputDef;
+      let value = executionInput[parentField];
+      
+      if (value === undefined) {
+        if (defaultValue !== undefined) {
+          value = defaultValue;
+        } else if (required) {
+          throw new Error(`Required data input '${parentField}' (mapped to variable '${internalName}') is missing`);
+        }
+      }
+      
+      if (value !== undefined) {
+        workflowExecutionEntity.variableStateManager.setVariable(internalName, value);
+      }
+    }
+  }
+
   // If there are variables passed, initialize them in the workflowExecution.
   if (triggerInput.variables) {
     workflowExecution.variables = triggerInput.variables as typeof workflowExecution.variables;

@@ -50,12 +50,35 @@ export const WorkflowMessageOutputSchema = z.object({
 });
 
 /**
+ * Data input mapping schema
+ * Defines how execution input data fields are mapped to internal variables
+ */
+export const WorkflowDataInputSchema = z.object({
+  parentField: z.string().min(1, "Parent input field name is required"),
+  internalName: z.string().min(1, "Internal variable name is required"),
+  required: z.boolean().optional(),
+  defaultValue: z.any().optional(),
+  description: z.string().optional(),
+});
+
+/**
+ * Data output mapping schema
+ * Defines how internal variables are mapped to execution output keys
+ */
+export const WorkflowDataOutputSchema = z.object({
+  internalName: z.string().min(1, "Internal variable name is required"),
+  outputKey: z.string().min(1, "Output key is required"),
+  description: z.string().optional(),
+});
+
+/**
  * Workflow start configuration schema
  * Used by: START, SUBGRAPH_START, START_FROM_TRIGGER nodes
  */
 export const WorkflowStartConfigSchema = z.object({
   variableInputs: z.array(WorkflowVariableInputSchema).optional(),
   messageInputs: z.array(WorkflowMessageInputSchema).optional(),
+  dataInputs: z.array(WorkflowDataInputSchema).optional(),
 });
 
 /**
@@ -65,6 +88,7 @@ export const WorkflowStartConfigSchema = z.object({
 export const WorkflowEndConfigSchema = z.object({
   variableOutputs: z.array(WorkflowVariableOutputSchema).optional(),
   messageOutputs: z.array(WorkflowMessageOutputSchema).optional(),
+  dataOutputs: z.array(WorkflowDataOutputSchema).optional(),
 });
 
 /**
@@ -101,4 +125,12 @@ export const isWorkflowStartConfig = (config: unknown): config is z.infer<typeof
 
 export const isWorkflowEndConfig = (config: unknown): config is z.infer<typeof WorkflowEndConfigSchema> => {
   return WorkflowEndConfigSchema.safeParse(config).success;
+};
+
+export const isWorkflowDataInput = (config: unknown): config is z.infer<typeof WorkflowDataInputSchema> => {
+  return WorkflowDataInputSchema.safeParse(config).success;
+};
+
+export const isWorkflowDataOutput = (config: unknown): config is z.infer<typeof WorkflowDataOutputSchema> => {
+  return WorkflowDataOutputSchema.safeParse(config).success;
 };

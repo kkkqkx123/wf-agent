@@ -3,7 +3,7 @@
  */
 
 import type { ID } from '../../common.js';
-import type { WorkflowVariableOutput, WorkflowMessageOutput } from '../../workflow/boundary-config.js';
+import type { WorkflowVariableOutput, WorkflowMessageOutput, WorkflowDataOutput } from '../../workflow/boundary-config.js';
 
 /**
  * Forked Path Configuration
@@ -96,4 +96,19 @@ export interface JoinNodeConfig {
    * Each output maps an internal context from a specific branch to an external context in the parent
    */
   messageOutputs?: Array<WorkflowMessageOutput & { sourcePathId: ID }>;
+
+  /**
+   * Data outputs - maps internal variables from the aggregated branch outputs
+   * to keys in the parent workflow execution output.
+   *
+   * After branches complete and their outputs are collected, these mappings
+   * export specified variables to the parent's execution output under the
+   * defined output keys.
+   *
+   * Example:
+   *   Branch completed with variable "result_summary"
+   *   dataOutputs: [{ internalName: "result_summary", outputKey: "finalResult" }]
+   *   Result: Parent output.finalResult gets the result_summary value
+   */
+  dataOutputs?: WorkflowDataOutput[];
 }

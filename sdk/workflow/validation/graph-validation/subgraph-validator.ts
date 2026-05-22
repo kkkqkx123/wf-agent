@@ -67,6 +67,7 @@ export function validateSubgraphCompatibility(
     subworkflowId: string;
     variableInputs?: Array<{ externalName: string; internalName: string; required?: boolean; defaultValue?: unknown }>;
     variableOutputs?: Array<{ internalName: string; externalName: string }>;
+    dataInputs?: Array<{ parentField: string; internalName: string; required?: boolean; defaultValue?: unknown }>;
   }> = [];
 
   for (const node of graph.nodes.values()) {
@@ -75,6 +76,7 @@ export function validateSubgraphCompatibility(
         subgraphId?: string;
         variableInputs?: Array<{ externalName: string; internalName: string; required?: boolean; defaultValue?: unknown }>;
         variableOutputs?: Array<{ internalName: string; externalName: string }>;
+        dataInputs?: Array<{ parentField: string; internalName: string; required?: boolean; defaultValue?: unknown }>;
       } | undefined;
 
       if (config?.subgraphId) {
@@ -83,6 +85,7 @@ export function validateSubgraphCompatibility(
           subworkflowId: config.subgraphId,
           variableInputs: config.variableInputs,
           variableOutputs: config.variableOutputs,
+          dataInputs: config.dataInputs,
         });
       }
     }
@@ -168,6 +171,45 @@ export function validateSubgraphCompatibility(
                   nodeId: subgraphNode.nodeId,
                   subworkflowId: subgraphNode.subworkflowId,
                   internalName: output.internalName,
+                },
+              }
+            )
+          );
+        }
+      }
+    }
+
+    // Check dataInputs format
+    if (subgraphNode.dataInputs && subgraphNode.dataInputs.length > 0) {
+      for (const dataInput of subgraphNode.dataInputs) {
+        if (!dataInput.parentField || !dataInput.parentField.trim()) {
+          errors.push(
+            new ConfigurationValidationError(
+              `SUBGRAPH node '${subgraphNode.nodeId}' has dataInput with missing parentField`,
+              {
+                configType: "workflow",
+                context: {
+                  code: "MISSING_DATA_INPUT_PARENT_FIELD",
+                  nodeId: subgraphNode.nodeId,
+                  subworkflowId: subgraphNode.subworkflowId,
+                  internalName: dataInput.internalName,
+                },
+              }
+            )
+          );
+        }
+
+        if (!dataInput.internalName || !dataInput.internalName.trim()) {
+          errors.push(
+            new ConfigurationValidationError(
+              `SUBGRAPH node '${subgraphNode.nodeId}' has dataInput with missing internalName`,
+              {
+                configType: "workflow",
+                context: {
+                  code: "MISSING_DATA_INPUT_INTERNAL_NAME",
+                  nodeId: subgraphNode.nodeId,
+                  subworkflowId: subgraphNode.subworkflowId,
+                  parentField: dataInput.parentField,
                 },
               }
             )

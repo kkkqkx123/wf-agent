@@ -3,22 +3,28 @@
  * 
  * Purpose:
  * - Explicit synchronization between fork branches
- * - Variable and message passing from source branch to target branch
+ * - Variable, data, and message passing from source branch to target branch
  * - Eliminates implicit state sharing through global variables
  */
 
 import type { ID } from '../../common.js';
-import type { WorkflowVariableInput } from '../../workflow/boundary-config.js';
+import type { WorkflowVariableInput, WorkflowDataInput, WorkflowMessageInput } from '../../workflow/boundary-config.js';
 
 /**
  * Sync Node Output
  * - syncedFromPath: ID - The source path ID from which data was synced
  * - syncedVariables?: Record<string, unknown> - The variables transferred from source to target
+ * - syncedVariableCount?: number - Number of variables synced
+ * - syncedDataCount?: number - Number of data inputs processed
+ * - syncedMessageCount?: number - Number of message contexts synced
  * - completed: boolean - Whether the sync operation completed successfully
  */
 export interface SyncNodeOutput {
   syncedFromPath: ID;
   syncedVariables?: Record<string, unknown>;
+  syncedVariableCount?: number;
+  syncedDataCount?: number;
+  syncedMessageCount?: number;
   completed: boolean;
 }
 
@@ -29,7 +35,7 @@ export interface SyncNodeOutput {
  * - SYNC nodes provide explicit data transfer between parallel execution branches
  * - Variables are deep cloned during transfer to maintain complete isolation
  * - Can optionally wait for source branch completion before syncing
- * - Supports both variable and message context synchronization
+ * - Supports variable, data input, and message context synchronization
  */
 export interface SyncNodeConfig {
   /**
@@ -47,8 +53,40 @@ export interface SyncNodeConfig {
   /**
    * Variable mappings - explicit variable transfer configuration
    * Maps variables from source branch to target branch with deep cloning
+   *
+   * Uses WorkflowVariableInput for consistency with other boundary configurations.
+   * externalName refers to the source branch variable name,
+   * internalName refers to the target branch variable name.
    */
   variableMappings?: WorkflowVariableInput[];
+  
+  /**
+   * Data inputs - maps fields from the execution input to internal variables
+   * in the target branch.
+   *
+   * Unlike variableMappings (which maps source branch variables to target),
+   * dataInputs maps the parent execution input data directly to the target
+   * branch's variables. This ensures the target branch has access to the
+   * original execution input fields after synchronization.
+   *
+   * Example:
+   *   Execution input: { userId: "abc", query: "hello" }
+   *   dataInputs: [{ parentField: "query", internalName: "query_text" }]
+   *   Result: target branch variable "query_text" gets "hello"
+   */
+  dataInputs?: WorkflowDataInput[];
+  
+  /**
+   * Message context inputs - sync message contexts from source branch
+   * to target branch using the boundary-config pattern.
+   *
+   * Maps named message contexts from the source branch's registry
+   * to the target branch's registry.
+   *
+   * Note: Message context synchronization uses shallow copying
+   * (reference-level isolation) to prevent unintended mutations.
+   */
+  messageInputs?: WorkflowMessageInput[];
   
   /**
    * Whether to wait for source branch completion before syncing

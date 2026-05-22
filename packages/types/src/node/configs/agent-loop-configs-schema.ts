@@ -6,6 +6,7 @@
 
 import { z } from "zod";
 import type { AgentLoopNodeConfig } from "./agent-loop-configs.js";
+import { WorkflowDataInputSchema } from "../../workflow/boundary-config-schema.js";
 
 /**
  * AgentToolConfig Schema (matches the AgentToolConfig interface)
@@ -24,6 +25,7 @@ const InlineConfigSchema = z.object({
   availableTools: AgentToolConfigSchema,
   initialContextId: z.string().optional(),
   workingContext: z.string().optional(),
+  dataInputs: z.array(WorkflowDataInputSchema).optional(),
 });
 
 /**

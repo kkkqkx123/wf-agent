@@ -93,6 +93,16 @@ export async function subgraphHandler(
     outputs: config.variableOutputs || [],
   };
 
+  // Build data mapping from node config
+  const dataMapping = {
+    inputs: (config.dataInputs || []).map(input => ({
+      parentField: input.parentField,
+      childVariableName: input.internalName,
+      required: input.required,
+      defaultValue: input.defaultValue,
+    })),
+  };
+
   let subgraphEntity: WorkflowExecutionEntity | null = null;
   const executionStartTime = Date.now();
   
@@ -104,6 +114,7 @@ export async function subgraphHandler(
         subworkflowId,
         nodeId: node.id,
         variableMapping,
+        dataMapping,
         async: false, // SUBGRAPH always executes synchronously
       },
     });

@@ -7,7 +7,7 @@
  */
 
 import { z } from "zod";
-import { WorkflowVariableInputSchema, WorkflowVariableOutputSchema } from "../../workflow/boundary-config-schema.js";
+import { WorkflowVariableInputSchema, WorkflowVariableOutputSchema, WorkflowDataInputSchema } from "../../workflow/boundary-config-schema.js";
 
 /**
  * Subgraph node configuration schema
@@ -17,6 +17,7 @@ export const SubgraphNodeConfigSchema = z.object({
   async: z.boolean(),
   variableInputs: z.array(WorkflowVariableInputSchema).optional(),
   variableOutputs: z.array(WorkflowVariableOutputSchema).optional(),
+  dataInputs: z.array(WorkflowDataInputSchema).optional(),
   messagePassing: z.object({
     inputs: z.record(z.string(), z.string()).optional(),
     outputs: z.record(z.string(), z.string()).optional(),

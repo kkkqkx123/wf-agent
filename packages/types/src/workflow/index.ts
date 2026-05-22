@@ -36,6 +36,8 @@ export {
   WorkflowVariableOutputSchema,
   WorkflowMessageInputSchema,
   WorkflowMessageOutputSchema,
+  WorkflowDataInputSchema,
+  WorkflowDataOutputSchema,
   WorkflowStartConfigSchema,
   WorkflowEndConfigSchema,
   VariableCallbackConfigSchema,
@@ -43,6 +45,8 @@ export {
   isWorkflowVariableOutput,
   isWorkflowMessageInput,
   isWorkflowMessageOutput,
+  isWorkflowDataInput,
+  isWorkflowDataOutput,
   isWorkflowStartConfig,
   isWorkflowEndConfig,
 } from "./boundary-config-schema.js";

@@ -63,6 +63,30 @@ export interface ChildExecutionConfig {
     inputs?: Array<{ externalName: string; internalName: string; required?: boolean; defaultValue?: unknown }>;
     outputs?: Array<{ internalName: string; externalName: string }>;
   };
+  /**
+   * Data Mapping Configuration
+   *
+   * Maps parent execution input data fields to child execution variables.
+   * This enables explicit data passing from the parent's WorkflowExecution.input
+   * to the child's variable system, without relying on implicit inheritance.
+   *
+   * The mapping is processed during child execution initialization:
+   * - Reads parentField from parent's WorkflowExecution.input
+   * - Sets childVariableName in child's VariableManager
+   * - Validates required fields and applies default values
+   *
+   * Note: This is different from variableMapping.inputs which maps parent
+   * variables to child variables. dataMapping maps execution-level input
+   * data to variables.
+   */
+  dataMapping?: {
+    inputs?: Array<{
+      parentField: string;         // key in parent's WorkflowExecution.input
+      childVariableName: string;   // variable name in child's VariableManager
+      required?: boolean;
+      defaultValue?: unknown;
+    }>;
+  };
   inputMapping?: any;          // TRIGGERED - ExecuteTriggeredSubworkflowActionConfig['inputMapping']
   async?: boolean;             // TRIGGERED
 }
@@ -674,6 +698,30 @@ export class WorkflowExecutionBuilder {
           );
           logger.debug("Imported variables to subgraph", {
             count: config.variableMapping.inputs.length,
+          });
+        }
+
+        // Subgraph: process data mapping from parent execution input to child variables
+        if (config.dataMapping?.inputs && config.dataMapping.inputs.length > 0) {
+          const parentInput = parent.getInput();
+          for (const mapping of config.dataMapping.inputs) {
+            const value = parentInput[mapping.parentField];
+            if (value !== undefined) {
+              child.variableStateManager.setVariable(mapping.childVariableName, value);
+            } else if (mapping.required) {
+              throw new RuntimeValidationError(
+                `Required data input '${mapping.parentField}' not found in parent workflow input`,
+                {
+                  operation: "initializeVariables",
+                  field: mapping.parentField,
+                }
+              );
+            } else if (mapping.defaultValue !== undefined) {
+              child.variableStateManager.setVariable(mapping.childVariableName, mapping.defaultValue);
+            }
+          }
+          logger.debug("Mapped data inputs to subgraph variables", {
+            count: config.dataMapping.inputs.length,
           });
         }
         break;

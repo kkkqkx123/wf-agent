@@ -2,11 +2,10 @@
  * The ContinueFromTrigger node processing function is responsible for invoking the results back to the main workflow after the execution of the sub-workflows is completed.
  *
  * Note: Message context filtering/truncation has been migrated to the unified reference architecture.
- * This handler now handles both variable callbacks and message context outputs.
+ * This handler now handles data outputs, variable callbacks, and message context outputs.
  */
 
-import type { RuntimeNode, MessageContextRegistry, WorkflowExecution } from "@wf-agent/types";
-import type { ContinueFromTriggerNodeConfig } from "@wf-agent/types";
+import type { RuntimeNode, MessageContextRegistry, WorkflowExecution, WorkflowEndConfig } from "@wf-agent/types";
 import { now } from "@wf-agent/common-utils";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 
@@ -56,7 +55,7 @@ export async function continueFromTriggerHandler(
     };
   }
 
-  const config = node.config as ContinueFromTriggerNodeConfig;
+  const config = node.config as WorkflowEndConfig;
 
   // Retrieve the main workflow execution entity (from the context).
   const mainWorkflowExecutionEntity = context?.mainWorkflowExecutionEntity;
@@ -110,6 +109,19 @@ export async function continueFromTriggerHandler(
         mainWorkflowExecutionEntity.setVariable(externalName, value);
       }
     }
+  }
+
+  // Handle data outputs if configured: map internal variables to execution output keys
+  if (config.dataOutputs && config.dataOutputs.length > 0) {
+    const output = workflowExecutionEntity.getOutput() || {};
+    for (const outputDef of config.dataOutputs) {
+      const { internalName, outputKey } = outputDef;
+      const value = workflowExecutionEntity.variableStateManager.getVariable(internalName);
+      if (value !== undefined) {
+        (output as Record<string, unknown>)[outputKey] = value;
+      }
+    }
+    workflowExecutionEntity.setOutput(output);
   }
 
   // Note: Message context handling has been migrated to the unified reference architecture.

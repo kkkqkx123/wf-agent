@@ -39,8 +39,7 @@ export function initializeExecutionContext(
     updatedAt: now(),
     metadata: {
       description: 'Main conversation context',
-      initialMessageCount: initialMessages.length,
-    },
+    } as Record<string, unknown>,
   });
 
   logger.debug("Initialized 'current' context", {

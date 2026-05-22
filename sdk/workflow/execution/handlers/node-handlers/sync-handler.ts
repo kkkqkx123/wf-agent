@@ -13,7 +13,7 @@
  * - Optionally wait for source branch completion before syncing
  */
 
-import type { RuntimeNode, SyncNodeConfig } from "@wf-agent/types";
+import type { RuntimeNode, SyncNodeConfig, MessageContextRegistry, WorkflowExecution } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import type { GlobalContext } from "../../../../core/global-context.js";
 import type { WorkflowExecutionRegistry } from "../../../stores/workflow-execution-registry.js";
@@ -320,6 +320,80 @@ export async function syncHandler(
       });
     }
 
+    // Step 4: Process dataInputs - map execution input data to target branch variables
+    if (config.dataInputs && config.dataInputs.length > 0) {
+      logger.debug("Processing data inputs for target branch", {
+        count: config.dataInputs.length,
+      });
+      const input = workflowExecutionEntity.getInput ? workflowExecutionEntity.getInput() : {};
+      for (const inputDef of config.dataInputs) {
+        const { parentField, internalName, required, defaultValue } = inputDef;
+        let value = input[parentField];
+        if (value === undefined) {
+          if (defaultValue !== undefined) {
+            value = defaultValue;
+          } else if (required) {
+            throw new RuntimeValidationError(
+              `Required data input '${parentField}' (mapped to variable '${internalName}') is missing`,
+              { operation: "syncHandler", field: parentField }
+            );
+          }
+        }
+        if (value !== undefined) {
+          workflowExecutionEntity.variableStateManager.setVariable(internalName, value);
+        }
+      }
+    }
+
+    // Step 5: Sync message contexts from source to target if configured
+    if (config.messageInputs && config.messageInputs.length > 0) {
+      logger.debug("Syncing message contexts from source to target", {
+        count: config.messageInputs.length,
+      });
+      const sourceExecution = sourceExecutionEntity.getExecution();
+      const targetExecution = workflowExecutionEntity.getExecution();
+      const sourceRegistry = (sourceExecution as WorkflowExecution & { messageContextRegistry?: MessageContextRegistry }).messageContextRegistry;
+      const targetRegistry = (targetExecution as WorkflowExecution & { messageContextRegistry?: MessageContextRegistry }).messageContextRegistry;
+      
+      if (sourceRegistry && targetRegistry) {
+        for (const inputDef of config.messageInputs) {
+          const { externalName, internalName, required, defaultMessages } = inputDef;
+          const sourceContext = sourceRegistry.get(externalName);
+          
+          if (sourceContext) {
+            targetRegistry.register({
+              id: internalName,
+              messages: [...sourceContext.messages],
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+              metadata: {
+                ...sourceContext.metadata,
+                syncedFrom: externalName,
+                sourceExecutionId: sourceExecutionEntity.id,
+              } as Record<string, unknown>,
+            });
+          } else if (required) {
+            throw new RuntimeValidationError(
+              `Required message context '${externalName}' not found in source branch`,
+              { operation: "syncHandler", field: "messageInputs", value: externalName }
+            );
+          } else if (defaultMessages && defaultMessages.length > 0) {
+            targetRegistry.register({
+              id: internalName,
+              messages: [...defaultMessages],
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+            });
+          }
+        }
+      } else {
+        logger.warn("Message context registries not available for context sync", {
+          sourceRegistryAvailable: !!sourceRegistry,
+          targetRegistryAvailable: !!targetRegistry,
+        });
+      }
+    }
+
     // Emit NODE_SYNC_COMPLETED event
     await emit(eventManager, buildNodeSyncCompletedEvent({
       executionId: workflowExecutionEntity.id,
@@ -333,6 +407,8 @@ export async function syncHandler(
       synced: true,
       sourcePathId: config.sourcePathId,
       variableCount: config.variableMappings?.length || 0,
+      dataInputCount: config.dataInputs?.length || 0,
+      messageInputCount: config.messageInputs?.length || 0,
     };
     
   } catch (error) {

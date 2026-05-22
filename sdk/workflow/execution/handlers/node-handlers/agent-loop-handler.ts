@@ -146,7 +146,31 @@ export async function agentLoopHandler(
   try {
     // 1. Prepare the initial messages from context references
     const initialMessages = collectInitialMessages(config, execution);
-    
+
+    // Process dataInputs: map execution input data fields to internal variables
+    const inlineConfig = config.inlineConfig;
+    if (inlineConfig?.dataInputs && inlineConfig.dataInputs.length > 0) {
+      const varManager = context.workflowExecutionEntity?.variableStateManager;
+      const input = executionEntity.getInput ? executionEntity.getInput() : execution.input || {};
+      for (const inputDef of inlineConfig.dataInputs) {
+        const { parentField, internalName, required, defaultValue } = inputDef;
+        let value = input[parentField];
+        if (value === undefined) {
+          if (defaultValue !== undefined) {
+            value = defaultValue;
+          } else if (required) {
+            throw new RuntimeValidationError(
+              `Required data input '${parentField}' (mapped to variable '${internalName}') is missing`,
+              { operation: "agentLoopHandler", field: parentField }
+            );
+          }
+        }
+        if (value !== undefined && varManager) {
+          varManager.setVariable(internalName, value);
+        }
+      }
+    }
+
     // Add input prompt if available
     const inputPromptManager = context.workflowExecutionEntity?.variableStateManager;
     const inputPrompt =
@@ -278,7 +302,31 @@ export async function* agentLoopStreamHandler(
   try {
     // 1. Prepare the initial messages from context references
     const initialMessages = collectInitialMessages(config, execution);
-    
+
+    // Process dataInputs: map execution input data fields to internal variables
+    const inlineConfig = config.inlineConfig;
+    if (inlineConfig?.dataInputs && inlineConfig.dataInputs.length > 0) {
+      const varManager = context.workflowExecutionEntity?.variableStateManager;
+      const input = context.workflowExecutionEntity?.getInput ? context.workflowExecutionEntity.getInput() : execution.input || {};
+      for (const inputDef of inlineConfig.dataInputs) {
+        const { parentField, internalName, required, defaultValue } = inputDef;
+        let value = input[parentField];
+        if (value === undefined) {
+          if (defaultValue !== undefined) {
+            value = defaultValue;
+          } else if (required) {
+            throw new RuntimeValidationError(
+              `Required data input '${parentField}' (mapped to variable '${internalName}') is missing`,
+              { operation: "agentLoopStreamHandler", field: parentField }
+            );
+          }
+        }
+        if (value !== undefined && varManager) {
+          varManager.setVariable(internalName, value);
+        }
+      }
+    }
+
     // Add input prompt if available
     const inputPromptManager = context.workflowExecutionEntity?.variableStateManager;
     const inputPrompt =

@@ -1,6 +1,16 @@
 /**
  * Join node processing function
  * The Join node serves as a placeholder; the actual Join operation is handled by the WorkflowExecutor invoking the WorkflowCoordinator.
+ *
+ * The coordinator is responsible for:
+ * - Collecting branch outputs (variables, message contexts, data outputs)
+ * - Applying the join strategy (ALL_COMPLETED, ANY_COMPLETED, etc.)
+ * - Handling variable outputs via variableOutputs config
+ * - Handling message context outputs via messageOutputs config
+ * - Handling data outputs via dataOutputs config
+ * - Closing/pausing expired branches
+ *
+ * This handler only marks the join position in the execution flow.
  */
 
 import type { RuntimeNode } from "@wf-agent/types";

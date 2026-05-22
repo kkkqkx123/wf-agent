@@ -4,7 +4,7 @@
  */
 
 import { z } from "zod";
-import { WorkflowVariableOutputSchema, WorkflowMessageOutputSchema } from "../../workflow/boundary-config-schema.js";
+import { WorkflowVariableOutputSchema, WorkflowMessageOutputSchema, WorkflowDataOutputSchema } from "../../workflow/boundary-config-schema.js";
 
 /**
  * Fork path schema
@@ -65,6 +65,8 @@ export const JoinNodeConfigSchema = z
         sourcePathId: z.string().min(1, "Source path ID is required for message outputs"),
       })
     ).optional(),
+    // Data outputs - maps internal variables to execution output keys
+    dataOutputs: z.array(WorkflowDataOutputSchema).optional(),
   })
   .refine(
     (data) => {

@@ -12,7 +12,7 @@
  */
 
 import type { ID } from '../../common.js';
-import type { WorkflowVariableInput, WorkflowVariableOutput } from '../../workflow/boundary-config.js';
+import type { WorkflowVariableInput, WorkflowVariableOutput, WorkflowDataInput } from '../../workflow/boundary-config.js';
 
 /**
  * Subgraph Node Output
@@ -90,7 +90,33 @@ export interface SubgraphNodeConfig {
    * END node configuration or execution result.
    */
   variableOutputs?: WorkflowVariableOutput[];
-  
+
+  /**
+   * Data Input Mapping
+   *
+   * Explicitly maps fields from the parent workflow's execution input data
+   * to the subgraph's internal variables.
+   *
+   * Unlike variableInputs (which maps parent variables to child variables),
+   * dataInputs maps the raw execution input data (WorkflowExecution.input)
+   * to child variables. This enables passing top-level execution data across
+   * the subgraph boundary without relying on implicit inheritance.
+   *
+   * Designed to work with the parent workflow's WorkflowStartConfig.dataInputs
+   * for end-to-end explicit data passing.
+   *
+   * Example:
+   * Parent workflow execution input: { userId: "abc", query: "hello" }
+   * Subgraph dataInputs:
+   *   { parentField: "userId", internalName: "user_id", required: true }
+   *   { parentField: "query", internalName: "query_text" }
+   * Result: child variables user_id = "abc", query_text = "hello"
+   *
+   * IMPORTANT: This is the ONLY way for a subgraph to access parent execution
+   * input data. There is NO automatic data inheritance.
+   */
+  dataInputs?: WorkflowDataInput[];
+
   /**
    * Message context passing configuration
    *

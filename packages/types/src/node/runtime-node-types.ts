@@ -36,7 +36,7 @@ import type { AgentLoopNodeConfig, AgentLoopNodeOutput } from "./configs/agent-l
 import type { SubgraphNodeConfig, SubgraphNodeOutput } from "./configs/subgraph-configs.js";
 import type { SyncNodeConfig, SyncNodeOutput } from "./configs/sync-configs.js";
 // Import boundary configs for START/END nodes and trigger nodes
-import type { WorkflowStartConfig, WorkflowEndConfig } from "../workflow/boundary-config.js";
+import type { WorkflowStartConfig, WorkflowEndConfig, StartNodeOutput, EndNodeOutput } from "../workflow/boundary-config.js";
 
 // ============================================================================
 // Runtime Node Types
@@ -187,8 +187,8 @@ export type RuntimeNode =
  * This provides type-safe output access based on node type.
  */
 export interface RuntimeNodeOutputMap {
-  START: WorkflowStartConfig;
-  END: WorkflowEndConfig;
+  START: StartNodeOutput;
+  END: EndNodeOutput;
   VARIABLE: VariableNodeOutput;
   FORK: ForkNodeOutput;
   JOIN: JoinNodeOutput;
@@ -203,10 +203,10 @@ export interface RuntimeNodeOutputMap {
   LOOP_START: LoopStartNodeOutput;
   LOOP_END: LoopEndNodeOutput;
   AGENT_LOOP: AgentLoopNodeOutput;
-  START_FROM_TRIGGER: WorkflowStartConfig;
-  CONTINUE_FROM_TRIGGER: WorkflowEndConfig;
-  EMBED_START: WorkflowStartConfig;
-  EMBED_END: WorkflowEndConfig;
+  START_FROM_TRIGGER: StartNodeOutput;
+  CONTINUE_FROM_TRIGGER: EndNodeOutput;
+  EMBED_START: StartNodeOutput;
+  EMBED_END: EndNodeOutput;
 }
 
 /**

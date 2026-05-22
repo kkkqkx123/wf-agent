@@ -149,3 +149,24 @@ export interface WorkflowBoundaryConfig {
   /** End node configuration (outputs) */
   end: WorkflowEndConfig;
 }
+
+// ============================================================================
+// Boundary Node Output Interfaces
+// ============================================================================
+
+/**
+ * START / EMBED_START / START_FROM_TRIGGER node output shape.
+ * Matches the actual return value of start-handler.ts.
+ */
+export interface StartNodeOutput {
+  message: string;
+  input?: unknown;
+}
+
+/**
+ * END / EMBED_END / CONTINUE_FROM_TRIGGER node output shape.
+ * Matches the actual return value of end-handler.ts.
+ */
+export interface EndNodeOutput {
+  output: unknown;
+}

@@ -6,7 +6,7 @@
 
 import { z } from "zod";
 import type { AgentLoopNodeConfig } from "./agent-loop-configs.js";
-import { WorkflowDataInputSchema } from "../../workflow/boundary-config-schema.js";
+import { WorkflowDataInputSchema, WorkflowMessageInputSchema, WorkflowMessageOutputSchema } from "../../workflow/boundary-config-schema.js";
 
 /**
  * AgentToolConfig Schema (matches the AgentToolConfig interface)
@@ -18,14 +18,19 @@ const AgentToolConfigSchema = z.object({
 
 /**
  * Inline Config Schema
+ *
+ * profileId is optional (can come from agentLoopId definition).
+ * When inlineConfig is used without agentLoopId, profileId is required
+ * (validated by the parent schema's refine).
  */
 const InlineConfigSchema = z.object({
-  profileId: z.string(),
+  profileId: z.string().optional(),
   maxIterations: z.number().int().positive().optional(),
   availableTools: AgentToolConfigSchema,
-  initialContextId: z.string().optional(),
   workingContext: z.string().optional(),
   dataInputs: z.array(WorkflowDataInputSchema).optional(),
+  messageInputs: z.array(WorkflowMessageInputSchema).optional(),
+  messageOutputs: z.array(WorkflowMessageOutputSchema).optional(),
 });
 
 /**
@@ -34,7 +39,25 @@ const InlineConfigSchema = z.object({
 export const AgentLoopNodeConfigSchema = z.object({
   agentLoopId: z.string().optional(),
   inlineConfig: InlineConfigSchema.optional(),
-}) satisfies z.ZodType<AgentLoopNodeConfig>;
+}).refine(
+  (data) => data.agentLoopId !== undefined || data.inlineConfig !== undefined,
+  {
+    message: "Either agentLoopId or inlineConfig must be provided",
+    path: ["agentLoopId"],
+  },
+).refine(
+  (data) => {
+    // When inlineConfig is used standalone (no agentLoopId), profileId is required
+    if (!data.agentLoopId && data.inlineConfig) {
+      return data.inlineConfig.profileId !== undefined && data.inlineConfig.profileId.length > 0;
+    }
+    return true;
+  },
+  {
+    message: "profileId is required in inlineConfig when agentLoopId is not provided",
+    path: ["inlineConfig", "profileId"],
+  },
+) satisfies z.ZodType<AgentLoopNodeConfig>;
 
 /**
  * Type guard for AgentLoopNodeConfig

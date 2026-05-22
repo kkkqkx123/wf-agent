@@ -36,6 +36,7 @@ import type { ConversationSession } from "../messaging/conversation-session.js";
 import { WorkflowCheckpointError } from "@wf-agent/types";
 import { MessageBuilder } from "../messaging/message-builder.js";
 import type { CheckpointDependencies } from "../../workflow/checkpoint/utils/checkpoint-utils.js";
+import type { GlobalContext } from "../global-context.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 import type { ToolFailureProtectionState } from "../state-managers/tool-failure-protection-state.js";
 import type { ToolMetricsCollector } from "../metrics/tool-collector.js";
@@ -130,6 +131,7 @@ export class ToolCallExecutor {
     ) => void | Promise<void>,
     private toolFailureProtection?: ToolFailureProtectionState,
     private metricsCollector?: ToolMetricsCollector,
+    private globalContext?: GlobalContext,
   ) {}
 
   /**
@@ -553,12 +555,22 @@ export class ToolCallExecutor {
 
     // Check if this is an interactive tool
     const isInteractiveTool = toolConfig?.metadata?.requiresUserInteraction === true;
+    const isBuiltinTool = toolConfig?.type === "BUILTIN";
 
     // Call ToolRegistry to execute the tool.
     try {
-      // For interactive tools, pass context with event manager and execution info
+      // Build context for BUILTIN tools and interactive tools
       let context: Record<string, unknown> | undefined;
-      if (isInteractiveTool) {
+      if (isBuiltinTool) {
+        context = {
+          eventManager: this.eventManager,
+          executionId,
+          nodeId,
+          parentExecutionEntity: this.checkpointDependencies?.workflowExecutionRegistry?.get(executionId || ""),
+          executionRegistry: this.checkpointDependencies?.workflowExecutionRegistry,
+          globalContext: this.globalContext,
+        };
+      } else if (isInteractiveTool) {
         context = {
           eventManager: this.eventManager,
           executionId,

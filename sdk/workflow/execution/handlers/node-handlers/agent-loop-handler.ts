@@ -6,8 +6,14 @@
  * Supports referencing named message contexts via initialContextRefs.
  */
 
-import type { RuntimeNode, WorkflowExecution, AgentLoopNodeConfig, LLMMessage, MessageContextRegistry } from "@wf-agent/types";
-import { ExecutionError, RuntimeValidationError } from "@wf-agent/types";
+import type {
+  RuntimeNode,
+  WorkflowExecution,
+  AgentLoopNodeConfig,
+  LLMMessage,
+  MessageContextRegistry,
+} from "@wf-agent/types";
+import { RuntimeValidationError } from "@wf-agent/types";
 import { now, diffTimestamp, getErrorOrNew } from "@wf-agent/common-utils";
 
 import type { ConversationSession } from "../../../../core/messaging/conversation-session.js";
@@ -71,13 +77,27 @@ export interface AgentLoopHandlerContext {
 
 /**
  * Collect messages from initial context references
+ *
+ * Reads from named message contexts via messageInputs configuration.
+ * Each entry specifies a source context name and internal mapping name.
+ * Messages from all specified contexts are concatenated into the initial
+ * message list for the agent loop.
+ *
+ * If messageInputs is not defined, returns an empty array.
+ * The agent loop will start with no initial messages.
  */
 function collectInitialMessages(
   config: AgentLoopNodeConfig,
   workflowExecution: WorkflowExecution,
 ): LLMMessage[] {
-  const registry = (workflowExecution as WorkflowExecution & { messageContextRegistry?: MessageContextRegistry }).messageContextRegistry;
-  
+  const messageInputs = config.inlineConfig?.messageInputs;
+  if (!messageInputs || messageInputs.length === 0) {
+    return [];
+  }
+
+  const registry = (
+    workflowExecution as WorkflowExecution & { messageContextRegistry?: MessageContextRegistry }
+  ).messageContextRegistry;
   if (!registry) {
     throw new RuntimeValidationError("MessageContextRegistry not found in execution context", {
       operation: "collectInitialMessages",
@@ -85,26 +105,81 @@ function collectInitialMessages(
     });
   }
 
-  // Use the specified contextId, or default to 'current'
-  const contextId = config.inlineConfig?.initialContextId || 'current';
-  
-  const namedContext = registry.get(contextId);
-  
-  if (!namedContext) {
-    throw new RuntimeValidationError(`Context '${contextId}' not found`, {
-      operation: "collectInitialMessages",
-      field: "initialContextId",
-      value: contextId,
+  const allMessages: LLMMessage[] = [];
+  for (const inputDef of messageInputs) {
+    const { externalName, internalName, required, defaultMessages } = inputDef;
+    const namedContext = registry.get(externalName);
+
+    if (namedContext) {
+      allMessages.push(...namedContext.messages);
+    } else if (required) {
+      throw new RuntimeValidationError(
+        `Required message context '${externalName}' (mapped to '${internalName}') not found in registry`,
+        { operation: "collectInitialMessages", field: "messageInputs", value: externalName },
+      );
+    } else if (defaultMessages && defaultMessages.length > 0) {
+      allMessages.push(...defaultMessages);
+    }
+  }
+  return allMessages;
+}
+
+/**
+ * Sync agent loop messages back to the workflow MessageContextRegistry
+ *
+ * After the agent loop completes, this function maps the agent's accumulated
+ * conversation messages to named contexts in the workflow registry, as defined
+ * by the messageOutputs configuration.
+ */
+function syncMessageOutputs(
+  config: AgentLoopNodeConfig,
+  workflowExecution: WorkflowExecution,
+  conversationManager: ConversationSession,
+): void {
+  const messageOutputs = config.inlineConfig?.messageOutputs;
+  if (!messageOutputs || messageOutputs.length === 0) {
+    return;
+  }
+
+  const registry = (
+    workflowExecution as WorkflowExecution & { messageContextRegistry?: MessageContextRegistry }
+  ).messageContextRegistry;
+  if (!registry) {
+    logger.warn("MessageContextRegistry not available for syncing message outputs");
+    return;
+  }
+
+  const allMessages = conversationManager.getAllMessages();
+  const now_ts = Date.now();
+
+  for (const outputDef of messageOutputs) {
+    const { internalName, externalName } = outputDef;
+    registry.register({
+      id: externalName,
+      messages: [...allMessages],
+      createdAt: now_ts,
+      updatedAt: now_ts,
+      metadata: {
+        source: "agent-loop",
+        internalName,
+        messageCount: allMessages.length,
+      } as Record<string, unknown>,
+    });
+
+    logger.debug("Synced agent loop messages to context", {
+      contextId: externalName,
+      messageCount: allMessages.length,
     });
   }
-  
-  return [...namedContext.messages];
 }
 
 /**
  * Create an AgentLoopCoordinator instance
  */
-function createCoordinator(globalContext: GlobalContext, context: AgentLoopHandlerContext): AgentLoopCoordinator {
+function createCoordinator(
+  globalContext: GlobalContext,
+  context: AgentLoopHandlerContext,
+): AgentLoopCoordinator {
   // Get AgentLoopRegistry from DI container
   const registry =
     context.agentLoopRegistry ??
@@ -113,9 +188,77 @@ function createCoordinator(globalContext: GlobalContext, context: AgentLoopHandl
     llmExecutor: context.llmExecutor,
     toolService: context.toolService,
     eventManager: context.eventManager,
+    globalContext,
   });
 
   return new AgentLoopCoordinator(registry, executor, globalContext, context.eventManager);
+}
+
+/**
+ * Resolved runtime configuration for agent loop execution
+ *
+ * This is the merged result of agentLoopId (static definition) and
+ * inlineConfig (selective overrides). At runtime, the handler only
+ * uses this resolved config — the definition-to-override merge is
+ * expected to happen at workflow definition load/parse time.
+ */
+interface ResolvedAgentRuntimeConfig {
+  profileId: string;
+  maxIterations?: number;
+  systemPrompt?: string;
+  availableTools?: import("@wf-agent/types").AgentToolConfig;
+  dataInputs?: import("@wf-agent/types").WorkflowDataInput[];
+  messageInputs?: import("@wf-agent/types").WorkflowMessageInput[];
+  messageOutputs?: import("@wf-agent/types").WorkflowMessageOutput[];
+  workingContext?: string;
+}
+
+/**
+ * Resolve the final agent loop runtime config from AgentLoopNodeConfig.
+ *
+ * Priority order:
+ * 1. If inlineConfig is present, use its fields as the primary source.
+ * 2. If agentLoopId is provided without inlineConfig, the config resolver
+ *    should have pre-merged the static definition at load time.
+ *    For now, this requires inlineConfig to be available.
+ *
+ * The agentLoopId field is preserved on the node config for reference/tracking
+ * (e.g., logging, monitoring), not for runtime config resolution.
+ */
+function resolveAgentRuntimeConfig(config: AgentLoopNodeConfig): ResolvedAgentRuntimeConfig {
+  const inlineConfig = config.inlineConfig || {};
+
+  const resolved: ResolvedAgentRuntimeConfig = {
+    profileId: inlineConfig.profileId || "",
+    maxIterations: inlineConfig.maxIterations,
+    systemPrompt: "",
+    availableTools: inlineConfig.availableTools,
+    dataInputs: inlineConfig.dataInputs,
+    messageInputs: inlineConfig.messageInputs,
+    messageOutputs: inlineConfig.messageOutputs,
+    workingContext: inlineConfig.workingContext,
+  };
+
+  if (resolved.profileId) {
+    return resolved;
+  }
+
+  // If no profileId in inlineConfig, agentLoopId must be provided for resolution.
+  // The static definition lookup (agentLoopId → AgentLoopDefinition) is expected
+  // to happen at workflow definition load time, producing the merged inlineConfig.
+  // At runtime, the handler receives the pre-merged config.
+  throw new RuntimeValidationError(
+    "AgentLoop node requires a profileId. Provide it via inlineConfig.profileId or ensure agentLoopId is resolved at workflow load time.",
+    {
+      operation: "resolveAgentRuntimeConfig",
+      field: "profileId",
+      value: config.agentLoopId,
+      context: {
+        agentLoopId: config.agentLoopId,
+        hasInlineConfig: !!config.inlineConfig,
+      },
+    },
+  );
 }
 
 /**
@@ -131,19 +274,10 @@ export async function agentLoopHandler(
   const config = node.config as AgentLoopNodeConfig;
   const startTime = now();
 
-  // Extract inline config or use defaults
-  const inlineConfig = config.inlineConfig;
-  const profileId = inlineConfig?.profileId;
-
-  if (!profileId) {
-    return {
-      status: "FAILED",
-      error: new ExecutionError("AgentLoop node requires profileId in inlineConfig", node.id),
-      executionTime: 0,
-    };
-  }
-
   try {
+    // Resolve runtime config: merge agentLoopId + inlineConfig
+    const resolvedConfig = resolveAgentRuntimeConfig(config);
+
     // 1. Prepare the initial messages from context references
     const initialMessages = collectInitialMessages(config, execution);
 
@@ -161,7 +295,7 @@ export async function agentLoopHandler(
           } else if (required) {
             throw new RuntimeValidationError(
               `Required data input '${parentField}' (mapped to variable '${internalName}') is missing`,
-              { operation: "agentLoopHandler", field: parentField }
+              { operation: "agentLoopHandler", field: parentField },
             );
           }
         }
@@ -200,11 +334,11 @@ export async function agentLoopHandler(
 
     const result = await coordinator.execute(
       {
-        profileId,
-        systemPrompt: "", // Empty system prompt - context comes from initialContextId
+        profileId: resolvedConfig.profileId,
+        systemPrompt: resolvedConfig.systemPrompt,
         initialMessages,
-        availableTools: inlineConfig?.availableTools,
-        maxIterations: inlineConfig?.maxIterations,
+        availableTools: resolvedConfig.availableTools,
+        maxIterations: resolvedConfig.maxIterations,
       },
       {
         conversationManager: context.conversationManager,
@@ -251,6 +385,9 @@ export async function agentLoopHandler(
       logger.debug("Failed to emit CONVERSATION_STATE_CHANGED event", { error });
     }
 
+    // Sync agent loop messages back to workflow MessageContextRegistry
+    syncMessageOutputs(config, execution, context.conversationManager);
+
     // 4. Update the variable using VariableManager API
     const updateVarManager = context.workflowExecutionEntity?.variableStateManager;
     if (updateVarManager) {
@@ -287,19 +424,10 @@ export async function* agentLoopStreamHandler(
   const config = node.config as AgentLoopNodeConfig;
   const startTime = now();
 
-  // Extract inline config or use defaults
-  const inlineConfig = config.inlineConfig;
-  const profileId = inlineConfig?.profileId;
-
-  if (!profileId) {
-    return {
-      status: "FAILED",
-      error: new ExecutionError("AgentLoop node requires profileId in inlineConfig", node.id),
-      executionTime: 0,
-    };
-  }
-
   try {
+    // Resolve runtime config: merge agentLoopId + inlineConfig
+    const resolvedConfig = resolveAgentRuntimeConfig(config);
+
     // 1. Prepare the initial messages from context references
     const initialMessages = collectInitialMessages(config, execution);
 
@@ -307,7 +435,9 @@ export async function* agentLoopStreamHandler(
     const inlineConfig = config.inlineConfig;
     if (inlineConfig?.dataInputs && inlineConfig.dataInputs.length > 0) {
       const varManager = context.workflowExecutionEntity?.variableStateManager;
-      const input = context.workflowExecutionEntity?.getInput ? context.workflowExecutionEntity.getInput() : execution.input || {};
+      const input = context.workflowExecutionEntity?.getInput
+        ? context.workflowExecutionEntity.getInput()
+        : execution.input || {};
       for (const inputDef of inlineConfig.dataInputs) {
         const { parentField, internalName, required, defaultValue } = inputDef;
         let value = input[parentField];
@@ -317,7 +447,7 @@ export async function* agentLoopStreamHandler(
           } else if (required) {
             throw new RuntimeValidationError(
               `Required data input '${parentField}' (mapped to variable '${internalName}') is missing`,
-              { operation: "agentLoopStreamHandler", field: parentField }
+              { operation: "agentLoopStreamHandler", field: parentField },
             );
           }
         }
@@ -341,11 +471,11 @@ export async function* agentLoopStreamHandler(
 
     for await (const event of coordinator.executeStream(
       {
-        profileId,
-        systemPrompt: "", // Empty system prompt - context comes from initialContextRefs
+        profileId: resolvedConfig.profileId,
+        systemPrompt: resolvedConfig.systemPrompt,
         initialMessages,
-        availableTools: inlineConfig?.availableTools,
-        maxIterations: inlineConfig?.maxIterations,
+        availableTools: resolvedConfig.availableTools,
+        maxIterations: resolvedConfig.maxIterations,
       },
       {
         conversationManager: context.conversationManager,
@@ -378,6 +508,9 @@ export async function* agentLoopStreamHandler(
       updateManager.setVariable("agentLoopIterations", iterations);
       updateManager.setVariable("agentLoopToolCallCount", toolCallCount);
     }
+
+    // Sync agent loop messages back to workflow MessageContextRegistry
+    syncMessageOutputs(config, execution, context.conversationManager);
 
     return {
       status: entity?.isPaused() ? "PAUSED" : "COMPLETED",

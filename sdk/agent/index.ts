@@ -73,6 +73,10 @@ export {
 
 // Stores layer (export class for direct instantiation, also available via DI)
 export { AgentLoopRegistry } from "./stores/agent-loop-registry.js";
+export {
+  type IAgentExecutionRegistry,
+  type AgentExecutionFilter,
+} from "./stores/agent-execution-registry.js";
 
 // Error Handler
 export {

@@ -10,6 +10,8 @@ export {
   type ExecutedSubworkflowResult,
   type TaskSubmissionResult,
   type TriggeredSubworkflowQueueTask,
+  type DataSourceType,
+  type ResolvedDataSource,
 } from "./triggered-subworkflow.types.js";
 
 export {

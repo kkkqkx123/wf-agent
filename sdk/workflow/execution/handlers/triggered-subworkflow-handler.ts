@@ -29,10 +29,12 @@ import type { WorkflowExecutionPool } from "../workflow-execution-pool.js";
 import { TaskQueue } from "../../stores/task/task-queue.js";
 import { AsyncCompletionManager } from "../../state-managers/promise-resolution-manager.js";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
+import type { IAgentExecutionRegistry } from "../../../agent/stores/agent-execution-registry.js";
 import {
   type TriggeredSubworkflowTask,
   type ExecutedSubworkflowResult,
   type TaskSubmissionResult,
+  type ResolvedDataSource,
 } from "../types/triggered-subworkflow.types.js";
 import { emit } from "../../../core/utils/event/event-emitter.js";
 import {
@@ -114,6 +116,11 @@ export class TriggeredSubworkflowHandler implements TaskManager {
   > = new Map();
 
   /**
+   * Agent Execution Registry - for resolving agent loop entity data
+   */
+  private agentExecutionRegistry: IAgentExecutionRegistry;
+
+  /**
    * Constructor
    * @param taskRegistry Task registry (injected from DI container)
    * @param workflowExecutionRegistry WorkflowExecution registry
@@ -121,6 +128,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
    * @param taskQueueManager Task queue manager
    * @param eventManager Event manager
    * @param workflowExecutionPool Workflow execution pool service
+   * @param agentExecutionRegistry Agent execution registry
    */
   constructor(
     taskRegistry: TaskRegistry,
@@ -141,6 +149,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     taskQueueManager: TaskQueue,
     eventManager: EventRegistry,
     workflowExecutionPool: WorkflowExecutionPool,
+    agentExecutionRegistry: IAgentExecutionRegistry,
   ) {
     this.taskRegistry = taskRegistry;
     this.workflowExecutionRegistry = workflowExecutionRegistry;
@@ -148,6 +157,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     this.taskQueueManager = taskQueueManager;
     this.eventManager = eventManager;
     this.workflowExecutionPool = workflowExecutionPool;
+    this.agentExecutionRegistry = agentExecutionRegistry;
 
     // Create an async completion manager with event integration
     this.callbackState = new AsyncCompletionManager<ExecutedSubworkflowResult>(eventManager);
@@ -177,7 +187,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     }
 
     // Prepare the input data
-    const input = this.prepareInputData(task);
+    const input = await this.prepareInputData(task);
 
     // Create a sub-workflow WorkflowExecutionEntity using unified API if available
     let subgraphEntity: WorkflowExecutionEntity;
@@ -228,53 +238,117 @@ export class TriggeredSubworkflowHandler implements TaskManager {
   }
 
   /**
-   * Prepare input data
+   * Prepare input data using resolved data source
    * @param task: Trigger the sub-workflow task
    * @returns: Input data
    */
-  private prepareInputData(task: TriggeredSubworkflowTask): Record<string, unknown> {
+  private async prepareInputData(task: TriggeredSubworkflowTask): Promise<Record<string, unknown>> {
     const config = task.config as ExecuteTriggeredSubworkflowActionConfig | undefined;
-    const mainEntity = task.mainWorkflowExecutionEntity;
-    
-    // Base input data
+
+    // Step 1: Resolve data source based on sourceType
+    const source = await this.resolveDataSource(task);
+
+    // Step 2: Build base input according to source type
     const baseInput: Record<string, unknown> = {
       triggerId: task.triggerId,
-      output: mainEntity.getOutput(),
-      input: mainEntity.getInput(),
     };
-    
-    // Apply input mapping if configured
+
+    if (source.type === 'agent') {
+      baseInput['agentMessages'] = source.messages as unknown as Record<string, unknown>[];
+      baseInput['agentLoopId'] = source.entityId;
+      baseInput['agentIteration'] = source.agentState?.currentIteration;
+      baseInput['agentToolCallCount'] = source.agentState?.toolCallCount;
+      baseInput['agentStatus'] = source.agentState?.status;
+      // Also include parent workflow data for agent-triggered subworkflows
+      const parentEntity = task.mainWorkflowExecutionEntity;
+      baseInput['parentOutput'] = parentEntity.getOutput();
+      baseInput['parentInput'] = parentEntity.getInput();
+    } else {
+      // Workflow source: backward compatible behavior
+      const mainEntity = task.mainWorkflowExecutionEntity;
+      baseInput['output'] = mainEntity.getOutput();
+      baseInput['input'] = mainEntity.getInput();
+    }
+
+    // Step 3: Apply input mapping if configured
     if (config?.inputMapping) {
       const mappedInput: Record<string, unknown> = { ...baseInput };
-      
+
       // Map variables
       if (config.inputMapping.variables) {
         for (const [parentVar, subworkflowInput] of Object.entries(config.inputMapping.variables)) {
-          const value = mainEntity.getVariable(parentVar);
+          const value = task.mainWorkflowExecutionEntity.getVariable(parentVar);
           if (value !== undefined) {
             mappedInput[subworkflowInput] = value;
           }
         }
       }
-      
+
       // Map message contexts (future: integrate with message reference architecture)
       if (config.inputMapping.messageContexts) {
         // TODO: Implement message context mapping using new reference architecture
         logger.warn('Message context mapping not yet implemented');
       }
-      
+
       // Add additional static parameters
       if (config.inputMapping.additionalParams) {
         Object.assign(mappedInput, config.inputMapping.additionalParams);
       }
-      
+
       return mappedInput;
     }
-    
-    // Fallback: merge task.input for backward compatibility
+
+    return baseInput;
+  }
+
+  /**
+   * Resolve data source based on task.sourceType
+   *
+   * Provides a unified data interface regardless of whether the source
+   * is a workflow execution or an agent loop execution.
+   *
+   * Design:
+   * - Uses lazy lookup (delayed query) to ensure the latest data snapshot
+   * - Gracefully falls back to workflow source when agent entity is not found
+   *
+   * @param task: The triggered subworkflow task
+   * @returns Resolved data source with unified interface
+   */
+  private async resolveDataSource(task: TriggeredSubworkflowTask): Promise<ResolvedDataSource> {
+    if (task.sourceType === 'agent' && task.sourceEntityId) {
+      try {
+        const agentEntity = await this.agentExecutionRegistry.get(task.sourceEntityId);
+        if (agentEntity) {
+          return {
+            type: 'agent',
+            entityId: agentEntity.id,
+            messages: agentEntity.getMessages(),
+            agentState: {
+              currentIteration: agentEntity.state.currentIteration,
+              toolCallCount: agentEntity.state.toolCallCount,
+              status: agentEntity.getStatus(),
+            },
+          };
+        }
+        logger.warn('Agent entity not found for data source resolution, falling back to workflow source', {
+          entityId: task.sourceEntityId,
+        });
+      } catch (error) {
+        logger.warn('Failed to resolve agent entity data source, falling back to workflow source', {
+          entityId: task.sourceEntityId,
+          error: getErrorOrNew(error),
+        });
+      }
+    }
+
+    // Default: workflow data source
+    const entity = task.mainWorkflowExecutionEntity;
     return {
-      ...baseInput,
-      ...task.input,
+      type: 'workflow',
+      entityId: entity.id,
+      output: entity.getOutput(),
+      workflowInput: entity.getInput(),
+      variables: entity.getAllVariables(),
     };
   }
 

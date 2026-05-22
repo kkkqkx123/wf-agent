@@ -15,7 +15,7 @@
  */
 
 import type { Trigger, TriggerStatus, WorkflowTrigger, TriggerRuntimeState } from "@wf-agent/types";
-import type { BaseEvent, NodeCustomEvent } from "@wf-agent/types";
+import type { BaseEvent, NodeCustomEvent, AgentHookTriggeredCoreEvent } from "@wf-agent/types";
 import type { ID } from "@wf-agent/types";
 import { getTriggerHandler } from "../handlers/trigger-handlers/index.js";
 import { ExecutionError, RuntimeValidationError, DependencyInjectionError } from "@wf-agent/types";
@@ -28,8 +28,22 @@ import {
   TriggerHandlerContextFactory,
   type TriggerHandlerContextFactoryConfig,
 } from "../factories/trigger-handler-context-factory.js";
+import type { IAgentExecutionRegistry } from "../../../agent/stores/agent-execution-registry.js";
+import type { AgentLoopEntity } from "../../../agent/entities/agent-loop-entity.js";
+import * as Identifiers from "../../../core/di/service-identifiers.js";
 
 const logger = createContextualLogger({ component: "TriggerCoordinator" });
+
+/**
+ * TriggerEventContext - Trigger event context
+ *
+ * Carries additional context data from the triggering event to the trigger handler.
+ * Used to bridge agent hook events to triggered sub-workflow execution.
+ */
+export interface TriggerEventContext {
+  /** Agent loop entity ID from hook triggered event */
+  agentLoopEntityId: string;
+}
 
 /**
  * TriggerCoordinator - Trigger Coordinator
@@ -219,6 +233,15 @@ export class TriggerCoordinator {
     // Get all triggers
     const triggers = this.getAll();
 
+    // Build event context for agent hook triggered events
+    let eventContext: TriggerEventContext | undefined;
+    if (event.type === "AGENT_HOOK_TRIGGERED") {
+      const agentEvent = event as AgentHookTriggeredCoreEvent;
+      eventContext = {
+        agentLoopEntityId: agentEvent.agentLoopEntityId,
+      };
+    }
+
     // Filter out triggers that are listening for this event type and have been enabled.
     const enabledTriggers = triggers.filter(
       trigger =>
@@ -257,8 +280,8 @@ export class TriggerCoordinator {
           }
         }
 
-        // Execute the trigger
-        await this.executeTrigger(trigger);
+        // Execute the trigger with event context
+        await this.executeTrigger(trigger, eventContext);
       } catch (error) {
         // Handle errors based on configured strategy
         const errorObj = getErrorOrNew(error);
@@ -286,8 +309,9 @@ export class TriggerCoordinator {
   /**
    * Execute the trigger
    * @param trigger The trigger
+   * @param eventContext Optional event context for agent hook triggered events
    */
-  private async executeTrigger(trigger: Trigger): Promise<void> {
+  private async executeTrigger(trigger: Trigger, eventContext?: TriggerEventContext): Promise<void> {
     const {
       checkpointStateManager,
       graphRegistry,
@@ -378,12 +402,32 @@ export class TriggerCoordinator {
           );
         }
         const globalContext = this.contextFactory.getGlobalContext();
+
+        // Look up AgentLoopEntity from event context if available
+        let agentLoopEntity: AgentLoopEntity | undefined;
+        if (eventContext?.agentLoopEntityId) {
+          try {
+            const agentExecutionRegistry = globalContext.container.get(
+              Identifiers.AgentExecutionRegistry,
+            ) as IAgentExecutionRegistry | undefined;
+            if (agentExecutionRegistry) {
+              agentLoopEntity = await agentExecutionRegistry.get(eventContext.agentLoopEntityId);
+            }
+          } catch (error) {
+            logger.warn('Failed to resolve agent loop entity from event context', {
+              agentLoopEntityId: eventContext.agentLoopEntityId,
+              triggerId: trigger.id,
+            }, undefined, getErrorOrNew(error));
+          }
+        }
+
         await handler(
           trigger.action,
           trigger.id,
           workflowExecutionRegistry,
           trigger.executionId,
           globalContext,
+          agentLoopEntity,
         );
         break;
 

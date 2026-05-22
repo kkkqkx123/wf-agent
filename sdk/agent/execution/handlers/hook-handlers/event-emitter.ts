@@ -18,6 +18,8 @@ import { buildAgentHookTriggeredEvent } from "../../../../core/utils/event/build
 export interface AgentHookEventData {
   /** Agent Loop ID */
   agentLoopId: string;
+  /** Agent Loop Entity ID for registry lookup */
+  agentLoopEntityId: string;
   /** Hook type that triggered the event */
   hookType: AgentHookType;
   /** Event name */
@@ -47,6 +49,7 @@ export async function emitAgentHookEvent(
   const parentContext = entity.getParentContext();
   const event = buildAgentHookTriggeredEvent({
     agentLoopId: entity.id,
+    agentLoopEntityId: entity.id,
     hookType,
     eventName,
     eventData: eventData ?? {},

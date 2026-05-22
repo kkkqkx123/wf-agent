@@ -37,6 +37,7 @@ export const buildNodeCustomEvent = (params: {
  */
 export const buildAgentHookTriggeredEvent = (params: {
   agentLoopId: string;
+  agentLoopEntityId: string;
   hookType: AgentHookType;
   eventName: string;
   eventData: Record<string, unknown>;
@@ -53,6 +54,7 @@ export const buildAgentHookTriggeredEvent = (params: {
   type: "hook_triggered",
   timestamp: now(),
   agentLoopId: params.agentLoopId,
+  agentLoopEntityId: params.agentLoopEntityId,
   hookType: params.hookType,
   eventName: params.eventName,
   eventData: params.eventData,

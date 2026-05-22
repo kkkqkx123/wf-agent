@@ -44,6 +44,7 @@ import type { TriggeredSubworkflowHandler as TriggeredSubworkflowHandlerType } f
 import type { WorkflowExecutionPool as WorkflowExecutionPoolType } from "../../workflow/execution/workflow-execution-pool.js";
 import type { LLMWrapper as LLMWrapperType } from "../llm/wrapper.js";
 import type { AgentLoopRegistry as AgentLoopRegistryType } from "../../agent/stores/agent-loop-registry.js";
+import type { IAgentExecutionRegistry as AgentExecutionRegistryType } from "../../agent/stores/agent-execution-registry.js";
 import type { ExecutionHierarchyRegistry as ExecutionHierarchyRegistryType } from "../registry/execution-hierarchy-registry.js";
 import type { AgentLoopExecutor as AgentLoopExecutorType } from "../../agent/execution/executors/agent-loop-executor.js";
 import type { AgentLoopCoordinator as AgentLoopCoordinatorType } from "../../agent/execution/coordinators/agent-loop-coordinator.js";
@@ -316,6 +317,12 @@ export const LLMWrapper: ServiceIdentifier<LLMWrapperType> = Symbol("LLMWrapper"
  * Manages the memory storage of AgentLoopEntities
  */
 export const AgentLoopRegistry: ServiceIdentifier<AgentLoopRegistryType> = Symbol("AgentLoopRegistry");
+
+/**
+ * AgentExecutionRegistry - Agent Execution Registry Interface
+ * Provides unified access to agent loop execution instances
+ */
+export const AgentExecutionRegistry: ServiceIdentifier<AgentExecutionRegistryType> = Symbol("AgentExecutionRegistry");
 
 /**
  * ExecutionHierarchyRegistry - Unified Execution Hierarchy Registry

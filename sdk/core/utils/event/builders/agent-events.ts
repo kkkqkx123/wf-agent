@@ -134,6 +134,7 @@ export const buildAgentHookTriggeredCoreEvent = (
     id: string;
     timestamp: number;
     agentLoopId: string;
+    agentLoopEntityId: string;
     hookType: AgentHookType;
     eventName: string;
     eventData: Record<string, unknown>;
@@ -145,6 +146,7 @@ export const buildAgentHookTriggeredCoreEvent = (
   type: "AGENT_HOOK_TRIGGERED",
   timestamp: params.timestamp,
   agentLoopId: params.agentLoopId,
+  agentLoopEntityId: params.agentLoopEntityId,
   hookType: params.hookType,
   eventName: params.eventName,
   eventData: params.eventData,
@@ -161,6 +163,7 @@ export const buildAgentHookTriggeredCoreEvent = (
  */
 export function buildAgentToolsAddedEvent(params: {
   agentLoopId: string;
+  agentLoopEntityId: string;
   toolIds: string[];
   addedCount: number;
   iteration?: number;
@@ -170,6 +173,7 @@ export function buildAgentToolsAddedEvent(params: {
     type: "AGENT_HOOK_TRIGGERED",
     timestamp: Date.now(),
     agentLoopId: params.agentLoopId,
+    agentLoopEntityId: params.agentLoopEntityId,
     hookType: "system" as AgentHookType,
     eventName: "tools_added",
     eventData: {
@@ -189,6 +193,7 @@ export function buildAgentToolsAddedEvent(params: {
  */
 export function buildAgentToolsRemovedEvent(params: {
   agentLoopId: string;
+  agentLoopEntityId: string;
   toolIds: string[];
   removedCount: number;
   iteration?: number;
@@ -198,6 +203,7 @@ export function buildAgentToolsRemovedEvent(params: {
     type: "AGENT_HOOK_TRIGGERED",
     timestamp: Date.now(),
     agentLoopId: params.agentLoopId,
+    agentLoopEntityId: params.agentLoopEntityId,
     hookType: "system" as AgentHookType,
     eventName: "tools_removed",
     eventData: {

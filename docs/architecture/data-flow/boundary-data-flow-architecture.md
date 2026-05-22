@@ -141,7 +141,7 @@ interface WorkflowMessageOutput {
 | SUBGRAPH | ✅ createChildExecution | variableInputs / variableOutputs | messagePassing | dataInputs | **已完成** |
 | START_FROM_TRIGGER | ✅ createChildExecution | variableInputs | messageInputs | dataInputs | **已完成** |
 | CONTINUE_FROM_TRIGGER | ✅ 出口节点 | variableOutputs | messageOutputs | dataOutputs | **已完成** |
-| AGENT_LOOP | ✅ AgentLoopCoordinator | - | - | dataInputs | **已完成** |
+| AGENT_LOOP | ✅ AgentLoopCoordinator | - | - | messageInputs ✅ | messageOutputs ✅ | dataInputs | **已完成** |
 | FORK | ✅ createChildExecution (FORK_BRANCH) | 深拷贝父变量（无需映射） | 共享上下文（无需映射） | 深拷贝 input（无需映射） | **不需要** |
 | JOIN | 占位符 | variableOutputs | messageOutputs | dataOutputs | **已完成** |
 | SYNC | 分支内运行 | variableMappings | messageInputs | dataInputs | **已完成** |
@@ -170,11 +170,16 @@ interface WorkflowMessageOutput {
   - `dataOutputs`: 从子变量读取值，写入 `workflowExecutionEntity.output`
 
 #### AGENT_LOOP
-- **配置类型**: [AgentLoopNodeConfig](file:///d:/项目/agent/wf-agent/packages/types/src/node/configs/agent-loop-configs.ts) 的 `inlineConfig` 包含 `dataInputs`
+- **配置类型**: [AgentLoopNodeConfig](file:///d:/项目/agent/wf-agent/packages/types/src/node/configs/agent-loop-configs.ts) 的 `inlineConfig` 包含 `dataInputs`、`messageInputs`、`messageOutputs`
 - **处理器侧**: [agent-loop-handler.ts](file:///d:/项目/agent/wf-agent/sdk/workflow/execution/handlers/node-handlers/agent-loop-handler.ts)
-  - 在处理前从 `executionEntity.getInput()` 读取 `parentField` 并设置到 `variableStateManager`
+  - **message 输入 (collectInitialMessages)**:
+    - 优先使用 `messageInputs`：遍历多个命名上下文，从 `MessageContextRegistry` 读取各 `externalName` 对应的消息，合并为初始消息
+    - 降级使用 `initialContextId`（默认 'current'）：向后兼容的单上下文模式
+    - 支持 `required` 校验和 `defaultMessages` 兜底
+  - **data 输入**: 从 `executionEntity.getInput()` 读取 `parentField` 并设置到 `variableStateManager`
   - Agent Loop 内部通过 `variableStateManager.getVariable("input")` 或 `getVariable("prompt")` 获取用户消息初始内容
   - 完成后通过 `variableStateManager.setVariable("output", result.content)` 写回
+  - **message 输出 (syncMessageOutputs)**: 执行完成后，遍历 `messageOutputs` 配置，从 `ConversationSession.getAllMessages()` 读取完整对话历史，通过 `MessageContextRegistry.register()` 以 `externalName` 写回工作流上下文注册表，供下游节点使用
 - **注意**: Agent Loop 通过 `AgentLoopCoordinator` 创建独立执行实体，不走 `createChildExecution`，因此 data 传递在当前工作流侧变量管理器内完成
 
 #### FORK (分支)
@@ -305,6 +310,25 @@ MessageContextRegistry ── messageInputs ────▶ MessageContextRegist
 分支 2 ──▶ variableStateManager ── variableOutputs ──▶ 父 variableStateManager
 所有分支 ──▶ variableStateManager ── dataOutputs ────▶ 父 output
 分支 1 ──▶ MessageContextRegistry ── messageOutputs ──▶ 父 MessageContextRegistry
+```
+
+### 6.5 AGENT_LOOP 场景
+
+```
+工作流 MessageContextRegistry           Agent Loop Entity
+─────────────────────────────           ──────────────────
+"context-a" ── messageInputs[0] ────▶  agent loop 内部
+"context-b" ── messageInputs[1] ────▶  ConversationSession
+                                        (messages 合并)
+                                               │
+                                        AgentLoopCoordinator
+                                        execute() / executeStream()
+                                               │
+                                        ConversationSession
+                                        (messages 累积更新)
+                                               │
+workflow output ◀── dataOutputs ────  variableStateManager
+registry.register("output-ctx") ◀──  messageOutputs ────▶ syncMessageOutputs()
 ```
 
 ---

@@ -10,6 +10,7 @@ import type { AgentLoopEntity } from "../entities/agent-loop-entity.js";
 import { AgentLoopStatus } from "@wf-agent/types";
 import type { AgentLoopStorageAdapter } from "@wf-agent/storage";
 import type { AgentEntityMetadata } from "@wf-agent/types";
+import type { IAgentExecutionRegistry, AgentExecutionFilter } from "./agent-execution-registry.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 import { getErrorMessage } from "@wf-agent/common-utils";
 
@@ -21,14 +22,13 @@ const logger = createContextualLogger({ component: "AgentLoopRegistry" });
  * Core Responsibilities:
  * - Manage active AgentLoopEntity instances.
  * - Provide registration, query and deletion of instances
- * - Provides registration, query, and deletion of instances.
  *
  * Design Principles:
  * - Singleton model (managed via DI container)
  * - Workflow-execution-safe (Map operations)
  * - Support for cleaning up expired instances
  */
-export class AgentLoopRegistry {
+export class AgentLoopRegistry implements IAgentExecutionRegistry {
   /** Instance Storage */
   private entities: Map<ID, AgentLoopEntity> = new Map();
   private storageAdapter?: AgentLoopStorageAdapter;
@@ -173,6 +173,33 @@ export class AgentLoopRegistry {
    */
   getFailed(): AgentLoopEntity[] {
     return this.getByStatus(AgentLoopStatus.FAILED);
+  }
+
+  /**
+   * Query agent loop entities with optional filter
+   *
+   * Supports filtering by:
+   * - status: Filter by execution status
+   * - parentWorkflowId: Filter by parent workflow execution ID
+   *
+   * @param filter Optional filter criteria
+   * @returns Filtered array of AgentLoopEntity instances
+   */
+  query(filter?: AgentExecutionFilter): AgentLoopEntity[] {
+    let results = this.getAll();
+
+    if (filter?.status) {
+      results = results.filter(entity => entity.getStatus() === filter.status);
+    }
+
+    if (filter?.parentWorkflowId) {
+      results = results.filter(entity => {
+        const parent = entity.getParentContext();
+        return parent?.parentType === 'WORKFLOW' && parent.parentId === filter.parentWorkflowId;
+      });
+    }
+
+    return results;
   }
 
   /**

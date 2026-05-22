@@ -10,7 +10,7 @@
 
 import type { ID } from "../../common.js";
 import type { AgentToolConfig } from "../../agent/tool-config.js";
-import type { WorkflowDataInput } from "../../workflow/boundary-config.js";
+import type { WorkflowDataInput, WorkflowMessageInput, WorkflowMessageOutput } from "../../workflow/boundary-config.js";
 
 /**
  * Agent Loop Node Output
@@ -29,8 +29,25 @@ export interface AgentLoopNodeOutput {
  *
  * Agent Loop node embeds an agent execution engine within a workflow graph.
  * It bridges workflow context to agent runtime by providing:
- * - Reference to predefined agent configuration (agentLoopId), OR
- * - Inline configuration for simple scenarios
+ * - Reference to predefined agent configuration (agentLoopId), with optional
+ *   inline overrides for specific fields, OR
+ * - Fully inline configuration for simple scenarios
+ *
+ * ## Merge Semantics (agentLoopId + inlineConfig)
+ *
+ * When both agentLoopId and inlineConfig are provided, the inlineConfig fields
+ * serve as **selective overrides** on top of the static definition loaded from
+ * agentLoopId. This allows reusing a base agent configuration while customizing
+ * specific aspects for a particular workflow node.
+ *
+ * | Scenario | agentLoopId | inlineConfig |
+ * |----------|------------|--------------|
+ * | Full static reference | ✅ required | ❌ omitted |
+ * | Static + overrides | ✅ required | ✅ optional fields |
+ * | Fully inline | ❌ omitted | ✅ required fields |
+ *
+ * Overridable fields: profileId, maxIterations, availableTools, dataInputs,
+ * messageInputs, messageOutputs
  *
  * For complex agent behaviors (hooks, transforms, custom logic), define a full
  * AgentLoopDefinition in config files and reference it via agentLoopId.
@@ -60,8 +77,14 @@ export interface AgentLoopNodeConfig {
    * use agentLoopId to reference a full AgentLoopDefinition.
    */
   inlineConfig?: {
-    /** LLM Profile ID (required if using inlineConfig) */
-    profileId: string;
+    /**
+     * LLM Profile ID
+     *
+     * Required when inlineConfig is used without agentLoopId.
+     * Optional when agentLoopId is provided — in that case, the agent definition's
+     * profileId is used as the base and this field overrides it.
+     */
+    profileId?: string;
 
     /**
      * Maximum number of iterations
@@ -76,14 +99,6 @@ export interface AgentLoopNodeConfig {
      * If not specified, uses all available tools in the context.
      */
     availableTools?: AgentToolConfig;
-
-    /**
-     * Initial message context ID
-     *
-     * References a single named context to initialize the Agent Loop.
-     * Defaults to 'current' if not specified.
-     */
-    initialContextId?: string;
 
     /**
      * Working context ID for Agent Loop internal operations
@@ -105,5 +120,38 @@ export interface AgentLoopNodeConfig {
      *   Result: variable "query_text" gets "hello"
      */
     dataInputs?: WorkflowDataInput[];
+
+    /**
+     * Message context inputs - explicitly maps named message contexts from
+     * the workflow's MessageContextRegistry to the agent loop's initial messages.
+     *
+     * Each entry specifies a source context (externalName) in the workflow registry
+     * and an internal name for the agent loop. The messages from all specified
+     * contexts are concatenated as initial messages for the agent loop execution.
+     *
+     * Example:
+     *   messageInputs: [
+     *     { externalName: "system-context", internalName: "system" },
+     *     { externalName: "conversation", internalName: "chat", required: true }
+     *   ]
+     */
+    messageInputs?: WorkflowMessageInput[];
+
+    /**
+     * Message context outputs - explicitly maps the agent loop's accumulated
+     * messages back to named contexts in the workflow's MessageContextRegistry.
+     *
+     * After the agent loop completes execution, the messages from the agent loop's
+     * conversation manager are copied to the workflow registry under the specified
+     * external names. This ensures the workflow retains the conversation state
+     * for subsequent nodes or downstream processing.
+     *
+     * Example:
+     *   messageOutputs: [
+     *     { internalName: "agent-chat", externalName: "updated-conversation" }
+     *   ]
+     *   Result: workflow registry gets context "updated-conversation" with all messages
+     */
+    messageOutputs?: WorkflowMessageOutput[];
   };
 }

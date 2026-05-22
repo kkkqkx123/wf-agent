@@ -175,6 +175,8 @@ export interface AgentHookTriggeredCoreEvent extends BaseEvent {
   type: "AGENT_HOOK_TRIGGERED";
   /** Agent Loop ID */
   agentLoopId: ID;
+  /** Agent loop entity ID for registry lookup */
+  agentLoopEntityId: ID;
   /** Hook type that triggered this event */
   hookType: AgentHookType;
   /** Event name (from hook configuration) */

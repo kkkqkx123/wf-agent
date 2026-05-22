@@ -106,6 +106,7 @@ export function createExecuteWorkflowHandler() {
       input,
       mainWorkflowExecutionEntity: workflowContext.parentExecutionEntity,
       triggerId: `builtin-${context.executionId}-${Date.now()}`,
+      sourceType: 'workflow',
       config: {
         triggeredWorkflowId: workflowId,
         waitForCompletion,

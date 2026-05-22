@@ -100,6 +100,7 @@ import { TriggerState } from "../../workflow/state-managers/trigger-state.js";
 import { InterruptionState } from "../utils/interruption/interruption-state.js";
 import { AgentLoopExecutor } from "../../agent/execution/executors/agent-loop-executor.js";
 import { AgentLoopRegistry } from "../../agent/stores/agent-loop-registry.js";
+import type { IAgentExecutionRegistry } from "../../agent/stores/agent-execution-registry.js";
 import { ExecutionHierarchyRegistry } from "../registry/execution-hierarchy-registry.js";
 import { AgentLoopCoordinator } from "../../agent/execution/coordinators/agent-loop-coordinator.js";
 import { WorkflowExecutionEntity } from "../../workflow/entities/workflow-execution-entity.js";
@@ -688,6 +689,7 @@ export function configureContainerBindings(
         taskQueueManager,
         eventManager,
         workflowExecutionPool,
+        c.get(Identifiers.AgentExecutionRegistry) as IAgentExecutionRegistry,
       );
     })
     .inSingletonScope();
@@ -764,6 +766,14 @@ export function configureContainerBindings(
       return new AgentLoopRegistry({
         storageAdapter: storageAdapter || undefined,
       });
+    })
+    .inSingletonScope();
+
+  // AgentExecutionRegistry - Interface binding to AgentLoopRegistry singleton
+  container
+    .bind(Identifiers.AgentExecutionRegistry)
+    .toDynamicValue((c: IContainer): IAgentExecutionRegistry => {
+      return c.get(Identifiers.AgentLoopRegistry) as IAgentExecutionRegistry;
     })
     .inSingletonScope();
 

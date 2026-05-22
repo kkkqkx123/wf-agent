@@ -289,6 +289,8 @@ export interface AgentHookTriggeredEvent {
   timestamp: number;
   /** Agent loop ID */
   agentLoopId: ID;
+  /** Agent loop entity ID for registry lookup */
+  agentLoopEntityId: ID;
   /** Hook type that triggered this event */
   hookType: AgentHookType;
   /** Event name (from hook configuration) */

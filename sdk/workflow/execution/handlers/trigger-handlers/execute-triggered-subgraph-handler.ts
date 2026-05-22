@@ -28,6 +28,7 @@ import * as Identifiers from "../../../../core/di/service-identifiers.js";
 import type { GlobalContext } from "../../../../core/global-context.js";
 import type { WorkflowGraphRegistry } from "../../../stores/workflow-graph-registry.js";
 import type { TriggeredSubworkflowHandler } from "../triggered-subworkflow-handler.js";
+import type { AgentLoopEntity } from "../../../../agent/entities/agent-loop-entity.js";
 
 function createSyncSuccessResult(
   triggerId: string,
@@ -108,6 +109,7 @@ export async function executeTriggeredSubgraphHandler(
   workflowExecutionRegistry: WorkflowExecutionRegistry,
   currentExecutionId?: string,
   globalContext?: GlobalContext,
+  agentLoopEntity?: AgentLoopEntity,
 ): Promise<TriggerExecutionResult> {
   const startTime = now();
 
@@ -152,22 +154,18 @@ export async function executeTriggeredSubgraphHandler(
       );
     }
 
-    const input: Record<string, unknown> = {
-      triggerId,
-      output: mainWorkflowExecutionEntity.getOutput(),
-      input: mainWorkflowExecutionEntity.getInput(),
-    };
-
     const manager = container.get(
       Identifiers.TriggeredSubworkflowHandler,
     ) as TriggeredSubworkflowHandler;
 
     const task: TriggeredSubworkflowTask = {
       subworkflowId: triggeredWorkflowId,
-      input,
+      input: { triggerId },
       triggerId,
       mainWorkflowExecutionEntity,
-      config: parameters, // Pass the full config including inputMapping and outputMapping
+      config: parameters,
+      sourceType: agentLoopEntity ? 'agent' : 'workflow',
+      sourceEntityId: agentLoopEntity?.id,
     };
 
     const result = await manager.executeTriggeredSubgraph(task);
@@ -184,7 +182,7 @@ export async function executeTriggeredSubgraphHandler(
         action,
         {
           triggeredWorkflowId,
-          input,
+          input: task.input,
           output: syncResult.subworkflowEntity.getOutput(),
           executionTime: syncResult.executionTime,
         },

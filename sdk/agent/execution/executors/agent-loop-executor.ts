@@ -29,8 +29,11 @@ import type { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import type { ToolRegistry } from "../../../core/registry/tool-registry.js";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import type { MetricsRegistry } from "../../../core/metrics/metrics-registry.js";
+import type { GlobalContext } from "../../../core/global-context.js";
 import { LLMExecutor } from "../../../core/executors/llm-executor.js";
 import { ToolCallExecutor } from "../../../core/executors/tool-call-executor.js";
+import type { CheckpointDependencies as WorkflowCheckpointDependencies } from "../../../workflow/checkpoint/utils/checkpoint-utils.js";
+import * as Identifiers from "../../../core/di/service-identifiers.js";
 import { emit } from "../../../core/utils/event/event-emitter.js";
 import { AgentExecutionCoordinator, type AgentLoopStreamEvent } from "../coordinators/agent-execution-coordinator.js";
 import { ToolExecutionCoordinator } from "../coordinators/tool-execution-coordinator.js";
@@ -56,6 +59,10 @@ export interface AgentLoopExecutorDependencies {
   toolApprovalHandler?: ToolApprovalHandler;
   /** Metrics Registry (optional) */
   metricsRegistry?: MetricsRegistry;
+  /** Global Context (optional, needed for builtin tool context passing) */
+  globalContext?: GlobalContext;
+  /** Workflow checkpoint dependencies (optional, needed for execution registry access) */
+  checkpointDependencies?: WorkflowCheckpointDependencies;
 }
 
 /**
@@ -72,6 +79,7 @@ export class AgentLoopExecutor {
   private emitEvent?: (event: AgentHookTriggeredEvent) => Promise<void>;
   private toolApprovalHandler?: ToolApprovalHandler;
   private metricsRegistry?: MetricsRegistry;
+  private globalContext?: GlobalContext;
 
   constructor(deps: AgentLoopExecutorDependencies) {
     this.llmExecutor = deps.llmExecutor;
@@ -80,7 +88,34 @@ export class AgentLoopExecutor {
     this.emitEvent = deps.emitEvent;
     this.toolApprovalHandler = deps.toolApprovalHandler;
     this.metricsRegistry = deps.metricsRegistry;
-    this.toolCallExecutor = new ToolCallExecutor(deps.toolService);
+    this.globalContext = deps.globalContext;
+
+    // Construct CheckpointDependencies for ToolCallExecutor if globalContext is available
+    let cpDeps: WorkflowCheckpointDependencies | undefined = deps.checkpointDependencies;
+    if (!cpDeps && deps.globalContext) {
+      try {
+        cpDeps = {
+          workflowExecutionRegistry: deps.globalContext.container.get(Identifiers.WorkflowExecutionRegistry),
+          checkpointStateManager: deps.globalContext.container.get(Identifiers.CheckpointState),
+          workflowRegistry: deps.globalContext.container.get(Identifiers.WorkflowRegistry),
+          workflowGraphRegistry: deps.globalContext.container.get(Identifiers.WorkflowGraphRegistry),
+        };
+      } catch {
+        logger.debug("Failed to resolve checkpoint dependencies from global context");
+      }
+    }
+
+    this.toolCallExecutor = new ToolCallExecutor(
+      deps.toolService,
+      deps.eventManager,
+      cpDeps,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      this.globalContext,
+    );
   }
 
   /**
@@ -210,6 +245,7 @@ export class AgentLoopExecutor {
           id: event.id,
           timestamp: event.timestamp,
           agentLoopId: event.agentLoopId,
+          agentLoopEntityId: event.agentLoopEntityId,
           hookType: event.hookType,
           eventName: event.eventName,
           eventData: event.eventData,

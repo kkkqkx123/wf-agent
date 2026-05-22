@@ -7,9 +7,45 @@
  * - Provide a complete lifecycle status for trigger workflows
  */
 
-import type { ID, ExecuteTriggeredSubworkflowActionConfig } from "@wf-agent/types";
+import type { ID, ExecuteTriggeredSubworkflowActionConfig, LLMMessage } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../entities/index.js";
 import type { WorkflowExecutionResult } from "@wf-agent/types";
+
+/**
+ * Data source type for triggered subworkflow input
+ *
+ * Determines which execution entity provides the base input data:
+ * - 'workflow': Data comes from WorkflowExecutionEntity (default)
+ * - 'agent': Data comes from AgentLoopEntity (agent hook triggered)
+ */
+export type DataSourceType = 'workflow' | 'agent';
+
+/**
+ * Resolved data source - unified view of source execution data
+ *
+ * Provides a consistent interface regardless of whether the source
+ * is a workflow execution or an agent loop execution.
+ */
+export interface ResolvedDataSource {
+  /** Source type */
+  type: DataSourceType;
+  /** Source entity ID */
+  entityId: ID;
+  /** Agent conversation messages (agent source only) */
+  messages?: LLMMessage[];
+  /** Agent execution state (agent source only) */
+  agentState?: {
+    currentIteration: number;
+    toolCallCount: number;
+    status: string;
+  };
+  /** Workflow output (workflow source only) */
+  output?: Record<string, unknown>;
+  /** Workflow input (workflow source only) */
+  workflowInput?: Record<string, unknown>;
+  /** Workflow execution variables */
+  variables?: Record<string, unknown>;
+}
 
 /**
  * Trigger Sub-workflow Task Interface
@@ -28,6 +64,18 @@ export interface TriggeredSubworkflowTask {
   mainWorkflowExecutionEntity: WorkflowExecutionEntity;
   /** Configuration options including input/output mapping, timeout, etc. */
   config?: ExecuteTriggeredSubworkflowActionConfig;
+  /**
+   * Data source type - determines which execution entity provides base input
+   *
+   * - 'workflow': Use WorkflowExecutionEntity (default, backward compatible)
+   * - 'agent': Use AgentLoopEntity (when triggered by agent hook event)
+   */
+  sourceType: DataSourceType;
+  /**
+   * Source entity ID - used for lazy lookup of source execution data
+   * When sourceType is 'agent', this should be the AgentLoopEntity ID
+   */
+  sourceEntityId?: ID;
 }
 
 /**

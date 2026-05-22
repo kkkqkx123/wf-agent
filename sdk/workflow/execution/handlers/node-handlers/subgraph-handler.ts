@@ -17,20 +17,15 @@
  * - Consistent with Fork/Triggered patterns: Uses same architecture as other child executions
  */
 
-import type { RuntimeNode } from "@wf-agent/types";
+import type { RuntimeNode, SubgraphNodeConfig, SubgraphNodeOutput } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import type { GlobalContext } from "../../../../core/global-context.js";
-import type { SubgraphNodeConfig } from "@wf-agent/types";
 import { createContextualLogger } from "../../../../utils/contextual-logger.js";
 import { enterSubgraph, exitSubgraph } from "../subgraph-handler.js";
 import * as Identifiers from "../../../../core/di/service-identifiers.js";
 import type { WorkflowExecutor } from "../../executors/workflow-executor.js";
 import type { WorkflowExecutionBuilder } from "../../factories/workflow-execution-builder.js";
 import { getErrorOrNew } from "@wf-agent/common-utils";
-import {
-  createSubgraphResult,
-  type SubgraphExecutionResult,
-} from "../../types/subworkflow-result.types.js";
 import { cleanupChildExecution } from "../../utils/child-execution-cleanup.js";
 
 const logger = createContextualLogger({ component: "subgraph-node-handler" });
@@ -62,7 +57,7 @@ export async function subgraphHandler(
   workflowExecutionEntity: WorkflowExecutionEntity,
   node: RuntimeNode,
   context?: SubgraphHandlerContext,
-): Promise<SubgraphExecutionResult> {
+): Promise<SubgraphNodeOutput> {
   const config = node.config as SubgraphNodeConfig;
   const subworkflowId = config.subgraphId;
   
@@ -191,7 +186,13 @@ export async function subgraphHandler(
     }
 
     // Step 8: Return standardized result
-    return createSubgraphResult(subgraphEntity, executionResult, executionDuration);
+    return {
+      executionResult: {
+        output: executionResult.output,
+        status: executionResult.metadata.status,
+      },
+      duration: executionDuration,
+    };
   } catch (error) {
     const errorObj = getErrorOrNew(error);
     const executionDuration = Date.now() - executionStartTime;

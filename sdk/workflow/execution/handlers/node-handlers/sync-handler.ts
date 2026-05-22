@@ -403,12 +403,24 @@ export async function syncHandler(
       variableCount: config.variableMappings?.length || 0,
     }));
 
+    // Build synced variables record from mappings
+    const syncedVariables: Record<string, unknown> = {};
+    if (config.variableMappings) {
+      for (const mapping of config.variableMappings) {
+        const value = sourceExecutionEntity.variableStateManager.getVariable(mapping.externalName);
+        if (value !== undefined) {
+          syncedVariables[mapping.internalName] = value;
+        }
+      }
+    }
+
     return {
-      synced: true,
-      sourcePathId: config.sourcePathId,
-      variableCount: config.variableMappings?.length || 0,
-      dataInputCount: config.dataInputs?.length || 0,
-      messageInputCount: config.messageInputs?.length || 0,
+      syncedFromPath: config.sourcePathId,
+      syncedVariables: Object.keys(syncedVariables).length > 0 ? syncedVariables : undefined,
+      syncedVariableCount: config.variableMappings?.length || 0,
+      syncedDataCount: config.dataInputs?.length || 0,
+      syncedMessageCount: config.messageInputs?.length || 0,
+      completed: true,
     };
     
   } catch (error) {

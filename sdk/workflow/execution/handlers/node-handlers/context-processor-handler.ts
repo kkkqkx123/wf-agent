@@ -18,7 +18,6 @@
 import type { RuntimeNode, ContextProcessorNodeConfig, NamedMessageContext, MessageContextRegistry, LLMMessage } from "@wf-agent/types";
 import type { WorkflowExecution } from "@wf-agent/types";
 import { RuntimeValidationError } from "@wf-agent/types";
-import { now } from "@wf-agent/common-utils";
 import { createContextualLogger } from "../../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger();
@@ -124,9 +123,8 @@ export async function contextProcessorHandler(
   workflowExecution: WorkflowExecution,
   node: RuntimeNode,
   context: ContextProcessorHandlerContext,
-): Promise<ContextProcessorExecutionResult> {
+): Promise<import("@wf-agent/types").ContextProcessorNodeOutput> {
   const config = node.config as ContextProcessorNodeConfig;
-  const startTime = now();
 
   // 1. Verify the configuration.
   if (!config.operationConfig) {
@@ -211,7 +209,7 @@ export async function contextProcessorHandler(
   }
 
   // 5. Execute message operations, which are internally handled by ConversationSession/MessageHistory for tasks such as refreshing and triggering events.
-  const result = await targetConversationManager.executeMessageOperation(
+  await targetConversationManager.executeMessageOperation(
     config.operationConfig,
     async () => {
       // Operation callback: Refresh the tool visibility declaration
@@ -235,12 +233,9 @@ export async function contextProcessorHandler(
   // 7. Get the number of processed messages
   const messageCount = processedMessages.length;
 
-  const executionTime = now() - startTime;
-
   return {
-    operation: config.operationConfig.operation,
-    messageCount,
-    executionTime,
-    stats: result.stats,
+    operationsApplied: messageCount,
+    sourceContext: sourceContextId,
+    targetContext: targetContextId,
   };
 }

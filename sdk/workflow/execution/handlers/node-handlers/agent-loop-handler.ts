@@ -39,10 +39,14 @@ const logger = createContextualLogger({ component: "AgentLoopHandler" });
 export interface AgentLoopExecutionResult {
   /** Execution Status */
   status: "COMPLETED" | "FAILED" | "ABORTED" | "PAUSED";
-  /** The final LLM response content */
+  /** The final LLM response content (alias for AgentLoopNodeOutput.finalResponse) */
   content?: string;
-  /** Actual number of iterations */
+  /** The final LLM response content (public output field) */
+  finalResponse?: string;
+  /** Actual number of iterations (alias for AgentLoopNodeOutput.iterationCount) */
   iterations?: number;
+  /** Number of iterations (public output field) */
+  iterationCount?: number;
   /** Number of tool calls */
   toolCallCount?: number;
   /** Did it end because the maximum number of iterations was reached? */
@@ -391,14 +395,16 @@ export async function agentLoopHandler(
     // 4. Update the variable using VariableManager API
     const updateVarManager = context.workflowExecutionEntity?.variableStateManager;
     if (updateVarManager) {
-      updateVarManager.setVariable("output", result.content);
-      updateVarManager.setVariable("agentLoopIterations", result.iterations);
-      updateVarManager.setVariable("agentLoopToolCallCount", result.toolCallCount);
+      updateVarManager.setVariable("finalResponse", result.content);
+      updateVarManager.setVariable("iterationCount", result.iterations);
+      updateVarManager.setVariable("toolCallCount", result.toolCallCount);
     }
 
     return {
       status: "COMPLETED",
+      finalResponse: result.content,
       content: result.content,
+      iterationCount: result.iterations,
       iterations: result.iterations,
       toolCallCount: result.toolCallCount,
       executionTime: diffTimestamp(startTime, now()),
@@ -504,9 +510,9 @@ export async function* agentLoopStreamHandler(
     // 4. Update the variable using VariableManager API
     const updateManager = context.workflowExecutionEntity?.variableStateManager;
     if (updateManager) {
-      updateManager.setVariable("output", content);
-      updateManager.setVariable("agentLoopIterations", iterations);
-      updateManager.setVariable("agentLoopToolCallCount", toolCallCount);
+      updateManager.setVariable("finalResponse", content);
+      updateManager.setVariable("iterationCount", iterations);
+      updateManager.setVariable("toolCallCount", toolCallCount);
     }
 
     // Sync agent loop messages back to workflow MessageContextRegistry
@@ -514,7 +520,9 @@ export async function* agentLoopStreamHandler(
 
     return {
       status: entity?.isPaused() ? "PAUSED" : "COMPLETED",
+      finalResponse: typeof content === "string" ? content : undefined,
       content: typeof content === "string" ? content : undefined,
+      iterationCount: iterations,
       iterations,
       toolCallCount,
       executionTime: diffTimestamp(startTime, now()),

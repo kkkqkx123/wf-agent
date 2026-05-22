@@ -72,15 +72,8 @@ export async function endHandler(
     executionTime: diffTimestamp(now(), now()),
   });
 
-  // Calculate execution time using WorkflowExecutionEntity's time methods
-  const executionTime = workflowExecutionEntity.getExecutionTime();
-
   // Return the execution result.
   return {
-    nodeId: node.id,
-    nodeType: node.type,
-    status: "COMPLETED",
     output,
-    executionTime,
   };
 }

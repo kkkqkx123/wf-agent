@@ -30,6 +30,12 @@ export interface LLMExecutionResult {
   status: "COMPLETED" | "FAILED";
   /** LLM response content */
   content?: string;
+  /** Tool calls from the LLM response (available when LLM requested tool execution) */
+  toolCalls?: Array<{
+    id: string;
+    name: string;
+    arguments: unknown;
+  }>;
   /** Error message (in case of failure) */
   error?: Error;
   /** Execution time (in milliseconds) */
@@ -169,6 +175,7 @@ export async function llmHandler(
       return {
         status: "COMPLETED",
         content: result.content,
+        toolCalls: result.toolCalls,
         executionTime: diffTimestamp(startTime, endTime),
       };
     } else {

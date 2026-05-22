@@ -112,13 +112,13 @@ export async function continueFromTriggerHandler(
   }
 
   // Handle data outputs if configured: map internal variables to execution output keys
+  const output: Record<string, unknown> = workflowExecutionEntity.getOutput() || {};
   if (config.dataOutputs && config.dataOutputs.length > 0) {
-    const output = workflowExecutionEntity.getOutput() || {};
     for (const outputDef of config.dataOutputs) {
       const { internalName, outputKey } = outputDef;
       const value = workflowExecutionEntity.variableStateManager.getVariable(internalName);
       if (value !== undefined) {
-        (output as Record<string, unknown>)[outputKey] = value;
+        output[outputKey] = value;
       }
     }
     workflowExecutionEntity.setOutput(output);
@@ -138,7 +138,6 @@ export async function continueFromTriggerHandler(
 
   // Return the execution result
   return {
-    message: "Triggered subgraph completed and data callback executed",
-    callbackExecuted: true,
+    output,
   };
 }

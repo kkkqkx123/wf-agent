@@ -19,8 +19,7 @@ import type {
   UserInteractionContext,
 } from "@wf-agent/types";
 import { ExecutionError } from "@wf-agent/types";
-import { generateId } from "../../../../utils/id-utils.js";
-import { now, diffTimestamp } from "@wf-agent/common-utils";
+import { generateId } from "../../../../utils/index.js";
 
 /**
  * Workflow-specific interaction request
@@ -316,10 +315,9 @@ export async function userInteractionHandler(
   workflowExecution: WorkflowExecution,
   node: RuntimeNode,
   context: UserInteractionHandlerContext,
-): Promise<UserInteractionExecutionResult> {
+): Promise<import("@wf-agent/types").UserInteractionNodeOutput> {
   const config = node.config as UserInteractionNodeConfig;
   const interactionId = generateId();
-  const startTime = now();
 
   // 1. Create a workflow-specific interaction request
   const request = createWorkflowInteractionRequest(config, interactionId);
@@ -343,12 +341,20 @@ export async function userInteractionHandler(
   // 4. Processing user input
   const results = await processUserInput(config, inputData, workflowExecution, context.conversationManager, context as UserInteractionHandlerContext & { workflowExecutionEntity?: any });
 
-  const executionTime = diffTimestamp(startTime, now());
-
-  return {
-    interactionId,
+  // Build output matching UserInteractionNodeOutput
+  const output: import("@wf-agent/types").UserInteractionNodeOutput = {
     operationType: config.operationType,
-    results,
-    executionTime,
+    userInput: inputData,
   };
+
+  if (config.operationType === 'UPDATE_VARIABLES' && typeof results === 'object' && results !== null) {
+    output.updatedVariables = Object.entries(results).map(([variableName, newValue]) => ({
+      variableName,
+      newValue,
+    }));
+  } else if (config.operationType === 'ADD_MESSAGE') {
+    output.addedMessages = 1;
+  }
+
+  return output;
 }

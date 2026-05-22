@@ -13,7 +13,7 @@
  * This handler only marks the join position in the execution flow.
  */
 
-import type { RuntimeNode } from "@wf-agent/types";
+import type { RuntimeNode, JoinNodeConfig } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 
 /**
@@ -50,7 +50,14 @@ export async function joinHandler(workflowExecutionEntity: WorkflowExecutionEnti
     };
   }
 
+  const config = node.config as JoinNodeConfig;
+
   // The Join node serves as a placeholder; the actual Join operation is handled by the WorkflowExecutor calling the WorkflowOperationCoordinator.
   // Configuration parameters are read from node.config and no need to return configuration information
-  return {};
+  return {
+    completedBranches: [],
+    failedBranches: [],
+    skippedBranches: [],
+    strategy: config.joinStrategy,
+  };
 }

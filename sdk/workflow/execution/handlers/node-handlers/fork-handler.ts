@@ -62,14 +62,14 @@ export async function forkHandler(
   workflowExecutionEntity: WorkflowExecutionEntity,
   node: RuntimeNode,
   context?: ForkHandlerContext,
-): Promise<ForkBranchResult[]> {
+): Promise<{ launchedBranches: ForkBranchResult[] }> {
   // Check if it is possible to execute.
   if (!canExecute(workflowExecutionEntity)) {
     logger.warn("FORK node skipped - workflow not in RUNNING state", {
       nodeId: node.id,
       status: workflowExecutionEntity.getStatus(),
     });
-    return [];
+    return { launchedBranches: [] };
   }
 
   const config = node.config as ForkNodeConfig;
@@ -305,7 +305,7 @@ export async function forkHandler(
       failureCount: results.filter(r => r.executionResult.metadata.status === 'FAILED').length,
     });
 
-    return results;
+    return { launchedBranches: results };
   } catch (error) {
     const errorObj = error instanceof Error ? error : new Error(String(error));
     const totalDuration = diffTimestamp(startTime, now());

@@ -75,6 +75,12 @@ export interface LLMExecutionResponse {
   error?: Error;
   /** Message History */
   messages?: LLMMessage[];
+  /** Tool calls from the LLM response (before execution) */
+  toolCalls?: Array<{
+    id: string;
+    name: string;
+    arguments: unknown;
+  }>;
 }
 
 /**
@@ -182,21 +188,23 @@ export class LLMExecutionCoordinator {
     conversationState: ConversationSession,
   ): Promise<LLMExecutionResponse> {
     // Execute single LLM call with optional tool execution
+    // Returns { content, toolCalls } on success, or WorkflowInterruptionCheckResult on interruption
     const result = await this.executeSingleLLMCall(params, conversationState);
 
     // Check if it is in an interrupted state.
-    if (typeof result !== "string") {
-      // It is in an interrupted state.
+    // WorkflowInterruptionCheckResult has a 'type' property, success result does not
+    if ('type' in result) {
       return {
         success: false,
-        error: new Error(getWorkflowInterruptionDescription(result)),
+        error: new Error(getWorkflowInterruptionDescription(result as WorkflowInterruptionCheckResult)),
       };
     }
 
-    // Return normally
+    // Return normally with tool calls
     return {
       success: true,
-      content: result,
+      content: result.content,
+      toolCalls: result.toolCalls,
       messages: conversationState.getMessages(),
     };
   }
@@ -219,7 +227,10 @@ export class LLMExecutionCoordinator {
   private async executeSingleLLMCall(
     params: LLMExecutionParams,
     conversationState: ConversationSession,
-  ): Promise<string | WorkflowInterruptionCheckResult> {
+  ): Promise<
+    | { content: string; toolCalls?: Array<{ id: string; name: string; arguments: unknown }> }
+    | WorkflowInterruptionCheckResult
+  > {
     const { prompt, profileId, parameters, tools, maxToolCallsPerRequest, executionId, nodeId } =
       params;
 
@@ -325,7 +336,10 @@ export class LLMExecutionCoordinator {
       // Get the latest assistant message to check for tool calls
       const messages = conversationState.getMessages();
       const lastMessage = messages[messages.length - 1];
-      
+
+      // Capture tool calls from the assistant message before execution
+      let capturedToolCalls: Array<{ id: string; name: string; arguments: unknown }> | undefined;
+
       if (lastMessage && lastMessage.toolCalls && lastMessage.toolCalls.length > 0) {
         // Validate single response tool call count
         const maxToolsPerResponse = maxToolCallsPerRequest ?? 3;
@@ -338,7 +352,12 @@ export class LLMExecutionCoordinator {
           );
         }
 
-        // Core coordinator already checked interruption, proceed with tool execution
+        // Capture tool calls data for output
+        capturedToolCalls = lastMessage.toolCalls.map(tc => ({
+          id: tc.id,
+          name: tc.function.name,
+          arguments: tc.function.arguments,
+        }));
 
         // Execute tool calls with approval
         await this.executeToolCallsWithApproval(
@@ -359,8 +378,8 @@ export class LLMExecutionCoordinator {
       // Clear operation state on success
       executionEntity?.state.clearOperation();
 
-      // Return final content
-      return coreResult.content || "";
+      // Return final content with tool calls
+      return { content: coreResult.content || "", toolCalls: capturedToolCalls };
     } catch (error) {
       // On exception, clear operation state
       executionEntity?.state.clearOperation();

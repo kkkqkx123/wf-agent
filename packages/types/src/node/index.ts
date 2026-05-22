@@ -124,12 +124,6 @@ export {
   RuntimeNodeOutputOfType,
 } from "./runtime-node-types.js";
 
-// Export output configuration types (default field mappings and NodeOutputConfig)
-export {
-  NodeOutputConfig,
-  DEFAULT_OUTPUT_FIELDS,
-} from "./output-fields.js";
-
 // Export node configuration types (detailed version for external references)
 export * from "./configs/index.js";
 

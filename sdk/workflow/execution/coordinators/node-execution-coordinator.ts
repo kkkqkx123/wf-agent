@@ -33,11 +33,10 @@ import type { ToolRegistry } from "../../../core/registry/tool-registry.js";
 import type { LLMWrapper } from "../../../core/llm/wrapper.js";
 import type { WorkflowExecutionBuilder } from "../factories/workflow-execution-builder.js";
 import type { WorkflowExecutor } from "../executors/workflow-executor.js";
-import type { ForkBranchResult } from "../types/subworkflow-result.types.js";
 import type { ToolPermissionManager } from "../../../core/coordinators/tool-permission-manager.js";
 import type { RejectionMessageBuilder } from "../../../core/coordinators/rejection-message-builder.js";
 import { LLMExecutionCoordinator } from "./llm-execution-coordinator.js";
-import { SDKError, DEFAULT_OUTPUT_FIELDS } from "@wf-agent/types";
+import { SDKError } from "@wf-agent/types";
 
 import { executeHook } from "../handlers/hook-handlers/hook-handler.js";
 import { handleErrorWithContext } from "../../../core/utils/error-utils.js";
@@ -58,9 +57,7 @@ import {
   buildNodeFailedEvent,
 } from "../utils/event/index.js";
 import type { InterruptionDetector } from "../interruption-detector.js";
-import {
-  executeWithInterruptionHandling,
-} from "../../../core/utils/interruption/index.js";
+import { executeWithInterruptionHandling } from "../../../core/utils/interruption/index.js";
 import {
   getWorkflowInterruptionDescription,
   toWorkflowInterruptionResult,
@@ -223,13 +220,18 @@ export class NodeExecutionCoordinator {
     logger.info("Handling interruption", { executionId: workflowExecutionId, nodeId, type });
 
     if (!this.workflowExecutionRegistry) {
-      logger.debug("WorkflowExecutionRegistry not available, skipping interruption handling", { executionId: workflowExecutionId });
+      logger.debug("WorkflowExecutionRegistry not available, skipping interruption handling", {
+        executionId: workflowExecutionId,
+      });
       return;
     }
 
     const workflowExecutionContext = this.workflowExecutionRegistry.get(workflowExecutionId);
     if (!workflowExecutionContext) {
-      logger.warn("WorkflowExecutionContext not found for interruption", { executionId: workflowExecutionId, nodeId });
+      logger.warn("WorkflowExecutionContext not found for interruption", {
+        executionId: workflowExecutionId,
+        nodeId,
+      });
       return;
     }
 
@@ -251,7 +253,12 @@ export class NodeExecutionCoordinator {
           },
           this.checkpointDependencies,
         );
-        logger.debug("Interruption checkpoint created", { executionId: workflowExecutionId, nodeId, type, checkpointId });
+        logger.debug("Interruption checkpoint created", {
+          executionId: workflowExecutionId,
+          nodeId,
+          type,
+          checkpointId,
+        });
       } catch (error) {
         // `workflowExecutionContext` is of the `WorkflowExecutionEntity` type.
         await handleErrorWithContext(
@@ -275,7 +282,10 @@ export class NodeExecutionCoordinator {
         checkpointId,
       });
       await emit(this.eventManager, pausedEvent);
-      logger.info("Workflow execution paused event emitted", { executionId: workflowExecutionId, nodeId });
+      logger.info("Workflow execution paused event emitted", {
+        executionId: workflowExecutionId,
+        nodeId,
+      });
     } else if (type === "STOP") {
       workflowExecutionContext.setStatus("CANCELLED");
       workflowExecutionContext.state.cancel();
@@ -291,7 +301,10 @@ export class NodeExecutionCoordinator {
         },
       );
       await emit(this.eventManager, cancelledEvent);
-      logger.info("Workflow execution cancelled event emitted", { executionId: workflowExecutionId, nodeId });
+      logger.info("Workflow execution cancelled event emitted", {
+        executionId: workflowExecutionId,
+        nodeId,
+      });
     }
   }
 
@@ -305,7 +318,7 @@ export class NodeExecutionCoordinator {
   async executeNode(
     workflowExecutionEntity: WorkflowExecutionEntity,
     node: WorkflowNode | RuntimeNode,
-    options?: { abortSignal?: AbortSignal }
+    options?: { abortSignal?: AbortSignal },
   ): Promise<NodeExecutionResult> {
     const nodeId = node.id;
     const nodeType = node.type;
@@ -318,249 +331,272 @@ export class NodeExecutionCoordinator {
       try {
         // Access llmCoordinator from handlerContextFactory's config
         const llmCoordinator = (this.handlerContextFactory as any).config.llmCoordinator;
-        if (llmCoordinator && typeof llmCoordinator.setPermissionManager === 'function') {
+        if (llmCoordinator && typeof llmCoordinator.setPermissionManager === "function") {
           llmCoordinator.setPermissionManager(this.permissionManager);
         }
       } catch (error) {
-        logger.warn('Failed to set permission manager on LLM coordinator', { executionId, error });
+        logger.warn("Failed to set permission manager on LLM coordinator", { executionId, error });
       }
     }
 
-    logger.debug("Starting node execution", { executionId, nodeId, nodeType, nodeName: (node as WorkflowNode).name || ((node as RuntimeNode) as WorkflowNode).originalNode?.name });
+    logger.debug("Starting node execution", {
+      executionId,
+      nodeId,
+      nodeType,
+      nodeName:
+        (node as WorkflowNode).name || (node as RuntimeNode as WorkflowNode).originalNode?.name,
+    });
 
     // Record node execution start in metrics
     const nodeCollector = this.metricsRegistry.getNodeCollector();
     if (nodeCollector) {
-      nodeCollector.recordNodeExecutionStart(
-        nodeId,
-        nodeType,
-        workflowId
-      );
+      nodeCollector.recordNodeExecutionStart(nodeId, nodeType, workflowId);
     }
 
-    return await executeWithInterruptionHandling(
-      async (effectiveSignal) => {
-        // Phase 1 & 3: Node boundary handling
-        // 
-        // SUBGRAPH (Phase 1: Scheme C):
-        // - Nodes are NOT expanded during graph building
-        // - No EMBED_START/EMBED_END boundary nodes exist (only for EMBED_GRAPH expansion)
-        // - Execution is handled by subgraph node handler directly
-        // 
-        // EMBED_GRAPH (Phase 3):
-        // - Nodes ARE expanded during preprocessing (via mergeGraph)
-        // - No EMBED_GRAPH nodes exist at runtime
-        // - All embedded nodes run in the same execution context as parent
-        // - No special boundary handling needed
-        
-        try {
-          // Step 1: Trigger the node start event
-          const nodeStartedEvent = workflowExecutionEntity.buildEvent(buildNodeStartedEvent, {
+    return await executeWithInterruptionHandling(async effectiveSignal => {
+      // Phase 1 & 3: Node boundary handling
+      //
+      // SUBGRAPH (Phase 1: Scheme C):
+      // - Nodes are NOT expanded during graph building
+      // - No EMBED_START/EMBED_END boundary nodes exist (only for EMBED_GRAPH expansion)
+      // - Execution is handled by subgraph node handler directly
+      //
+      // EMBED_GRAPH (Phase 3):
+      // - Nodes ARE expanded during preprocessing (via mergeGraph)
+      // - No EMBED_GRAPH nodes exist at runtime
+      // - All embedded nodes run in the same execution context as parent
+      // - No special boundary handling needed
+
+      try {
+        // Step 1: Trigger the node start event
+        const nodeStartedEvent = workflowExecutionEntity.buildEvent(buildNodeStartedEvent, {
+          nodeId,
+          nodeType,
+        });
+        await emit(this.eventManager, nodeStartedEvent);
+
+        // Step 2: Create a checkpoint before node execution (if configured)
+        if (this.checkpointDependencies) {
+          const context = {
+            triggerType: "NODE_BEFORE_EXECUTE" as const,
             nodeId,
-            nodeType,
-          });
-          await emit(this.eventManager, nodeStartedEvent);
-
-          // Step 2: Create a checkpoint before node execution (if configured)
-          if (this.checkpointDependencies) {
-            const context = {
-              triggerType: "NODE_BEFORE_EXECUTE" as const,
-              nodeId,
-            };
-            // Convert to StaticNode for checkpoint config resolution
-            const staticNode = ('originalNode' in node ? (node as WorkflowNode).originalNode : node) as StaticNode | undefined;
-            const layers = buildNodeCheckpointLayers(this.globalCheckpointConfig, staticNode, context);
-            const configResult = resolveCheckpointConfig(layers, context);
-
-            if (configResult.shouldCreate) {
-              logger.debug("Creating checkpoint before node execution", { executionId, nodeId });
-              try {
-                await createCheckpoint(
-                  {
-                    workflowExecutionId: workflowExecutionEntity.id,
-                    nodeId,
-                    description: configResult.description || `Before node: ${(node as WorkflowNode).name || ((node as RuntimeNode) as WorkflowNode).originalNode?.name}`,
-                  },
-                  this.checkpointDependencies,
-                );
-              } catch (error) {
-                await handleErrorWithContext(
-                  this.eventManager,
-                  getErrorOrNew(error) as SDKError,
-                  workflowExecutionEntity,
-                  "CREATE_CHECKPOINT",
-                );
-                throw error;
-              }
-            }
-          }
-
-          // Step 3: Execute the BEFORE_EXECUTE type of Hook
-          if (node.hooks && node.hooks.length > 0) {
-            logger.debug("Executing BEFORE_EXECUTE hooks", {
-              executionId,
-              nodeId,
-              hookCount: node.hooks.length,
-            });
-            await executeHook(
-              {
-                workflowExecution: workflowExecutionEntity.getWorkflowExecutionData(),
-                workflowExecutionEntity,
-                node: ('originalNode' in node ? (node as WorkflowNode).originalNode : node) as StaticNode,
-                checkpointDependencies: this.checkpointDependencies,
-              },
-              "BEFORE_EXECUTE",
-              event => this.eventManager.emit(event),
-            );
-          }
-
-          // Step 4: Execute node logic
-          logger.debug("Executing node logic", { executionId, nodeId, nodeType });
-          const nodeStartTime = now();
-          const nodeResult = await this.executeNodeLogic(workflowExecutionEntity, node, effectiveSignal);
-          const nodeDuration = diffTimestamp(nodeStartTime, now());
-
-          // Record node execution completion in metrics
-          const nodeCollector = this.metricsRegistry.getNodeCollector();
-          if (nodeCollector) {
-            nodeCollector.recordNodeExecution(
-              nodeId,
-              nodeType,
-              workflowId,
-              {
-                success: nodeResult.status === 'COMPLETED',
-                duration: nodeDuration,
-                errorType: nodeResult.status === 'FAILED' ? (nodeResult.error instanceof Error ? nodeResult.error.name : 'unknown') : undefined,
-              }
-            );
-          }
-
-          // Step 5: Record the results of node execution
-          workflowExecutionEntity.addNodeResult(nodeResult);
-
-          // Step 6: Execute the Hook of type AFTER_EXECUTE
-          if (node.hooks && node.hooks.length > 0) {
-            logger.debug("Executing AFTER_EXECUTE hooks", {
-              executionId,
-              nodeId,
-              hookCount: node.hooks.length,
-            });
-            await executeHook(
-              {
-                workflowExecution: workflowExecutionEntity.getWorkflowExecutionData(),
-                workflowExecutionEntity,
-                node: ('originalNode' in node ? (node as WorkflowNode).originalNode : node) as StaticNode,
-                result: nodeResult,
-                checkpointDependencies: this.checkpointDependencies,
-              },
-              "AFTER_EXECUTE",
-              event => this.eventManager.emit(event),
-            );
-          }
-
-          // Step 7: Create a checkpoint after the node has executed (if configured).
-          if (this.checkpointDependencies) {
-            const context = {
-              triggerType: "NODE_AFTER_EXECUTE" as const,
-              nodeId,
-            };
-            // Convert to StaticNode for checkpoint config resolution
-            const staticNode = ('originalNode' in node ? (node as WorkflowNode).originalNode : node) as StaticNode | undefined;
-            const layers = buildNodeCheckpointLayers(this.globalCheckpointConfig, staticNode, context);
-            const configResult = resolveCheckpointConfig(layers, context);
-
-            if (configResult.shouldCreate) {
-              logger.debug("Creating checkpoint after node execution", { executionId, nodeId });
-              try {
-                await createCheckpoint(
-                  {
-                    workflowExecutionId: workflowExecutionEntity.id,
-                    nodeId,
-                    description: configResult.description || `After node: ${(node as WorkflowNode).name || ((node as RuntimeNode) as WorkflowNode).originalNode?.name}`,
-                  },
-                  this.checkpointDependencies,
-                );
-              } catch (error) {
-                await handleErrorWithContext(
-                  this.eventManager,
-                  getErrorOrNew(error) as SDKError,
-                  workflowExecutionEntity,
-                  "CREATE_CHECKPOINT_AFTER",
-                );
-                throw error;
-              }
-            }
-          }
-
-          // Step 8: Trigger the node completion event
-          if (nodeResult.status === "COMPLETED") {
-            const nodeCompletedEvent = workflowExecutionEntity.buildEvent(buildNodeCompletedEvent, {
-              nodeId,
-              output: workflowExecutionEntity.getOutput(),
-              executionTime: nodeResult.executionTime || 0,
-            });
-            await emit(this.eventManager, nodeCompletedEvent);
-            logger.debug("Node execution completed", {
-              executionId,
-              nodeId,
-              executionTime: nodeResult.executionTime,
-            });
-          } else if (nodeResult.status === "FAILED") {
-            const nodeFailedEvent = buildNodeFailedEvent({
-              executionId: workflowExecutionEntity.id,
-              workflowId: workflowExecutionEntity.getWorkflowId(),
-              nodeId,
-              error: getErrorOrNew(nodeResult.error),
-            });
-            await emit(this.eventManager, nodeFailedEvent as Event);
-            logger.warn("Node execution failed", {
-              executionId,
-              nodeId,
-              error: getErrorOrNew(nodeResult.error),
-            });
-          }
-
-          return nodeResult;
-        } catch (error) {
-          // Use a unified error handler to handle errors.
-          const enhancedError = await handleErrorWithContext(
-            this.eventManager,
-            getErrorOrNew(error) as SDKError,
-            workflowExecutionEntity,
-            "EXECUTE_NODE",
-          );
-
-          // Handling node execution errors
-          const errorResult: NodeExecutionResult = {
-            nodeId,
-            nodeType,
-            status: "FAILED",
-            step: workflowExecutionEntity.getNodeResults().length + 1,
-            error: enhancedError,
-            startTime: now(),
-            endTime: now(),
-            executionTime: 0,
           };
+          // Convert to StaticNode for checkpoint config resolution
+          const staticNode = (
+            "originalNode" in node ? (node as WorkflowNode).originalNode : node
+          ) as StaticNode | undefined;
+          const layers = buildNodeCheckpointLayers(
+            this.globalCheckpointConfig,
+            staticNode,
+            context,
+          );
+          const configResult = resolveCheckpointConfig(layers, context);
 
-          workflowExecutionEntity.addNodeResult(errorResult);
+          if (configResult.shouldCreate) {
+            logger.debug("Creating checkpoint before node execution", { executionId, nodeId });
+            try {
+              await createCheckpoint(
+                {
+                  workflowExecutionId: workflowExecutionEntity.id,
+                  nodeId,
+                  description:
+                    configResult.description ||
+                    `Before node: ${(node as WorkflowNode).name || (node as RuntimeNode as WorkflowNode).originalNode?.name}`,
+                },
+                this.checkpointDependencies,
+              );
+            } catch (error) {
+              await handleErrorWithContext(
+                this.eventManager,
+                getErrorOrNew(error) as SDKError,
+                workflowExecutionEntity,
+                "CREATE_CHECKPOINT",
+              );
+              throw error;
+            }
+          }
+        }
 
+        // Step 3: Execute the BEFORE_EXECUTE type of Hook
+        if (node.hooks && node.hooks.length > 0) {
+          logger.debug("Executing BEFORE_EXECUTE hooks", {
+            executionId,
+            nodeId,
+            hookCount: node.hooks.length,
+          });
+          await executeHook(
+            {
+              workflowExecution: workflowExecutionEntity.getWorkflowExecutionData(),
+              workflowExecutionEntity,
+              node: ("originalNode" in node
+                ? (node as WorkflowNode).originalNode
+                : node) as StaticNode,
+              checkpointDependencies: this.checkpointDependencies,
+            },
+            "BEFORE_EXECUTE",
+            event => this.eventManager.emit(event),
+          );
+        }
+
+        // Step 4: Execute node logic
+        logger.debug("Executing node logic", { executionId, nodeId, nodeType });
+        const nodeStartTime = now();
+        const nodeResult = await this.executeNodeLogic(
+          workflowExecutionEntity,
+          node,
+          effectiveSignal,
+        );
+        const nodeDuration = diffTimestamp(nodeStartTime, now());
+
+        // Record node execution completion in metrics
+        const nodeCollector = this.metricsRegistry.getNodeCollector();
+        if (nodeCollector) {
+          nodeCollector.recordNodeExecution(nodeId, nodeType, workflowId, {
+            success: nodeResult.status === "COMPLETED",
+            duration: nodeDuration,
+            errorType:
+              nodeResult.status === "FAILED"
+                ? nodeResult.error instanceof Error
+                  ? nodeResult.error.name
+                  : "unknown"
+                : undefined,
+          });
+        }
+
+        // Step 5: Record the results of node execution
+        workflowExecutionEntity.addNodeResult(nodeResult);
+
+        // Step 6: Execute the Hook of type AFTER_EXECUTE
+        if (node.hooks && node.hooks.length > 0) {
+          logger.debug("Executing AFTER_EXECUTE hooks", {
+            executionId,
+            nodeId,
+            hookCount: node.hooks.length,
+          });
+          await executeHook(
+            {
+              workflowExecution: workflowExecutionEntity.getWorkflowExecutionData(),
+              workflowExecutionEntity,
+              node: ("originalNode" in node
+                ? (node as WorkflowNode).originalNode
+                : node) as StaticNode,
+              result: nodeResult,
+              checkpointDependencies: this.checkpointDependencies,
+            },
+            "AFTER_EXECUTE",
+            event => this.eventManager.emit(event),
+          );
+        }
+
+        // Step 7: Create a checkpoint after the node has executed (if configured).
+        if (this.checkpointDependencies) {
+          const context = {
+            triggerType: "NODE_AFTER_EXECUTE" as const,
+            nodeId,
+          };
+          // Convert to StaticNode for checkpoint config resolution
+          const staticNode = (
+            "originalNode" in node ? (node as WorkflowNode).originalNode : node
+          ) as StaticNode | undefined;
+          const layers = buildNodeCheckpointLayers(
+            this.globalCheckpointConfig,
+            staticNode,
+            context,
+          );
+          const configResult = resolveCheckpointConfig(layers, context);
+
+          if (configResult.shouldCreate) {
+            logger.debug("Creating checkpoint after node execution", { executionId, nodeId });
+            try {
+              await createCheckpoint(
+                {
+                  workflowExecutionId: workflowExecutionEntity.id,
+                  nodeId,
+                  description:
+                    configResult.description ||
+                    `After node: ${(node as WorkflowNode).name || (node as RuntimeNode as WorkflowNode).originalNode?.name}`,
+                },
+                this.checkpointDependencies,
+              );
+            } catch (error) {
+              await handleErrorWithContext(
+                this.eventManager,
+                getErrorOrNew(error) as SDKError,
+                workflowExecutionEntity,
+                "CREATE_CHECKPOINT_AFTER",
+              );
+              throw error;
+            }
+          }
+        }
+
+        // Step 8: Trigger the node completion event
+        if (nodeResult.status === "COMPLETED") {
+          const nodeCompletedEvent = workflowExecutionEntity.buildEvent(buildNodeCompletedEvent, {
+            nodeId,
+            output: workflowExecutionEntity.getOutput(),
+            executionTime: nodeResult.executionTime || 0,
+          });
+          await emit(this.eventManager, nodeCompletedEvent);
+          logger.debug("Node execution completed", {
+            executionId,
+            nodeId,
+            executionTime: nodeResult.executionTime,
+          });
+        } else if (nodeResult.status === "FAILED") {
           const nodeFailedEvent = buildNodeFailedEvent({
             executionId: workflowExecutionEntity.id,
             workflowId: workflowExecutionEntity.getWorkflowId(),
             nodeId,
-            error: enhancedError,
+            error: getErrorOrNew(nodeResult.error),
           });
           await emit(this.eventManager, nodeFailedEvent as Event);
-
-          return errorResult;
+          logger.warn("Node execution failed", {
+            executionId,
+            nodeId,
+            error: getErrorOrNew(nodeResult.error),
+          });
         }
-      },
-      signal
-    ).then(result => {
+
+        return nodeResult;
+      } catch (error) {
+        // Use a unified error handler to handle errors.
+        const enhancedError = await handleErrorWithContext(
+          this.eventManager,
+          getErrorOrNew(error) as SDKError,
+          workflowExecutionEntity,
+          "EXECUTE_NODE",
+        );
+
+        // Handling node execution errors
+        const errorResult: NodeExecutionResult = {
+          nodeId,
+          nodeType,
+          status: "FAILED",
+          step: workflowExecutionEntity.getNodeResults().length + 1,
+          error: enhancedError,
+          startTime: now(),
+          endTime: now(),
+          executionTime: 0,
+        };
+
+        workflowExecutionEntity.addNodeResult(errorResult);
+
+        const nodeFailedEvent = buildNodeFailedEvent({
+          executionId: workflowExecutionEntity.id,
+          workflowId: workflowExecutionEntity.getWorkflowId(),
+          nodeId,
+          error: enhancedError,
+        });
+        await emit(this.eventManager, nodeFailedEvent as Event);
+
+        return errorResult;
+      }
+    }, signal).then(result => {
       if (!result.success) {
         // Handle interruption - create checkpoints and trigger events
         const interruption = toWorkflowInterruptionResult(result.interruption, nodeId);
-        
+
         // Return a CANCELLED result
         const cancelledResult: NodeExecutionResult = {
           nodeId,
@@ -598,41 +634,30 @@ export class NodeExecutionCoordinator {
     const handler = getNodeHandler(node.type);
 
     // 2. Use the factory to create the processor context.
-    const handlerContext = this.handlerContextFactory.createHandlerContext(node as RuntimeNode, workflowExecutionEntity);
+    const handlerContext = this.handlerContextFactory.createHandlerContext(
+      node as RuntimeNode,
+      workflowExecutionEntity,
+    );
 
     // 3. Execute the processor (signal will be used by specific handlers if needed)
-    const output = await handler(this.globalContext, workflowExecutionEntity, node as RuntimeNode, handlerContext);
+    const output = await handler(
+      this.globalContext,
+      workflowExecutionEntity,
+      node as RuntimeNode,
+      handlerContext,
+    );
 
     // 4. Constructing the execution results
     const endTime = now();
-    
-    // Handle FORK nodes specially - output is ForkBranchResult[]
-    let status: NodeExecutionResult['status'] = 'COMPLETED';
-    
-    if (node.type === 'FORK') {
-      const branchResults = output as ForkBranchResult[] | undefined;
-      if (Array.isArray(branchResults) && branchResults.length > 0) {
-        // Check if any branch failed
-        const hasFailure = branchResults.some(r => r.executionResult.metadata.status === 'FAILED');
-        const hasCancelled = branchResults.some(r => r.executionResult.metadata.status === 'CANCELLED');
-        
-        if (hasFailure) {
-          status = 'FAILED';
-        } else if (hasCancelled) {
-          status = 'CANCELLED';
-        } else {
-          status = 'COMPLETED';
-        }
-      }
-    } else {
-      // For other node types, check status field directly
-      status = (
+
+    // Determine execution status from handler output
+    const status =
+      (
         output as
           | { status?: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "SKIPPED" | "CANCELLED" }
           | undefined
-      )?.status || 'COMPLETED';
-    }
-    
+      )?.status || "COMPLETED";
+
     return {
       nodeId: node.id,
       nodeType: node.type,
@@ -641,93 +666,7 @@ export class NodeExecutionCoordinator {
       startTime,
       endTime,
       executionTime: diffTimestamp(startTime, endTime),
-      output: this.sanitizeNodeOutput(output, node),
+      output: output as Record<string, unknown>,
     };
-  }
-
-  /**
-   * Sanitize node output to remove internal metadata
-   * Uses node output configuration and type-specific default field mappings
-   * to produce clean, user-facing output data.
-   *
-   * The output is always a Record<string, unknown> to maintain path-based
-   * expression access semantics. Scalar values are wrapped as { result: value }.
-   *
-   * @param output Raw output from node handler
-   * @param node The runtime node with its output configuration
-   * @returns Sanitized output as Record<string, unknown> for path-based access
-   */
-  private sanitizeNodeOutput(output: unknown, node: RuntimeNode): Record<string, unknown> {
-    // Handle null/undefined output
-    if (output === undefined || output === null) {
-      return {};
-    }
-
-    // Handle scalar/primitive output - wrap as { result: value } to maintain Record contract
-    if (typeof output !== 'object') {
-      return { result: output };
-    }
-
-    const outputConfig = node.output;
-    const rawOutput = output as Record<string, unknown>;
-
-    // Determine which fields to include:
-    // 1. Use node-level includeFields override if specified
-    // 2. Fall back to DEFAULT_OUTPUT_FIELDS for the node type
-    // 3. If neither is specified, include all non-internal fields
-    const includeFields = outputConfig?.includeFields ?? DEFAULT_OUTPUT_FIELDS[node.type];
-
-    // Internal execution metadata fields that should never appear in user-facing output
-    const internalKeys = new Set([
-      'nodeId', 'nodeType', 'status', 'startTime', 'endTime',
-      'timestamp', 'executionTime', 'step', 'error',
-    ]);
-
-    const result: Record<string, unknown> = {};
-
-    // Handle FORK node specially: its raw output is an array of branch results.
-    // Wrap as { launchedBranches: [...] } to maintain Record contract.
-    if (node.type === 'FORK' && Array.isArray(rawOutput)) {
-      const branches = (rawOutput as unknown[]).map((branch: unknown) => {
-        const b = branch as Record<string, unknown>;
-        const execResult = b['executionResult'] as Record<string, unknown> | undefined;
-        return {
-          forkPathId: b['forkPathId'],
-          output: b['branchOutput'],
-          status: ((execResult?.['metadata']) as Record<string, unknown> | undefined)?.['status'] as string | undefined,
-        };
-      });
-      result['launchedBranches'] = branches;
-      return result;
-    }
-
-    // Handle SUBGRAPH node specially: extract execution summary
-    if (node.type === 'SUBGRAPH') {
-      const execResult = rawOutput['executionResult'] as Record<string, unknown> | undefined;
-      const execMetadata = execResult?.['metadata'];
-      result['executionResult'] = {
-        output: execResult?.['output'],
-        status: execMetadata as string | undefined,
-      };
-      result['duration'] = rawOutput['duration'];
-      return result;
-    }
-
-    // Generic field-based sanitization for all other node types
-    for (const key of Object.keys(rawOutput)) {
-      // Skip internal metadata fields
-      if (internalKeys.has(key)) {
-        continue;
-      }
-
-      // If includeFields is specified, only include listed fields
-      if (includeFields && !includeFields.includes(key)) {
-        continue;
-      }
-
-      result[key] = rawOutput[key];
-    }
-
-    return result;
   }
 }

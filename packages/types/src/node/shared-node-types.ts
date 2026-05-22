@@ -1,12 +1,11 @@
 /**
  * Shared Node Base Types
- * 
+ *
  * Common type definitions shared between static and runtime node types.
  * This file contains the foundational types that both static and runtime nodes inherit from.
  */
 
 import type { ID } from "../common.js";
-import type { NodeOutputConfig } from "./output-fields.js";
 
 // ============================================================================
 // Minimal Node Identity (shared by both static and runtime)
@@ -18,7 +17,7 @@ import type { NodeOutputConfig } from "./output-fields.js";
 export interface NodeIdentity {
   /** Node Unique Identifier */
   id: ID;
-  
+
   /** Node type discriminator */
   type: string;
 }
@@ -35,10 +34,10 @@ export interface NodeIdentity {
 export interface StaticNodeDisplayProps {
   /** Human-readable node name for UI display */
   name: string;
-  
+
   /** Optional description for documentation/UI tooltips */
   description?: string;
-  
+
   /** User-defined metadata (for organization, tagging, search filtering) */
   metadata?: Record<string, unknown>;
 }
@@ -55,20 +54,18 @@ export interface StaticNodeDisplayProps {
 export interface NodeExecutionConfig {
   /** Hook configurations for lifecycle events */
   hooks?: unknown[];
-  
+
   /** Whether to create checkpoint before node execution */
   checkpointBeforeExecute?: boolean;
-  
+
   /** Whether to create checkpoint after node execution */
   checkpointAfterExecute?: boolean;
-  
+
   /**
-   * Output configuration for this node.
-   * Defines how the node's execution output is shaped and referenced.
-   * - outputId: Semantic name for referencing this output in expressions (e.g., node.<outputId>.field)
-   * - includeFields: Optional field filtering for sanitization
+   * Semantic output ID for referencing this node's output in expressions.
+   * Used in condition expressions like: node.<outputId>.field
    */
-  output?: NodeOutputConfig;
+  outputId?: string;
 }
 
 // ============================================================================
@@ -82,14 +79,14 @@ export interface NodeExecutionConfig {
 export interface RuntimeNodeContext {
   /** Internal system metadata (not user-defined, used for execution tracing) */
   internalMetadata?: Record<string, unknown>;
-  
+
   /** Reference back to the original static node definition */
   originalNode?: unknown;
-  
+
   /** Workflow context information */
   workflowId: ID;
   parentWorkflowId?: ID;
-  
+
   /** Graph structure (populated during preprocessing) */
   outgoingEdgeIds: ID[];
   incomingEdgeIds: ID[];

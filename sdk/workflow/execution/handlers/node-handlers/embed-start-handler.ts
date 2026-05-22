@@ -55,9 +55,6 @@ export async function embedStartHandler(
   });
 
   return {
-    nodeId: node.id,
-    nodeType: node.type,
-    status: "COMPLETED",
     message: "Embedded graph boundary (start) - pass through",
   };
 }

@@ -223,10 +223,8 @@ export async function loopEndHandler(
   // Return the execution results.
   return {
     loopId: config.loopId,
-    shouldContinue,
-    shouldBreak,
-    loopConditionMet,
+    breakTriggered: shouldBreak,
     iterationCount: loopState.iterationCount,
-    nextNodeId: shouldContinue ? config.loopStartNodeId : undefined,
+    nextIteration: shouldContinue,
   };
 }

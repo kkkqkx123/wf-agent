@@ -66,12 +66,19 @@ export async function routeHandler(workflowExecutionEntity: WorkflowExecutionEnt
   // Sort routing rules by priority.
   const sortedRoutes = [...config.routes].sort((a, b) => (b.priority || 0) - (a.priority || 0));
 
-  // Evaluate routing conditions
+  // Evaluate all routing conditions for the output record
+  const evaluatedConditions: Array<{ condition: string; result: boolean; targetNodeId: string }> = [];
   for (const route of sortedRoutes) {
-    if (evaluateRouteCondition(route.condition, workflowExecutionEntity)) {
+    const result = evaluateRouteCondition(route.condition, workflowExecutionEntity);
+    evaluatedConditions.push({
+      condition: JSON.stringify(route.condition),
+      result,
+      targetNodeId: route.targetNodeId,
+    });
+    if (result) {
       return {
-        status: "COMPLETED",
-        selectedNode: route.targetNodeId,
+        selectedRoute: route.targetNodeId,
+        evaluatedConditions,
       };
     }
   }
@@ -79,8 +86,8 @@ export async function routeHandler(workflowExecutionEntity: WorkflowExecutionEnt
   // No matching routes found; use the default target.
   if (config.defaultTargetNodeId) {
     return {
-      status: "COMPLETED",
-      selectedNode: config.defaultTargetNodeId,
+      selectedRoute: config.defaultTargetNodeId,
+      evaluatedConditions,
     };
   }
 

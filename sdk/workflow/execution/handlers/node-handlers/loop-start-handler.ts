@@ -347,9 +347,9 @@ export async function loopStartHandler(
 
     return {
       loopId: config.loopId,
-      shouldContinue: false,
       iterationCount: loopState.iterationCount,
-      message: "Loop completed",
+      maxIterations: loopState.maxIterations,
+      hasMoreIterations: false,
     };
   }
 
@@ -380,10 +380,9 @@ export async function loopStartHandler(
   // Return the execution results
   return {
     loopId: config.loopId,
-    variableName: loopState.variableName,
-    currentValue,
     iterationCount: loopState.iterationCount,
-    shouldContinue: true,
+    maxIterations: loopState.maxIterations,
+    hasMoreIterations: loopState.iterationCount < loopState.maxIterations,
   };
 }
 

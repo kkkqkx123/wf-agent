@@ -28,6 +28,23 @@ export interface WorkflowMessageConfig {
 }
 
 /**
+ * User Interaction Node Output
+ * - operationType: 'UPDATE_VARIABLES' | 'ADD_MESSAGE' - The type of interaction performed
+ * - userInput: unknown - The raw input received from the user
+ * - updatedVariables?: Array<{ variableName: string, newValue: unknown }> - Variables updated (when UPDATE_VARIABLES)
+ * - addedMessages?: number - Number of messages added to context (when ADD_MESSAGE)
+ */
+export interface UserInteractionNodeOutput {
+  operationType: 'UPDATE_VARIABLES' | 'ADD_MESSAGE';
+  userInput: unknown;
+  updatedVariables?: Array<{
+    variableName: string;
+    newValue: unknown;
+  }>;
+  addedMessages?: number;
+}
+
+/**
  * User Interaction Node Configuration
  * 
  * Defines workflow-level operations that require user input.

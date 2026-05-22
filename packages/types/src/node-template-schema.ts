@@ -21,7 +21,6 @@ export const StaticNodeTypeSchema: z.ZodType<StaticNodeType> = z.enum([
   "EMBED_GRAPH",
   "SCRIPT",
   "LLM",
-  "ADD_TOOL",
   "TOOL_VISIBILITY",
   "USER_INTERACTION",
   "ROUTE",

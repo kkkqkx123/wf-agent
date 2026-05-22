@@ -20,7 +20,6 @@ import type { LoopStartNodeConfig, LoopEndNodeConfig } from "./configs/loop-conf
 import type {
   ScriptNodeConfig,
   LLMNodeConfig,
-  AddToolNodeConfig,
   ToolVisibilityNodeConfig,
 } from "./configs/execution-configs.js";
 import type { UserInteractionNodeConfig } from "./configs/interaction-configs.js";
@@ -47,7 +46,6 @@ export type StaticNodeType =
   | "EMBED_GRAPH"  // Lightweight graph expansion for control flow reuse (Phase 3)
   | "SCRIPT"
   | "LLM"
-  | "ADD_TOOL"
   | "TOOL_VISIBILITY"
   | "USER_INTERACTION"
   | "ROUTE"
@@ -86,7 +84,6 @@ export interface StaticNodeConfigMap {
   EMBED_GRAPH: EmbedGraphNodeConfig;
   SCRIPT: ScriptNodeConfig;
   LLM: LLMNodeConfig;
-  ADD_TOOL: AddToolNodeConfig;
   TOOL_VISIBILITY: ToolVisibilityNodeConfig;
   USER_INTERACTION: UserInteractionNodeConfig;
   ROUTE: RouteNodeConfig;
@@ -117,7 +114,6 @@ export type SubgraphNode = StaticNodeOfType<"SUBGRAPH">;
 export type EmbedGraphNode = StaticNodeOfType<"EMBED_GRAPH">;
 export type ScriptNode = StaticNodeOfType<"SCRIPT">;
 export type LLMNode = StaticNodeOfType<"LLM">;
-export type AddToolNode = StaticNodeOfType<"ADD_TOOL">;
 export type ToolVisibilityNode = StaticNodeOfType<"TOOL_VISIBILITY">;
 export type UserInteractionNode = StaticNodeOfType<"USER_INTERACTION">;
 export type RouteNode = StaticNodeOfType<"ROUTE">;
@@ -146,7 +142,6 @@ export type StaticNode =
   | EmbedGraphNode
   | ScriptNode
   | LLMNode
-  | AddToolNode
   | ToolVisibilityNode
   | UserInteractionNode
   | RouteNode
@@ -176,7 +171,6 @@ export const isSubgraphNode = createStaticNodeTypeGuard("SUBGRAPH");
 export const isEmbedGraphNode = createStaticNodeTypeGuard("EMBED_GRAPH");
 export const isScriptNode = createStaticNodeTypeGuard("SCRIPT");
 export const isLLMNode = createStaticNodeTypeGuard("LLM");
-export const isAddToolNode = createStaticNodeTypeGuard("ADD_TOOL");
 export const isToolVisibilityNode = createStaticNodeTypeGuard("TOOL_VISIBILITY");
 export const isUserInteractionNode = createStaticNodeTypeGuard("USER_INTERACTION");
 export const isRouteNode = createStaticNodeTypeGuard("ROUTE");

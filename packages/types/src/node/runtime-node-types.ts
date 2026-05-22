@@ -18,21 +18,23 @@
 import type { NodeIdentity, NodeExecutionConfig, RuntimeNodeContext } from "./shared-node-types.js";
 
 // Import configuration types (most are shared between static and runtime)
-import type { RouteNodeConfig } from "./configs/control-configs.js";
-import type { VariableNodeConfig } from "./configs/variable-configs.js";
-import type { ForkNodeConfig, JoinNodeConfig } from "./configs/fork-join-configs.js";
-import type { LoopStartNodeConfig, LoopEndNodeConfig } from "./configs/loop-configs.js";
+import type { RouteNodeConfig, RouteNodeOutput } from "./configs/control-configs.js";
+import type { VariableNodeConfig, VariableNodeOutput } from "./configs/variable-configs.js";
+import type { ForkNodeConfig, ForkNodeOutput, JoinNodeConfig, JoinNodeOutput } from "./configs/fork-join-configs.js";
+import type { LoopStartNodeConfig, LoopStartNodeOutput, LoopEndNodeConfig, LoopEndNodeOutput } from "./configs/loop-configs.js";
 import type {
   ScriptNodeConfig,
+  ScriptNodeOutput,
   LLMNodeConfig,
-  AddToolNodeConfig,
+  LLMNodeOutput,
   ToolVisibilityNodeConfig,
+  ToolVisibilityNodeOutput,
 } from "./configs/execution-configs.js";
-import type { UserInteractionNodeConfig } from "./configs/interaction-configs.js";
-import type { ContextProcessorNodeConfig } from "./configs/context-configs.js";
-import type { AgentLoopNodeConfig } from "./configs/agent-loop-configs.js";
-import type { SubgraphNodeConfig } from "./configs/subgraph-configs.js";
-import type { SyncNodeConfig } from "./configs/sync-configs.js";
+import type { UserInteractionNodeConfig, UserInteractionNodeOutput } from "./configs/interaction-configs.js";
+import type { ContextProcessorNodeConfig, ContextProcessorNodeOutput } from "./configs/context-configs.js";
+import type { AgentLoopNodeConfig, AgentLoopNodeOutput } from "./configs/agent-loop-configs.js";
+import type { SubgraphNodeConfig, SubgraphNodeOutput } from "./configs/subgraph-configs.js";
+import type { SyncNodeConfig, SyncNodeOutput } from "./configs/sync-configs.js";
 // Import boundary configs for START/END nodes and trigger nodes
 import type { WorkflowStartConfig, WorkflowEndConfig } from "../workflow/boundary-config.js";
 
@@ -59,7 +61,6 @@ export type RuntimeNodeType =
   // EMBED_GRAPH is removed - expanded during preprocessing (Phase 3)
   | "SCRIPT"
   | "LLM"
-  | "ADD_TOOL"
   | "TOOL_VISIBILITY"
   | "USER_INTERACTION"
   | "ROUTE"
@@ -101,7 +102,6 @@ export interface RuntimeNodeConfigMap {
   SUBGRAPH: SubgraphNodeConfig;
   SCRIPT: ScriptNodeConfig;
   LLM: LLMNodeConfig;
-  ADD_TOOL: AddToolNodeConfig;
   TOOL_VISIBILITY: ToolVisibilityNodeConfig;
   USER_INTERACTION: UserInteractionNodeConfig;
   ROUTE: RouteNodeConfig;
@@ -135,7 +135,6 @@ export type SyncNode = RuntimeNodeOfType<"SYNC">;
 export type SubgraphNode = RuntimeNodeOfType<"SUBGRAPH">;  // Exists at runtime (Phase 1: Scheme C)
 export type ScriptNode = RuntimeNodeOfType<"SCRIPT">;
 export type LLMNode = RuntimeNodeOfType<"LLM">;
-export type AddToolNode = RuntimeNodeOfType<"ADD_TOOL">;
 export type ToolVisibilityNode = RuntimeNodeOfType<"TOOL_VISIBILITY">;
 export type UserInteractionNode = RuntimeNodeOfType<"USER_INTERACTION">;
 export type RouteNode = RuntimeNodeOfType<"ROUTE">;
@@ -167,7 +166,6 @@ export type RuntimeNode =
   | SubgraphNode  // Exists at runtime
   | ScriptNode
   | LLMNode
-  | AddToolNode
   | ToolVisibilityNode
   | UserInteractionNode
   | RouteNode
@@ -179,6 +177,42 @@ export type RuntimeNode =
   | ContinueFromTriggerNode
   | EmbedStartNode
   | EmbedEndNode;
+
+// ============================================================================
+// Node Output Type Integration
+// ============================================================================
+
+/**
+ * Maps each RuntimeNodeType to its output shape.
+ * This provides type-safe output access based on node type.
+ */
+export interface RuntimeNodeOutputMap {
+  START: WorkflowStartConfig;
+  END: WorkflowEndConfig;
+  VARIABLE: VariableNodeOutput;
+  FORK: ForkNodeOutput;
+  JOIN: JoinNodeOutput;
+  SYNC: SyncNodeOutput;
+  SUBGRAPH: SubgraphNodeOutput;
+  SCRIPT: ScriptNodeOutput;
+  LLM: LLMNodeOutput;
+  TOOL_VISIBILITY: ToolVisibilityNodeOutput;
+  USER_INTERACTION: UserInteractionNodeOutput;
+  ROUTE: RouteNodeOutput;
+  CONTEXT_PROCESSOR: ContextProcessorNodeOutput;
+  LOOP_START: LoopStartNodeOutput;
+  LOOP_END: LoopEndNodeOutput;
+  AGENT_LOOP: AgentLoopNodeOutput;
+  START_FROM_TRIGGER: WorkflowStartConfig;
+  CONTINUE_FROM_TRIGGER: WorkflowEndConfig;
+  EMBED_START: WorkflowStartConfig;
+  EMBED_END: WorkflowEndConfig;
+}
+
+/**
+ * Helper to extract node output type from RuntimeNodeOutputMap by node type
+ */
+export type RuntimeNodeOutputOfType<T extends RuntimeNodeType> = RuntimeNodeOutputMap[T];
 
 // ============================================================================
 // Type Guard Functions
@@ -198,7 +232,6 @@ export const isSyncNode = createRuntimeNodeTypeGuard("SYNC");
 export const isSubgraphNode = createRuntimeNodeTypeGuard("SUBGRAPH");  // Exists at runtime
 export const isScriptNode = createRuntimeNodeTypeGuard("SCRIPT");
 export const isLLMNode = createRuntimeNodeTypeGuard("LLM");
-export const isAddToolNode = createRuntimeNodeTypeGuard("ADD_TOOL");
 export const isToolVisibilityNode = createRuntimeNodeTypeGuard("TOOL_VISIBILITY");
 export const isUserInteractionNode = createRuntimeNodeTypeGuard("USER_INTERACTION");
 export const isRouteNode = createRuntimeNodeTypeGuard("ROUTE");

@@ -6,6 +6,11 @@ import type { ID, Timestamp } from "../common.js";
 
 /**
  * Node execution result type
+ * 
+ * output field uses Record<string, unknown> to enforce string-keyed data path access.
+ * This aligns with the expression evaluator's path resolution mechanism
+ * where output fields are accessed via dot-notation paths like "output.fieldName".
+ * Using unknown would allow any value but break path-based reference semantics.
  */
 export interface NodeExecutionResult {
   /** Node ID */
@@ -26,8 +31,17 @@ export interface NodeExecutionResult {
   endTime?: Timestamp;
   /** Timestamp */
   timestamp?: Timestamp;
-  /** Node execution output data (optional) */
-  output?: unknown;
+  /**
+   * Node execution output data
+   * 
+   * Uses Record<string, unknown> to enforce string-keyed data path IDs.
+   * All node outputs must be structured as key-value objects to support
+   * expression path resolution (e.g., "output.content", "output.status").
+   * 
+   * Raw/scalar outputs from nodes like SCRIPT should be wrapped as
+   * { result: <rawValue> } to maintain path-based access consistency.
+   */
+  output?: Record<string, unknown>;
 }
 
 /**

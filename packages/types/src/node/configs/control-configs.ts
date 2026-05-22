@@ -9,6 +9,20 @@
 import type { Condition } from "../../graph/condition.js";
 
 /**
+ * Route Node Output
+ * - selectedRoute: string - The target node ID of the selected route
+ * - evaluatedConditions: Array<{ condition: string, result: boolean, targetNodeId: string }>
+ */
+export interface RouteNodeOutput {
+  selectedRoute: string;
+  evaluatedConditions: Array<{
+    condition: string;
+    result: boolean;
+    targetNodeId: string;
+  }>;
+}
+
+/**
  * Routing Node Configuration
  */
 export interface RouteNodeConfig {

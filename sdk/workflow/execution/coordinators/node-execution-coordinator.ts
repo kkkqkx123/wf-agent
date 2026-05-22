@@ -37,7 +37,7 @@ import type { ForkBranchResult } from "../types/subworkflow-result.types.js";
 import type { ToolPermissionManager } from "../../../core/coordinators/tool-permission-manager.js";
 import type { RejectionMessageBuilder } from "../../../core/coordinators/rejection-message-builder.js";
 import { LLMExecutionCoordinator } from "./llm-execution-coordinator.js";
-import { SDKError } from "@wf-agent/types";
+import { SDKError, DEFAULT_OUTPUT_FIELDS } from "@wf-agent/types";
 
 import { executeHook } from "../handlers/hook-handlers/hook-handler.js";
 import { handleErrorWithContext } from "../../../core/utils/error-utils.js";
@@ -641,95 +641,93 @@ export class NodeExecutionCoordinator {
       startTime,
       endTime,
       executionTime: diffTimestamp(startTime, endTime),
-      // NEW: Preserve sanitized node output
-      output: this.sanitizeNodeOutput(output, node.type),
+      output: this.sanitizeNodeOutput(output, node),
     };
   }
 
   /**
    * Sanitize node output to remove internal metadata
-   * Preserves user-facing data while stripping implementation details
-   * 
+   * Uses node output configuration and type-specific default field mappings
+   * to produce clean, user-facing output data.
+   *
+   * The output is always a Record<string, unknown> to maintain path-based
+   * expression access semantics. Scalar values are wrapped as { result: value }.
+   *
    * @param output Raw output from node handler
-   @param nodeType Type of the node
-   * @returns Sanitized output suitable for hook conditions and external access
+   * @param node The runtime node with its output configuration
+   * @returns Sanitized output as Record<string, unknown> for path-based access
    */
-  private sanitizeNodeOutput(output: unknown, nodeType: string): unknown {
-    // Skip if no output or primitive type
-    if (!output || typeof output !== 'object') {
-      return output;
+  private sanitizeNodeOutput(output: unknown, node: RuntimeNode): Record<string, unknown> {
+    // Handle null/undefined output
+    if (output === undefined || output === null) {
+      return {};
     }
 
-    // For structured results, extract relevant fields based on node type
-    switch (nodeType) {
-      case 'SCRIPT':
-        // Script returns raw value - preserve as-is
-        return output;
-      
-      case 'LLM': {
-        // Extract content and tool calls from LLM result
-        const llmResult = output as any;
-        return {
-          content: llmResult.content,
-          toolCalls: llmResult.toolCalls,
-        };
-      }
-      
-      case 'AGENT_LOOP': {
-        // Extract key metrics from agent loop result
-        const agentResult = output as any;
-        return {
-          finalResponse: agentResult.finalResponse,
-          toolCallCount: agentResult.toolCallCount,
-          iterationCount: agentResult.iterationCount,
-        };
-      }
-      
-      case 'SUBGRAPH': {
-        // Extract subgraph execution summary
-        const subgraphResult = output as any;
-        return {
-          executionResult: {
-            output: subgraphResult.executionResult?.output,
-            status: subgraphResult.executionResult?.metadata?.status,
-          },
-          duration: subgraphResult.duration,
-        };
-      }
-      
-      case 'FORK': {
-        // Extract fork branch summaries
-        const forkResults = output as any[];
-        if (Array.isArray(forkResults)) {
-          return forkResults.map(branch => ({
-            forkPathId: branch.forkPathId,
-            output: branch.branchOutput,
-            status: branch.executionResult?.metadata?.status,
-          }));
-        }
-        return output;
-      }
-      
-      case 'JOIN':
-        // JOIN output is set by coordinator aggregation logic
-        return output;
-      
-      case 'END': {
-        // END node includes workflow output
-        const endResult = output as any;
-        return {
-          output: endResult.output,
-        };
-      }
-      
-      default:
-        // For other nodes, return as-is or strip internal fields
-        // Remove nodeId, nodeType, status, etc. if present
-        if ('nodeId' in (output as object) || 'nodeType' in (output as object)) {
-          const { nodeId, nodeType: _nt, status: _s, ...rest } = output as any;
-          return Object.keys(rest).length > 0 ? rest : undefined;
-        }
-        return output;
+    // Handle scalar/primitive output - wrap as { result: value } to maintain Record contract
+    if (typeof output !== 'object') {
+      return { result: output };
     }
+
+    const outputConfig = node.output;
+    const rawOutput = output as Record<string, unknown>;
+
+    // Determine which fields to include:
+    // 1. Use node-level includeFields override if specified
+    // 2. Fall back to DEFAULT_OUTPUT_FIELDS for the node type
+    // 3. If neither is specified, include all non-internal fields
+    const includeFields = outputConfig?.includeFields ?? DEFAULT_OUTPUT_FIELDS[node.type];
+
+    // Internal execution metadata fields that should never appear in user-facing output
+    const internalKeys = new Set([
+      'nodeId', 'nodeType', 'status', 'startTime', 'endTime',
+      'timestamp', 'executionTime', 'step', 'error',
+    ]);
+
+    const result: Record<string, unknown> = {};
+
+    // Handle FORK node specially: its raw output is an array of branch results.
+    // Wrap as { launchedBranches: [...] } to maintain Record contract.
+    if (node.type === 'FORK' && Array.isArray(rawOutput)) {
+      const branches = (rawOutput as unknown[]).map((branch: unknown) => {
+        const b = branch as Record<string, unknown>;
+        const execResult = b['executionResult'] as Record<string, unknown> | undefined;
+        return {
+          forkPathId: b['forkPathId'],
+          output: b['branchOutput'],
+          status: ((execResult?.['metadata']) as Record<string, unknown> | undefined)?.['status'] as string | undefined,
+        };
+      });
+      result['launchedBranches'] = branches;
+      return result;
+    }
+
+    // Handle SUBGRAPH node specially: extract execution summary
+    if (node.type === 'SUBGRAPH') {
+      const execResult = rawOutput['executionResult'] as Record<string, unknown> | undefined;
+      const execMetadata = execResult?.['metadata'];
+      result['executionResult'] = {
+        output: execResult?.['output'],
+        status: execMetadata as string | undefined,
+      };
+      result['duration'] = rawOutput['duration'];
+      return result;
+    }
+
+    // Generic field-based sanitization for all other node types
+    for (const key of Object.keys(rawOutput)) {
+      // Skip internal metadata fields
+      if (internalKeys.has(key)) {
+        continue;
+      }
+
+      // If includeFields is specified, only include listed fields
+      if (includeFields && !includeFields.includes(key)) {
+        continue;
+      }
+
+      result[key] = rawOutput[key];
+    }
+
+    return result;
   }
 }

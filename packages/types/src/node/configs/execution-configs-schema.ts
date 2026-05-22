@@ -24,7 +24,7 @@ export const ScriptNodeConfigSchema = z.object({
  */
 export const LLMNodeConfigSchema = z.object({
   profileId: z.string().min(1, "Profile ID is required"),
-  contextRefs: z.array(z.string()).optional(),
+  contextId: z.string().optional(),
   outputContext: z.string().optional(),
   parameters: z.record(z.string(), z.any()).optional(),
   maxToolCallsPerRequest: z
@@ -34,19 +34,12 @@ export const LLMNodeConfigSchema = z.object({
 });
 
 /**
- * Add tool node configuration schema
+ * AddToolNodeConfigSchema has been removed.
+ * 
+ * ADD_TOOL node type is deprecated.
+ * Tool visibility should be managed via TOOL_VISIBILITY nodes
+ * and context operations (CONTEXT_PROCESSOR nodes with ADD_MESSAGE operation).
  */
-export const AddToolNodeConfigSchema = z.object({
-  toolIds: z
-    .array(z.string().min(1, "Tool ID must not be empty"))
-    .min(1, "At least one tool ID is required"),
-  descriptionTemplate: z.string().optional(),
-  scope: z.enum(["EXECUTION", "LOCAL"], {
-    message: "Scope must be one of: EXECUTION, LOCAL",
-  }).optional().default("EXECUTION"),
-  overwrite: z.boolean().optional(),
-  metadata: z.record(z.string(), z.any()).optional(),
-});
 
 /**
  * Type guards for runtime type checking
@@ -57,8 +50,4 @@ export const isScriptNodeConfig = (config: unknown): config is z.infer<typeof Sc
 
 export const isLLMNodeConfig = (config: unknown): config is z.infer<typeof LLMNodeConfigSchema> => {
   return LLMNodeConfigSchema.safeParse(config).success;
-};
-
-export const isAddToolNodeConfig = (config: unknown): config is z.infer<typeof AddToolNodeConfigSchema> => {
-  return AddToolNodeConfigSchema.safeParse(config).success;
 };

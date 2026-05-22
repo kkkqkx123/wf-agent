@@ -68,10 +68,8 @@ export {
 export {
   LLMNodeConfigSchema,
   ScriptNodeConfigSchema,
-  AddToolNodeConfigSchema,
   isLLMNodeConfig,
   isScriptNodeConfig,
-  isAddToolNodeConfig,
 } from './execution-configs-schema.js';
 
 export {

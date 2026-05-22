@@ -6,6 +6,7 @@
  */
 
 import type { ID } from "../common.js";
+import type { NodeOutputConfig } from "./output-fields.js";
 
 // ============================================================================
 // Minimal Node Identity (shared by both static and runtime)
@@ -60,6 +61,14 @@ export interface NodeExecutionConfig {
   
   /** Whether to create checkpoint after node execution */
   checkpointAfterExecute?: boolean;
+  
+  /**
+   * Output configuration for this node.
+   * Defines how the node's execution output is shaped and referenced.
+   * - outputId: Semantic name for referencing this output in expressions (e.g., node.<outputId>.field)
+   * - includeFields: Optional field filtering for sanitization
+   */
+  output?: NodeOutputConfig;
 }
 
 // ============================================================================

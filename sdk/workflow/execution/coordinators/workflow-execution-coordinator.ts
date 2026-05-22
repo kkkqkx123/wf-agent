@@ -4,10 +4,11 @@
  */
 
 import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
-import type { WorkflowExecutionResult } from "@wf-agent/types";
+import type { WorkflowExecutionResult, Condition, EvaluationContext } from "@wf-agent/types";
 import type { InterruptionState } from "../../../core/utils/interruption/interruption-state.js";
 import type { NodeExecutionCoordinator } from "./node-execution-coordinator.js";
 import type { WorkflowNavigator } from "../../builder/workflow-navigator.js";
+import { conditionEvaluator } from "@wf-agent/common-utils";
 import {
   executeWithInterruptionHandling,
 } from "../../../core/utils/interruption/index.js";
@@ -69,16 +70,29 @@ export class WorkflowExecutionCoordinator {
             { abortSignal: signal },
           );
 
-          // Update node results
-          this.workflowExecutionEntity.addNodeResult(nodeResult);
-
-          // Update the current node ID - Use the navigator to get the next node
+          // Update the current node ID
           if (nodeResult.status === "COMPLETED") {
-            const nextNode = this.navigator.getNextNode(currentNodeId);
-            if (nextNode && nextNode.nextNodeId) {
-              this.workflowExecutionEntity.setCurrentNodeId(nextNode.nextNodeId);
+            const outgoingEdges = this.navigator.getGraph().getOutgoingEdges(currentNodeId);
+            if (outgoingEdges.length <= 1) {
+              // Single outgoing edge: use simple navigation
+              const nextNode = this.navigator.getNextNode(currentNodeId);
+              if (nextNode && nextNode.nextNodeId) {
+                this.workflowExecutionEntity.setCurrentNodeId(nextNode.nextNodeId);
+              } else {
+                break;
+              }
             } else {
-              break;
+              // Multiple outgoing edges: use conditional routing
+              const evalContext = this.buildRoutingEvaluationContext();
+              const routingResult = this.navigator.routeNextNode(
+                currentNodeId,
+                (condition: Condition) => conditionEvaluator.evaluate(condition, evalContext),
+              );
+              if (routingResult) {
+                this.workflowExecutionEntity.setCurrentNodeId(routingResult.selectedNodeId);
+              } else {
+                break;
+              }
             }
           } else {
             break;
@@ -166,6 +180,18 @@ export class WorkflowExecutionCoordinator {
         nodeCount: this.workflowExecutionEntity.getNodeResults().length,
         errorCount: this.workflowExecutionEntity.getErrors().length,
       },
+    };
+  }
+
+  /**
+   * Build routing evaluation context for conditional edge evaluation
+   * @returns EvaluationContext with workflow input, output, and variables
+   */
+  private buildRoutingEvaluationContext(): EvaluationContext {
+    return {
+      variables: this.workflowExecutionEntity.getAllVariables(),
+      input: this.workflowExecutionEntity.getInput(),
+      output: this.workflowExecutionEntity.getOutput(),
     };
   }
 

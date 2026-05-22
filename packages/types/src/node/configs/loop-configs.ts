@@ -50,18 +50,32 @@ export interface DataSource {
 }
 
 /**
+ * Loop Start Node Output
+ * - loopId: string - The loop identifier
+ * - iterationCount: number - Current iteration number
+ * - maxIterations: number - Maximum allowed iterations
+ * - hasMoreIterations: boolean - Whether more iterations remain
+ */
+export interface LoopStartNodeOutput {
+  loopId: string;
+  iterationCount: number;
+  maxIterations: number;
+  hasMoreIterations: boolean;
+}
+
+/**
  * Loop Start Node Configuration
- * 
+ *
  * Description: Initialize loop iteration with explicit variable mapping.
- * 
+ *
  * IMPORTANT: Loops do NOT inherit parent workflow variables automatically.
  * All variables needed inside the loop must be explicitly declared in variableInputs.
- * 
+ *
  * Mode 1: Data-driven loop (provide dataSource)
  * - Iterate over the specified data set (array, object, etc.)
  * - Each iteration automatically extracts the current value to the loop variable.
  * - Example: iterate through [1,2,3], each time item = current value.
- * 
+ *
  * Mode 2: Counting loop (no dataSource provided)
  * - Fixed number of loops based on maxIterations only
  * - No loop variables, loop body can maintain its own state
@@ -73,10 +87,10 @@ export interface LoopStartNodeConfig {
   
   /**
    * Variable Input Mapping
-   * 
+   *
    * Explicitly defines which parent workflow variables are accessible within the loop.
    * This is the ONLY way for loop body to access parent variables.
-   * 
+   *
    * Example:
    * ```typescript
    * variableInputs: [
@@ -108,8 +122,22 @@ export interface LoopStartNodeConfig {
 }
 
 /**
+ * Loop End Node Output
+ * - loopId: string - The loop identifier
+ * - breakTriggered: boolean - Whether the break condition was met
+ * - iterationCount: number - Current iteration number
+ * - nextIteration: boolean - Whether to proceed to next iteration
+ */
+export interface LoopEndNodeOutput {
+  loopId: string;
+  breakTriggered: boolean;
+  iterationCount: number;
+  nextIteration: boolean;
+}
+
+/**
  * End-of-loop node configuration
- * 
+ *
  * Description: Check the loop condition and interrupt condition to decide whether to continue iteration or not.
  * - loopId uniquely identifies the loop and is used to retrieve the loop state initialized in LOOP_START.
  * - Loop state (iterable, iterationCount, etc.) is already initialized and stored in LOOP_START, no need to define it again.

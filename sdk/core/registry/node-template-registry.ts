@@ -249,7 +249,6 @@ class NodeTemplateRegistry {
         "SUBGRAPH",
         "SCRIPT",
         "LLM",
-        "ADD_TOOL",
         "USER_INTERACTION",
         "ROUTE",
         "CONTEXT_PROCESSOR",

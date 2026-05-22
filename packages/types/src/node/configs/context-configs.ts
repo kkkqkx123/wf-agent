@@ -6,6 +6,18 @@
 import type { MessageOperationConfig } from '../../message/index.js';
 
 /**
+ * Context Processor Node Output
+ * - operationsApplied: number - Number of message operations performed
+ * - sourceContext: string - The source context ID
+ * - targetContext: string - The target context ID after processing
+ */
+export interface ContextProcessorNodeOutput {
+  operationsApplied: number;
+  sourceContext: string;
+  targetContext: string;
+}
+
+/**
  * Context processor node configuration (batch-aware)
  * Used to directly manipulate the prompt word message array, supporting truncation, insertion, replacement, filtering, clearing and other operations
  */

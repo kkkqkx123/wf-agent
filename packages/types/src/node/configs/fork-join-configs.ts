@@ -21,6 +21,18 @@ export interface ForkPath {
 }
 
 /**
+ * Fork Node Output
+ * - launchedBranches: Array<{ pathId: ID, childNodeId: ID, strategy: 'serial' | 'parallel' }>
+ */
+export interface ForkNodeOutput {
+  launchedBranches: Array<{
+    pathId: ID;
+    childNodeId: ID;
+    strategy: 'serial' | 'parallel';
+  }>;
+}
+
+/**
  * Forked Node Configuration
  */
 export interface ForkNodeConfig {
@@ -28,6 +40,22 @@ export interface ForkNodeConfig {
   forkPaths: ForkPath[];
   /** Fork strategy (serial、parallel) */
   forkStrategy: 'serial' | 'parallel';
+}
+
+/**
+ * Join Node Output
+ * - completedBranches: ID[] - IDs of branches that completed successfully
+ * - failedBranches: ID[] - IDs of branches that failed
+ * - skippedBranches: ID[] - IDs of branches that were skipped
+ * - strategy: string - The join strategy used
+ * - aggregatedOutput?: unknown - The aggregated result from completed branches
+ */
+export interface JoinNodeOutput {
+  completedBranches: ID[];
+  failedBranches: ID[];
+  skippedBranches: ID[];
+  strategy: string;
+  aggregatedOutput?: unknown;
 }
 
 /**

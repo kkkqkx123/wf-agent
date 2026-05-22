@@ -53,9 +53,9 @@ export interface LLMHandlerContext {
 }
 
 /**
- * Collect messages from named contexts
+ * Collect messages from a named context
  */
-function collectMessagesFromContexts(
+function collectMessagesFromContext(
   config: LLMNodeConfig,
   workflowExecution: WorkflowExecution,
 ): LLMMessage[] {
@@ -64,33 +64,25 @@ function collectMessagesFromContexts(
   
   if (!registry) {
     throw new RuntimeValidationError("MessageContextRegistry not found in execution context", {
-      operation: "collectMessagesFromContexts",
+      operation: "collectMessagesFromContext",
       field: "messageContextRegistry",
     });
   }
 
-  // Use default context if contextRefs not specified
-  const contextRefs = config.contextRefs && config.contextRefs.length > 0 
-    ? config.contextRefs 
-    : ['current'];
-
-  const allMessages: LLMMessage[] = [];
+  // Use the specified contextId, or default to 'current'
+  const contextId = config.contextId || 'current';
   
-  for (const contextId of contextRefs) {
-    const namedContext = registry.get(contextId);
-    
-    if (!namedContext) {
-      throw new RuntimeValidationError(`Context '${contextId}' not found`, {
-        operation: "collectMessagesFromContexts",
-        field: "contextRefs",
-        value: contextId,
-      });
-    }
-    
-    allMessages.push(...namedContext.messages);
+  const namedContext = registry.get(contextId);
+  
+  if (!namedContext) {
+    throw new RuntimeValidationError(`Context '${contextId}' not found`, {
+      operation: "collectMessagesFromContext",
+      field: "contextId",
+      value: contextId,
+    });
   }
   
-  return allMessages;
+  return [...namedContext.messages];
 }
 
 /**
@@ -109,8 +101,8 @@ export async function llmHandler(
   const startTime = now();
 
   try {
-    // 1. Collect messages from named contexts
-    const messages = collectMessagesFromContexts(config, workflowExecution);
+    // 1. Collect messages from named context
+    const messages = collectMessagesFromContext(config, workflowExecution);
     
     // 2. Add messages to conversation manager for this execution
     for (const message of messages) {

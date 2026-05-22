@@ -7,6 +7,14 @@ import type { ID } from '../../common.js';
 import { ScriptRiskLevel } from '../../script/script-security.js';
 
 /**
+ * Script Node Output
+ * - result: unknown - The raw script execution return value
+ */
+export interface ScriptNodeOutput {
+  result: unknown;
+}
+
+/**
  * Code Node Configuration
  */
 export interface ScriptNodeConfig {
@@ -19,65 +27,67 @@ export interface ScriptNodeConfig {
 }
 
 /**
+ * LLM Node Output
+ * - content: string - The LLM response text content
+ * - toolCalls?: Array<{ id: string, name: string, arguments: unknown }> - Any tool calls made by the LLM
+ */
+export interface LLMNodeOutput {
+  content: string;
+  toolCalls?: Array<{
+    id: string;
+    name: string;
+    arguments: unknown;
+  }>;
+}
+
+/**
  * LLM Node Configuration
- * 
- * Simplified configuration using named message contexts.
- * Replaces the complex template system with direct context references.
+ *
+ * Simplified configuration using a single named message context.
+ * Replaces the complex template system with direct context reference.
  */
 export interface LLMNodeConfig {
   /** Referenced LLM Profile ID */
   profileId: ID;
-  
+
   /**
-   * Message context references
-   * 
-   * - Can be built-in IDs (e.g., 'current', 'system')
-   * - Can be custom IDs (created by Context Processor)
-   * - Supports multiple contexts, merged in order
-   * 
-   * @example ["system", "research-notes", "current"]
+   * Message context ID to pull messages from.
+   *
+   * Defaults to 'current' if not specified.
+   * Can be a built-in ID (e.g., 'current') or a custom ID created by Context Processor.
    */
-  contextRefs?: string[];
-  
+  contextId?: string;
+
   /**
    * Optional: Whether to append LLM response to specified context
-   * 
+   *
    * Defaults to 'current' if not specified.
    */
   outputContext?: string;
-  
+
   /** Optional parameter override (overrides parameters in Profile) */
   parameters?: Record<string, unknown>;
-  
+
   /** Maximum number of tool calls returned by a single LLM call (default 3, error thrown if exceeded) */
   maxToolCallsPerRequest?: number;
 }
 
 /**
- * Tool to add node configuration
+ * Tool Visibility Node Output
+ * - action: 'block' | 'unblock' - The action performed
+ * - toolIds: string[] - The tools affected
  */
-export interface AddToolNodeConfig {
-  /** List of tool IDs or names to add */
+export interface ToolVisibilityNodeOutput {
+  action: 'block' | 'unblock';
   toolIds: string[];
-  /** Tool description template (optional, for dynamic generation of tool descriptions) */
-  descriptionTemplate?: string;
-  /** Tool scope (optional, defaults to EXECUTION)
-   * - EXECUTION: Tools available in current execution instance
-   * - LOCAL: Tools available only in current local/subgraph context
-   */
-  scope?: 'EXECUTION' | 'LOCAL';
-  /** Whether to overwrite existing tools (default false) */
-  overwrite?: boolean;
-  /** Tool metadata (optional) */
-  metadata?: Record<string, unknown>;
 }
 
 /**
  * Tool Visibility Node Configuration
- * 
+ *
  * Manages tool permissions at runtime by blocking/unblocking tools.
  * This allows phased workflows where different tools are available at different stages.
- * 
+ *
  * @example
  * ```typescript
  * // Phase 1: Disable editing during exploration
@@ -86,7 +96,7 @@ export interface AddToolNodeConfig {
  *   toolIds: ['write_file', 'edit_file', 'delete_file'],
  *   reason: 'Complete code exploration first'
  * };
- * 
+ *
  * // Phase 2: Enable editing after exploration
  * const config: ToolVisibilityNodeConfig = {
  *   action: 'unblock',
@@ -97,16 +107,10 @@ export interface AddToolNodeConfig {
 export interface ToolVisibilityNodeConfig {
   /** Action to perform */
   action: 'block' | 'unblock';
-  
+
   /** Tool IDs to block/unblock */
   toolIds: string[];
-  
+
   /** Optional reason for blocking (used in rejection message) */
   reason?: string;
-  
-  /** Scope of the change (optional, defaults to EXECUTION)
-   * - EXECUTION: Affects entire execution
-   * - LOCAL: Affects only current local/subgraph context
-   */
-  scope?: 'EXECUTION' | 'LOCAL';
 }

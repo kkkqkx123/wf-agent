@@ -30,7 +30,7 @@ import {
 // ============================================================================
 
 declare const nodeType: StaticNodeType;
-expectAssignable<"START" | "END" | "VARIABLE" | "FORK" | "JOIN" | "SUBGRAPH" | "SCRIPT" | "LLM" | "ADD_TOOL" | "USER_INTERACTION" | "ROUTE" | "CONTEXT_PROCESSOR" | "LOOP_START" | "LOOP_END" | "AGENT_LOOP" | "START_FROM_TRIGGER" | "CONTINUE_FROM_TRIGGER">(nodeType);
+expectAssignable<"START" | "END" | "VARIABLE" | "FORK" | "JOIN" | "SUBGRAPH" | "SYNC" | "SCRIPT" | "LLM" | "TOOL_VISIBILITY" | "USER_INTERACTION" | "ROUTE" | "CONTEXT_PROCESSOR" | "LOOP_START" | "LOOP_END" | "AGENT_LOOP" | "START_FROM_TRIGGER" | "CONTINUE_FROM_TRIGGER" | "EMBED_GRAPH">(nodeType);
 
 // ============================================================================
 // Test 2: StaticNodeOfType generic type inference
@@ -42,7 +42,7 @@ declare const llmNode: LLMPartialNode;
 expectType<"LLM">(llmNode.type);
 // Config should be LLMNodeConfig with profileId field
 expectType<string>(llmNode.config.profileId);
-expectType<string[] | undefined>(llmNode.config.contextRefs);
+expectType<string | undefined>(llmNode.config.contextId);
 
 // Script node should have scriptName and risk fields
 type ScriptPartialNode = StaticNodeOfType<"SCRIPT">;
@@ -76,7 +76,7 @@ if (isStaticLLMNode(maybeLLMNode)) {
   expectType<StaticLLMNode>(maybeLLMNode);
   expectType<"LLM">(maybeLLMNode.type);
   expectType<string>(maybeLLMNode.config.profileId);
-  expectType<string[] | undefined>(maybeLLMNode.config.contextRefs);
+  expectType<string | undefined>(maybeLLMNode.config.contextId);
 }
 
 // Test isStaticScriptNode

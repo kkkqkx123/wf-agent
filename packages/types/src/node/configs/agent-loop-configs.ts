@@ -12,6 +12,18 @@ import type { ID } from "../../common.js";
 import type { AgentToolConfig } from "../../agent/tool-config.js";
 
 /**
+ * Agent Loop Node Output
+ * - finalResponse?: string - The final response from the agent
+ * - toolCallCount: number - Number of tool calls made during the loop
+ * - iterationCount: number - Number of iterations executed
+ */
+export interface AgentLoopNodeOutput {
+  finalResponse?: string;
+  toolCallCount: number;
+  iterationCount: number;
+}
+
+/**
  * Agent Loop Node Configuration
  *
  * Agent Loop node embeds an agent execution engine within a workflow graph.
@@ -28,21 +40,21 @@ import type { AgentToolConfig } from "../../agent/tool-config.js";
 export interface AgentLoopNodeConfig {
   /**
    * Reference to predefined Agent Loop configuration ID
-   * 
+   *
    * When provided, loads the complete agent configuration from the agent registry.
    * This is the recommended approach for complex agent setups with hooks,
    * custom transforms, or reusable configurations.
-   * 
+   *
    * Priority: Higher than inlineConfig fields when both are provided.
    */
   agentLoopId?: ID;
 
   /**
    * Inline agent configuration (simplified subset)
-   * 
+   *
    * For simple scenarios where you don't need a separate agent config file.
    * Provides basic agent parameters directly in the workflow node.
-   * 
+   *
    * Note: This is a declarative subset. For advanced features (hooks, transforms),
    * use agentLoopId to reference a full AgentLoopDefinition.
    */
@@ -65,22 +77,18 @@ export interface AgentLoopNodeConfig {
     availableTools?: AgentToolConfig;
 
     /**
-     * Initial message context references
-     * 
-     * Replaces systemPrompt, initialMessages and other configurations.
-     * References named contexts to initialize the Agent Loop.
-     * 
-     * @example ["system", "task-spec"]
+     * Initial message context ID
+     *
+     * References a single named context to initialize the Agent Loop.
+     * Defaults to 'current' if not specified.
      */
-    initialContextRefs?: string[];
-    
+    initialContextId?: string;
+
     /**
      * Working context ID for Agent Loop internal operations
-     * 
+     *
      * Defaults to 'current' if not specified.
      */
     workingContext?: string;
   };
 }
-
-

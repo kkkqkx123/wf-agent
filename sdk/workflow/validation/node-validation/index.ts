@@ -22,7 +22,6 @@ import { validateContextProcessorNode } from "./context-processor-validator.js";
 import { validateRouteNode } from "./route-validator.js";
 import { validateVariableNode } from "./variable-validator.js";
 import { validateLLMNode } from "./llm-validator.js";
-import { validateAddToolNode } from "./add-tool-validator.js";
 import { validateUserInteractionNode } from "./user-interaction-validator.js";
 import { validateSubgraphNode } from "./subgraph-validator.js";
 import { validateEmbedGraphNode } from "./embed-graph-validator.js";
@@ -41,7 +40,6 @@ export { validateContextProcessorNode } from "./context-processor-validator.js";
 export { validateRouteNode } from "./route-validator.js";
 export { validateVariableNode } from "./variable-validator.js";
 export { validateLLMNode } from "./llm-validator.js";
-export { validateAddToolNode } from "./add-tool-validator.js";
 export { validateUserInteractionNode } from "./user-interaction-validator.js";
 export { validateSubgraphNode } from "./subgraph-validator.js";
 export { validateEmbedGraphNode } from "./embed-graph-validator.js";
@@ -78,8 +76,6 @@ export function validateNodeByType(node: StaticNode): Result<StaticNode, Configu
       return validateVariableNode(node);
     case "LLM":
       return validateLLMNode(node);
-    case "ADD_TOOL":
-      return validateAddToolNode(node);
     case "USER_INTERACTION":
       return validateUserInteractionNode(node);
     case "SUBGRAPH":

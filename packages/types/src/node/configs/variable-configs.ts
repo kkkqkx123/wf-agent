@@ -1,6 +1,14 @@
 /**
- * Variable Node Configuration Type Definition
+ * Variable Node Output
+ * - variableName: string - The name of the variable that was modified
+ * - oldValue?: unknown - The previous value before modification
+ * - newValue: unknown - The new value after modification
  */
+export interface VariableNodeOutput {
+  variableName: string;
+  oldValue?: unknown;
+  newValue: unknown;
+}
 
 /**
  * Variable Operation Node Configuration

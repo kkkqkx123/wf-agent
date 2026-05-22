@@ -33,7 +33,6 @@ export {
   EmbedGraphNode,
   ScriptNode as StaticScriptNode,
   LLMNode as StaticLLMNode,
-  AddToolNode as StaticAddToolNode,
   ToolVisibilityNode as StaticToolVisibilityNode,
   UserInteractionNode as StaticUserInteractionNode,
   RouteNode as StaticRouteNode,
@@ -55,7 +54,6 @@ export {
   isEmbedGraphNode,
   isScriptNode as isStaticScriptNode,
   isLLMNode as isStaticLLMNode,
-  isAddToolNode as isStaticAddToolNode,
   isToolVisibilityNode as isStaticToolVisibilityNode,
   isUserInteractionNode as isStaticUserInteractionNode,
   isRouteNode as isStaticRouteNode,
@@ -83,7 +81,6 @@ export {
   SubgraphNode as RuntimeSubgraphNode,  // Exists at runtime (Phase 1: Scheme C)
   ScriptNode as RuntimeScriptNode,
   LLMNode as RuntimeLLMNode,
-  AddToolNode as RuntimeAddToolNode,
   ToolVisibilityNode as RuntimeToolVisibilityNode,
   UserInteractionNode as RuntimeUserInteractionNode,
   RouteNode as RuntimeRouteNode,
@@ -107,7 +104,6 @@ export {
   isSubgraphNode as isRuntimeSubgraphNode,  // Exists at runtime
   isScriptNode as isRuntimeScriptNode,
   isLLMNode as isRuntimeLLMNode,
-  isAddToolNode as isRuntimeAddToolNode,
   isToolVisibilityNode as isRuntimeToolVisibilityNode,
   isUserInteractionNode as isRuntimeUserInteractionNode,
   isRouteNode as isRuntimeRouteNode,
@@ -122,7 +118,17 @@ export {
   isEmbedEndNode,
 } from "./runtime-node-types.js";
 
+// Export runtime node output map and helpers
+export {
+  RuntimeNodeOutputMap,
+  RuntimeNodeOutputOfType,
+} from "./runtime-node-types.js";
 
+// Export output configuration types (default field mappings and NodeOutputConfig)
+export {
+  NodeOutputConfig,
+  DEFAULT_OUTPUT_FIELDS,
+} from "./output-fields.js";
 
 // Export node configuration types (detailed version for external references)
 export * from "./configs/index.js";

@@ -63,11 +63,13 @@ export interface WorkflowConfig {
   availableTools?: import('./tool-config.js').AvailableTools;
   
   /**
-   * Predefined system messages
+   * Initial messages for the 'current' context
    * 
-   * Automatically created as 'system' context on execution start.
+   * Pre-populated into the 'current' conversation context on execution start.
+   * Messages can have any role ('system', 'user', 'assistant', etc.).
+   * This replaces the previous separate 'system' context approach.
    */
-  systemMessages?: LLMMessage[];
+  initialMessages?: LLMMessage[];
   
   /**
    * Predefined static contexts

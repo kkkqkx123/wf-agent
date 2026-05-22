@@ -85,28 +85,20 @@ function collectInitialMessages(
     });
   }
 
-  // Use default context if initialContextRefs not specified
-  const contextRefs = config.inlineConfig?.initialContextRefs && config.inlineConfig.initialContextRefs.length > 0
-    ? config.inlineConfig.initialContextRefs
-    : ['current'];
-
-  const allMessages: LLMMessage[] = [];
+  // Use the specified contextId, or default to 'current'
+  const contextId = config.inlineConfig?.initialContextId || 'current';
   
-  for (const contextId of contextRefs) {
-    const namedContext = registry.get(contextId);
-    
-    if (!namedContext) {
-      throw new RuntimeValidationError(`Context '${contextId}' not found`, {
-        operation: "collectInitialMessages",
-        field: "initialContextRefs",
-        value: contextId,
-      });
-    }
-    
-    allMessages.push(...namedContext.messages);
+  const namedContext = registry.get(contextId);
+  
+  if (!namedContext) {
+    throw new RuntimeValidationError(`Context '${contextId}' not found`, {
+      operation: "collectInitialMessages",
+      field: "initialContextId",
+      value: contextId,
+    });
   }
   
-  return allMessages;
+  return [...namedContext.messages];
 }
 
 /**
@@ -185,7 +177,7 @@ export async function agentLoopHandler(
     const result = await coordinator.execute(
       {
         profileId,
-        systemPrompt: "", // Empty system prompt - context comes from initialContextRefs
+        systemPrompt: "", // Empty system prompt - context comes from initialContextId
         initialMessages,
         availableTools: inlineConfig?.availableTools,
         maxIterations: inlineConfig?.maxIterations,

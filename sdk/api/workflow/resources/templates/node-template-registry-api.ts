@@ -236,7 +236,6 @@ export class NodeRegistryAPI extends CrudResourceAPI<NodeTemplate, string, NodeT
         "SUBGRAPH",
         "SCRIPT",
         "LLM",
-        "ADD_TOOL",
         "USER_INTERACTION",
         "ROUTE",
         "CONTEXT_PROCESSOR",

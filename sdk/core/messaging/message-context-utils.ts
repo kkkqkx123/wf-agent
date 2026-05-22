@@ -15,51 +15,40 @@ const logger = createContextualLogger();
 /**
  * Initialize execution context with built-in contexts
  * 
- * Creates the 'current' and optionally 'system' contexts at the start of execution.
+ * Creates the 'current' context at the start of execution.
+ * Pre-populates it with any initial messages defined in the workflow configuration.
  * Also registers any static contexts defined in the workflow configuration.
  * 
+ * Note: 'system' context is no longer created separately.
+ * Initial messages (including system-role messages) are placed directly into
+ * the 'current' context.
+ * 
  * @param registry The message context registry
- * @param workflowConfig Optional workflow configuration containing systemMessages and staticContexts
+ * @param workflowConfig Optional workflow configuration containing initialMessages and staticContexts
  */
 export function initializeExecutionContext(
   registry: MessageContextRegistry,
   workflowConfig?: WorkflowConfig,
 ): void {
-  // 1. Create 'current' context (main conversation)
+  // 1. Create 'current' context (main conversation), pre-populated with initial messages
+  const initialMessages = workflowConfig?.initialMessages || [];
   registry.register({
     id: BUILTIN_CONTEXT_IDS.CURRENT,
-    messages: [],
+    messages: [...initialMessages],
     createdAt: now(),
     updatedAt: now(),
     metadata: {
       description: 'Main conversation context',
+      initialMessageCount: initialMessages.length,
     },
   });
 
   logger.debug("Initialized 'current' context", {
     contextId: BUILTIN_CONTEXT_IDS.CURRENT,
+    initialMessageCount: initialMessages.length,
   });
 
-  // 2. Create 'system' context if workflow defines system messages
-  const systemMessages = workflowConfig?.systemMessages;
-  if (systemMessages && systemMessages.length > 0) {
-    registry.register({
-      id: BUILTIN_CONTEXT_IDS.SYSTEM,
-      messages: systemMessages,
-      createdAt: now(),
-      updatedAt: now(),
-      metadata: {
-        description: 'System instructions',
-      },
-    });
-
-    logger.debug("Initialized 'system' context", {
-      contextId: BUILTIN_CONTEXT_IDS.SYSTEM,
-      messageCount: systemMessages.length,
-    });
-  }
-
-  // 3. Register static contexts if defined
+  // 2. Register static contexts if defined
   const staticContexts = workflowConfig?.staticContexts;
   if (staticContexts && staticContexts.length > 0) {
     for (const staticCtx of staticContexts) {

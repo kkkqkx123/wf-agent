@@ -11,8 +11,20 @@ import type { ID } from '../../common.js';
 import type { WorkflowVariableInput } from '../../workflow/boundary-config.js';
 
 /**
+ * Sync Node Output
+ * - syncedFromPath: ID - The source path ID from which data was synced
+ * - syncedVariables?: Record<string, unknown> - The variables transferred from source to target
+ * - completed: boolean - Whether the sync operation completed successfully
+ */
+export interface SyncNodeOutput {
+  syncedFromPath: ID;
+  syncedVariables?: Record<string, unknown>;
+  completed: boolean;
+}
+
+/**
  * Sync Node Configuration
- * 
+ *
  * Description:
  * - SYNC nodes provide explicit data transfer between parallel execution branches
  * - Variables are deep cloned during transfer to maintain complete isolation

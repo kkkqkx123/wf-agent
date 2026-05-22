@@ -76,7 +76,7 @@ export function createContextCompressionWorkflow(
       description: "Using LLM to compress dialog history with custom prompt",
       config: {
         profileId: "DEFAULT",
-        contextRefs: ["current"],
+        contextId: "current",
         outputContext: "compressed",
         parameters: {
           systemPrompt: compressionPrompt || DEFAULT_COMPRESSION_PROMPT,

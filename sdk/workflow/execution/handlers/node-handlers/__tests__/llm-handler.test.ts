@@ -106,12 +106,12 @@ describe('llmHandler', () => {
     expect(result.error).toBeDefined();
   });
 
-  it('should throw RuntimeValidationError when contextRef not found', async () => {
+  it('should throw RuntimeValidationError when context not found', async () => {
     mockRegistry.get.mockReturnValue(undefined);
 
     const config: LLMNodeConfig = {
       profileId: 'gpt-4',
-      contextRefs: ['missing-ctx'],
+      contextId: 'missing-ctx',
     };
     const node = { id: 'llm-node-4', type: 'LLM', config } as RuntimeNode;
 

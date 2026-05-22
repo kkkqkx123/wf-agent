@@ -22,9 +22,8 @@ const InlineConfigSchema = z.object({
   profileId: z.string(),
   maxIterations: z.number().int().positive().optional(),
   availableTools: AgentToolConfigSchema,
-  systemPrompt: z.string().optional(),
-  systemPromptTemplateId: z.string().optional(),
-  systemPromptTemplateVariables: z.record(z.string(), z.unknown()).optional(),
+  initialContextId: z.string().optional(),
+  workingContext: z.string().optional(),
 });
 
 /**

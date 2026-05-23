@@ -29,15 +29,12 @@ describe('LLMExecutionCoordinator', () => {
   };
 
   const mockLLMResult = {
-    success: true,
-    result: {
-      content: 'Test response from LLM',
-      toolCalls: [],
-      usage: {
-        promptTokens: 100,
-        completionTokens: 50,
-        totalTokens: 150,
-      },
+    content: 'Test response from LLM',
+    toolCalls: [],
+    usage: {
+      promptTokens: 100,
+      completionTokens: 50,
+      totalTokens: 150,
     },
   };
 
@@ -120,12 +117,9 @@ describe('LLMExecutionCoordinator', () => {
       ];
 
       mockLLMExecutor.executeLLMCall.mockResolvedValueOnce({
-        success: true,
-        result: {
-          content: '',
-          toolCalls,
-          usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150 },
-        },
+        content: '',
+        toolCalls,
+        usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150 },
       });
 
       const params: LLMExecutionParams = {
@@ -156,12 +150,9 @@ describe('LLMExecutionCoordinator', () => {
       ];
 
       mockLLMExecutor.executeLLMCall.mockResolvedValueOnce({
-        success: true,
-        result: {
-          content: '',
-          toolCalls,
-          usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150 },
-        },
+        content: '',
+        toolCalls,
+        usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150 },
       });
 
       const params: LLMExecutionParams = {
@@ -184,12 +175,9 @@ describe('LLMExecutionCoordinator', () => {
       }));
 
       mockLLMExecutor.executeLLMCall.mockResolvedValueOnce({
-        success: true,
-        result: {
-          content: '',
-          toolCalls,
-          usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150 },
-        },
+        content: '',
+        toolCalls,
+        usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150 },
       });
 
       const params: LLMExecutionParams = {
@@ -199,9 +187,10 @@ describe('LLMExecutionCoordinator', () => {
         nodeId: 'test-node',
       };
 
-      await expect(coordinator.executeLLM(params, conversationState)).rejects.toThrow(
-        'exceeds limit of 3'
-      );
+      const result = await coordinator.executeLLM(params, conversationState);
+
+      expect(result.success).toBe(false);
+      expect(result.error?.message).toContain('exceeds limit of 3');
     });
   });
 
@@ -230,12 +219,9 @@ describe('LLMExecutionCoordinator', () => {
 
       // Mock LLM result with high token usage (150 tokens, which is 75% of 200 limit)
       mockLLMExecutor.executeLLMCall.mockResolvedValueOnce({
-        success: true,
-        result: {
-          content: 'Test response',
-          toolCalls: [],
-          usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150 },
-        },
+        content: 'Test response',
+        toolCalls: [],
+        usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150 },
       });
 
       const params: LLMExecutionParams = {
@@ -303,18 +289,24 @@ describe('LLMExecutionCoordinator', () => {
     });
 
     it('should handle interruption result from LLM executor', async () => {
-      mockLLMExecutor.executeLLMCall.mockResolvedValueOnce({
-        success: false,
-        interruption: { type: 'ABORTED', reason: 'User cancelled' },
-      });
+      const abortError = new Error('LLM call aborted');
+      abortError.name = 'AbortError';
+      mockLLMExecutor.executeLLMCall.mockRejectedValueOnce(abortError);
+
+      const abortController = new AbortController();
+      abortController.abort('User cancelled');
 
       const params: LLMExecutionParams = {
         contextId: 'test-context-123',
         prompt: 'Test prompt',
         config: mockConfig,
+        abortSignal: abortController.signal,
       };
 
-      await coordinator.executeLLM(params, conversationState);
+      const result = await coordinator.executeLLM(params, conversationState);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
     });
   });
 
@@ -428,18 +420,15 @@ describe('LLMExecutionCoordinator', () => {
       // This test verifies a single LLM call with tool execution
       // Note: The actual loop would require multiple executeLLM calls from the caller
       mockLLMExecutor.executeLLMCall.mockResolvedValueOnce({
-        success: true,
-        result: {
-          content: 'The weather in Beijing is sunny',
-          toolCalls: [
-            {
-              id: 'call_1',
-              name: 'get_weather',
-              arguments: '{"city": "Beijing"}',
-            },
-          ],
-          usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150 },
-        },
+        content: 'The weather in Beijing is sunny',
+        toolCalls: [
+          {
+            id: 'call_1',
+            name: 'get_weather',
+            arguments: '{"city": "Beijing"}',
+          },
+        ],
+        usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150 },
       });
 
       const params: LLMExecutionParams = {
@@ -477,10 +466,9 @@ describe('LLMExecutionCoordinator', () => {
 
   describe('Error Handling', () => {
     it('should handle LLM executor failure', async () => {
-      mockLLMExecutor.executeLLMCall.mockResolvedValueOnce({
-        success: false,
-        interruption: { type: 'ERROR', reason: 'LLM service unavailable' },
-      });
+      mockLLMExecutor.executeLLMCall.mockRejectedValueOnce(
+        new Error('LLM service unavailable'),
+      );
 
       const params: LLMExecutionParams = {
         contextId: 'test-context-123',

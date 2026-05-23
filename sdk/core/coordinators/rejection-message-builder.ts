@@ -96,7 +96,7 @@ export class RejectionMessageBuilder {
     enabledTools: string[],
     disabledTools: string[]
   ): string | null {
-    if (!this.config.injectUserMessageHint && this.config.injectUserMessageHint !== undefined) {
+    if (this.config.injectUserMessageHint === false) {
       return null;
     }
     

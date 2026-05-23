@@ -90,6 +90,11 @@ export class ExecutionPool<T> {
   private isShutdown: boolean = false;
 
   /**
+   * Resolver for shutdown promise — called when all busy executors are released.
+   */
+  private onAllBusyReleased: (() => void) | null = null;
+
+  /**
    * Pool identifier
    */
   private poolId: string;
@@ -247,10 +252,6 @@ export class ExecutionPool<T> {
    * @param executor: Executor instance
    */
   async releaseExecutor(executor: Executor<T>): Promise<void> {
-    if (this.isShutdown) {
-      return;
-    }
-
     // Find the executor wrapper.
     let executorId: string | undefined;
     for (const [id, wrapper] of this.allExecutors.entries()) {
@@ -269,6 +270,16 @@ export class ExecutionPool<T> {
 
     // Remove from the busy set.
     this.busyExecutors.delete(executorId);
+
+    // During shutdown, destroy the executor directly instead of returning it to idle.
+    if (this.isShutdown) {
+      await this.destroyExecutor(executorId);
+      // Notify shutdown that all busy executors are done.
+      if (this.busyExecutors.size === 0 && this.onAllBusyReleased) {
+        this.onAllBusyReleased();
+      }
+      return;
+    }
 
     // Check if there are any pending Promises.
     if (this.waitingPromises.length > 0) {
@@ -390,9 +401,11 @@ export class ExecutionPool<T> {
     }
     this.waitingPromises = [];
 
-    // Wait for all busy executors to complete.
-    while (this.busyExecutors.size > 0) {
-      await new Promise(resolve => setTimeout(resolve, 100));
+    // Wait for all busy executors to complete (promise-based, no polling).
+    if (this.busyExecutors.size > 0) {
+      await new Promise<void>(resolve => {
+        this.onAllBusyReleased = resolve;
+      });
     }
 
     // Terminate all idle executors.

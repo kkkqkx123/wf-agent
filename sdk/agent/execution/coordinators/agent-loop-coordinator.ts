@@ -209,7 +209,16 @@ export class AgentLoopCoordinator {
         );
       }
 
-      await this.stateTransitor.failAgentLoop(entity, error);
+      // Attempt to fail the agent loop, but gracefully handle if already completed
+      try {
+        await this.stateTransitor.failAgentLoop(entity, error);
+      } catch (stateError) {
+        logger.warn("Failed to transition agent loop to FAILED state", {
+          agentLoopId: entity.id,
+          currentStatus: entity.getStatus(),
+          error: stateError instanceof Error ? stateError.message : String(stateError),
+        });
+      }
       return {
         success: false,
         iterations: entity.state.currentIteration,

@@ -7,6 +7,7 @@ const __dirname = dirname(__filename);
 
 export default defineConfig({
   test: {
+    root: __dirname,
     environment: "node",
     include: ["__tests__/e2e/**/*.e2e.test.ts"],
     exclude: ["node_modules", "dist", "coverage", "**/*.d.ts", "**/__shared/**"],

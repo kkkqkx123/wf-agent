@@ -29,6 +29,10 @@ import type { MetricsRegistry } from "../../../core/metrics/metrics-registry.js"
 import type { TaskRegistry } from "../../../workflow/stores/task/task-registry.js";
 import type { CheckpointStorageAdapter, WorkflowStorageAdapter, WorkflowExecutionStorageAdapter, TaskStorageAdapter } from "@wf-agent/storage";
 import type { ServiceIdentifier } from "@wf-agent/common-utils";
+import type { GlobalContext } from "../../../core/global-context.js";
+import type { LLMWrapper } from "../../../core/llm/wrapper.js";
+import type { WorkflowLifecycleCoordinator } from "../../../workflow/execution/coordinators/workflow-lifecycle-coordinator.js";
+import type { IdBasedServiceFactory, NoArgServiceFactory } from "../../../core/di/factory-types.js";
 
 /**
  * API Dependency Management Class
@@ -39,7 +43,7 @@ export class APIDependencyManager {
    * Constructor
    * @param globalContext The GlobalContext to get dependencies from
    */
-  constructor(private globalContext: import("../../../core/global-context.js").GlobalContext) {}
+  constructor(private globalContext: GlobalContext) {}
 
   /**
    * Obtain the workflow registry
@@ -117,23 +121,26 @@ export class APIDependencyManager {
 
   /**
    * Obtain the workflow lifecycle coordinator
+   *
+   * WorkflowLifecycleCoordinator is registered in the DI container as an
+   * IdBasedServiceFactory to support per-execution instances. This method
+   * resolves the factory and creates a coordinator instance.
    */
-  getWorkflowLifecycleCoordinator(): import("../../../workflow/execution/coordinators/workflow-lifecycle-coordinator.js").WorkflowLifecycleCoordinator {
-    return this.globalContext.container.get(
+  getWorkflowLifecycleCoordinator(): WorkflowLifecycleCoordinator {
+    const factory = this.globalContext.container.get(
       Identifiers.WorkflowLifecycleCoordinator as ServiceIdentifier<
-        import("../../../workflow/execution/coordinators/workflow-lifecycle-coordinator.js").WorkflowLifecycleCoordinator
+        IdBasedServiceFactory<WorkflowLifecycleCoordinator>
       >,
     );
+    return (factory as unknown as IdBasedServiceFactory<WorkflowLifecycleCoordinator>).create("");
   }
 
   /**
    * Obtain the LLM wrapper
    */
-  getLLMWrapper(): import("../../../core/llm/wrapper.js").LLMWrapper {
+  getLLMWrapper(): LLMWrapper {
     return this.globalContext.container.get(
-      Identifiers.LLMWrapper as ServiceIdentifier<
-        import("../../../core/llm/wrapper.js").LLMWrapper
-      >,
+      Identifiers.LLMWrapper as ServiceIdentifier<LLMWrapper>,
     );
   }
 
@@ -162,11 +169,18 @@ export class APIDependencyManager {
 
   /**
    * Obtain the Agent Loop coordinator
+   *
+   * AgentLoopCoordinator is registered in the DI container as a
+   * NoArgServiceFactory to support proper dependency injection. This method
+   * resolves the factory and creates a coordinator instance.
    */
   getAgentLoopCoordinator(): AgentLoopCoordinator {
-    return this.globalContext.container.get(
-      Identifiers.AgentLoopCoordinator as ServiceIdentifier<AgentLoopCoordinator>,
+    const factory = this.globalContext.container.get(
+      Identifiers.AgentLoopCoordinator as ServiceIdentifier<
+        NoArgServiceFactory<AgentLoopCoordinator>
+      >,
     );
+    return (factory as unknown as NoArgServiceFactory<AgentLoopCoordinator>).create();
   }
 
   /**
@@ -233,7 +247,7 @@ export class APIDependencyManager {
   /**
    * Get the GlobalContext instance
    */
-  getGlobalContext(): import("../../../core/global-context.js").GlobalContext {
+  getGlobalContext(): GlobalContext {
     return this.globalContext;
   }
 

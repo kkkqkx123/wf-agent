@@ -62,6 +62,8 @@ export default defineConfig({
       "@wf-agent/types": resolve(__dirname, "packages/types/src"),
       "@wf-agent/tool-executors": resolve(__dirname, "packages/tool-executors/src"),
       "@wf-agent/sdk": resolve(__dirname, "sdk/src"),
+      "@wf-agent/storage": resolve(__dirname, "packages/storage/src"),
+      "@": resolve(__dirname, "sdk"),
     },
   },
 });

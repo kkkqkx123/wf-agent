@@ -34,6 +34,7 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
   private _id: string;
   private _name: string;
   private _version: string = "1.0.0";
+  private _type?: string;
   private _config?: WorkflowConfig;
   private nodes: Map<string, StaticNode> = new Map();
   private edges: Edge[] = [];
@@ -76,6 +77,17 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
    */
   version(version: string): this {
     this._version = version;
+    this.updateTimestamp();
+    return this;
+  }
+
+  /**
+   * Setting the workflow type
+   * @param type Workflow type ("STANDALONE" | "DEPENDENT" | "TRIGGERED_SUBWORKFLOW")
+   * @returns this
+   */
+  type(type: string): this {
+    this._type = type;
     this.updateTimestamp();
     return this;
   }
@@ -376,6 +388,7 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
       id: this._id,
       name: this._name,
       version: this._version,
+      type: (this._type || "STANDALONE") as any,
       description: this._description,
       config: this._config,
       metadata: this._metadata as Metadata,
@@ -516,6 +529,7 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
     builder._name = workflowDef.name;
     builder._version = workflowDef.version;
     builder._description = workflowDef.description;
+    builder._type = workflowDef.type;
     builder._config = workflowDef.config;
     builder._metadata = (workflowDef.metadata || {}) as Metadata;
     builder._createdAt = workflowDef.createdAt;
@@ -556,6 +570,7 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
     builder._name = workflowDef.name;
     builder._version = workflowDef.version;
     builder._description = workflowDef.description;
+    builder._type = workflowDef.type;
     builder._config = workflowDef.config;
     builder._metadata = (workflowDef.metadata || {}) as Metadata;
     builder._createdAt = workflowDef.createdAt;

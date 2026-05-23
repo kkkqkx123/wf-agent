@@ -383,12 +383,13 @@ export class WorkflowRegistry {
       );
     }
 
-    // Add workflowId to the graph before registering
-    // WorkflowGraphData needs workflowId field to be compatible with WorkflowGraph interface
-    const graphWithWorkflowId = { ...graph, workflowId: workflow.id };
+    // Preserve the WorkflowGraphData class instance (with its prototype methods like getNode)
+    // and add workflowId property directly without spreading (which would lose methods)
+    (graph as unknown as Record<string, unknown>)['workflowId'] = workflow.id;
+    (graph as unknown as Record<string, unknown>)['workflowVersion'] = workflow.version;
     
     // Cache processing results
-    graphRegistry.register(graphWithWorkflowId as unknown as WorkflowGraph);
+    graphRegistry.register(graph as unknown as WorkflowGraph);
   }
 
   /**

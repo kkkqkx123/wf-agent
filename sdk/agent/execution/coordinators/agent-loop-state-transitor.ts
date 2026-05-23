@@ -168,15 +168,22 @@ export class AgentLoopStateTransitor {
     // Update state
     entity.state.complete();
 
-    // Emit AGENT_COMPLETED event
-    const completedEvent = buildAgentCompletedEvent({
-      agentLoopId: entity.id,
-      iterations: result.iterations,
-      toolCallCount: result.toolCallCount,
-      success: true,
-      executionId: entity.id,
-    });
-    await emit(this.eventManager, completedEvent);
+    // Emit AGENT_COMPLETED event (best-effort, don't throw on failure)
+    try {
+      const completedEvent = buildAgentCompletedEvent({
+        agentLoopId: entity.id,
+        iterations: result.iterations,
+        toolCallCount: result.toolCallCount,
+        success: true,
+        executionId: entity.id,
+      });
+      await emit(this.eventManager, completedEvent);
+    } catch (emitError) {
+      logger.warn("Failed to emit AGENT_COMPLETED event", {
+        agentLoopId: entity.id,
+        error: emitError instanceof Error ? emitError.message : String(emitError),
+      });
+    }
 
     logger.info("Agent loop execution completed successfully", {
       agentLoopId: entity.id,
@@ -204,15 +211,22 @@ export class AgentLoopStateTransitor {
     // Update state
     entity.state.fail(error);
 
-    // Emit AGENT_FAILED event
-    const failedEvent = buildAgentFailedEvent({
-      agentLoopId: entity.id,
-      iteration: entity.state.currentIteration,
-      toolCallCount: entity.state.toolCallCount,
-      error: error instanceof Error ? { message: error.message, name: error.name } : String(error),
-      executionId: entity.id,
-    });
-    await emit(this.eventManager, failedEvent);
+    // Emit AGENT_FAILED event (best-effort, don't throw on failure)
+    try {
+      const failedEvent = buildAgentFailedEvent({
+        agentLoopId: entity.id,
+        iteration: entity.state.currentIteration,
+        toolCallCount: entity.state.toolCallCount,
+        error: error instanceof Error ? { message: error.message, name: error.name } : String(error),
+        executionId: entity.id,
+      });
+      await emit(this.eventManager, failedEvent);
+    } catch (emitError) {
+      logger.warn("Failed to emit AGENT_FAILED event", {
+        agentLoopId: entity.id,
+        error: emitError instanceof Error ? emitError.message : String(emitError),
+      });
+    }
 
     logger.info("Agent loop execution failed", {
       agentLoopId: entity.id,

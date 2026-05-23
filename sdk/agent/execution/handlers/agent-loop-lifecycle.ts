@@ -72,6 +72,7 @@ export async function createAgentLoopCheckpoint(
 
 /**
  * Clean up Agent Loop resources
+ * Delegates to entity.cleanup() for unified resource management.
  * @param entity Agent Loop instance
  */
 export function cleanupAgentLoop(entity: AgentLoopEntity): void {
@@ -81,9 +82,7 @@ export function cleanupAgentLoop(entity: AgentLoopEntity): void {
     status: entity.getStatus(),
   });
 
-  entity.state.cleanup();
-  entity.conversationManager.cleanup();
-  entity.abortController = undefined;
+  entity.cleanup();
 
   logger.info("Agent Loop resources cleaned up", {
     agentLoopId: entity.id,

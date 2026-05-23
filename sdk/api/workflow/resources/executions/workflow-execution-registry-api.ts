@@ -128,10 +128,16 @@ export class WorkflowExecutionRegistryAPI extends CrudResourceAPI<
 
   /**
    * Deleting workflow executions
+   * First cleanup the entity resources, then delete from the registry.
    * @param id execution id
    */
   protected async deleteResource(id: string): Promise<void> {
-    this.dependencies.getWorkflowExecutionRegistry().delete(id);
+    const registry = this.dependencies.getWorkflowExecutionRegistry();
+    const entity = registry.get(id);
+    if (entity && typeof entity.cleanup === "function") {
+      entity.cleanup();
+    }
+    registry.delete(id);
   }
 
   /**
@@ -286,6 +292,15 @@ export class WorkflowExecutionRegistryAPI extends CrudResourceAPI<
       byStatus,
       byWorkflow,
     };
+  }
+
+  /**
+   * Cleanup completed/failed/cancelled workflow executions
+   * Delegates to WorkflowExecutionRegistry.cleanupTerminated()
+   * @returns Number of instances cleaned up
+   */
+  async cleanupCompletedExecutions(): Promise<number> {
+    return this.dependencies.getWorkflowExecutionRegistry().cleanupTerminated();
   }
 
   /**

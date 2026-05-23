@@ -302,9 +302,17 @@ export class WorkflowLifecycleCoordinator {
     // 4. Cleanup child AgentLoops
     await this.cleanupChildAgentLoops(executionId);
     
-    // 5. Cleanup execution-scoped event listeners
+    // 5. Cleanup the workflow execution entity itself
+    workflowExecutionEntity.cleanup();
+    logger.info("Workflow execution entity cleaned up", { executionId });
+    
+    // 6. Cleanup execution-scoped event listeners
     const cleanedCount = this.globalContext.eventRegistry.cleanupExecutionListeners(executionId);
     logger.info('Cleaned up event listeners', { executionId, cleanedCount });
+    
+    // 7. Deregister from registry
+    this.workflowExecutionRegistry.delete(executionId);
+    logger.info("Workflow execution deregistered from registry", { executionId });
   }
 
   /**
@@ -391,5 +399,39 @@ export class WorkflowLifecycleCoordinator {
     }
 
     await this.workflowStateTransitor.cancelWorkflowExecution(workflowExecutionEntity, reason || "forced_cancel");
+  }
+
+  /**
+   * Cleanup terminated (completed + failed + cancelled) workflow executions
+   * @returns Number of instances cleaned up
+   */
+  cleanup(): number {
+    const count = this.workflowExecutionRegistry.cleanupTerminated();
+    if (count > 0) {
+      logger.info("Workflow execution terminated instances cleaned up", { count });
+    }
+    return count;
+  }
+
+  /**
+   * Destroy the coordinator and release all resources
+   * Cleans up all active workflow executions and internal resources.
+   */
+  destroy(): void {
+    logger.info("Destroying WorkflowLifecycleCoordinator");
+
+    // Stop pause timeout monitoring if active
+    try {
+      this.pauseTimeoutManager?.cleanup();
+    } catch (error) {
+      logger.warn("Failed to cleanup pause timeout manager during destroy", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    // Clean up all entities in the registry
+    this.workflowExecutionRegistry.clear();
+
+    logger.info("WorkflowLifecycleCoordinator destroyed");
   }
 }

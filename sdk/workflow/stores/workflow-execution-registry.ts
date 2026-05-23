@@ -108,9 +108,23 @@ export class WorkflowExecutionRegistry {
 
   /**
    * Clear all WorkflowExecutionEntities
+   * Calls the cleanup method of each entity before clearing.
    */
   clear(): void {
+    for (const entity of this.workflowExecutionEntities.values()) {
+      if (typeof entity.cleanup === "function") {
+        entity.cleanup();
+      }
+    }
     this.workflowExecutionEntities.clear();
+  }
+
+  /**
+   * Enable await using pattern support
+   * Delegates to clear() for resource release
+   */
+  async [Symbol.asyncDispose](): Promise<void> {
+    this.clear();
   }
 
   /**
@@ -158,6 +172,48 @@ export class WorkflowExecutionRegistry {
    */
   getByWorkflowId(workflowId: string): WorkflowExecutionEntity[] {
     return this.getAll().filter(workflowExecutionEntity => workflowExecutionEntity.getWorkflowId() === workflowId);
+  }
+
+  /**
+   * Get completed WorkflowExecutionEntities
+   * @returns Array of WorkflowExecutionEntity
+   */
+  getCompleted(): WorkflowExecutionEntity[] {
+    return this.getByStatus("COMPLETED");
+  }
+
+  /**
+   * Get failed WorkflowExecutionEntities
+   * @returns Array of WorkflowExecutionEntity
+   */
+  getFailed(): WorkflowExecutionEntity[] {
+    return this.getByStatus("FAILED");
+  }
+
+  /**
+   * Get cancelled WorkflowExecutionEntities
+   * @returns Array of WorkflowExecutionEntity
+   */
+  getCancelled(): WorkflowExecutionEntity[] {
+    return this.getByStatus("CANCELLED");
+  }
+
+  /**
+   * Cleanup terminated (completed + failed + cancelled) instances
+   * Calls cleanup on each terminated entity before removing from registry.
+   * @returns Number of instances cleaned up
+   */
+  cleanupTerminated(): number {
+    const terminatedEntities = [
+      ...this.getCompleted(),
+      ...this.getFailed(),
+      ...this.getCancelled(),
+    ];
+    for (const entity of terminatedEntities) {
+      entity.cleanup();
+      this.workflowExecutionEntities.delete(entity.id);
+    }
+    return terminatedEntities.length;
   }
 
   // ========== Hierarchy-Aware Methods ==========

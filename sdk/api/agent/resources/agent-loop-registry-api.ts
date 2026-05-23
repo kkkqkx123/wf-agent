@@ -116,9 +116,14 @@ export class AgentLoopRegistryAPI extends CrudResourceAPI<AgentLoopEntity, ID, A
 
   /**
    * Deleting an Agent Loop Instance
+   * First cleanup the entity resources, then unregister from the registry.
    * @param id Instance ID
    */
   protected async deleteResource(id: ID): Promise<void> {
+    const entity = await this.registry.get(id);
+    if (entity && typeof entity.cleanup === "function") {
+      entity.cleanup();
+    }
     this.registry.unregister(id);
   }
 
@@ -281,7 +286,7 @@ export class AgentLoopRegistryAPI extends CrudResourceAPI<AgentLoopEntity, ID, A
    * @returns Number of instances cleaned up
    */
   async cleanupCompletedAgentLoops(): Promise<number> {
-    return this.registry.cleanupCompleted();
+    return this.registry.cleanupTerminated();
   }
 
   /**

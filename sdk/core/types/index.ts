@@ -32,9 +32,11 @@ export {
   type ExecutionPoolConfig,
 } from "./pool.js";
 
-// Lifecycle types - State Manager Interfaces
-export { type LifecycleCapable } from "./lifecycle-capable.js";
+// State Manager Interfaces
 export { type StateManager, type StateManagerMetadata } from "./state-manager.js";
+
+// Abortable Interface
+export { type Abortable } from "./abortable.js";
 
 // Timeout Management Types - Internal SDK timeout system
 export * from "./timeout.js";

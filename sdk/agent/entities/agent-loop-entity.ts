@@ -41,6 +41,10 @@ import { createAgentInterruptionAbortReason } from "../execution/utils/index.js"
 import { ToolFailureProtectionState } from "../../core/state-managers/tool-failure-protection-state.js";
 import type { ToolFailureProtectionConfig } from "../../core/state-managers/tool-failure-protection-types.js";
 import type { InterruptionState } from "../../core/utils/interruption/interruption-state.js";
+import type { Abortable } from "../../core/types/abortable.js";
+import { createContextualLogger } from "../../utils/contextual-logger.js";
+
+const logger = createContextualLogger({ component: "AgentLoopEntity" });
 
 /**
  * Steering Mode
@@ -75,7 +79,7 @@ export type FollowUpMode = "one-at-a-time" | "all";
  * - No lifecycle methods: handled by AgentLoopLifecycle
  * - Use a unified ConversationSession to manage message history.
  */
-export class AgentLoopEntity {
+export class AgentLoopEntity implements Abortable {
   /** Execution Instance ID */
   readonly id: string;
 
@@ -291,17 +295,31 @@ export class AgentLoopEntity {
 
   /**
    * Get the AbortSignal from the interruption state
-   * @returns The current AbortSignal or undefined if interruption state is not set
+   * Falls back to the internal abortController if interruption state is not set.
+   * @returns The current AbortSignal
    */
-  getAbortSignal(): AbortSignal | undefined {
-    return this.interruptionState?.getAbortSignal();
+  getAbortSignal(): AbortSignal {
+    if (this.interruptionState) {
+      return this.interruptionState.getAbortSignal();
+    }
+    if (!this.abortController) {
+      this.abortController = new AbortController();
+    }
+    return this.abortController.signal;
   }
 
   /**
    * Checking if it has been aborted
    */
-  isAborted(): boolean {
+  get aborted(): boolean {
     return this.abortController?.signal.aborted ?? false;
+  }
+
+  /**
+   * Checking if it has been aborted (alias for backward compatibility)
+   */
+  isAborted(): boolean {
+    return this.aborted;
   }
 
   // ========== Interrupt Control ==========
@@ -729,13 +747,43 @@ export class AgentLoopEntity {
    */
   cleanup(): void {
     // Step 1: Dispose interruption state (cleans up all listeners and child references)
-    // Note: InterruptionState.dispose() automatically unsubscribes from parent and clears all child subscriptions
-    this.interruptionState?.dispose();
+    try {
+      this.interruptionState?.dispose();
+    } catch (error) {
+      logger.error("Failed to dispose interruption state during cleanup", {
+        agentLoopId: this.id,
+        error,
+      });
+    }
     
-    // Step 2: Cleanup other resources
-    this.state.cleanup();
-    this.conversationManager.cleanup();
-    this.toolFailureProtection.cleanup();
+    // Step 2: Cleanup sub-resources with error isolation
+    try {
+      this.state.cleanup();
+    } catch (error) {
+      logger.error("Failed to cleanup state during cleanup", {
+        agentLoopId: this.id,
+        error,
+      });
+    }
+    
+    try {
+      this.conversationManager.cleanup();
+    } catch (error) {
+      logger.error("Failed to cleanup conversation manager during cleanup", {
+        agentLoopId: this.id,
+        error,
+      });
+    }
+    
+    try {
+      this.toolFailureProtection.cleanup();
+    } catch (error) {
+      logger.error("Failed to cleanup tool failure protection during cleanup", {
+        agentLoopId: this.id,
+        error,
+      });
+    }
+    
     this.abortController = undefined;
     
     // Clear queues
@@ -750,6 +798,14 @@ export class AgentLoopEntity {
       'AGENT_LOOP',
       undefined
     );
+  }
+
+  /**
+   * Enable await using pattern support
+   * Delegates to cleanup() for resource release
+   */
+  async [Symbol.asyncDispose](): Promise<void> {
+    this.cleanup();
   }
 
   // ========== Factory Methods ==========

@@ -47,7 +47,7 @@ export class AgentLoopRegistry implements IAgentExecutionRegistry {
    */
   register(entity: AgentLoopEntity): void {
     this.entities.set(entity.id, entity);
-    
+
     // Persist to storage (async, non-blocking)
     this.persistToStorage(entity).catch(error => {
       logger.error("Failed to persist agent loop to storage during register", {
@@ -64,7 +64,7 @@ export class AgentLoopRegistry implements IAgentExecutionRegistry {
    */
   unregister(id: ID): boolean {
     const result = this.entities.delete(id);
-    
+
     if (result) {
       // Remove from storage (async, non-blocking)
       this.removeFromStorage(id).catch(error => {
@@ -74,7 +74,7 @@ export class AgentLoopRegistry implements IAgentExecutionRegistry {
         });
       });
     }
-    
+
     return result;
   }
 
@@ -93,7 +93,9 @@ export class AgentLoopRegistry implements IAgentExecutionRegistry {
 
     // If not in memory and storage adapter is available, try loading from storage
     if (this.storageAdapter) {
-      logger.debug("Agent loop not in memory, attempting to load from storage", { agentLoopId: id });
+      logger.debug("Agent loop not in memory, attempting to load from storage", {
+        agentLoopId: id,
+      });
       // Note: Full restoration requires checkpoint mechanism via AgentLoopFactory.fromCheckpoint()
       // This method only provides basic data loading. For complete entity restoration,
       // use the checkpoint restore API instead.
@@ -102,7 +104,7 @@ export class AgentLoopRegistry implements IAgentExecutionRegistry {
         logger.warn(
           "Loaded raw data from storage but cannot reconstruct full entity without checkpoint. " +
             "Use AgentLoopFactory.fromCheckpoint() for complete restoration.",
-          { agentLoopId: id }
+          { agentLoopId: id },
         );
       }
     }
@@ -195,7 +197,7 @@ export class AgentLoopRegistry implements IAgentExecutionRegistry {
     if (filter?.parentWorkflowId) {
       results = results.filter(entity => {
         const parent = entity.getParentContext();
-        return parent?.parentType === 'WORKFLOW' && parent.parentId === filter.parentWorkflowId;
+        return parent?.parentType === "WORKFLOW" && parent.parentId === filter.parentWorkflowId;
       });
     }
 
@@ -203,35 +205,42 @@ export class AgentLoopRegistry implements IAgentExecutionRegistry {
   }
 
   /**
-   * Cleaning up completed instances
+   * Cleaning up terminated (completed + failed + cancelled) instances
+   * Calls cleanup on each terminated entity before unregistering.
    * @returns Number of instances cleaned up
    */
-  cleanupCompleted(): number {
-    const completedIds = this.getCompleted().map(e => e.id);
-    for (const id of completedIds) {
-      this.unregister(id);
+  cleanupTerminated(): number {
+    const terminatedEntities = [
+      ...this.getCompleted(),
+      ...this.getFailed(),
+      ...this.getByStatus(AgentLoopStatus.CANCELLED),
+    ];
+    for (const entity of terminatedEntities) {
+      entity.cleanup();
+      this.unregister(entity.id);
     }
-    return completedIds.length;
+    return terminatedEntities.length;
   }
 
   /**
    * Clear all instances
+   * Calls the cleanup method of each entity before clearing.
    */
   clear(): void {
-    this.entities.clear();
-  }
-
-  /**
-   * Cleaning up resources
-   * Calls the cleanup method of each entity before cleaning it up
-   */
-  cleanup(): void {
     for (const entity of this.entities.values()) {
       if (typeof entity.cleanup === "function") {
         entity.cleanup();
       }
     }
     this.entities.clear();
+  }
+
+  /**
+   * Enable await using pattern support
+   * Delegates to clear() for resource release
+   */
+  async [Symbol.asyncDispose](): Promise<void> {
+    this.clear();
   }
 
   // ============================================================
@@ -315,7 +324,7 @@ export class AgentLoopRegistry implements IAgentExecutionRegistry {
 
   /**
    * Load agent loop data from storage (if adapter is available)
-   * 
+   *
    * IMPORTANT: This method loads raw serialized data, NOT a fully reconstructed AgentLoopEntity.
    * To restore a complete entity with all dependencies (config, conversationManager, etc.),
    * use AgentLoopFactory.fromCheckpoint() which properly handles:
@@ -323,7 +332,7 @@ export class AgentLoopRegistry implements IAgentExecutionRegistry {
    * - Extracting state snapshot
    * - Reconstructing entity with re-provided config
    * - Restoring conversation manager and other runtime components
-   * 
+   *
    * @param agentLoopId Agent loop ID to load
    * @returns Raw agent loop data or null (cannot be used directly as AgentLoopEntity)
    */
@@ -343,7 +352,7 @@ export class AgentLoopRegistry implements IAgentExecutionRegistry {
       // Deserialize agent loop data
       const decoder = new TextDecoder();
       const agentData = JSON.parse(decoder.decode(data));
-      
+
       logger.debug("Raw agent loop data loaded from storage", { agentLoopId });
       return agentData;
     } catch (error) {
@@ -369,7 +378,7 @@ export class AgentLoopRegistry implements IAgentExecutionRegistry {
     try {
       const agentLoopIds = await this.storageAdapter.list();
       logger.info("Found agent loops in storage", { count: agentLoopIds.length });
-      
+
       // Note: We don't automatically load all agent loops into memory
       // Agent loops are typically loaded on-demand when needed
       // This method can be extended to implement caching strategies if needed

@@ -11,7 +11,11 @@
  */
 
 import type { ID, LLMMessage, NodeExecutionResult, BaseEvent } from "@wf-agent/types";
-import type { WorkflowExecution, WorkflowExecutionStatus, WorkflowExecutionType } from "@wf-agent/types";
+import type {
+  WorkflowExecution,
+  WorkflowExecutionStatus,
+  WorkflowExecutionType,
+} from "@wf-agent/types";
 import type { WorkflowGraph } from "@wf-agent/types";
 import type {
   ParentExecutionContext,
@@ -30,6 +34,7 @@ import type { ToolFailureProtectionConfig } from "../../core/state-managers/tool
 import type { InterruptionState } from "../../core/utils/interruption/interruption-state.js";
 import { createWorkflowInterruptionAbortReason } from "../execution/utils/workflow-interruption-utils.js";
 import type { EventRegistry } from "../../core/registry/event-registry.js";
+import type { Abortable } from "../../core/types/abortable.js";
 import { SyncBarrier } from "../execution/barriers/sync-barrier.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
@@ -54,7 +59,7 @@ const logger = createContextualLogger({ operation: "WorkflowExecutionEntity" });
  * - Use WorkflowStateCoordinator for unified state management
  * - This eliminates data redundancy and synchronization issues
  */
-export class WorkflowExecutionEntity {
+export class WorkflowExecutionEntity implements Abortable {
   /** Execute instance ID */
   readonly id: string;
 
@@ -84,11 +89,11 @@ export class WorkflowExecutionEntity {
 
   /** Execution Hierarchy Manager (unified parent-child relationship management) */
   private hierarchyManager: ExecutionHierarchyManager;
-  
+
   /** Execution Hierarchy Registry reference (for SyncBarrier initialization) */
   private readonly hierarchyRegistry?: ExecutionHierarchyRegistry;
 
-  /** 
+  /**
    * Interruption State Manager (optional, should be set by coordinator)
    * This ensures that getAbortSignal() returns the same signal used by the coordinator
    */
@@ -113,7 +118,7 @@ export class WorkflowExecutionEntity {
     executionState: ExecutionState,
     state?: WorkflowExecutionState,
     toolFailureProtectionConfig?: ToolFailureProtectionConfig,
-    registry?: ExecutionHierarchyRegistry
+    registry?: ExecutionHierarchyRegistry,
   ) {
     this.id = workflowExecution.id;
     this.workflowExecution = workflowExecution;
@@ -121,7 +126,7 @@ export class WorkflowExecutionEntity {
     this.state = state ?? new WorkflowExecutionState();
     this.messageHistoryManager = new MessageHistory(workflowExecution.id);
     this.variableStateManager = new VariableManager();
-    
+
     // Set execution entity reference for runtime validation
     this.variableStateManager.setExecutionEntity(this);
 
@@ -131,11 +136,11 @@ export class WorkflowExecutionEntity {
     // Initialize hierarchy manager with existing hierarchy metadata or as root node
     this.hierarchyManager = new ExecutionHierarchyManager(
       workflowExecution.id,
-      'WORKFLOW',
+      "WORKFLOW",
       workflowExecution.hierarchy,
-      registry
+      registry,
     );
-    
+
     // Store registry reference for SyncBarrier initialization
     this.hierarchyRegistry = registry;
   }
@@ -155,7 +160,7 @@ export class WorkflowExecutionEntity {
   }
 
   getWorkflowVersion(): string {
-    return this.workflowExecution.workflowVersion || 'unknown';
+    return this.workflowExecution.workflowVersion || "unknown";
   }
 
   getStatus(): WorkflowExecutionStatus {
@@ -263,8 +268,9 @@ export class WorkflowExecutionEntity {
   // Triggering Sub-workflow Context ============
 
   getChildExecutionIds(): ID[] {
-    return this.hierarchyManager.getChildren()
-      .filter(ref => ref.childType === 'WORKFLOW')
+    return this.hierarchyManager
+      .getChildren()
+      .filter(ref => ref.childType === "WORKFLOW")
       .map(ref => ref.childId);
   }
 
@@ -373,7 +379,7 @@ export class WorkflowExecutionEntity {
   setInterruptionState(interruptionState: InterruptionState): void {
     this.interruptionState = interruptionState;
   }
-  
+
   /**
    * Get the interruption state manager
    * @returns The InterruptionState instance or undefined if not set
@@ -391,12 +397,31 @@ export class WorkflowExecutionEntity {
     if (this.interruptionState) {
       return this.interruptionState.getAbortSignal();
     }
-    
+
     // Fallback to legacy abortController for backward compatibility
     if (!this.abortController) {
       this.abortController = new AbortController();
     }
     return this.abortController.signal;
+  }
+
+  /**
+   * Abort execution
+   * @param reason Optional reason for abortion
+   */
+  abort(reason?: string): void {
+    if (!this.abortController) {
+      this.abortController = new AbortController();
+    }
+    this.abortController.abort(reason);
+    this.state.status = "CANCELLED";
+  }
+
+  /**
+   * Whether this execution has been aborted
+   */
+  get aborted(): boolean {
+    return this.abortController?.signal.aborted ?? false;
   }
 
   // Child AgentLoop Management ============
@@ -407,7 +432,7 @@ export class WorkflowExecutionEntity {
    */
   registerChildAgentLoop(agentLoopId: string): void {
     this.registerChild({
-      childType: 'AGENT_LOOP',
+      childType: "AGENT_LOOP",
       childId: agentLoopId,
       createdAt: Date.now(),
     });
@@ -418,7 +443,7 @@ export class WorkflowExecutionEntity {
    * @param agentLoopId AgentLoop ID
    */
   unregisterChildAgentLoop(agentLoopId: string): void {
-    this.unregisterChild(agentLoopId, 'AGENT_LOOP');
+    this.unregisterChild(agentLoopId, "AGENT_LOOP");
   }
 
   /**
@@ -426,8 +451,9 @@ export class WorkflowExecutionEntity {
    * @returns Set of AgentLoop IDs
    */
   getChildAgentLoopIds(): Set<string> {
-    const children = this.hierarchyManager.getChildren()
-      .filter(ref => ref.childType === 'AGENT_LOOP')
+    const children = this.hierarchyManager
+      .getChildren()
+      .filter(ref => ref.childType === "AGENT_LOOP")
       .map(ref => ref.childId);
     return new Set(children);
   }
@@ -437,8 +463,7 @@ export class WorkflowExecutionEntity {
    * @returns Whether there are child AgentLoops
    */
   hasChildAgentLoops(): boolean {
-    return this.hierarchyManager.getChildren()
-      .some(ref => ref.childType === 'AGENT_LOOP');
+    return this.hierarchyManager.getChildren().some(ref => ref.childType === "AGENT_LOOP");
   }
 
   // ========== Data Access (for internal use) ----------
@@ -488,7 +513,10 @@ export class WorkflowExecutionEntity {
    */
   getTriggerStateSnapshot(): { triggers: unknown[] } {
     // If triggerManager is not set or doesn't have getTriggers method, return empty array
-    if (!this.triggerManager || typeof (this.triggerManager as { getTriggers?: () => unknown[] }).getTriggers !== "function") {
+    if (
+      !this.triggerManager ||
+      typeof (this.triggerManager as { getTriggers?: () => unknown[] }).getTriggers !== "function"
+    ) {
       return { triggers: [] };
     }
     return {
@@ -502,10 +530,16 @@ export class WorkflowExecutionEntity {
    */
   restoreTriggerState(snapshot: { triggers: unknown[] }): void {
     // If triggerManager is not set or doesn't have restoreTriggers method, do nothing
-    if (!this.triggerManager || typeof (this.triggerManager as { restoreTriggers?: (triggers: unknown[]) => void }).restoreTriggers !== "function") {
+    if (
+      !this.triggerManager ||
+      typeof (this.triggerManager as { restoreTriggers?: (triggers: unknown[]) => void })
+        .restoreTriggers !== "function"
+    ) {
       return;
     }
-    (this.triggerManager as { restoreTriggers: (triggers: unknown[]) => void }).restoreTriggers(snapshot.triggers);
+    (this.triggerManager as { restoreTriggers: (triggers: unknown[]) => void }).restoreTriggers(
+      snapshot.triggers,
+    );
   }
 
   // Lifecycle Control Methods ============
@@ -540,7 +574,7 @@ export class WorkflowExecutionEntity {
    */
   interrupt(type: "PAUSE" | "STOP"): void {
     this.state.interrupt(type);
-    
+
     // Create proper abort reason with workflow context (nodeId)
     const currentNodeId = this.getCurrentNodeId();
     if (currentNodeId && this.abortController) {
@@ -551,13 +585,13 @@ export class WorkflowExecutionEntity {
 
   /**
    * Reset the interrupt flag
-   * 
+   *
    * NOTE: This method now also calls interruptionState.resume() to trigger
    * automatic cascade propagation to all children (if interruption state is set).
    */
   resetInterrupt(): void {
     this.state.interrupted = false;
-    
+
     // Trigger resume on interruption state to auto-propagate to children
     if (this.interruptionState) {
       this.interruptionState.resume();
@@ -568,15 +602,15 @@ export class WorkflowExecutionEntity {
 
   /**
    * Synchronizes hierarchy metadata from manager to data object
-   * 
+   *
    * This is a short-term solution to reduce code duplication while maintaining
    * backward compatibility with the old workflowExecution.hierarchy field.
-   * 
+   *
    * @private
    */
   private syncHierarchyToDataObject(): void {
     const metadata = this.hierarchyManager.toMetadata();
-    
+
     if (!this.workflowExecution.hierarchy) {
       this.workflowExecution.hierarchy = { ...metadata };
     } else {
@@ -591,10 +625,10 @@ export class WorkflowExecutionEntity {
 
   /**
    * Set parent execution context (unified API)
-   * 
+   *
    * Supports both Workflow and Agent parents with type safety.
    * Provides automatic validation including cycle detection and depth limit enforcement.
-   * 
+   *
    * @param parentContext Parent execution context
    * @example
    * ```typescript
@@ -603,7 +637,7 @@ export class WorkflowExecutionEntity {
    *   parentType: 'WORKFLOW',
    *   parentId: 'parent-workflow-id'
    * });
-   * 
+   *
    * // Set Agent parent with delegation purpose
    * entity.setParentContext({
    *   parentType: 'AGENT_LOOP',
@@ -614,14 +648,14 @@ export class WorkflowExecutionEntity {
    */
   setParentContext(parentContext: ParentExecutionContext): void {
     this.hierarchyManager.setParent(parentContext);
-    
+
     // Sync to data object for backward compatibility
     this.syncHierarchyToDataObject();
   }
 
   /**
    * Get parent execution context (unified API)
-   * 
+   *
    * @returns Parent execution context or undefined if root node
    */
   getParentContext(): ParentExecutionContext | undefined {
@@ -630,10 +664,10 @@ export class WorkflowExecutionEntity {
 
   /**
    * Register child execution reference (unified API)
-   * 
+   *
    * Supports both Workflow and Agent children with type safety.
    * Tracks creation timestamp and supports optional metadata.
-   * 
+   *
    * @param childRef Child execution reference
    * @example
    * ```typescript
@@ -642,7 +676,7 @@ export class WorkflowExecutionEntity {
    *   childType: 'WORKFLOW',
    *   childId: 'child-workflow-id'
    * });
-   * 
+   *
    * // Register Agent child with metadata
    * entity.registerChild({
    *   childType: 'AGENT_LOOP',
@@ -654,27 +688,27 @@ export class WorkflowExecutionEntity {
    */
   registerChild(childRef: ChildExecutionReference): void {
     this.hierarchyManager.addChild(childRef);
-    
+
     // Sync to data object for backward compatibility
     this.syncHierarchyToDataObject();
   }
 
   /**
    * Unregister child execution reference (unified API)
-   * 
+   *
    * @param childId Child execution ID
    * @param childType Child execution type (defaults to 'WORKFLOW' for backward compatibility)
    */
-  unregisterChild(childId: ID, childType: 'WORKFLOW' | 'AGENT_LOOP' = 'WORKFLOW'): void {
+  unregisterChild(childId: ID, childType: "WORKFLOW" | "AGENT_LOOP" = "WORKFLOW"): void {
     this.hierarchyManager.removeChild(childId, childType);
-    
+
     // Sync to data object for backward compatibility
     this.syncHierarchyToDataObject();
   }
 
   /**
    * Get all child execution references (unified API)
-   * 
+   *
    * @returns Array of child execution references
    */
   getChildReferences(): ChildExecutionReference[] {
@@ -683,7 +717,7 @@ export class WorkflowExecutionEntity {
 
   /**
    * Get hierarchy depth (unified API)
-   * 
+   *
    * @returns Depth in hierarchy tree (0 for root)
    */
   getHierarchyDepth(): number {
@@ -692,7 +726,7 @@ export class WorkflowExecutionEntity {
 
   /**
    * Get root execution ID (unified API)
-   * 
+   *
    * @returns Root execution ID
    */
   getRootExecutionId(): ID {
@@ -701,16 +735,16 @@ export class WorkflowExecutionEntity {
 
   /**
    * Get root execution type (unified API)
-   * 
+   *
    * @returns Root execution type
    */
-  getRootExecutionType(): 'WORKFLOW' | 'AGENT_LOOP' {
+  getRootExecutionType(): "WORKFLOW" | "AGENT_LOOP" {
     return this.hierarchyManager.getRootExecutionType();
   }
 
   /**
    * Check if this is a root execution (unified API)
-   * 
+   *
    * @returns True if no parent
    */
   isRootExecution(): boolean {
@@ -719,7 +753,7 @@ export class WorkflowExecutionEntity {
 
   /**
    * Get complete hierarchy metadata (unified API)
-   * 
+   *
    * @returns Hierarchy metadata for serialization
    */
   getHierarchyMetadata(): ExecutionHierarchyMetadata | undefined {
@@ -728,21 +762,17 @@ export class WorkflowExecutionEntity {
 
   /**
    * Restore hierarchy from metadata (unified API)
-   * 
+   *
    * Used during checkpoint restoration.
-   * 
+   *
    * @param metadata Hierarchy metadata
    */
   restoreHierarchy(metadata: ExecutionHierarchyMetadata): void {
     // Create new manager with restored metadata
-    const newManager = new ExecutionHierarchyManager(
-      this.id,
-      'WORKFLOW',
-      metadata
-    );
+    const newManager = new ExecutionHierarchyManager(this.id, "WORKFLOW", metadata);
     // Replace the manager
     this.hierarchyManager = newManager;
-    
+
     // Also update the data object
     this.workflowExecution.hierarchy = metadata;
   }
@@ -773,25 +803,74 @@ export class WorkflowExecutionEntity {
    */
   cleanup(): void {
     // Step 1: Dispose interruption state (cleans up all listeners and child references)
-    // Note: InterruptionState.dispose() automatically unsubscribes from parent and clears all child subscriptions
-    this.interruptionState?.dispose();
-    
+    try {
+      this.interruptionState?.dispose();
+    } catch (error) {
+      logger.error("Failed to dispose interruption state during cleanup", {
+        executionId: this.id,
+        error,
+      });
+    }
+
     // Step 2: Clear sync barrier
-    this.syncBarrier?.clear();
-    
-    // Step 3: Cleanup other resources
-    this.state.cleanup();
-    this.messageHistoryManager.clearMessages();
-    this.variableStateManager.cleanup();
-    this.toolFailureProtection.cleanup();
+    try {
+      this.syncBarrier?.clear();
+    } catch (error) {
+      logger.error("Failed to clear sync barrier during cleanup", {
+        executionId: this.id,
+        error,
+      });
+    }
+
+    // Step 3: Cleanup sub-resources with error isolation
+    try {
+      this.state.cleanup();
+    } catch (error) {
+      logger.error("Failed to cleanup state during cleanup", {
+        executionId: this.id,
+        error,
+      });
+    }
+
+    try {
+      this.messageHistoryManager.clearMessages();
+    } catch (error) {
+      logger.error("Failed to clear message history during cleanup", {
+        executionId: this.id,
+        error,
+      });
+    }
+
+    try {
+      this.variableStateManager.cleanup();
+    } catch (error) {
+      logger.error("Failed to cleanup variable state manager during cleanup", {
+        executionId: this.id,
+        error,
+      });
+    }
+
+    try {
+      this.toolFailureProtection.cleanup();
+    } catch (error) {
+      logger.error("Failed to cleanup tool failure protection during cleanup", {
+        executionId: this.id,
+        error,
+      });
+    }
+
     this.abortController = undefined;
-    
+
     // Clear hierarchy manager
-    this.hierarchyManager = new ExecutionHierarchyManager(
-      this.id,
-      'WORKFLOW',
-      undefined
-    );
+    this.hierarchyManager = new ExecutionHierarchyManager(this.id, "WORKFLOW", undefined);
+  }
+
+  /**
+   * Enable await using pattern support
+   * Delegates to cleanup() for resource release
+   */
+  async [Symbol.asyncDispose](): Promise<void> {
+    this.cleanup();
   }
 
   // ========== Sync Barrier Management ==========
@@ -799,7 +878,7 @@ export class WorkflowExecutionEntity {
   /**
    * Initialize SyncBarrier for this execution
    * Should be called when a FORK node is encountered in the workflow
-   * 
+   *
    * @param eventRegistry Event registry for cross-execution event listening
    */
   initializeSyncBarrier(eventRegistry: EventRegistry): void {
@@ -816,7 +895,7 @@ export class WorkflowExecutionEntity {
   /**
    * Get the SyncBarrier instance
    * Returns undefined if not initialized (no FORK nodes in workflow)
-   * 
+   *
    * @returns SyncBarrier instance or undefined
    */
   getSyncBarrier(): SyncBarrier | undefined {
@@ -825,7 +904,7 @@ export class WorkflowExecutionEntity {
 
   /**
    * Check if SyncBarrier is initialized
-   * 
+   *
    * @returns True if SyncBarrier exists
    */
   hasSyncBarrier(): boolean {

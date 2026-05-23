@@ -216,6 +216,14 @@ export class AgentLoopCoordinator {
         toolCallCount: entity.state.toolCallCount,
         error,
       };
+    } finally {
+      const cleanedCount = this.globalContext.eventRegistry.cleanupExecutionListeners(entity.id);
+      if (cleanedCount > 0) {
+        logger.debug("Cleaned up event listeners after agent loop execution", {
+          agentLoopId: entity.id,
+          cleanedCount,
+        });
+      }
     }
   }
 
@@ -271,6 +279,14 @@ export class AgentLoopCoordinator {
     } catch (error) {
       await this.stateTransitor.failAgentLoop(entity, error);
       throw error;
+    } finally {
+      const cleanedCount = this.globalContext.eventRegistry.cleanupExecutionListeners(entity.id);
+      if (cleanedCount > 0) {
+        logger.debug("Cleaned up event listeners after agent loop stream execution", {
+          agentLoopId: entity.id,
+          cleanedCount,
+        });
+      }
     }
   }
 
@@ -307,12 +323,27 @@ export class AgentLoopCoordinator {
         } else {
           await this.stateTransitor.failAgentLoop(entity, result.error);
         }
+        this.cleanupExecutionEventListeners(entity.id);
       })
       .catch(async error => {
         await this.stateTransitor.failAgentLoop(entity, error);
+        this.cleanupExecutionEventListeners(entity.id);
       });
 
     return entity.id;
+  }
+
+  /**
+   * Cleanup execution-scoped event listeners for a given agent loop
+   */
+  private cleanupExecutionEventListeners(agentLoopId: ID): void {
+    const cleanedCount = this.globalContext.eventRegistry.cleanupExecutionListeners(agentLoopId);
+    if (cleanedCount > 0) {
+      logger.debug("Cleaned up event listeners", {
+        agentLoopId,
+        cleanedCount,
+      });
+    }
   }
 
   /**
@@ -502,6 +533,15 @@ export class AgentLoopCoordinator {
     // Unregister from registry
     this.registry.unregister(id);
     
+    // Cleanup execution-scoped event listeners
+    const cleanedCount = this.globalContext.eventRegistry.cleanupExecutionListeners(id);
+    if (cleanedCount > 0) {
+      logger.debug("Cleaned up event listeners after agent loop stop", {
+        agentLoopId: id,
+        cleanedCount,
+      });
+    }
+    
     logger.info("Agent Loop stopped and cleaned up", { agentLoopId: id });
   }
 
@@ -540,10 +580,23 @@ export class AgentLoopCoordinator {
    * Clean up the completed instances.
    */
   cleanup(): number {
-    const count = this.registry.cleanupCompleted();
+    const count = this.registry.cleanupTerminated();
     if (count > 0) {
-      logger.info("Agent Loop completed instances cleaned up", { count });
+      logger.info("Agent Loop terminated instances cleaned up", { count });
     }
     return count;
+  }
+
+  /**
+   * Destroy the coordinator and release all resources
+   * Cleans up all running/paused/completed/failed entities and clears the registry.
+   */
+  destroy(): void {
+    logger.info("Destroying AgentLoopCoordinator");
+
+    // Clean up all entities in the registry
+    this.registry.clear();
+
+    logger.info("AgentLoopCoordinator destroyed");
   }
 }

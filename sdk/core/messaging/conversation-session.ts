@@ -18,7 +18,7 @@ import type { CheckpointStorageAdapter } from "@wf-agent/storage";
 import { MessageHistory, type MessageHistoryState } from "./message-history.js";
 import { TokenUsageTracker } from "../utils/token/token-usage-tracker.js";
 import type { EventRegistry } from "../registry/event-registry.js";
-import type { LifecycleCapable } from "../types/lifecycle-capable.js";
+import type { StateManager } from "../types/state-manager.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 import { emit } from "../utils/event/event-emitter.js";
 import { now } from "@wf-agent/common-utils";
@@ -68,7 +68,7 @@ export interface ConversationState extends MessageHistoryState {
 /**
  * Conversation Session
  */
-export class ConversationSession extends MessageHistory implements LifecycleCapable {
+export class ConversationSession extends MessageHistory implements StateManager<ConversationState> {
   protected tokenUsageTracker: TokenUsageTracker;
   protected eventManager?: EventRegistry;
   protected executionId?: string;
@@ -384,6 +384,22 @@ export class ConversationSession extends MessageHistory implements LifecycleCapa
     });
     // Clear all turn states
     this.clearAllStates();
+  }
+
+  /**
+   * Get the number of messages
+   * @returns Count of messages
+   */
+  size(): number {
+    return this.getAllMessages().length;
+  }
+
+  /**
+   * Check if there are no messages
+   * @returns true if empty
+   */
+  isEmpty(): boolean {
+    return this.getAllMessages().length === 0;
   }
 
   // ============================================================

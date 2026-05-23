@@ -9,7 +9,7 @@
  *
  * Design Principles:
  * - Instance Isolation: Each AgentLoopEntity maintains its own independent message manager instance.
- * - Implements the LifecycleCapable interface to support snapshot and recovery features.
+ * - Implements the StateManager interface to support snapshot and recovery features.
  */
 
 import type { LLMMessage } from "@wf-agent/types";

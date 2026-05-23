@@ -1,13 +1,12 @@
 /**
  * StateManager - Common interface for all state managers
  *
- * Extends LifecycleCapable with additional common operations to provide
- * a unified API for state management across the workflow system.
- *
- * Key responsibilities:
- * 1. Provides standard lifecycle management (via LifecycleCapable)
- * 2. Offers common query operations (size, isEmpty)
- * 3. Supports optional reset functionality
+ * The unified lifecycle and state management interface for all stateful managers.
+ * This is the single interface that consolidates:
+ * 1. Resource lifecycle management (cleanup)
+ * 2. State persistence (snapshot/restore)
+ * 3. Common query operations (size, isEmpty)
+ * 4. Optional reset functionality
  *
  * Design principles:
  * - Minimal interface: Only includes methods that make sense for all state managers
@@ -15,13 +14,40 @@
  * - Type safety: Provides strong typing for state manager operations
  */
 
-import type { LifecycleCapable } from "./lifecycle-capable.js";
-
 /**
  * Common interface for all state managers
- * Extends LifecycleCapable with additional common operations
  */
-export interface StateManager<TSnapshot = unknown> extends LifecycleCapable<TSnapshot> {
+export interface StateManager<TSnapshot = unknown> {
+  /**
+   * Clean up resources
+   *
+   * Called when the manager is no longer needed, this method is used to release all
+   * occupied resources. This includes, but is not limited to:
+   * - Clearing internal states
+   * - Releasing memory
+   * - Closing connections
+   * - Canceling timers
+   */
+  cleanup(): void | Promise<void>;
+
+  /**
+   * Create a state snapshot
+   *
+   * Used to save a complete copy of the current state, supporting the checkpoint functionality
+   *
+   * @returns The state snapshot
+   */
+  createSnapshot(): TSnapshot;
+
+  /**
+   * Restore from a snapshot
+   *
+   * Recover the state from a previously saved snapshot
+   *
+   * @param snapshot The state snapshot
+   */
+  restoreFromSnapshot(snapshot: TSnapshot): void | Promise<void>;
+
   /**
    * Get the number of state items managed
    * @returns Count of managed state items

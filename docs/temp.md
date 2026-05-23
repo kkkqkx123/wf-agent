@@ -1,1 +1,1 @@
-sdk\core\messaging目录当前包含了workflow特有实现
+分析当前项目如果需要对sdk提供的功能做e2e测试，全面测试存储、各项功能，该如何实现？

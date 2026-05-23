@@ -6,12 +6,10 @@
 
 import type { TriggerAction, TriggerExecutionResult } from "@wf-agent/types";
 import { RuntimeValidationError } from "@wf-agent/types";
-import {
-  executeCustomAction,
-  type BaseTriggerDefinition,
-} from "../../../../core/triggers/index.js";
+import type { BaseTriggerDefinition } from "../../../../core/triggers/index.js";
 import { getErrorMessage, now } from "@wf-agent/common-utils";
 import { ContainerManager } from "../../../../core/di/container-manager.js";
+import * as ServiceIdentifiers from "../../../../core/di/service-identifiers.js";
 
 function createSuccessResult(
   triggerId: string,
@@ -58,7 +56,7 @@ export async function customHandler(
       });
     }
 
-    const { handlerName, data: _data } = action.parameters;
+    const { handlerName, data } = action.parameters;
 
     if (!handlerName || typeof handlerName !== "string") {
       throw new RuntimeValidationError(
@@ -78,17 +76,30 @@ export async function customHandler(
     };
 
     const container = ContainerManager.getInstance().getContainer(containerId);
-    const result = await executeCustomAction(trigger, container);
+    const registry = container.get(ServiceIdentifiers.CustomHandlerRegistry);
+    const handler = registry.getHandler(handlerName);
+
+    if (!handler) {
+      const availableHandlers = registry.getRegisteredNames();
+      return createFailureResult(
+        triggerId,
+        action,
+        `Custom handler '${handlerName}' not found. Available handlers: [${availableHandlers.join(", ")}]`,
+        startTime,
+      );
+    }
+
+    const result = await handler(trigger, (data as Record<string, unknown>) || {});
 
     if (result.success) {
       return createSuccessResult(
         triggerId,
         action,
         { message: "Custom action executed successfully", result: result.result },
-        startTime,
+        now() - startTime,
       );
     } else {
-      return createFailureResult(triggerId, action, result.error, startTime);
+      return createFailureResult(triggerId, action, result.error, now() - startTime);
     }
   } catch (error) {
     return createFailureResult(triggerId, action, error, startTime);

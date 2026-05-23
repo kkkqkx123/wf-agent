@@ -34,11 +34,6 @@ export {
   getRemainingTriggers,
 } from "./limiter.js";
 
-// Processor
-export { executeCustomAction } from "./handlers/index.js";
-
-export type { CustomActionParameters } from "./handlers/index.js";
-
 // Custom Handler Registry (re-export from registry)
 export { CustomHandlerRegistry } from "../registry/custom-handler-registry.js";
 

@@ -5,6 +5,7 @@
  * - Explicit synchronization between fork branches
  * - Variable, data, and message passing from source branch to target branch
  * - Eliminates implicit state sharing through global variables
+ * - Paired SYNC for bidirectional data exchange between main and sub-workflows
  */
 
 import type { ID } from '../../common.js';
@@ -29,6 +30,24 @@ export interface SyncNodeOutput {
 }
 
 /**
+ * Variable exchange entry for paired SYNC
+ *
+ * Defines a bidirectional variable exchange between a source and target path.
+ * Used in conjunction with pairId to enable data synchronization between
+ * main workflow and sub-workflow SYNC nodes.
+ */
+export interface SyncVariableExchange {
+  /** Source path ID within the current workflow's FORK-JOIN structure */
+  sourcePathId: ID;
+  /** Source variable name in the source path context */
+  sourceVariable: string;
+  /** Target path ID within the current workflow's FORK-JOIN structure */
+  targetPathId: ID;
+  /** Target variable name in the target path context */
+  targetVariable: string;
+}
+
+/**
  * Sync Node Configuration
  *
  * Description:
@@ -36,6 +55,8 @@ export interface SyncNodeOutput {
  * - Variables are deep cloned during transfer to maintain complete isolation
  * - Can optionally wait for source branch completion before syncing
  * - Supports variable, data input, and message context synchronization
+ * - Paired SYNC (with pairId) enables bidirectional data exchange between
+ *   main and sub-workflows for coordinated synchronization
  */
 export interface SyncNodeConfig {
   /**
@@ -103,4 +124,31 @@ export interface SyncNodeConfig {
    * Default: 0 (no timeout)
    */
   timeout?: number;
+
+  /**
+   * Pair ID - identifies paired SYNC nodes across main and sub-workflow graphs.
+   *
+   * When set, this SYNC node participates in a paired synchronization:
+   * - The same pairId must appear exactly once in the main workflow
+   *   and once in the sub-workflow
+   * - Enables bidirectional data exchange between the two workflows
+   * - Format convention: `${mainWorkflowId}:${subWorkflowId}:<name>`
+   *
+   * When not set, the SYNC node follows the existing FORK-JOIN branch
+   * synchronization logic (backward compatible).
+   */
+  pairId?: string;
+
+  /**
+   * Variable exchanges - bidirectional variable exchange configuration
+   * for paired SYNC nodes.
+   *
+   * Each entry defines a variable exchange between a source path and
+   * a target path within the respective workflow's FORK-JOIN structure.
+   *
+   * When paired SYNC is used (pairId is set), variableExchanges provide
+   * a flexible multi-source multi-target data exchange mechanism that
+   * complements the existing unidirectional variableMappings.
+   */
+  variableExchanges?: SyncVariableExchange[];
 }

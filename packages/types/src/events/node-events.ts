@@ -122,6 +122,10 @@ export interface NodeSyncStartedEvent extends BaseEvent {
   nodeId: ID;
   /** Source path ID - the branch to sync from */
   sourcePathId: ID;
+  /** Parent execution ID - links to the parent FORK context */
+  parentExecutionId: ID;
+  /** Target path ID - the branch being synced to (optional) */
+  targetPathId?: ID;
 }
 
 /**
@@ -133,8 +137,14 @@ export interface NodeSyncCompletedEvent extends BaseEvent {
   nodeId: ID;
   /** Source path ID */
   sourcePathId: ID;
+  /** Parent execution ID */
+  parentExecutionId: ID;
   /** Number of variables synced */
   variableCount: number;
+  /** Number of data inputs processed */
+  dataCount: number;
+  /** Number of message contexts synced */
+  messageCount: number;
 }
 
 /**
@@ -146,6 +156,8 @@ export interface NodeSyncFailedEvent extends BaseEvent {
   nodeId: ID;
   /** Source path ID */
   sourcePathId: ID;
+  /** Parent execution ID */
+  parentExecutionId: ID;
   /** Error message */
   error: string;
 }

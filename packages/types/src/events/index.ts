@@ -58,6 +58,8 @@ import type {
   WorkflowExecutionForkCompletedEvent,
   WorkflowExecutionJoinStartedEvent,
   WorkflowExecutionJoinConditionMetEvent,
+  WorkflowExecutionJoinCompletedEvent,
+  WorkflowExecutionJoinFailedEvent,
   WorkflowExecutionCopyStartedEvent,
   WorkflowExecutionCopyCompletedEvent,
 } from "./workflow-execution-events.js";
@@ -174,6 +176,8 @@ export type Event =
   | WorkflowExecutionForkCompletedEvent
   | WorkflowExecutionJoinStartedEvent
   | WorkflowExecutionJoinConditionMetEvent
+  | WorkflowExecutionJoinCompletedEvent
+  | WorkflowExecutionJoinFailedEvent
   | WorkflowExecutionCopyStartedEvent
   | WorkflowExecutionCopyCompletedEvent
   | NodeStartedEvent

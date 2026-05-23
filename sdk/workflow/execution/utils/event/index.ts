@@ -38,6 +38,8 @@ export {
   buildWorkflowExecutionForkCompletedEvent,
   buildWorkflowExecutionJoinStartedEvent,
   buildWorkflowExecutionJoinConditionMetEvent,
+  buildWorkflowExecutionJoinCompletedEvent,
+  buildWorkflowExecutionJoinFailedEvent,
   buildWorkflowExecutionCopyStartedEvent,
   buildWorkflowExecutionCopyCompletedEvent,
   buildTriggeredSubgraphStartedEvent,

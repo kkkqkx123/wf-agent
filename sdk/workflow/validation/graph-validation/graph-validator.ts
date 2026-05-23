@@ -47,16 +47,10 @@ import { detectCycles } from "../../builder/utils/workflow-cycle-detector.js";
 import { analyzeReachability } from "../../builder/utils/workflow-reachability-analyzer.js";
 
 // Import specialized validators
-import {
-  validateStartEndNodes,
-  validateTriggeredSubgraphNodes,
-} from "./start-end-validator.js";
+import { validateStartEndNodes, validateTriggeredSubgraphNodes } from "./start-end-validator.js";
 import { validateIsolatedNodes } from "./isolated-node-validator.js";
 import { validateForkJoinPairs } from "./fork-join-validator.js";
-import {
-  validateSubgraphExistence,
-  validateSubgraphCompatibility,
-} from "./subgraph-validator.js";
+import { validateSubgraphExistence, validateSubgraphCompatibility } from "./subgraph-validator.js";
 import {
   validateEmbedGraphExistence,
   validateEmbedGraphConstraints,

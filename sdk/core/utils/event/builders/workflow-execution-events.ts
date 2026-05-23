@@ -17,6 +17,8 @@ import type {
   WorkflowExecutionForkCompletedEvent,
   WorkflowExecutionJoinStartedEvent,
   WorkflowExecutionJoinConditionMetEvent,
+  WorkflowExecutionJoinCompletedEvent,
+  WorkflowExecutionJoinFailedEvent,
   WorkflowExecutionCopyStartedEvent,
   WorkflowExecutionCopyCompletedEvent,
 } from "@wf-agent/types";
@@ -30,7 +32,9 @@ import type { WorkflowExecutionEntity } from "../../../../workflow/entities/work
 /**
  * Build workflow execution started event
  */
-export const buildWorkflowExecutionStartedEvent = (workflowExecutionEntity: WorkflowExecutionEntity): WorkflowExecutionStartedEvent => ({
+export const buildWorkflowExecutionStartedEvent = (
+  workflowExecutionEntity: WorkflowExecutionEntity,
+): WorkflowExecutionStartedEvent => ({
   id: generateId(),
   type: "WORKFLOW_EXECUTION_STARTED",
   timestamp: now(),
@@ -58,7 +62,9 @@ export const buildWorkflowExecutionCompletedEvent = (
 /**
  * Build workflow execution failed event
  */
-export const buildWorkflowExecutionFailedEvent = createErrorBuilder<WorkflowExecutionFailedEvent>("WORKFLOW_EXECUTION_FAILED");
+export const buildWorkflowExecutionFailedEvent = createErrorBuilder<WorkflowExecutionFailedEvent>(
+  "WORKFLOW_EXECUTION_FAILED",
+);
 
 /**
  * Build workflow execution paused event
@@ -90,7 +96,9 @@ export const buildWorkflowExecutionPausedEvent = (
 /**
  * Build workflow execution resumed event
  */
-export const buildWorkflowExecutionResumedEvent = (workflowExecutionEntity: WorkflowExecutionEntity): WorkflowExecutionResumedEvent => ({
+export const buildWorkflowExecutionResumedEvent = (
+  workflowExecutionEntity: WorkflowExecutionEntity,
+): WorkflowExecutionResumedEvent => ({
   id: generateId(),
   type: "WORKFLOW_EXECUTION_RESUMED",
   timestamp: now(),
@@ -174,6 +182,18 @@ export const buildWorkflowExecutionJoinStartedEvent =
  */
 export const buildWorkflowExecutionJoinConditionMetEvent =
   createBuilder<WorkflowExecutionJoinConditionMetEvent>("WORKFLOW_EXECUTION_JOIN_CONDITION_MET");
+
+/**
+ * Build workflow execution join completed event
+ */
+export const buildWorkflowExecutionJoinCompletedEvent =
+  createBuilder<WorkflowExecutionJoinCompletedEvent>("WORKFLOW_EXECUTION_JOIN_COMPLETED");
+
+/**
+ * Build workflow execution join failed event
+ */
+export const buildWorkflowExecutionJoinFailedEvent =
+  createErrorBuilder<WorkflowExecutionJoinFailedEvent>("WORKFLOW_EXECUTION_JOIN_FAILED");
 
 /**
  * Build workflow execution copy started event

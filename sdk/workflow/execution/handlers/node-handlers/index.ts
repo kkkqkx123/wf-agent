@@ -51,7 +51,7 @@ export function getNodeHandler(nodeType: string): NodeHandlerFn {
     END: (_gc, workflowExecutionEntity, node, _ctx) => endHandler(workflowExecutionEntity, node),
     FORK: (globalContext, workflowExecutionEntity, node, context) =>
       forkHandler(globalContext, workflowExecutionEntity, node, context as any),
-    JOIN: (_gc, workflowExecutionEntity, node, _ctx) => joinHandler(workflowExecutionEntity, node),
+    JOIN: (globalContext, workflowExecutionEntity, node, _ctx) => joinHandler(globalContext, workflowExecutionEntity, node),
     LLM: (_gc, workflowExecutionEntity, node, context) =>
       llmHandler(workflowExecutionEntity.getExecution(), node, context as LLMHandlerContext),
     LOOP_END: (_gc, workflowExecutionEntity, node, _ctx) => loopEndHandler(workflowExecutionEntity, node),

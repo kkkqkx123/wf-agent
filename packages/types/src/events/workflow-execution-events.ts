@@ -143,6 +143,38 @@ export interface WorkflowExecutionJoinConditionMetEvent extends BaseEvent {
 }
 
 /**
+ * Workflow Execution Join Completed Event Type
+ */
+export interface WorkflowExecutionJoinCompletedEvent extends BaseEvent {
+  type: "WORKFLOW_EXECUTION_JOIN_COMPLETED";
+  /** Parent Workflow Execution ID */
+  parentExecutionId: ID;
+  /** Array of child execution IDs */
+  childExecutionIds: ID[];
+  /** Join strategy used */
+  joinStrategy: string;
+  /** Number of aggregated outputs */
+  aggregatedOutputCount: number;
+  /** Duration in milliseconds */
+  duration: number;
+}
+
+/**
+ * Workflow Execution Join Failed Event Type
+ */
+export interface WorkflowExecutionJoinFailedEvent extends BaseEvent {
+  type: "WORKFLOW_EXECUTION_JOIN_FAILED";
+  /** Parent Workflow Execution ID */
+  parentExecutionId: ID;
+  /** Array of child execution IDs */
+  childExecutionIds: ID[];
+  /** Join strategy used */
+  joinStrategy: string;
+  /** Error information */
+  error: unknown;
+}
+
+/**
  * Workflow Execution copy start event type
  */
 export interface WorkflowExecutionCopyStartedEvent extends BaseEvent {

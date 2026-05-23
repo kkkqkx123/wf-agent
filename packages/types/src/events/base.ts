@@ -30,6 +30,10 @@ export type EventType =
   | "WORKFLOW_EXECUTION_JOIN_STARTED"
   /** Workflow Execution merge condition satisfied */
   | "WORKFLOW_EXECUTION_JOIN_CONDITION_MET"
+  /** Workflow Execution merge completed */
+  | "WORKFLOW_EXECUTION_JOIN_COMPLETED"
+  /** Workflow Execution merge failed */
+  | "WORKFLOW_EXECUTION_JOIN_FAILED"
   /** Workflow Execution copying begins */
   | "WORKFLOW_EXECUTION_COPY_STARTED"
   /** Workflow Execution copying complete */

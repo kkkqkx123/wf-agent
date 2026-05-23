@@ -255,12 +255,20 @@ export async function syncHandler(
     throw new Error("EventRegistry not available in global context");
   }
 
-  // Emit NODE_SYNC_STARTED event
+  // Get parent execution ID for event correlation
+  const parentContext = workflowExecutionEntity.getParentContext();
+  const parentExecutionId = parentContext?.parentType === 'WORKFLOW' && parentContext.parentId
+    ? parentContext.parentId
+    : '';
+
+  // Emit NODE_SYNC_STARTED event with parent execution ID
   await emit(eventManager, buildNodeSyncStartedEvent({
     executionId: workflowExecutionEntity.id,
     workflowId: workflowExecutionEntity.getWorkflowId(),
     nodeId: node.id,
     sourcePathId: config.sourcePathId,
+    parentExecutionId,
+    targetPathId: config.targetPathId,
   }));
 
   try {
@@ -394,13 +402,16 @@ export async function syncHandler(
       }
     }
 
-    // Emit NODE_SYNC_COMPLETED event
+    // Emit NODE_SYNC_COMPLETED event with enhanced fields
     await emit(eventManager, buildNodeSyncCompletedEvent({
       executionId: workflowExecutionEntity.id,
       workflowId: workflowExecutionEntity.getWorkflowId(),
       nodeId: node.id,
       sourcePathId: config.sourcePathId,
+      parentExecutionId,
       variableCount: config.variableMappings?.length || 0,
+      dataCount: config.dataInputs?.length || 0,
+      messageCount: config.messageInputs?.length || 0,
     }));
 
     // Build synced variables record from mappings
@@ -424,12 +435,13 @@ export async function syncHandler(
     };
     
   } catch (error) {
-    // Emit NODE_SYNC_FAILED event
+    // Emit NODE_SYNC_FAILED event with parent execution ID
     await emit(eventManager, buildNodeSyncFailedEvent({
       executionId: workflowExecutionEntity.id,
       workflowId: workflowExecutionEntity.getWorkflowId(),
       nodeId: node.id,
       sourcePathId: config.sourcePathId,
+      parentExecutionId,
       error: getErrorOrNew(error),
     }));
     

@@ -49,6 +49,8 @@ import type {
   WorkflowExecutionForkCompletedEvent,
   WorkflowExecutionJoinStartedEvent,
   WorkflowExecutionJoinConditionMetEvent,
+  WorkflowExecutionJoinCompletedEvent,
+  WorkflowExecutionJoinFailedEvent,
   WorkflowExecutionCopyStartedEvent,
   WorkflowExecutionCopyCompletedEvent,
 } from "./workflow-execution-events.js";
@@ -151,6 +153,8 @@ export function isWorkflowExecutionEvent(
   | WorkflowExecutionForkCompletedEvent
   | WorkflowExecutionJoinStartedEvent
   | WorkflowExecutionJoinConditionMetEvent
+  | WorkflowExecutionJoinCompletedEvent
+  | WorkflowExecutionJoinFailedEvent
   | WorkflowExecutionCopyStartedEvent
   | WorkflowExecutionCopyCompletedEvent {
   return (
@@ -165,6 +169,8 @@ export function isWorkflowExecutionEvent(
     event.type === 'WORKFLOW_EXECUTION_FORK_COMPLETED' ||
     event.type === 'WORKFLOW_EXECUTION_JOIN_STARTED' ||
     event.type === 'WORKFLOW_EXECUTION_JOIN_CONDITION_MET' ||
+    event.type === 'WORKFLOW_EXECUTION_JOIN_COMPLETED' ||
+    event.type === 'WORKFLOW_EXECUTION_JOIN_FAILED' ||
     event.type === 'WORKFLOW_EXECUTION_COPY_STARTED' ||
     event.type === 'WORKFLOW_EXECUTION_COPY_COMPLETED'
   );

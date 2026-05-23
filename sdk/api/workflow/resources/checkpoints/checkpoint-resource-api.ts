@@ -62,6 +62,44 @@ export interface CheckpointSummary {
 }
 
 /**
+ * Checkpoint transition information
+ */
+export interface CheckpointTransition {
+  /** Previous checkpoint ID */
+  fromCheckpointId: string;
+  /** Current checkpoint ID */
+  toCheckpointId: string;
+  /** Time elapsed between checkpoints (ms) */
+  elapsed: number;
+  /** Status change (if any) */
+  statusChange?: { from: string; to: string };
+  /** Current node change (if any) */
+  currentNodeChange?: { from: string; to: string };
+  /** Checkpoint type (FULL or DELTA) */
+  type: "FULL" | "DELTA";
+  /** Description of the transition trigger */
+  triggerDescription?: string;
+}
+
+/**
+ * Checkpoint chain analysis
+ */
+export interface CheckpointChainAnalysis {
+  /** Execution ID */
+  executionId: string;
+  /** Checkpoints in chronological order (oldest first) */
+  checkpoints: Checkpoint[];
+  /** Transitions between consecutive checkpoints */
+  transitions: CheckpointTransition[];
+  /** Total elapsed time from first to last checkpoint (ms) */
+  totalElapsed: number;
+  /** Number of checkpoints in the chain */
+  checkpointCount: number;
+  /** Time range */
+  timeRange: { start: Timestamp; end: Timestamp };
+}
+
+/**
  * CheckpointResourceAPI - Checkpoint resource management API
  */
 export class CheckpointResourceAPI extends CrudResourceAPI<Checkpoint, string, CheckpointFilter> {
@@ -316,5 +354,89 @@ export class CheckpointResourceAPI extends CrudResourceAPI<Checkpoint, string, C
    */
   getStateManager(): CheckpointState {
     return this.stateManager;
+  }
+
+  /**
+   * Get checkpoint chain analysis for an execution
+   * Builds a chronological chain of checkpoints with transition analysis
+   * @param executionId Execution ID
+   * @returns Checkpoint chain analysis
+   */
+  async getCheckpointChain(executionId: string): Promise<CheckpointChainAnalysis> {
+    const checkpoints = await this.getWorkflowExecutionCheckpoints(executionId);
+
+    // Sort chronologically (oldest first)
+    const sorted = [...checkpoints].sort((a, b) => a.timestamp - b.timestamp);
+
+    const transitions: CheckpointTransition[] = [];
+    for (let i = 1; i < sorted.length; i++) {
+      const prev = sorted[i - 1]!;
+      const curr = sorted[i]!;
+      const elapsed = curr.timestamp - prev.timestamp;
+
+      const transition: CheckpointTransition = {
+        fromCheckpointId: prev.id,
+        toCheckpointId: curr.id,
+        elapsed,
+        type: curr.type || "FULL",
+        triggerDescription: curr.metadata?.description,
+      };
+
+      // Extract status change from delta if available
+      if (curr.delta?.statusChange) {
+        transition.statusChange = {
+          from: curr.delta.statusChange.from,
+          to: curr.delta.statusChange.to,
+        };
+      }
+
+      // Extract current node change from delta if available
+      if (curr.delta?.currentNodeChange) {
+        transition.currentNodeChange = {
+          from: curr.delta.currentNodeChange.from,
+          to: curr.delta.currentNodeChange.to,
+        };
+      }
+
+      transitions.push(transition);
+    }
+
+    const totalElapsed = sorted.length >= 2
+      ? sorted[sorted.length - 1]!.timestamp - sorted[0]!.timestamp
+      : 0;
+
+    return {
+      executionId,
+      checkpoints: sorted,
+      transitions,
+      totalElapsed,
+      checkpointCount: sorted.length,
+      timeRange: {
+        start: sorted.length > 0 ? sorted[0]!.timestamp : 0,
+        end: sorted.length > 0 ? sorted[sorted.length - 1]!.timestamp : 0,
+      },
+    };
+  }
+
+  /**
+   * Get checkpoint chain starting from a specific checkpoint
+   * Follows previousCheckpointId links backwards
+   * @param checkpointId Starting checkpoint ID
+   * @returns Checkpoints in reverse chronological order (newest first)
+   */
+  async getCheckpointChainFrom(checkpointId: string): Promise<Checkpoint[]> {
+    const chain: Checkpoint[] = [];
+    let currentId: string | undefined = checkpointId;
+
+    while (currentId) {
+      const checkpoint = await this.stateManager.get(currentId);
+      if (!checkpoint) {
+        break;
+      }
+      chain.push(checkpoint);
+      currentId = checkpoint.previousCheckpointId;
+    }
+
+    return chain;
   }
 }

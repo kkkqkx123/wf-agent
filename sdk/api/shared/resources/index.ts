@@ -15,6 +15,11 @@ import {
 
 // Event Resource Management
 import { EventResourceAPI, type EventStats } from "./events/event-resource-api.js";
+import type {
+  ExecutionTimeline,
+  ExecutionTimelinePhase,
+  ExecutionTimelineSummary,
+} from "./events/event-resource-api.js";
 
 // Tool Resource Management
 import { ToolRegistryAPI } from "./tools/tool-registry-api.js";
@@ -35,6 +40,18 @@ import {
 // Metrics Resource Management
 import { MetricsResourceAPI } from "./metrics/metrics-resource-api.js";
 
+// Task Resource Management
+import { TaskResourceAPI, type TaskFilter, type TaskSummary, type TaskStats } from "./tasks/task-resource-api.js";
+
+// Workflow Graph Query API
+import { WorkflowGraphQueryAPI, type WorkflowGraphSummary, type GraphNodeStats, type GraphEdgeStats, type NodeNeighbors } from "./graphs/workflow-graph-query-api.js";
+
+// Storage Diagnostics API
+import { StorageDiagnosticsAPI, type StorageAdapterHealth, type StorageItemCounts, type StorageDiagnosticsReport } from "./diagnostics/storage-diagnostics-api.js";
+
+// Unified Search API
+import { SearchAPI, type SearchResourceType, type SearchOptions, type SearchResultItem, type SearchResult } from "./search/search-api.js";
+
 // Dependency Management
 import type { APIDependencyManager } from "../core/sdk-dependencies.js";
 
@@ -47,12 +64,16 @@ export {
   type WritableResourceAPI,
   type ClearableResourceAPI,
 };
-export { EventResourceAPI, type EventStats };
+export { EventResourceAPI, type EventStats, type ExecutionTimeline, type ExecutionTimelinePhase, type ExecutionTimelineSummary };
 export { ToolRegistryAPI };
 export { ScriptRegistryAPI };
 export { LLMProfileRegistryAPI };
 export { SkillRegistryAPI, type SkillFilter, type SkillLoadOptions };
 export { MetricsResourceAPI };
+export { TaskResourceAPI, type TaskFilter, type TaskSummary, type TaskStats };
+export { WorkflowGraphQueryAPI, type WorkflowGraphSummary, type GraphNodeStats, type GraphEdgeStats, type NodeNeighbors };
+export { StorageDiagnosticsAPI, type StorageAdapterHealth, type StorageItemCounts, type StorageDiagnosticsReport };
+export { SearchAPI, type SearchResourceType, type SearchOptions, type SearchResultItem, type SearchResult };
 
 /**
  * Create a factory function for shared resource management API instances
@@ -66,6 +87,10 @@ export function createSharedResourceAPIs(dependencies: APIDependencyManager) {
     profiles: new LLMProfileRegistryAPI(),
     skills: new SkillRegistryAPI(dependencies),
     metrics: new MetricsResourceAPI(dependencies),
+    tasks: new TaskResourceAPI(dependencies),
+    graphs: new WorkflowGraphQueryAPI(dependencies),
+    diagnostics: new StorageDiagnosticsAPI(dependencies),
+    search: new SearchAPI(dependencies),
   };
 }
 

@@ -12,6 +12,7 @@ import { CrudResourceAPI } from "../../shared/resources/generic-resource-api.js"
 import type { AgentLoopRegistry } from "../../../agent/stores/agent-loop-registry.js";
 import type { AgentLoopEntity } from "../../../agent/entities/agent-loop-entity.js";
 import { AgentLoopStatus, type ID } from "@wf-agent/types";
+import type { ToolCallRecord } from "@wf-agent/types";
 import { getErrorMessage, isSuccess, getData } from "../../shared/types/execution-result.js";
 import type { APIDependencyManager } from "../../shared/core/sdk-dependencies.js";
 
@@ -313,4 +314,101 @@ export class AgentLoopRegistryAPI extends CrudResourceAPI<AgentLoopEntity, ID, A
   getRegistry(): AgentLoopRegistry {
     return this.registry;
   }
+
+  // ============================================================================
+  // Iteration History Methods
+  // ============================================================================
+
+  /**
+   * Get iteration history for an agent loop
+   * @param agentLoopId Agent loop ID
+   * @returns Iteration details in chronological order
+   */
+  async getIterationHistory(agentLoopId: ID): Promise<IterationDetail[]> {
+    const entity = await this.registry.get(agentLoopId);
+    if (!entity) {
+      return [];
+    }
+
+    return entity.state.iterationHistory.map(record => ({
+      iteration: record.iteration,
+      startTime: record.startTime,
+      endTime: record.endTime ?? 0,
+      duration: record.endTime ? record.endTime - record.startTime : -1,
+      toolCallCount: record.toolCalls.length,
+      toolCalls: record.toolCalls,
+      responseContent: record.responseContent,
+    }));
+  }
+
+  /**
+   * Get iteration history summary for an agent loop
+   * @param agentLoopId Agent loop ID
+   * @returns Iteration summary or null if agent loop not found
+   */
+  async getIterationHistorySummary(agentLoopId: ID): Promise<IterationHistorySummary | null> {
+    const entity = await this.registry.get(agentLoopId);
+    if (!entity) {
+      return null;
+    }
+
+    const history = entity.state.iterationHistory;
+    const completedIterations = history.filter(r => r.endTime != null);
+
+    let totalDuration = 0;
+    let totalToolCalls = 0;
+
+    for (const record of history) {
+      totalToolCalls += record.toolCalls.length;
+      if (record.endTime) {
+        totalDuration += record.endTime - record.startTime;
+      }
+    }
+
+    return {
+      totalIterations: history.length,
+      totalToolCalls,
+      totalDuration,
+      averageDuration: completedIterations.length > 0
+        ? Math.round(totalDuration / completedIterations.length)
+        : 0,
+      status: entity.getStatus(),
+    };
+  }
+}
+
+/**
+ * Iteration detail for agent loop history
+ */
+export interface IterationDetail {
+  /** Iteration number (1-based) */
+  iteration: number;
+  /** Start timestamp */
+  startTime: number;
+  /** End timestamp (0 if still in progress) */
+  endTime: number;
+  /** Duration in milliseconds (-1 if still in progress) */
+  duration: number;
+  /** Number of tool calls made during this iteration */
+  toolCallCount: number;
+  /** Tool calls made during this iteration */
+  toolCalls: ToolCallRecord[];
+  /** LLM response content */
+  responseContent?: string;
+}
+
+/**
+ * Agent loop iteration history summary
+ */
+export interface IterationHistorySummary {
+  /** Total number of iterations */
+  totalIterations: number;
+  /** Total tool calls across all iterations */
+  totalToolCalls: number;
+  /** Total elapsed time across completed iterations (ms) */
+  totalDuration: number;
+  /** Average duration per iteration (ms) */
+  averageDuration: number;
+  /** Agent loop status */
+  status: AgentLoopStatus;
 }

@@ -93,6 +93,9 @@ export {
   EventResourceAPI,
   type EventFilter,
   type EventStats,
+  type ExecutionTimeline,
+  type ExecutionTimelinePhase,
+  type ExecutionTimelineSummary,
 } from "./shared/resources/events/event-resource-api.js";
 
 // Common Resource API Base Classes and Tools
@@ -108,6 +111,40 @@ export {
   type MetricsExportFormat,
 } from "./shared/resources/metrics/metrics-resource-api.js";
 
+// Task Resource API
+export {
+  TaskResourceAPI,
+  type TaskFilter,
+  type TaskSummary,
+  type TaskStats,
+} from "./shared/resources/tasks/task-resource-api.js";
+
+// Workflow Graph Query API
+export {
+  WorkflowGraphQueryAPI,
+  type WorkflowGraphSummary,
+  type GraphNodeStats,
+  type GraphEdgeStats,
+  type NodeNeighbors,
+} from "./shared/resources/graphs/workflow-graph-query-api.js";
+
+// Storage Diagnostics API
+export {
+  StorageDiagnosticsAPI,
+  type StorageAdapterHealth,
+  type StorageItemCounts,
+  type StorageDiagnosticsReport,
+} from "./shared/resources/diagnostics/storage-diagnostics-api.js";
+
+// Search API
+export {
+  SearchAPI,
+  type SearchResourceType,
+  type SearchOptions,
+  type SearchResultItem,
+  type SearchResult,
+} from "./shared/resources/search/search-api.js";
+
 // ============================================================================
 // Workflow - Resource Management API (CRUD Operations)
 // ============================================================================
@@ -119,7 +156,13 @@ export {
 } from "./workflow/resources/executions/workflow-execution-registry-api.js";
 export { NodeRegistryAPI } from "./workflow/resources/templates/node-template-registry-api.js";
 export { TriggerTemplateRegistryAPI } from "./workflow/resources/templates/trigger-template-registry-api.js";
-export { CheckpointResourceAPI } from "./workflow/resources/checkpoints/checkpoint-resource-api.js";
+export {
+  CheckpointResourceAPI,
+  type CheckpointFilter,
+  type CheckpointSummary,
+  type CheckpointTransition,
+  type CheckpointChainAnalysis,
+} from "./workflow/resources/checkpoints/checkpoint-resource-api.js";
 export {
   MessageResourceAPI,
   type MessageFilter as WorkflowMessageFilter,
@@ -299,6 +342,8 @@ export {
   AgentLoopRegistryAPI,
   type AgentLoopFilter,
   type AgentLoopSummary,
+  type IterationDetail,
+  type IterationHistorySummary,
 } from "./agent/resources/agent-loop-registry-api.js";
 
 export {

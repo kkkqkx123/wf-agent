@@ -26,6 +26,10 @@ import { VariableResourceAPI } from "../../workflow/resources/variables/variable
 import { MessageResourceAPI } from "../../workflow/resources/messages/message-resource-api.js";
 import { SkillRegistryAPI } from "../resources/skills/skill-registry-api.js";
 import { MetricsResourceAPI } from "../resources/metrics/metrics-resource-api.js";
+import { TaskResourceAPI } from "../resources/tasks/task-resource-api.js";
+import { WorkflowGraphQueryAPI } from "../resources/graphs/workflow-graph-query-api.js";
+import { StorageDiagnosticsAPI } from "../resources/diagnostics/storage-diagnostics-api.js";
+import { SearchAPI } from "../resources/search/search-api.js";
 import { APIDependencyManager } from "./sdk-dependencies.js";
 
 /**
@@ -62,6 +66,14 @@ export interface AllAPIs {
   skills: SkillRegistryAPI;
   /** Metrics API */
   metrics: MetricsResourceAPI;
+  /** Task API */
+  tasks: TaskResourceAPI;
+  /** Workflow Graph Query API */
+  graphs: WorkflowGraphQueryAPI;
+  /** Storage Diagnostics API */
+  diagnostics: StorageDiagnosticsAPI;
+  /** Search API */
+  search: SearchAPI;
 }
 
 /**
@@ -241,6 +253,38 @@ export class APIFactory {
   }
 
   /**
+   * Create a Task API
+   * @returns TaskResourceAPI instance
+   */
+  public createTaskAPI(): TaskResourceAPI {
+    return this.createAPI("tasks", TaskResourceAPI);
+  }
+
+  /**
+   * Create a Workflow Graph Query API
+   * @returns WorkflowGraphQueryAPI instance
+   */
+  public createWorkflowGraphQueryAPI(): WorkflowGraphQueryAPI {
+    return this.createAPI("graphs", WorkflowGraphQueryAPI);
+  }
+
+  /**
+   * Create a Storage Diagnostics API
+   * @returns StorageDiagnosticsAPI instance
+   */
+  public createStorageDiagnosticsAPI(): StorageDiagnosticsAPI {
+    return this.createAPI("diagnostics", StorageDiagnosticsAPI);
+  }
+
+  /**
+   * Create a Search API
+   * @returns SearchAPI instance
+   */
+  public createSearchAPI(): SearchAPI {
+    return this.createAPI("search", SearchAPI);
+  }
+
+  /**
    * Create all API instances
    * @returns All API instances
    */
@@ -261,6 +305,10 @@ export class APIFactory {
       messages: this.createMessageAPI(),
       skills: this.createSkillAPI(),
       metrics: this.createMetricsAPI(),
+      tasks: this.createTaskAPI(),
+      graphs: this.createWorkflowGraphQueryAPI(),
+      diagnostics: this.createStorageDiagnosticsAPI(),
+      search: this.createSearchAPI(),
     };
   }
 

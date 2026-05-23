@@ -26,6 +26,8 @@ import type { SkillLoader } from "../../../core/utils/skill-loader.js";
 import type { AgentLoopRegistry } from "../../../agent/stores/agent-loop-registry.js";
 import type { AgentLoopCoordinator } from "../../../agent/execution/coordinators/agent-loop-coordinator.js";
 import type { MetricsRegistry } from "../../../core/metrics/metrics-registry.js";
+import type { TaskRegistry } from "../../../workflow/stores/task/task-registry.js";
+import type { CheckpointStorageAdapter, WorkflowStorageAdapter, WorkflowExecutionStorageAdapter, TaskStorageAdapter } from "@wf-agent/storage";
 import type { ServiceIdentifier } from "@wf-agent/common-utils";
 
 /**
@@ -165,6 +167,67 @@ export class APIDependencyManager {
     return this.globalContext.container.get(
       Identifiers.AgentLoopCoordinator as ServiceIdentifier<AgentLoopCoordinator>,
     );
+  }
+
+  /**
+   * Get the Task Registry
+   */
+  getTaskRegistry(): TaskRegistry {
+    return this.globalContext.container.get(
+      Identifiers.TaskRegistry as ServiceIdentifier<TaskRegistry>,
+    );
+  }
+
+  /**
+   * Get the Checkpoint Storage Adapter (may be null if not configured)
+   */
+  getCheckpointStorageAdapter(): CheckpointStorageAdapter | null {
+    try {
+      return this.globalContext.container.get(
+        Identifiers.CheckpointStorageAdapter as ServiceIdentifier<CheckpointStorageAdapter>,
+      ) as CheckpointStorageAdapter | null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Get the Workflow Storage Adapter (may be null if not configured)
+   */
+  getWorkflowStorageAdapter(): WorkflowStorageAdapter | null {
+    try {
+      return this.globalContext.container.get(
+        Identifiers.WorkflowStorageAdapter as ServiceIdentifier<WorkflowStorageAdapter>,
+      ) as WorkflowStorageAdapter | null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Get the Workflow Execution Storage Adapter (may be null if not configured)
+   */
+  getWorkflowExecutionStorageAdapter(): WorkflowExecutionStorageAdapter | null {
+    try {
+      return this.globalContext.container.get(
+        Identifiers.WorkflowExecutionStorageAdapter as ServiceIdentifier<WorkflowExecutionStorageAdapter>,
+      ) as WorkflowExecutionStorageAdapter | null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Get the Task Storage Adapter (may be null if not configured)
+   */
+  getTaskStorageAdapter(): TaskStorageAdapter | null {
+    try {
+      return this.globalContext.container.get(
+        Identifiers.TaskStorageAdapter as ServiceIdentifier<TaskStorageAdapter>,
+      ) as TaskStorageAdapter | null;
+    } catch {
+      return null;
+    }
   }
 
   /**

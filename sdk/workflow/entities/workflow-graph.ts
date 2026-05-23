@@ -25,7 +25,7 @@ import { WorkflowGraphData } from "./workflow-graph-data.js";
  * Workflow Graph Data Class
  * inherits from WorkflowGraphData, implements the WorkflowGraph interface
  */
-export class WorkflowGraph extends WorkflowGraphData implements WorkflowGraphType {
+export class WorkflowGraphEntity extends WorkflowGraphData implements WorkflowGraphType {
   // ========== ID Mapping Related ----------
   /** ID Mapping Table (Temporary Data during the Construction Phase) */
   public idMapping: IdMapping;

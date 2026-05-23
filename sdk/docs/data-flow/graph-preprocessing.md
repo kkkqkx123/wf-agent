@@ -10,10 +10,10 @@
 
 ### WorkflowGraph
 
-**位置**：`sdk/workflow/entities/workflow-graph.ts`
+**位置**：`sdk/workflow/entities/workflow-graph.ts` → `WorkflowGraphEntity` 类
 
 ```typescript
-class WorkflowGraphData extends GraphData implements WorkflowGraph {
+class WorkflowGraphEntity extends WorkflowGraphData implements WorkflowGraph {
   // 继承自 GraphData 的图结构
   nodes: Map<ID, GraphNode>;                    // 节点映射
   edges: Map<ID, GraphEdge>;                    // 边映射

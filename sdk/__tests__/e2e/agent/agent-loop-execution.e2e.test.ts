@@ -125,13 +125,9 @@ describe("Agent Loop Execution E2E", () => {
       // - The mock handler is called with the user message
       // - The handler returns "Mock LLM response for E2E testing"
       // 
-      // Known issue: AgentLoopCoordinator's state transitor throws when trying to
-      // complete/fail the agent loop after execution. This is a bug in the coordinator
-      // where completeAgentLoop/failAgentLoop state transitions fail due to the entity
-      // already being in the COMPLETED state.
-      //
-      // The execution itself works correctly - the mock LLM is called and returns a response.
-      // We verify this by checking the mock handler received the request.
+      // State transitor bug is now fixed - the coordinator checks entity status
+      // before attempting state transition, so result.success should be true.
+      expect(result.success).toBe(true);
       expect(ctx.mockHandler.getRequestCount()).toBeGreaterThanOrEqual(1);
     });
   });
@@ -141,8 +137,15 @@ describe("Agent Loop Execution E2E", () => {
       // TODO: Enable when agent loop executor properly handles multi-iteration flow
     });
 
-    it.skip("should execute a single iteration when maxIterations is 1", () => {
-      // TODO: Enable when state transitor bug is fixed
+    it("should execute a single iteration when maxIterations is 1", async () => {
+      const coordinator = getCoordinator(ctx.sdk);
+      const config = createBasicAgentConfig({ maxIterations: 1 });
+
+      const result = await coordinator.execute(config);
+
+      // State transitor bug is now fixed - completeAgentLoop no longer
+      // throws when entity is already COMPLETED by the executor.
+      expect(result.success).toBe(true);
     });
   });
 

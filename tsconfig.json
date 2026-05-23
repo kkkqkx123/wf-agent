@@ -33,6 +33,7 @@
     "allowSyntheticDefaultImports": true,
     "baseUrl": ".",
     "paths": {
+      "@/*": ["./sdk/*"],
       "@wf-agent/*": ["packages/*/src", "sdk/*/src"]
     }
   },

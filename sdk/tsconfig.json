@@ -5,6 +5,9 @@
     "rootDir": ".",
     "baseUrl": ".",
     "paths": {
+      "@/*": [
+        "./*"
+      ],
       "@sdk/core/*": [
         "./core/*"
       ],

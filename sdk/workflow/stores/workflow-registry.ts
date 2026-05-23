@@ -18,7 +18,6 @@ import type {
   UnregisterOptions,
   BatchUnregisterOptions,
   UpdateOptions,
-  WorkflowGraph,
 } from "@wf-agent/types";
 import type {
   WorkflowReferenceInfo,
@@ -360,6 +359,7 @@ export class WorkflowRegistry {
     }
 
     // Use WorkflowGraphBuilder to build and validate the graph
+    // buildAndValidate creates a WorkflowGraph with workflowId/workflowVersion preset
     const { graph, isValid, errors } = WorkflowGraphBuilder.buildAndValidate(workflow);
 
     if (!isValid) {
@@ -373,7 +373,7 @@ export class WorkflowRegistry {
     const mergeResult = await WorkflowGraphBuilder.processSubgraphs(
       graph,
       this,
-      graphRegistry as unknown as { get: (id: string) => import("../entities/workflow-graph-data.js").WorkflowGraphData | undefined },
+      graphRegistry,
     );
 
     if (!mergeResult.success) {
@@ -383,13 +383,8 @@ export class WorkflowRegistry {
       );
     }
 
-    // Preserve the WorkflowGraphData class instance (with its prototype methods like getNode)
-    // and add workflowId property directly without spreading (which would lose methods)
-    (graph as unknown as Record<string, unknown>)['workflowId'] = workflow.id;
-    (graph as unknown as Record<string, unknown>)['workflowVersion'] = workflow.version;
-    
     // Cache processing results
-    graphRegistry.register(graph as unknown as WorkflowGraph);
+    graphRegistry.register(graph);
   }
 
   /**

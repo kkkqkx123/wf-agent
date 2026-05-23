@@ -5,9 +5,9 @@
  */
 
 export { WorkflowGraphData } from "./workflow-graph-data.js";
-export { WorkflowGraph } from "./workflow-graph.js";
+export { WorkflowGraphEntity } from "./workflow-graph.js";
 export { WorkflowExecutionEntity } from "./workflow-execution-entity.js";
 
 // Backward compatibility aliases
 export { WorkflowGraphData as GraphData } from "./workflow-graph-data.js";
-export { WorkflowGraph as PreprocessedGraphData } from "./workflow-graph.js";
+export { WorkflowGraphEntity as PreprocessedGraphData } from "./workflow-graph.js";

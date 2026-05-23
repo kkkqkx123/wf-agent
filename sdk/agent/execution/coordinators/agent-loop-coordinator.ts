@@ -182,10 +182,17 @@ export class AgentLoopCoordinator {
       }
 
       // 5. Update the status using state transitor
+      // NOTE: AgentExecutionCoordinator may have already completed the entity internally
+      // (e.g., executeIteration calls entity.state.complete() when LLM returns final answer).
+      // Only attempt transition if still RUNNING to avoid state machine violation.
       if (result.success) {
-        await this.stateTransitor.completeAgentLoop(entity, result);
+        if (entity.getStatus() === AgentLoopStatus.RUNNING) {
+          await this.stateTransitor.completeAgentLoop(entity, result);
+        }
       } else {
-        await this.stateTransitor.failAgentLoop(entity, result.error);
+        if (entity.getStatus() === AgentLoopStatus.RUNNING) {
+          await this.stateTransitor.failAgentLoop(entity, result.error);
+        }
       }
 
       return result;
@@ -425,9 +432,13 @@ export class AgentLoopCoordinator {
       const result = await this.executor.execute(entity);
 
       if (result.success) {
-        await this.stateTransitor.completeAgentLoop(entity, result);
+        if (entity.getStatus() === AgentLoopStatus.RUNNING) {
+          await this.stateTransitor.completeAgentLoop(entity, result);
+        }
       } else {
-        await this.stateTransitor.failAgentLoop(entity, result.error);
+        if (entity.getStatus() === AgentLoopStatus.RUNNING) {
+          await this.stateTransitor.failAgentLoop(entity, result.error);
+        }
       }
 
       return result;
@@ -502,9 +513,13 @@ export class AgentLoopCoordinator {
       const result = await this.executor.execute(entity);
 
       if (result.success) {
-        await this.stateTransitor.completeAgentLoop(entity, result);
+        if (entity.getStatus() === AgentLoopStatus.RUNNING) {
+          await this.stateTransitor.completeAgentLoop(entity, result);
+        }
       } else {
-        await this.stateTransitor.failAgentLoop(entity, result.error);
+        if (entity.getStatus() === AgentLoopStatus.RUNNING) {
+          await this.stateTransitor.failAgentLoop(entity, result.error);
+        }
       }
 
       return result;

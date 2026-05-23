@@ -13,8 +13,10 @@ import type {
   WorkflowEdge,
   SubgraphMergeOptions,
   SubgraphMergeResult,
+  WorkflowGraph,
 } from "@wf-agent/types";
 import { WorkflowGraphData } from "../entities/workflow-graph-data.js";
+import { WorkflowGraphEntity } from "../entities/workflow-graph.js";
 import { GraphValidator } from "../validation/graph-validation/graph-validator.js";
 import {
   generateNamespacedNodeId,
@@ -33,8 +35,8 @@ export class WorkflowGraphBuilder {
   /**
    * Constructing a workflow graph from workflow template
    */
-  static build(workflow: WorkflowTemplate): WorkflowGraphData {
-    const graph = new WorkflowGraphData();
+  static build(workflow: WorkflowTemplate, existingGraph?: WorkflowGraphData): WorkflowGraphData {
+    const graph = existingGraph ?? new WorkflowGraphData();
 
     // Build nodes
     for (const node of workflow.nodes) {
@@ -91,12 +93,15 @@ export class WorkflowGraphBuilder {
   static buildAndValidate(
     workflow: WorkflowTemplate,
   ): {
-    graph: WorkflowGraphData;
+    graph: WorkflowGraph;
     isValid: boolean;
     errors: string[];
   } {
-    // Build a graph
-    const graph = this.build(workflow);
+    // Build a graph (use WorkflowGraphEntity instance to carry workflow metadata)
+    const graph = new WorkflowGraphEntity();
+    graph.workflowId = workflow.id;
+    graph.workflowVersion = workflow.version;
+    this.build(workflow, graph);
 
     // Handling the global uniqueness of Fork/Join Path IDs
     this.processForkJoinPathIds(graph);
@@ -182,7 +187,7 @@ export class WorkflowGraphBuilder {
    * @returns: Merge result containing mappings and changes
    */
   static async processSubgraphs(
-    graph: WorkflowGraphData,
+    graph: WorkflowGraph,
     workflowRegistry: {
       registerSubgraphRelationship?: (
         parentWorkflowId: ID,
@@ -191,7 +196,7 @@ export class WorkflowGraphBuilder {
       ) => void;
     },
     workflowGraphRegistry: {
-      get: (id: ID) => WorkflowGraphData | undefined;
+      get: (id: ID) => WorkflowGraph | undefined;
     },
     maxRecursionDepth: number = 10,
     currentDepth: number = 0,
@@ -242,7 +247,7 @@ export class WorkflowGraphBuilder {
         // Register relationship if available
         if (workflowRegistry.registerSubgraphRelationship) {
           workflowRegistry.registerSubgraphRelationship(
-            (graph as any).workflowId || '',
+            graph.workflowId,
             node.id,
             subworkflowId,
           );
@@ -281,14 +286,14 @@ export class WorkflowGraphBuilder {
 
         // Perform graph expansion
         const mergeResult = this.mergeGraph(
-          graph,
+          graph as WorkflowGraphEntity,
           subgraphGraph,
           node.id,
           {
             nodeIdPrefix: `${node.id}_`,
             edgeIdPrefix: `${node.id}_`,
             subworkflowId,
-            parentWorkflowId: (graph as any).workflowId || '',
+            parentWorkflowId: graph.workflowId,
             depth: currentDepth + 1,
             workflowRegistry,
           },
@@ -338,25 +343,25 @@ export class WorkflowGraphBuilder {
    * - No nested SUBGRAPH/EMBED_GRAPH with variables
    */
   private static validateEmbedGraphConstraints(
-    subgraph: WorkflowGraphData,
+    subgraph: WorkflowGraph,
     embedNodeId: ID,
   ): string[] {
     const errors: string[] = [];
 
     // Rule 1: Embedded workflow cannot define variables
-    if ((subgraph as any).variables && (subgraph as any).variables.length > 0) {
+    if (subgraph.variables && subgraph.variables.length > 0) {
       errors.push(
-        `EMBED_GRAPH '${embedNodeId}' references workflow '${(subgraph as any).workflowId || 'unknown'}' ` +
-        `which defines ${(subgraph as any).variables.length} variables. ` +
+        `EMBED_GRAPH '${embedNodeId}' references workflow '${subgraph.workflowId || 'unknown'}' ` +
+        `which defines ${subgraph.variables.length} variables. ` +
         `EmbedGraph workflows must be variable-free.`
       );
     }
 
     // Rule 2: Embedded workflow cannot have triggers
-    if ((subgraph as any).triggers && (subgraph as any).triggers.length > 0) {
+    if (subgraph.triggers && subgraph.triggers.length > 0) {
       errors.push(
-        `EMBED_GRAPH '${embedNodeId}' references workflow '${(subgraph as any).workflowId || 'unknown'}' ` +
-        `which defines ${(subgraph as any).triggers.length} triggers. ` +
+        `EMBED_GRAPH '${embedNodeId}' references workflow '${subgraph.workflowId || 'unknown'}' ` +
+        `which defines ${subgraph.triggers.length} triggers. ` +
         `EmbedGraph workflows cannot have triggers.`
       );
     }
@@ -365,7 +370,7 @@ export class WorkflowGraphBuilder {
     for (const node of subgraph.nodes.values()) {
       if (node.type === 'VARIABLE') {
         errors.push(
-          `EMBED_GRAPH '${embedNodeId}' references workflow '${(subgraph as any).workflowId || 'unknown'}' ` +
+          `EMBED_GRAPH '${embedNodeId}' references workflow '${subgraph.workflowId || 'unknown'}' ` +
           `which contains VARIABLE nodes. EmbedGraph workflows cannot modify variables.`
         );
         break;
@@ -396,7 +401,7 @@ export class WorkflowGraphBuilder {
    */
   private static mergeGraph(
     mainGraph: WorkflowGraphData,
-    subgraph: WorkflowGraphData,
+    subgraph: WorkflowGraph,
     subgraphNodeId: ID,
     options: SubgraphMergeOptions & {
       subworkflowId: ID;

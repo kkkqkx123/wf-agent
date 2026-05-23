@@ -40,6 +40,8 @@ import type { GlobalContext } from "../global-context.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 import type { ToolFailureProtectionState } from "../state-managers/tool-failure-protection-state.js";
 import type { ToolMetricsCollector } from "../metrics/tool-collector.js";
+import { isAbortError } from "../utils/error-utils.js";
+import { InterruptedException } from "../types/interruption-types.js";
 
 const logger = createContextualLogger({ component: "ToolCallExecutor" });
 
@@ -116,22 +118,36 @@ export type CheckpointCreator = (
 ) => Promise<string>;
 
 /**
+ * Tool Visibility Store Interface
+ * Used to check whether a tool is visible/available in the current execution scope.
+ */
+export interface ToolVisibilityStore {
+  isToolVisible(executionId: string, toolName: string): boolean;
+  getVisibleTools(executionId: string): Set<string>;
+}
+
+/**
+ * Tool Call Executor Options
+ */
+export interface ToolCallExecutorOptions {
+  eventManager?: EventRegistry;
+  checkpointDependencies?: CheckpointDependencies;
+  toolVisibilityStore?: ToolVisibilityStore;
+  eventBuilder?: EventBuilder;
+  createCheckpointFn?: CheckpointCreator;
+  safeEmitFn?: (eventManager: EventRegistry | undefined, event: Event) => void | Promise<void>;
+  toolFailureProtection?: ToolFailureProtectionState;
+  metricsCollector?: ToolMetricsCollector;
+  globalContext?: GlobalContext;
+}
+
+/**
  * Tool Call Executor Class
  */
 export class ToolCallExecutor {
   constructor(
     private toolService: ToolRegistry,
-    private eventManager?: EventRegistry,
-    private checkpointDependencies?: CheckpointDependencies,
-    private eventBuilder?: EventBuilder,
-    private createCheckpointFn?: CheckpointCreator,
-    private safeEmitFn?: (
-      eventManager: EventRegistry | undefined,
-      event: Event,
-    ) => void | Promise<void>,
-    private toolFailureProtection?: ToolFailureProtectionState,
-    private metricsCollector?: ToolMetricsCollector,
-    private globalContext?: GlobalContext,
+    private options: ToolCallExecutorOptions = {},
   ) {}
 
   /**
@@ -165,7 +181,7 @@ export class ToolCallExecutor {
     // Check the interrupt signal.
     if (options?.abortSignal && options.abortSignal.aborted) {
       const result = checkExecutionInterruption(options.abortSignal);
-      
+
       // Return interruption info instead of throwing
       // This allows callers to handle interruption gracefully
       logger.info("Tool execution interrupted before starting", {
@@ -174,7 +190,7 @@ export class ToolCallExecutor {
         interruptionType: result.type,
         toolCallCount: toolCalls.length,
       });
-      
+
       // Build cancelled results for all tool calls
       return toolCalls.map(toolCall => ({
         toolCallId: toolCall.id,
@@ -191,7 +207,7 @@ export class ToolCallExecutor {
     // Create a batch-level AbortController for coordinated cancellation
     // This ensures that if one tool is interrupted, all other tools in the batch can be notified
     const batchController = new AbortController();
-    
+
     // Combine external abort signal with batch controller
     // If either signals abort, all tools will be notified
     let combinedSignal: AbortSignal;
@@ -217,7 +233,7 @@ export class ToolCallExecutor {
 
     // Use Promise.allSettled to perform all tool calls in parallel
     // Even if some tool calls fail, the execution of other tool calls can continue.
-    const executionPromises = toolCalls.map(async (toolCall) => {
+    const executionPromises = toolCalls.map(async toolCall => {
       try {
         return await this.executeSingleToolCall(
           toolCall,
@@ -230,13 +246,13 @@ export class ToolCallExecutor {
         );
       } catch (error) {
         // If a tool fails due to interruption, abort the entire batch
-        if (error instanceof Error && error.name === "AbortError") {
+        if (isAbortError(error)) {
           logger.info("Tool interrupted, cancelling remaining tools in batch", {
             batchId,
             toolCallId: toolCall.id,
             toolName: toolCall.name,
           });
-          
+
           // Abort the batch controller to notify other tools
           if (!batchController.signal.aborted) {
             batchController.abort(error);
@@ -268,74 +284,80 @@ export class ToolCallExecutor {
     });
 
     // 转换结果为统一的 ToolExecutionResult[] 格式
-    return settledResults.map((result, index) => {
-      if (result.status === "fulfilled") {
-        return result.value;
-      } else {
-        // Handling rejected cases
-        const toolCall = toolCalls[index];
-        if (!toolCall) {
-          throw new Error(`Tool call at index ${index} is undefined`);
-        }
+    const results: ToolExecutionResult[] = await Promise.all(
+      settledResults.map(async (result, index) => {
+        if (result.status === "fulfilled") {
+          return result.value;
+        } else {
+          // Handling rejected cases
+          const toolCall = toolCalls[index];
+          if (!toolCall) {
+            throw new Error(`Tool call at index ${index} is undefined`);
+          }
 
-        const error = result.reason;
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        const executionTime = 0;
+          const error = result.reason;
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          const executionTime = 0;
 
-        // Building a failure message result using MessageBuilder failed.
-        const toolMessage = MessageBuilder.buildToolMessage(toolCall.id, {
-          success: false,
-          error: errorMessage || "Tool execution failed",
-          executionTime: 0,
-          retryCount: 0,
-        });
-        conversationState.addMessage(toolMessage);
-
-        // Trigger message addition event
-        if (this.eventManager && this.eventBuilder && this.safeEmitFn) {
-          const messageEvent = this.eventBuilder.buildMessageAddedEvent({
-            executionId: executionId || "",
-            role: toolMessage.role,
-            content:
-              typeof toolMessage.content === "string"
-                ? toolMessage.content
-                : JSON.stringify(toolMessage.content),
-            nodeId,
+          // Building a failure message result using MessageBuilder failed.
+          const toolMessage = MessageBuilder.buildToolMessage(toolCall.id, {
+            success: false,
+            error: errorMessage || "Tool execution failed",
+            executionTime: 0,
+            retryCount: 0,
           });
-          this.safeEmitFn(this.eventManager, messageEvent);
-        }
+          conversationState.addMessage(toolMessage);
 
-        // Retrieve task information from taskInfos.
-        const taskInfo = taskInfos.get(toolCall.id)!;
+          // Trigger message addition event
+          if (this.options.eventManager && this.options.eventBuilder && this.options.safeEmitFn) {
+            const messageEvent = this.options.eventBuilder.buildMessageAddedEvent({
+              executionId: executionId || "",
+              role: toolMessage.role,
+              content:
+                typeof toolMessage.content === "string"
+                  ? toolMessage.content
+                  : JSON.stringify(toolMessage.content),
+              nodeId,
+            });
+            await this.options.safeEmitFn(this.options.eventManager, messageEvent);
+          }
 
-        // Triggering the tool call failed event.
-        if (this.eventManager && this.eventBuilder && this.safeEmitFn) {
-          const failedEvent = this.eventBuilder.buildToolCallFailedEvent({
-            executionId: executionId || "",
-            nodeId: nodeId || "",
+          // Retrieve task information from taskInfos.
+          const taskInfo = taskInfos.get(toolCall.id)!;
+
+          // Triggering the tool call failed event.
+          if (this.options.eventManager && this.options.eventBuilder && this.options.safeEmitFn) {
+            const failedEvent = this.options.eventBuilder.buildToolCallFailedEvent({
+              executionId: executionId || "",
+              nodeId: nodeId || "",
+              toolId: toolCall.name,
+              toolName: toolCall.name,
+              error: new Error(errorMessage),
+              taskId: taskInfo.taskId,
+              batchId: taskInfo.batchId,
+            });
+            this.options.safeEmitFn(this.options.eventManager, failedEvent);
+          }
+
+          // Record failed tool execution for failure protection (NEW)
+          if (this.options.toolFailureProtection) {
+            this.options.toolFailureProtection.recordFailure(
+              toolCall.name,
+              errorMessage || "Tool execution failed",
+            );
+          }
+
+          return {
+            toolCallId: toolCall.id,
             toolId: toolCall.name,
-            toolName: toolCall.name,
-            error: new Error(errorMessage),
-            taskId: taskInfo.taskId,
-            batchId: taskInfo.batchId,
-          });
-          this.safeEmitFn(this.eventManager, failedEvent);
+            success: false,
+            error: errorMessage,
+            executionTime,
+          };
         }
-
-        // Record failed tool execution for failure protection (NEW)
-        if (this.toolFailureProtection) {
-          this.toolFailureProtection.recordFailure(toolCall.name, errorMessage || "Tool execution failed");
-        }
-
-        return {
-          toolCallId: toolCall.id,
-          toolId: toolCall.name,
-          success: false,
-          error: errorMessage,
-          executionTime,
-        };
-      }
-    });
+      }),
+    );
+    return results;
   }
 
   /**
@@ -357,19 +379,19 @@ export class ToolCallExecutor {
     nodeId: string | undefined,
     batchId: string,
     taskInfo: ToolCallTaskInfo,
-    options?: { abortSignal?: AbortSignal },
+    options?: { abortSignal?: AbortSignal; onProgress?: ToolProgressCallback },
   ): Promise<ToolExecutionResult> {
     const startTime = taskInfo.startTime;
 
     // Record tool call start metrics
-    if (executionId && this.metricsCollector) {
-      this.metricsCollector.recordToolCallStart(toolCall.name, executionId);
+    if (executionId && this.options.metricsCollector) {
+      this.options.metricsCollector.recordToolCallStart(toolCall.name, executionId);
     }
 
     // Track operation state for mid-node resume (if execution registry is available)
-    const executionRegistry = this.checkpointDependencies?.workflowExecutionRegistry;
+    const executionRegistry = this.options.checkpointDependencies?.workflowExecutionRegistry;
     let hasOperationState = false;
-    
+
     if (executionRegistry && executionId) {
       const executionEntity = executionRegistry.get(executionId);
       if (executionEntity) {
@@ -412,12 +434,13 @@ export class ToolCallExecutor {
     }
 
     // Check tool failure protection (NEW)
-    if (executionId && this.toolFailureProtection) {
-      const checkResult = this.toolFailureProtection.canExecuteTool(toolCall.name);
-      
+    if (executionId && this.options.toolFailureProtection) {
+      const checkResult = this.options.toolFailureProtection.canExecuteTool(toolCall.name);
+
       if (!checkResult.allowed) {
-        const errorMessage = checkResult.reason || `Tool '${toolCall.name}' is blocked due to consecutive failures`;
-        
+        const errorMessage =
+          checkResult.reason || `Tool '${toolCall.name}' is blocked due to consecutive failures`;
+
         logger.warn(`Tool call blocked by failure protection`, {
           toolCallId: toolCall.id,
           toolName: toolCall.name,
@@ -438,8 +461,8 @@ export class ToolCallExecutor {
         conversationState.addMessage(toolMessage);
 
         // Trigger message addition event
-        if (this.eventManager && this.eventBuilder && this.safeEmitFn) {
-          const messageEvent = this.eventBuilder.buildMessageAddedEvent({
+        if (this.options.eventManager && this.options.eventBuilder && this.options.safeEmitFn) {
+          const messageEvent = this.options.eventBuilder.buildMessageAddedEvent({
             executionId: executionId || "",
             role: toolMessage.role,
             content:
@@ -448,12 +471,12 @@ export class ToolCallExecutor {
                 : JSON.stringify(toolMessage.content),
             nodeId,
           });
-          await this.safeEmitFn(this.eventManager, messageEvent);
+          await this.options.safeEmitFn(this.options.eventManager, messageEvent);
         }
 
         // Trigger tool call blocked event (NEW)
-        if (this.eventManager && this.eventBuilder?.buildToolCallBlockedEvent && this.safeEmitFn) {
-          const blockedEvent = this.eventBuilder.buildToolCallBlockedEvent({
+        if (this.options.eventManager && this.options.eventBuilder?.buildToolCallBlockedEvent && this.options.safeEmitFn) {
+          const blockedEvent = this.options.eventBuilder.buildToolCallBlockedEvent({
             executionId: executionId || "",
             nodeId: nodeId || "",
             toolId: toolCall.name,
@@ -463,12 +486,67 @@ export class ToolCallExecutor {
             remainingCooldown: checkResult.remainingCooldown,
             reason: checkResult.reason,
           });
-          await this.safeEmitFn(this.eventManager, blockedEvent);
+          await this.options.safeEmitFn(this.options.eventManager, blockedEvent);
         }
 
         // Record tool call blocked metrics
-        if (executionId && this.metricsCollector) {
-          this.metricsCollector.recordToolCallComplete(
+        if (executionId && this.options.metricsCollector) {
+          this.options.metricsCollector.recordToolCallComplete(
+            toolCall.name,
+            executionId,
+            diffTimestamp(startTime, now()),
+            false,
+          );
+        }
+
+        return {
+          toolCallId: toolCall.id,
+          toolId: toolCall.name,
+          success: false,
+          error: errorMessage,
+          executionTime: diffTimestamp(startTime, now()),
+        };
+      }
+    }
+
+    // Check tool visibility (if ToolVisibilityStore is configured)
+    if (executionId && this.options.toolVisibilityStore) {
+      if (!this.options.toolVisibilityStore.isToolVisible(executionId, toolCall.name)) {
+        const errorMessage = `Tool '${toolCall.name}' is not available in the current scope`;
+
+        logger.warn(errorMessage, {
+          toolCallId: toolCall.id,
+          toolName: toolCall.name,
+          executionId,
+          nodeId,
+        });
+
+        // Build tool result message for invisible tool
+        const toolMessage = MessageBuilder.buildToolMessage(toolCall.id, {
+          success: false,
+          error: errorMessage,
+          executionTime: diffTimestamp(startTime, now()),
+          retryCount: 0,
+        });
+        conversationState.addMessage(toolMessage);
+
+        // Trigger message addition event
+        if (this.options.eventManager && this.options.eventBuilder && this.options.safeEmitFn) {
+          const messageEvent = this.options.eventBuilder.buildMessageAddedEvent({
+            executionId: executionId || "",
+            role: toolMessage.role,
+            content:
+              typeof toolMessage.content === "string"
+                ? toolMessage.content
+                : JSON.stringify(toolMessage.content),
+            nodeId,
+          });
+          await this.options.safeEmitFn(this.options.eventManager, messageEvent);
+        }
+
+        // Record tool call failure metrics
+        if (executionId && this.options.metricsCollector) {
+          this.options.metricsCollector.recordToolCallComplete(
             toolCall.name,
             executionId,
             diffTimestamp(startTime, now()),
@@ -489,9 +567,9 @@ export class ToolCallExecutor {
     // Create a checkpoint before the tool call (if configured).
     if (
       toolConfig?.createCheckpoint &&
-      this.checkpointDependencies &&
+      this.options.checkpointDependencies &&
       executionId &&
-      this.createCheckpointFn
+      this.options.createCheckpointFn
     ) {
       const checkpointConfig = toolConfig.createCheckpoint;
       if (
@@ -500,14 +578,14 @@ export class ToolCallExecutor {
         checkpointConfig === "both"
       ) {
         try {
-          await this.createCheckpointFn(
+          await this.options.createCheckpointFn(
             {
               workflowExecutionId: executionId,
               toolId: toolCall.name,
               description:
                 toolConfig.checkpointDescriptionTemplate || `Before tool: ${toolCall.name}`,
             },
-            this.checkpointDependencies,
+            this.options.checkpointDependencies,
           );
         } catch (error) {
           throw new WorkflowCheckpointError(
@@ -527,8 +605,8 @@ export class ToolCallExecutor {
     }
 
     // Trigger the tool call start event.
-    if (this.eventManager && this.eventBuilder && this.safeEmitFn) {
-      const startedEvent = this.eventBuilder.buildToolCallStartedEvent({
+    if (this.options.eventManager && this.options.eventBuilder && this.options.safeEmitFn) {
+      const startedEvent = this.options.eventBuilder.buildToolCallStartedEvent({
         executionId: executionId || "",
         nodeId: nodeId || "",
         toolId: toolCall.name,
@@ -537,7 +615,7 @@ export class ToolCallExecutor {
         taskId: taskInfo.taskId,
         batchId,
       });
-      await this.safeEmitFn(this.eventManager, startedEvent);
+      await this.options.safeEmitFn(this.options.eventManager, startedEvent);
     }
 
     // Build execution options that support reading from tool configuration.
@@ -563,25 +641,72 @@ export class ToolCallExecutor {
       let context: Record<string, unknown> | undefined;
       if (isBuiltinTool) {
         context = {
-          eventManager: this.eventManager,
+          eventManager: this.options.eventManager,
           executionId,
           nodeId,
-          parentExecutionEntity: this.checkpointDependencies?.workflowExecutionRegistry?.get(executionId || ""),
-          executionRegistry: this.checkpointDependencies?.workflowExecutionRegistry,
-          globalContext: this.globalContext,
+          parentExecutionEntity: this.options.checkpointDependencies?.workflowExecutionRegistry?.get(
+            executionId || "",
+          ),
+          executionRegistry: this.options.checkpointDependencies?.workflowExecutionRegistry,
+          globalContext: this.options.globalContext,
         };
       } else if (isInteractiveTool) {
         context = {
-          eventManager: this.eventManager,
+          eventManager: this.options.eventManager,
           executionId,
           nodeId,
-          parentExecutionEntity: this.checkpointDependencies?.workflowExecutionRegistry?.get(executionId || ""),
+          parentExecutionEntity: this.options.checkpointDependencies?.workflowExecutionRegistry?.get(
+            executionId || "",
+          ),
         };
+      }
+
+      // Parse tool arguments with error handling for invalid JSON
+      let parsedArgs: Record<string, unknown>;
+      try {
+        parsedArgs = JSON.parse(toolCall.arguments) as Record<string, unknown>;
+      } catch (parseError) {
+        const parseErrorMessage = `Invalid JSON in tool arguments for '${toolCall.name}': ${parseError instanceof Error ? parseError.message : String(parseError)}`;
+        logger.warn(parseErrorMessage, {
+          toolCallId: toolCall.id,
+          toolName: toolCall.name,
+        });
+
+        // Build failed result message
+        const toolMessage = MessageBuilder.buildToolMessage(toolCall.id, {
+          success: false,
+          error: parseErrorMessage,
+          executionTime: diffTimestamp(startTime, now()),
+          retryCount: 0,
+        });
+        conversationState.addMessage(toolMessage);
+
+        if (hasOperationState && executionRegistry && executionId) {
+          executionRegistry.get(executionId)?.state.clearOperation();
+        }
+
+        return {
+          toolCallId: toolCall.id,
+          toolId: toolCall.name,
+          success: false,
+          error: parseErrorMessage,
+          executionTime: diffTimestamp(startTime, now()),
+        };
+      }
+
+      // Notify progress: tool execution is starting
+      if (options?.onProgress) {
+        options.onProgress(toolCall.id, {
+          status: "running",
+          toolName: toolCall.name,
+          arguments: parsedArgs,
+          executionTime: diffTimestamp(startTime, now()),
+        });
       }
 
       const result = await this.toolService.execute(
         toolCall.name,
-        JSON.parse(toolCall.arguments),
+        parsedArgs,
         executionOptions,
         executionId,
         context, // Pass context for interactive tools
@@ -599,10 +724,15 @@ export class ToolCallExecutor {
         const error = result.error;
         const errorMessage = error.message;
 
-        // Handle InterruptionError - return interruption result instead of throwing
-        if (error instanceof Error && error.name === "InterruptionError" && "interruption" in error) {
-          const interruptionResult = (error as { interruption: ExecutionInterruptionCheckResult }).interruption;
-          
+        // Handle InterruptedException - return interruption result instead of throwing
+        if (error instanceof InterruptedException) {
+          const interruptionResult: ExecutionInterruptionCheckResult =
+            error.interruptionType === "PAUSE"
+              ? { type: "paused" }
+              : error.interruptionType === "STOP"
+                ? { type: "stopped" }
+                : { type: "aborted", reason: error.message };
+
           // Log interruption for observability
           logger.info("Tool execution interrupted during execution", {
             toolCallId: toolCall.id,
@@ -611,13 +741,13 @@ export class ToolCallExecutor {
             nodeId,
             interruptionType: interruptionResult.type,
           });
-          
+
           // Clear operation state on interruption
           if (hasOperationState && executionRegistry && executionId) {
             const executionEntity = executionRegistry.get(executionId);
             executionEntity?.state.clearOperation();
           }
-          
+
           // Build interruption result message
           const interruptionMessage = `Tool execution ${interruptionResult.type === "paused" ? "paused" : "cancelled"}`;
           const toolMessage = MessageBuilder.buildToolMessage(toolCall.id, {
@@ -627,7 +757,7 @@ export class ToolCallExecutor {
             retryCount: 0,
           });
           conversationState.addMessage(toolMessage);
-          
+
           // Return interruption result instead of throwing
           return {
             toolCallId: toolCall.id,
@@ -648,8 +778,8 @@ export class ToolCallExecutor {
         conversationState.addMessage(toolMessage);
 
         // Trigger message addition event
-        if (this.eventManager && this.eventBuilder && this.safeEmitFn) {
-          const messageEvent = this.eventBuilder.buildMessageAddedEvent({
+        if (this.options.eventManager && this.options.eventBuilder && this.options.safeEmitFn) {
+          const messageEvent = this.options.eventBuilder.buildMessageAddedEvent({
             executionId: executionId || "",
             role: toolMessage.role,
             content:
@@ -658,12 +788,12 @@ export class ToolCallExecutor {
                 : JSON.stringify(toolMessage.content),
             nodeId,
           });
-          await this.safeEmitFn(this.eventManager, messageEvent);
+          await this.options.safeEmitFn(this.options.eventManager, messageEvent);
         }
 
         // Trigger tool call failure event
-        if (this.eventManager && this.eventBuilder && this.safeEmitFn) {
-          const failedEvent = this.eventBuilder.buildToolCallFailedEvent({
+        if (this.options.eventManager && this.options.eventBuilder && this.options.safeEmitFn) {
+          const failedEvent = this.options.eventBuilder.buildToolCallFailedEvent({
             executionId: executionId || "",
             nodeId: nodeId || "",
             toolId: toolCall.name,
@@ -672,17 +802,20 @@ export class ToolCallExecutor {
             taskId: taskInfo.taskId,
             batchId,
           });
-          await this.safeEmitFn(this.eventManager, failedEvent);
+          await this.options.safeEmitFn(this.options.eventManager, failedEvent);
         }
 
         // Record failed tool execution for failure protection (NEW)
-        if (this.toolFailureProtection) {
-          this.toolFailureProtection.recordFailure(toolCall.name, errorMessage || "Tool execution failed");
+        if (this.options.toolFailureProtection) {
+          this.options.toolFailureProtection.recordFailure(
+            toolCall.name,
+            errorMessage || "Tool execution failed",
+          );
         }
 
         // Record tool call failure metrics
-        if (executionId && this.metricsCollector) {
-          this.metricsCollector.recordToolCallComplete(
+        if (executionId && this.options.metricsCollector) {
+          this.options.metricsCollector.recordToolCallComplete(
             toolCall.name,
             executionId,
             executionTime,
@@ -706,9 +839,9 @@ export class ToolCallExecutor {
       // Create a checkpoint after the tool call (if configured).
       if (
         toolConfig?.createCheckpoint &&
-        this.checkpointDependencies &&
+        this.options.checkpointDependencies &&
         executionId &&
-        this.createCheckpointFn
+        this.options.createCheckpointFn
       ) {
         const checkpointConfig = toolConfig.createCheckpoint;
         if (
@@ -717,14 +850,14 @@ export class ToolCallExecutor {
           checkpointConfig === "both"
         ) {
           try {
-            await this.createCheckpointFn(
+            await this.options.createCheckpointFn(
               {
                 workflowExecutionId: executionId,
                 toolId: toolCall.name,
                 description:
                   toolConfig.checkpointDescriptionTemplate || `After tool: ${toolCall.name}`,
               },
-              this.checkpointDependencies,
+              this.options.checkpointDependencies,
             );
           } catch (error) {
             throw new WorkflowCheckpointError(
@@ -753,8 +886,8 @@ export class ToolCallExecutor {
       conversationState.addMessage(toolMessage);
 
       // Trigger message addition event
-      if (this.eventManager && this.eventBuilder && this.safeEmitFn) {
-        const messageEvent = this.eventBuilder.buildMessageAddedEvent({
+      if (this.options.eventManager && this.options.eventBuilder && this.options.safeEmitFn) {
+        const messageEvent = this.options.eventBuilder.buildMessageAddedEvent({
           executionId: executionId || "",
           role: toolMessage.role,
           content:
@@ -763,12 +896,12 @@ export class ToolCallExecutor {
               : JSON.stringify(toolMessage.content),
           nodeId,
         });
-        await this.safeEmitFn(this.eventManager, messageEvent);
+        await this.options.safeEmitFn(this.options.eventManager, messageEvent);
       }
 
       // Triggering the tool invocation completed the event.
-      if (this.eventManager && this.eventBuilder && this.safeEmitFn) {
-        const completedEvent = this.eventBuilder.buildToolCallCompletedEvent({
+      if (this.options.eventManager && this.options.eventBuilder && this.options.safeEmitFn) {
+        const completedEvent = this.options.eventBuilder.buildToolCallCompletedEvent({
           executionId: executionId || "",
           nodeId: nodeId || "",
           toolId: toolCall.name,
@@ -778,17 +911,17 @@ export class ToolCallExecutor {
           taskId: taskInfo.taskId,
           batchId,
         });
-        await this.safeEmitFn(this.eventManager, completedEvent);
+        await this.options.safeEmitFn(this.options.eventManager, completedEvent);
       }
 
       // Record successful tool execution for failure protection (NEW)
-      if (this.toolFailureProtection) {
-        this.toolFailureProtection.recordSuccess(toolCall.name);
+      if (this.options.toolFailureProtection) {
+        this.options.toolFailureProtection.recordSuccess(toolCall.name);
       }
 
       // Record tool call completion metrics
-      if (executionId && this.metricsCollector) {
-        this.metricsCollector.recordToolCallComplete(
+      if (executionId && this.options.metricsCollector) {
+        this.options.metricsCollector.recordToolCallComplete(
           toolCall.name,
           executionId,
           executionTime,
@@ -796,6 +929,16 @@ export class ToolCallExecutor {
           JSON.stringify(toolCall.arguments).length,
           JSON.stringify(successResult).length,
         );
+      }
+
+      // Notify progress: tool execution completed successfully
+      if (options?.onProgress) {
+        options.onProgress(toolCall.id, {
+          status: "completed",
+          toolName: toolCall.name,
+          result: successResult,
+          executionTime,
+        });
       }
 
       return {
@@ -809,7 +952,7 @@ export class ToolCallExecutor {
       // On exception, clear operation state if interrupted
       if (hasOperationState && executionRegistry && executionId) {
         const executionEntity = executionRegistry.get(executionId);
-        if (error instanceof Error && error.name === "AbortError") {
+        if (isAbortError(error)) {
           // Preserve operation state for resume
           logger.info("Tool execution interrupted, preserving operation state for resume", {
             executionId,

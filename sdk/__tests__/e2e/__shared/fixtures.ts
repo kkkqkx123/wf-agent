@@ -1,5 +1,5 @@
-import { createSDK } from "../../api/index.js";
-import type { SDKInstance } from "../../api/index.js";
+import { createSDK } from "@/api/index.js";
+import type { SDKInstance } from "@/api/index.js";
 import { createMemoryStorageBackends, initializeStorageBackends, destroyStorageBackends } from "./storage-setup.js";
 import type { StorageBackends } from "./storage-setup.js";
 

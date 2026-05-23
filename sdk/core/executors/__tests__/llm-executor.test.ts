@@ -75,8 +75,8 @@ describe('LLMExecutor', () => {
       const mockError = new LLMError('LLM failed', 'test-provider');
       (mockLLMWrapper.generate as any).mockResolvedValue(err(mockError));
 
-      // The executor throws ExecutionError for non-abort errors
-      await expect(executor.executeLLMCall(messages, requestData)).rejects.toThrow('LLM call failed');
+      // The executor throws the original error for non-abort errors
+      await expect(executor.executeLLMCall(messages, requestData)).rejects.toThrow('LLM failed');
     });
 
     it('should handle tool calls in response', async () => {
@@ -175,8 +175,8 @@ describe('LLMExecutor', () => {
       const mockError = new LLMError('Stream failed', 'test-provider');
       (mockLLMWrapper.generateStream as any).mockResolvedValue(err(mockError));
 
-      // The executor throws ExecutionError for non-abort errors
-      await expect(executor.executeLLMCall(messages, requestData)).rejects.toThrow('LLM call failed');
+      // The executor throws the original error for non-abort errors
+      await expect(executor.executeLLMCall(messages, requestData)).rejects.toThrow('Stream failed');
     });
   });
 
@@ -199,12 +199,12 @@ describe('LLMExecutor', () => {
       (mockError as any).name = 'AbortError';
       (mockLLMWrapper.generate as any).mockResolvedValue(err(mockError));
 
-      // For regular abort (not PAUSE/STOP), the executor throws ExecutionError
+      // For regular abort (not PAUSE/STOP), the executor throws the original AbortError
       await expect(
         executor.executeLLMCall(messages, requestData, {
           abortSignal: abortController.signal,
         })
-      ).rejects.toThrow('LLM call failed');
+      ).rejects.toThrow('Aborted');
     });
   });
 
@@ -271,7 +271,7 @@ describe('LLMExecutor', () => {
 
       const result = await executor.executeLLMCall(messages, requestData);
 
-      expect(result.content).toBe('Test response');
+      expect(result.content).toBe('Response');
       expect(mockLLMWrapper.generate).toHaveBeenCalledWith({
         profileId: 'test-profile',
         messages,
@@ -311,7 +311,7 @@ describe('LLMExecutor', () => {
 
       const result = await executor.executeLLMCall(messages, requestData);
 
-      expect(result.content).toBe('Test response');
+      expect(result.content).toBe('Response');
       // dynamicTools is not passed to llmWrapper.generate, only tools field is used
       expect(mockLLMWrapper.generate).toHaveBeenCalledWith({
         profileId: 'test-profile',
@@ -349,7 +349,7 @@ describe('LLMExecutor', () => {
 
       const result = await executor.executeLLMCall(messages, requestData);
 
-      expect(result.content).toBe('Test response');
+      expect(result.content).toBe('Response');
       // maxToolCallsPerRequest is not passed to llmWrapper.generate
       expect(mockLLMWrapper.generate).toHaveBeenCalled();
     });

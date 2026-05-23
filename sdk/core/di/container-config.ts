@@ -328,16 +328,18 @@ export function configureContainerBindings(
 
       return new ToolCallExecutor(
         c.get(Identifiers.ToolRegistry) as ToolRegistry,
-        c.get(Identifiers.EventRegistry) as EventRegistry,
         {
-          workflowExecutionRegistry: c.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry,
-          checkpointStateManager: c.get(Identifiers.CheckpointState) as CheckpointState,
-          workflowRegistry: c.get(Identifiers.WorkflowRegistry) as WorkflowRegistry,
-          workflowGraphRegistry: c.get(Identifiers.WorkflowGraphRegistry) as WorkflowGraphRegistry,
+          eventManager: c.get(Identifiers.EventRegistry) as EventRegistry,
+          checkpointDependencies: {
+            workflowExecutionRegistry: c.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry,
+            checkpointStateManager: c.get(Identifiers.CheckpointState) as CheckpointState,
+            workflowRegistry: c.get(Identifiers.WorkflowRegistry) as WorkflowRegistry,
+            workflowGraphRegistry: c.get(Identifiers.WorkflowGraphRegistry) as WorkflowGraphRegistry,
+          },
+          eventBuilder,
+          createCheckpointFn: createCheckpoint,
+          safeEmitFn: emit,
         },
-        eventBuilder,
-        createCheckpoint,
-        emit,
       );
     })
     .inSingletonScope();

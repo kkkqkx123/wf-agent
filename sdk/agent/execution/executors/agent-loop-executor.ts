@@ -105,17 +105,11 @@ export class AgentLoopExecutor {
       }
     }
 
-    this.toolCallExecutor = new ToolCallExecutor(
-      deps.toolService,
-      deps.eventManager,
-      cpDeps,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      this.globalContext,
-    );
+    this.toolCallExecutor = new ToolCallExecutor(deps.toolService, {
+      eventManager: deps.eventManager,
+      checkpointDependencies: cpDeps,
+      globalContext: this.globalContext,
+    });
   }
 
   /**

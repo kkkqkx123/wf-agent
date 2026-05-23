@@ -60,6 +60,9 @@ import { CustomHandlerRegistry } from "../registry/custom-handler-registry.js";
 import { TaskRegistry } from "../../workflow/stores/task/task-registry.js";
 import { TaskQueue } from "../../workflow/stores/task/task-queue.js";
 import { WorkflowRegistry } from "../../workflow/stores/workflow-registry.js";
+import { WorkflowRelationshipRegistry } from "../../workflow/stores/workflow-relationship-registry.js";
+import { WorkflowPreprocessor } from "../../workflow/stores/workflow-preprocessor.js";
+import { WorkflowStorageManager } from "../../workflow/stores/workflow-storage-manager.js";
 import { WorkflowExecutionPool } from "../../workflow/execution/workflow-execution-pool.js";
 
 // Execution Layer Services - Core Layer Universal Executor
@@ -282,21 +285,52 @@ export function configureContainerBindings(
   // Layer 4: Business layer services that rely on the storage layer
   // ============================================================
 
+  // WorkflowRelationshipRegistry - A relationship registry with no dependencies
+  container
+    .bind(Identifiers.WorkflowRelationshipRegistry)
+    .to(WorkflowRelationshipRegistry)
+    .inSingletonScope();
+
+  // WorkflowStorageManager - A storage manager that relies on WorkflowStorageAdapter
+  container
+    .bind(Identifiers.WorkflowStorageManager)
+    .toDynamicValue((c: IContainer): WorkflowStorageManager => {
+      const storageAdapter = c.get(Identifiers.WorkflowStorageAdapter) as WorkflowStorageAdapter | null;
+      return new WorkflowStorageManager(storageAdapter);
+    })
+    .inSingletonScope();
+
+  // WorkflowPreprocessor - A preprocessor that relies on WorkflowRegistry, WorkflowGraphRegistry, and WorkflowRelationshipRegistry
+  container
+    .bind(Identifiers.WorkflowPreprocessor)
+    .toDynamicValue((c: IContainer): WorkflowPreprocessor => {
+      return new WorkflowPreprocessor(
+        c.get(Identifiers.WorkflowRegistry) as WorkflowRegistry,
+        c.get(Identifiers.WorkflowGraphRegistry) as WorkflowGraphRegistry,
+        c.get(Identifiers.WorkflowRelationshipRegistry) as WorkflowRelationshipRegistry,
+      );
+    })
+    .inSingletonScope();
+
   // WorkflowRegistry - A workflow registry that relies on WorkflowExecutionRegistry for reference checking.
   container
     .bind(Identifiers.WorkflowRegistry)
     .toDynamicValue((c: IContainer): WorkflowRegistry => {
       const globalContext = c.get(Identifiers.GlobalContext) as GlobalContext;
       const workflowExecutionRegistry = c.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry;
-      const storageAdapter = c.get(Identifiers.WorkflowStorageAdapter) as WorkflowStorageAdapter | null;
+      const storageManager = c.get(Identifiers.WorkflowStorageManager) as WorkflowStorageManager;
+      const relationshipRegistry = c.get(Identifiers.WorkflowRelationshipRegistry) as WorkflowRelationshipRegistry;
+      const preprocessor = c.get(Identifiers.WorkflowPreprocessor) as WorkflowPreprocessor;
       
       return new WorkflowRegistry(
         globalContext, 
         { 
           maxRecursionDepth: 10,
-          storageAdapter: storageAdapter || undefined
+          storageManager,
         }, 
-        workflowExecutionRegistry
+        workflowExecutionRegistry,
+        relationshipRegistry,
+        preprocessor,
       );
     })
     .inSingletonScope();
@@ -1008,5 +1042,4 @@ export function configureContainerBindings(
     })
     .inSingletonScope();
 }
-
 

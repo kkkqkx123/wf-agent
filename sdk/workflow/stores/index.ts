@@ -9,5 +9,9 @@ export type { WorkflowVersion } from "./workflow-registry.js";
 
 export { WorkflowExecutionRegistry } from "./workflow-execution-registry.js";
 
+export { WorkflowRelationshipRegistry } from "./workflow-relationship-registry.js";
+export { WorkflowPreprocessor } from "./workflow-preprocessor.js";
+export { WorkflowStorageManager } from "./workflow-storage-manager.js";
+
 export { TaskRegistry, type TaskManager, type TaskRegistryConfig } from "./task/task-registry.js";
 export { TaskQueue } from "./task/task-queue.js";

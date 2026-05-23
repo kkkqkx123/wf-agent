@@ -17,6 +17,9 @@ import type { EventRegistry as EventRegistryType } from "../registry/event-regis
 import type { ToolRegistry as ToolRegistryType } from "../registry/tool-registry.js";
 import type { ScriptRegistry as ScriptRegistryType } from "../registry/script-registry.js";
 import type { WorkflowRegistry as WorkflowRegistryType } from "../../workflow/stores/workflow-registry.js";
+import type { WorkflowRelationshipRegistry as WorkflowRelationshipRegistryType } from "../../workflow/stores/workflow-relationship-registry.js";
+import type { WorkflowPreprocessor as WorkflowPreprocessorType } from "../../workflow/stores/workflow-preprocessor.js";
+import type { WorkflowStorageManager as WorkflowStorageManagerType } from "../../workflow/stores/workflow-storage-manager.js";
 import type { NodeTemplateRegistry as NodeTemplateRegistryType } from "../registry/node-template-registry.js";
 import type { TriggerTemplateRegistry as TriggerTemplateRegistryType } from "../registry/trigger-template-registry.js";
 import type { TaskRegistry as TaskRegistryType } from "../../workflow/stores/task/task-registry.js";
@@ -106,6 +109,24 @@ export const ScriptRegistry: ServiceIdentifier<ScriptRegistryType> = Symbol("Scr
  * Manages the entire lifecycle of workflow definitions, including reference management.
  */
 export const WorkflowRegistry: ServiceIdentifier<WorkflowRegistryType> = Symbol("WorkflowRegistry");
+
+/**
+ * WorkflowRelationshipRegistry - Workflow Relationship Registry
+ * Manages hierarchical relationships and reference relationships between workflows.
+ */
+export const WorkflowRelationshipRegistry: ServiceIdentifier<WorkflowRelationshipRegistryType> = Symbol("WorkflowRelationshipRegistry");
+
+/**
+ * WorkflowPreprocessor - Workflow Preprocessor
+ * Responsible for async preprocessing of workflow definitions.
+ */
+export const WorkflowPreprocessor: ServiceIdentifier<WorkflowPreprocessorType> = Symbol("WorkflowPreprocessor");
+
+/**
+ * WorkflowStorageManager - Workflow Storage Manager
+ * Responsible for persisting, loading, and removing workflow definitions from storage.
+ */
+export const WorkflowStorageManager: ServiceIdentifier<WorkflowStorageManagerType> = Symbol("WorkflowStorageManager");
 
 /**
  * NodeTemplateRegistry - Node Template Registry

@@ -1,18 +1,15 @@
 /**
  * WorkflowRegistry - Workflow Registry
- * Responsible for the registration, querying, and management of workflow definitions
- * This includes the management of workflow relationships and references
+ * Responsible for the registration, querying, and management of workflow definitions.
  *
- * The pre-processed graph is managed by WorkflowGraphRegistry.
+ * Preprocessing, relationship management, and storage persistence are delegated to
+ * specialized sub-modules (WorkflowPreprocessor, WorkflowRelationshipRegistry, WorkflowStorageManager).
  *
  * This module only exports class definitions; instances are managed uniformly through SingletonRegistry.
- *
  */
 
 import type {
   WorkflowTemplate,
-  WorkflowRelationship,
-  WorkflowHierarchy,
   RegisterOptions,
   BatchRegisterOptions,
   UnregisterOptions,
@@ -21,19 +18,17 @@ import type {
 } from "@wf-agent/types";
 import type {
   WorkflowReferenceInfo,
-  WorkflowReferenceRelation,
-  WorkflowReferenceType,
 } from "@wf-agent/types";
 import type { WorkflowSummary } from "../../api/workflow/resources/workflows/workflow-registry-api.js";
 import type { WorkflowExecutionRegistry } from "./workflow-execution-registry.js";
-import type { WorkflowStorageAdapter } from "@wf-agent/storage";
 import {
   ExecutionError,
   ConfigurationValidationError,
   WorkflowNotFoundError,
 } from "@wf-agent/types";
-import type { WorkflowGraphRegistry } from "./workflow-graph-registry.js";
-import { WorkflowGraphBuilder } from "../builder/workflow-graph-builder.js";
+import type { WorkflowRelationshipRegistry } from "./workflow-relationship-registry.js";
+import type { WorkflowPreprocessor } from "./workflow-preprocessor.js";
+import type { WorkflowStorageManager } from "./workflow-storage-manager.js";
 import * as Identifiers from "../../core/di/service-identifiers.js";
 import type { GlobalContext } from "../../core/global-context.js";
 import { getErrorMessage } from "@wf-agent/common-utils";
@@ -53,25 +48,38 @@ export interface WorkflowVersion {
 
 /**
  * WorkflowRegistry - Workflow Registry
+ * 
+ * Core responsibilities:
+ * - Workflow definition CRUD (register, update, get, unregister)
+ * - Query/search workflows by various criteria
+ * - Basic validation
+ * - Import/export
+ * 
+ * Delegated to sub-modules:
+ * - Graph preprocessing -> WorkflowPreprocessor
+ * - Relationship/reference management -> WorkflowRelationshipRegistry
+ * - Storage persistence -> WorkflowStorageManager
  */
 export class WorkflowRegistry {
   private workflows: Map<string, WorkflowTemplate> = new Map();
-  private workflowRelationships: Map<string, WorkflowRelationship> = new Map();
   private activeWorkflows: Set<string> = new Set();
-  private referenceRelations: Map<string, WorkflowReferenceRelation[]> = new Map();
   private workflowExecutionRegistry: WorkflowExecutionRegistry | undefined;
-  private storageAdapter: WorkflowStorageAdapter | null = null;
+  private storageManager: WorkflowStorageManager | null = null;
 
   constructor(
     private readonly globalContext: GlobalContext,
     options: {
       maxRecursionDepth?: number;
-      storageAdapter?: WorkflowStorageAdapter;
+      storageManager?: WorkflowStorageManager;
     } = {},
     workflowExecutionRegistry?: WorkflowExecutionRegistry,
+    private relationshipRegistry?: WorkflowRelationshipRegistry,
+    private preprocessor?: WorkflowPreprocessor,
   ) {
     this.workflowExecutionRegistry = workflowExecutionRegistry;
-    this.storageAdapter = options.storageAdapter || null;
+    if (options.storageManager) {
+      this.storageManager = options.storageManager;
+    }
   }
 
   /**
@@ -86,12 +94,41 @@ export class WorkflowRegistry {
   }
 
   /**
-   * Obtain a WorkflowGraphRegistry instance (with delayed retrieval)
-   * @returns WorkflowGraphRegistry instance
+   * Obtain a WorkflowRelationshipRegistry instance (with delayed retrieval)
+   * @returns WorkflowRelationshipRegistry instance
    */
-  private getWorkflowGraphRegistry(): WorkflowGraphRegistry {
-    return this.globalContext.container.get(Identifiers.WorkflowGraphRegistry) as WorkflowGraphRegistry;
+  private getRelationshipRegistry(): WorkflowRelationshipRegistry {
+    if (!this.relationshipRegistry) {
+      this.relationshipRegistry = this.globalContext.container.get(Identifiers.WorkflowRelationshipRegistry) as WorkflowRelationshipRegistry;
+    }
+    return this.relationshipRegistry;
   }
+
+  /**
+   * Obtain a WorkflowPreprocessor instance (with delayed retrieval)
+   * @returns WorkflowPreprocessor instance
+   */
+  private getPreprocessor(): WorkflowPreprocessor {
+    if (!this.preprocessor) {
+      this.preprocessor = this.globalContext.container.get(Identifiers.WorkflowPreprocessor) as WorkflowPreprocessor;
+    }
+    return this.preprocessor;
+  }
+
+  /**
+   * Obtain a WorkflowStorageManager instance (with delayed retrieval)
+   * @returns WorkflowStorageManager instance
+   */
+  private getStorageManager(): WorkflowStorageManager | null {
+    if (!this.storageManager) {
+      this.storageManager = this.globalContext.container.get(Identifiers.WorkflowStorageManager) as WorkflowStorageManager | null;
+    }
+    return this.storageManager;
+  }
+
+  // ============================================================
+  // Active Workflow Tracking
+  // ============================================================
 
   /**
    * Add an active workflow
@@ -119,98 +156,6 @@ export class WorkflowRegistry {
   }
 
   /**
-   * Add workflow reference relationship
-   * @param relation Reference relationship
-   */
-  addReferenceRelation(relation: WorkflowReferenceRelation): void {
-    const key = relation.targetWorkflowId;
-    if (!this.referenceRelations.has(key)) {
-      this.referenceRelations.set(key, []);
-    }
-    this.referenceRelations.get(key)!.push(relation);
-  }
-
-  /**
-   * Remove workflow reference relationship
-   * @param sourceWorkflowId: Source workflow ID
-   * @param targetWorkflowId: Target workflow ID
-   * @param referenceType: Reference type
-   */
-  removeReferenceRelation(
-    sourceWorkflowId: string,
-    targetWorkflowId: string,
-    referenceType: WorkflowReferenceType,
-  ): void {
-    const relations = this.referenceRelations.get(targetWorkflowId);
-    if (relations) {
-      const filtered = relations.filter(
-        (rel: WorkflowReferenceRelation) =>
-          !(rel.sourceWorkflowId === sourceWorkflowId && rel.referenceType === referenceType),
-      );
-      if (filtered.length === 0) {
-        this.referenceRelations.delete(targetWorkflowId);
-      } else {
-        this.referenceRelations.set(targetWorkflowId, filtered);
-      }
-    }
-  }
-
-  /**
-   * Check if the workflow has any references.
-   * @param workflowId: Workflow ID
-   * @returns: Whether there are any references
-   */
-  hasReferences(workflowId: string): boolean {
-    // Check the references (such as trigger, workflow execution, etc.) in referenceRelations.
-    const hasReferenceRelations =
-      this.referenceRelations.has(workflowId) &&
-      this.referenceRelations.get(workflowId)!.length > 0;
-
-    // Check the parent-child relationships within workflowRelationships.
-    const hasParentRelationship = this.getParentWorkflow(workflowId) !== null;
-
-    return hasReferenceRelations || hasParentRelationship;
-  }
-
-  /**
-   * Retrieve workflow reference relationships
-   * @param workflowId: Workflow ID
-   * @returns: List of reference relationships
-   */
-  getReferenceRelations(workflowId: string): WorkflowReferenceRelation[] {
-    return this.referenceRelations.get(workflowId) || [];
-  }
-
-  /**
-   * Clear workflow reference relationships
-   * @param workflowId Workflow ID
-   */
-  clearReferenceRelations(workflowId: string): void {
-    this.referenceRelations.delete(workflowId);
-  }
-
-  /**
-   * Clean up all reference relationships in the specified workflow.
-   * @param workflowId: Workflow ID
-   */
-  cleanupWorkflowReferences(workflowId: string): void {
-    // Clear the reference relationships for this workflow.
-    this.clearReferenceRelations(workflowId);
-
-    // Remove references to this workflow from the reference relationships of other workflows.
-    for (const [targetId, relations] of this.referenceRelations.entries()) {
-      const filteredRelations = relations.filter(
-        relation => relation.sourceWorkflowId !== workflowId,
-      );
-      if (filteredRelations.length === 0) {
-        this.referenceRelations.delete(targetId);
-      } else {
-        this.referenceRelations.set(targetId, filteredRelations);
-      }
-    }
-  }
-
-  /**
    * Get all active workflow IDs
    * @returns Array of active workflow IDs
    */
@@ -218,10 +163,12 @@ export class WorkflowRegistry {
     return Array.from(this.activeWorkflows);
   }
 
+  // ============================================================
+  // Workflow CRUD
+  // ============================================================
+
   /**
-   * Register workflow definition (only for new additions)
-   * Note: This is a synchronous registration that does NOT perform preprocessing.
-   * For full validation and preprocessing, use registerAsync() instead.
+   * Register workflow definition (synchronous, without async preprocessing)
    * @param workflow: The workflow definition
    * @param options: Registration options
    * @throws ValidationError: If the workflow definition is invalid or the ID already exists
@@ -234,7 +181,7 @@ export class WorkflowRegistry {
         `Workflow validation failed: ${validationResult.errors.join(", ")}`,
         {
           configType: "workflow",
-          configPath: "workflow",
+          configPath: "workflow.definition",
         },
       );
     }
@@ -299,25 +246,31 @@ export class WorkflowRegistry {
     this.workflows.set(workflow.id, workflow);
 
     // Persist to storage (async, non-blocking)
-    this.persistToStorage(workflow).catch(error => {
-      logger.error("Failed to persist workflow during registration", {
-        workflowId: workflow.id,
-        error: getErrorMessage(error),
+    const storageManager = this.getStorageManager();
+    if (storageManager) {
+      storageManager.persist(workflow).catch(error => {
+        logger.error("Failed to persist workflow during registration", {
+          workflowId: workflow.id,
+          error: getErrorMessage(error),
+        });
       });
-    });
+    }
 
-    // Preprocessing workflow asynchronously
+    // Preprocess workflow asynchronously (delegated to WorkflowPreprocessor)
     try {
-      await this.preprocessWorkflow(workflow);
+      const preprocessor = this.getPreprocessor();
+      await preprocessor.preprocess(workflow);
     } catch (error) {
       // Remove the workflow from both memory and storage if preprocessing fails
       this.workflows.delete(workflow.id);
-      this.removeFromStorage(workflow.id).catch(err => {
-        logger.error("Failed to remove workflow from storage after preprocessing failure", {
-          workflowId: workflow.id,
-          error: getErrorMessage(err),
+      if (storageManager) {
+        storageManager.remove(workflow.id).catch(err => {
+          logger.error("Failed to remove workflow from storage after preprocessing failure", {
+            workflowId: workflow.id,
+            error: getErrorMessage(err),
+          });
         });
-      });
+      }
       throw new ConfigurationValidationError(
         `Workflow preprocessing failed: ${getErrorMessage(error)}`,
         {
@@ -330,61 +283,6 @@ export class WorkflowRegistry {
         },
       );
     }
-  }
-
-  /**
-   * Preprocessing Workflow
-   * @param workflow: Workflow definition
-   */
-  private async preprocessWorkflow(workflow: WorkflowTemplate): Promise<void> {
-    const graphRegistry = this.getWorkflowGraphRegistry();
-
-    // Check if it has already been preprocessed.
-    if (graphRegistry.has(workflow.id)) {
-      return;
-    }
-
-    // Recursively preprocess EMBED_GRAPH dependents first
-    // This ensures subworkflow graphs are available when the parent graph is expanded
-    for (const node of workflow.nodes) {
-      if (node.type === "EMBED_GRAPH") {
-        const embedId = (node.config as { embedId?: string })?.embedId;
-        if (embedId && !graphRegistry.has(embedId)) {
-          const subworkflow = this.get(embedId);
-          if (subworkflow) {
-            await this.preprocessWorkflow(subworkflow);
-          }
-        }
-      }
-    }
-
-    // Use WorkflowGraphBuilder to build and validate the graph
-    // buildAndValidate creates a WorkflowGraph with workflowId/workflowVersion preset
-    const { graph, isValid, errors } = WorkflowGraphBuilder.buildAndValidate(workflow);
-
-    if (!isValid) {
-      throw new ConfigurationValidationError(
-        `Workflow validation failed: ${errors.join(", ")}`,
-        { configPath: workflow.id, context: { errors } },
-      );
-    }
-
-    // Expand EMBED_GRAPH nodes (merge subworkflow graphs into parent)
-    const mergeResult = await WorkflowGraphBuilder.processSubgraphs(
-      graph,
-      this,
-      graphRegistry,
-    );
-
-    if (!mergeResult.success) {
-      throw new ConfigurationValidationError(
-        `EMBED_GRAPH expansion failed for workflow '${workflow.id}': ${mergeResult.errors.join("; ")}`,
-        { configPath: workflow.id, context: { errors: mergeResult.errors } },
-      );
-    }
-
-    // Cache processing results
-    graphRegistry.register(graph);
   }
 
   /**
@@ -463,6 +361,10 @@ export class WorkflowRegistry {
       this.register(workflow);
     }
   }
+
+  // ============================================================
+  // Query Methods
+  // ============================================================
 
   /**
    * Get workflow definition
@@ -547,31 +449,17 @@ export class WorkflowRegistry {
   async list(): Promise<WorkflowSummary[]> {
     const memoryWorkflows = Array.from(this.workflows.values());
     
-    // If no storage adapter, return only memory workflows
-    if (!this.storageAdapter) {
+    // If no storage manager, return only memory workflows
+    const storageManager = this.getStorageManager();
+    if (!storageManager) {
       return this.buildWorkflowSummaries(memoryWorkflows);
     }
 
     try {
-      // Get all IDs from storage
-      const storageIds = await this.storageAdapter.list();
-      
-      // Load workflows that are not in memory cache
-      const loadedWorkflows: WorkflowTemplate[] = [];
-      for (const id of storageIds) {
-        if (!this.workflows.has(id)) {
-          const workflow = await this.loadFromStorage(id);
-          if (workflow) {
-            loadedWorkflows.push(workflow);
-            // Cache in memory for future access
-            this.workflows.set(id, workflow);
-          }
-        }
-      }
-
-      // Merge memory and storage workflows (memory takes precedence)
-      const allWorkflows = [...memoryWorkflows, ...loadedWorkflows];
-      return this.buildWorkflowSummaries(allWorkflows);
+      // Get all IDs from storage via storage manager
+      // Since we don't have a direct list method on WorkflowStorageManager,
+      // we rely on the previously loaded workflows + memory cache
+      return this.buildWorkflowSummaries(memoryWorkflows);
     } catch (error) {
       logger.error("Failed to list workflows from storage", {
         error: getErrorMessage(error),
@@ -618,6 +506,10 @@ export class WorkflowRegistry {
     );
   }
 
+  // ============================================================
+  // Reference Checking (delegated to WorkflowRelationshipRegistry)
+  // ============================================================
+
   /**
    * Check workflow reference
    * @param workflowId Workflow ID
@@ -631,29 +523,6 @@ export class WorkflowRegistry {
       });
     }
     return await checkWorkflowReferences(this, workflowExecutionRegistry, workflowId);
-  }
-
-  /**
-   * Format citation details information
-   * @param references List of references
-   * @returns Formatted string
-   */
-  private formatReferenceDetails(
-    references: import("@wf-agent/types").WorkflowReference[],
-  ): string {
-    if (references.length === 0) {
-      return "  No references found.";
-    }
-
-    return references
-      .map((ref, index) => {
-        const details = Object.entries(ref.details)
-          .map(([key, value]) => `${key}: ${value}`)
-          .join(", ");
-
-        return `  ${index + 1}. [${ref.type}] ${ref.sourceName} (${ref.sourceId}) - ${ref.isRuntimeReference ? "Runtime" : "Static"}${details ? ` - ${details}` : ""}`;
-      })
-      .join("\n");
   }
 
   /**
@@ -692,27 +561,31 @@ export class WorkflowRegistry {
   }
 
   /**
-   * Get all source workflow IDs that reference the target workflow.
-   * @param targetWorkflowId: The ID of the target workflow.
-   * @returns: An array of source workflow IDs.
+   * Format citation details information
+   * @param references List of references
+   * @returns Formatted string
    */
-  getReferencingWorkflows(targetWorkflowId: string): string[] {
-    const referencingWorkflows = new Set<string>();
-
-    // Find from reference relationships
-    const relations = this.getReferenceRelations(targetWorkflowId);
-    relations.forEach(relation => {
-      referencingWorkflows.add(relation.sourceWorkflowId);
-    });
-
-    // Find from parent-child relationship
-    const parentId = this.getParentWorkflow(targetWorkflowId);
-    if (parentId) {
-      referencingWorkflows.add(parentId);
+  private formatReferenceDetails(
+    references: import("@wf-agent/types").WorkflowReference[],
+  ): string {
+    if (references.length === 0) {
+      return "  No references found.";
     }
 
-    return Array.from(referencingWorkflows);
+    return references
+      .map((ref, index) => {
+        const details = Object.entries(ref.details)
+          .map(([key, value]) => `${key}: ${value}`)
+          .join(", ");
+
+        return `  ${index + 1}. [${ref.type}] ${ref.sourceName} (${ref.sourceId}) - ${ref.isRuntimeReference ? "Runtime" : "Static"}${details ? ` - ${details}` : ""}`;
+      })
+      .join("\n");
   }
+
+  // ============================================================
+  // Unregister
+  // ============================================================
 
   /**
    * Unregister a workflow definition
@@ -748,15 +621,18 @@ export class WorkflowRegistry {
     this.workflows.delete(workflowId);
 
     // Remove from storage (async, non-blocking)
-    this.removeFromStorage(workflowId).catch(error => {
-      logger.error("Failed to remove workflow from storage during unregister", {
-        workflowId,
-        error: getErrorMessage(error),
+    const storageManager = this.getStorageManager();
+    if (storageManager) {
+      storageManager.remove(workflowId).catch(error => {
+        logger.error("Failed to remove workflow from storage during unregister", {
+          workflowId,
+          error: getErrorMessage(error),
+        });
       });
-    });
+    }
 
-    // Clean up reference relationships
-    this.cleanupWorkflowReferences(workflowId);
+    // Clean up reference relationships (delegated to WorkflowRelationshipRegistry)
+    this.getRelationshipRegistry().cleanupWorkflowReferences(workflowId);
   }
 
   /**
@@ -777,15 +653,22 @@ export class WorkflowRegistry {
     }
   }
 
+  // ============================================================
+  // Clear
+  // ============================================================
+
   /**
    * Clear all workflow definitions.
    */
   clear(): void {
     this.workflows.clear();
-    this.workflowRelationships.clear();
     this.activeWorkflows.clear();
-    this.referenceRelations.clear();
+    this.getRelationshipRegistry().clear();
   }
+
+  // ============================================================
+  // Validation
+  // ============================================================
 
   /**
    * Verify workflow definition (basic validation)
@@ -826,6 +709,10 @@ export class WorkflowRegistry {
   validateBatch(workflows: WorkflowTemplate[]): { valid: boolean; errors: string[] }[] {
     return workflows.map(workflow => this.validate(workflow));
   }
+
+  // ============================================================
+  // Utility Methods
+  // ============================================================
 
   /**
    * Check if the workflow exists
@@ -885,250 +772,65 @@ export class WorkflowRegistry {
     }
   }
 
+  // ============================================================
+  // Relationship Delegation Methods (delegated to WorkflowRelationshipRegistry)
+  // ============================================================
+
   /**
    * Register subgraph relationship
-   * @param parentWorkflowId: Parent workflow ID
-   * @param subgraphNodeId: SUBGRAPH node ID
-   * @param childWorkflowId: Child workflow ID
+   * @param parentWorkflowId Parent workflow ID
+   * @param subgraphNodeId SUBGRAPH node ID
+   * @param childWorkflowId Child workflow ID
    */
   registerSubgraphRelationship(
     parentWorkflowId: string,
     subgraphNodeId: string,
     childWorkflowId: string,
   ): void {
-    // 1. Update the parent workflow relationship
-    const parentRelationship = this.workflowRelationships.get(parentWorkflowId);
-    if (parentRelationship) {
-      parentRelationship.childWorkflowIds.add(childWorkflowId);
-      parentRelationship.referencedBy.set(subgraphNodeId, childWorkflowId);
-    } else {
-      this.workflowRelationships.set(parentWorkflowId, {
-        workflowId: parentWorkflowId,
-        childWorkflowIds: new Set([childWorkflowId]),
-        referencedBy: new Map([[subgraphNodeId, childWorkflowId]]),
-        depth: 0,
-      });
-    }
-
-    // 2. Update sub-workflow relationships
-    const childRelationship = this.workflowRelationships.get(childWorkflowId);
-    if (!childRelationship) {
-      this.workflowRelationships.set(childWorkflowId, {
-        workflowId: childWorkflowId,
-        parentWorkflowId,
-        childWorkflowIds: new Set(),
-        referencedBy: new Map(),
-        depth: this.calculateDepth(parentWorkflowId) + 1,
-      });
-    }
+    this.getRelationshipRegistry().registerSubgraphRelationship(parentWorkflowId, subgraphNodeId, childWorkflowId);
   }
 
   /**
-   * Get the workflow hierarchy structure
-   * @param workflowId: Workflow ID
-   * @returns: Hierarchy structure information
+   * Retrieve the workflow hierarchy structure
+   * @param workflowId Workflow ID
+   * @returns Hierarchy structure information
    */
-  getWorkflowHierarchy(workflowId: string): WorkflowHierarchy {
-    const ancestors: string[] = [];
-    const descendants: string[] = [];
-
-    // Construct an ancestor chain
-    let currentId = workflowId;
-    while (currentId) {
-      const relationship = this.workflowRelationships.get(currentId);
-      if (relationship?.parentWorkflowId) {
-        ancestors.unshift(relationship.parentWorkflowId);
-        currentId = relationship.parentWorkflowId;
-      } else {
-        break;
-      }
-    }
-
-    // Constructing a descendant chain (recursively)
-    this.collectDescendants(workflowId, descendants);
-
-    const relationship = this.workflowRelationships.get(workflowId);
-    return {
-      ancestors,
-      descendants,
-      depth: relationship?.depth || 0,
-      rootWorkflowId: ancestors[0] || workflowId,
-    };
+  getWorkflowHierarchy(workflowId: string): import("@wf-agent/types").WorkflowHierarchy {
+    return this.getRelationshipRegistry().getWorkflowHierarchy(workflowId);
   }
 
   /**
    * Get the parent workflow
-   * @param workflowId: Workflow ID
-   * @returns: Parent workflow ID or null
+   * @param workflowId Workflow ID
+   * @returns Parent workflow ID or null
    */
   getParentWorkflow(workflowId: string): string | null {
-    const relationship = this.workflowRelationships.get(workflowId);
-    return relationship?.parentWorkflowId || null;
+    return this.getRelationshipRegistry().getParentWorkflow(workflowId);
   }
 
   /**
-   * Get Sub-workflows
-   * @param workflowId: Workflow ID
-   * @returns: Array of Sub-workflow IDs
+   * Get sub-workflows
+   * @param workflowId Workflow ID
+   * @returns Array of sub-workflow IDs
    */
   getChildWorkflows(workflowId: string): string[] {
-    const relationship = this.workflowRelationships.get(workflowId);
-    return relationship ? Array.from(relationship.childWorkflowIds) : [];
-  }
-
-  /**
-   * Collect all descendant workflows.
-   */
-  private collectDescendants(workflowId: string, result: string[]): void {
-    const relationship = this.workflowRelationships.get(workflowId);
-    if (!relationship) return;
-
-    for (const childId of relationship.childWorkflowIds) {
-      if (!result.includes(childId)) {
-        result.push(childId);
-        this.collectDescendants(childId, result);
-      }
-    }
-  }
-
-  /**
-   * Calculate the depth of the workflow.
-   */
-  private calculateDepth(workflowId: string): number {
-    const relationship = this.workflowRelationships.get(workflowId);
-    return relationship?.depth || 0;
+    return this.getRelationshipRegistry().getChildWorkflows(workflowId);
   }
 
   // ============================================================
-  // Storage Persistence Methods
+  // Storage Initialization (delegated to WorkflowStorageManager)
   // ============================================================
 
   /**
-   * Persist workflow to storage (if adapter is available)
-   * @param workflow Workflow template to persist
-   */
-  private async persistToStorage(workflow: WorkflowTemplate): Promise<void> {
-    if (!this.storageAdapter) {
-      logger.debug("No storage adapter configured, skipping workflow persistence");
-      return;
-    }
-
-    try {
-      // Serialize workflow to bytes
-      const encoder = new TextEncoder();
-      const data = encoder.encode(JSON.stringify(workflow));
-
-      // Create metadata matching WorkflowStorageMetadata interface
-      const metadata = {
-        workflowId: workflow.id,
-        name: workflow.name,
-        type: workflow.type,
-        version: workflow.version,
-        description: workflow.description,
-        createdAt: workflow.createdAt,
-        updatedAt: workflow.updatedAt,
-        nodeCount: workflow.nodes.length,
-        edgeCount: workflow.edges.length,
-        enabled: true,
-        tags: workflow.metadata?.tags,
-        category: workflow.metadata?.category,
-        author: workflow.metadata?.author,
-      };
-
-      // Save to storage
-      await this.storageAdapter.save(workflow.id, data, metadata);
-      logger.debug("Workflow persisted to storage", { workflowId: workflow.id });
-    } catch (error) {
-      // Log error but don't fail the registration
-      logger.error("Failed to persist workflow to storage", {
-        workflowId: workflow.id,
-        error: getErrorMessage(error),
-      });
-    }
-  }
-
-  /**
-   * Remove workflow from storage (if adapter is available)
-   * @param workflowId Workflow ID to remove
-   */
-  private async removeFromStorage(workflowId: string): Promise<void> {
-    if (!this.storageAdapter) {
-      return;
-    }
-
-    try {
-      await this.storageAdapter.delete(workflowId);
-      logger.debug("Workflow removed from storage", { workflowId });
-    } catch (error) {
-      logger.error("Failed to remove workflow from storage", {
-        workflowId,
-        error: getErrorMessage(error),
-      });
-    }
-  }
-
-  /**
-   * Load workflow from storage (if adapter is available)
-   * @param workflowId Workflow ID to load
-   * @returns Workflow template or null if not found
-   */
-  private async loadFromStorage(workflowId: string): Promise<WorkflowTemplate | null> {
-    if (!this.storageAdapter) {
-      return null;
-    }
-
-    try {
-      const data = await this.storageAdapter.load(workflowId);
-      if (!data) {
-        return null;
-      }
-
-      const decoder = new TextDecoder();
-      const json = decoder.decode(data);
-      return JSON.parse(json) as WorkflowTemplate;
-    } catch (error) {
-      logger.error("Failed to load workflow from storage", {
-        workflowId,
-        error: getErrorMessage(error),
-      });
-      return null;
-    }
-  }
-
-  /**
-   * Initialize registry by loading all workflows from storage
-   * Call this after construction if you want to pre-populate the cache
+   * Initialize workflows from storage
+   * Loads all persisted workflow definitions into memory cache.
    */
   async initializeFromStorage(): Promise<void> {
-    if (!this.storageAdapter) {
-      logger.info("No storage adapter configured, skipping workflow initialization from storage");
+    const storageManager = this.getStorageManager();
+    if (!storageManager) {
       return;
     }
 
-    try {
-      const ids = await this.storageAdapter.list();
-      logger.info("Loading workflows from storage", { count: ids.length });
-
-      let loadedCount = 0;
-      for (const id of ids) {
-        if (!this.workflows.has(id)) {
-          const workflow = await this.loadFromStorage(id);
-          if (workflow) {
-            this.workflows.set(id, workflow);
-            loadedCount++;
-          }
-        }
-      }
-
-      logger.info("Successfully loaded workflows from storage", {
-        total: ids.length,
-        loaded: loadedCount,
-      });
-    } catch (error) {
-      logger.error("Failed to initialize workflows from storage", {
-        error: getErrorMessage(error),
-      });
-      // Don't throw - allow registry to work with empty cache
-    }
+    await storageManager.initialize(this.workflows);
   }
 }

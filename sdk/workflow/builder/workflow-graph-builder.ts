@@ -24,6 +24,7 @@ import {
   generateId,
 } from "../../utils/index.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
+import type { WorkflowRelationshipRegistry } from "../stores/workflow-relationship-registry.js";
 
 const logger = createContextualLogger({ component: "workflow-graph-builder" });
 
@@ -180,7 +181,7 @@ export class WorkflowGraphBuilder {
    * Process sub-workflow nodes - Handles both SUBGRAPH and EMBED_GRAPH
    * 
    * @param graph: The main graph
-   * @param workflowRegistry: The workflow registry (for registering parent-child relationships)
+   * @param relationshipRegistry: The workflow relationship registry (for registering parent-child relationships)
    * @param workflowGraphRegistry: The workflow graph registry (for retrieving preprocessed subworkflow graphs)
    * @param maxRecursionDepth: The maximum recursion depth
    * @param currentDepth: The current recursion depth
@@ -188,7 +189,7 @@ export class WorkflowGraphBuilder {
    */
   static async processSubgraphs(
     graph: WorkflowGraph,
-    workflowRegistry: {
+    relationshipRegistry: WorkflowRelationshipRegistry | {
       registerSubgraphRelationship?: (
         parentWorkflowId: ID,
         subgraphNodeId: ID,
@@ -245,8 +246,8 @@ export class WorkflowGraphBuilder {
         }
 
         // Register relationship if available
-        if (workflowRegistry.registerSubgraphRelationship) {
-          workflowRegistry.registerSubgraphRelationship(
+        if (relationshipRegistry.registerSubgraphRelationship) {
+          relationshipRegistry.registerSubgraphRelationship(
             graph.workflowId,
             node.id,
             subworkflowId,
@@ -295,7 +296,7 @@ export class WorkflowGraphBuilder {
             subworkflowId,
             parentWorkflowId: graph.workflowId,
             depth: currentDepth + 1,
-            workflowRegistry,
+            workflowRegistry: relationshipRegistry,
           },
         );
 

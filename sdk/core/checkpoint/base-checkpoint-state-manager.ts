@@ -98,21 +98,35 @@ export abstract class BaseCheckpointStateManager<
    * @returns The checkpoint or null if not found
    */
   async get(checkpointId: string): Promise<TCheckpoint | null> {
+    // Step 1: Load raw data from storage
+    let data: Uint8Array | null;
     try {
-      const data = await this.storageAdapter.load(checkpointId);
-      if (!data) {
-        return null;
-      }
+      data = await this.storageAdapter.load(checkpointId);
+    } catch (error) {
+      logger.error("Storage error while loading checkpoint", {
+        checkpointId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error; // Storage failure should propagate, not be swallowed
+    }
 
+    // Not found — return null (not an error)
+    if (!data) {
+      return null;
+    }
+
+    // Deserialization (data corruption is a distinct error from not-found)
+    try {
       const checkpoint = await this.codec.deserialize<TCheckpoint>(data);
       this.checkpointSizes.set(checkpointId, data.length);
       return checkpoint;
     } catch (error) {
-      logger.error("Failed to load checkpoint", {
+      logger.error("Failed to deserialize checkpoint (data may be corrupted)", {
         checkpointId,
+        size: data.length,
         error: error instanceof Error ? error.message : String(error),
       });
-      return null;
+      throw new Error(`Checkpoint data corrupted: ${checkpointId} (${data.length} bytes)`);
     }
   }
 

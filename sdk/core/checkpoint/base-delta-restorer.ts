@@ -29,24 +29,25 @@ export class BaseDeltaRestorer<
 > {
   private diffCalculator: BaseDiffCalculator;
   private loadCheckpoint: (id: string) => Promise<TCheckpoint | null>;
-  private listCheckpoints: (parentId: string) => Promise<string[]>;
 
   constructor(
-    loadCheckpoint: (id: string) => Promise<TCheckpoint | null>,
-    listCheckpoints: (parentId: string) => Promise<string[]>
+    loadCheckpoint: (id: string) => Promise<TCheckpoint | null>
   ) {
     this.diffCalculator = new BaseDiffCalculator();
     this.loadCheckpoint = loadCheckpoint;
-    this.listCheckpoints = listCheckpoints;
   }
 
   /**
    * Restore full state from a checkpoint (handles both FULL and DELTA)
    * @param checkpointId The checkpoint ID to restore from
+   * @param entityId Optional entity ID for the checkpoint (used for batch loading optimization)
    * @returns Restoration result with full snapshot
    */
-  async restore(checkpointId: string): Promise<DeltaRestoreResult<TState>> {
-    logger.debug("Starting checkpoint restoration", { checkpointId });
+  async restore(
+    checkpointId: string,
+    entityId?: string
+  ): Promise<DeltaRestoreResult<TState>> {
+    logger.debug("Starting checkpoint restoration", { checkpointId, entityId });
 
     // Load the target checkpoint
     const targetCheckpoint = await this.loadCheckpoint(checkpointId);
@@ -69,10 +70,12 @@ export class BaseDeltaRestorer<
     // For delta checkpoint, traverse the chain to find base
     logger.debug("Restoring from delta checkpoint, traversing chain", {
       checkpointId,
+      entityId,
       baseCheckpointId: targetCheckpoint.baseCheckpointId,
     });
 
-    const chain = await this.buildCheckpointChain(checkpointId);
+    // Build chain by tracing backward: target → base (sequential loads, only chain members)
+    const chain = await this.buildCheckpointChain(checkpointId, entityId);
     const baseCheckpointId = chain[0];
 
     if (!baseCheckpointId) {
@@ -127,45 +130,20 @@ export class BaseDeltaRestorer<
   }
 
   /**
-   * Build checkpoint chain from target to base
-   * Uses listCheckpoints to batch-load checkpoints for better performance
-   * @param checkpointId Starting checkpoint ID
+   * Build checkpoint chain from target to base via sequential backward traversal
+   * 
+   * Traces the `previousCheckpointId` links from target checkpoint backward
+   * until a FULL checkpoint is found. Only loads checkpoints that are
+   * actually in the chain — no over-fetching of unrelated checkpoints.
+   * 
+   * @param checkpointId Starting checkpoint ID (must be a DELTA checkpoint)
+   * @param entityId Optional entity ID (used for logging diagnostics)
    * @returns Array of checkpoint IDs from base to target
    */
-  private async buildCheckpointChain(checkpointId: string): Promise<string[]> {
-    // Step 1: Load target checkpoint to get its parent ID
-    const targetCheckpoint = await this.loadCheckpoint(checkpointId);
-    if (!targetCheckpoint) {
-      throw new Error(`Checkpoint not found: ${checkpointId}`);
-    }
-
-    // If it's a full checkpoint, return single-element chain
-    if (targetCheckpoint.type === "FULL") {
-      return [checkpointId];
-    }
-
-    // Step 2: Get parent ID from delta checkpoint
-    const parentId = targetCheckpoint.previousCheckpointId;
-    if (!parentId) {
-      throw new Error(`Delta checkpoint missing previousCheckpointId: ${checkpointId}`);
-    }
-
-    // Step 3: Batch load all checkpoints under the same parent
-    // This reduces I/O from N sequential loads to 1 batch load + individual loads for chain traversal
-    logger.debug("Batch loading checkpoints for chain construction", { parentId });
-    const allCheckpointIds = await this.listCheckpoints(parentId);
-    
-    // Step 4: Load all checkpoints in parallel for efficiency
-    const checkpointMap = new Map<string, TCheckpoint>();
-    const loadPromises = allCheckpointIds.map(async (id) => {
-      const cp = await this.loadCheckpoint(id);
-      if (cp) {
-        checkpointMap.set(id, cp);
-      }
-    });
-    await Promise.all(loadPromises);
-
-    // Step 5: Build chain by traversing backward through previousCheckpointId links
+  private async buildCheckpointChain(
+    checkpointId: string,
+    entityId?: string
+  ): Promise<string[]> {
     const chain: string[] = [];
     let currentId: string | undefined = checkpointId;
     const visited = new Set<string>();
@@ -177,19 +155,20 @@ export class BaseDeltaRestorer<
       }
       visited.add(currentId);
 
-      chain.unshift(currentId); // Add to beginning
-
-      const checkpoint = checkpointMap.get(currentId);
+      // Load the checkpoint
+      const checkpoint = await this.loadCheckpoint(currentId);
       if (!checkpoint) {
         throw new Error(`Checkpoint not found in chain: ${currentId}`);
       }
+
+      chain.unshift(currentId); // Add to beginning (base first)
 
       if (checkpoint.type === "FULL") {
         // Reached base checkpoint
         break;
       }
 
-      // Move to previous checkpoint
+      // Move to previous checkpoint via link
       currentId = checkpoint.previousCheckpointId;
     }
 
@@ -197,6 +176,7 @@ export class BaseDeltaRestorer<
       chainLength: chain.length,
       baseCheckpointId: chain[0],
       targetCheckpointId: chain[chain.length - 1],
+      entityId,
     });
 
     return chain;

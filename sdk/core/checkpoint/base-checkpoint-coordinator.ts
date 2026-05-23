@@ -135,7 +135,7 @@ export abstract class BaseCheckpointCoordinator<
     checkpointId: string,
     dependencies: CheckpointDependencies<TCheckpoint>
   ): Promise<TEntity> {
-    const { getCheckpoint, listCheckpoints } = dependencies;
+    const { getCheckpoint } = dependencies;
 
     logger.debug("Restoring from checkpoint", { checkpointId });
 
@@ -148,22 +148,23 @@ export abstract class BaseCheckpointCoordinator<
     // Step 2: Validate checkpoint integrity
     this.validateCheckpoint(checkpoint);
 
-    // Step 3: Restore full state (handles delta chains automatically)
+    // Step 3: Determine parent entity ID for restoration
+    const parentId = this.extractParentId(checkpoint);
+
+    // Step 4: Restore full state (handles delta chains automatically)
     const restorer = new BaseDeltaRestorer<TCheckpoint, TState>(
-      getCheckpoint,
-      listCheckpoints
+      getCheckpoint
     );
-    const restoreResult = await restorer.restore(checkpointId);
+    const restoreResult = await restorer.restore(checkpointId, parentId);
     const { snapshot } = restoreResult;
 
     logger.debug("State restored from checkpoint", {
       checkpointId,
+      parentId,
       snapshotType: typeof snapshot,
     });
 
-    // Step 4: Create entity from snapshot (delegated to subclass)
-    // Extract parent ID from checkpoint based on its specific type
-    const parentId = this.extractParentId(checkpoint);
+    // Step 5: Create entity from snapshot (delegated to subclass)
     const entity = this.createEntityFromSnapshot(parentId, snapshot);
 
     logger.info("Entity restored successfully", {
@@ -176,10 +177,12 @@ export abstract class BaseCheckpointCoordinator<
 
   /**
    * Determine checkpoint type based on configuration and history
-   * 
+   *
    * This method can be overridden by subclasses to implement custom strategies.
-   * Default implementation: Creates FULL checkpoint every baselineInterval checkpoints.
-   * 
+   * Default implementation: Creates FULL checkpoint at the effective interval,
+   * which is the minimum of baselineInterval and maxDeltaChainLength.
+   * This ensures the delta chain never exceeds the configured maximum length.
+   *
    * @param checkpointCount Number of existing checkpoints
    * @param config Delta storage configuration
    * @returns Checkpoint type (FULL or DELTA)
@@ -198,10 +201,18 @@ export abstract class BaseCheckpointCoordinator<
       return "FULL";
     }
 
-    // Create baseline every N checkpoints
-    // Note: Subclasses may override this to use different strategies
-    // e.g., Agent uses (checkpointCount + 1) % baselineInterval for different semantics
-    if (checkpointCount % config.baselineInterval === 0) {
+    // Determine the effective baseline interval:
+    // - baselineInterval defines the normal FULL checkpoint cadence
+    // - maxDeltaChainLength is a hard limit on delta chain length
+    // The effective interval is the smaller of the two, ensuring
+    // the delta chain never exceeds maxDeltaChainLength.
+    const effectiveInterval = Math.min(
+      config.baselineInterval,
+      config.maxDeltaChainLength
+    );
+
+    // Create baseline at the effective interval
+    if (checkpointCount % effectiveInterval === 0) {
       return "FULL";
     }
 

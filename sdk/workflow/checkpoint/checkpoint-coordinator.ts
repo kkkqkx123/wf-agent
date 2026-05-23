@@ -180,7 +180,6 @@ export class CheckpointCoordinator {
           // If the previous checkpoint was an incremental checkpoint, the full state needs to be restored.
           const restorer = new BaseDeltaRestorer<Checkpoint, WorkflowExecutionStateSnapshot>(
             id => checkpointStateManager.get(id),
-            workflowExecutionId => checkpointStateManager.list({ parentId: workflowExecutionId }),
           );
           const restoreResult = await restorer.restore(previousCheckpointId);
           previousState = restoreResult.snapshot;
@@ -361,7 +360,6 @@ export class CheckpointCoordinator {
       // If it's an incremental checkpoint, the full state needs to be restored.
       const restorer = new BaseDeltaRestorer<Checkpoint, WorkflowExecutionStateSnapshot>(
         id => checkpointStateManager.get(id),
-        workflowExecutionId => checkpointStateManager.list({ parentId: workflowExecutionId }),
       );
       const restoreResult = await restorer.restore(checkpointId);
       workflowExecutionState = restoreResult.snapshot;

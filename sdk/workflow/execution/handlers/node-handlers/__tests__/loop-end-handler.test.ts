@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { loopEndHandler } from '../loop-end-handler.js';
-import { DependencyManager } from '@wf-agent/common-utils';
+import { DependencyManager } from '../../../../evaluation/index.js';
 import type { WorkflowExecutionEntity } from '../../../../entities/workflow-execution-entity.js';
 import type { RuntimeNode, LoopEndNodeConfig } from '@wf-agent/types';
 

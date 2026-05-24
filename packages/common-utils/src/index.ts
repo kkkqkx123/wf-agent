@@ -13,9 +13,6 @@ export * from "./template/template-renderer.js";
 // Error Handling Tools
 export * from "./error/index.js";
 
-// Expression evaluator
-export * from "./evalutor/index.js";
-
 // Code Security Tool Module
 export * from "./script-security/index.js";
 

@@ -1,6 +1,6 @@
 /**
  * Dependency Tracking System
- * Enables intelligent re-evaluation based on variable changes (Phase 2)
+ * Enables intelligent re-evaluation based on variable changes
  */
 
 import { expressionCompiler, type CompiledExpression } from "./expression-compiler.js";
@@ -20,15 +20,13 @@ export interface TrackedExpression {
   lastResult?: unknown;
   /** Last evaluation timestamp */
   lastEvaluatedAt?: number;
-  /** Whether the expression needs re-evaluation */
-  needsReevaluation: boolean;
 }
 
 /**
  * Variable change tracker
  * Monitors which variables have changed since last check
  */
-export class VariableChangeTracker {
+class VariableChangeTracker {
   private previousValues = new Map<string, unknown>();
 
   /**
@@ -39,7 +37,7 @@ export class VariableChangeTracker {
    */
   hasChanged(variablePath: string, currentValue: unknown): boolean {
     const previousValue = this.previousValues.get(variablePath);
-    
+
     // First time seeing this variable - consider it changed
     if (!this.previousValues.has(variablePath)) {
       return true;
@@ -66,13 +64,6 @@ export class VariableChangeTracker {
   }
 
   /**
-   * Get all tracked variables
-   */
-  getTrackedVariables(): string[] {
-    return Array.from(this.previousValues.keys());
-  }
-
-  /**
    * Deep equality check
    */
   private valuesEqual(a: unknown, b: unknown): boolean {
@@ -83,12 +74,12 @@ export class VariableChangeTracker {
     if (typeof a === "object") {
       const aObj = a as Record<string, unknown>;
       const bObj = b as Record<string, unknown>;
-      
+
       const keysA = Object.keys(aObj);
       const keysB = Object.keys(bObj);
-      
+
       if (keysA.length !== keysB.length) return false;
-      
+
       return keysA.every(key => this.valuesEqual(aObj[key], bObj[key]));
     }
 
@@ -121,7 +112,6 @@ export class DependencyManager {
       dependencies: compiled.dependencies,
       lastResult: result,
       lastEvaluatedAt: Date.now(),
-      needsReevaluation: false,
     };
 
     this.trackedExpressions.set(key, tracked);
@@ -182,33 +172,6 @@ export class DependencyManager {
     const result = tracked.compiled.evaluate(context);
     tracked.lastResult = result;
     tracked.lastEvaluatedAt = Date.now();
-    tracked.needsReevaluation = false;
-
-    // Update tracked values
-    tracked.dependencies.forEach(dep => {
-      const value = this.getVariableValue(dep, context);
-      this.changeTracker.update(dep, value);
-    });
-
-    return result;
-  }
-
-  /**
-   * Force re-evaluation regardless of changes
-   * @param key Expression identifier
-   * @param context Current context
-   * @returns New evaluation result
-   */
-  forceEvaluate(key: string, context: EvaluationContext): unknown {
-    const tracked = this.trackedExpressions.get(key);
-    if (!tracked) {
-      throw new Error(`Expression not found: ${key}`);
-    }
-
-    const result = tracked.compiled.evaluate(context);
-    tracked.lastResult = result;
-    tracked.lastEvaluatedAt = Date.now();
-    tracked.needsReevaluation = false;
 
     // Update tracked values
     tracked.dependencies.forEach(dep => {
@@ -229,24 +192,6 @@ export class DependencyManager {
   }
 
   /**
-   * Get all tracked expressions
-   */
-  getAllTrackedExpressions(): Map<string, TrackedExpression> {
-    return new Map(this.trackedExpressions);
-  }
-
-  /**
-   * Mark expression as needing re-evaluation
-   * @param key Expression identifier
-   */
-  markForReevaluation(key: string): void {
-    const tracked = this.trackedExpressions.get(key);
-    if (tracked) {
-      tracked.needsReevaluation = true;
-    }
-  }
-
-  /**
    * Clear all tracked data
    */
   clear(): void {
@@ -261,7 +206,7 @@ export class DependencyManager {
     const parts = path.split(".");
     const firstPart = parts[0];
     if (!firstPart) return undefined;
-    
+
     let current: unknown = (context.variables as Record<string, unknown>)[firstPart];
 
     for (let i = 1; i < parts.length; i++) {

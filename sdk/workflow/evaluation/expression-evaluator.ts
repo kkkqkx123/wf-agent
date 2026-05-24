@@ -7,7 +7,7 @@ import type { EvaluationContext } from "@wf-agent/types";
 import { RuntimeValidationError } from "@wf-agent/types";
 import { validatePath, validateExpression, SECURITY_CONFIG } from "./security-validator.js";
 import { resolvePath } from "./path-resolver.js";
-import { getGlobalLogger } from "../logger/index.js";
+import { getGlobalLogger } from "@wf-agent/common-utils";
 import { expressionCompiler } from "./expression-compiler.js";
 import type {
   Expression,
@@ -23,7 +23,7 @@ import type {
 } from "./dsl/types.js";
 
 export class ExpressionEvaluator {
-  private logger = getGlobalLogger().child("ExpressionEvaluator", { pkg: "common-utils" });
+  private logger = getGlobalLogger().child("ExpressionEvaluator", { pkg: "sdk/workflow" });
   private registeredFunctions = new Map<string, (...args: any[]) => any>();
 
   // Cache for array method computation results (per-call, bounded)

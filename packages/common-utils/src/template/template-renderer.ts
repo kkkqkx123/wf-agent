@@ -11,7 +11,34 @@
  * - Provides safe variable value fetching
  */
 
-import { resolvePath } from "../evalutor/path-resolver.js";
+/**
+ * Simple path resolver for template variable access.
+ * Supports nested paths like "user.name" and array index access like "items[0].name".
+ */
+function resolvePath(path: string, root: unknown): unknown {
+  if (!path || !root) {
+    return undefined;
+  }
+  const parts = path.split(".");
+  let value: unknown = root;
+  for (const part of parts) {
+    if (value === null || value === undefined) {
+      return undefined;
+    }
+    const arrayMatch = part.match(/(\w+)\[(\d+)\]/);
+    if (arrayMatch && arrayMatch[1] && arrayMatch[2]) {
+      const arrayName = arrayMatch[1];
+      const index = parseInt(arrayMatch[2], 10);
+      value = (value as Record<string, unknown>)[arrayName];
+      if (Array.isArray(value)) {
+        value = value[index];
+      }
+    } else {
+      value = (value as Record<string, unknown>)[part];
+    }
+  }
+  return value;
+}
 
 /**
  * Supported Loop-Specific Variables

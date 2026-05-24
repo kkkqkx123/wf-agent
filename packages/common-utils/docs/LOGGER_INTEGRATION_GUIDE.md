@@ -57,8 +57,8 @@ export function selectCompressionStrategy(data: Uint8Array): CompressionConfig {
    - It does NOT depend on any utility modules
    - Therefore, utility modules can safely import from logger without creating cycles
 
-2. **Proven Pattern**: 
-   - Already used in `evalutor/condition-evaluator.ts` and `evalutor/expression-evaluator.ts`
+2. **Proven Pattern**:
+   - Already used in `sdk/workflow/evaluation/condition-evaluator.ts` and `sdk/workflow/evaluation/expression-evaluator.ts`
    - Works correctly in production
 
 3. **Flexible Configuration**:

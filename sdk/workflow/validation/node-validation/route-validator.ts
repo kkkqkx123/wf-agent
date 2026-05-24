@@ -6,7 +6,8 @@
 import type { StaticNode } from "@wf-agent/types";
 import { RouteNodeConfigSchema, ConfigurationValidationError } from "@wf-agent/types";
 import type { Result } from "@wf-agent/types";
-import { ok, err, validateExpression } from "@wf-agent/common-utils";
+import { ok, err } from "@wf-agent/common-utils";
+import { validateExpression } from "../../evaluation/index.js";
 import { RuntimeValidationError } from "@wf-agent/types";
 import { validateNodeType, validateNodeConfig } from "../../../core/validation/utils.js";
 

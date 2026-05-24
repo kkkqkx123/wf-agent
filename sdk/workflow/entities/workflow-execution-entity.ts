@@ -35,7 +35,7 @@ import type { InterruptionState } from "../../core/utils/interruption/interrupti
 import { createWorkflowInterruptionAbortReason } from "../execution/utils/workflow-interruption-utils.js";
 import type { EventRegistry } from "../../core/registry/event-registry.js";
 import type { Abortable } from "../../core/types/abortable.js";
-import { DependencyManager } from "@wf-agent/common-utils";
+import { DependencyManager } from "../evaluation/index.js";
 import { SyncBarrier } from "../execution/barriers/sync-barrier.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 

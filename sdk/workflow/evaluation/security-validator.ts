@@ -12,7 +12,6 @@
  *
  */
 
-import { z } from "zod";
 import { RuntimeValidationError } from "@wf-agent/types";
 
 /**
@@ -26,50 +25,11 @@ export const SECURITY_CONFIG = {
   /** Forbidden properties (to prevent prototype chain contamination) */
   FORBIDDEN_PROPERTIES: ["__proto__", "constructor", "prototype"],
   /**
-   * 允许的路径字符正则
-   * 支持常规变量路径：user.name, items[0], data.items[0].name
+   * Valid path character pattern
+   * Supports regular variable paths: user.name, items[0], data.items[0].name
    */
   VALID_PATH_PATTERN: /^[a-zA-Z_][a-zA-Z0-9_]*(\[\d+\])?(\.[a-zA-Z_][a-zA-Z0-9_]*(\[\d+\])?)*$/,
 } as const;
-
-/**
- * Expression Schema
- */
-const expressionSchema = z
-  .string()
-  .min(1, "Expression must be a non-empty string")
-  .max(
-    SECURITY_CONFIG.MAX_EXPRESSION_LENGTH,
-    `Expression length exceeds maximum limit of ${SECURITY_CONFIG.MAX_EXPRESSION_LENGTH}`,
-  );
-
-/**
- * Path Schema (Basic Format Validation)
- */
-const pathSchema = z
-  .string()
-  .min(1, "Path must be a non-empty string")
-  .regex(
-    SECURITY_CONFIG.VALID_PATH_PATTERN,
-    "Path contains invalid characters. Only alphanumeric, underscore, dot, and array brackets are allowed",
-  );
-
-/**
- * Value Type Schema
- */
-const valueTypeSchema = z.union([
-  z.string(),
-  z.number(),
-  z.boolean(),
-  z.undefined(),
-  z.null(),
-  z.array(z.unknown()),
-  z
-    .record(z.string(), z.unknown())
-    .refine(val => val.constructor === Object || val.constructor === undefined, {
-      message: "Special objects (Date, RegExp, Map, Set, etc.) are not allowed",
-    }),
-]);
 
 /**
  * Verify the safety of the expression
@@ -77,14 +37,23 @@ const valueTypeSchema = z.union([
  * @throws ValidationError: If the expression is unsafe
  */
 export function validateExpression(expression: string): void {
-  const result = expressionSchema.safeParse(expression);
-  if (!result.success) {
-    const message = result.error.issues[0]?.message || "Expression validation failed";
-    throw new RuntimeValidationError(message, {
+  if (!expression || typeof expression !== "string") {
+    throw new RuntimeValidationError("Expression must be a non-empty string", {
       operation: "validateExpression",
       field: "expression",
       value: expression,
     });
+  }
+
+  if (expression.length > SECURITY_CONFIG.MAX_EXPRESSION_LENGTH) {
+    throw new RuntimeValidationError(
+      `Expression length exceeds maximum limit of ${SECURITY_CONFIG.MAX_EXPRESSION_LENGTH}`,
+      {
+        operation: "validateExpression",
+        field: "expression",
+        value: expression.substring(0, 100),
+      },
+    );
   }
 }
 
@@ -114,15 +83,16 @@ export function validatePath(path: string): void {
     }
   }
 
-  // Verify path format
-  const result = pathSchema.safeParse(path);
-  if (!result.success) {
-    const message = result.error.issues[0]?.message || "Path validation failed";
-    throw new RuntimeValidationError(message, {
-      operation: "validatePath",
-      field: "path",
-      value: path,
-    });
+  // Verify path format using regex pattern
+  if (!SECURITY_CONFIG.VALID_PATH_PATTERN.test(path)) {
+    throw new RuntimeValidationError(
+      "Path contains invalid characters. Only alphanumeric, underscore, dot, and array brackets are allowed",
+      {
+        operation: "validatePath",
+        field: "path",
+        value: path,
+      },
+    );
   }
 
   // Check the path depth.
@@ -146,9 +116,7 @@ export function validatePath(path: string): void {
  * @throws ValidationError: If the index is out of bounds
  */
 export function validateArrayIndex(array: unknown[], index: number): void {
-  const arraySchema = z.array(z.unknown());
-  const arrayResult = arraySchema.safeParse(array);
-  if (!arrayResult.success) {
+  if (!Array.isArray(array)) {
     throw new RuntimeValidationError("Target is not an array", {
       operation: "validateArrayAccess",
       field: "array",
@@ -156,13 +124,7 @@ export function validateArrayIndex(array: unknown[], index: number): void {
     });
   }
 
-  const indexSchema = z
-    .number()
-    .int()
-    .nonnegative()
-    .max(array.length - 1);
-  const indexResult = indexSchema.safeParse(index);
-  if (!indexResult.success) {
+  if (!Number.isInteger(index) || index < 0 || index >= array.length) {
     throw new RuntimeValidationError(
       `Array index ${index} out of bounds. Array length is ${array.length}`,
       {
@@ -180,27 +142,38 @@ export function validateArrayIndex(array: unknown[], index: number): void {
  * @throws ValidationError If the value type is not allowed
  */
 export function validateValueType(value: unknown): void {
-  const result = valueTypeSchema.safeParse(value);
-  if (!result.success) {
-    let message: string;
+  if (value === null || value === undefined) {
+    return; // null and undefined are allowed
+  }
 
-    if (value !== null && value !== undefined) {
-      const typeName = typeof value;
-      if (typeName === "function") {
-        message = `Value type ${typeName} is not allowed`;
-      } else if (typeof value === "object" && value.constructor && value.constructor !== Object) {
-        message = `Value type ${value.constructor.name} is not allowed`;
-      } else {
-        message = `Value type ${typeName} is not allowed`;
-      }
-    } else {
-      message = result.error.issues[0]?.message ?? "Value type validation failed";
-    }
+  const typeName = typeof value;
 
-    throw new RuntimeValidationError(message, {
+  if (typeName === "function") {
+    throw new RuntimeValidationError(`Value type ${typeName} is not allowed`, {
       operation: "validateType",
       field: "value",
       value: value,
     });
+  }
+
+  if (typeName === "string" || typeName === "number" || typeName === "boolean") {
+    return; // primitive types are allowed
+  }
+
+  if (Array.isArray(value)) {
+    return; // arrays are allowed
+  }
+
+  if (typeName === "object") {
+    const obj = value as Record<string, unknown>;
+    const constructor = obj?.constructor;
+    if (constructor && constructor !== Object) {
+      throw new RuntimeValidationError(`Value type ${constructor.name} is not allowed`, {
+        operation: "validateType",
+        field: "value",
+        value: value,
+      });
+    }
+    return; // plain objects are allowed
   }
 }

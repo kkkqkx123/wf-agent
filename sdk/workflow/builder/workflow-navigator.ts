@@ -11,7 +11,7 @@
  */
 
 import type { ID, StaticNodeType, Condition, Edge, WorkflowGraphStructure } from "@wf-agent/types";
-import { conditionEvaluator } from "@wf-agent/common-utils";
+import { conditionEvaluator } from "../evaluation/index.js";
 import { getReachableNodes } from "./utils/workflow-traversal.js";
 
 /**

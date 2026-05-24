@@ -19,7 +19,7 @@ import type {
   ContextBuilder,
 } from "./types.js";
 import type { EvaluationContext } from "@wf-agent/types";
-import { conditionEvaluator, expressionEvaluator } from "@wf-agent/common-utils";
+import { conditionEvaluator, expressionEvaluator } from "../../workflow/evaluation/index.js";
 import { getErrorMessage, now } from "@wf-agent/common-utils";
 import { buildHookExecutedEvent } from "../utils/event/builders/index.js";
 import { sdkLogger as logger } from "../../utils/logger.js";

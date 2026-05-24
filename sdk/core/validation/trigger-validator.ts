@@ -21,7 +21,8 @@ import {
 } from "@wf-agent/types";
 import { ConfigurationValidationError, RuntimeValidationError } from "@wf-agent/types";
 import type { Result } from "@wf-agent/types";
-import { ok, err, validateExpression } from "@wf-agent/common-utils";
+import { ok, err } from "@wf-agent/common-utils";
+import { validateExpression } from "../../workflow/evaluation/index.js";
 import { validateConfig } from "./utils.js";
 
 /**

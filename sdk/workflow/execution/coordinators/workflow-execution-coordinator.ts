@@ -8,7 +8,7 @@ import type { WorkflowExecutionResult, Condition, EvaluationContext } from "@wf-
 import type { InterruptionState } from "../../../core/utils/interruption/interruption-state.js";
 import type { NodeExecutionCoordinator } from "./node-execution-coordinator.js";
 import type { WorkflowNavigator } from "../../builder/workflow-navigator.js";
-import { conditionEvaluator } from "@wf-agent/common-utils";
+import { conditionEvaluator } from "../../evaluation/index.js";
 import {
   executeWithInterruptionHandling,
 } from "../../../core/utils/interruption/index.js";

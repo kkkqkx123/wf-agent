@@ -50,6 +50,9 @@ async function createAgentLoopTestContext(): Promise<AgentLoopTestContext> {
     simulateDelay: 5,
   });
 
+  const agentLoopStorage = new MemoryAgentLoopStorage();
+  await agentLoopStorage.initialize();
+
   const sdk = createSDK({
     debug: false,
     enableCheckpoints: false,
@@ -58,7 +61,7 @@ async function createAgentLoopTestContext(): Promise<AgentLoopTestContext> {
     workflowStorageAdapter: new MemoryWorkflowStorage(),
     taskStorageAdapter: new MemoryTaskStorage(),
     workflowExecutionStorageAdapter: new MemoryWorkflowExecutionStorage(),
-    agentLoopCheckpointStorageAdapter: new MemoryAgentLoopStorage(),
+    agentLoopCheckpointStorageAdapter: agentLoopStorage,
     presets: {
       contextCompression: { enabled: false },
       predefinedTools: { enabled: false },

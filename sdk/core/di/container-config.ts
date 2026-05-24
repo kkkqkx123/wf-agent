@@ -61,8 +61,6 @@ import { TaskRegistry } from "../../workflow/stores/task/task-registry.js";
 import { TaskQueue } from "../../workflow/stores/task/task-queue.js";
 import { WorkflowRegistry } from "../../workflow/stores/workflow-registry.js";
 import { WorkflowRelationshipRegistry } from "../../workflow/stores/workflow-relationship-registry.js";
-import { WorkflowPreprocessor } from "../../workflow/stores/workflow-preprocessor.js";
-import { WorkflowStorageManager } from "../../workflow/stores/workflow-storage-manager.js";
 import { WorkflowExecutionPool } from "../../workflow/execution/workflow-execution-pool.js";
 
 // Execution Layer Services - Core Layer Universal Executor
@@ -110,9 +108,9 @@ import { WorkflowExecutionEntity } from "../../workflow/entities/workflow-execut
 import { MetricsRegistry } from "../metrics/metrics-registry.js";
 import type { MetricsConfig, TimeoutConfig } from "@wf-agent/types";
 import type { SDKOptions } from "../../api/shared/types/core-types.js";
-import { 
-  loadMetricsConfigFromFile, 
-  mergeMetricsWithDefaults, 
+import {
+  loadMetricsConfigFromFile,
+  mergeMetricsWithDefaults,
   getMetricsEnvironmentDefaults,
   loadTimeoutConfigFromFile,
   mergeTimeoutWithDefaults,
@@ -188,8 +186,10 @@ export function configureContainerBindings(
   container
     .bind(Identifiers.WorkflowExecutionRegistry)
     .toDynamicValue((c: IContainer): WorkflowExecutionRegistry => {
-      const storageAdapter = c.get(Identifiers.WorkflowExecutionStorageAdapter) as WorkflowExecutionStorageAdapter | null;
-      
+      const storageAdapter = c.get(
+        Identifiers.WorkflowExecutionStorageAdapter,
+      ) as WorkflowExecutionStorageAdapter | null;
+
       return new WorkflowExecutionRegistry({
         storageAdapter: storageAdapter || undefined,
       });
@@ -213,7 +213,10 @@ export function configureContainerBindings(
     .toDynamicValue(() => new EventRegistry())
     .inSingletonScope();
 
-  container.bind(Identifiers.ToolRegistry).toDynamicValue(() => new ToolRegistry()).inSingletonScope();
+  container
+    .bind(Identifiers.ToolRegistry)
+    .toDynamicValue(() => new ToolRegistry())
+    .inSingletonScope();
 
   container.bind(Identifiers.ScriptRegistry).to(ScriptRegistry).inSingletonScope();
 
@@ -231,10 +234,7 @@ export function configureContainerBindings(
     .inSingletonScope();
 
   // CustomHandlerRegistry - Custom trigger handler registry
-  container
-    .bind(Identifiers.CustomHandlerRegistry)
-    .to(CustomHandlerRegistry)
-    .inSingletonScope();
+  container.bind(Identifiers.CustomHandlerRegistry).to(CustomHandlerRegistry).inSingletonScope();
 
   // TaskRegistry - Task registry (per-SDK-instance singleton)
   // Each SDK instance gets its own TaskRegistry to ensure isolation
@@ -291,47 +291,24 @@ export function configureContainerBindings(
     .to(WorkflowRelationshipRegistry)
     .inSingletonScope();
 
-  // WorkflowStorageManager - A storage manager that relies on WorkflowStorageAdapter
-  container
-    .bind(Identifiers.WorkflowStorageManager)
-    .toDynamicValue((c: IContainer): WorkflowStorageManager => {
-      const storageAdapter = c.get(Identifiers.WorkflowStorageAdapter) as WorkflowStorageAdapter | null;
-      return new WorkflowStorageManager(storageAdapter);
-    })
-    .inSingletonScope();
 
-  // WorkflowPreprocessor - A preprocessor that relies on WorkflowRegistry, WorkflowGraphRegistry, and WorkflowRelationshipRegistry
-  container
-    .bind(Identifiers.WorkflowPreprocessor)
-    .toDynamicValue((c: IContainer): WorkflowPreprocessor => {
-      return new WorkflowPreprocessor(
-        c.get(Identifiers.WorkflowRegistry) as WorkflowRegistry,
-        c.get(Identifiers.WorkflowGraphRegistry) as WorkflowGraphRegistry,
-        c.get(Identifiers.WorkflowRelationshipRegistry) as WorkflowRelationshipRegistry,
-      );
-    })
-    .inSingletonScope();
-
-  // WorkflowRegistry - A workflow registry that relies on WorkflowExecutionRegistry for reference checking.
+  // WorkflowRegistry - Receives dependencies directly, no longer depends on GlobalContext
+  // All dependencies are registered before WorkflowRegistry, so there are no container-level circular dependencies
   container
     .bind(Identifiers.WorkflowRegistry)
     .toDynamicValue((c: IContainer): WorkflowRegistry => {
-      const globalContext = c.get(Identifiers.GlobalContext) as GlobalContext;
-      const workflowExecutionRegistry = c.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry;
-      const storageManager = c.get(Identifiers.WorkflowStorageManager) as WorkflowStorageManager;
-      const relationshipRegistry = c.get(Identifiers.WorkflowRelationshipRegistry) as WorkflowRelationshipRegistry;
-      const preprocessor = c.get(Identifiers.WorkflowPreprocessor) as WorkflowPreprocessor;
-      
-      return new WorkflowRegistry(
-        globalContext, 
-        { 
-          maxRecursionDepth: 10,
-          storageManager,
-        }, 
-        workflowExecutionRegistry,
-        relationshipRegistry,
-        preprocessor,
-      );
+      const storageAdapter = c.get(
+        Identifiers.WorkflowStorageAdapter,
+      ) as WorkflowStorageAdapter | null;
+      const relationshipRegistry = c.get(
+        Identifiers.WorkflowRelationshipRegistry,
+      ) as WorkflowRelationshipRegistry;
+      const executionRegistry = c.get(Identifiers.WorkflowExecutionRegistry) as
+        | WorkflowExecutionRegistry
+        | undefined;
+      const graphRegistry = c.get(Identifiers.WorkflowGraphRegistry) as WorkflowGraphRegistry;
+
+      return new WorkflowRegistry(storageAdapter, executionRegistry, relationshipRegistry, graphRegistry);
     })
     .inSingletonScope();
 
@@ -360,21 +337,20 @@ export function configureContainerBindings(
         buildToolCallFailedEvent,
       };
 
-      return new ToolCallExecutor(
-        c.get(Identifiers.ToolRegistry) as ToolRegistry,
-        {
-          eventManager: c.get(Identifiers.EventRegistry) as EventRegistry,
-          checkpointDependencies: {
-            workflowExecutionRegistry: c.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry,
-            checkpointStateManager: c.get(Identifiers.CheckpointState) as CheckpointState,
-            workflowRegistry: c.get(Identifiers.WorkflowRegistry) as WorkflowRegistry,
-            workflowGraphRegistry: c.get(Identifiers.WorkflowGraphRegistry) as WorkflowGraphRegistry,
-          },
-          eventBuilder,
-          createCheckpointFn: createCheckpoint,
-          safeEmitFn: emit,
+      return new ToolCallExecutor(c.get(Identifiers.ToolRegistry) as ToolRegistry, {
+        eventManager: c.get(Identifiers.EventRegistry) as EventRegistry,
+        checkpointDependencies: {
+          workflowExecutionRegistry: c.get(
+            Identifiers.WorkflowExecutionRegistry,
+          ) as WorkflowExecutionRegistry,
+          checkpointStateManager: c.get(Identifiers.CheckpointState) as CheckpointState,
+          workflowRegistry: c.get(Identifiers.WorkflowRegistry) as WorkflowRegistry,
+          workflowGraphRegistry: c.get(Identifiers.WorkflowGraphRegistry) as WorkflowGraphRegistry,
         },
-      );
+        eventBuilder,
+        createCheckpointFn: createCheckpoint,
+        safeEmitFn: emit,
+      });
     })
     .inSingletonScope();
 
@@ -407,8 +383,10 @@ export function configureContainerBindings(
     .toDynamicValue((c: IContainer): IdBasedServiceFactory<WorkflowStateTransitor> => {
       const eventManager = c.get(Identifiers.EventRegistry) as EventRegistry;
       const workflowConversationSessionFactory = c.get(Identifiers.GraphConversationSession);
-      const workflowExecutionRegistry = c.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry;
-      
+      const workflowExecutionRegistry = c.get(
+        Identifiers.WorkflowExecutionRegistry,
+      ) as WorkflowExecutionRegistry;
+
       const factory: IdBasedServiceFactory<WorkflowStateTransitor> = {
         create: (executionId: string) => {
           const workflowConversationSession = (
@@ -442,7 +420,7 @@ export function configureContainerBindings(
       if (!adapter) {
         throw new Error(
           "CheckpointState requires a CheckpointStorageAdapter implementation. " +
-            "Please provide it via initializeContainerWithAdapters({ checkpoint: adapter }) parameter."
+            "Please provide it via initializeContainerWithAdapters({ checkpoint: adapter }) parameter.",
         );
       }
 
@@ -460,7 +438,9 @@ export function configureContainerBindings(
     .toDynamicValue((c: IContainer): WorkflowExecutor => {
       // The WorkflowExecutionCoordinator identifier is bound to a factory object with a create method
       const coordinatorFactory = c.get(Identifiers.WorkflowExecutionCoordinator) as unknown as {
-        create(executionEntity: import("../../workflow/entities/workflow-execution-entity.js").WorkflowExecutionEntity): import("../../workflow/execution/coordinators/workflow-execution-coordinator.js").WorkflowExecutionCoordinator;
+        create(
+          executionEntity: import("../../workflow/entities/workflow-execution-entity.js").WorkflowExecutionEntity,
+        ): import("../../workflow/execution/coordinators/workflow-execution-coordinator.js").WorkflowExecutionCoordinator;
       };
       return new WorkflowExecutor({
         workflowGraphRegistry: c.get(Identifiers.WorkflowGraphRegistry) as WorkflowGraphRegistry,
@@ -480,8 +460,12 @@ export function configureContainerBindings(
   container
     .bind(Identifiers.WorkflowLifecycleCoordinator)
     .toDynamicValue((c: IContainer): IdBasedServiceFactory<WorkflowLifecycleCoordinator> => {
-      const workflowExecutionRegistry = c.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry;
-      const workflowExecutionBuilder = c.get(Identifiers.WorkflowExecutionBuilder) as WorkflowExecutionBuilder;
+      const workflowExecutionRegistry = c.get(
+        Identifiers.WorkflowExecutionRegistry,
+      ) as WorkflowExecutionRegistry;
+      const workflowExecutionBuilder = c.get(
+        Identifiers.WorkflowExecutionBuilder,
+      ) as WorkflowExecutionBuilder;
       const workflowExecutor = c.get(Identifiers.WorkflowExecutor) as WorkflowExecutor;
       const stateTransitorFactory = c.get(Identifiers.WorkflowStateTransitor);
 
@@ -550,7 +534,8 @@ export function configureContainerBindings(
     .bind(Identifiers.InterruptionState)
     .toDynamicValue((): InterruptionStateFactory<InterruptionState> => {
       const factory: InterruptionStateFactory<InterruptionState> = {
-        create: (executionId: string, nodeId: string) => new InterruptionState({ contextId: executionId, nodeId }),
+        create: (executionId: string, nodeId: string) =>
+          new InterruptionState({ contextId: executionId, nodeId }),
       };
       return factory;
     })
@@ -637,18 +622,26 @@ export function configureContainerBindings(
             ).create(executionId, nodeId),
             navigator,
             toolService: c.get(Identifiers.ToolRegistry) as ToolRegistry,
-            permissionManager: c.get(Identifiers.ToolPermissionManager) as ToolPermissionManager | null,
+            permissionManager: c.get(
+              Identifiers.ToolPermissionManager,
+            ) as ToolPermissionManager | null,
             rejectionBuilder: c.get(Identifiers.RejectionMessageBuilder) as RejectionMessageBuilder,
             checkpointDependencies: {
-              workflowExecutionRegistry: c.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry,
+              workflowExecutionRegistry: c.get(
+                Identifiers.WorkflowExecutionRegistry,
+              ) as WorkflowExecutionRegistry,
               checkpointStateManager: c.get(Identifiers.CheckpointState) as CheckpointState,
               workflowRegistry: c.get(Identifiers.WorkflowRegistry) as WorkflowRegistry,
-              workflowGraphRegistry: c.get(Identifiers.WorkflowGraphRegistry) as WorkflowGraphRegistry,
+              workflowGraphRegistry: c.get(
+                Identifiers.WorkflowGraphRegistry,
+              ) as WorkflowGraphRegistry,
             },
             agentLoopExecutorFactory: (
               agentLoopExecutorFactory as unknown as NoArgServiceFactory<AgentLoopExecutor>
             ).create(),
-            executionBuilder: c.get(Identifiers.WorkflowExecutionBuilder) as WorkflowExecutionBuilder,
+            executionBuilder: c.get(
+              Identifiers.WorkflowExecutionBuilder,
+            ) as WorkflowExecutionBuilder,
             workflowExecutor: c.get(Identifiers.WorkflowExecutor) as WorkflowExecutor,
           };
           return new NodeExecutionCoordinator(config);
@@ -664,13 +657,21 @@ export function configureContainerBindings(
   container
     .bind(Identifiers.TriggerCoordinator)
     .toDynamicValue((c: IContainer): IdBasedServiceFactory<TriggerCoordinator> => {
-      const workflowExecutionRegistry = c.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry;
+      const workflowExecutionRegistry = c.get(
+        Identifiers.WorkflowExecutionRegistry,
+      ) as WorkflowExecutionRegistry;
       const workflowRegistry = c.get(Identifiers.WorkflowRegistry) as WorkflowRegistry;
-      const workflowGraphRegistry = c.get(Identifiers.WorkflowGraphRegistry) as WorkflowGraphRegistry;
+      const workflowGraphRegistry = c.get(
+        Identifiers.WorkflowGraphRegistry,
+      ) as WorkflowGraphRegistry;
       const eventManager = c.get(Identifiers.EventRegistry) as EventRegistry;
-      const workflowExecutionBuilder = c.get(Identifiers.WorkflowExecutionBuilder) as WorkflowExecutionBuilder;
+      const workflowExecutionBuilder = c.get(
+        Identifiers.WorkflowExecutionBuilder,
+      ) as WorkflowExecutionBuilder;
       const taskRegistry = c.get(Identifiers.TaskRegistry) as TaskRegistry;
-      const workflowExecutionPool = c.get(Identifiers.WorkflowExecutionPool) as WorkflowExecutionPool;
+      const workflowExecutionPool = c.get(
+        Identifiers.WorkflowExecutionPool,
+      ) as WorkflowExecutionPool;
       const stateManagerFactory = c.get(Identifiers.TriggerState);
       const checkpointStateManager = c.get(Identifiers.CheckpointState) as CheckpointState;
       const stateTransitorFactory = c.get(Identifiers.WorkflowStateTransitor);
@@ -710,9 +711,13 @@ export function configureContainerBindings(
     .toDynamicValue((c: IContainer): TriggeredSubworkflowHandler => {
       const taskRegistry = c.get(Identifiers.TaskRegistry) as TaskRegistry;
       const eventManager = c.get(Identifiers.EventRegistry) as EventRegistry;
-      const workflowExecutionPool = c.get(Identifiers.WorkflowExecutionPool) as WorkflowExecutionPool;
+      const workflowExecutionPool = c.get(
+        Identifiers.WorkflowExecutionPool,
+      ) as WorkflowExecutionPool;
       const taskQueueManager = new TaskQueue(taskRegistry, workflowExecutionPool, eventManager);
-      const workflowExecutionRegistry = c.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry;
+      const workflowExecutionRegistry = c.get(
+        Identifiers.WorkflowExecutionRegistry,
+      ) as WorkflowExecutionRegistry;
       // Create an adapter to convert null to undefined
       const workflowExecutionRegistryAdapter = {
         register: (entity: WorkflowExecutionEntity) => workflowExecutionRegistry.register(entity),
@@ -746,15 +751,15 @@ export function configureContainerBindings(
           const nodeId = executionEntity.getCurrentNodeId();
           const graph = executionEntity.getGraph();
           const navigator = new WorkflowNavigator(graph);
-          
+
           // Create InterruptionState and set it on the entity
           const interruptionManager = (
             interruptionManagerFactory as unknown as InterruptionStateFactory<InterruptionState>
           ).create(executionId, nodeId);
-          
+
           // Set the interruption state on the entity so getAbortSignal() returns the same signal
           executionEntity.setInterruptionState(interruptionManager);
-          
+
           return new WorkflowExecutionCoordinator(
             executionEntity,
             interruptionManager,
@@ -797,8 +802,10 @@ export function configureContainerBindings(
   container
     .bind(Identifiers.AgentLoopRegistry)
     .toDynamicValue((c: IContainer): AgentLoopRegistry => {
-      const storageAdapter = c.get(Identifiers.AgentLoopStorageAdapter) as AgentLoopStorageAdapter | null;
-      
+      const storageAdapter = c.get(
+        Identifiers.AgentLoopStorageAdapter,
+      ) as AgentLoopStorageAdapter | null;
+
       return new AgentLoopRegistry({
         storageAdapter: storageAdapter || undefined,
       });
@@ -815,7 +822,10 @@ export function configureContainerBindings(
 
   // ExecutionHierarchyRegistry - Unified execution hierarchy registry (Phase 4)
   // Manages parent-child relationships across all execution types (Workflow, Agent)
-  container.bind(Identifiers.ExecutionHierarchyRegistry).to(ExecutionHierarchyRegistry).inSingletonScope();
+  container
+    .bind(Identifiers.ExecutionHierarchyRegistry)
+    .to(ExecutionHierarchyRegistry)
+    .inSingletonScope();
 
   // AgentLoopCoordinator - Agent Loop Lifecycle Coordinator Factory
   // Each time a new AgentLoopCoordinator instance is created
@@ -823,13 +833,15 @@ export function configureContainerBindings(
     .bind(Identifiers.AgentLoopCoordinator)
     .toDynamicValue((c: IContainer): NoArgServiceFactory<AgentLoopCoordinator> => {
       const agentLoopExecutorFactory = c.get(Identifiers.AgentLoopExecutor);
-      
+
       const factory: NoArgServiceFactory<AgentLoopCoordinator> = {
         create: () => {
           const globalContext = c.get(Identifiers.GlobalContext) as GlobalContext;
           return new AgentLoopCoordinator(
             c.get(Identifiers.AgentLoopRegistry) as AgentLoopRegistry,
-            (agentLoopExecutorFactory as unknown as NoArgServiceFactory<AgentLoopExecutor>).create(),
+            (
+              agentLoopExecutorFactory as unknown as NoArgServiceFactory<AgentLoopExecutor>
+            ).create(),
             globalContext,
             c.get(Identifiers.EventRegistry) as EventRegistry | undefined, // EventRegistry for state transitor
           );
@@ -847,7 +859,9 @@ export function configureContainerBindings(
     .toDynamicValue((c: IContainer) => {
       return {
         dependencies: {
-          workflowExecutionRegistry: c.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry,
+          workflowExecutionRegistry: c.get(
+            Identifiers.WorkflowExecutionRegistry,
+          ) as WorkflowExecutionRegistry,
           checkpointStateManager: c.get(Identifiers.CheckpointState) as CheckpointState,
           workflowRegistry: c.get(Identifiers.WorkflowRegistry) as WorkflowRegistry,
           workflowGraphRegistry: c.get(Identifiers.WorkflowGraphRegistry) as WorkflowGraphRegistry,
@@ -856,20 +870,28 @@ export function configureContainerBindings(
           return CheckpointCoordinator.createCheckpoint(
             workflowExecutionId,
             {
-              workflowExecutionRegistry: c.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry,
+              workflowExecutionRegistry: c.get(
+                Identifiers.WorkflowExecutionRegistry,
+              ) as WorkflowExecutionRegistry,
               checkpointStateManager: c.get(Identifiers.CheckpointState) as CheckpointState,
               workflowRegistry: c.get(Identifiers.WorkflowRegistry) as WorkflowRegistry,
-              workflowGraphRegistry: c.get(Identifiers.WorkflowGraphRegistry) as WorkflowGraphRegistry,
+              workflowGraphRegistry: c.get(
+                Identifiers.WorkflowGraphRegistry,
+              ) as WorkflowGraphRegistry,
             },
             metadata,
           );
         },
         restoreFromCheckpoint: (checkpointId: string) => {
           return CheckpointCoordinator.restoreFromCheckpoint(checkpointId, {
-            workflowExecutionRegistry: c.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry,
+            workflowExecutionRegistry: c.get(
+              Identifiers.WorkflowExecutionRegistry,
+            ) as WorkflowExecutionRegistry,
             checkpointStateManager: c.get(Identifiers.CheckpointState) as CheckpointState,
             workflowRegistry: c.get(Identifiers.WorkflowRegistry) as WorkflowRegistry,
-            workflowGraphRegistry: c.get(Identifiers.WorkflowGraphRegistry) as WorkflowGraphRegistry,
+            workflowGraphRegistry: c.get(
+              Identifiers.WorkflowGraphRegistry,
+            ) as WorkflowGraphRegistry,
           });
         },
       };
@@ -884,15 +906,15 @@ export function configureContainerBindings(
   container
     .bind(Identifiers.MetricsStorageAdapter)
     .toDynamicValue(async (): Promise<MetricsStorageAdapter> => {
-      const { SqliteMetricsStorage } = await import('@wf-agent/storage');
-      const { join } = await import('path');
-      
+      const { SqliteMetricsStorage } = await import("@wf-agent/storage");
+      const { join } = await import("path");
+
       const storage = new SqliteMetricsStorage({
-        dbPath: join(process.cwd(), 'data', 'metrics.db'),
+        dbPath: join(process.cwd(), "data", "metrics.db"),
         enableWAL: true,
         vacuumInterval: 60 * 60 * 1000, // 1 hour
       });
-      
+
       await storage.initialize();
       return storage;
     })
@@ -926,19 +948,16 @@ export function configureContainerBindings(
     .toDynamicValue(async (c: IContainer): Promise<MetricsConfig> => {
       // Get SDK options from container
       const sdkOptions = c.get(Identifiers.SDKOptions) as SDKOptions | undefined;
-      
+
       // Priority 1: SDKOptions.metrics (programmatic override)
       if (sdkOptions?.metrics) {
         logger.info("Using metrics config from SDKOptions");
         return mergeMetricsWithDefaults(sdkOptions.metrics);
       }
-      
+
       // Priority 2: Config file
-      const configPaths = [
-        './configs/metrics.toml',
-        './configs/metrics.json',
-      ];
-      
+      const configPaths = ["./configs/metrics.toml", "./configs/metrics.json"];
+
       for (const path of configPaths) {
         try {
           const config = await loadMetricsConfigFromFile(path);
@@ -948,7 +967,7 @@ export function configureContainerBindings(
           // Try next path
         }
       }
-      
+
       // Priority 3: Environment-based defaults
       const env = process.env["NODE_ENV"] || "development";
       logger.info("Using environment-based metrics defaults", { env });
@@ -962,20 +981,20 @@ export function configureContainerBindings(
     .bind(Identifiers.MetricsRegistry)
     .toDynamicValue((c: IContainer): MetricsRegistry => {
       const config = c.get(Identifiers.MetricsConfig) as MetricsConfig;
-      
+
       // Only create registry if metrics are enabled
       if (config.enabled === false) {
         logger.info("Metrics collection is disabled");
         // Return a minimal registry with periodic reporting disabled
         return new MetricsRegistry({ enablePeriodicReporting: false });
       }
-      
+
       logger.info("Initializing MetricsRegistry with configuration", {
         enabled: config.enabled,
         periodicReporting: config.enablePeriodicReporting,
         reportingInterval: config.reportingInterval,
       });
-      
+
       return new MetricsRegistry(config);
     })
     .inSingletonScope();
@@ -987,19 +1006,16 @@ export function configureContainerBindings(
     .toDynamicValue(async (c: IContainer): Promise<Required<TimeoutConfig>> => {
       // Get SDK options from container
       const sdkOptions = c.get(Identifiers.SDKOptions) as SDKOptions | undefined;
-      
+
       // Priority 1: SDKOptions.timeout (programmatic override)
       if (sdkOptions?.timeout) {
         logger.info("Using timeout config from SDKOptions");
         return mergeTimeoutWithDefaults(sdkOptions.timeout);
       }
-      
+
       // Priority 2: Config file
-      const configPaths = [
-        './configs/timeout.toml',
-        './configs/timeout.json',
-      ];
-      
+      const configPaths = ["./configs/timeout.toml", "./configs/timeout.json"];
+
       for (const path of configPaths) {
         try {
           const config = await loadTimeoutConfigFromFile(path);
@@ -1009,7 +1025,7 @@ export function configureContainerBindings(
           // Try next path
         }
       }
-      
+
       // Priority 3: Environment-based defaults
       const env = process.env["NODE_ENV"] || "development";
       logger.info("Using environment-based timeout defaults", { env });
@@ -1042,4 +1058,3 @@ export function configureContainerBindings(
     })
     .inSingletonScope();
 }
-

@@ -3,7 +3,7 @@
  * Responsible for the registration, querying, and management of workflow definitions.
  *
  * Preprocessing, relationship management, and storage persistence are delegated to
- * specialized sub-modules (WorkflowPreprocessor, WorkflowRelationshipRegistry, WorkflowStorageManager).
+ * specialized sub-modules (preprocessWorkflow, WorkflowRelationshipRegistry, WorkflowStorageAdapter).
  *
  * This module only exports class definitions; instances are managed uniformly through SingletonRegistry.
  */
@@ -16,9 +16,7 @@ import type {
   BatchUnregisterOptions,
   UpdateOptions,
 } from "@wf-agent/types";
-import type {
-  WorkflowReferenceInfo,
-} from "@wf-agent/types";
+import type { WorkflowReferenceInfo } from "@wf-agent/types";
 import type { WorkflowSummary } from "../../api/workflow/resources/workflows/workflow-registry-api.js";
 import type { WorkflowExecutionRegistry } from "./workflow-execution-registry.js";
 import {
@@ -27,10 +25,14 @@ import {
   WorkflowNotFoundError,
 } from "@wf-agent/types";
 import type { WorkflowRelationshipRegistry } from "./workflow-relationship-registry.js";
-import type { WorkflowPreprocessor } from "./workflow-preprocessor.js";
-import type { WorkflowStorageManager } from "./workflow-storage-manager.js";
-import * as Identifiers from "../../core/di/service-identifiers.js";
-import type { GlobalContext } from "../../core/global-context.js";
+import { preprocessWorkflow } from "./utils/workflow-preprocessor.js";
+import type { WorkflowGraphRegistry } from "./workflow-graph-registry.js";
+import type { WorkflowStorageAdapter } from "@wf-agent/storage";
+import {
+  persistWorkflow,
+  removeWorkflow,
+  initializeWorkflowsFromStorage,
+} from "./utils/workflow-storage-utils.js";
 import { getErrorMessage } from "@wf-agent/common-utils";
 import { checkWorkflowReferences } from "../execution/utils/workflow-reference-checker.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
@@ -48,83 +50,27 @@ export interface WorkflowVersion {
 
 /**
  * WorkflowRegistry - Workflow Registry
- * 
+ *
  * Core responsibilities:
  * - Workflow definition CRUD (register, update, get, unregister)
  * - Query/search workflows by various criteria
  * - Basic validation
  * - Import/export
- * 
+ *
  * Delegated to sub-modules:
- * - Graph preprocessing -> WorkflowPreprocessor
+ * - Graph preprocessing -> preprocessWorkflow
  * - Relationship/reference management -> WorkflowRelationshipRegistry
- * - Storage persistence -> WorkflowStorageManager
+ * - Storage persistence -> WorkflowStorageAdapter
  */
 export class WorkflowRegistry {
   private workflows: Map<string, WorkflowTemplate> = new Map();
   private activeWorkflows: Set<string> = new Set();
-  private workflowExecutionRegistry: WorkflowExecutionRegistry | undefined;
-  private storageManager: WorkflowStorageManager | null = null;
-
   constructor(
-    private readonly globalContext: GlobalContext,
-    options: {
-      maxRecursionDepth?: number;
-      storageManager?: WorkflowStorageManager;
-    } = {},
-    workflowExecutionRegistry?: WorkflowExecutionRegistry,
-    private relationshipRegistry?: WorkflowRelationshipRegistry,
-    private preprocessor?: WorkflowPreprocessor,
-  ) {
-    this.workflowExecutionRegistry = workflowExecutionRegistry;
-    if (options.storageManager) {
-      this.storageManager = options.storageManager;
-    }
-  }
-
-  /**
-   * Obtain a WorkflowExecutionRegistry instance (with delayed retrieval)
-   * @returns A WorkflowExecutionRegistry instance or undefined
-   */
-  private getWorkflowExecutionRegistry(): WorkflowExecutionRegistry | undefined {
-    if (!this.workflowExecutionRegistry) {
-      this.workflowExecutionRegistry = this.globalContext.container.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry;
-    }
-    return this.workflowExecutionRegistry;
-  }
-
-  /**
-   * Obtain a WorkflowRelationshipRegistry instance (with delayed retrieval)
-   * @returns WorkflowRelationshipRegistry instance
-   */
-  private getRelationshipRegistry(): WorkflowRelationshipRegistry {
-    if (!this.relationshipRegistry) {
-      this.relationshipRegistry = this.globalContext.container.get(Identifiers.WorkflowRelationshipRegistry) as WorkflowRelationshipRegistry;
-    }
-    return this.relationshipRegistry;
-  }
-
-  /**
-   * Obtain a WorkflowPreprocessor instance (with delayed retrieval)
-   * @returns WorkflowPreprocessor instance
-   */
-  private getPreprocessor(): WorkflowPreprocessor {
-    if (!this.preprocessor) {
-      this.preprocessor = this.globalContext.container.get(Identifiers.WorkflowPreprocessor) as WorkflowPreprocessor;
-    }
-    return this.preprocessor;
-  }
-
-  /**
-   * Obtain a WorkflowStorageManager instance (with delayed retrieval)
-   * @returns WorkflowStorageManager instance
-   */
-  private getStorageManager(): WorkflowStorageManager | null {
-    if (!this.storageManager) {
-      this.storageManager = this.globalContext.container.get(Identifiers.WorkflowStorageManager) as WorkflowStorageManager | null;
-    }
-    return this.storageManager;
-  }
+    private readonly storageAdapter: WorkflowStorageAdapter | null = null,
+    private readonly workflowExecutionRegistry?: WorkflowExecutionRegistry,
+    private readonly relationshipRegistry?: WorkflowRelationshipRegistry,
+    private readonly graphRegistry?: WorkflowGraphRegistry,
+  ) {}
 
   // ============================================================
   // Active Workflow Tracking
@@ -246,9 +192,8 @@ export class WorkflowRegistry {
     this.workflows.set(workflow.id, workflow);
 
     // Persist to storage (async, non-blocking)
-    const storageManager = this.getStorageManager();
-    if (storageManager) {
-      storageManager.persist(workflow).catch(error => {
+    if (this.storageAdapter) {
+      persistWorkflow(workflow, this.storageAdapter).catch(error => {
         logger.error("Failed to persist workflow during registration", {
           workflowId: workflow.id,
           error: getErrorMessage(error),
@@ -256,15 +201,18 @@ export class WorkflowRegistry {
       });
     }
 
-    // Preprocess workflow asynchronously (delegated to WorkflowPreprocessor)
+    // Preprocess workflow asynchronously (delegated to preprocessWorkflow)
     try {
-      const preprocessor = this.getPreprocessor();
-      await preprocessor.preprocess(workflow);
+      await preprocessWorkflow(workflow, {
+        workflowRegistry: this,
+        graphRegistry: this.graphRegistry!,
+        relationshipRegistry: this.relationshipRegistry!,
+      });
     } catch (error) {
       // Remove the workflow from both memory and storage if preprocessing fails
       this.workflows.delete(workflow.id);
-      if (storageManager) {
-        storageManager.remove(workflow.id).catch(err => {
+      if (this.storageAdapter) {
+        removeWorkflow(workflow.id, this.storageAdapter).catch(err => {
           logger.error("Failed to remove workflow from storage after preprocessing failure", {
             workflowId: workflow.id,
             error: getErrorMessage(err),
@@ -374,11 +322,11 @@ export class WorkflowRegistry {
   get(workflowId: string): WorkflowTemplate | undefined {
     // Check memory cache first
     const workflow = this.workflows.get(workflowId);
-    
+
     // If not in memory and storage adapter is available, try to load from storage
     // Note: This is a simplified approach - ideally we'd have an async get() method
     // For now, we rely on initializeFromStorage() to pre-populate the cache
-    
+
     return workflow;
   }
 
@@ -448,16 +396,15 @@ export class WorkflowRegistry {
    */
   async list(): Promise<WorkflowSummary[]> {
     const memoryWorkflows = Array.from(this.workflows.values());
-    
-    // If no storage manager, return only memory workflows
-    const storageManager = this.getStorageManager();
-    if (!storageManager) {
+
+    // If no storage adapter, return only memory workflows
+    if (!this.storageAdapter) {
       return this.buildWorkflowSummaries(memoryWorkflows);
     }
 
     try {
       // Get all IDs from storage via storage manager
-      // Since we don't have a direct list method on WorkflowStorageManager,
+      // Since we don't have a direct list method on WorkflowStorageAdapter,
       // we rely on the previously loaded workflows + memory cache
       return this.buildWorkflowSummaries(memoryWorkflows);
     } catch (error) {
@@ -516,7 +463,7 @@ export class WorkflowRegistry {
    * @returns Reference information
    */
   async checkWorkflowReferences(workflowId: string): Promise<WorkflowReferenceInfo> {
-    const workflowExecutionRegistry = this.getWorkflowExecutionRegistry();
+    const workflowExecutionRegistry = this.workflowExecutionRegistry;
     if (!workflowExecutionRegistry) {
       throw new ExecutionError("WorkflowExecutionRegistry not available", undefined, workflowId, {
         operation: "check_workflow_references",
@@ -536,11 +483,11 @@ export class WorkflowRegistry {
     options?: UnregisterOptions,
   ): Promise<{ canDelete: boolean; details: string }> {
     const referenceInfo = await this.checkWorkflowReferences(workflowId);
-  
+
     if (!referenceInfo.hasReferences) {
       return { canDelete: true, details: "No references found" };
     }
-  
+
     if (options?.force) {
       if (referenceInfo.stats.runtimeReferences > 0) {
         const runtimeReferences = referenceInfo.references.filter(ref => ref.isRuntimeReference);
@@ -552,7 +499,7 @@ export class WorkflowRegistry {
       }
       return { canDelete: true, details: "Force delete enabled" };
     }
-  
+
     const referenceDetails = this.formatReferenceDetails(referenceInfo.references);
     return {
       canDelete: false,
@@ -621,9 +568,8 @@ export class WorkflowRegistry {
     this.workflows.delete(workflowId);
 
     // Remove from storage (async, non-blocking)
-    const storageManager = this.getStorageManager();
-    if (storageManager) {
-      storageManager.remove(workflowId).catch(error => {
+    if (this.storageAdapter) {
+      removeWorkflow(workflowId, this.storageAdapter).catch(error => {
         logger.error("Failed to remove workflow from storage during unregister", {
           workflowId,
           error: getErrorMessage(error),
@@ -632,7 +578,7 @@ export class WorkflowRegistry {
     }
 
     // Clean up reference relationships (delegated to WorkflowRelationshipRegistry)
-    this.getRelationshipRegistry().cleanupWorkflowReferences(workflowId);
+    this.relationshipRegistry!.cleanupWorkflowReferences(workflowId);
   }
 
   /**
@@ -663,7 +609,7 @@ export class WorkflowRegistry {
   clear(): void {
     this.workflows.clear();
     this.activeWorkflows.clear();
-    this.getRelationshipRegistry().clear();
+    this.relationshipRegistry!.clear();
   }
 
   // ============================================================
@@ -787,7 +733,11 @@ export class WorkflowRegistry {
     subgraphNodeId: string,
     childWorkflowId: string,
   ): void {
-    this.getRelationshipRegistry().registerSubgraphRelationship(parentWorkflowId, subgraphNodeId, childWorkflowId);
+    this.relationshipRegistry!.registerSubgraphRelationship(
+      parentWorkflowId,
+      subgraphNodeId,
+      childWorkflowId,
+    );
   }
 
   /**
@@ -796,7 +746,7 @@ export class WorkflowRegistry {
    * @returns Hierarchy structure information
    */
   getWorkflowHierarchy(workflowId: string): import("@wf-agent/types").WorkflowHierarchy {
-    return this.getRelationshipRegistry().getWorkflowHierarchy(workflowId);
+    return this.relationshipRegistry!.getWorkflowHierarchy(workflowId);
   }
 
   /**
@@ -805,7 +755,7 @@ export class WorkflowRegistry {
    * @returns Parent workflow ID or null
    */
   getParentWorkflow(workflowId: string): string | null {
-    return this.getRelationshipRegistry().getParentWorkflow(workflowId);
+    return this.relationshipRegistry!.getParentWorkflow(workflowId);
   }
 
   /**
@@ -814,11 +764,11 @@ export class WorkflowRegistry {
    * @returns Array of sub-workflow IDs
    */
   getChildWorkflows(workflowId: string): string[] {
-    return this.getRelationshipRegistry().getChildWorkflows(workflowId);
+    return this.relationshipRegistry!.getChildWorkflows(workflowId);
   }
 
   // ============================================================
-  // Storage Initialization (delegated to WorkflowStorageManager)
+  // Storage Initialization (delegated to WorkflowStorageAdapter)
   // ============================================================
 
   /**
@@ -826,11 +776,10 @@ export class WorkflowRegistry {
    * Loads all persisted workflow definitions into memory cache.
    */
   async initializeFromStorage(): Promise<void> {
-    const storageManager = this.getStorageManager();
-    if (!storageManager) {
+    if (!this.storageAdapter) {
       return;
     }
 
-    await storageManager.initialize(this.workflows);
+    await initializeWorkflowsFromStorage(this.storageAdapter, this.workflows);
   }
 }

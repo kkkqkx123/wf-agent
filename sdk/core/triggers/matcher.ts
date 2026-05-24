@@ -2,9 +2,39 @@
  * Universal Trigger Matcher
  *
  * Provides the logic for matching events with trigger conditions.
+ * Supports simple field matching (eventType, eventName) and
+ * expression-based matching via the ConditionEvaluator.
  */
 
 import type { BaseTriggerCondition, BaseEventData, TriggerMatcher } from "./types.js";
+import type { EvaluationContext } from "@wf-agent/types";
+import { conditionEvaluator } from "@wf-agent/common-utils";
+import { canTrigger } from "./limiter.js";
+import type { BaseTriggerDefinition } from "./types.js";
+import { getGlobalLogger } from "@wf-agent/common-utils";
+
+const logger = getGlobalLogger().child("TriggerMatcher", { module: "core/triggers" });
+
+/**
+ * Build an EvaluationContext from a BaseEventData for expression evaluation.
+ *
+ * Maps:
+ *   - event fields (type, eventName, timestamp, sourceId) → variables
+ *   - event.data → input
+ *   - output → empty (not applicable at match time)
+ */
+function buildEvalContext(event: BaseEventData): EvaluationContext {
+  return {
+    variables: {
+      type: event.type,
+      eventName: event.eventName,
+      timestamp: event.timestamp,
+      sourceId: event.sourceId,
+    },
+    input: (event.data as Record<string, unknown>) ?? {},
+    output: {},
+  };
+}
 
 /**
  * Default Trigger Matcher
@@ -12,62 +42,78 @@ import type { BaseTriggerCondition, BaseEventData, TriggerMatcher } from "./type
  * Matching Rules:
  * 1. The event type must match.
  * 2. If the condition specifies an eventName, the event must also match.
+ * 3. If the condition includes an expression condition (condition.condition),
+ *    it is evaluated using the ConditionEvaluator from common-utils for
+ *    richer matching (e.g., "data.status == 'completed'").
  *
- * @param condition: Trigger condition
- * @param event: Event data
- * @returns: Whether a match was found
+ * @param condition - Trigger condition
+ * @param event - Event data
+ * @returns Whether a match was found
  */
 export const defaultTriggerMatcher: TriggerMatcher = (
   condition: BaseTriggerCondition,
   event: BaseEventData,
 ): boolean => {
-  // Check the event type.
+  // Step 1: Check the event type.
   if (condition.eventType !== event.type) {
+    logger.debug("Match failed: eventType mismatch", {
+      expected: condition.eventType,
+      actual: event.type,
+    });
     return false;
   }
 
-  // If the condition specifies eventName, check whether there is a match.
+  // Step 2: If the condition specifies eventName, check whether there is a match.
   if (condition.eventName && condition.eventName !== event.eventName) {
+    logger.debug("Match failed: eventName mismatch", {
+      expected: condition.eventName,
+      actual: event.eventName,
+    });
     return false;
+  }
+
+  // Step 3: If the condition includes an expression condition, evaluate it.
+  if (condition.condition) {
+    const ctx = buildEvalContext(event);
+    try {
+      const passed = conditionEvaluator.evaluate(condition.condition, ctx);
+      if (!passed) {
+        logger.debug("Match failed: condition expression evaluated to false", {
+          expression: condition.condition.expression,
+          eventType: event.type,
+        });
+        return false;
+      }
+    } catch (err) {
+      logger.warn("Match failed: condition expression evaluation threw", {
+        expression: condition.condition.expression,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return false;
+    }
   }
 
   return true;
 };
 
 /**
- * Match Trigger Conditions
+ * Match event against all triggers and return those that match.
  *
- * Use the default matcher to determine whether an event meets the trigger conditions.
+ * Integrates with the limiter (canTrigger) to skip expired or disabled triggers.
  *
- * @param condition Trigger condition
- * @param event Event data
- * @returns Whether a match was found
- */
-export function matchTriggerCondition(
-  condition: BaseTriggerCondition,
-  event: BaseEventData,
-): boolean {
-  return defaultTriggerMatcher(condition, event);
-}
-
-/**
- * Batch Match Trigger Conditions
- *
- * Find all triggers that match from the list of triggers.
- *
- * @param triggers List of triggers
- * @param event Event data
- * @param matcher Matcher (optional, default is defaultTriggerMatcher)
+ * @param triggers - List of triggers
+ * @param event - Event data
+ * @param matcher - Matcher (optional, default is defaultTriggerMatcher)
  * @returns List of matched triggers
  */
-export function matchTriggers<T extends { condition: BaseTriggerCondition; enabled?: boolean }>(
+export function matchTriggers<T extends BaseTriggerDefinition>(
   triggers: T[],
   event: BaseEventData,
   matcher: TriggerMatcher = defaultTriggerMatcher,
 ): T[] {
   return triggers.filter(trigger => {
-    // Skip the disabled triggers.
-    if (trigger.enabled === false) {
+    // Skip disabled / expired triggers (delegates to limiter).
+    if (!canTrigger(trigger)) {
       return false;
     }
 
@@ -76,23 +122,51 @@ export function matchTriggers<T extends { condition: BaseTriggerCondition; enabl
 }
 
 /**
- * Create a custom matcher
+ * Composition strategy for createTriggerMatcher.
+ */
+export interface CreateTriggerMatcherOptions {
+  /**
+   * When to run the custom matcher relative to the default checks.
+   * - "default-first" (default): run default checks first; custom runs only if default passes.
+   * - "custom-first": run custom first; default runs only if custom passes.
+   * - "custom-only": skip default checks entirely; use only the custom matcher.
+   */
+  order?: "default-first" | "custom-first" | "custom-only";
+}
+
+/**
+ * Create a custom matcher.
  *
- * A factory function for creating a matcher with custom matching logic.
+ * Factory function for composing a custom matching function with the default matcher.
+ * The composition order is configurable via options.
  *
- * @param customMatcher: The custom matching function
- * @returns: The matcher
+ * @param customMatcher - The custom matching function
+ * @param options - Composition options
+ * @returns The composed matcher
  */
 export function createTriggerMatcher(
   customMatcher: (condition: BaseTriggerCondition, event: BaseEventData) => boolean,
+  options: CreateTriggerMatcherOptions = {},
 ): TriggerMatcher {
-  return (condition, event) => {
-    // Perform the default matching first.
-    if (!defaultTriggerMatcher(condition, event)) {
-      return false;
-    }
+  const { order = "default-first" } = options;
 
-    // Re-execute the custom matching.
-    return customMatcher(condition, event);
+  return (condition, event) => {
+    switch (order) {
+      case "custom-only":
+        return customMatcher(condition, event);
+
+      case "custom-first":
+        if (!customMatcher(condition, event)) {
+          return false;
+        }
+        return defaultTriggerMatcher(condition, event);
+
+      case "default-first":
+      default:
+        if (!defaultTriggerMatcher(condition, event)) {
+          return false;
+        }
+        return customMatcher(condition, event);
+    }
   };
 }

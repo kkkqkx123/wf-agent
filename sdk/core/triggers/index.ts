@@ -14,12 +14,12 @@ export type {
   BaseEventData,
   TriggerHandler,
   TriggerMatcher,
+  MatchResult,
 } from "./types.js";
 
 // Matcher
 export {
   defaultTriggerMatcher,
-  matchTriggerCondition,
   matchTriggers,
   createTriggerMatcher,
 } from "./matcher.js";

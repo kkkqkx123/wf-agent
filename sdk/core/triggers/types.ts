@@ -5,6 +5,7 @@
  */
 
 import type { Metadata } from "@wf-agent/types";
+import type { Condition } from "@wf-agent/types";
 
 /**
  * General Trigger Conditions (Basic Interface)
@@ -14,6 +15,12 @@ export interface BaseTriggerCondition {
   eventType: string;
   /** Custom event name (optional) */
   eventName?: string;
+  /**
+   * Expression condition (optional)
+   * When provided, uses the ExpressionEvaluator from common-utils for richer matching
+   * beyond simple eventType/eventName equality (e.g., "data.status == 'completed'").
+   */
+  condition?: Condition;
   /** Conditional Metadata */
   metadata?: Metadata;
 }
@@ -110,3 +117,17 @@ export type TriggerHandler<TTrigger extends BaseTriggerDefinition = BaseTriggerD
  * Trigger Matcher Function Type
  */
 export type TriggerMatcher = (condition: BaseTriggerCondition, event: BaseEventData) => boolean;
+
+/**
+ * Detailed Match Result (for observability)
+ */
+export interface MatchResult {
+  /** Whether the match was successful */
+  matched: boolean;
+  /** The condition field that determined the result */
+  matchedOn?: "eventType" | "eventName" | "condition" | "custom" | "disabled" | "expired";
+  /** Human-readable explanation */
+  reason?: string;
+  /** Evaluation time in ms */
+  evaluationTimeMs?: number;
+}

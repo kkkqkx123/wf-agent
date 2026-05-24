@@ -12,7 +12,7 @@
  *
  */
 
-import { RuntimeValidationError } from "@wf-agent/types";
+import { RuntimeValidationError, ExpressionSecurityError } from "@wf-agent/types";
 
 /**
  * Security Configuration
@@ -38,7 +38,7 @@ export const SECURITY_CONFIG = {
  */
 export function validateExpression(expression: string): void {
   if (!expression || typeof expression !== "string") {
-    throw new RuntimeValidationError("Expression must be a non-empty string", {
+    throw new ExpressionSecurityError("Expression must be a non-empty string", {
       operation: "validateExpression",
       field: "expression",
       value: expression,
@@ -46,7 +46,7 @@ export function validateExpression(expression: string): void {
   }
 
   if (expression.length > SECURITY_CONFIG.MAX_EXPRESSION_LENGTH) {
-    throw new RuntimeValidationError(
+    throw new ExpressionSecurityError(
       `Expression length exceeds maximum limit of ${SECURITY_CONFIG.MAX_EXPRESSION_LENGTH}`,
       {
         operation: "validateExpression",
@@ -65,7 +65,7 @@ export function validateExpression(expression: string): void {
 export function validatePath(path: string): void {
   // Check if it is a string.
   if (!path || typeof path !== "string") {
-    throw new RuntimeValidationError("Path must be a non-empty string", {
+    throw new ExpressionSecurityError("Path must be a non-empty string", {
       operation: "validatePath",
       field: "path",
       value: path,
@@ -75,7 +75,7 @@ export function validatePath(path: string): void {
   // Check if it contains any prohibited attributes.
   for (const forbidden of SECURITY_CONFIG.FORBIDDEN_PROPERTIES) {
     if (path.includes(forbidden)) {
-      throw new RuntimeValidationError(`Path contains forbidden property: ${forbidden}`, {
+      throw new ExpressionSecurityError(`Path contains forbidden property: ${forbidden}`, {
         operation: "validatePath",
         field: "path",
         value: path,
@@ -85,7 +85,7 @@ export function validatePath(path: string): void {
 
   // Verify path format using regex pattern
   if (!SECURITY_CONFIG.VALID_PATH_PATTERN.test(path)) {
-    throw new RuntimeValidationError(
+    throw new ExpressionSecurityError(
       "Path contains invalid characters. Only alphanumeric, underscore, dot, and array brackets are allowed",
       {
         operation: "validatePath",
@@ -98,7 +98,7 @@ export function validatePath(path: string): void {
   // Check the path depth.
   const depth = path.split(".").length;
   if (depth > SECURITY_CONFIG.MAX_PATH_DEPTH) {
-    throw new RuntimeValidationError(
+    throw new ExpressionSecurityError(
       `Path depth exceeds maximum limit of ${SECURITY_CONFIG.MAX_PATH_DEPTH}`,
       {
         operation: "validatePath",
@@ -149,7 +149,7 @@ export function validateValueType(value: unknown): void {
   const typeName = typeof value;
 
   if (typeName === "function") {
-    throw new RuntimeValidationError(`Value type ${typeName} is not allowed`, {
+    throw new ExpressionSecurityError(`Value type ${typeName} is not allowed`, {
       operation: "validateType",
       field: "value",
       value: value,
@@ -168,7 +168,7 @@ export function validateValueType(value: unknown): void {
     const obj = value as Record<string, unknown>;
     const constructor = obj?.constructor;
     if (constructor && constructor !== Object) {
-      throw new RuntimeValidationError(`Value type ${constructor.name} is not allowed`, {
+      throw new ExpressionSecurityError(`Value type ${constructor.name} is not allowed`, {
         operation: "validateType",
         field: "value",
         value: value,

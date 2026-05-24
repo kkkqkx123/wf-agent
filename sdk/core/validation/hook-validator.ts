@@ -6,7 +6,7 @@
 import { z } from "zod";
 import type { NodeHook } from "@wf-agent/types";
 import { HookType } from "@wf-agent/types";
-import { ConfigurationValidationError, RuntimeValidationError } from "@wf-agent/types";
+import { ConfigurationValidationError, ExpressionSecurityError } from "@wf-agent/types";
 import { ok, err } from "@wf-agent/common-utils";
 import { validateExpression } from "../../workflow/evaluation/index.js";
 import type { Result } from "@wf-agent/types";
@@ -52,7 +52,7 @@ export function validateHook(
     try {
       validateExpression(validatedHook.condition.expression);
     } catch (error) {
-      if (error instanceof RuntimeValidationError) {
+      if (error instanceof ExpressionSecurityError) {
         return err([
           new ConfigurationValidationError(error.message, {
             configType: "node",

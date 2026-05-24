@@ -7,8 +7,7 @@ import type { StaticNode } from "@wf-agent/types";
 import { RouteNodeConfigSchema, ConfigurationValidationError } from "@wf-agent/types";
 import type { Result } from "@wf-agent/types";
 import { ok, err } from "@wf-agent/common-utils";
-import { validateExpression } from "../../evaluation/index.js";
-import { RuntimeValidationError } from "@wf-agent/types";
+import { dslParseWithErrors } from "../../evaluation/index.js";
 import { validateNodeType, validateNodeConfig } from "../../../core/validation/utils.js";
 
 /**
@@ -33,19 +32,17 @@ export function validateRouteNode(node: StaticNode): Result<StaticNode, Configur
   for (let i = 0; i < config.routes.length; i++) {
     const route = config.routes[i];
     if (!route) continue;
-    try {
-      validateExpression(route.condition.expression);
-    } catch (error) {
-      if (error instanceof RuntimeValidationError) {
-        expressionErrors.push(
-          new ConfigurationValidationError(error.message, {
+    const result = dslParseWithErrors(route.condition.expression);
+    if (result.errors.length > 0) {
+      expressionErrors.push(
+        new ConfigurationValidationError(
+          `Invalid route condition expression: ${result.errors.map(e => e.message).join("; ")}`,
+          {
             configType: "node",
             configPath: `node.${node.id}.config.routes[${i}].condition.expression`,
-          }),
-        );
-      } else {
-        throw error;
-      }
+          },
+        ),
+      );
     }
   }
 

@@ -32,6 +32,16 @@ export {
 } from "./dependency-tracker.js";
 export type { TrackedExpression } from "./dependency-tracker.js";
 
+// DSL high-level API
+export {
+  dslParse,
+  dslParseWithErrors,
+  dslValidate,
+  parseToCst,
+  cstToAst,
+  tokenizeExpression,
+} from "./dsl/index.js";
+
 // DSL types
 export type {
   Expression,

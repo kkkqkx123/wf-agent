@@ -4,7 +4,7 @@
  */
 
 import type { Condition, EvaluationContext } from "@wf-agent/types";
-import { RuntimeValidationError } from "@wf-agent/types";
+import { ExpressionSecurityError, RuntimeValidationError } from "@wf-agent/types";
 import { getGlobalLogger } from "@wf-agent/common-utils";
 import { expressionEvaluator } from "./expression-evaluator.js";
 import { expressionCompiler } from "./expression-compiler.js";
@@ -72,9 +72,9 @@ export class ConditionEvaluator {
       const result = expressionEvaluator.evaluate(condition.expression, context);
       return Boolean(result);
     } catch (error) {
-      // Distinguishing between syntax errors and runtime evaluation failures
-      if (error instanceof RuntimeValidationError) {
-        // Syntax/parsing errors: rethrow
+      // Distinguishing between security errors and runtime evaluation failures
+      if (error instanceof ExpressionSecurityError) {
+        // Security/expression errors: rethrow
         throw error;
       } else {
         // Failed runtime evaluation: log and return false

@@ -20,6 +20,7 @@ import {
   NotFoundError,
   ConfigurationValidationError,
   RuntimeValidationError,
+  ExpressionSecurityError,
   ErrorSeverity,
   ErrorContext,
 } from "../../../src/index.js";
@@ -280,6 +281,19 @@ if (error instanceof RuntimeValidationError) {
   if (error.context) {
     expectType<string | undefined>(error.context["operation"] as string | undefined);
   }
+}
+
+if (error instanceof ExpressionSecurityError) {
+  expectType<ExpressionSecurityError>(error);
+  if (error.context) {
+    expectType<string | undefined>(error.context["operation"] as string | undefined);
+  }
+}
+
+// ExpressionSecurityError should not narrow to RuntimeValidationError
+if (error instanceof ExpressionSecurityError) {
+  expectType<ExpressionSecurityError>(error);
+  expectType<ValidationError>(error);
 }
 
 if (error instanceof ExecutionError) {

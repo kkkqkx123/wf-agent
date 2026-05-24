@@ -82,3 +82,20 @@ export class RuntimeValidationError extends ValidationError {
     return "error";
   }
 }
+
+/**
+ * Expression Security Error
+ *
+ * Security validation errors for expressions and paths.
+ * Used to distinguish security policy violations (expression length, forbidden properties, path format)
+ * from regular runtime validation errors (array bounds, undefined variables).
+ *
+ * Inherited from ValidationError.
+ */
+export class ExpressionSecurityError extends ValidationError {
+  constructor(message: string, options?: RuntimeValidationErrorOptions) {
+    const { field, value, context, severity } = options || {};
+    const operation = options?.operation ? `security:${options.operation}` : "security";
+    super(message, field, value, { ...context, operation }, severity);
+  }
+}

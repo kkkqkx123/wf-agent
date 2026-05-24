@@ -4,10 +4,10 @@
  */
 
 import type { StaticNode } from "@wf-agent/types";
-import { LoopEndNodeConfigSchema, ConfigurationValidationError, RuntimeValidationError } from "@wf-agent/types";
+import { LoopEndNodeConfigSchema, ConfigurationValidationError } from "@wf-agent/types";
 import type { Result } from "@wf-agent/types";
 import { ok, err } from "@wf-agent/common-utils";
-import { validateExpression } from "../../evaluation/index.js";
+import { dslParseWithErrors } from "../../evaluation/index.js";
 import { validateNodeType, validateNodeConfig } from "../../../core/validation/utils.js";
 
 /**
@@ -28,17 +28,16 @@ export function validateLoopEndNode(node: StaticNode): Result<StaticNode, Config
 
   const config = configResult.value;
   if (config.breakCondition?.expression) {
-    try {
-      validateExpression(config.breakCondition.expression);
-    } catch (error) {
-      if (error instanceof RuntimeValidationError) {
-        const validationError = new ConfigurationValidationError(error.message, {
+    const result = dslParseWithErrors(config.breakCondition.expression);
+    if (result.errors.length > 0) {
+      const validationError = new ConfigurationValidationError(
+        `Invalid break condition expression: ${result.errors.map(e => e.message).join("; ")}`,
+        {
           configType: "node",
           configPath: `node.${node.id}.config.breakCondition.expression`,
-        });
-        return err([validationError]);
-      }
-      throw error;
+        },
+      );
+      return err([validationError]);
     }
   }
 

@@ -19,7 +19,7 @@ import {
   ExecuteTriggeredSubworkflowActionConfigSchema,
   ExecuteScriptActionConfigSchema,
 } from "@wf-agent/types";
-import { ConfigurationValidationError, RuntimeValidationError } from "@wf-agent/types";
+import { ConfigurationValidationError, ExpressionSecurityError } from "@wf-agent/types";
 import type { Result } from "@wf-agent/types";
 import { ok, err } from "@wf-agent/common-utils";
 import { validateExpression } from "../../workflow/evaluation/index.js";
@@ -44,7 +44,7 @@ export function validateTriggerCondition(
     try {
       validateExpression(condition.condition.expression);
     } catch (error) {
-      if (error instanceof RuntimeValidationError) {
+      if (error instanceof ExpressionSecurityError) {
         return err([
           new ConfigurationValidationError(error.message, {
             configType: "trigger",

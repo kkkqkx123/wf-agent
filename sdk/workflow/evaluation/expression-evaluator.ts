@@ -5,7 +5,7 @@
 
 import type { EvaluationContext } from "@wf-agent/types";
 import { RuntimeValidationError } from "@wf-agent/types";
-import { validatePath, validateExpression, SECURITY_CONFIG } from "./security-validator.js";
+import { validatePath, validateExpression, validateArrayIndex, validateValueType, SECURITY_CONFIG } from "./security-validator.js";
 import { resolvePath } from "./path-resolver.js";
 import { getGlobalLogger } from "@wf-agent/common-utils";
 import { expressionCompiler } from "./expression-compiler.js";
@@ -46,7 +46,9 @@ export class ExpressionEvaluator {
 
     this.validateMemberAccessDepth(ast);
 
-    return this.evaluateAST(ast, context);
+    const result = this.evaluateAST(ast, context);
+    validateValueType(result);
+    return result;
   }
 
   private validateMemberAccessDepth(node: Expression, depth: number = 0): void {
@@ -639,6 +641,12 @@ export class ExpressionEvaluator {
         `Access to forbidden property '${node.property}' is not allowed`,
         { operation: "member_access_evaluation", field: "property", value: node.property },
       );
+    }
+
+    // Validate array index access (e.g. arr[0], items[5])
+    const numericIndex = Number(node.property);
+    if (Array.isArray(obj) && Number.isInteger(numericIndex) && numericIndex >= 0) {
+      validateArrayIndex(obj, numericIndex);
     }
 
     const result = (obj as Record<string, unknown>)[node.property];

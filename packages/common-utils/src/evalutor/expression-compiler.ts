@@ -108,16 +108,40 @@ export class ExpressionCompiler {
   }
 
   private buildMemberAccessPath(node: MemberAccessExpr): string {
-    const parts: string[] = [node.property];
+    const isNumeric = (prop: string): boolean => /^\d+$/.test(prop);
+
+    const parts: string[] = [];
+    if (isNumeric(node.property)) {
+      parts.push(`[${node.property}]`);
+    } else {
+      parts.push(node.property);
+    }
+
     let current = node.object;
     while (current.type === "memberAccess") {
-      parts.unshift((current as MemberAccessExpr).property);
-      current = (current as MemberAccessExpr).object;
+      const ma = current as MemberAccessExpr;
+      if (isNumeric(ma.property)) {
+        parts.unshift(`[${ma.property}]`);
+      } else {
+        parts.unshift(ma.property);
+      }
+      current = ma.object;
     }
     if (current.type === "identifier") {
       parts.unshift((current as IdentifierExpr).name);
     }
-    return parts.join(".");
+
+    // Custom join: bracket notation attaches to preceding part without a dot
+    let result = parts[0]!;
+    for (let i = 1; i < parts.length; i++) {
+      const part = parts[i]!;
+      if (part.startsWith("[")) {
+        result += part;
+      } else {
+        result += "." + part;
+      }
+    }
+    return result;
   }
 
   private calculateComplexity(node: Expression): number {

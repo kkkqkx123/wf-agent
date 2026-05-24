@@ -7,7 +7,6 @@ import type { RuntimeNode, RouteNodeConfig } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import type { Condition, EvaluationContext } from "@wf-agent/types";
 import { ExecutionError } from "@wf-agent/types";
-import { conditionEvaluator } from "@wf-agent/common-utils";
 
 /**
  * Check if the node can be executed.
@@ -22,7 +21,10 @@ function canExecute(workflowExecutionEntity: WorkflowExecutionEntity): boolean {
 /**
  * Evaluating routing conditions
  */
-function evaluateRouteCondition(condition: Condition, workflowExecutionEntity: WorkflowExecutionEntity): boolean {
+function evaluateRouteCondition(
+  condition: Condition,
+  workflowExecutionEntity: WorkflowExecutionEntity,
+): boolean {
   try {
     // Constructing the evaluation context
     const context: EvaluationContext = {
@@ -31,7 +33,17 @@ function evaluateRouteCondition(condition: Condition, workflowExecutionEntity: W
       output: workflowExecutionEntity.getOutput(),
     };
 
-    return conditionEvaluator.evaluate(condition, context);
+    // Use DependencyManager for per-execution caching of compiled conditions.
+    // The key `route:${nodeId}:${targetNodeId}` persists across handler calls
+    // within the same execution, avoiding repeated AST parsing.
+    const depManager = workflowExecutionEntity.getDepManager();
+    const expression = condition.expression;
+    const cached = depManager.getTrackedExpression(expression);
+    if (cached) {
+      return Boolean(depManager.evaluateIfChanged(expression, context));
+    }
+    depManager.register(expression, expression, context);
+    return Boolean(depManager.getTrackedExpression(expression)?.lastResult);
   } catch (error) {
     throw new ExecutionError(
       `Failed to evaluate route condition: ${condition.expression}`,

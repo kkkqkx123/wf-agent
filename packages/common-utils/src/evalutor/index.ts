@@ -17,7 +17,7 @@ export type { CompiledExpression } from "./expression-compiler.js";
 export { ConditionEvaluator, conditionEvaluator } from "./condition-evaluator.js";
 
 // Path parser
-export { resolvePath, pathExists, setPath } from "./path-resolver.js";
+export { resolvePath, pathExists, setPath, setArrayItemByKey } from "./path-resolver.js";
 
 // Security Validator
 export {
@@ -49,8 +49,9 @@ export {
   visualizeAST,
   traceEvaluation,
   formatTrace,
+  formatTraceAsJson,
 } from "./debug-tools.js";
-export type { EvaluationTrace, TraceNode } from "./debug-tools.js";
+export type { EvaluationTrace, TraceNode, StructuredTraceMetadata } from "./debug-tools.js";
 
 // AST metadata utilities
 export {

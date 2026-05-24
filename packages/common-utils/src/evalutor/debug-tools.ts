@@ -319,6 +319,45 @@ export function formatTrace(trace: EvaluationTrace, indent: number = 0): string 
   return result;
 }
 
+export interface StructuredTraceMetadata {
+  expression: string;
+  result: unknown;
+  totalTimeMs: number;
+  tree: StructuredTraceNode;
+}
+
+interface StructuredTraceNode {
+  type: string;
+  description: string;
+  result?: unknown;
+  executionTimeMs?: number;
+  children?: StructuredTraceNode[];
+}
+
+export function formatTraceAsJson(trace: EvaluationTrace): StructuredTraceMetadata {
+  return {
+    expression: trace.expression,
+    result: trace.result,
+    totalTimeMs: trace.totalTime,
+    tree: formatTraceNodeAsStructured(trace.root),
+  };
+}
+
+function formatTraceNodeAsStructured(node: TraceNode): StructuredTraceNode {
+  const structured: StructuredTraceNode = {
+    type: node.type,
+    description: node.description,
+    result: node.result,
+    executionTimeMs: node.executionTime,
+  };
+
+  if (node.children && node.children.length > 0) {
+    structured.children = node.children.map(formatTraceNodeAsStructured);
+  }
+
+  return structured;
+}
+
 function formatTraceNode(node: TraceNode, indent: number = 0): string {
   const prefix = "  ".repeat(indent);
   let result = `${prefix}[${node.type}] ${node.description}`;

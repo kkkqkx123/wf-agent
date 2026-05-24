@@ -6,7 +6,9 @@
 import type { Condition, EvaluationContext } from "@wf-agent/types";
 import { RuntimeValidationError } from "@wf-agent/types";
 import { expressionEvaluator } from "./expression-evaluator.js";
-import { traceEvaluation, formatTrace } from "./debug-tools.js";
+import { expressionCompiler } from "./expression-compiler.js";
+import { traceEvaluation, formatTrace, formatTraceAsJson, visualizeAST } from "./debug-tools.js";
+import { pathExists } from "./path-resolver.js";
 import { getGlobalLogger } from "../logger/index.js";
 
 /**
@@ -64,6 +66,43 @@ export class ConditionEvaluator {
     }
 
     try {
+      // Pre-check: verify dependency paths exist in the appropriate sub-context.
+      // Only applies when compilation succeeds; parse errors fall through to evaluate().
+      try {
+        const compiled = expressionCompiler.compile(condition.expression);
+        const missingDeps: string[] = [];
+        for (const dep of compiled.dependencies) {
+          let exists = true;
+          if (dep === "input" || dep === "output" || dep === "variables") {
+            // Top-level context fields always exist
+            exists = true;
+          } else if (dep.startsWith("input.")) {
+            exists = pathExists(dep.substring(6), context.input);
+          } else if (dep.startsWith("output.")) {
+            exists = pathExists(dep.substring(7), context.output);
+          } else if (dep.startsWith("variables.")) {
+            exists = pathExists(dep.substring(10), context.variables);
+          } else {
+            // Default: resolve against context.variables (matches expression-evaluator behavior)
+            exists = pathExists(dep, context.variables);
+          }
+          if (!exists) {
+            missingDeps.push(dep);
+          }
+        }
+        if (missingDeps.length > 0) {
+          this.logger.warn(`Condition dependencies missing in context: ${missingDeps.join(", ")}`, {
+            expression: condition.expression,
+            missingDependencies: missingDeps,
+          });
+          // Missing dependencies evaluate as false, return early
+          return false;
+        }
+      } catch {
+        // Compilation failed (e.g. invalid expression). Skip pre-check and
+        // let expressionEvaluator.evaluate() handle the error properly.
+      }
+
       const result = expressionEvaluator.evaluate(condition.expression, context);
       return Boolean(result);
     } catch (error) {
@@ -72,9 +111,12 @@ export class ConditionEvaluator {
         // Syntax/parsing errors: rethrow
         throw error;
       } else {
-        // Failed runtime evaluation: log and return false
+        // Failed runtime evaluation: log AST visualization and return false
+        const ast = expressionCompiler.compile(condition.expression).ast;
+        const astDump = visualizeAST(ast);
         this.logger.warn(`Condition evaluation failed: ${condition.expression}`, {
           expression: condition.expression,
+          astDump,
           error: error instanceof Error ? error.message : String(error),
         });
         return false;
@@ -89,11 +131,13 @@ export class ConditionEvaluator {
     try {
       const trace = traceEvaluation(condition.expression, context);
       const formatted = formatTrace(trace);
+      const structured = formatTraceAsJson(trace);
 
       this.logger.info(`[DEBUG] Condition evaluation trace:\n${formatted}`, {
         expression: condition.expression,
         result: trace.result,
         totalTime: `${trace.totalTime.toFixed(2)}ms`,
+        structuredTrace: structured,
       });
 
       return Boolean(trace.result);

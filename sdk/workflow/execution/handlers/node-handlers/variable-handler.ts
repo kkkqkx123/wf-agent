@@ -6,7 +6,7 @@
 import type { RuntimeNode, VariableNodeConfig, EvaluationContext } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import { RuntimeValidationError } from "@wf-agent/types";
-import { now, expressionEvaluator } from "@wf-agent/common-utils";
+import { now, expressionEvaluator, setArrayItemByKey } from "@wf-agent/common-utils";
 
 /**
  * Check whether the node can be executed.
@@ -163,12 +163,15 @@ export async function variableHandler(
   // Verify the type of the evaluation result.
   const typedResult = convertType(result, config.variableType);
 
-  // Update the variable using VariableManager
-  const variable = workflowExecution.variables.find((v) => v.name === config.variableName);
-
-  if (variable) {
-    variable.value = typedResult;
-  } else {
+  // Update the variable using setArrayItemByKey
+  const updated = setArrayItemByKey(
+    workflowExecution.variables as unknown as Record<string, unknown>[],
+    "name",
+    config.variableName,
+    "value",
+    typedResult,
+  );
+  if (!updated) {
     workflowExecution.variables.push({
       name: config.variableName,
       value: typedResult,

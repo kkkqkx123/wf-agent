@@ -72,6 +72,7 @@ function evaluateBreakCondition(
   breakCondition: Condition,
   workflowExecution: WorkflowExecution,
   executionEntity?: WorkflowExecutionEntity,
+  loopId?: string,
 ): boolean {
   try {
     // Constructing the evaluation context
@@ -82,7 +83,22 @@ function evaluateBreakCondition(
       output: workflowExecution.output || {},
     };
 
-    // Use ConditionEvaluator to evaluate conditions.
+    // Use DependencyManager for per-execution caching of break condition.
+    // Break conditions may be re-evaluated each iteration, and the AST
+    // parsing is cached via ExpressionCompiler inside DependencyManager.
+    if (executionEntity) {
+      const depManager = executionEntity.getDepManager();
+      const key = `loopBreak:${loopId || ''}`;
+      const expression = breakCondition.expression;
+      const cached = depManager.getTrackedExpression(key);
+      if (cached) {
+        return Boolean(depManager.evaluateIfChanged(key, context));
+      }
+      depManager.register(key, expression, context);
+      return Boolean(depManager.getTrackedExpression(key)?.lastResult);
+    }
+
+    // Fallback: evaluate directly without caching
     return conditionEvaluator.evaluate(breakCondition, context);
   } catch (error) {
     throw new ExecutionError(
@@ -194,7 +210,7 @@ export async function loopEndHandler(
   // Evaluating interrupt conditions
   let shouldBreak = false;
   if (config.breakCondition) {
-    shouldBreak = evaluateBreakCondition(config.breakCondition, workflowExecution, workflowExecutionEntity);
+    shouldBreak = evaluateBreakCondition(config.breakCondition, workflowExecution, workflowExecutionEntity, config.loopId);
   }
 
   // Check the loop condition.

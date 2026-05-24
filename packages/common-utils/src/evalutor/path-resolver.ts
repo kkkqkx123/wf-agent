@@ -158,3 +158,34 @@ export function setPath(path: string, root: unknown, value: unknown): boolean {
 
   return true;
 }
+
+/**
+ * Find and update an item in an array by matching a key field.
+ * Designed for data structures like `workflowExecution.variables` (array of objects with .name, .value, etc.).
+ *
+ * @param array - Array of objects to search
+ * @param keyField - The field name to match against (e.g. "name")
+ * @param keyValue - The value to match (e.g. "myVariable")
+ * @param valueField - The field name to update (e.g. "value")
+ * @param newValue - The new value to set
+ * @returns true if item was found and updated, false otherwise
+ */
+export function setArrayItemByKey(
+  array: Record<string, unknown>[],
+  keyField: string,
+  keyValue: string,
+  valueField: string,
+  newValue: unknown,
+): boolean {
+  if (!Array.isArray(array) || !keyField || !valueField) {
+    return false;
+  }
+
+  const item = array.find((item) => item[keyField] === keyValue);
+  if (!item) {
+    return false;
+  }
+
+  item[valueField] = newValue;
+  return true;
+}

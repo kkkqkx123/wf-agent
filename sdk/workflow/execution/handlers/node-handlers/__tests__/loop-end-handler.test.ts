@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { loopEndHandler } from '../loop-end-handler.js';
+import { DependencyManager } from '@wf-agent/common-utils';
 import type { WorkflowExecutionEntity } from '../../../../entities/workflow-execution-entity.js';
 import type { RuntimeNode, LoopEndNodeConfig } from '@wf-agent/types';
 
 const mockManager = {
   getVariable: vi.fn(),
   deleteVariable: vi.fn(),
+  getAllVariables: vi.fn().mockReturnValue({}),
 };
 
 const mockEntity = {
@@ -13,6 +15,7 @@ const mockEntity = {
   getNodeResults: vi.fn().mockReturnValue([]),
   getExecution: vi.fn(),
   variableStateManager: mockManager,
+  getDepManager: vi.fn().mockReturnValue(new DependencyManager()),
 } as unknown as WorkflowExecutionEntity;
 
 const mockExecution = {
@@ -51,11 +54,9 @@ describe('loopEndHandler', () => {
 
     expect(result).toEqual({
       loopId: 'loop-1',
-      shouldContinue: true,
-      shouldBreak: false,
-      loopConditionMet: true,
+      breakTriggered: false,
       iterationCount: 1,
-      nextNodeId: 'loop-start-1',
+      nextIteration: true,
     });
   });
 
@@ -71,11 +72,9 @@ describe('loopEndHandler', () => {
 
     expect(result).toEqual({
       loopId: 'loop-1',
-      shouldContinue: false,
-      shouldBreak: true,
-      loopConditionMet: true,
+      breakTriggered: true,
       iterationCount: 0,
-      nextNodeId: undefined,
+      nextIteration: false,
     });
   });
 
@@ -88,8 +87,8 @@ describe('loopEndHandler', () => {
 
     const result = await loopEndHandler(mockEntity, node);
 
-    expect((result as any).shouldContinue).toBe(false);
-    expect((result as any).loopConditionMet).toBe(false);
+    expect((result as any).nextIteration).toBe(false);
+    expect((result as any).breakTriggered).toBe(false);
   });
 
   it('should return SKIPPED when loop state not found (canExecute returns false)', async () => {

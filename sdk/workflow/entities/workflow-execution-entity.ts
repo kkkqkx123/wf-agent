@@ -35,6 +35,7 @@ import type { InterruptionState } from "../../core/utils/interruption/interrupti
 import { createWorkflowInterruptionAbortReason } from "../execution/utils/workflow-interruption-utils.js";
 import type { EventRegistry } from "../../core/registry/event-registry.js";
 import type { Abortable } from "../../core/types/abortable.js";
+import { DependencyManager } from "@wf-agent/common-utils";
 import { SyncBarrier } from "../execution/barriers/sync-barrier.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
@@ -104,6 +105,8 @@ export class WorkflowExecutionEntity implements Abortable {
    * Manages path-to-execution mappings and provides waiting mechanisms
    */
   private syncBarrier?: SyncBarrier;
+
+  private _depManager?: DependencyManager;
 
   /**
    * Constructor
@@ -890,6 +893,20 @@ export class WorkflowExecutionEntity implements Abortable {
         executionId: this.id,
       });
     }
+  }
+
+  /**
+   * Get the DependencyManager instance for caching compiled expressions
+   * across route conditions, loop break conditions, etc.
+   * Lazily initialized on first access.
+   *
+   * @returns DependencyManager instance
+   */
+  getDepManager(): DependencyManager {
+    if (!this._depManager) {
+      this._depManager = new DependencyManager();
+    }
+    return this._depManager;
   }
 
   /**

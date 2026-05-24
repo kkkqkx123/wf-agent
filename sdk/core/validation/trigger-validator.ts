@@ -19,9 +19,9 @@ import {
   ExecuteTriggeredSubworkflowActionConfigSchema,
   ExecuteScriptActionConfigSchema,
 } from "@wf-agent/types";
-import { ConfigurationValidationError } from "@wf-agent/types";
+import { ConfigurationValidationError, RuntimeValidationError } from "@wf-agent/types";
 import type { Result } from "@wf-agent/types";
-import { ok, err } from "@wf-agent/common-utils";
+import { ok, err, validateExpression } from "@wf-agent/common-utils";
 import { validateConfig } from "./utils.js";
 
 /**
@@ -34,7 +34,28 @@ export function validateTriggerCondition(
   condition: TriggerCondition,
   path: string = "condition",
 ): Result<TriggerCondition, ConfigurationValidationError[]> {
-  return validateConfig(condition, TriggerConditionSchema, path, "trigger");
+  const result = validateConfig(condition, TriggerConditionSchema, path, "trigger");
+  if (result.isErr()) {
+    return result;
+  }
+
+  if (condition.condition?.expression) {
+    try {
+      validateExpression(condition.condition.expression);
+    } catch (error) {
+      if (error instanceof RuntimeValidationError) {
+        return err([
+          new ConfigurationValidationError(error.message, {
+            configType: "trigger",
+            configPath: `${path}.condition.expression`,
+          }),
+        ]);
+      }
+      throw error;
+    }
+  }
+
+  return ok(condition);
 }
 
 /**

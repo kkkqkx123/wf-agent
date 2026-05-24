@@ -6,8 +6,8 @@
 import { z } from "zod";
 import type { NodeHook } from "@wf-agent/types";
 import { HookType } from "@wf-agent/types";
-import { ConfigurationValidationError } from "@wf-agent/types";
-import { ok, err } from "@wf-agent/common-utils";
+import { ConfigurationValidationError, RuntimeValidationError } from "@wf-agent/types";
+import { ok, err, validateExpression } from "@wf-agent/common-utils";
 import type { Result } from "@wf-agent/types";
 import { validateConfig } from "./utils.js";
 import { all } from "@wf-agent/common-utils";
@@ -41,7 +41,29 @@ export function validateHook(
   hook: NodeHook,
   nodeId: string,
 ): Result<NodeHook, ConfigurationValidationError[]> {
-  return validateConfig(hook, hookSchema, `node.${nodeId}.hooks`, "node");
+  const result = validateConfig(hook, hookSchema, `node.${nodeId}.hooks`, "node");
+  if (result.isErr()) {
+    return result;
+  }
+
+  const validatedHook = result.value;
+  if (validatedHook.condition?.expression) {
+    try {
+      validateExpression(validatedHook.condition.expression);
+    } catch (error) {
+      if (error instanceof RuntimeValidationError) {
+        return err([
+          new ConfigurationValidationError(error.message, {
+            configType: "node",
+            configPath: `node.${nodeId}.hooks.condition.expression`,
+          }),
+        ]);
+      }
+      throw error;
+    }
+  }
+
+  return ok(validatedHook);
 }
 
 /**

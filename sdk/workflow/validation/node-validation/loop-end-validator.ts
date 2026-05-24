@@ -4,9 +4,9 @@
  */
 
 import type { StaticNode } from "@wf-agent/types";
-import { LoopEndNodeConfigSchema, ConfigurationValidationError } from "@wf-agent/types";
+import { LoopEndNodeConfigSchema, ConfigurationValidationError, RuntimeValidationError } from "@wf-agent/types";
 import type { Result } from "@wf-agent/types";
-import { ok } from "@wf-agent/common-utils";
+import { ok, err, validateExpression } from "@wf-agent/common-utils";
 import { validateNodeType, validateNodeConfig } from "../../../core/validation/utils.js";
 
 /**
@@ -23,6 +23,22 @@ export function validateLoopEndNode(node: StaticNode): Result<StaticNode, Config
   const configResult = validateNodeConfig(node.config, LoopEndNodeConfigSchema, node.id);
   if (configResult.isErr()) {
     return configResult;
+  }
+
+  const config = configResult.value;
+  if (config.breakCondition?.expression) {
+    try {
+      validateExpression(config.breakCondition.expression);
+    } catch (error) {
+      if (error instanceof RuntimeValidationError) {
+        const validationError = new ConfigurationValidationError(error.message, {
+          configType: "node",
+          configPath: `node.${node.id}.config.breakCondition.expression`,
+        });
+        return err([validationError]);
+      }
+      throw error;
+    }
   }
 
   return ok(node);

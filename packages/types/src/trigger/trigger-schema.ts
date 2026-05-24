@@ -85,12 +85,19 @@ const triggerActionTypeSchema = z.custom<TriggerActionType>((val): val is Trigge
 
 /**
  * Trigger Condition Schema
+ *
+ * Note: The optional `condition.expression` field supports expression-based matching
+ * (e.g., "data.status == 'completed'") evaluated by the ConditionEvaluator at runtime.
  */
 export const TriggerConditionSchema = z
   .object({
     eventType: eventTypeSchema,
     eventName: z.string().optional(),
     metadata: z.record(z.string(), z.any()).optional(),
+    condition: z.object({
+      expression: z.string().min(1, "Condition expression is required"),
+      metadata: z.record(z.string(), z.any()).optional(),
+    }).optional(),
   })
   .refine(
     data => {

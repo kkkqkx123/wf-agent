@@ -5,16 +5,22 @@
 import type { ID, Metadata } from "../common.js";
 import { EventType } from "../events/index.js";
 import type { MessageRole } from "../message/index.js";
+import type { Condition } from "../graph/condition.js";
 
 /**
  * Trigger Condition Interface
- * Since it is an event judgment, there is no need to use the condition type
  */
 export interface TriggerCondition {
   /** Event Type */
   eventType: EventType;
   /** Custom event name (only for NODE_CUSTOM_EVENT events) */
   eventName?: string;
+  /**
+   * Expression condition (optional)
+   * Supports expression-based matching (e.g., "data.status == 'completed'")
+   * evaluated by the ConditionEvaluator at runtime.
+   */
+  condition?: Condition;
   /** condition metadata */
   metadata?: Metadata;
 }

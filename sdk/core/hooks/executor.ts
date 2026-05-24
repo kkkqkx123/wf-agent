@@ -19,7 +19,7 @@ import type {
   ContextBuilder,
 } from "./types.js";
 import type { EvaluationContext } from "@wf-agent/types";
-import { conditionEvaluator } from "@wf-agent/common-utils";
+import { conditionEvaluator, expressionEvaluator } from "@wf-agent/common-utils";
 import { getErrorMessage, now } from "@wf-agent/common-utils";
 import { buildHookExecutedEvent } from "../utils/event/builders/index.js";
 import { sdkLogger as logger } from "../../utils/logger.js";
@@ -307,6 +307,13 @@ export function resolvePayloadTemplate(
  * @returns The parsed value
  */
 function resolveTemplateVariable(template: string, context: Record<string, unknown>): unknown {
+  // Build EvaluationContext from the general context
+  const evalContext: EvaluationContext = {
+    variables: (context["variables"] || {}) as Record<string, unknown>,
+    input: (context["input"] || {}) as Record<string, unknown>,
+    output: (context["output"] || {}) as Record<string, unknown>,
+  };
+
   // Match the {{variable}} pattern
   const match = template.match(/^\s*\{\{([^}]+)\}\}\s*$/);
 
@@ -316,10 +323,12 @@ function resolveTemplateVariable(template: string, context: Record<string, unkno
     if (!path) {
       return "";
     }
-    const value = getNestedValue(context, path);
-
-    // If the value is undefined, return an empty string.
-    return value !== undefined ? value : "";
+    try {
+      const value = expressionEvaluator.evaluate(path, evalContext);
+      return value !== undefined && value !== null ? value : "";
+    } catch {
+      return "";
+    }
   }
 
   // Replace variable references in the string.
@@ -328,34 +337,12 @@ function resolveTemplateVariable(template: string, context: Record<string, unkno
     if (!trimmedPath) {
       return "";
     }
-    const value = getNestedValue(context, trimmedPath);
-    return value !== undefined ? String(value) : "";
-  });
-
-  // Replace variable references in the string.
-  return template.replace(/\{\{([^}]+)\}\}/g, (_, path) => {
-    const value = getNestedValue(context, path.trim());
-    return value !== undefined ? String(value) : "";
-  });
-}
-
-/**
- * Getting the value of a nested object
- *
- * @param obj object
- * @param path path (e.g. "output.result")
- * @returns value
- */
-function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
-  const parts = path.split(".");
-  let current: unknown = obj;
-
-  for (const part of parts) {
-    if (current === null || current === undefined) {
-      return undefined;
+    try {
+      const value = expressionEvaluator.evaluate(trimmedPath, evalContext);
+      return value !== undefined && value !== null ? String(value) : "";
+    } catch {
+      return "";
     }
-    current = (current as Record<string, unknown>)[part];
-  }
-
-  return current;
+  });
 }
+

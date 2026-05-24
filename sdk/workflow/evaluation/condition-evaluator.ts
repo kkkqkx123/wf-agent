@@ -8,7 +8,7 @@ import { ExpressionSecurityError, RuntimeValidationError } from "@wf-agent/types
 import { getGlobalLogger } from "@wf-agent/common-utils";
 import { expressionEvaluator } from "./expression-evaluator.js";
 import { expressionCompiler } from "./expression-compiler.js";
-import { pathExists } from "./path-resolver.js";
+import { resolvePath } from "./path-resolver.js";
 
 /**
  * Conditional Evaluator Implementation
@@ -25,7 +25,7 @@ export class ConditionEvaluator {
   evaluate(condition: Condition, context: EvaluationContext): boolean {
     // The expression field must be provided
     if (!condition.expression) {
-      throw new RuntimeValidationError("Condition must have an expression field", {
+      throw new ExpressionSecurityError("Condition must have an expression field", {
         operation: "condition_evaluation",
         context: { condition },
       });
@@ -34,8 +34,16 @@ export class ConditionEvaluator {
     try {
       // Pre-check: verify dependency paths exist in the appropriate sub-context.
       // Only applies when compilation succeeds; parse errors fall through to evaluate().
+      let compiled: CompiledExpression | null = null;
       try {
-        const compiled = expressionCompiler.compile(condition.expression);
+        compiled = expressionCompiler.compile(condition.expression);
+      } catch {
+        // Compilation failed (e.g. invalid expression). Skip pre-check and
+        // let expressionEvaluator.evaluate() handle the error properly.
+      }
+
+      // Dependency path validation (separate from compilation catch so security errors propagate)
+      if (compiled) {
         const missingDeps: string[] = [];
         for (const dep of compiled.dependencies) {
           let exists = true;
@@ -43,14 +51,34 @@ export class ConditionEvaluator {
             // Top-level context fields always exist
             exists = true;
           } else if (dep.startsWith("input.")) {
-            exists = pathExists(dep.substring(6), context.input);
+            try {
+              exists = resolvePath(dep.substring(6), context.input) !== undefined;
+            } catch (e) {
+              if (e instanceof ExpressionSecurityError) throw e;
+              exists = false;
+            }
           } else if (dep.startsWith("output.")) {
-            exists = pathExists(dep.substring(7), context.output);
+            try {
+              exists = resolvePath(dep.substring(7), context.output) !== undefined;
+            } catch (e) {
+              if (e instanceof ExpressionSecurityError) throw e;
+              exists = false;
+            }
           } else if (dep.startsWith("variables.")) {
-            exists = pathExists(dep.substring(10), context.variables);
+            try {
+              exists = resolvePath(dep.substring(10), context.variables) !== undefined;
+            } catch (e) {
+              if (e instanceof ExpressionSecurityError) throw e;
+              exists = false;
+            }
           } else {
             // Default: resolve against context.variables (matches expression-evaluator behavior)
-            exists = pathExists(dep, context.variables);
+            try {
+              exists = resolvePath(dep, context.variables) !== undefined;
+            } catch (e) {
+              if (e instanceof ExpressionSecurityError) throw e;
+              exists = false;
+            }
           }
           if (!exists) {
             missingDeps.push(dep);
@@ -64,9 +92,6 @@ export class ConditionEvaluator {
           // Missing dependencies evaluate as false, return early
           return false;
         }
-      } catch {
-        // Compilation failed (e.g. invalid expression). Skip pre-check and
-        // let expressionEvaluator.evaluate() handle the error properly.
       }
 
       const result = expressionEvaluator.evaluate(condition.expression, context);

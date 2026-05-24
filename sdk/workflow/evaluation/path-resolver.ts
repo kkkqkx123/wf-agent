@@ -129,12 +129,15 @@ export function setPath(path: string, root: unknown, value: unknown): boolean {
         (current as Record<string, unknown>)[part] = {};
       }
       current = (current as Record<string, unknown>)[part];
+      if (typeof current !== "object" || current === null) {
+        return false;
+      }
     }
   }
 
   // Setting the value of the last layer
   const lastPart = parts[parts.length - 1];
-  if (!lastPart) {
+  if (!lastPart || typeof current !== "object" || current === null) {
     return false;
   }
 

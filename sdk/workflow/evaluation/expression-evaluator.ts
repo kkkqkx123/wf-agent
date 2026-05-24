@@ -4,7 +4,7 @@
  */
 
 import type { EvaluationContext } from "@wf-agent/types";
-import { RuntimeValidationError } from "@wf-agent/types";
+import { ExpressionSecurityError, RuntimeValidationError } from "@wf-agent/types";
 import { validatePath, validateExpression, validateArrayIndex, validateValueType, SECURITY_CONFIG } from "./security-validator.js";
 import { resolvePath } from "./path-resolver.js";
 import { getGlobalLogger } from "@wf-agent/common-utils";
@@ -637,7 +637,7 @@ export class ExpressionEvaluator {
 
     if (node.property === "__proto__" || node.property === "constructor" || node.property === "prototype") {
       this.logger.warn(`Blocked access to forbidden property: ${node.property}`);
-      throw new RuntimeValidationError(
+      throw new ExpressionSecurityError(
         `Access to forbidden property '${node.property}' is not allowed`,
         { operation: "member_access_evaluation", field: "property", value: node.property },
       );

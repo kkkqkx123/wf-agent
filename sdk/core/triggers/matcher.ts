@@ -8,12 +8,16 @@
 
 import type { BaseTriggerCondition, BaseEventData, TriggerMatcher } from "./types.js";
 import type { EvaluationContext } from "@wf-agent/types";
-import { conditionEvaluator } from "@wf-agent/common-utils";
+import { conditionEvaluator, DependencyManager } from "@wf-agent/common-utils";
 import { canTrigger } from "./limiter.js";
 import type { BaseTriggerDefinition } from "./types.js";
 import { getGlobalLogger } from "@wf-agent/common-utils";
 
 const logger = getGlobalLogger().child("TriggerMatcher", { module: "core/triggers" });
+
+// Module-level dependency manager for caching compiled trigger conditions.
+// Conditions are static per trigger definition, so caching across events yields performance improvements.
+const depManager = new DependencyManager();
 
 /**
  * Build an EvaluationContext from a BaseEventData for expression evaluation.
@@ -76,7 +80,27 @@ export const defaultTriggerMatcher: TriggerMatcher = (
   if (condition.condition) {
     const ctx = buildEvalContext(event);
     try {
-      const passed = conditionEvaluator.evaluate(condition.condition, ctx);
+      const exprKey = `${condition.condition.expression}`;
+      let passed: boolean;
+
+      // Use dependency manager for cached evaluation.
+      // If the condition is already registered, it will skip re-evaluation when
+      // no dependency variables have changed. On first call, it registers and evaluates.
+      try {
+        const tracked = depManager.getTrackedExpression(exprKey);
+        if (tracked) {
+          const result = depManager.evaluateIfChanged(exprKey, ctx);
+          passed = Boolean(result);
+        } else {
+          depManager.register(exprKey, condition.condition.expression, ctx);
+          const tracked = depManager.getTrackedExpression(exprKey);
+          passed = Boolean(tracked?.lastResult);
+        }
+      } catch {
+        // Fallback to direct condition evaluation if dependency manager fails
+        passed = conditionEvaluator.evaluate(condition.condition, ctx);
+      }
+
       if (!passed) {
         logger.debug("Match failed: condition expression evaluated to false", {
           expression: condition.condition.expression,
@@ -95,6 +119,14 @@ export const defaultTriggerMatcher: TriggerMatcher = (
 
   return true;
 };
+
+/**
+ * Clear the dependency manager cache.
+ * Useful for testing or when trigger definitions change at runtime.
+ */
+export function clearConditionCache(): void {
+  depManager.clear();
+}
 
 /**
  * Match event against all triggers and return those that match.

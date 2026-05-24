@@ -8,7 +8,7 @@ import { RuntimeValidationError } from "@wf-agent/types";
 import { validatePath, validateExpression, SECURITY_CONFIG } from "./security-validator.js";
 import { resolvePath } from "./path-resolver.js";
 import { getGlobalLogger } from "../logger/index.js";
-import { dslParse } from "./dsl/index.js";
+import { expressionCompiler } from "./expression-compiler.js";
 import type {
   Expression,
   LiteralExpr,
@@ -24,19 +24,19 @@ import type {
 
 export class ExpressionEvaluator {
   private logger = getGlobalLogger().child("ExpressionEvaluator", { pkg: "common-utils" });
-
-  private cache = new Map<string, { value: unknown; timestamp: number }>();
-  private readonly CACHE_TTL = 1000;
-
   private registeredFunctions = new Map<string, (...args: any[]) => any>();
 
+  // Cache for array method computation results (per-call, bounded)
+  private arrayMethodCache = new Map<string, { value: unknown; timestamp: number }>();
+  private readonly ARRAY_METHOD_CACHE_TTL = 50;
+
   evaluate(expression: string, context: EvaluationContext): unknown {
-    this.cache.clear();
     validateExpression(expression);
 
     let ast: Expression;
     try {
-      ast = dslParse(expression);
+      const compiled = expressionCompiler.compile(expression);
+      ast = compiled.ast;
     } catch (e) {
       throw new RuntimeValidationError(
         `Failed to evaluate expression: ${expression}`,
@@ -407,17 +407,17 @@ export class ExpressionEvaluator {
     context: EvaluationContext,
   ): unknown {
     const cacheKey = `${methodName}:${JSON.stringify(node.arguments.map((a) => this.evaluateAST(a, context)))}`;
-    const cached = this.cache.get(cacheKey);
+    const cached = this.arrayMethodCache.get(cacheKey);
     const now = Date.now();
-    if (cached && now - cached.timestamp < this.CACHE_TTL) {
+    if (cached && now - cached.timestamp < this.ARRAY_METHOD_CACHE_TTL) {
       return cached.value;
     }
 
     const result = this.computeArrayMethod(methodName, array, node, context);
 
-    this.cache.set(cacheKey, { value: result, timestamp: now });
-    if (this.cache.size > 100) {
-      this.cleanCache(now);
+    this.arrayMethodCache.set(cacheKey, { value: result, timestamp: now });
+    if (this.arrayMethodCache.size > 100) {
+      this.cleanArrayMethodCache(now);
     }
     return result;
   }
@@ -663,10 +663,10 @@ export class ExpressionEvaluator {
     return Array.from(this.registeredFunctions.keys());
   }
 
-  private cleanCache(now: number): void {
-    for (const [key, entry] of this.cache.entries()) {
-      if (now - entry.timestamp > this.CACHE_TTL) {
-        this.cache.delete(key);
+  private cleanArrayMethodCache(now: number): void {
+    for (const [key, entry] of this.arrayMethodCache.entries()) {
+      if (now - entry.timestamp > this.ARRAY_METHOD_CACHE_TTL) {
+        this.arrayMethodCache.delete(key);
       }
     }
   }

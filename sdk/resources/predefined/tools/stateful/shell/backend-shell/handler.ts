@@ -10,133 +10,15 @@
 
 import type { ShellType } from "@wf-agent/sdk/services";
 import { getTerminalService } from "@wf-agent/sdk/services";
-import type { BackendShell, ShellOutputResult } from "./types.js";
-
-/**
- * Backend Shell Manager
- *
- * Manages backend shell instances
- * with the existing BackendShell interface while using TerminalService internally.
- */
-class BackendShellManager {
-  private shells: Map<string, BackendShell> = new Map();
-
-  /**
-   * Add a backend Shell
-   */
-  add(shell: BackendShell): void {
-    this.shells.set(shell.shellId, shell);
-  }
-
-  /**
-   * Get the backend Shell
-   */
-  get(shellId: string): BackendShell | undefined {
-    return this.shells.get(shellId);
-  }
-
-  /**
-   * Get all available shell IDs
-   */
-  getAvailableIds(): string[] {
-    return Array.from(this.shells.keys());
-  }
-
-  /**
-   * Remove the backend Shell.
-   */
-  remove(shellId: string): boolean {
-    return this.shells.delete(shellId);
-  }
-
-  /**
-   * Start monitoring
-   */
-  startMonitor(shell: BackendShell): void {
-    const proc = shell.process;
-
-    const handleOutput = (data: Buffer) => {
-      const lines = data.toString().split("\n");
-      for (const line of lines) {
-        if (line.trim()) {
-          shell.outputLines.push(line);
-        }
-      }
-    };
-
-    proc.stdout?.on("data", handleOutput);
-    proc.stderr?.on("data", handleOutput);
-
-    proc.on("close", code => {
-      shell.status = code === 0 ? "completed" : "failed";
-      shell.exitCode = code;
-    });
-
-    proc.on("error", error => {
-      shell.status = "error";
-      shell.outputLines.push(`Process error: ${error.message}`);
-    });
-  }
-
-  /**
-   * Terminate the background Shell process.
-   */
-  async terminate(shellId: string): Promise<BackendShell> {
-    const shell = this.shells.get(shellId);
-    if (!shell) {
-      throw new Error(`Shell not found: ${shellId}`);
-    }
-
-    // Terminate the process.
-    if (shell.process.pid) {
-      try {
-        process.kill(shell.process.pid, "SIGTERM");
-        // Wait for 5 seconds and then terminate forcibly.
-        await new Promise<void>(resolve => {
-          setTimeout(() => {
-            try {
-              process.kill(shell.process.pid!, "SIGKILL");
-            } catch {
-              // The process may have already ended.
-            }
-            resolve();
-          }, 5000);
-        });
-      } catch {
-        // The process may have already ended.
-      }
-    }
-
-    shell.status = "terminated";
-    shell.exitCode = shell.process.exitCode ?? -1;
-    this.shells.delete(shellId);
-
-    return shell;
-  }
-
-  /**
-   * Clean up all Shell scripts.
-   */
-  cleanup(): void {
-    for (const [, shell] of this.shells) {
-      if (shell.process.pid) {
-        try {
-          process.kill(shell.process.pid, "SIGTERM");
-        } catch {
-          // Ignore errors
-        }
-      }
-    }
-    this.shells.clear();
-  }
-}
+import type { ShellOutputResult } from "./types.js";
 
 /**
  * Create a backend_shell tool factory
+ *
+ * Delegates all session management and process monitoring to TerminalService.
  */
 export function createBackendShellFactory() {
   return () => {
-    const manager = new BackendShellManager();
     const terminalService = getTerminalService();
 
     return {
@@ -189,7 +71,6 @@ export function createBackendShellFactory() {
         }
       },
       cleanup: () => {
-        manager.cleanup();
         terminalService.cleanup();
       },
     };

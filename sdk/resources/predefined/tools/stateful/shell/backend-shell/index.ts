@@ -8,7 +8,7 @@ export {
   createShellOutputFactory,
   createShellKillFactory,
 } from "./handler.js";
-export type { BackendShell, ShellOutputResult } from "./types.js";
+export type { ShellOutputResult } from "./types.js";
 export {
   BACKEND_SHELL_TOOL_DESCRIPTION,
   SHELL_OUTPUT_TOOL_DESCRIPTION,

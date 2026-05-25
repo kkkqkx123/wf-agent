@@ -10,7 +10,7 @@ import type {
   HookHandler,
   EventEmitter,
   ContextBuilder,
-} from "../executor.js";
+} from "../types.js";
 import {
   filterAndSortHooks,
   evaluateHookCondition,
@@ -63,16 +63,16 @@ vi.mock("../../../workflow/evaluation/index.js", () => ({
 
 vi.mock("@wf-agent/common-utils", () => ({
   getGlobalLogger: () => ({ child: () => mockChildLogger }),
-  getErrorMessage: (...args: unknown[]) => mockGetErrorMessage(...args),
-  now: (...args: unknown[]) => mockNow(...args),
+  getErrorMessage: (error: unknown) => mockGetErrorMessage(error),
+  now: (...args: any[]) => mockNow(...args),
   createPackageLogger: vi.fn(),
   registerLogger: vi.fn(),
   getLogLevelFromEnv: vi.fn(() => "silent"),
 }));
 
 vi.mock("../../utils/event/builders/index.js", () => ({
-  buildHookExecutedEvent: (...args: unknown[]) =>
-    mockBuildHookExecutedEvent(...args),
+  buildHookExecutedEvent: (params: Record<string, unknown>) =>
+    mockBuildHookExecutedEvent(params),
 }));
 
 vi.mock("../../../utils/logger.js", () => ({
@@ -83,9 +83,9 @@ vi.mock("../../../utils/logger.js", () => ({
 }));
 
 vi.mock("../../utils/interruption/index.js", () => ({
-  checkExecutionInterruption: (...args: unknown[]) =>
+  checkExecutionInterruption: (...args: any[]) =>
     mockCheckExecutionInterruption(...args),
-  shouldContinueExecution: (...args: unknown[]) =>
+  shouldContinueExecution: (...args: any[]) =>
     mockShouldContinueExecution(...args),
 }));
 
@@ -95,6 +95,7 @@ interface TestHookContext extends BaseHookContext {
   variables?: Record<string, unknown>;
   input?: Record<string, unknown>;
   output?: Record<string, unknown>;
+  [key: string]: unknown;
 }
 
 const buildEvalContext: ContextBuilder<TestHookContext> = (
@@ -637,7 +638,7 @@ describe("resolvePayloadTemplate", () => {
       },
     });
     expect(
-      (result.config as Record<string, unknown>),
+      (result["config"] as Record<string, unknown>),
     ).not.toHaveProperty("handler");
   });
 

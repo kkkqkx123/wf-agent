@@ -5,7 +5,7 @@
 
 import { ExecutionError } from "@wf-agent/types";
 import type { LLMMessage, LLMResult } from "@wf-agent/types";
-import { partialParse } from "./lib/partial-json-parser.js";
+import { partialParse, isValidPartialJson } from "./lib/partial-json-parser.js";
 import {
   MessageStreamEvent,
   MessageStreamEventType,
@@ -733,7 +733,12 @@ export class MessageStream implements AsyncIterable<InternalStreamEvent> {
               });
 
               // Use `partialParse` to parse incomplete JSON.
-              const parsedInput = partialParse(jsonBuf);
+              // Use `isValidPartialJson` as a fast pre-check to skip expensive full parsing
+              // when the accumulated JSON is structurally invalid.
+              let parsedInput: unknown = undefined;
+              if (isValidPartialJson(jsonBuf)) {
+                parsedInput = partialParse(jsonBuf);
+              }
               if (parsedInput !== undefined) {
                 (targetBlock as { input?: unknown }).input = parsedInput;
               }

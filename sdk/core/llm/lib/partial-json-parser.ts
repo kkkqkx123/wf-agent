@@ -86,13 +86,61 @@ function tokenize(input: string): Token[] {
             danglingQuote = true;
             break;
           }
-          value += char + input[current];
+          const nextChar = input[current];
+          switch (nextChar) {
+            case '"':
+              value += '"';
+              break;
+            case "\\":
+              value += "\\";
+              break;
+            case "/":
+              value += "/";
+              break;
+            case "b":
+              value += "\b";
+              break;
+            case "f":
+              value += "\f";
+              break;
+            case "n":
+              value += "\n";
+              break;
+            case "r":
+              value += "\r";
+              break;
+            case "t":
+              value += "\t";
+              break;
+            case "u": {
+              // Read 4 hex digits for unicode escape
+              let hex = "";
+              for (let i = 0; i < 4; i++) {
+                current++;
+                if (current === input.length) {
+                  danglingQuote = true;
+                  break;
+                }
+                hex += input[current];
+              }
+              if (!danglingQuote) {
+                value += String.fromCharCode(parseInt(hex, 16));
+              }
+              break;
+            }
+            default:
+              // For unknown escape sequences, preserve the raw characters
+              value += "\\" + nextChar;
+          }
           char = input[++current];
         } else {
           value += char;
           char = input[++current];
         }
       }
+
+      // Skip past the closing quote (required to avoid re-reading it as a new string)
+      char = input[++current];
 
       if (!danglingQuote) {
         tokens.push({ type: "string", value });
@@ -115,9 +163,22 @@ function tokenize(input: string): Token[] {
         char = input[++current];
       }
 
-      while ((char && NUMBERS.test(char)) || char === ".") {
+      while ((char && NUMBERS.test(char)) || char === "." || char === "e" || char === "E") {
         value += char;
         char = input[++current];
+      }
+
+      // Handle case where e/E is followed by +/- sign
+      if (char === "+" || char === "-") {
+        const prevChar = value[value.length - 1];
+        if (prevChar === "e" || prevChar === "E") {
+          value += char;
+          char = input[++current];
+          while (char && NUMBERS.test(char)) {
+            value += char;
+            char = input[++current];
+          }
+        }
       }
 
       tokens.push({ type: "number", value });
@@ -203,27 +264,31 @@ function strip(tokens: Token[]): Token[] {
  * Auto-completion of closing symbols
  */
 function unstrip(tokens: Token[]): Token[] {
-  const tail: string[] = [];
+  const stack: string[] = [];
 
   for (const token of tokens) {
     if (token.type === "brace") {
       if (token.value === "{") {
-        tail.push("}");
+        stack.push("}");
       } else {
-        tail.splice(tail.lastIndexOf("}"), 1);
+        if (stack.length > 0 && stack[stack.length - 1] === "}") {
+          stack.pop();
+        }
       }
     }
     if (token.type === "paren") {
       if (token.value === "[") {
-        tail.push("]");
+        stack.push("]");
       } else {
-        tail.splice(tail.lastIndexOf("]"), 1);
+        if (stack.length > 0 && stack[stack.length - 1] === "]") {
+          stack.pop();
+        }
       }
     }
   }
 
-  if (tail.length > 0) {
-    tail.reverse().forEach(item => {
+  if (stack.length > 0) {
+    stack.reverse().forEach(item => {
       if (item === "}") {
         tokens.push({ type: "brace", value: "}" });
       } else if (item === "]") {
@@ -244,7 +309,7 @@ function generate(tokens: Token[]): string {
   for (const token of tokens) {
     switch (token.type) {
       case "string": {
-        output += '"' + token.value + '"';
+        output += JSON.stringify(token.value);
         break;
       }
       default: {
@@ -275,16 +340,58 @@ export function partialParse(input: string): unknown {
 /**
  * Check if the input is a valid partial JSON (can be parsed further)
  *
+ * Performs tokenization and basic structural checks:
+ * - Must not be empty or whitespace-only
+ * - Must have balanced brackets (no more closing than opening at any point)
+ * - Must have at least one structural token (brace/paren/separator/delimiter/name/number)
+ * - A lone string token is rejected (likely an incomplete key name)
+ *
  * @param input JSON string
  * @returns Whether it is valid
  */
 export function isValidPartialJson(input: string): boolean {
   try {
+    const trimmed = input.trim();
+    if (!trimmed) {
+      return false;
+    }
+
     const tokens = tokenize(input);
+    if (tokens.length === 0) {
+      return false;
+    }
+
     // If there is only one string token, it might be that the key name is incomplete.
     if (tokens.length === 1 && tokens[0]!.type === "string") {
       return false;
     }
+
+    // Check bracket balance: never have more closing than opening at any point
+    let depth = 0;
+    let bracketDepth = 0;
+    for (const token of tokens) {
+      if (token.type === "brace") {
+        if (token.value === "{") {
+          depth++;
+        } else {
+          depth--;
+          if (depth < 0) {
+            return false; // Extra closing brace
+          }
+        }
+      }
+      if (token.type === "paren") {
+        if (token.value === "[") {
+          bracketDepth++;
+        } else {
+          bracketDepth--;
+          if (bracketDepth < 0) {
+            return false; // Extra closing bracket
+          }
+        }
+      }
+    }
+
     return true;
   } catch {
     return false;

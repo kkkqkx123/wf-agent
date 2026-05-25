@@ -32,7 +32,7 @@ import type { MetricsRegistry } from "../../../core/metrics/metrics-registry.js"
 import type { GlobalContext } from "../../../core/global-context.js";
 import { LLMExecutor } from "../../../core/executors/llm-executor.js";
 import { ToolCallExecutor } from "../../../core/executors/tool-call-executor.js";
-import type { CheckpointDependencies as WorkflowCheckpointDependencies } from "../../../workflow/checkpoint/utils/checkpoint-utils.js";
+import type { CheckpointDependencies as WorkflowCheckpointDependencies } from "../../../workflow/checkpoint/checkpoint-coordinator.js";
 import * as Identifiers from "../../../core/di/service-identifiers.js";
 import { emit } from "../../../core/utils/event/event-emitter.js";
 import { AgentExecutionCoordinator, type AgentLoopStreamEvent } from "../coordinators/agent-execution-coordinator.js";

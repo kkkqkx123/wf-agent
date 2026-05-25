@@ -63,7 +63,7 @@ export const LoopEndNodeConfigSchema = z.object({
       metadata: z.any().optional(),
     })
     .optional(),
-  loopStartNodeId: z.string().optional(),
+  loopStartNodeId: z.string().min(1, "loopStartNodeId must not be empty").optional(),
 });
 
 /**

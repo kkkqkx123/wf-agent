@@ -69,7 +69,7 @@ import { ToolApprovalCoordinator } from "../coordinators/tool-approval-coordinat
 import { SkillRegistry } from "../registry/skill-registry.js";
 import { SkillLoader } from "../utils/skill-loader.js";
 import { emit } from "../../workflow/execution/utils/index.js";
-import { createCheckpoint } from "../../workflow/checkpoint/utils/checkpoint-utils.js";
+import { CheckpointCoordinator } from "../../workflow/checkpoint/checkpoint-coordinator.js";
 import {
   buildMessageAddedEvent,
   buildToolCallStartedEvent,
@@ -90,7 +90,6 @@ import { TriggerCoordinator } from "../../workflow/execution/coordinators/trigge
 import { NodeExecutionCoordinator } from "../../workflow/execution/coordinators/node-execution-coordinator.js";
 import { TriggeredSubworkflowHandler } from "../../workflow/execution/handlers/triggered-subworkflow-handler.js";
 import { LLMExecutionCoordinator } from "../../workflow/execution/coordinators/llm-execution-coordinator.js";
-import { CheckpointCoordinator } from "../../workflow/checkpoint/checkpoint-coordinator.js";
 import { WorkflowNavigator } from "../../workflow/builder/workflow-navigator.js";
 import { WorkflowLifecycleCoordinator } from "../../workflow/execution/coordinators/workflow-lifecycle-coordinator.js";
 
@@ -348,7 +347,14 @@ export function configureContainerBindings(
           workflowGraphRegistry: c.get(Identifiers.WorkflowGraphRegistry) as WorkflowGraphRegistry,
         },
         eventBuilder,
-        createCheckpointFn: createCheckpoint,
+        createCheckpointFn: (options, deps) => CheckpointCoordinator.createCheckpoint(
+          options.workflowExecutionId,
+          deps,
+          {
+            description: options.description,
+            ...(options.toolId ? { customFields: { toolId: options.toolId } } : {}),
+          },
+        ),
         safeEmitFn: emit,
       });
     })

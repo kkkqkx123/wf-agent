@@ -64,11 +64,8 @@ export {
   AgentLoopCheckpointConfigResolver,
   AgentLoopCheckpointCoordinator,
   AgentLoopCheckpointStateManager,
-  createCheckpoint,
-  restoreFromCheckpoint,
   type CheckpointDependencies,
   type CheckpointOptions,
-  type CreateCheckpointOptions,
 } from "./checkpoint/index.js";
 
 // Stores layer (export class for direct instantiation, also available via DI)

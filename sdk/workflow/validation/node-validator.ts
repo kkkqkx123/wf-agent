@@ -109,6 +109,7 @@ export class NodeValidator {
       "FORK",
       "JOIN",
       "SUBGRAPH",
+      "EMBED_GRAPH",
       "SCRIPT",
       "LLM",
       "USER_INTERACTION",
@@ -117,6 +118,7 @@ export class NodeValidator {
       "LOOP_START",
       "LOOP_END",
       "AGENT_LOOP",
+      "SYNC",
       "START_FROM_TRIGGER",
       "CONTINUE_FROM_TRIGGER",
     ];

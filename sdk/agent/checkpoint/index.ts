@@ -12,12 +12,5 @@ export {
   type CheckpointOptions,
 } from "./checkpoint-coordinator.js";
 
-// State Manager (NEW - Phase 4)
+// State Manager
 export { AgentLoopCheckpointStateManager } from "./checkpoint-state-manager.js";
-
-// Utility functions
-export {
-  createCheckpoint,
-  restoreFromCheckpoint,
-  type CreateCheckpointOptions,
-} from "./utils/checkpoint-utils.js";

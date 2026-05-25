@@ -1,18 +1,20 @@
 /**
- * Tests for checkpoint-utils
+ * Tests for AgentLoopCheckpointCoordinator
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { createCheckpoint, restoreFromCheckpoint } from "../utils/checkpoint-utils.js";
+import { AgentLoopCheckpointCoordinator } from "../checkpoint-coordinator.js";
 import type { CheckpointDependencies } from "../checkpoint-coordinator.js";
 import type { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import { AgentLoopStatus } from "@wf-agent/types";
 
-describe("checkpoint-utils", () => {
+describe("AgentLoopCheckpointCoordinator", () => {
+  let coordinator: AgentLoopCheckpointCoordinator;
   let dependencies: CheckpointDependencies;
   let mockEntity: AgentLoopEntity;
 
   beforeEach(() => {
+    coordinator = new AgentLoopCheckpointCoordinator();
     dependencies = {
       saveCheckpoint: vi.fn(),
       getCheckpoint: vi.fn(),
@@ -39,7 +41,7 @@ describe("checkpoint-utils", () => {
       dependencies.saveCheckpoint = vi.fn().mockResolvedValue("cp-1");
       dependencies.listCheckpoints = vi.fn().mockResolvedValue([]);
 
-      const checkpointId = await createCheckpoint(mockEntity, dependencies);
+      const checkpointId = await coordinator.createCheckpoint(mockEntity, dependencies);
 
       expect(checkpointId).toBe("cp-1");
       expect(dependencies.saveCheckpoint).toHaveBeenCalled();
@@ -49,7 +51,7 @@ describe("checkpoint-utils", () => {
       dependencies.saveCheckpoint = vi.fn().mockResolvedValue("cp-1");
       dependencies.listCheckpoints = vi.fn().mockResolvedValue([]);
 
-      await createCheckpoint(mockEntity, dependencies, {
+      await coordinator.createCheckpoint(mockEntity, dependencies, {
         description: "Custom checkpoint",
       });
 
@@ -61,8 +63,8 @@ describe("checkpoint-utils", () => {
       dependencies.saveCheckpoint = vi.fn().mockResolvedValue("cp-1");
       dependencies.listCheckpoints = vi.fn().mockResolvedValue([]);
 
-      await createCheckpoint(mockEntity, dependencies, {
-        metadata: { customFields: { customField: "customValue" } },
+      await coordinator.createCheckpoint(mockEntity, dependencies, {
+        customFields: { customField: "customValue" },
       });
 
       const savedCheckpoint = (dependencies.saveCheckpoint as any).mock.calls[0][0];
@@ -73,9 +75,9 @@ describe("checkpoint-utils", () => {
       dependencies.saveCheckpoint = vi.fn().mockResolvedValue("cp-1");
       dependencies.listCheckpoints = vi.fn().mockResolvedValue([]);
 
-      await createCheckpoint(mockEntity, dependencies, {
+      await coordinator.createCheckpoint(mockEntity, dependencies, {
         description: "Test checkpoint",
-        metadata: { customFields: { customField: "customValue" } },
+        customFields: { customField: "customValue" },
       });
 
       const savedCheckpoint = (dependencies.saveCheckpoint as any).mock.calls[0][0];
@@ -87,7 +89,7 @@ describe("checkpoint-utils", () => {
       dependencies.saveCheckpoint = vi.fn().mockResolvedValue("cp-1");
       dependencies.listCheckpoints = vi.fn().mockResolvedValue([]);
 
-      await createCheckpoint(mockEntity, dependencies);
+      await coordinator.createCheckpoint(mockEntity, dependencies);
 
       const savedCheckpoint = (dependencies.saveCheckpoint as any).mock.calls[0][0];
       expect(savedCheckpoint.metadata?.description).toContain("agent-1");
@@ -115,7 +117,7 @@ describe("checkpoint-utils", () => {
       dependencies.getCheckpoint = vi.fn().mockResolvedValue(checkpoint);
       dependencies.listCheckpoints = vi.fn().mockResolvedValue(["cp-1"]);
 
-      const entity = await restoreFromCheckpoint("cp-1", dependencies);
+      const entity = await coordinator.restoreFromCheckpoint("cp-1", dependencies);
 
       expect(entity).toBeDefined();
       expect(entity.id).toBe("agent-1");
@@ -124,7 +126,7 @@ describe("checkpoint-utils", () => {
     it("should throw error when checkpoint not found", async () => {
       dependencies.getCheckpoint = vi.fn().mockResolvedValue(null);
 
-      await expect(restoreFromCheckpoint("nonexistent", dependencies)).rejects.toThrow();
+      await expect(coordinator.restoreFromCheckpoint("nonexistent", dependencies)).rejects.toThrow();
     });
   });
 });

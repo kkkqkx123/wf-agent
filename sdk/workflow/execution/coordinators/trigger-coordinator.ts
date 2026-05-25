@@ -20,8 +20,8 @@ import type { ID } from "@wf-agent/types";
 import { getTriggerHandler } from "../handlers/trigger-handlers/index.js";
 import { ExecutionError, RuntimeValidationError, DependencyInjectionError } from "@wf-agent/types";
 import { now, getErrorOrNew } from "@wf-agent/common-utils";
-import type { CheckpointDependencies } from "../../checkpoint/utils/checkpoint-utils.js";
-import { createCheckpoint } from "../../checkpoint/utils/checkpoint-utils.js";
+import type { CheckpointDependencies } from "../../checkpoint/checkpoint-coordinator.js";
+import { CheckpointCoordinator } from "../../checkpoint/checkpoint-coordinator.js";
 import { convertToTrigger } from "@wf-agent/types";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import {
@@ -339,12 +339,12 @@ export class TriggerCoordinator {
             workflowGraphRegistry: graphRegistry,
           };
 
-          await createCheckpoint(
+          await CheckpointCoordinator.createCheckpoint(
+            trigger.executionId,
+            dependencies,
             {
-              workflowExecutionId: trigger.executionId,
               description: trigger.checkpointDescription || `Trigger: ${trigger.name}`,
             },
-            dependencies,
           );
         } catch (error) {
           // The failure to create a checkpoint should not affect the execution of the trigger; only the error should be logged.

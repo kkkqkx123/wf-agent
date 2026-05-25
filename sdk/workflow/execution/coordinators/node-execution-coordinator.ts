@@ -43,8 +43,8 @@ import { handleErrorWithContext } from "../../../core/utils/error-utils.js";
 import { now, diffTimestamp, getErrorOrNew } from "@wf-agent/common-utils";
 import { emit } from "../../../core/utils/event/event-emitter.js";
 import { getNodeHandler } from "../handlers/node-handlers/index.js";
-import type { CheckpointDependencies } from "../../checkpoint/utils/checkpoint-utils.js";
-import { createCheckpoint } from "../../checkpoint/utils/checkpoint-utils.js";
+import type { CheckpointDependencies } from "../../checkpoint/checkpoint-coordinator.js";
+import { CheckpointCoordinator } from "../../checkpoint/checkpoint-coordinator.js";
 import {
   resolveCheckpointConfig,
   buildNodeCheckpointLayers,
@@ -239,19 +239,16 @@ export class NodeExecutionCoordinator {
     let checkpointId: string | undefined;
     if (this.checkpointDependencies) {
       try {
-        checkpointId = await createCheckpoint(
+        checkpointId = await CheckpointCoordinator.createCheckpoint(
+          workflowExecutionId,
+          this.checkpointDependencies,
           {
-            workflowExecutionId,
-            nodeId,
             description: `Workflow execution ${type.toLowerCase()} at node: ${nodeId}`,
-            metadata: {
-              customFields: {
-                interruptionType: type,
-                interruptedAt: now(),
-              },
+            customFields: {
+              interruptionType: type,
+              interruptedAt: now(),
             },
           },
-          this.checkpointDependencies,
         );
         logger.debug("Interruption checkpoint created", {
           executionId: workflowExecutionId,
@@ -395,15 +392,15 @@ export class NodeExecutionCoordinator {
           if (configResult.shouldCreate) {
             logger.debug("Creating checkpoint before node execution", { executionId, nodeId });
             try {
-              await createCheckpoint(
+              await CheckpointCoordinator.createNodeCheckpoint(
+                workflowExecutionEntity.id,
+                nodeId,
+                this.checkpointDependencies!,
                 {
-                  workflowExecutionId: workflowExecutionEntity.id,
-                  nodeId,
                   description:
                     configResult.description ||
                     `Before node: ${(node as WorkflowNode).name || (node as RuntimeNode as WorkflowNode).originalNode?.name}`,
                 },
-                this.checkpointDependencies,
               );
             } catch (error) {
               await handleErrorWithContext(
@@ -508,15 +505,15 @@ export class NodeExecutionCoordinator {
           if (configResult.shouldCreate) {
             logger.debug("Creating checkpoint after node execution", { executionId, nodeId });
             try {
-              await createCheckpoint(
+              await CheckpointCoordinator.createNodeCheckpoint(
+                workflowExecutionEntity.id,
+                nodeId,
+                this.checkpointDependencies,
                 {
-                  workflowExecutionId: workflowExecutionEntity.id,
-                  nodeId,
                   description:
                     configResult.description ||
                     `After node: ${(node as WorkflowNode).name || (node as RuntimeNode as WorkflowNode).originalNode?.name}`,
                 },
-                this.checkpointDependencies,
               );
             } catch (error) {
               await handleErrorWithContext(

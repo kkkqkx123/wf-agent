@@ -7,8 +7,8 @@
 
 import type { StaticNode, NodeHook, NodeExecutionResult, NodeCustomEvent } from "@wf-agent/types";
 import { HookType, ExecutionError } from "@wf-agent/types";
-import type { CheckpointDependencies } from "../../../checkpoint/utils/checkpoint-utils.js";
-import { createCheckpoint } from "../../../checkpoint/utils/checkpoint-utils.js";
+import type { CheckpointDependencies } from "../../../checkpoint/checkpoint-coordinator.js";
+import { CheckpointCoordinator } from "../../../checkpoint/checkpoint-coordinator.js";
 import {
   filterAndSortHooks,
   executeHooks,
@@ -75,13 +75,13 @@ function createCheckpointHandler(): HookHandler<HookExecutionContext> {
     }
 
     try {
-      await createCheckpoint(
+      await CheckpointCoordinator.createNodeCheckpoint(
+        context.workflowExecutionEntity.id,
+        context.node.id,
+        context.checkpointDependencies,
         {
-          workflowExecutionId: context.workflowExecutionEntity.id,
-          nodeId: context.node.id,
           description: nodeHook.checkpointDescription || `Hook: ${hook.eventName}`,
         },
-        context.checkpointDependencies,
       );
     } catch (error) {
       logger.warn(

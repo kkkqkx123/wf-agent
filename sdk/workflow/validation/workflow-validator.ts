@@ -36,9 +36,8 @@ import { ok, err } from "@wf-agent/common-utils";
 import { validateNodeByType } from "./node-validation/index.js";
 import { validateHooks } from "../../core/validation/hook-validator.js";
 import { validateTriggers } from "../../core/validation/trigger-validator.js";
-import { SelfReferenceValidationStrategy } from "./strategies/self-reference-validation-strategy.js";
 import { validateConfig } from "../../core/validation/utils.js";
-import { WorkflowConfigSchema, WorkflowTemplateBasicSchema } from "@wf-agent/types";
+import { WorkflowConfigSchema, WorkflowTemplateBasicSchema, SubgraphNodeConfigSchema, isSubgraphNode } from "@wf-agent/types";
 
 /**
  * Workflow Validator Class
@@ -568,12 +567,33 @@ export class WorkflowValidator {
 
   /**
    * Verify self-reference
-   * Use the Strategy pattern to detect self-references in SUBGRAPH and START_FROM_TRIGGER nodes
+   * Detects whether SUBGRAPH nodes reference the workflow in which they are located.
    * @param workflow Workflow definition
    * @returns Verification result
    */
   private validateSelfReferences(workflow: WorkflowTemplate): ConfigurationValidationError[] {
-    const errors = SelfReferenceValidationStrategy.validateNodes(workflow.nodes, workflow.id);
+    const errors: ConfigurationValidationError[] = [];
+
+    for (const node of workflow.nodes) {
+      if (!isSubgraphNode(node)) {
+        continue;
+      }
+
+      const parsed = SubgraphNodeConfigSchema.safeParse(node.config);
+      if (parsed.success && parsed.data.subgraphId === workflow.id) {
+        errors.push(
+          new ConfigurationValidationError(
+            "Child workflow nodes cannot reference their own workflows",
+            {
+              configType: "node",
+              configPath: `workflow.nodes[].config.subgraphId`,
+              value: parsed.data.subgraphId,
+              context: { code: "SELF_REFERENCE", nodeId: node.id, subgraphId: parsed.data.subgraphId },
+            },
+          ),
+        );
+      }
+    }
 
     return errors;
   }

@@ -9,6 +9,7 @@
  * - Verify the pairing relationships and business logic of FORK/JOIN nodes.
  * - Verify the special constraints of triggering sub-workflows (the combination of nodes has already been verified by WorkflowValidator).
  * - Verify the existence and interface compatibility of sub-workflows.
+ * - Verify LOOP_START/LOOP_END pairing and cross-node references.
  *
  * Differences from WorkflowValidator:
  * - GraphValidator performs validation during the graph preprocessing phase; the input is GraphData.
@@ -60,6 +61,7 @@ import {
   isTriggeredSubgraph,
   validateTriggeredSubgraphConnectivity,
 } from "./triggered-subgraph-validator.js";
+import { validateLoopPairs } from "./loop-pair-validator.js";
 
 /**
  * Graph Validator Class
@@ -141,6 +143,10 @@ export class GraphValidator {
     // FORK/JOIN pairing verification
     const forkJoinErrors = validateForkJoinPairs(graph);
     errorList.push(...forkJoinErrors);
+
+    // LOOP_START/LOOP_END pairing verification
+    const loopPairErrors = validateLoopPairs(graph);
+    errorList.push(...loopPairErrors);
 
     // Check the existence of the sub-workflow.
     const subgraphErrors = validateSubgraphExistence(graph);

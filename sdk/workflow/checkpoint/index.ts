@@ -5,7 +5,11 @@
  */
 
 // Coordinator
-export { CheckpointCoordinator, type CheckpointDependencies } from "./checkpoint-coordinator.js";
+export {
+  CheckpointCoordinator,
+  type CheckpointDependencies,
+  type CreateCheckpointOptions,
+} from "./checkpoint-coordinator.js";
 
 // State Manager
 export { CheckpointState } from "./checkpoint-state-manager.js";
@@ -18,13 +22,3 @@ export {
   shouldCreateCheckpoint,
   getCheckpointDescription,
 } from "./utils/config-resolver.js";
-
-// Utils
-export {
-  createCheckpoint,
-  createCheckpoints,
-  createNodeCheckpoint,
-  createToolCheckpoint,
-  type CreateCheckpointOptions,
-  type CheckpointDependencies as CheckpointUtilsDependencies,
-} from "./utils/checkpoint-utils.js";

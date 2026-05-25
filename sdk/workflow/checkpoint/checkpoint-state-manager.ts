@@ -17,7 +17,6 @@ import {
   buildCheckpointFailedEvent,
 } from "../execution/utils/event/index.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
-import type { CheckpointOptions } from "./checkpoint-coordinator.js";
 
 const logger = createContextualLogger({ operation: "checkpoint-state-manager" });
 
@@ -103,10 +102,9 @@ export class CheckpointState extends BaseCheckpointStateManager<Checkpoint> {
   /**
    * Create a checkpoint
    * @param checkpointData Checkpoint data
-   * @param options Checkpoint options (sync mode, timeout, etc.) - kept for backward compatibility
    * @returns Checkpoint ID
    */
-  override async create(checkpointData: Checkpoint, _options?: CheckpointOptions): Promise<string> {
+  override async create(checkpointData: Checkpoint): Promise<string> {
     const id = await super.create(checkpointData);
     
     // Execute entity-specific cleanup after saving

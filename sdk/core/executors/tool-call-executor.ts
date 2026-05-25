@@ -35,7 +35,7 @@ import { now, diffTimestamp, generateId } from "@wf-agent/common-utils";
 import type { ConversationSession } from "../messaging/conversation-session.js";
 import { WorkflowCheckpointError } from "@wf-agent/types";
 import { MessageBuilder } from "../messaging/message-builder.js";
-import type { CheckpointDependencies } from "../../workflow/checkpoint/utils/checkpoint-utils.js";
+import type { CheckpointDependencies } from "../../workflow/checkpoint/checkpoint-coordinator.js";
 import type { GlobalContext } from "../global-context.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 import type { ToolFailureProtectionState } from "../state-managers/tool-failure-protection-state.js";

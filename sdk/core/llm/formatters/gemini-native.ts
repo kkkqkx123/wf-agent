@@ -10,7 +10,7 @@ import type { LLMRequest, LLMResult, LLMMessage, LLMToolCall } from "@wf-agent/t
 import type { ToolSchema } from "@wf-agent/types";
 import type { FormatterConfig, BuildRequestResult, ParseStreamChunkResult } from "./types.js";
 import { generateId } from "@wf-agent/common-utils";
-import { convertToolsToGeminiFormat } from "../utils/index.js";
+import { convertToolsToGeminiFormat } from "./tool-converter.js";
 import { extractAndFilterSystemMessages } from "../message-helper.js";
 
 /**

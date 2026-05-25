@@ -10,7 +10,7 @@ import { BaseFormatter } from "./base.js";
 import type { LLMRequest, LLMResult, LLMMessage, LLMToolCall } from "@wf-agent/types";
 import type { ToolSchema } from "@wf-agent/types";
 import type { FormatterConfig, BuildRequestResult, ParseStreamChunkResult } from "./types.js";
-import { convertToolsToOpenAIFormat } from "../utils/index.js";
+import { convertToolsToOpenAIFormat } from "./tool-converter.js";
 
 /**
  * OpenAI Response API Format Converter

@@ -6,7 +6,7 @@ import { AnthropicFormatter } from "../anthropic.js";
 import type { LLMRequest, LLMMessage } from "@wf-agent/types";
 import type { FormatterConfig } from "../types.js";
 
-vi.mock("../utils/index.js", () => ({
+vi.mock("../tool-converter.js", () => ({
   convertToolsToAnthropicFormat: vi.fn((tools: any[]) =>
     tools.map((t: any) => ({ name: t.name, type: "custom" }))
   ),

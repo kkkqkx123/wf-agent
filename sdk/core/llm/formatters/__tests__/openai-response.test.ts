@@ -6,7 +6,7 @@ import { OpenAIResponseFormatter } from "../openai-response.js";
 import type { LLMRequest, LLMMessage } from "@wf-agent/types";
 import type { FormatterConfig } from "../types.js";
 
-vi.mock("../utils/index.js", () => ({
+vi.mock("./tool-converter.js", () => ({
   convertToolsToOpenAIFormat: vi.fn((tools: any[]) =>
     tools.map((t: any) => ({ type: "function", function: { name: t.name } }))
   ),

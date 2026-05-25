@@ -59,3 +59,6 @@ export {
   getFormatter,
   registerFormatter,
 } from "./registry.js";
+
+// Tool Converter Export
+export { convertToolsToOpenAIFormat, convertToolsToAnthropicFormat, convertToolsToGeminiFormat } from "./tool-converter.js";

@@ -1,6 +1,10 @@
 /**
  * Tool Definition Conversion Utilities
- * Provides conversion between tool definition formats from various LLM providers
+ *
+ * Converts internal ToolSchema[] to provider-specific tool definition formats.
+ * Each formatter delegates to the appropriate converter via its `convertTools()` method.
+ *
+ * @module formatters/tool-converter
  */
 
 import type { ToolSchema } from "@wf-agent/types";
@@ -8,7 +12,7 @@ import type { ToolSchema } from "@wf-agent/types";
 /**
  * Tool definitions in OpenAI format
  */
-export interface OpenAITool {
+interface OpenAITool {
   type: "function";
   function: {
     name: string;
@@ -20,7 +24,7 @@ export interface OpenAITool {
 /**
  * Anthropic format tool definition
  */
-export interface AnthropicTool {
+interface AnthropicTool {
   name: string;
   description: string;
   input_schema: Record<string, unknown>;
@@ -29,7 +33,7 @@ export interface AnthropicTool {
 /**
  * Gemini format tool definition
  */
-export interface GeminiTool {
+interface GeminiTool {
   functionDeclarations: Array<{
     name: string;
     description: string;

@@ -6,7 +6,7 @@ import { GeminiNativeFormatter } from "../gemini-native.js";
 import type { LLMRequest, LLMMessage } from "@wf-agent/types";
 import type { FormatterConfig } from "../types.js";
 
-vi.mock("../utils/index.js", () => ({
+vi.mock("../tool-converter.js", () => ({
   convertToolsToGeminiFormat: vi.fn((tools: any[]) =>
     tools.map((t: any) => ({ name: t.name }))
   ),

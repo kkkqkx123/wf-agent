@@ -8,7 +8,7 @@ import { BaseFormatter } from "./base.js";
 import type { LLMRequest, LLMResult, LLMMessage, LLMToolCall, ToolCallFormat } from "@wf-agent/types";
 import type { ToolSchema } from "@wf-agent/types";
 import type { FormatterConfig, BuildRequestResult, ParseStreamChunkResult } from "./types.js";
-import { convertToolsToAnthropicFormat } from "../utils/index.js";
+import { convertToolsToAnthropicFormat } from "./tool-converter.js";
 import { ToolDeclarationFormatter } from "../../utils/tools/index.js";
 import { getToolCallParserOptions } from "./tool-format-selector.js";
 import { ToolCallParser } from "./tool-call-parser.js";

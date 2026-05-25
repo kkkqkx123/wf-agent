@@ -6,6 +6,12 @@
  * - Provides only pure execution capabilities; does not include business decision-making logic.
  * - All validation, security checks, and status determinations are the responsibility of the application layer.
  * - Execution history is recorded for use by higher-level systems.
+ *
+ * Supports:
+ * - Standard scriptName execution via ScriptRegistry
+ * - Inline template execution with variable substitution
+ * - Flow execution via flowId reference
+ * - Executor mode selection (direct/shared)
  */
 
 import type { RuntimeNode, ScriptNodeConfig } from "@wf-agent/types";
@@ -37,16 +43,35 @@ export async function scriptHandler(
   const config = node.config as ScriptNodeConfig;
 
   try {
-    // Use the script service to execute the script.
     const scriptService = globalContext.container.get(Identifiers.ScriptRegistry) as ScriptRegistry;
-    const result = await scriptService.execute(config.scriptName);
 
-    // Check the execution results.
-    if (result.isErr()) {
-      throw result.error;
+    let result;
+
+    if (config.flowId) {
+      result = await scriptService.executeFlow(config.flowId);
+    } else if (config.template) {
+      const { ScriptEngine } = await import("../../../../core/script/engine/script-engine.js");
+      const engine = new ScriptEngine();
+      const script = {
+        id: node.id,
+        name: config.scriptName || "inline",
+        description: "Inline script from node config",
+        template: config.template,
+        executor: config.executor,
+        options: { timeout: 30000 },
+      };
+      result = await engine.execute(script);
+    } else {
+      result = await scriptService.execute(config.scriptName);
     }
 
-    // Record execution history
+    if (result && typeof result === 'object' && 'isErr' in result && typeof result.isErr === 'function') {
+      if (result.isErr()) {
+        throw result.error;
+      }
+      result = result.value;
+    }
+
     workflowExecutionEntity.addNodeResult({
       step: workflowExecutionEntity.getNodeResults().length + 1,
       nodeId: node.id,
@@ -55,10 +80,8 @@ export async function scriptHandler(
       timestamp: now(),
     });
 
-    // Return the execution result
-    return result.value;
+    return result;
   } catch (error) {
-    // Record the history of execution failures.
     workflowExecutionEntity.addNodeResult({
       step: workflowExecutionEntity.getNodeResults().length + 1,
       nodeId: node.id,

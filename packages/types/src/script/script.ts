@@ -4,6 +4,8 @@
  */
 
 import type { ID, Metadata } from "../common.js";
+import type { ScriptArgument } from "./script-argument.js";
+import type { ScriptExecutorConfig } from "./script-executor.js";
 
 /**
  * Script execution options
@@ -27,6 +29,8 @@ export interface ScriptExecutionOptions {
   sandboxConfig?: SandboxConfig;
   /** Abort signal (for canceling execution) */
   signal?: AbortSignal;
+  /** Executor mode (direct/shared/pty) */
+  executorMode?: "direct" | "shared" | "pty";
 }
 
 /**
@@ -100,6 +104,12 @@ export interface Script {
   content?: string;
   /** Script file path (external file) */
   filePath?: string;
+  /** Command template with {{var}} placeholders */
+  template?: string;
+  /** Parameter declarations for the template */
+  arguments?: ScriptArgument[];
+  /** Executor configuration (mode, shell type, etc.) */
+  executor?: ScriptExecutorConfig;
   /** Script execution options */
   options: ScriptExecutionOptions;
   /** Script Metadata */

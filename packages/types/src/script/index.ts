@@ -3,6 +3,10 @@
  */
 export * from "./script.js";
 export * from "./script-security.js";
+export * from "./script-executor.js";
+export * from "./script-argument.js";
+export * from "./script-flow.js";
+export * from "./script-interactive.js";
 
 // Export Zod Schemas for Script Validation
 export {

@@ -10,8 +10,11 @@ import type {
   Script,
   ScriptExecutionOptions,
   ScriptExecutionResult,
+  ScriptFlow,
 } from "@wf-agent/types";
 import { ScriptExecutor } from '../executors/script-executor.js';
+import { ScriptEngine } from '../script/engine/script-engine.js';
+import { ScriptFlowEngine } from '../script/engine/script-flow-engine.js';
 import {
   ScriptExecutionError,
   ScriptNotFoundError,
@@ -30,7 +33,10 @@ const logger = createContextualLogger({ component: "ScriptRegistry" });
  */
 class ScriptRegistry {
   private scripts: Map<string, Script> = new Map();
+  private flows: Map<string, ScriptFlow> = new Map();
   private executor: ScriptExecutor;
+  private scriptEngine: ScriptEngine | null = null;
+  private flowEngine: ScriptFlowEngine | null = null;
 
   constructor() {
     this.executor = new ScriptExecutor();
@@ -246,9 +252,9 @@ class ScriptRegistry {
       );
     }
 
-    // Verify that the script content or file path contains at least one of the following:
-    if (!script.content && !script.filePath) {
-      throw new ConfigurationValidationError("Script must have either content or filePath", {
+    // Verify that the script content or file path or template contains at least one of the following:
+    if (!script.content && !script.filePath && !script.template) {
+      throw new ConfigurationValidationError("Script must have either content, filePath, or template", {
         configType: "script",
         field: "content",
       });
@@ -327,6 +333,94 @@ class ScriptRegistry {
 
     logger.debug("Script execution completed", { scriptName, success: result.success });
     return ok(result);
+  }
+
+  /**
+   * Execute the script with ScriptEngine (supports template + executor mode)
+   * @param scriptName The name of the script
+   * @param options Execution options
+   * @param args Runtime argument values for template rendering
+   * @returns Execution result
+   */
+  async executeWithEngine(
+    scriptName: string,
+    options: Partial<ScriptExecutionOptions> = {},
+    args: Record<string, unknown> = {},
+  ): Promise<Result<ScriptExecutionResult, ScriptExecutionError>> {
+    const script = this.getScript(scriptName);
+
+    if (!this.scriptEngine) {
+      this.scriptEngine = new ScriptEngine();
+    }
+
+    const result = await this.scriptEngine.execute(script, options, { args });
+
+    if (!result.success) {
+      return err(
+        new ScriptExecutionError(
+          result.error || 'Script execution failed',
+          scriptName,
+          { options, args },
+        ),
+      );
+    }
+
+    return ok(result);
+  }
+
+  /**
+   * Register a flow blueprint
+   * @param flow Flow blueprint definition
+   * @throws ConfigurationValidationError If the flow name already exists
+   */
+  registerFlow(flow: ScriptFlow): void {
+    if (this.flows.has(flow.name)) {
+      logger.warn("Flow already exists", { flowName: flow.name });
+      throw new ConfigurationValidationError(`Flow with name '${flow.name}' already exists`, {
+        field: "name",
+      });
+    }
+    this.flows.set(flow.name, flow);
+    logger.info("Flow registered", { flowName: flow.name });
+  }
+
+  /**
+   * Get a flow blueprint
+   * @param flowName Flow name
+   * @returns Flow blueprint
+   */
+  getFlow(flowName: string): ScriptFlow {
+    const flow = this.flows.get(flowName);
+    if (!flow) {
+      throw new Error(`Flow '${flowName}' not found`);
+    }
+    return flow;
+  }
+
+  /**
+   * List all registered flows
+   * @returns Array of flow blueprints
+   */
+  listFlows(): ScriptFlow[] {
+    return Array.from(this.flows.values());
+  }
+
+  /**
+   * Execute a flow blueprint
+   * @param flowName Flow name
+   * @returns Flow execution result
+   */
+  async executeFlow(flowName: string): Promise<import('../script/engine/script-flow-engine.js').FlowExecutionResult> {
+    const flow = this.getFlow(flowName);
+
+    if (!this.scriptEngine) {
+      this.scriptEngine = new ScriptEngine();
+    }
+    if (!this.flowEngine) {
+      this.flowEngine = new ScriptFlowEngine(this.scriptEngine, this.scripts);
+    }
+
+    return this.flowEngine.execute(flow);
   }
 
   /**

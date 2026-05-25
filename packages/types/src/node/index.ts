@@ -32,6 +32,7 @@ export {
   SubgraphNode,
   EmbedGraphNode,
   ScriptNode as StaticScriptNode,
+  InteractiveScriptNode as StaticInteractiveScriptNode,
   LLMNode as StaticLLMNode,
   ToolVisibilityNode as StaticToolVisibilityNode,
   UserInteractionNode as StaticUserInteractionNode,
@@ -53,6 +54,7 @@ export {
   isSubgraphNode,
   isEmbedGraphNode,
   isScriptNode as isStaticScriptNode,
+  isInteractiveScriptNode as isStaticInteractiveScriptNode,
   isLLMNode as isStaticLLMNode,
   isToolVisibilityNode as isStaticToolVisibilityNode,
   isUserInteractionNode as isStaticUserInteractionNode,
@@ -80,6 +82,7 @@ export {
   SyncNode as RuntimeSyncNode,
   SubgraphNode as RuntimeSubgraphNode,  // Exists at runtime (Phase 1: Scheme C)
   ScriptNode as RuntimeScriptNode,
+  InteractiveScriptNode as RuntimeInteractiveScriptNode,
   LLMNode as RuntimeLLMNode,
   ToolVisibilityNode as RuntimeToolVisibilityNode,
   UserInteractionNode as RuntimeUserInteractionNode,
@@ -103,6 +106,7 @@ export {
   isSyncNode as isRuntimeSyncNode,
   isSubgraphNode as isRuntimeSubgraphNode,  // Exists at runtime
   isScriptNode as isRuntimeScriptNode,
+  isInteractiveScriptNode as isRuntimeInteractiveScriptNode,
   isLLMNode as isRuntimeLLMNode,
   isToolVisibilityNode as isRuntimeToolVisibilityNode,
   isUserInteractionNode as isRuntimeUserInteractionNode,

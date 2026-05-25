@@ -333,6 +333,116 @@ export class TerminalService extends EventEmitter<TerminalServiceEvents> {
   }
 
   /**
+   * Send input to a running session (for interactive scripts)
+   * @param sessionId Session ID
+   * @param input Input string to send
+   */
+  async sendInput(sessionId: string, input: string): Promise<boolean> {
+    const session = this.registry.get(sessionId);
+    if (!session) {
+      return false;
+    }
+
+    const process = this.processes.get(sessionId);
+    if (!process || !process.stdin) {
+      return false;
+    }
+
+    try {
+      process.stdin.write(input + "\n");
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Execute a command with input (one-off interactive execution)
+   * Sends input after command starts, useful for simple interactive scenarios
+   * @param command Command to execute
+   * @param input Input to send after command starts
+   * @param options Execution options
+   */
+  async executeWithInput(
+    command: string,
+    input: string,
+    options?: TerminalSessionOptions & ExecuteOptions
+  ): Promise<ExecuteResult> {
+    const shellType = await this.shellDetector.resolveShellType(
+      options?.shellType ?? this.config.defaultShellType
+    );
+    const execCwd = options?.cwd ?? this.config.defaultCwd ?? processCwd();
+    const execEnv = { ...this.config.defaultEnv, ...options?.env };
+
+    return new Promise((resolve) => {
+      let stdout = "";
+      let stderr = "";
+
+      const shellPath = this.shellDetector.getShellPath(shellType);
+      const shellArgs = this.shellDetector.getShellArgs(shellType, command);
+      const mergedEnv = { ...process.env, ...execEnv };
+
+      const proc = spawn(shellPath, shellArgs, {
+        cwd: execCwd,
+        env: mergedEnv,
+        windowsHide: true,
+      });
+
+      let timeoutId: ReturnType<typeof setTimeout> | undefined;
+      if (options?.timeout) {
+        timeoutId = setTimeout(() => {
+          proc.kill("SIGKILL");
+          resolve({
+            success: false,
+            stdout,
+            stderr: stderr + "\nCommand timed out",
+            exitCode: -1,
+            error: "Command timed out",
+          });
+        }, options.timeout);
+      }
+
+      proc.stdout?.on("data", (data: Buffer) => {
+        stdout += data.toString();
+      });
+
+      proc.stderr?.on("data", (data: Buffer) => {
+        stderr += data.toString();
+      });
+
+      proc.on("spawn", () => {
+        if (proc.stdin) {
+          proc.stdin.write(input + "\n");
+          proc.stdin.end();
+        }
+      });
+
+      proc.on("close", (code) => {
+        if (timeoutId) clearTimeout(timeoutId);
+        const exitCode = code ?? 0;
+        resolve({
+          success: exitCode === 0,
+          stdout,
+          stderr,
+          exitCode,
+          error: exitCode === 0 ? undefined : `Command failed with exit code ${exitCode}`,
+        });
+      });
+
+      proc.on("error", (error) => {
+        if (timeoutId) clearTimeout(timeoutId);
+        resolve({
+          success: false,
+          stdout,
+          stderr: stderr + "\n" + error.message,
+          exitCode: -1,
+          error: error.message,
+        });
+      });
+    });
+  }
+
+  /**
    * Execute a command using child_process
    */
   private async executeCommand(

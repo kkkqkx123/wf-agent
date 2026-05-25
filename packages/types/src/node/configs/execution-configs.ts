@@ -5,6 +5,7 @@
 
 import type { ID } from '../../common.js';
 import { ScriptRiskLevel } from '../../script/script-security.js';
+import type { ScriptExecutorConfig } from '../../script/script-executor.js';
 
 /**
  * Script Node Output
@@ -16,6 +17,8 @@ export interface ScriptNodeOutput {
 
 /**
  * Code Node Configuration
+ * For standard SCRIPT nodes - stateless, one-off execution
+ * Supports: direct/shared executor, template rendering, flow orchestration
  */
 export interface ScriptNodeConfig {
   /** screenplay title */
@@ -24,6 +27,46 @@ export interface ScriptNodeConfig {
   risk: ScriptRiskLevel;
   /** Whether it is an inline code */
   inline?: boolean;
+  /** Inline command template (alternative to scriptName, uses {{var}} placeholders) */
+  template?: string;
+  /** Executor configuration override */
+  executor?: ScriptExecutorConfig;
+  /** Flow blueprint ID reference (delegates to ScriptFlowEngine) */
+  flowId?: string;
+  /** Argument overrides for template rendering */
+  arguments?: Record<string, unknown>;
+}
+
+/**
+ * Interactive Script Node Output
+ * - result: unknown - The raw script execution return value
+ */
+export interface InteractiveScriptNodeOutput {
+  result: unknown;
+}
+
+/**
+ * Interactive Script Node Configuration
+ * For INTERACTIVE_SCRIPT nodes that require runtime user/LLM input
+ * Uses pty executor by default for interactive session support
+ */
+export interface InteractiveScriptNodeConfig {
+  /** Script name (references a registered Script in ScriptRegistry) */
+  scriptName: string;
+  /** Risk level */
+  risk: ScriptRiskLevel;
+  /** Executor configuration override (defaults to pty for interactive scripts) */
+  executor?: ScriptExecutorConfig;
+  /** Flow blueprint ID reference for interactive flow execution */
+  flowId?: string;
+  /** Interaction mode (blocking/llm-assisted/hybrid) */
+  interactionMode?: import("../../script/script-interactive.js").InteractionMode;
+  /** Prompt patterns to detect (regex strings indicating script is waiting for input) */
+  promptPatterns?: string[];
+  /** Maximum interaction rounds */
+  maxRounds?: number;
+  /** Timeout per interaction round (milliseconds) */
+  roundTimeout?: number;
 }
 
 /**

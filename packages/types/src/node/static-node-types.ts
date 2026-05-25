@@ -19,6 +19,7 @@ import type { ForkNodeConfig, JoinNodeConfig } from "./configs/fork-join-configs
 import type { LoopStartNodeConfig, LoopEndNodeConfig } from "./configs/loop-configs.js";
 import type {
   ScriptNodeConfig,
+  InteractiveScriptNodeConfig,
   LLMNodeConfig,
   ToolVisibilityNodeConfig,
 } from "./configs/execution-configs.js";
@@ -45,6 +46,7 @@ export type StaticNodeType =
   | "SUBGRAPH"  // Creates independent execution entity (Phase 1: Scheme C)
   | "EMBED_GRAPH"  // Lightweight graph expansion for control flow reuse (Phase 3)
   | "SCRIPT"
+  | "INTERACTIVE_SCRIPT"
   | "LLM"
   | "TOOL_VISIBILITY"
   | "USER_INTERACTION"
@@ -83,6 +85,7 @@ export interface StaticNodeConfigMap {
   SUBGRAPH: SubgraphNodeConfig;
   EMBED_GRAPH: EmbedGraphNodeConfig;
   SCRIPT: ScriptNodeConfig;
+  INTERACTIVE_SCRIPT: InteractiveScriptNodeConfig;
   LLM: LLMNodeConfig;
   TOOL_VISIBILITY: ToolVisibilityNodeConfig;
   USER_INTERACTION: UserInteractionNodeConfig;
@@ -113,6 +116,7 @@ export type SyncNode = StaticNodeOfType<"SYNC">;
 export type SubgraphNode = StaticNodeOfType<"SUBGRAPH">;
 export type EmbedGraphNode = StaticNodeOfType<"EMBED_GRAPH">;
 export type ScriptNode = StaticNodeOfType<"SCRIPT">;
+export type InteractiveScriptNode = StaticNodeOfType<"INTERACTIVE_SCRIPT">;
 export type LLMNode = StaticNodeOfType<"LLM">;
 export type ToolVisibilityNode = StaticNodeOfType<"TOOL_VISIBILITY">;
 export type UserInteractionNode = StaticNodeOfType<"USER_INTERACTION">;
@@ -141,6 +145,7 @@ export type StaticNode =
   | SubgraphNode
   | EmbedGraphNode
   | ScriptNode
+  | InteractiveScriptNode
   | LLMNode
   | ToolVisibilityNode
   | UserInteractionNode
@@ -170,6 +175,7 @@ export const isSyncNode = createStaticNodeTypeGuard("SYNC");
 export const isSubgraphNode = createStaticNodeTypeGuard("SUBGRAPH");
 export const isEmbedGraphNode = createStaticNodeTypeGuard("EMBED_GRAPH");
 export const isScriptNode = createStaticNodeTypeGuard("SCRIPT");
+export const isInteractiveScriptNode = createStaticNodeTypeGuard("INTERACTIVE_SCRIPT");
 export const isLLMNode = createStaticNodeTypeGuard("LLM");
 export const isToolVisibilityNode = createStaticNodeTypeGuard("TOOL_VISIBILITY");
 export const isUserInteractionNode = createStaticNodeTypeGuard("USER_INTERACTION");

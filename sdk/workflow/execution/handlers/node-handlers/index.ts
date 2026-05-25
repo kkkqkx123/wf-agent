@@ -17,6 +17,7 @@ import { loopEndHandler } from "./loop-end-handler.js";
 import { loopStartHandler } from "./loop-start-handler.js";
 import { routeHandler } from "./route-handler.js";
 import { scriptHandler } from "./script-handler.js";
+import { interactiveScriptHandler } from "./interactive-script-handler.js";
 import { startFromTriggerHandler } from "./start-from-trigger-handler.js";
 import { startHandler } from "./start-handler.js";
 import { subgraphHandler, type SubgraphHandlerContext } from "./subgraph-handler.js";
@@ -42,6 +43,8 @@ export function getNodeHandler(nodeType: string): NodeHandlerFn {
       agentLoopHandler(globalContext, workflowExecutionEntity.getExecution(), node, context as AgentLoopHandlerContext),
     SCRIPT: (globalContext, workflowExecutionEntity, node, context) =>
       scriptHandler(globalContext, workflowExecutionEntity, node, context),
+    INTERACTIVE_SCRIPT: (globalContext, workflowExecutionEntity, node, context) =>
+      interactiveScriptHandler(globalContext, workflowExecutionEntity, node, context),
     
     // Handlers that don't use globalContext (ignore it)
     CONTEXT_PROCESSOR: (_gc, workflowExecutionEntity, node, context) =>
@@ -95,6 +98,7 @@ export {
   loopStartHandler,
   routeHandler,
   scriptHandler,
+  interactiveScriptHandler,
   startFromTriggerHandler,
   startHandler,
   subgraphHandler,

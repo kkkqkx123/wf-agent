@@ -3,10 +3,15 @@
  * 
  * Simplified script execution that leverages the Terminal Service.
  * Scripts are treated as shell commands without type distinctions.
+ * Supports template rendering and executor mode selection.
  */
 
-import type { Script, ScriptExecutionOptions, ScriptExecutionResult } from "@wf-agent/types";
+import type { Script, ScriptExecutionOptions, ScriptExecutionResult, ExecutorMode } from "@wf-agent/types";
 import { getTerminalService, type TerminalService } from "../../services/terminal/index.js";
+import { ScriptTemplateEngine } from "../script/engine/script-template.js";
+import { DirectExecutor } from "../script/executors/direct-executor.js";
+import { SharedExecutor } from "../script/executors/shared-executor.js";
+import type { BaseExecutor } from "../script/executors/base-executor.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "ScriptExecutor" });
@@ -19,10 +24,16 @@ const logger = createContextualLogger({ component: "ScriptExecutor" });
  */
 export class ScriptExecutor {
   private terminalService: TerminalService;
+  private templateEngine: ScriptTemplateEngine;
+  private executors: Map<ExecutorMode, BaseExecutor>;
 
   constructor(terminalService?: TerminalService) {
     // Allow injection for testing, otherwise use default
     this.terminalService = terminalService || getTerminalService();
+    this.templateEngine = new ScriptTemplateEngine();
+    this.executors = new Map();
+    this.executors.set("direct", new DirectExecutor(this.terminalService));
+    this.executors.set("shared", new SharedExecutor(this.terminalService));
   }
 
   /**
@@ -36,10 +47,18 @@ export class ScriptExecutor {
     options?: ScriptExecutionOptions
   ): Promise<ScriptExecutionResult> {
     const startTime = Date.now();
-    
-    // Get command content
-    const command = script.content || '';
-    
+
+    let command: string;
+
+    if (script.template) {
+      const args = script.arguments || [];
+      const resolvedArgs = this.templateEngine.resolveArguments(args, options?.environment || {});
+      const renderResult = this.templateEngine.render(script.template, resolvedArgs as Record<string, unknown>);
+      command = renderResult.command;
+    } else {
+      command = script.content || '';
+    }
+
     if (!command) {
       const executionTime = Date.now() - startTime;
       return {
@@ -48,6 +67,31 @@ export class ScriptExecutor {
         executionTime,
         error: 'Script content is empty',
       };
+    }
+
+    const executorMode: ExecutorMode = script.executor?.mode || options?.executorMode || "direct";
+    const executor = this.executors.get(executorMode);
+
+    if (executor) {
+      try {
+        const result = await executor.execute({
+          command,
+          cwd: script.executor?.cwd || options?.workingDirectory,
+          env: { ...script.executor?.environment, ...options?.environment },
+          timeout: options?.timeout,
+        });
+        return {
+          ...result,
+          scriptName: script.name,
+        };
+      } catch (error) {
+        return {
+          success: false,
+          scriptName: script.name,
+          executionTime: Date.now() - startTime,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
     }
 
     try {
@@ -97,7 +141,9 @@ export class ScriptExecutor {
    * Cleanup resources
    */
   async cleanup(): Promise<void> {
-    // Terminal service handles its own cleanup
+    for (const executor of this.executors.values()) {
+      await executor.cleanup();
+    }
     logger.debug("Script executor cleanup completed");
   }
 }

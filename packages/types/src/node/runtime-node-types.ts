@@ -25,6 +25,8 @@ import type { LoopStartNodeConfig, LoopStartNodeOutput, LoopEndNodeConfig, LoopE
 import type {
   ScriptNodeConfig,
   ScriptNodeOutput,
+  InteractiveScriptNodeConfig,
+  InteractiveScriptNodeOutput,
   LLMNodeConfig,
   LLMNodeOutput,
   ToolVisibilityNodeConfig,
@@ -60,6 +62,7 @@ export type RuntimeNodeType =
   | "SUBGRAPH"  // Exists at runtime, handled by subgraphHandler (Phase 1: Scheme C)
   // EMBED_GRAPH is removed - expanded during preprocessing (Phase 3)
   | "SCRIPT"
+  | "INTERACTIVE_SCRIPT"
   | "LLM"
   | "TOOL_VISIBILITY"
   | "USER_INTERACTION"
@@ -101,6 +104,7 @@ export interface RuntimeNodeConfigMap {
   SYNC: SyncNodeConfig;
   SUBGRAPH: SubgraphNodeConfig;
   SCRIPT: ScriptNodeConfig;
+  INTERACTIVE_SCRIPT: InteractiveScriptNodeConfig;
   LLM: LLMNodeConfig;
   TOOL_VISIBILITY: ToolVisibilityNodeConfig;
   USER_INTERACTION: UserInteractionNodeConfig;
@@ -134,6 +138,7 @@ export type JoinNode = RuntimeNodeOfType<"JOIN">;
 export type SyncNode = RuntimeNodeOfType<"SYNC">;
 export type SubgraphNode = RuntimeNodeOfType<"SUBGRAPH">;  // Exists at runtime (Phase 1: Scheme C)
 export type ScriptNode = RuntimeNodeOfType<"SCRIPT">;
+export type InteractiveScriptNode = RuntimeNodeOfType<"INTERACTIVE_SCRIPT">;
 export type LLMNode = RuntimeNodeOfType<"LLM">;
 export type ToolVisibilityNode = RuntimeNodeOfType<"TOOL_VISIBILITY">;
 export type UserInteractionNode = RuntimeNodeOfType<"USER_INTERACTION">;
@@ -165,6 +170,7 @@ export type RuntimeNode =
   | SyncNode
   | SubgraphNode  // Exists at runtime
   | ScriptNode
+  | InteractiveScriptNode
   | LLMNode
   | ToolVisibilityNode
   | UserInteractionNode
@@ -195,6 +201,7 @@ export interface RuntimeNodeOutputMap {
   SYNC: SyncNodeOutput;
   SUBGRAPH: SubgraphNodeOutput;
   SCRIPT: ScriptNodeOutput;
+  INTERACTIVE_SCRIPT: InteractiveScriptNodeOutput;
   LLM: LLMNodeOutput;
   TOOL_VISIBILITY: ToolVisibilityNodeOutput;
   USER_INTERACTION: UserInteractionNodeOutput;
@@ -231,6 +238,7 @@ export const isJoinNode = createRuntimeNodeTypeGuard("JOIN");
 export const isSyncNode = createRuntimeNodeTypeGuard("SYNC");
 export const isSubgraphNode = createRuntimeNodeTypeGuard("SUBGRAPH");  // Exists at runtime
 export const isScriptNode = createRuntimeNodeTypeGuard("SCRIPT");
+export const isInteractiveScriptNode = createRuntimeNodeTypeGuard("INTERACTIVE_SCRIPT");
 export const isLLMNode = createRuntimeNodeTypeGuard("LLM");
 export const isToolVisibilityNode = createRuntimeNodeTypeGuard("TOOL_VISIBILITY");
 export const isUserInteractionNode = createRuntimeNodeTypeGuard("USER_INTERACTION");

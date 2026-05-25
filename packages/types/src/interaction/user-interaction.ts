@@ -18,7 +18,9 @@ export type UserInteractionOperationType =
   /** Tool call approval (requires confirmation UI) */
   | "TOOL_APPROVAL"
   /** Ask follow-up question (requires options UI) */
-  | "ASK_FOLLOWUP_QUESTION";
+  | "ASK_FOLLOWUP_QUESTION"
+  /** Script interactive execution (requires user input for interactive scripts) */
+  | "SCRIPT_INTERACTION";
 
 /**
  * User Interaction Requests

@@ -36,6 +36,7 @@ import type { CheckpointDependencies as WorkflowCheckpointDependencies } from ".
 import * as Identifiers from "../../../core/di/service-identifiers.js";
 import { emit } from "../../../core/utils/event/event-emitter.js";
 import { AgentExecutionCoordinator, type AgentLoopStreamEvent } from "../coordinators/agent-execution-coordinator.js";
+import { AgentIterationCoordinator } from "../coordinators/agent-iteration-coordinator.js";
 import { LLMExecutionCoordinator as CoreLLMExecutionCoordinator } from "../../../core/coordinators/llm-execution-coordinator.js";
 import { ToolExecutionCoordinator } from "../coordinators/tool-execution-coordinator.js";
 import { prepareToolSchemas } from "../../../core/utils/tools/tool-schema-helper.js";
@@ -227,13 +228,17 @@ export class AgentLoopExecutor {
       (this.llmExecutor as any)["llmWrapper"],
     );
 
-    // Then create AgentExecutionCoordinator with CoreLLMExecutionCoordinator
-    return new AgentExecutionCoordinator({
+    // Create AgentIterationCoordinator with core LLM and tool execution coordinators
+    const iterationCoordinator = new AgentIterationCoordinator({
       coreCoordinator,
-      llmExecutor: this.llmExecutor,
       toolExecutionCoordinator,
       emitAgentEvent: this.emitAgentEvent.bind(this),
       eventManager: this.eventManager,
+    });
+
+    // Create AgentExecutionCoordinator with iteration coordinator and metrics
+    return new AgentExecutionCoordinator({
+      iterationCoordinator,
       metricsRegistry: this.metricsRegistry,
     });
   }

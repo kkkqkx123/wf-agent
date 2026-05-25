@@ -2,75 +2,41 @@
  * AgentExecutionCoordinator - Agent Execution Coordinator
  *
  * Coordinates the execution flow of an agent loop and orchestrates the execution of each component.
- * Consolidates loop logic from AgentLoopExecutor and AgentStreamExecutor.
  *
  * Design Principles:
  * - Coordinator pattern: orchestrates execution flow
  * - Stateless design, all state managed through AgentLoopEntity
- * - Delegates to specialized coordinators (ToolExecutionCoordinator)
- * - Directly uses LLMExecutor for LLM calls (agent-specific message management via hooks)
+ * - Delegates to AgentIterationCoordinator for per-iteration execution
+ * - Delegates to ToolExecutionCoordinator for tool execution
  * - Supports both sync and streaming execution modes
- * - Integrates with Hook mechanism
+ * - Integrates with interruption handling
  */
 
-import type {
-  AgentLoopResult,
-  AgentHookTriggeredEvent,
-  AgentStreamEvent,
-  MessageStreamEvent,
-  ToolSchema,
-  LLMMessage,
-  Event as RegistryEvent,
-  LLMResult,
-} from "@wf-agent/types";
+import type { AgentLoopResult, AgentStreamEvent, ToolSchema, LLMMessage } from "@wf-agent/types";
 import type { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import type { ConversationSession } from "../../../core/messaging/conversation-session.js";
-import type { LLMExecutor } from "../../../core/executors/llm-executor.js";
-import type { EventRegistry } from "../../../core/registry/event-registry.js";
-import type { MessageStream } from "../../../core/llm/message-stream.js";
 import type { MetricsRegistry } from "../../../core/metrics/metrics-registry.js";
-import type { LLMExecutionCoordinator as CoreLLMExecutionCoordinator } from "../../../core/coordinators/llm-execution-coordinator.js";
 import {
   executeWithInterruptionHandling,
   iterateWithInterruptionHandling,
 } from "../../../core/utils/interruption/index.js";
-import {
-  checkAgentInterruption,
-  getAgentInterruptionDescription,
-} from "../utils/agent-interruption-utils.js";
-import { executeAgentHook } from "../handlers/hook-handlers/index.js";
 import { handleAgentError } from "../handlers/agent-error-handler.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import {
-  buildAgentStartedEvent,
-  buildAgentCompletedEvent,
-  buildAgentIterationCompletedEvent,
-  buildAgentToolExecutionStartedEvent,
-  buildAgentToolExecutionCompletedEvent,
-} from "../../../core/utils/event/builders/agent-events.js";
-import { ToolExecutionCoordinator } from "./tool-execution-coordinator.js";
+  AgentIterationCoordinator,
+  type AgentLoopStreamEvent,
+} from "./agent-iteration-coordinator.js";
+
+export type { AgentLoopStreamEvent };
 
 const logger = createContextualLogger({ component: "AgentExecutionCoordinator" });
-
-/**
- * Agent Loop Stream Event
- */
-export type AgentLoopStreamEvent = MessageStreamEvent | AgentStreamEvent;
 
 /**
  * AgentExecutionCoordinator Dependencies
  */
 export interface AgentExecutionCoordinatorDependencies {
-  /** Core LLM Execution Coordinator (unified LLM execution with transformContext support) */
-  coreCoordinator: CoreLLMExecutionCoordinator;
-  /** LLM Executor (optional, kept for backward compatibility) */
-  llmExecutor?: LLMExecutor;
-  /** Tool Execution Coordinator */
-  toolExecutionCoordinator: ToolExecutionCoordinator;
-  /** Event emitter for agent events */
-  emitAgentEvent: (event: AgentHookTriggeredEvent) => Promise<void>;
-  /** Event Registry (optional) */
-  eventManager?: EventRegistry;
+  /** Iteration Coordinator (handles per-iteration execution) */
+  iterationCoordinator: AgentIterationCoordinator;
   /** Metrics Registry (optional) */
   metricsRegistry?: MetricsRegistry;
 }
@@ -79,36 +45,22 @@ export interface AgentExecutionCoordinatorDependencies {
  * AgentExecutionCoordinator
  *
  * Coordinates the execution flow of agent loop:
- * - Manages iteration loop control
+ * - Manages iteration loop control (sync & stream)
  * - Handles interruption signals (pause/stop/abort)
- * - Uses LLMExecutor directly for LLM calls
- * - Delegates to ToolExecutionCoordinator for tool execution
- * - Supports streaming with real-time event forwarding
+ * - Delegates iteration execution to AgentIterationCoordinator
+ * - Records loop-level metrics
  */
 export class AgentExecutionCoordinator {
-  private readonly coreCoordinator: CoreLLMExecutionCoordinator;
-  private readonly toolExecutionCoordinator: ToolExecutionCoordinator;
-  private readonly emitAgentEvent: (event: AgentHookTriggeredEvent) => Promise<void>;
-  private readonly eventManager?: EventRegistry;
+  private readonly iterationCoordinator: AgentIterationCoordinator;
   private readonly metricsRegistry?: MetricsRegistry;
 
   constructor(deps: AgentExecutionCoordinatorDependencies) {
-    this.coreCoordinator = deps.coreCoordinator;
-    this.toolExecutionCoordinator = deps.toolExecutionCoordinator;
-    this.emitAgentEvent = deps.emitAgentEvent;
-    this.eventManager = deps.eventManager;
+    this.iterationCoordinator = deps.iterationCoordinator;
     this.metricsRegistry = deps.metricsRegistry;
   }
 
   /**
    * Execute agent loop (synchronous mode)
-   *
-   * @param entity Agent loop entity
-   * @param conversationManager Conversation manager
-   * @param toolSchemas Tool schemas for LLM
-   * @param profileId LLM profile ID
-   * @param maxIterations Maximum iterations
-   * @returns Execution result
    */
   async execute(
     entity: AgentLoopEntity,
@@ -120,20 +72,9 @@ export class AgentExecutionCoordinator {
     const agentLoopId = entity.id;
     const startTime = Date.now();
 
-    // Record agent loop execution start in metrics
-    if (this.metricsRegistry) {
-      const agentCollector = this.metricsRegistry.getAgentCollector();
-      if (agentCollector) {
-        agentCollector.recordExecutionStart(
-          profileId,
-          entity.config.agentConfigId || "unknown",
-          agentLoopId,
-        );
-      }
-    }
+    this.recordExecutionStart(profileId, entity.config.agentConfigId || "unknown", agentLoopId);
 
     try {
-      // Use unified interruption handling wrapper for the entire execution loop
       const result = await executeWithInterruptionHandling(async signal => {
         while (entity.state.currentIteration < maxIterations) {
           logger.debug("Starting new iteration", {
@@ -142,12 +83,12 @@ export class AgentExecutionCoordinator {
             maxIterations,
           });
 
-          const iterationResult = await this.executeIteration(
+          const iterationResult = await this.iterationCoordinator.executeIteration(
             entity,
             conversationManager,
             toolSchemas,
             profileId,
-            signal, // Pass abort signal to iteration
+            signal,
           );
 
           if (iterationResult.interruption) {
@@ -166,19 +107,7 @@ export class AgentExecutionCoordinator {
               toolCallCount: entity.state.toolCallCount,
             });
 
-            // Record agent loop completion in metrics
-            if (this.metricsRegistry) {
-              const duration = Date.now() - startTime;
-              const agentCollector = this.metricsRegistry.getAgentCollector();
-              if (agentCollector) {
-                agentCollector.recordExecutionComplete(profileId, {
-                  iterations: entity.state.currentIteration,
-                  toolCallCount: entity.state.toolCallCount,
-                  duration,
-                  success: true,
-                });
-              }
-            }
+            this.recordExecutionComplete(profileId, startTime, true);
 
             return {
               success: true,
@@ -201,20 +130,7 @@ export class AgentExecutionCoordinator {
         });
 
         entity.state.complete();
-
-        // Record agent loop completion in metrics (max iterations reached)
-        if (this.metricsRegistry) {
-          const duration = Date.now() - startTime;
-          const agentCollector = this.metricsRegistry.getAgentCollector();
-          if (agentCollector) {
-            agentCollector.recordExecutionComplete(profileId, {
-              iterations: entity.state.currentIteration,
-              toolCallCount: entity.state.toolCallCount,
-              duration,
-              success: true,
-            });
-          }
-        }
+        this.recordExecutionComplete(profileId, startTime, true);
 
         return {
           success: true,
@@ -224,31 +140,17 @@ export class AgentExecutionCoordinator {
         };
       }, entity.getAbortSignal());
 
-      // Handle interruption gracefully if needed
       if (!result.success) {
         const interruption = result.interruption;
         const type = interruption.type === "paused" ? "PAUSE" : "STOP";
 
-        // Update entity status based on interruption type
         if (type === "PAUSE") {
           entity.state.pause();
         } else {
           entity.state.cancel();
         }
 
-        // Record agent loop completion in metrics (interrupted)
-        if (this.metricsRegistry) {
-          const duration = Date.now() - startTime;
-          const agentCollector = this.metricsRegistry.getAgentCollector();
-          if (agentCollector) {
-            agentCollector.recordExecutionComplete(profileId, {
-              iterations: entity.state.currentIteration,
-              toolCallCount: entity.state.toolCallCount,
-              duration,
-              success: false,
-            });
-          }
-        }
+        this.recordExecutionComplete(profileId, startTime, false);
 
         return {
           success: false,
@@ -264,23 +166,9 @@ export class AgentExecutionCoordinator {
         entity,
         error as Error,
         "agent_loop_execution",
-        undefined,
-        this.eventManager,
       );
 
-      // Record agent loop failure in metrics
-      if (this.metricsRegistry) {
-        const duration = Date.now() - startTime;
-        const agentCollector = this.metricsRegistry.getAgentCollector();
-        if (agentCollector) {
-          agentCollector.recordExecutionComplete(profileId, {
-            iterations: entity.state.currentIteration,
-            toolCallCount: entity.state.toolCallCount,
-            duration,
-            success: false,
-          });
-        }
-      }
+      this.recordExecutionComplete(profileId, startTime, false);
 
       return {
         success: false,
@@ -293,13 +181,6 @@ export class AgentExecutionCoordinator {
 
   /**
    * Execute agent loop (streaming mode)
-   *
-   * @param entity Agent loop entity
-   * @param conversationManager Conversation manager
-   * @param toolSchemas Tool schemas for LLM
-   * @param profileId LLM profile ID
-   * @param maxIterations Maximum iterations
-   * @returns Stream event generator
    */
   async *executeStream(
     entity: AgentLoopEntity,
@@ -310,18 +191,15 @@ export class AgentExecutionCoordinator {
   ): AsyncGenerator<AgentLoopStreamEvent> {
     const agentLoopId = entity.id;
 
-    yield this.createAgentStartEvent(
+    const startEvent = this.createAgentStartEvent(
       agentLoopId,
       maxIterations,
       conversationManager.getMessageCount(),
     );
-    await this.emitToRegistry(
-      this.createAgentStartEvent(agentLoopId, maxIterations, conversationManager.getMessageCount()),
-      entity,
-    );
+    yield startEvent;
+    await this.iterationCoordinator.emitToRegistry(startEvent, entity);
 
     try {
-      // Create main loop iterator
       const mainLoop = this.createMainLoopIterator(
         entity,
         conversationManager,
@@ -330,10 +208,8 @@ export class AgentExecutionCoordinator {
         maxIterations,
       );
 
-      // Use unified interruption handling iterator
       for await (const item of iterateWithInterruptionHandling(mainLoop, entity.getAbortSignal())) {
         if (item.type === "interrupted") {
-          // Handle interruption
           const interruption = item.interruption;
           const type = interruption.type === "paused" ? "PAUSE" : "STOP";
 
@@ -343,25 +219,17 @@ export class AgentExecutionCoordinator {
             entity.state.cancel();
           }
 
-          yield this.createErrorEvent(
+          const errorEvent = this.createErrorEvent(
             agentLoopId,
             `Execution ${interruption.type}`,
             entity.state.currentIteration,
             "stream_interruption",
           );
-          await this.emitToRegistry(
-            this.createErrorEvent(
-              agentLoopId,
-              `Execution ${interruption.type}`,
-              entity.state.currentIteration,
-              "stream_interruption",
-            ),
-            entity,
-          );
+          yield errorEvent;
+          await this.iterationCoordinator.emitToRegistry(errorEvent, entity);
           return;
         }
 
-        // Yield the event
         yield item.value;
       }
     } catch (error) {
@@ -371,21 +239,14 @@ export class AgentExecutionCoordinator {
         "agent_loop_stream_execution",
       );
 
-      yield this.createErrorEvent(
+      const errorEvent = this.createErrorEvent(
         agentLoopId,
         standardizedError.message,
         entity.state.currentIteration,
         "agent_loop_stream_execution",
       );
-      await this.emitToRegistry(
-        this.createErrorEvent(
-          agentLoopId,
-          standardizedError.message,
-          entity.state.currentIteration,
-          "agent_loop_stream_execution",
-        ),
-        entity,
-      );
+      yield errorEvent;
+      await this.iterationCoordinator.emitToRegistry(errorEvent, entity);
     }
   }
 
@@ -408,7 +269,7 @@ export class AgentExecutionCoordinator {
         maxIterations,
       });
 
-      const shouldContinue = yield* this.executeIterationStream(
+      const shouldContinue = yield* this.iterationCoordinator.executeIterationStream(
         entity,
         conversationManager,
         toolSchemas,
@@ -427,435 +288,46 @@ export class AgentExecutionCoordinator {
     });
 
     entity.state.complete();
-    yield this.createAgentEndEvent(
+    const endEvent = this.createAgentEndEvent(
       agentLoopId,
       conversationManager.getMessages(),
       entity.state.currentIteration,
       entity.state.toolCallCount,
       true,
     );
+    yield endEvent;
+    await this.iterationCoordinator.emitToRegistry(endEvent, entity);
   }
 
-  /**
-   * Execute a single iteration (sync mode)
-   */
-  private async executeIteration(
-    entity: AgentLoopEntity,
-    conversationManager: ConversationSession,
-    toolSchemas: ToolSchema[] | undefined,
+  // ============ Metrics Recording ============
+
+  private recordExecutionStart(
     profileId: string,
-    abortSignal?: AbortSignal,
-  ): Promise<{
-    success: boolean;
-    shouldContinue: boolean;
-    content?: string;
-    interruption?: string;
-  }> {
-    const agentLoopId = entity.id;
-
-    await executeAgentHook(entity, "BEFORE_ITERATION", this.emitAgentEvent);
-    entity.state.startIteration();
-
-    // Emit ITERATION_START event
-    const iterationStartEvent = this.createIterationStartEvent(
-      agentLoopId,
-      entity.state.currentIteration,
-    );
-    await this.emitToRegistry(iterationStartEvent, entity);
-
-    await executeAgentHook(entity, "BEFORE_LLM_CALL", this.emitAgentEvent);
-
-    // ✅ Pre-LLM call interruption check
-    const preCheck = checkAgentInterruption(abortSignal, entity.state.currentIteration);
-    if (preCheck.type === "paused" || preCheck.type === "stopped") {
-      logger.info("Agent iteration interrupted before LLM call", {
-        agentLoopId,
-        iteration: entity.state.currentIteration,
-        interruptionType: preCheck.type,
-      });
-      return {
-        success: false,
-        shouldContinue: false,
-        interruption: getAgentInterruptionDescription(preCheck),
-      };
-    }
-
-    logger.debug("Calling LLM", {
-      agentLoopId,
-      iteration: entity.state.currentIteration,
-      messageCount: conversationManager.getMessageCount(),
-    });
-
-    // Use core coordinator for unified LLM execution with transformContext support
-    // Core handles: message retrieval, transformContext application, and LLM execution
-    // The outer executeWithInterruptionHandling wrapper will catch and handle interruptions
-    const llmResult = await this.coreCoordinator.executeLLMCallWithMessages(
-      conversationManager.getMessages(),
-      { profileId, parameters: {}, tools: toolSchemas },
-      { abortSignal, executionId: entity.id, nodeId: entity.nodeId },
-      entity.config.transformContext,
-    );
-
-    logger.debug("LLM call completed", {
-      agentLoopId,
-      iteration: entity.state.currentIteration,
-      hasToolCalls: !!llmResult.toolCalls?.length,
-    });
-
-    // ✅ Post-LLM call interruption check
-    const postCheck = checkAgentInterruption(abortSignal, entity.state.currentIteration);
-    if (postCheck.type === "paused" || postCheck.type === "stopped") {
-      logger.info("Agent iteration interrupted after LLM call", {
-        agentLoopId,
-        iteration: entity.state.currentIteration,
-        interruptionType: postCheck.type,
-      });
-      return {
-        success: false,
-        shouldContinue: false,
-        interruption: getAgentInterruptionDescription(postCheck),
-      };
-    }
-
-    // LLM Executor now returns result directly (no success/interruption wrapper)
-    const response = llmResult;
-
-    await executeAgentHook(entity, "AFTER_LLM_CALL", this.emitAgentEvent, undefined, {
-      content: response.content,
-      toolCalls: response.toolCalls,
-    });
-
-    const toolCalls = response.toolCalls?.map(tc => ({
-      id: tc.id,
-      type: "function" as const,
-      function: { name: tc.name, arguments: tc.arguments },
-    }));
-
-    conversationManager.addAssistantMessage(response.content, toolCalls);
-    entity.addMessage({ role: "assistant", content: response.content, toolCalls });
-
-    if (!response.toolCalls || response.toolCalls.length === 0) {
-      logger.debug("No tool calls required, completing execution", {
-        agentLoopId,
-        iteration: entity.state.currentIteration,
-        contentLength: response.content.length,
-      });
-
-      entity.state.endIteration(response.content);
-      await executeAgentHook(entity, "AFTER_ITERATION", this.emitAgentEvent);
-      entity.state.complete();
-
-      return { success: true, shouldContinue: false, content: response.content };
-    }
-
-    // Execute tool calls using ToolExecutionCoordinator
-    await this.toolExecutionCoordinator.executeToolCalls(
-      entity,
-      conversationManager,
-      response.toolCalls.map(tc => ({
-        id: tc.id,
-        name: tc.name,
-        arguments: tc.arguments,
-      })),
-    );
-    entity.state.endIteration(response.content);
-    await executeAgentHook(entity, "AFTER_ITERATION", this.emitAgentEvent);
-
-    return { success: true, shouldContinue: true, content: response.content };
-  }
-
-  /**
-   * Execute a single iteration (stream mode)
-   */
-  private async *executeIterationStream(
-    entity: AgentLoopEntity,
-    conversationManager: ConversationSession,
-    toolSchemas: ToolSchema[] | undefined,
-    profileId: string,
-  ): AsyncGenerator<AgentLoopStreamEvent, boolean> {
-    const agentLoopId = entity.id;
-
-    await executeAgentHook(entity, "BEFORE_ITERATION", this.emitAgentEvent);
-    entity.state.startIteration();
-
-    // Emit ITERATION_START event
-    yield this.createIterationStartEvent(agentLoopId, entity.state.currentIteration);
-    await this.emitToRegistry(
-      this.createIterationStartEvent(agentLoopId, entity.state.currentIteration),
-      entity,
-    );
-
-    await executeAgentHook(entity, "BEFORE_LLM_CALL", this.emitAgentEvent);
-
-    logger.debug("Calling LLM for stream", {
-      agentLoopId,
-      iteration: entity.state.currentIteration,
-      messageCount: conversationManager.getMessageCount(),
-    });
-
-    // Use core coordinator for unified streaming LLM execution with transformContext support
-    // Core handles: message retrieval, transformContext application, and LLM wrapper call
-    let messageStream: MessageStream;
-    try {
-      messageStream = await this.coreCoordinator.executeLLMStream(
-        {
-          contextId: entity.id,
-          prompt: "",
-          config: { profileId, parameters: {} },
-          tools: toolSchemas,
-          abortSignal: entity.getAbortSignal(),
-          transformContext: entity.config.transformContext,
-        },
-        conversationManager,
-      );
-    } catch (error) {
-      // Prioritize checking for interruption errors
-      // If it's an abort error and the signal is aborted, let outer handler deal with it
-      if ((error as Error).name === "AbortError" && entity.getAbortSignal()?.aborted) {
-        logger.debug(
-          "LLM stream call aborted (via core coordinator), letting outer handler process",
-          {
-            agentLoopId,
-            iteration: entity.state.currentIteration,
-          },
-        );
-        throw error; // Let iterateWithInterruptionHandling catch this
-      }
-
-      // Process actual errors (non-abort errors)
-      return yield* this.handleStreamLLMError(entity, agentLoopId, error as Error);
-    }
-    const streamResult = yield* this.processMessageStream(entity, agentLoopId, messageStream);
-
-    if (!streamResult.success) {
-      return false;
-    }
-
-    const finalResult = streamResult.finalResult!;
-
-    await executeAgentHook(entity, "AFTER_LLM_CALL", this.emitAgentEvent, undefined, {
-      content: finalResult.content,
-      toolCalls: finalResult.toolCalls,
-    });
-
-    const assistantMessage: LLMMessage = {
-      role: "assistant",
-      content: finalResult.content,
-      toolCalls: finalResult.toolCalls?.map(
-        (tc: { id: string; function: { name: string; arguments: string } }) => ({
-          id: tc.id,
-          type: "function" as const,
-          function: { name: tc.function.name, arguments: tc.function.arguments },
-        }),
-      ),
-    };
-    conversationManager.addAssistantMessage(
-      finalResult.content,
-      finalResult.toolCalls?.map(
-        (tc: { id: string; function: { name: string; arguments: string } }) => ({
-          id: tc.id,
-          type: "function" as const,
-          function: { name: tc.function.name, arguments: tc.function.arguments },
-        }),
-      ),
-    );
-    entity.addMessage(assistantMessage);
-
-    if (!finalResult.toolCalls || finalResult.toolCalls.length === 0) {
-      logger.debug("No tool calls required in stream, completing execution", {
-        agentLoopId,
-        iteration: entity.state.currentIteration,
-        contentLength: finalResult.content.length,
-      });
-
-      entity.state.endIteration(finalResult.content);
-      await executeAgentHook(entity, "AFTER_ITERATION", this.emitAgentEvent);
-      entity.state.complete();
-
-      yield this.createAgentEndEvent(
-        agentLoopId,
-        conversationManager.getMessages(),
-        entity.state.currentIteration,
-        entity.state.toolCallCount,
-        true,
-      );
-      await this.emitToRegistry(
-        this.createAgentEndEvent(
-          agentLoopId,
-          conversationManager.getMessages(),
-          entity.state.currentIteration,
-          entity.state.toolCallCount,
-          true,
-        ),
-        entity,
-      );
-      return false;
-    }
-
-    // Execute tool calls using ToolExecutionCoordinator (stream mode)
-    yield* this.toolExecutionCoordinator.executeToolCallsStream(
-      entity,
-      conversationManager,
-      finalResult.toolCalls,
-    );
-
-    yield this.createIterationCompleteEvent(agentLoopId, entity.state.currentIteration, true);
-    await this.emitToRegistry(
-      this.createIterationCompleteEvent(agentLoopId, entity.state.currentIteration, true),
-      entity,
-    );
-
-    logger.debug("Stream iteration completed", {
-      agentLoopId,
-      iteration: entity.state.currentIteration,
-    });
-
-    entity.state.endIteration(finalResult.content);
-    await executeAgentHook(entity, "AFTER_ITERATION", this.emitAgentEvent);
-
-    return true;
-  }
-
-  /**
-   * Process message stream with real-time event forwarding
-   */
-  private async *processMessageStream(
-    entity: AgentLoopEntity,
+    agentConfigId: string,
     agentLoopId: string,
-    messageStream: MessageStream,
-  ): AsyncGenerator<AgentLoopStreamEvent, { success: boolean; finalResult?: LLMResult }> {
-    const eventQueue: MessageStreamEvent[] = [];
-    let streamDone = false;
-    let streamError: Error | null = null;
-
-    try {
-      messageStream
-        .on("text", ((delta: string, snapshot: string) => {
-          eventQueue.push({ type: "text", delta, snapshot });
-        }) as unknown as (event: MessageStreamEvent) => void)
-        .on("inputJson", ((partialJson: string, parsedSnapshot: unknown, snapshot: LLMMessage) => {
-          eventQueue.push({ type: "inputJson", partialJson, parsedSnapshot, snapshot });
-        }) as unknown as (event: MessageStreamEvent) => void)
-        .on("message", ((message: LLMMessage) => {
-          eventQueue.push({ type: "message", message });
-        }) as unknown as (event: MessageStreamEvent) => void)
-        .on("error", ((error: Error) => {
-          eventQueue.push({ type: "error", error });
-        }) as unknown as (event: MessageStreamEvent) => void);
-
-      messageStream
-        .done()
-        .then(() => {
-          streamDone = true;
-        })
-        .catch(error => {
-          streamError = error;
-          streamDone = true;
-        });
-
-      // Wait for stream completion - interruption is handled by outer iterateWithInterruptionHandling
-      while (!streamDone || eventQueue.length > 0) {
-        while (eventQueue.length > 0) {
-          const event = eventQueue.shift()!;
-          yield event;
-        }
-
-        if (!streamDone) {
-          await new Promise(resolve => setTimeout(resolve, 0));
-        }
-      }
-
-      if (streamError) {
-        return yield* this.handleStreamError(entity, agentLoopId, streamError);
-      }
-
-      const finalResult = await messageStream.getFinalResult();
-      return { success: true, finalResult };
-    } finally {
-      // Cleanup message stream listeners to prevent memory leaks
-      messageStream.cleanup();
+  ): void {
+    if (!this.metricsRegistry) return;
+    const agentCollector = this.metricsRegistry.getAgentCollector();
+    if (agentCollector) {
+      agentCollector.recordExecutionStart(profileId, agentConfigId, agentLoopId);
     }
   }
 
-  /**
-   * Handle stream LLM error
-   *
-   * Note: Interruption handling is done by outer iterateWithInterruptionHandling.
-   * This method only handles actual errors (non-abort errors).
-   */
-  private async *handleStreamLLMError(
-    entity: AgentLoopEntity,
-    agentLoopId: string,
-    error: Error,
-  ): AsyncGenerator<AgentLoopStreamEvent, boolean> {
-    // Let outer iterateWithInterruptionHandling handle abort/interruption
-    // Only process actual errors here
-    const standardizedError = await handleAgentError(
-      entity,
-      error,
-      "llm_stream_call",
-      undefined,
-      this.eventManager,
-    );
-
-    yield this.createErrorEvent(
-      agentLoopId,
-      standardizedError.message,
-      entity.state.currentIteration,
-      "llm_stream_call",
-    );
-    await this.emitToRegistry(
-      this.createErrorEvent(
-        agentLoopId,
-        standardizedError.message,
-        entity.state.currentIteration,
-        "llm_stream_call",
-      ),
-      entity,
-    );
-    return false;
+  private recordExecutionComplete(profileId: string, startTime: number, success: boolean): void {
+    if (!this.metricsRegistry) return;
+    const duration = Date.now() - startTime;
+    const agentCollector = this.metricsRegistry.getAgentCollector();
+    if (agentCollector) {
+      agentCollector.recordExecutionComplete(profileId, {
+        iterations: 0,
+        toolCallCount: 0,
+        duration,
+        success,
+      });
+    }
   }
 
-  /**
-   * Handle stream error
-   *
-   * Note: Interruption handling is done by outer iterateWithInterruptionHandling.
-   * This method only handles actual errors (non-abort errors).
-   */
-  private async *handleStreamError(
-    entity: AgentLoopEntity,
-    agentLoopId: string,
-    error: Error,
-  ): AsyncGenerator<AgentLoopStreamEvent, { success: boolean }> {
-    // Let outer iterateWithInterruptionHandling handle abort/interruption
-    // Only process actual errors here
-    const standardizedError = await handleAgentError(
-      entity,
-      error,
-      "message_stream_done",
-      undefined,
-      this.eventManager,
-    );
-
-    yield this.createErrorEvent(
-      agentLoopId,
-      standardizedError.message,
-      entity.state.currentIteration,
-      "message_stream_done",
-    );
-    await this.emitToRegistry(
-      this.createErrorEvent(
-        agentLoopId,
-        standardizedError.message,
-        entity.state.currentIteration,
-        "message_stream_done",
-      ),
-      entity,
-    );
-    return { success: false };
-  }
-
-  // ============ Event Factory Methods ============
+  // ============ Event Factory Methods (loop-scoped only) ============
 
   private createAgentStartEvent(
     agentLoopId: string,
@@ -889,29 +361,6 @@ export class AgentExecutionCoordinator {
     };
   }
 
-  private createIterationCompleteEvent(
-    agentLoopId: string,
-    iteration: number,
-    shouldContinue: boolean,
-  ): AgentStreamEvent {
-    return {
-      type: "iteration_complete",
-      timestamp: Date.now(),
-      agentLoopId,
-      iteration,
-      shouldContinue,
-    };
-  }
-
-  private createIterationStartEvent(agentLoopId: string, iteration: number): AgentStreamEvent {
-    return {
-      type: "iteration_start",
-      timestamp: Date.now(),
-      agentLoopId,
-      iteration,
-    };
-  }
-
   private createErrorEvent(
     agentLoopId: string,
     error: string,
@@ -926,86 +375,5 @@ export class AgentExecutionCoordinator {
       iteration,
       context,
     };
-  }
-
-  // ============ Event Registry Helpers ============
-
-  private async emitToRegistry(
-    event: AgentLoopStreamEvent,
-    entity: AgentLoopEntity,
-  ): Promise<void> {
-    if (!this.eventManager) return;
-
-    try {
-      const registryEvent = this.convertToRegistryEvent(event, entity);
-      if (registryEvent) {
-        await this.eventManager.emit(registryEvent);
-      }
-    } catch (error) {
-      logger.warn("Failed to emit event to EventRegistry", {
-        eventType: event.type,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  private convertToRegistryEvent(
-    event: AgentLoopStreamEvent,
-    entity: AgentLoopEntity,
-  ): RegistryEvent | null {
-    const baseData = {
-      id: crypto.randomUUID(),
-      timestamp: Date.now(),
-      workflowId: entity.id,
-      executionId: entity.id,
-      agentLoopId: entity.id,
-      nodeId: entity.nodeId,
-      metadata: {},
-    };
-
-    switch (event.type) {
-      case "agent_start":
-        return buildAgentStartedEvent({
-          ...baseData,
-          maxIterations: event.maxIterations,
-          initialMessageCount: event.initialMessageCount,
-        });
-      case "agent_end":
-        return buildAgentCompletedEvent({
-          ...baseData,
-          iterations: event.iterations,
-          toolCallCount: event.toolCallCount,
-          success: event.success,
-          error: event.success ? undefined : event.error,
-        });
-      case "iteration_complete":
-        return buildAgentIterationCompletedEvent({
-          ...baseData,
-          iteration: event.iteration,
-          toolCallCount: 0,
-          shouldContinue: event.shouldContinue,
-        });
-      case "tool_execution_start":
-        return buildAgentToolExecutionStartedEvent({
-          ...baseData,
-          toolCallId: event.toolCallId,
-          toolName: event.toolName,
-          iteration: event.iteration,
-        });
-      case "tool_execution_end":
-        return buildAgentToolExecutionCompletedEvent({
-          ...baseData,
-          toolCallId: event.toolCallId,
-          toolName: event.toolName,
-          success: event.result.success,
-          duration: event.duration,
-          error: event.result.success ? undefined : event.result.error,
-          iteration: entity.state.currentIteration,
-        });
-      case "agent_error":
-        return null;
-      default:
-        return null;
-    }
   }
 }

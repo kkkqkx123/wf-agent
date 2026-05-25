@@ -48,10 +48,12 @@ export {
   AgentLoopCoordinator,
   ConversationCoordinator,
   AgentExecutionCoordinator,
+  AgentIterationCoordinator,
   AgentLoopStateTransitor,
   ToolExecutionCoordinator,
   type AgentLoopExecuteOptions,
   type AgentExecutionCoordinatorDependencies,
+  type AgentIterationCoordinatorDependencies,
   type AgentLoopStreamEvent,
   type ToolExecutionCoordinatorDependencies,
 } from "./execution/coordinators/index.js";

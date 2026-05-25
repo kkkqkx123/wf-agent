@@ -3,10 +3,10 @@
  */
 
 import type { StaticNode } from "../node/index.js";
-import type { Edge } from "../edge.js";
+import type { Edge } from "./edge.js";
 import type { ID, Version, Timestamp } from "../common.js";
 import type { WorkflowTrigger } from "../trigger/index.js";
-import type { TriggerReference } from "../trigger-template.js";
+import type { TriggerReference } from "../trigger/template.js";
 import type { WorkflowTemplateType } from "./type.js";
 import type { VariableDefinition } from "../workflow-execution/variables.js";
 import type { WorkflowConfig } from "./config.js";

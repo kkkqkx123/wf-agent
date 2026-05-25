@@ -18,6 +18,9 @@ export * from "./state.js";
 // Export Configuration Type
 export * from "./config.js";
 
+// Export Trigger Template Types
+export * from "./template.js";
+
 // Export execution-related types
 export * from "./execution.js";
 

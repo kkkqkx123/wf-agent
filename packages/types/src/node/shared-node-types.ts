@@ -53,7 +53,7 @@ export interface StaticNodeDisplayProps {
  */
 export interface NodeExecutionConfig {
   /** Hook configurations for lifecycle events */
-  hooks?: unknown[];
+  hooks?: import("./hooks.js").NodeHook[];
 
   /** Whether to create checkpoint before node execution */
   checkpointBeforeExecute?: boolean;

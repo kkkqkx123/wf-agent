@@ -8,7 +8,7 @@
  * Refer to NodeHook design pattern.
  */
 
-import type { Condition } from "../condition.js";
+import type { BaseHookConfig } from "../hook.js";
 
 /**
  * Agent Hook Type
@@ -37,21 +37,4 @@ export type AgentHookType =
  *
  * @see AgentHookStatic - Static hook definition for file-based configuration
  */
-export interface AgentHook {
-  /** Hook type defining when the hook triggers */
-  hookType: AgentHookType;
-  /** Trigger condition expression (optional) */
-  condition?: Condition;
-  /** Name of the event to emit when triggered */
-  eventName: string;
-  /** Event payload data (optional) */
-  eventPayload?: Record<string, unknown>;
-  /** Whether the hook is enabled (default: true) */
-  enabled?: boolean;
-  /** Priority weight (higher number = higher priority) */
-  weight?: number;
-  /** Whether to create a checkpoint when triggered */
-  createCheckpoint?: boolean;
-  /** Checkpoint description */
-  checkpointDescription?: string;
-}
+export interface AgentHook extends BaseHookConfig<AgentHookType> {}

@@ -18,8 +18,9 @@
 export {
   executeAgentHook,
   type AgentHookExecutionContext,
-  type AgentHookDefinition,
 } from "./hook-handler.js";
+
+export type { AgentHook } from "@wf-agent/types";
 
 export {
   buildAgentHookEvaluationContext,

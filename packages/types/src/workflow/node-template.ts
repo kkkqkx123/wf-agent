@@ -3,9 +3,9 @@
  * Used to define reusable node configuration templates
  */
 
-import type { ID, Metadata, Timestamp } from "./common.js";
-import { StaticNodeType } from "./node/index.js";
-import type { StaticNode } from "./node/index.js";
+import type { ID, Metadata, Timestamp } from "../common.js";
+import { StaticNodeType } from "../node/index.js";
+import type { StaticNode } from "../node/index.js";
 
 /**
  * Node Templates

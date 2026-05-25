@@ -12,6 +12,7 @@
  */
 
 import type { AgentHookType } from "../agent-execution/hooks.js";
+import type { BaseHookStaticConfig } from "../hook.js";
 
 /**
  * Agent Hook Static Configuration
@@ -21,23 +22,8 @@ import type { AgentHookType } from "../agent-execution/hooks.js";
  *
  * @see AgentHook - Runtime hook with parsed Condition object
  */
-export interface AgentHookStatic {
-  /** Hook type */
-  hookType: AgentHookType;
-  /** Trigger condition expression (optional, as string for file format) */
-  condition?: string;
-  /** Name of the custom event to trigger */
-  eventName: string;
-  /** Event payload (optional) */
-  eventPayload?: Record<string, unknown>;
-  /** Enable or not (default true) */
-  enabled?: boolean;
-  /** Weight (higher number = higher priority) */
-  weight?: number;
-  /** Whether to create checkpoint when triggered */
-  createCheckpoint?: boolean;
-  /** Checkpoint description */
-  checkpointDescription?: string;
+export interface AgentHookStatic extends BaseHookStaticConfig<AgentHookType> {
+  // All fields are inherited from BaseHookStaticConfig
 }
 
 /**

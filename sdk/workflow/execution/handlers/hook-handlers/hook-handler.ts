@@ -12,7 +12,6 @@ import { CheckpointCoordinator } from "../../../checkpoint/checkpoint-coordinato
 import {
   filterAndSortHooks,
   executeHooks,
-  type BaseHookDefinition,
   type BaseHookContext,
   type HookHandler,
 } from "../../../../core/hooks/index.js";
@@ -45,13 +44,6 @@ export interface HookExecutionContext extends BaseHookContext {
   /** Checkpoint dependencies (optional) */
   checkpointDependencies?: CheckpointDependencies;
 }
-
-/**
- * Graph Hook Definition
- *
- * The NodeHook extends the BaseHookDefinition.
- */
-export type GraphHookDefinition = NodeHook & BaseHookDefinition;
 
 /**
  * Constructing a Graph Hook to evaluate the context
@@ -130,7 +122,7 @@ export async function executeHook(
   }
 
   // Using a generic framework for filtering and sorting hooks
-  const hooks = filterAndSortHooks(node.hooks as GraphHookDefinition[], hookType);
+  const hooks = filterAndSortHooks(node.hooks!, hookType);
 
   if (hooks.length === 0) {
     return;

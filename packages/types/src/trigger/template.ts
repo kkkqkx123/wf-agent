@@ -9,9 +9,9 @@
  * - Easy serialization and deserialization
  */
 
-import type { ID, Timestamp, Metadata } from "./common.js";
-import type { TriggerCondition } from "./trigger/index.js";
-import type { TriggerAction } from "./trigger/index.js";
+import type { ID, Timestamp, Metadata } from "../common.js";
+import type { TriggerCondition } from "./index.js";
+import type { TriggerAction } from "./index.js";
 
 /**
  * Trigger Template Definitions

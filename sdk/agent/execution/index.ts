@@ -15,7 +15,6 @@ export {
 export {
   executeAgentHook,
   type AgentHookExecutionContext,
-  type AgentHookDefinition,
   buildAgentHookEvaluationContext,
   convertToEvaluationContext,
   type AgentHookEvaluationContext,

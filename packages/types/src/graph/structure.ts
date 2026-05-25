@@ -4,7 +4,7 @@
 
 import type { ID } from "../common.js";
 import type { StaticNode, RuntimeNode } from "../node/index.js";
-import type { Edge, EdgeType } from "../edge.js";
+import type { Edge, EdgeType } from "../workflow/edge.js";
 
 /**
  * Workflow Node Type

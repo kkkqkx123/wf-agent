@@ -29,7 +29,7 @@
  */
 
 import type { WorkflowTemplate } from "@wf-agent/types";
-import type { StaticNode, NodeHook } from "@wf-agent/types";
+import type { StaticNode } from "@wf-agent/types";
 import { ConfigurationValidationError } from "@wf-agent/types";
 import type { Result } from "@wf-agent/types";
 import { ok, err } from "@wf-agent/common-utils";
@@ -305,7 +305,7 @@ export class WorkflowValidator {
 
       // Verify node Hooks
       if (node.id && node.hooks && node.hooks.length > 0) {
-        const hooksResult = validateHooks(node.hooks as NodeHook[], node.id);
+        const hooksResult = validateHooks(node.hooks, node.id);
         if (hooksResult.isErr()) {
           errors.push(...hooksResult.error);
         }

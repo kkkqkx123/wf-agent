@@ -2,7 +2,7 @@
  * Graph Analysis Result Type Definition
  */
 
-import type { EdgeType } from "../edge.js";
+import type { EdgeType } from "../workflow/edge.js";
 import type {
   CycleDetectionResult,
   ReachabilityResult,

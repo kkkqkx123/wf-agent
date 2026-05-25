@@ -5,7 +5,7 @@
 
 import { z } from "zod";
 import type { NodeTemplate } from "./node-template.js";
-import type { StaticNodeType } from "./node/static-node-types.js";
+import type { StaticNodeType } from "../node/static-node-types.js";
 
 /**
  * Static Node Type Schema

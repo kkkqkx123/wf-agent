@@ -3,6 +3,17 @@
  * Define the complete structure of the workflow, including nodes and edges
  */
 
+// Export Edge Types
+export * from "./edge.js";
+export * from "./edge-schema.js";
+
+// Export Node Template Types
+export * from "./node-template.js";
+export * from "./node-template-schema.js";
+
+// Export Workflow Reference Types
+export * from "./reference.js";
+
 // Exporting Enumeration Types
 export * from "./type.js";
 

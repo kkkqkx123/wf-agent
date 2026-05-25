@@ -3,8 +3,8 @@
  * Defines the connection relationship between nodes in a workflow
  */
 
-import type { ID, Metadata } from "./common.js";
-import type { Condition } from "./condition.js";
+import type { ID, Metadata } from "../common.js";
+import type { Condition } from "../condition.js";
 
 /**
  * side type

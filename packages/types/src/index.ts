@@ -7,14 +7,12 @@ export * from "./common.js";
 
 // Graph Proprietary type
 export * from "./workflow/index.js";
-export * from "./workflow-reference.js";
-export * from "./node-template.js";
-export * from "./node-template-schema.js";
 export * from "./graph/index.js";
 export * from "./condition.js";
-export * from "./edge.js";
-export * from "./edge-schema.js";
 export * from "./node/index.js";
+
+// Shared Hook Types
+export * from "./hook.js";
 
 // Agent Proprietary type
 export * from "./agent/index.js";
@@ -26,7 +24,6 @@ export * from "./execution/index.js";
 export * from "./events/index.js";
 export * from "./errors/index.js";
 export * from "./trigger/index.js";
-export * from "./trigger-template.js";
 
 // Integration Type
 export * from "./tool/index.js";

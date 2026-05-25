@@ -3,30 +3,21 @@
  *
  * Provides a basic type of Hook that can be reused by both the Graph and Agent modules.
  * Specific modules implement Hooks for specific scenarios by extending these types.
+ *
+ * Re-exports BaseHookConfig from @wf-agent/types as BaseHookDefinition for backward compatibility.
+ * New code should import BaseHookConfig directly from the types package.
  */
 
-import type { Condition } from "@wf-agent/types";
+import type { BaseHookConfig } from "@wf-agent/types";
 
 /**
  * General Hook Definition (Basic Interface)
  *
- * All Hook definitions should extend this interface.
- * The Graph module uses NodeHook, and the Agent module uses AgentHook.
+ * Alias for BaseHookConfig<string>.
+ * The Graph module uses NodeHook, and the Agent module uses AgentHook,
+ * both of which extend BaseHookConfig with their specific HookType unions.
  */
-export interface BaseHookDefinition {
-  /** Hook type identifier */
-  hookType: string;
-  /** Trigger condition expression (optional) */
-  condition?: Condition;
-  /** Event name, used for identification and logging */
-  eventName: string;
-  /** Event payload template, which supports variable substitution. */
-  eventPayload?: Record<string, unknown>;
-  /** Whether to enable (default is true) */
-  enabled?: boolean;
-  /** Weight: The larger the number, the higher the priority, and the earlier it will be executed. */
-  weight?: number;
-}
+export type BaseHookDefinition = BaseHookConfig<string>;
 
 /**
  * General Hook Execution Context (Basic Interface)

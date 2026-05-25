@@ -14,11 +14,10 @@
  */
 
 import type { AgentLoopEntity } from "../../../entities/agent-loop-entity.js";
-import type { AgentHook, AgentHookType, AgentHookTriggeredEvent } from "@wf-agent/types";
+import type { AgentHookType, AgentHookTriggeredEvent } from "@wf-agent/types";
 import {
   filterAndSortHooks,
   executeHooks,
-  type BaseHookDefinition,
   type BaseHookContext,
   type HookHandler,
 } from "../../../../core/hooks/index.js";
@@ -51,13 +50,6 @@ export interface AgentHookExecutionContext extends BaseHookContext {
     toolCalls?: unknown[];
   };
 }
-
-/**
- * Agent Hook Definition
- *
- * The AgentHook extends the BaseHookDefinition.
- */
-export type AgentHookDefinition = AgentHook & BaseHookDefinition;
 
 /**
  * Build an Agent Hook to evaluate the context
@@ -112,7 +104,7 @@ export async function executeAgentHook(
   }
 
   // Use a generic framework for filtering and sorting hooks
-  const hooks = filterAndSortHooks(config.hooks as AgentHookDefinition[], hookType);
+  const hooks = filterAndSortHooks(config.hooks, hookType);
 
   if (hooks.length === 0) {
     return;

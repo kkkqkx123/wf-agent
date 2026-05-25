@@ -1,7 +1,7 @@
 /**
- * LLM流式生成死循环检测器
+ * LLM Flow Generation Dead Reckoning Detector
  * 
- * 基于streaming-dead-loop-detector.md设计规范实现
+ * Implemented based on streaming-dead-loop-detector.md design specification
  */
 
 export interface DeadLoopDetectionResult {
@@ -33,19 +33,19 @@ export class DeadLoopDetector {
   }
 
   /**
-   * 检测死循环
-   * @param reasoningMessage 当前累积的推理内容
-   * @returns 检测结果
+   * Detecting Dead Loops
+   * @param reasoningMessage Current accumulated reasoning content
+   * @returns Detection result
    */
   detect(reasoningMessage: string): DeadLoopDetectionResult {
     const charCount = reasoningMessage.length;
 
-    // 遍历检查点
+    // Traversing checkpoints
     for (const checkpoint of this.config.checkpoints) {
       if (charCount >= checkpoint && !this.checkedCheckpoints.has(checkpoint)) {
         this.checkedCheckpoints.add(checkpoint);
 
-        // 根据检查点执行不同的检测
+        // Perform different tests based on checkpoints
         const result = this.detectAtCheckpoint(reasoningMessage, checkpoint);
         if (result.detected) {
           return result;
@@ -57,38 +57,38 @@ export class DeadLoopDetector {
   }
 
   /**
-   * 重置检测状态（新的API请求开始时调用）
+   * Reset detection state (called at the start of a new API request)
    */
   reset(): void {
     this.checkedCheckpoints.clear();
   }
 
   /**
-   * 在指定检查点执行检测
+   * Perform testing at designated checkpoints
    */
   private detectAtCheckpoint(
     text: string,
     checkpoint: number
   ): DeadLoopDetectionResult {
-    // 获取检测范围的文本片段
+    // Get the text snippet of the detection range
     const previousCheckpoint = this.getPreviousCheckpoint(checkpoint);
     const startIndex = previousCheckpoint || 0;
     const segment = text.slice(startIndex);
 
-    // 类型3：短序列循环检测（仅在第1检查点）
+    // Type 3: Short Sequence Loop Detection (Checkpoint 1 only)
     if (checkpoint === this.config.checkpoints[0]) {
       const result = this.detectShortSequence(segment);
       if (result.detected) return result;
     }
 
-    // 类型1和类型2：在第2和第3检查点执行
+    // Type 1 and Type 2: executed at checkpoints 2 and 3
     const secondCheckpoint = this.config.checkpoints[1];
     if (secondCheckpoint !== undefined && checkpoint >= secondCheckpoint) {
-      // 类型1：段落内容重复检测
+      // Type 1: Paragraph content duplication detection
       const paragraphResult = this.detectParagraphRepeat(segment);
       if (paragraphResult.detected) return paragraphResult;
 
-      // 类型2：有序列表重复检测
+      // Type 2: Ordered list duplicate detection
       const listResult = this.detectListRepeat(segment);
       if (listResult.detected) return listResult;
     }
@@ -97,14 +97,14 @@ export class DeadLoopDetector {
   }
 
   /**
-   * 类型3：短序列循环检测
+   * Type 3: Short Sequence Cycle Detection
    */
   private detectShortSequence(text: string): DeadLoopDetectionResult {
-    // 取最近N个字符
+    // Fetch the last N characters
     const windowSize = Math.min(this.config.shortSequenceWindow, text.length);
     const recentText = text.slice(-windowSize);
 
-    // 正则匹配：至少2个字符的子串连续重复至少4次
+    // Regular match: substring of at least 2 characters repeated at least 4 times in a row
     const pattern = new RegExp(
       `(.{${this.config.minRepeatUnitLength},})\\1{${this.config.minRepeatCount - 1},}`,
       's'
@@ -123,17 +123,17 @@ export class DeadLoopDetector {
   }
 
   /**
-   * 类型1：段落内容重复检测
+   * Type 1: Paragraph content duplication detection
    */
   private detectParagraphRepeat(text: string): DeadLoopDetectionResult {
-    // 步骤1：语义块分割
+    // Step 1: Semantic Block Segmentation
     const blocks = this.splitIntoSemanticBlocks(text);
 
     if (blocks.length < this.config.minPeriodElements) {
       return { detected: false };
     }
 
-    // 步骤2：调用通用周期检测
+    // Step 2: Invoke generic cycle detection
     const periodResult = this.detectPeriod(blocks);
     if (periodResult.detected) {
       return {
@@ -147,20 +147,20 @@ export class DeadLoopDetector {
   }
 
   /**
-   * 类型2：有序列表重复检测
+   * Type 2: Ordered list duplicate detection
    */
   private detectListRepeat(text: string): DeadLoopDetectionResult {
-    // 步骤1：按行分割
+    // Step 1: Split by row
     const lines = text.split('\n');
 
     if (lines.length < this.config.minPeriodElements) {
       return { detected: false };
     }
 
-    // 步骤2：行标准化（去除有序列表标号）
+    // Step 2: Row normalization (removal of ordered list labels)
     const normalizedLines = lines.map(line => this.normalizeListItem(line));
 
-    // 步骤3：调用通用周期检测
+    // Step 3: Invoke generic cycle detection
     const periodResult = this.detectPeriod(normalizedLines);
     if (periodResult.detected) {
       return {
@@ -174,7 +174,7 @@ export class DeadLoopDetector {
   }
 
   /**
-   * 通用周期检测逻辑（类型1和类型2共用）
+   * Generic cycle detection logic (common to Type 1 and Type 2)
    */
   private detectPeriod(elements: string[]): { detected: boolean; period?: number } {
     const maxPeriod = Math.min(
@@ -185,7 +185,7 @@ export class DeadLoopDetector {
     for (let p = 1; p <= maxPeriod; p++) {
       let consecutiveCount = 0;
 
-      // 从末尾向前检查
+      // Proceed from the end forward.
       for (let i = elements.length - 1; i >= p; i--) {
         if (elements[i] === elements[i - p]) {
           consecutiveCount++;
@@ -203,26 +203,26 @@ export class DeadLoopDetector {
   }
 
   /**
-   * 语义块分割
+   * semantic chunk segmentation
    */
   private splitIntoSemanticBlocks(text: string): string[] {
-    // 以自然语言边界符分割：。.!！;；?？\n
+    // Segmentation by natural language boundary characters:...! ;; ???? \n
     const separators = /[。.!！;；?？\n]+/;
     const blocks = text.split(separators).filter(block => block.trim().length > 0);
     return blocks;
   }
 
   /**
-   * 有序列表行标准化
+   * Normalization of ordered list rows
    */
   private normalizeListItem(line: string): string {
-    // 匹配有序列表标号模式：1. 2. 10. 等
+    // Match ordered list labeling patterns: 1. 2. 10. etc.
     const listPattern = /^\d+\.\s*/;
     return line.replace(listPattern, '');
   }
 
   /**
-   * 获取上一个检查点
+   * Get previous checkpoint
    */
   private getPreviousCheckpoint(current: number): number | null {
     const index = this.config.checkpoints.indexOf(current);

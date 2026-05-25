@@ -49,8 +49,9 @@ export function getToolFormatTemplates(
 ): ToolFormatTemplateSet {
   switch (format) {
     case "function_call":
-      // Native function call doesn't need special templates
-      // Tools are passed via API's tools parameter
+      // Native function call: tools are passed via API's tools parameter,
+      // but we still include raw-style templates as a fallback for
+      // text-mode scenarios (e.g. prompt injection for non-native providers).
       return {
         listTemplate: TOOLS_RAW_LIST_TEMPLATE,
         singleTemplate: TOOL_RAW_FORMAT_TEMPLATE,

@@ -162,10 +162,10 @@ export class OpenAIChatFormatter extends BaseFormatter {
   parseToolCalls(toolCalls: unknown): LLMToolCall[] {
     if (!Array.isArray(toolCalls)) return [];
     return toolCalls.map(call => ({
-      id: (call as { id: string }).id,
+      id: (call as { id?: string }).id ?? '',
       type: ((call as { type?: string }).type || "function") as "function",
       function: {
-        name: (call as { function: { name: string } }).function.name,
+        name: (call as { function?: { name?: string } }).function?.name ?? '',
         arguments:
           typeof (call as { function: { arguments: string | unknown } }).function.arguments ===
           "string"

@@ -320,7 +320,7 @@ You can use multiple tools in one response by including multiple blocks.`;
             type: "function",
             function: {
               name: contentBlock["name"] as string,
-              arguments: JSON.stringify(contentBlock["input"] || {}),
+              arguments: JSON.stringify(contentBlock["input"] ?? {}),
             },
           };
           return {
@@ -347,29 +347,34 @@ You can use multiple tools in one response by including multiple blocks.`;
         break;
 
       case "message_delta":
-        // Message delta event (contains usage)
-        if (usage) {
-          // Handle stop_reason: end_turn, max_tokens, stop_sequence, tool_use
+        // Message delta event (contains stop_reason and optionally usage)
+        {
           const stopReason = delta?.["stop_reason"] as string | undefined;
-          const isDone =
-            stopReason === "end_turn" ||
-            stopReason === "max_tokens" ||
-            stopReason === "stop_sequence" ||
-            stopReason === "tool_use";
-          return {
-            chunk: {
-              delta: "",
-              done: isDone,
-              usage: {
+          if (stopReason) {
+            const isDone =
+              stopReason === "end_turn" ||
+              stopReason === "max_tokens" ||
+              stopReason === "stop_sequence" ||
+              stopReason === "tool_use";
+            const result: ParseStreamChunkResult = {
+              chunk: {
+                delta: "",
+                done: isDone,
+                finishReason: stopReason,
+                raw: data,
+              },
+              valid: true,
+            };
+            // Attach usage if present (optional)
+            if (usage) {
+              result.chunk!.usage = {
                 promptTokens: usage["input_tokens"] || 0,
                 completionTokens: usage["output_tokens"] || 0,
                 totalTokens: (usage["input_tokens"] || 0) + (usage["output_tokens"] || 0),
-              },
-              finishReason: stopReason,
-              raw: data,
-            },
-            valid: true,
-          };
+              };
+            }
+            return result;
+          }
         }
         break;
 
@@ -448,6 +453,16 @@ You can use multiple tools in one response by including multiple blocks.`;
       });
   }
 
+  /**
+   * 解析 Anthropic 格式的 tool calls，供外部调用使用。
+   *
+   * 注意：当前类内部不使用此方法，内部解析 tool calls 分别通过以下两种方式：
+   * - `extractToolCalls`（私有方法）：解析 native 模式响应中的 tool_use content blocks。
+   * - `ToolCallParser`：解析 text 模式（XML/JSON）响应中的 tool calls。
+   *
+   * 本方法主要提供给外部调用者，用于将已提取的 Anthropic 原生 tool call 对象数组
+   * 转换为统一的 {@link LLMToolCall} 格式。
+   */
   parseToolCalls(toolCalls: unknown[]): LLMToolCall[] {
     if (!toolCalls) return [];
     return toolCalls.map(call => ({

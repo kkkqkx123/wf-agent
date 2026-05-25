@@ -6,16 +6,16 @@
 import type { LLMMessage } from "@wf-agent/types";
 
 /**
- * 提取系统消息
+ * Extract system message
  *
- * 从消息数组中提取第一条系统消息
+ * Extract the first system message from the message array
  *
  * @example
  * const systemMsg = extractSystemMessage([
  *   { role: 'system', content: 'You are helpful' },
  *   { role: 'user', content: 'Hello' }
  * ]);
- * // 结果: { role: 'system', content: 'You are helpful' }
+ * // Result: { role: 'system', content: 'You are helpful' }
  */
 export function extractSystemMessage(messages: LLMMessage[]): LLMMessage | null {
   if (!messages || messages.length === 0) {
@@ -26,16 +26,16 @@ export function extractSystemMessage(messages: LLMMessage[]): LLMMessage | null 
 }
 
 /**
- * 过滤系统消息
+ * Filter system messages
  *
- * 从消息数组中移除所有系统消息
+ * Remove all system messages from the message array
  *
  * @example
  * const filtered = filterSystemMessages([
  *   { role: 'system', content: 'You are helpful' },
  *   { role: 'user', content: 'Hello' }
  * ]);
- * // 结果: [{ role: 'user', content: 'Hello' }]
+ * // Result: [{ role: 'user', content: 'Hello' }]
  */
 export function filterSystemMessages(messages: LLMMessage[]): LLMMessage[] {
   if (!messages || messages.length === 0) {
@@ -46,9 +46,9 @@ export function filterSystemMessages(messages: LLMMessage[]): LLMMessage[] {
 }
 
 /**
- * 提取并分离系统消息
+ * Extract and separate system messages
  *
- * 返回系统消息和过滤后的消息数组
+ * Returns the system message and the filtered message array
  *
  * @example
  * const { systemMessage, filteredMessages } = extractAndFilterSystemMessages([

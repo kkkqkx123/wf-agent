@@ -189,7 +189,7 @@ export class GeminiOpenAIFormatter extends BaseFormatter {
                   result:
                     typeof msg.content === "string"
                       ? msg.content
-                      : JSON.parse(JSON.stringify(msg.content)),
+                      : msg.content,
                 },
               },
             },
@@ -201,7 +201,13 @@ export class GeminiOpenAIFormatter extends BaseFormatter {
           converted.content = msg.toolCalls.map(call => ({
             functionCall: {
               name: call.function.name,
-              args: JSON.parse(call.function.arguments),
+              args: (() => {
+                try {
+                  return JSON.parse(call.function.arguments);
+                } catch {
+                  return call.function.arguments;
+                }
+              })(),
             },
           }));
         }

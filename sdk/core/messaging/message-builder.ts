@@ -73,6 +73,20 @@ export class MessageBuilder {
   }
 
   /**
+   * Build a tool result message from raw content
+   * @param toolCallId: Tool call ID
+   * @param content: Raw result content string
+   * @returns: Tool result message
+   */
+  static buildToolResultMessage(toolCallId: string, content: string): LLMMessage {
+    return {
+      role: "tool",
+      content,
+      toolCallId,
+    };
+  }
+
+  /**
    * Constructing system messages
    * @param content: Message content
    * @returns: System message

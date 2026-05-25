@@ -136,6 +136,7 @@ export function getBatchInfo(
   markMap: MessageMarkMap,
   batchId: number,
 ): {
+  batchId: number;
   boundaryIndex: number;
   visibleMessageCount: number;
   isCurrentBatch: boolean;
@@ -155,6 +156,7 @@ export function getBatchInfo(
   const isCurrentBatch = batchId === markMap.currentBatch;
 
   return {
+    batchId,
     boundaryIndex,
     visibleMessageCount,
     isCurrentBatch,

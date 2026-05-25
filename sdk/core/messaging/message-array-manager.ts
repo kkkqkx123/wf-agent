@@ -30,7 +30,7 @@ export class MessageArrayManager {
 
   constructor(initialMessages: Message[] = []) {
     this.state = {
-      messages: initialMessages,
+      messages: structuredClone(initialMessages),
       batchSnapshots: [],
       currentBatchIndex: 0,
       totalMessageCount: initialMessages.length,
@@ -78,7 +78,7 @@ export class MessageArrayManager {
    * @returns Array of messages for the current batch
    */
   getCurrentMessages(): Message[] {
-    return [...this.state.messages];
+    return structuredClone(this.state.messages);
   }
 
   /**

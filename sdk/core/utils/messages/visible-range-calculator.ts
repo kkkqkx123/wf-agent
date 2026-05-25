@@ -138,7 +138,8 @@ export function getVisibleMessages(messages: LLMMessage[], markMap: MessageMarkM
   const visibleIndices = getVisibleOriginalIndices(markMap);
   return visibleIndices
     .map(index => messages[index])
-    .filter((msg): msg is LLMMessage => msg !== undefined);
+    .filter((msg): msg is LLMMessage => msg !== undefined)
+    .map(msg => ({ ...msg }));
 }
 
 /**

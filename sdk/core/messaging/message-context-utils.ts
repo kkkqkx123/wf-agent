@@ -53,17 +53,17 @@ export function initializeExecutionContext(
     for (const staticCtx of staticContexts) {
       registry.register({
         id: staticCtx.id,
-        messages: staticCtx.messages,
+        messages: staticCtx.messages || [],
         createdAt: now(),
         updatedAt: now(),
         metadata: {
-          description: staticCtx.description,
+          description: staticCtx.description ?? '',
         },
       });
 
       logger.debug("Registered static context", {
         contextId: staticCtx.id,
-        messageCount: staticCtx.messages.length,
+        messageCount: (staticCtx.messages || []).length,
         description: staticCtx.description,
       });
     }

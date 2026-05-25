@@ -13,7 +13,7 @@
  * - Dependency injection: Manage dependencies through LLMContextFactory
  */
 
-import type { LLMMessage, BaseEvent, LLMToolCall, WorkflowConfig } from "@wf-agent/types";
+import type { LLMMessage, BaseEvent, LLMToolCall, WorkflowConfig, TransformContextFn } from "@wf-agent/types";
 import { ConversationSession } from "../../../core/messaging/conversation-session.js";
 import type { ToolPermissionManager } from "../../../core/coordinators/tool-permission-manager.js";
 import { emit } from "../utils/index.js";
@@ -61,6 +61,8 @@ export interface LLMExecutionParams {
   maxToolCallsPerRequest?: number;
   /** Workflow configuration (for tool approval) */
   workflowConfig?: WorkflowConfig;
+  /** Transform context function (for dynamic context injection, message compression, etc.) */
+  transformContext?: TransformContextFn;
 }
 
 /**
@@ -307,6 +309,7 @@ export class LLMExecutionCoordinator {
           eventManager: this.contextFactory.getEventManager(),
           nodeId,
           executeTools: false,  // Don't execute tools, we'll handle them with approval
+          transformContext: params.transformContext,  // Pass through transformContext (dynamic context injection, message compression)
         },
         conversationState,
       );

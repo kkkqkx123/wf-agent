@@ -10,7 +10,12 @@
  * - Supports referencing predefined prompt templates via templateId
  */
 
-import type { RuntimeNode, LLMNodeConfig, MessageContextRegistry } from "@wf-agent/types";
+import type {
+  RuntimeNode,
+  LLMNodeConfig,
+  MessageContextRegistry,
+  TransformContextFn,
+} from "@wf-agent/types";
 import type { WorkflowExecution, LLMMessage } from "@wf-agent/types";
 import type { HumanRelayHandler } from "@wf-agent/types";
 import { ExecutionError, RuntimeValidationError } from "@wf-agent/types";
@@ -56,6 +61,8 @@ export interface LLMHandlerContext {
   conversationManager: ConversationSession;
   /** HumanRelay processor (optional) */
   humanRelayHandler?: unknown;
+  /** Transform context function (for dynamic context injection, message compression, etc.) */
+  transformContext?: TransformContextFn;
 }
 
 /**
@@ -66,8 +73,10 @@ function collectMessagesFromContext(
   workflowExecution: WorkflowExecution,
 ): LLMMessage[] {
   // Get MessageContextRegistry from execution context
-  const registry = (workflowExecution as WorkflowExecution & { messageContextRegistry?: MessageContextRegistry }).messageContextRegistry;
-  
+  const registry = (
+    workflowExecution as WorkflowExecution & { messageContextRegistry?: MessageContextRegistry }
+  ).messageContextRegistry;
+
   if (!registry) {
     throw new RuntimeValidationError("MessageContextRegistry not found in execution context", {
       operation: "collectMessagesFromContext",
@@ -76,10 +85,10 @@ function collectMessagesFromContext(
   }
 
   // Use the specified contextId, or default to 'current'
-  const contextId = config.contextId || 'current';
-  
+  const contextId = config.contextId || "current";
+
   const namedContext = registry.get(contextId);
-  
+
   if (!namedContext) {
     throw new RuntimeValidationError(`Context '${contextId}' not found`, {
       operation: "collectMessagesFromContext",
@@ -87,7 +96,7 @@ function collectMessagesFromContext(
       value: contextId,
     });
   }
-  
+
   return [...namedContext.messages];
 }
 
@@ -109,7 +118,7 @@ export async function llmHandler(
   try {
     // 1. Collect messages from named context
     const messages = collectMessagesFromContext(config, workflowExecution);
-    
+
     // 2. Add messages to conversation manager for this execution
     for (const message of messages) {
       context.conversationManager.addMessage(message);
@@ -127,7 +136,13 @@ export async function llmHandler(
     // 4. Check if it is a HumanRelay provider.
     const profile = context.llmWrapper.getProfile(executionData.profileId || "DEFAULT");
     if (profile?.provider === "HUMAN_RELAY") {
-      return await executeHumanRelayLLMNode(workflowExecution, node, executionData, context, startTime);
+      return await executeHumanRelayLLMNode(
+        workflowExecution,
+        node,
+        executionData,
+        context,
+        startTime,
+      );
     }
 
     // 5. Call LLMExecutionCoordinator
@@ -139,6 +154,7 @@ export async function llmHandler(
         profileId: executionData.profileId,
         parameters: executionData.parameters,
         maxToolCallsPerRequest: executionData.maxToolCallsPerRequest,
+        transformContext: context.transformContext,
       },
       context.conversationManager,
     );
@@ -147,11 +163,13 @@ export async function llmHandler(
 
     // 6. Append response to output context if specified
     if (result.success && config.outputContext) {
-      const registry = (workflowExecution as WorkflowExecution & { messageContextRegistry?: MessageContextRegistry }).messageContextRegistry;
+      const registry = (
+        workflowExecution as WorkflowExecution & { messageContextRegistry?: MessageContextRegistry }
+      ).messageContextRegistry;
       if (registry) {
         const outputContextId = config.outputContext;
         const existingContext = registry.get(outputContextId);
-        
+
         if (existingContext) {
           // Update existing context
           registry.update(outputContextId, [
@@ -218,7 +236,10 @@ async function executeHumanRelayLLMNode(
       messages as LLMMessage[],
       requestData.prompt || "Please provide your input:",
       requestData.parameters?.timeout || 300000,
-      { workflowExecutionEntity: workflowExecution, conversationManager: context.conversationManager } as unknown as WorkflowExecutionEntity, // Simplify the processing; in reality, the complete WorkflowExecutionContext should be passed in.
+      {
+        workflowExecutionEntity: workflowExecution,
+        conversationManager: context.conversationManager,
+      } as unknown as WorkflowExecutionEntity, // Simplify the processing; in reality, the complete WorkflowExecutionContext should be passed in.
       context.eventManager,
       context.humanRelayHandler as HumanRelayHandler,
       node.id,

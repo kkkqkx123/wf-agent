@@ -17,7 +17,7 @@
  * - Reusable across modules (Graph, Agent, etc.)
  */
 
-import type { LLMMessage, ToolSchema, LLMUsage } from "@wf-agent/types";
+import type { LLMMessage, ToolSchema, LLMUsage, TransformContextFn } from "@wf-agent/types";
 import type { LLMExecutionConfig } from "@wf-agent/types";
 import { MessageRole } from "@wf-agent/types";
 import { ConversationSession } from "../messaging/conversation-session.js";
@@ -28,11 +28,13 @@ import {
 } from "../utils/interruption/index.js";
 import type { ExecutionInterruptionCheckResult } from "../utils/interruption/index.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
-import { LLMExecutor } from "../executors/llm-executor.js";
+import { LLMExecutor, type LLMExecutionResult } from "../executors/llm-executor.js";
+import { LLMWrapper } from "../llm/wrapper.js";
 import { ToolCallExecutor } from "../executors/tool-call-executor.js";
 import { prepareToolSchemasFromTools } from "../utils/tools/tool-schema-helper.js";
 import type { EventRegistry } from "../registry/event-registry.js";
 import type { TokenMetricsCollector } from "../metrics/token-collector.js";
+import type { MessageStream } from "../llm/message-stream.js";
 import {
   buildMessageAddedEvent,
   buildTokenUsageWarningEvent,
@@ -61,6 +63,15 @@ export interface LLMExecutionParams {
   nodeId?: string;
   /** Whether to execute tool calls automatically (default: true) */
   executeTools?: boolean;
+  /**
+   * Transform context before LLM call
+   *
+   * Called to transform the message context before each LLM call.
+   * Use for message compression, history pruning, or dynamic context injection.
+   * When provided, the coordinator applies this transform after retrieving
+   * messages from the conversation state and before passing them to the LLM executor.
+   */
+  transformContext?: TransformContextFn;
 }
 
 /**
@@ -99,11 +110,13 @@ export class LLMExecutionCoordinator {
    * @param llmExecutor LLM executor
    * @param toolCallExecutor Tool call executor
    * @param tokenMetricsCollector Optional token metrics collector
+   * @param llmWrapper Optional LLM wrapper (required for streaming support)
    */
   constructor(
     private llmExecutor: LLMExecutor,
     private toolCallExecutor: ToolCallExecutor,
     private tokenMetricsCollector?: TokenMetricsCollector,
+    private llmWrapper?: LLMWrapper,
   ) {}
 
   /**
@@ -168,11 +181,121 @@ export class LLMExecutionCoordinator {
   }
 
   /**
+   * Execute LLM stream
+   *
+   * Applies transformContext (if provided), then initiates a streaming LLM call
+   * via LLMWrapper. Returns the MessageStream for the caller to consume events.
+   *
+   * Note: Unlike executeLLM(), this method does NOT:
+   * - Add user messages to conversation state
+   * - Execute tool calls automatically
+   * - Track token usage
+   * The caller is responsible for managing conversation state and tool execution
+   * when using streaming mode.
+   *
+   * @param params Execution parameters (contextId, prompt, config, tools, abortSignal, transformContext)
+   * @param conversationState Conversation manager (used only to retrieve messages)
+   * @returns MessageStream for event consumption
+   * @throws Error if LLMWrapper is not configured or LLM call fails
+   */
+  async executeLLMStream(
+    params: LLMExecutionParams,
+    conversationState: ConversationSession,
+  ): Promise<MessageStream> {
+    if (!this.llmWrapper) {
+      throw new Error(
+        "LLMWrapper is required for streaming execution. " +
+          "Please provide it in the LLMExecutionCoordinator constructor.",
+      );
+    }
+
+    const { config, tools, abortSignal, transformContext } = params;
+
+    const { profileId, parameters } = config;
+
+    // Retrieve messages from conversation state
+    let messages = conversationState.getMessages();
+
+    // Apply transformContext (e.g., dynamic context injection, message compression)
+    if (transformContext) {
+      messages = await transformContext(messages, abortSignal);
+    }
+
+    // Execute streaming LLM call
+    const streamResult = await this.llmWrapper.generateStream({
+      profileId: profileId || "DEFAULT",
+      messages,
+      tools: tools as ToolSchema[],
+      parameters: parameters || {},
+      stream: true,
+      signal: abortSignal,
+    });
+
+    if (streamResult.isErr()) {
+      throw streamResult.error;
+    }
+
+    return streamResult.value;
+  }
+
+  /**
+   * Execute LLM call with pre-built messages
+   *
+   * A lower-level method that accepts pre-built messages directly and applies
+   * transformContext before calling the LLM. Unlike executeLLM(), this method:
+   * - Does NOT add user messages to conversation state
+   * - Does NOT execute tool calls
+   * - Does NOT track token usage
+   * - Does NOT trigger events
+   *
+   * This is designed for callers that have their own conversation management
+   * and execution flow (e.g., AgentExecutionCoordinator).
+   *
+   * @param messages Pre-built message array (already includes all user/assistant messages)
+   * @param config LLM configuration (profileId, parameters, tools)
+   * @param options Execution options (abortSignal, executionId, nodeId)
+   * @param transformContext Optional transform function for context injection
+   * @returns Raw LLM execution result
+   */
+  async executeLLMCallWithMessages(
+    messages: LLMMessage[],
+    config: {
+      profileId: string;
+      parameters: Record<string, unknown>;
+      tools?: ToolSchema[];
+    },
+    options: {
+      abortSignal?: AbortSignal;
+      executionId: string;
+      nodeId?: string;
+    },
+    transformContext?: TransformContextFn,
+  ): Promise<LLMExecutionResult> {
+    const { abortSignal, executionId, nodeId } = options;
+
+    let llmMessages = messages;
+    if (transformContext) {
+      llmMessages = await transformContext(llmMessages, abortSignal);
+    }
+
+    return await this.llmExecutor.executeLLMCall(
+      llmMessages,
+      {
+        prompt: "",
+        profileId: config.profileId || "DEFAULT",
+        parameters: config.parameters || {},
+        tools: config.tools,
+      },
+      { abortSignal, executionId, nodeId },
+    );
+  }
+
+  /**
    * Execute a single LLM call with optional tool execution
    *
    * This method performs ONE complete LLM interaction:
    * 1. Add user message to conversation
-   * 2. Execute single LLM call
+   * 2. Execute single LLM call (with transformContext applied)
    * 3. Execute tool calls if present (when executeTools=true)
    * 4. Update token usage and trigger warnings
    * 5. Trigger events (message, token, conversation state)
@@ -197,6 +320,7 @@ export class LLMExecutionCoordinator {
       eventManager,
       nodeId,
       executeTools = true,
+      transformContext,
     } = params;
 
     const {
@@ -230,9 +354,15 @@ export class LLMExecutionCoordinator {
         );
       }
 
+      // Step 2: Retrieve messages and apply transformContext
+      let llmMessages = conversationState.getMessages();
+      if (transformContext) {
+        llmMessages = await transformContext(llmMessages, signal);
+      }
+
       // Execute LLM call with signal
       const llmResult = await this.llmExecutor.executeLLMCall(
-        conversationState.getMessages(),
+        llmMessages,
         {
           prompt,
           profileId: profileId || "DEFAULT",

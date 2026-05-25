@@ -4,10 +4,11 @@
  * Helper functions for initializing named message contexts in workflow executions.
  */
 
-import type { NamedMessageContext, MessageContextRegistry } from "@wf-agent/types";
+import type { LLMMessage, NamedMessageContext, MessageContextRegistry } from "@wf-agent/types";
 import type { WorkflowConfig } from "@wf-agent/types";
 import { BUILTIN_CONTEXT_IDS } from "@wf-agent/types";
 import { now } from "@wf-agent/common-utils";
+import { resolveSystemPrompt } from "./prompt/system-prompt-resolver.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
 const logger = createContextualLogger();
@@ -23,6 +24,11 @@ const logger = createContextualLogger();
  * Initial messages (including system-role messages) are placed directly into
  * the 'current' context.
  * 
+ * initialMessages and systemPrompt fields are mutually exclusive:
+ * - If initialMessages is set, use those directly.
+ * - Else if systemPromptTemplateId is set, resolve and prepend as system message.
+ * - Else if systemPrompt is set, use it as system message.
+ * 
  * @param registry The message context registry
  * @param workflowConfig Optional workflow configuration containing initialMessages and staticContexts
  */
@@ -30,8 +36,24 @@ export function initializeExecutionContext(
   registry: MessageContextRegistry,
   workflowConfig?: WorkflowConfig,
 ): void {
-  // 1. Create 'current' context (main conversation), pre-populated with initial messages
-  const initialMessages = workflowConfig?.initialMessages || [];
+  // 1. Resolve initial messages: initialMessages takes priority, fall back to system prompt
+  let initialMessages: LLMMessage[];
+
+  if (workflowConfig?.initialMessages && workflowConfig.initialMessages.length > 0) {
+    initialMessages = [...workflowConfig.initialMessages];
+  } else if (workflowConfig?.systemPromptTemplateId || workflowConfig?.systemPrompt) {
+    const systemPrompt = resolveSystemPrompt({
+      systemPromptTemplateId: workflowConfig.systemPromptTemplateId,
+      systemPromptTemplateVariables: workflowConfig.systemPromptTemplateVariables,
+      systemPrompt: workflowConfig.systemPrompt,
+    });
+    initialMessages = systemPrompt
+      ? [{ role: "system", content: systemPrompt }]
+      : [];
+  } else {
+    initialMessages = [];
+  }
+
   registry.register({
     id: BUILTIN_CONTEXT_IDS.CURRENT,
     messages: [...initialMessages],

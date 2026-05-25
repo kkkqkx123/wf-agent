@@ -12,3 +12,6 @@ export type {
   NamedMessageContext,
   MessageContextRegistry,
 } from "@wf-agent/types";
+
+// Prompt submodule (template-based prompt assembly)
+export * from "./prompt/index.js";

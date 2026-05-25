@@ -46,7 +46,10 @@ describe('userInteractionHandler', () => {
     const result = await userInteractionHandler(mockExecution, node, defaultContext);
 
     expect(result.operationType).toBe('UPDATE_VARIABLES');
-    expect(result.results).toEqual({ userName: 'user input data' });
+    expect(result.userInput).toBe('user input data');
+    expect(result.updatedVariables).toEqual([
+      { variableName: 'userName', newValue: 'user input data' },
+    ]);
   });
 
   it('should get user input and add message for ADD_MESSAGE operation', async () => {

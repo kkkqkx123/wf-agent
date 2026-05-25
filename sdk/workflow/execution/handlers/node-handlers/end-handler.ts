@@ -33,6 +33,7 @@ export async function endHandler(
   node: RuntimeNode,
   _context?: unknown,
 ): Promise<unknown> {
+  const startTime = Date.now();
   // Check if it is possible to execute.
   if (!canExecute(workflowExecutionEntity, node)) {
     return {
@@ -74,6 +75,10 @@ export async function endHandler(
 
   // Return the execution result.
   return {
+    nodeId: node.id,
+    nodeType: node.type,
+    status: "COMPLETED",
     output,
+    executionTime: Date.now() - startTime,
   };
 }

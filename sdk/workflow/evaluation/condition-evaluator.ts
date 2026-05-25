@@ -4,10 +4,11 @@
  */
 
 import type { Condition, EvaluationContext } from "@wf-agent/types";
-import { ExpressionSecurityError, RuntimeValidationError } from "@wf-agent/types";
+import { ExpressionSecurityError } from "@wf-agent/types";
 import { getGlobalLogger } from "@wf-agent/common-utils";
 import { expressionEvaluator } from "./expression-evaluator.js";
 import { expressionCompiler } from "./expression-compiler.js";
+import type { CompiledExpression } from "./expression-compiler.js";
 import { resolvePath } from "./path-resolver.js";
 
 /**

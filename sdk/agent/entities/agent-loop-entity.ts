@@ -34,7 +34,7 @@ import {
   ConversationSession,
   type ConversationSessionConfig,
 } from "../../core/messaging/conversation-session.js";
-import { buildInitialMessages, type InitialMessagesConfig } from "../../core/prompt/index.js";
+import { buildInitialMessages, type InitialMessagesConfig } from "../../core/messaging/prompt/index.js";
 import { ExecutionHierarchyManager } from "../../core/execution/execution-hierarchy-manager.js";
 import type { ExecutionHierarchyRegistry } from "../../core/registry/execution-hierarchy-registry.js";
 import { createAgentInterruptionAbortReason } from "../execution/utils/index.js";

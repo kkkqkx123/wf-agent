@@ -3,8 +3,8 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { PrometheusFormatter } from '../utils/prometheus-formatter.js';
-import type { PrometheusMetric } from '../utils/prometheus-formatter.js';
+import { PrometheusFormatter } from '../prometheus-formatter.js';
+import type { PrometheusMetric } from '../prometheus-formatter.js';
 
 describe('PrometheusFormatter', () => {
   describe('formatLabels', () => {

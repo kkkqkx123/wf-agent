@@ -27,20 +27,28 @@ const mockRegistry = {
   getAll: vi.fn(),
 };
 
+const mockEntity = {
+  getExecution: vi.fn().mockReturnValue({
+    id: 'exec-1',
+    variableScopes: {
+      execution: {},
+    },
+    messageContextRegistry: mockRegistry,
+  }),
+  variableStateManager: {
+    getVariable: vi.fn(),
+    setVariable: vi.fn(),
+  },
+  getInput: vi.fn(),
+};
+
 const defaultContext: AgentLoopHandlerContext = {
   llmExecutor: mockLLMExecutor as any,
   toolService: mockToolService as any,
   conversationManager: mockConversationManager as any,
   eventManager: mockEventManager as any,
+  workflowExecutionEntity: mockEntity as any,
 };
-
-const mockExecution = {
-  id: 'exec-1',
-  variableScopes: {
-    execution: {},
-  },
-  messageContextRegistry: mockRegistry,
-} as unknown as WorkflowExecution;
 
 const mockExecute = vi.fn().mockResolvedValue({
   success: true,
@@ -83,8 +91,11 @@ describe('agentLoopHandler', () => {
     };
     const node = { id: 'agent-loop-1', type: 'AGENT_LOOP', config } as RuntimeNode;
 
-    const result = await agentLoopHandler(mockGlobalContext, mockExecution, node, defaultContext);
+    const result = await agentLoopHandler(mockGlobalContext, mockEntity, node, defaultContext);
 
+    if ((result as any).status !== 'COMPLETED') {
+      console.error('Handler error:', (result as any).error);
+    }
     expect((result as any).status).toBe('COMPLETED');
     expect((result as any).content).toBe('Agent response');
     expect((result as any).iterations).toBe(2);
@@ -99,7 +110,7 @@ describe('agentLoopHandler', () => {
     };
     const node = { id: 'agent-loop-2', type: 'AGENT_LOOP', config } as RuntimeNode;
 
-    const result = await agentLoopHandler(mockGlobalContext, mockExecution, node, defaultContext);
+    const result = await agentLoopHandler(mockGlobalContext, mockEntity, node, defaultContext);
 
     expect(result.status).toBe('FAILED');
     expect(result.error).toBeDefined();
@@ -108,7 +119,7 @@ describe('agentLoopHandler', () => {
   // TODO: Update this test to use the new variable state manager architecture
   it.skip('should add input prompt from variables when available', async () => {
     // This test needs to be updated to work with the new VariableManager architecture
-    // mockExecution.variableStateManager.setVariable('input', 'User query here', 'execution');
+    // mockEntity.variableStateManager.setVariable('input', 'User query here', 'execution');
 
     const config: AgentLoopNodeConfig = {
       inlineConfig: {
@@ -117,7 +128,7 @@ describe('agentLoopHandler', () => {
     };
     const node = { id: 'agent-loop-3', type: 'AGENT_LOOP', config } as RuntimeNode;
 
-    await agentLoopHandler(mockGlobalContext, mockExecution, node, defaultContext);
+    await agentLoopHandler(mockGlobalContext, mockEntity, node, defaultContext);
 
     expect(mockEventManager.emit).toHaveBeenCalled();
   });
@@ -135,7 +146,7 @@ describe('agentLoopHandler', () => {
     };
     const node = { id: 'agent-loop-4', type: 'AGENT_LOOP', config } as RuntimeNode;
 
-    const result = await agentLoopHandler(mockGlobalContext, mockExecution, node, defaultContext);
+    const result = await agentLoopHandler(mockGlobalContext, mockEntity, node, defaultContext);
 
     expect(result.status).toBe('FAILED');
   });
@@ -150,7 +161,7 @@ describe('agentLoopHandler', () => {
     };
     const node = { id: 'agent-loop-5', type: 'AGENT_LOOP', config } as RuntimeNode;
 
-    const result = await agentLoopHandler(mockGlobalContext, mockExecution, node, defaultContext);
+    const result = await agentLoopHandler(mockGlobalContext, mockEntity, node, defaultContext);
 
     expect(result.status).toBe('FAILED');
   });

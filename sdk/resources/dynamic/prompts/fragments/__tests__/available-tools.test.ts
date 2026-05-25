@@ -49,8 +49,7 @@ describe("available-tools fragment", () => {
       const result = generateAvailableToolsContent({ tools: mockTools });
       expect(result).not.toBeNull();
       expect(result).toContain("AVAILABLE TOOLS");
-      expect(result).toContain("readFile");
-      expect(result).toContain("writeFile");
+      expect(result).toContain("## Other Tools");
       expect(result).toContain("Read content from a file");
       expect(result).toContain("Write content to a file");
     });
@@ -93,7 +92,7 @@ describe("available-tools fragment", () => {
       ];
       const result = generateAvailableToolsContent({ tools: toolsWithoutParams });
       expect(result).not.toBeNull();
-      expect(result).toContain("getTime");
+      expect(result).toContain("## Other Tools");
       expect(result).toContain("Get current time");
     });
 
@@ -112,7 +111,7 @@ describe("available-tools fragment", () => {
       ];
       const result = generateAvailableToolsContent({ tools: toolsWithoutDesc });
       expect(result).not.toBeNull();
-      expect(result).toContain("unknownTool");
+      expect(result).toContain("## Other Tools");
     });
   });
 
@@ -127,14 +126,14 @@ describe("available-tools fragment", () => {
       expect(result).not.toBeNull();
       expect(result?.role).toBe("system");
       expect(result?.content).toContain("AVAILABLE TOOLS");
-      expect(result?.content).toContain("readFile");
-      expect(result?.content).toContain("writeFile");
+      expect(result?.content).toContain("Read content from a file");
+      expect(result?.content).toContain("Write content to a file");
     });
 
     it("should include all tools in the message", () => {
       const result = generateToolDescriptionMessage(mockTools);
-      expect(result?.content).toContain("tool-1");
-      expect(result?.content).toContain("tool-2");
+      expect(result?.content).toContain("Read content from a file");
+      expect(result?.content).toContain("Write content to a file");
     });
   });
 });

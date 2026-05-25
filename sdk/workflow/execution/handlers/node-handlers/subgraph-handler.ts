@@ -50,7 +50,7 @@ export interface SubgraphHandlerContext {
  * @param workflowExecutionEntity Parent workflow execution entity
  * @param node SUBGRAPH runtime node
  * @param context Handler context containing executionBuilder and workflowExecutor
- * @returns SubgraphExecutionResult with subgraph entity, execution result, and timing
+ * @returns SubgraphNodeOutput with execution result and duration
  */
 export async function subgraphHandler(
   globalContext: GlobalContext,
@@ -135,7 +135,6 @@ export async function subgraphHandler(
     }
 
     // Step 5: Execute subgraph synchronously
-    const executionStartTime = Date.now();
     const executionResult = await executor.executeWorkflow(subgraphEntity);
     const executionDuration = Date.now() - executionStartTime;
     
@@ -188,8 +187,8 @@ export async function subgraphHandler(
     // Step 8: Return standardized result
     return {
       executionResult: {
-        output: executionResult.output,
         status: executionResult.metadata.status,
+        output: executionResult.output,
       },
       duration: executionDuration,
     };

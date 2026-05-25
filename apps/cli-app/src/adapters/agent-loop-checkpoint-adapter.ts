@@ -5,10 +5,10 @@
 
 import { BaseAdapter } from "./base-adapter.js";
 import {
-  createCheckpoint,
-  restoreFromCheckpoint,
+  createAgentLoopCheckpoint,
+  AgentLoopCheckpointCoordinator,
   type CheckpointDependencies,
-  type CreateCheckpointOptions,
+  type CheckpointOptions,
   type AgentLoopEntity,
 } from "@wf-agent/sdk/agent";
 import { AgentLoopCheckpointResourceAPI } from "@wf-agent/sdk/api";
@@ -36,10 +36,10 @@ export class AgentLoopCheckpointAdapter extends BaseAdapter {
   async createCheckpoint(
     entity: AgentLoopEntity,
     dependencies: CheckpointDependencies,
-    options?: CreateCheckpointOptions,
+    options?: CheckpointOptions,
   ): Promise<string> {
     return this.executeWithErrorHandling(async () => {
-      const checkpointId = await createCheckpoint(entity, dependencies, options);
+      const checkpointId = await createAgentLoopCheckpoint(entity, dependencies as Parameters<typeof createAgentLoopCheckpoint>[1], options);
       this.output.infoLog(`Checkpoint created: ${checkpointId}`);
       return checkpointId;
     }, "Creating an Agent Loop Checkpoint");
@@ -55,7 +55,8 @@ export class AgentLoopCheckpointAdapter extends BaseAdapter {
     dependencies: CheckpointDependencies,
   ): Promise<AgentLoopEntity> {
     return this.executeWithErrorHandling(async () => {
-      const entity = await restoreFromCheckpoint(checkpointId, dependencies);
+      const coordinator = new AgentLoopCheckpointCoordinator();
+      const entity = await coordinator.restoreFromCheckpoint(checkpointId, dependencies);
       this.output.infoLog(`Agent Loop restored from checkpoint: ${checkpointId}`);
       return entity;
     }, "Restoring Agent Loop from Checkpoints");

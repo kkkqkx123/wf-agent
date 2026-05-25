@@ -51,10 +51,9 @@ describe('loopStartHandler', () => {
 
     expect(result).toEqual({
       loopId: 'loop-1',
-      variableName: 'item',
-      currentValue: 1,
       iterationCount: 1,
-      shouldContinue: true,
+      maxIterations: 10,
+      hasMoreIterations: true,
     });
     expect(mockManager.setVariable).toHaveBeenCalledWith('item', 1);
     expect(mockManager.setVariable).toHaveBeenCalledWith('__loop_state', expect.any(Object));
@@ -83,12 +82,12 @@ describe('loopStartHandler', () => {
 
     const result = await loopStartHandler(mockEntity, node);
 
-    expect((result as any).shouldContinue).toBe(true);
-    expect((result as any).currentValue).toBe(2);
+    expect((result as any).hasMoreIterations).toBe(true);
     expect((result as any).iterationCount).toBe(2);
+    expect((result as any).maxIterations).toBe(10);
   });
 
-  it('should return shouldContinue false when maxIterations reached', async () => {
+  it('should return hasMoreIterations false when maxIterations reached', async () => {
     const config: LoopStartNodeConfig = {
       loopId: 'loop-1',
       maxIterations: 0,
@@ -99,9 +98,9 @@ describe('loopStartHandler', () => {
 
     expect(result).toEqual({
       loopId: 'loop-1',
-      shouldContinue: false,
       iterationCount: 0,
-      message: 'Loop completed',
+      maxIterations: 0,
+      hasMoreIterations: false,
     });
     expect(mockManager.deleteVariable).toHaveBeenCalledWith('__loop_state');
   });
@@ -117,10 +116,9 @@ describe('loopStartHandler', () => {
 
     expect(result).toEqual({
       loopId: 'loop-1',
-      variableName: null,
-      currentValue: 0,
       iterationCount: 1,
-      shouldContinue: true,
+      maxIterations: 5,
+      hasMoreIterations: true,
     });
   });
 
@@ -137,8 +135,8 @@ describe('loopStartHandler', () => {
 
     const result = await loopStartHandler(mockEntity, node);
 
-    expect((result as any).currentValue).toBe('a');
-    expect((result as any).shouldContinue).toBe(true);
+    expect((result as any).hasMoreIterations).toBe(true);
+    expect((result as any).iterationCount).toBe(1);
   });
 
   it('should return SKIPPED when status is not RUNNING', async () => {

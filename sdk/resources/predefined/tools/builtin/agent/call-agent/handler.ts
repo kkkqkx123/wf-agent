@@ -7,7 +7,7 @@ import type { AgentLoopRuntimeConfig } from "@wf-agent/types";
 import * as Identifiers from "@sdk/core/di/service-identifiers.js";
 import { RuntimeValidationError, ConfigurationError } from "@wf-agent/types";
 import type { ToolRegistry } from "@sdk/core/registry/tool-registry.js";
-import { resolveSystemPrompt } from "@sdk/core/prompt/system-prompt-resolver.js";
+import { resolveSystemPrompt } from "@sdk/core/messaging/prompt/system-prompt-resolver.js";
 import { transformToAgentLoopConfig } from "@sdk/api/shared/config/processors/agent-loop.js";
 import { existsSync } from "fs";
 import { loadAgentLoopConfig } from "@sdk/api/shared/config/utils/config-utils.js";

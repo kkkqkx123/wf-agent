@@ -68,8 +68,31 @@ export interface WorkflowConfig {
    * Pre-populated into the 'current' conversation context on execution start.
    * Messages can have any role ('system', 'user', 'assistant', etc.).
    * This replaces the previous separate 'system' context approach.
+   * 
+   * Mutually exclusive with systemPromptTemplateId/systemPrompt.
+   * If initialMessages is set, system prompt fields are ignored.
    */
   initialMessages?: LLMMessage[];
+
+  /**
+   * System prompt template ID (alternative to initialMessages)
+   * 
+   * Resolved from the template registry and prepended as a system message
+   * before any other messages on execution start.
+   * Ignored if initialMessages is set.
+   */
+  systemPromptTemplateId?: string;
+
+  /**
+   * Template variables for system prompt rendering
+   */
+  systemPromptTemplateVariables?: Record<string, unknown>;
+
+  /**
+   * Direct system prompt string (fallback if no template ID)
+   * Ignored if systemPromptTemplateId or initialMessages is set.
+   */
+  systemPrompt?: string;
   
   /**
    * Predefined static contexts

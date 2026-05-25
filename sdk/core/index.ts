@@ -28,8 +28,8 @@ export * from "./llm/index.js";
 // Messaging
 export * from "./messaging/index.js";
 
-// Prompt
-export * from "./prompt/index.js";
+// Prompt (submodule of messaging)
+export * from "./messaging/prompt/index.js";
 
 // Registry
 export * from "./registry/index.js";

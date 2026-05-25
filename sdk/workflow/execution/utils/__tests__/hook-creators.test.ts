@@ -43,6 +43,7 @@ function createMockExecutionContext(
     getStatus: () => "RUNNING",
     id: "test-workflow-execution",
     getWorkflowId: () => "test-workflow",
+    variableStateManager: { getVariable: vi.fn().mockReturnValue([]) },
   } as any;
 
   return {
@@ -226,6 +227,12 @@ describe("createPermissionCheckHook", () => {
     const context = createMockExecutionContext({
       workflowExecutionEntity: {
         ...baseContext.workflowExecutionEntity,
+        variableStateManager: {
+          getVariable: vi.fn().mockImplementation((name: string) => {
+            if (name === "permissions") return ["read", "write", "delete"];
+            return [];
+          }),
+        },
         getExecution: () => ({
           ...mockWorkflowExecution,
           variableScopes: {
@@ -246,6 +253,12 @@ describe("createPermissionCheckHook", () => {
     const context = createMockExecutionContext({
       workflowExecutionEntity: {
         ...baseContext.workflowExecutionEntity,
+        variableStateManager: {
+          getVariable: vi.fn().mockImplementation((name: string) => {
+            if (name === "permissions") return ["read"];
+            return [];
+          }),
+        },
         getExecution: () => ({
           ...mockWorkflowExecution,
           variableScopes: {
@@ -270,6 +283,9 @@ describe("createPermissionCheckHook", () => {
     const context = createMockExecutionContext({
       workflowExecutionEntity: {
         ...baseContext.workflowExecutionEntity,
+        variableStateManager: {
+          getVariable: vi.fn().mockReturnValue([]),
+        },
         getExecution: () => ({
           ...mockWorkflowExecution,
           variableScopes: {
@@ -292,6 +308,9 @@ describe("createPermissionCheckHook", () => {
     const context = createMockExecutionContext({
       workflowExecutionEntity: {
         ...baseContext.workflowExecutionEntity,
+        variableStateManager: {
+          getVariable: vi.fn().mockReturnValue([]),
+        },
         getExecution: () => ({
           ...mockWorkflowExecution,
           variableScopes: {
@@ -330,6 +349,12 @@ describe("createAuditLoggingHook", () => {
     const context = createMockExecutionContext({
       workflowExecutionEntity: {
         ...baseContext.workflowExecutionEntity,
+        variableStateManager: {
+          getVariable: vi.fn().mockImplementation((name: string) => {
+            if (name === "userId") return "user-123";
+            return [];
+          }),
+        },
         getExecution: () => ({
           ...mockWorkflowExecution,
           variableScopes: {

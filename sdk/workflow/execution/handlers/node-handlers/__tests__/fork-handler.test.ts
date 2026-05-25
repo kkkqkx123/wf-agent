@@ -6,19 +6,41 @@ import type { GlobalContext } from '../../../../../core/global-context.js';
 
 const mockGlobalContext = {
   container: {
-    get: vi.fn(),
+    get: vi.fn().mockReturnValue({ emit: vi.fn() }),
   },
 } as unknown as GlobalContext;
 
 const mockEntity = {
+  id: 'exec-1',
   getStatus: vi.fn(),
   getNodeResults: vi.fn().mockReturnValue([]),
+  hasSyncBarrier: vi.fn().mockReturnValue(false),
+  getWorkflowId: vi.fn().mockReturnValue('wf-1'),
+  getSyncBarrier: vi.fn().mockReturnValue({
+    registerPath: vi.fn(),
+  }),
+  initializeSyncBarrier: vi.fn(),
 } as unknown as WorkflowExecutionEntity;
+
+const mockBuilder = {
+  createChildExecution: vi.fn(),
+};
+
+const mockExecutor = {
+  executeWorkflow: vi.fn(),
+};
+
+const mockContext = {
+  executionBuilder: mockBuilder,
+  workflowExecutor: mockExecutor,
+};
 
 const mockNode: RuntimeNode = {
   id: 'fork-node-1',
   type: 'FORK',
-  config: {},
+  config: {
+    forkPaths: [{ id: 'branch-1', label: 'Branch 1' }],
+  },
 } as RuntimeNode;
 
 beforeEach(() => {
@@ -27,10 +49,19 @@ beforeEach(() => {
 });
 
 describe('forkHandler', () => {
-  it('should return empty object when status is RUNNING', async () => {
-    const result = await forkHandler(mockGlobalContext, mockEntity, mockNode);
+  it('should return launchedBranches when status is RUNNING', async () => {
+    mockBuilder.createChildExecution.mockResolvedValue({
+      workflowExecutionEntity: { id: 'branch-exec-1' },
+    });
+    mockExecutor.executeWorkflow.mockResolvedValue({
+      metadata: { status: 'COMPLETED' },
+      executionTime: 10,
+    });
 
-    expect(result).toEqual({});
+    const result = await forkHandler(mockGlobalContext, mockEntity, mockNode, mockContext as any);
+
+    expect(result).toHaveProperty('launchedBranches');
+    expect(Array.isArray(result.launchedBranches)).toBe(true);
   });
 
   it('should return SKIPPED when status is not RUNNING', async () => {

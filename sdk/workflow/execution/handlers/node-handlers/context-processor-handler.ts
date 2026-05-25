@@ -234,8 +234,10 @@ export async function contextProcessorHandler(
   const messageCount = processedMessages.length;
 
   return {
-    operationsApplied: messageCount,
+    operation: config.operationConfig.operation,
+    messageCount,
     sourceContext: sourceContextId,
     targetContext: targetContextId,
+    stats: { originalMessageCount: 0, visibleMessageCount: messageCount, invisibleMessageCount: 0 },
   };
 }

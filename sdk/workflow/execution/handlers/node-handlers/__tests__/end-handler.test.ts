@@ -9,7 +9,6 @@ const mockEntity = {
   getOutput: vi.fn().mockReturnValue({ result: 'done' }),
   setOutput: vi.fn(),
   addNodeResult: vi.fn(),
-  getExecutionTime: vi.fn().mockReturnValue(100),
 } as unknown as WorkflowExecutionEntity;
 
 const mockNode: RuntimeNode = {
@@ -37,7 +36,7 @@ describe('endHandler', () => {
       nodeType: 'END',
       status: 'COMPLETED',
       output: { result: 'done' },
-      executionTime: 100,
+      executionTime: expect.any(Number),
     });
   });
 
@@ -73,7 +72,7 @@ describe('endHandler', () => {
       nodeType: 'END',
       status: 'COMPLETED',
       output: {},
-      executionTime: 100,
+      executionTime: expect.any(Number),
     });
   });
 });

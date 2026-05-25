@@ -69,7 +69,13 @@ export async function forkHandler(
       nodeId: node.id,
       status: workflowExecutionEntity.getStatus(),
     });
-    return { launchedBranches: [] };
+    return {
+      nodeId: node.id,
+      nodeType: node.type,
+      status: "SKIPPED",
+      step: workflowExecutionEntity.getNodeResults().length + 1,
+      executionTime: 0,
+    };
   }
 
   const config = node.config as ForkNodeConfig;

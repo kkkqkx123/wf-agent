@@ -17,6 +17,8 @@ const mockSubEntity = {
   getExecution: vi.fn(),
   addNodeResult: vi.fn(),
   getWorkflowId: vi.fn().mockReturnValue('sub-wf'),
+  getOutput: vi.fn().mockReturnValue({}),
+  setOutput: vi.fn(),
   variableStateManager: {
     getVariable: vi.fn(),
   },

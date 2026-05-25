@@ -11,7 +11,6 @@ import type {
   TaskStorageAdapter,
   AgentLoopStorageAdapter,
 } from "@wf-agent/storage";
-import type { CustomTriggerHandler } from "../../../core/registry/custom-handler-registry.js";
 
 /**
  * SDK Lifecycle Hooks
@@ -145,14 +144,6 @@ export interface WorkflowExecutionConfig {
 }
 
 /**
- * Custom Trigger Handler Configuration
- */
-export interface CustomTriggerHandlerConfig {
-  /** Map of handler name to handler function */
-  handlers?: Record<string, CustomTriggerHandler>;
-}
-
-/**
  * Graceful Shutdown Configuration
  */
 export interface GracefulShutdownConfig {
@@ -204,8 +195,6 @@ export interface SDKOptions {
   profiles?: LLMProfileConfig;
   /** Workflow execution configuration */
   workflowExecution?: WorkflowExecutionConfig;
-  /** Custom trigger handlers configuration */
-  customTriggerHandlers?: Record<string, CustomTriggerHandler>;
   /** Graceful shutdown configuration */
   gracefulShutdown?: GracefulShutdownConfig;
   /** Metrics system configuration */

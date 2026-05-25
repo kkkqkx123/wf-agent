@@ -164,7 +164,7 @@ export class TriggerTemplateBuilder extends TemplateBuilder<TriggerTemplate> {
       };
     } = {},
   ): this {
-    return this.withAction("execute_triggered_subgraph", {
+    return this.withAction("execute_triggered_subworkflow", {
       triggeredWorkflowId,
       ...options,
     });

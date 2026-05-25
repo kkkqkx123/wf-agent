@@ -31,18 +31,6 @@ import { cleanupChildExecution } from "../../utils/child-execution-cleanup.js";
 
 const logger = createContextualLogger({ component: "fork-node-handler" });
 
-
-
-/**
- * Check whether the node can be executed.
- */
-function canExecute(workflowExecutionEntity: WorkflowExecutionEntity): boolean {
-  if (workflowExecutionEntity.getStatus() !== "RUNNING") {
-    return false;
-  }
-  return true;
-}
-
 /**
  * Fork Node Processing Function
  *
@@ -63,21 +51,6 @@ export async function forkHandler(
   node: RuntimeNode,
   context?: ForkHandlerContext,
 ): Promise<{ launchedBranches: ForkBranchResult[] }> {
-  // Check if it is possible to execute.
-  if (!canExecute(workflowExecutionEntity)) {
-    logger.warn("FORK node skipped - workflow not in RUNNING state", {
-      nodeId: node.id,
-      status: workflowExecutionEntity.getStatus(),
-    });
-    return {
-      nodeId: node.id,
-      nodeType: node.type,
-      status: "SKIPPED",
-      step: workflowExecutionEntity.getNodeResults().length + 1,
-      executionTime: 0,
-    };
-  }
-
   const config = node.config as ForkNodeConfig;
   const forkPaths = config.forkPaths;
 

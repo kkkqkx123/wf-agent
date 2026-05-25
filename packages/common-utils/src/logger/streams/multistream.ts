@@ -64,8 +64,9 @@ export class Multistream implements LogStream {
 
   /**
    * Add stream
+   * @returns The id of the added stream (for use with remove())
    */
-  add(entry: StreamEntry): Multistream {
+  add(entry: StreamEntry): number {
     if (!entry || !entry.stream) {
       throw new Error("stream entry must have a stream property");
     }
@@ -94,7 +95,7 @@ export class Multistream implements LogStream {
     // Sort by level (ascending)
     this.streams.sort((a, b) => (a.levelVal ?? 0) - (b.levelVal ?? 0));
 
-    return this;
+    return streamEntry.id!;
   }
 
   /**

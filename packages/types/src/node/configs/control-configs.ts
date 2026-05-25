@@ -6,7 +6,7 @@
  * from workflow/boundary-config.ts. No separate StartNodeConfig or EndNodeConfig types needed.
  */
 
-import type { Condition } from "../../graph/condition.js";
+import type { Condition } from "../../condition.js";
 
 /**
  * Route Node Output

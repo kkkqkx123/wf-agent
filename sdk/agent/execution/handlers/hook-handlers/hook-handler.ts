@@ -15,7 +15,6 @@
 
 import type { AgentLoopEntity } from "../../../entities/agent-loop-entity.js";
 import type { AgentHook, AgentHookType, AgentHookTriggeredEvent } from "@wf-agent/types";
-import { ExecutionError } from "@wf-agent/types";
 import {
   filterAndSortHooks,
   executeHooks,
@@ -23,7 +22,6 @@ import {
   type BaseHookContext,
   type HookHandler,
 } from "../../../../core/hooks/index.js";
-import { getErrorOrNew } from "@wf-agent/common-utils";
 import { createContextualLogger } from "../../../../utils/contextual-logger.js";
 import { buildAgentHookEvaluationContext, convertToEvaluationContext } from "./context-builder.js";
 import { emitAgentHookEvent } from "./event-emitter.js";
@@ -67,33 +65,6 @@ export type AgentHookDefinition = AgentHook & BaseHookDefinition;
 function buildAgentEvalContext(context: AgentHookExecutionContext): Record<string, unknown> {
   const hookEvalContext = buildAgentHookEvaluationContext(context.entity, context.toolCall);
   return convertToEvaluationContext(hookEvalContext);
-}
-
-/**
- * Create a custom handler
- */
-function createCustomHandler(): HookHandler<AgentHookExecutionContext> {
-  return async (context, hook, eventData) => {
-    const customHandler = hook.eventPayload?.["handler"];
-    if (customHandler && typeof customHandler === "function") {
-      try {
-        await customHandler(context, hook as AgentHook, eventData);
-      } catch (error) {
-        throw new ExecutionError(
-          "Agent custom handler execution failed",
-          context.entity.nodeId,
-          undefined,
-          {
-            eventName: hook.eventName,
-            agentLoopId: context.entity.id,
-            operation: "custom_handler_execution",
-          },
-          getErrorOrNew(error),
-          "error",
-        );
-      }
-    }
-  };
 }
 
 /**
@@ -157,7 +128,6 @@ export async function executeAgentHook(
 
   // Create a processor chain
   const handlers: HookHandler<AgentHookExecutionContext>[] = [
-    createCustomHandler(),
     createEventEmitterHandler(hookType, emitEvent),
   ];
 

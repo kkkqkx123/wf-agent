@@ -7,7 +7,7 @@
  * - Clear data flow between loop iterations and parent workflow
  */
 
-import type { Condition } from "../../graph/condition.js";
+import type { Condition } from "../../condition.js";
 
 /**
  * Loop Variable Input Mapping

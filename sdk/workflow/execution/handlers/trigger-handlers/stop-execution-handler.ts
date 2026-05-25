@@ -1,61 +1,25 @@
-/**
- * Workflow execution termination function
- *
- * Responsible for initiating the action to stop a workflow execution
- * Coordinates the termination process through the WorkflowStateTransitor, which includes cascading the cancellation of child workflow executions
- */
-
 import type { TriggerAction, TriggerExecutionResult } from "@wf-agent/types";
 import { RuntimeValidationError, WorkflowExecutionNotFoundError } from "@wf-agent/types";
 import type { WorkflowExecutionRegistry } from "../../../stores/workflow-execution-registry.js";
-import { getErrorMessage, now } from "@wf-agent/common-utils";
-
-function createSuccessResult(
-  triggerId: string,
-  action: TriggerAction,
-  data: unknown,
-  executionTime: number,
-): TriggerExecutionResult {
-  return {
-    triggerId,
-    success: true,
-    action,
-    executionTime,
-    result: data,
-  };
-}
-
-function createFailureResult(
-  triggerId: string,
-  action: TriggerAction,
-  error: unknown,
-  executionTime: number,
-): TriggerExecutionResult {
-  return {
-    triggerId,
-    success: false,
-    action,
-    executionTime,
-    error: getErrorMessage(error),
-  };
-}
+import { now, diffTimestamp } from "@wf-agent/common-utils";
+import { createSuccessResult, createFailureResult } from "./trigger-handler-utils.js";
 
 export async function stopExecutionHandler(
   action: TriggerAction,
   triggerId: string,
   workflowExecutionRegistry: WorkflowExecutionRegistry,
 ): Promise<TriggerExecutionResult> {
-  const executionTime = now();
+  const startTime = now();
 
   try {
-    if (action.type !== "stop_workflow_execution") {
-      throw new RuntimeValidationError("Action type must be stop_workflow_execution", {
+    const { executionId } = action.parameters as { executionId?: string };
+
+    if (!executionId) {
+      throw new RuntimeValidationError("executionId is required for stop_workflow_execution", {
         operation: "handle",
-        field: "type",
+        field: "parameters.executionId",
       });
     }
-
-    const { executionId } = action.parameters;
 
     const executionEntity = workflowExecutionRegistry.get(executionId);
     if (!executionEntity) {
@@ -64,6 +28,8 @@ export async function stopExecutionHandler(
 
     executionEntity.stop();
 
+    const executionTime = diffTimestamp(startTime, now());
+
     return createSuccessResult(
       triggerId,
       action,
@@ -71,6 +37,7 @@ export async function stopExecutionHandler(
       executionTime,
     );
   } catch (error) {
+    const executionTime = diffTimestamp(startTime, now());
     return createFailureResult(triggerId, action, error, executionTime);
   }
 }

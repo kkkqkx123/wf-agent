@@ -307,24 +307,6 @@ export class SDKInstance {
       }
     }
 
-    // Configure custom trigger handlers if provided
-    if (this.config?.customTriggerHandlers) {
-      try {
-        const container = ContainerManager.getInstance().getContainer(this.containerId);
-        const customHandlerRegistry = container.get(ServiceIdentifiers.CustomHandlerRegistry);
-        
-        for (const [name, handler] of Object.entries(this.config.customTriggerHandlers)) {
-          customHandlerRegistry.register(name, handler);
-        }
-        
-        logger.info("Custom trigger handlers registered", {
-          count: Object.keys(this.config.customTriggerHandlers).length,
-        });
-      } catch (error) {
-        logger.error(`Failed to register custom trigger handlers: ${getErrorMessage(error)}`);
-      }
-    }
-
     // Configure LLM profiles if provided
     if (this.config?.profiles?.profiles && this.config.profiles.profiles.length > 0) {
       try {

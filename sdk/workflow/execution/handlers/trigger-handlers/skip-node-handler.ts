@@ -1,45 +1,11 @@
-/**
- * Skip node processing function
- * Responsible for executing the actions that trigger node skipping
- */
-
 import type { TriggerAction, TriggerExecutionResult } from "@wf-agent/types";
 import type { NodeExecutionResult } from "@wf-agent/types";
-import { ValidationError, WorkflowExecutionNotFoundError } from "@wf-agent/types";
+import { RuntimeValidationError, WorkflowExecutionNotFoundError } from "@wf-agent/types";
 import type { WorkflowExecutionRegistry } from "../../../stores/workflow-execution-registry.js";
 import type { EventRegistry } from "../../../../core/registry/event-registry.js";
-import { getErrorMessage, now } from "@wf-agent/common-utils";
+import { now, diffTimestamp } from "@wf-agent/common-utils";
 import { buildNodeCompletedEvent } from "../../utils/event/index.js";
-
-function createSuccessResult(
-  triggerId: string,
-  action: TriggerAction,
-  data: unknown,
-  executionTime: number,
-): TriggerExecutionResult {
-  return {
-    triggerId,
-    success: true,
-    action,
-    executionTime,
-    result: data,
-  };
-}
-
-function createFailureResult(
-  triggerId: string,
-  action: TriggerAction,
-  error: unknown,
-  executionTime: number,
-): TriggerExecutionResult {
-  return {
-    triggerId,
-    success: false,
-    action,
-    executionTime,
-    error: getErrorMessage(error),
-  };
-}
+import { createSuccessResult, createFailureResult } from "./trigger-handler-utils.js";
 
 export async function skipNodeHandler(
   action: TriggerAction,
@@ -47,14 +13,24 @@ export async function skipNodeHandler(
   workflowExecutionRegistry: WorkflowExecutionRegistry,
   eventManager: EventRegistry,
 ): Promise<TriggerExecutionResult> {
-  const executionTime = now();
+  const startTime = now();
 
   try {
-    if (action.type !== "skip_node") {
-      throw new ValidationError("Action type must be skip_node", "type");
+    const { executionId, nodeId } = action.parameters as { executionId?: string; nodeId?: string };
+
+    if (!executionId) {
+      throw new RuntimeValidationError("executionId is required for skip_node", {
+        operation: "handle",
+        field: "parameters.executionId",
+      });
     }
 
-    const { executionId, nodeId } = action.parameters;
+    if (!nodeId) {
+      throw new RuntimeValidationError("nodeId is required for skip_node", {
+        operation: "handle",
+        field: "parameters.nodeId",
+      });
+    }
 
     const executionEntity = workflowExecutionRegistry.get(executionId);
 
@@ -83,6 +59,8 @@ export async function skipNodeHandler(
     });
     await eventManager.emit(completedEvent);
 
+    const executionTime = diffTimestamp(startTime, now());
+
     return createSuccessResult(
       triggerId,
       action,
@@ -90,6 +68,7 @@ export async function skipNodeHandler(
       executionTime,
     );
   } catch (error) {
+    const executionTime = diffTimestamp(startTime, now());
     return createFailureResult(triggerId, action, error, executionTime);
   }
 }

@@ -1,12 +1,7 @@
-/**
- * Trigger handlers export
- */
-
 import type { TriggerAction, TriggerExecutionResult } from "@wf-agent/types";
 import { applyMessageOperationHandler } from "./apply-message-operation-handler.js";
-import { customHandler } from "./custom-handler.js";
 import { executeScriptHandler } from "./execute-script-handler.js";
-import { executeTriggeredSubgraphHandler } from "./execute-triggered-subgraph-handler.js";
+import { executeTriggeredSubworkflowHandler } from "./execute-triggered-subworkflow-handler.js";
 import { pauseExecutionHandler } from "./pause-execution-handler.js";
 import { resumeExecutionHandler } from "./resume-execution-handler.js";
 import { sendNotificationHandler } from "./send-notification-handler.js";
@@ -20,32 +15,33 @@ export type TriggerHandlerFn = (
   ...dependencies: unknown[]
 ) => Promise<TriggerExecutionResult>;
 
-export const triggerHandlers: Record<string, TriggerHandlerFn> = {
-  apply_message_operation: applyMessageOperationHandler as unknown as TriggerHandlerFn,
-  custom: customHandler as unknown as TriggerHandlerFn,
-  execute_script: executeScriptHandler as unknown as TriggerHandlerFn,
-  execute_triggered_subgraph: executeTriggeredSubgraphHandler as unknown as TriggerHandlerFn,
-  pause_workflow_execution: pauseExecutionHandler as unknown as TriggerHandlerFn,
-  resume_workflow_execution: resumeExecutionHandler as unknown as TriggerHandlerFn,
-  send_notification: sendNotificationHandler as unknown as TriggerHandlerFn,
-  set_variable: setVariableHandler as unknown as TriggerHandlerFn,
-  skip_node: skipNodeHandler as unknown as TriggerHandlerFn,
-  stop_workflow_execution: stopExecutionHandler as unknown as TriggerHandlerFn,
-};
+const triggerHandlersMap = {
+  apply_message_operation: applyMessageOperationHandler,
+  execute_script: executeScriptHandler,
+  execute_triggered_subworkflow: executeTriggeredSubworkflowHandler,
+  pause_workflow_execution: pauseExecutionHandler,
+  resume_workflow_execution: resumeExecutionHandler,
+  send_notification: sendNotificationHandler,
+  set_variable: setVariableHandler,
+  skip_node: skipNodeHandler,
+  stop_workflow_execution: stopExecutionHandler,
+} as const;
+
+export const triggerHandlers: Record<string, TriggerHandlerFn> =
+  triggerHandlersMap as unknown as Record<string, TriggerHandlerFn>;
 
 export function getTriggerHandler(actionType: string): TriggerHandlerFn {
-  const handler = triggerHandlers[actionType];
+  const handler = triggerHandlersMap[actionType as keyof typeof triggerHandlersMap];
   if (!handler) {
     throw new Error(`Unknown trigger action type: ${actionType}`);
   }
-  return handler;
+  return handler as unknown as TriggerHandlerFn;
 }
 
 export {
   applyMessageOperationHandler,
-  customHandler,
   executeScriptHandler,
-  executeTriggeredSubgraphHandler,
+  executeTriggeredSubworkflowHandler,
   pauseExecutionHandler,
   resumeExecutionHandler,
   sendNotificationHandler,

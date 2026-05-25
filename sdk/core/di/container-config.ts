@@ -56,7 +56,7 @@ import { ScriptRegistry } from "../registry/script-registry.js";
 import { NodeTemplateRegistry } from "../registry/node-template-registry.js";
 import { TriggerTemplateRegistry } from "../registry/trigger-template-registry.js";
 import { TimeoutRegistry } from "../registry/timeout-registry.js";
-import { CustomHandlerRegistry } from "../registry/custom-handler-registry.js";
+
 import { TaskRegistry } from "../../workflow/stores/task/task-registry.js";
 import { TaskQueue } from "../../workflow/stores/task/task-queue.js";
 import { WorkflowRegistry } from "../../workflow/stores/workflow-registry.js";
@@ -232,9 +232,6 @@ export function configureContainerBindings(
     .toDynamicValue(() => new TimeoutRegistry())
     .inSingletonScope();
 
-  // CustomHandlerRegistry - Custom trigger handler registry
-  container.bind(Identifiers.CustomHandlerRegistry).to(CustomHandlerRegistry).inSingletonScope();
-
   // TaskRegistry - Task registry (per-SDK-instance singleton)
   // Each SDK instance gets its own TaskRegistry to ensure isolation
   // Note: Async initialization (loading from storage) is handled in SDKInstance.bootstrap()
@@ -290,7 +287,6 @@ export function configureContainerBindings(
     .to(WorkflowRelationshipRegistry)
     .inSingletonScope();
 
-
   // WorkflowRegistry - Receives dependencies directly, no longer depends on GlobalContext
   // All dependencies are registered before WorkflowRegistry, so there are no container-level circular dependencies
   container
@@ -307,7 +303,12 @@ export function configureContainerBindings(
         | undefined;
       const graphRegistry = c.get(Identifiers.WorkflowGraphRegistry) as WorkflowGraphRegistry;
 
-      return new WorkflowRegistry(storageAdapter, executionRegistry, relationshipRegistry, graphRegistry);
+      return new WorkflowRegistry(
+        storageAdapter,
+        executionRegistry,
+        relationshipRegistry,
+        graphRegistry,
+      );
     })
     .inSingletonScope();
 
@@ -347,14 +348,11 @@ export function configureContainerBindings(
           workflowGraphRegistry: c.get(Identifiers.WorkflowGraphRegistry) as WorkflowGraphRegistry,
         },
         eventBuilder,
-        createCheckpointFn: (options, deps) => CheckpointCoordinator.createCheckpoint(
-          options.workflowExecutionId,
-          deps,
-          {
+        createCheckpointFn: (options, deps) =>
+          CheckpointCoordinator.createCheckpoint(options.workflowExecutionId, deps, {
             description: options.description,
             ...(options.toolId ? { customFields: { toolId: options.toolId } } : {}),
-          },
-        ),
+          }),
         safeEmitFn: emit,
       });
     })

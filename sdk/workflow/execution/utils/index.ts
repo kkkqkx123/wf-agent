@@ -96,13 +96,8 @@ export {
 
 export { checkWorkflowReferences } from "./workflow-reference-checker.js";
 
-// Hook Creator Tool (reexports the common parts from core/utils/hook)
-export {
-  createWorkflowExecutionStateCheckHook,
-  createCustomValidationHook,
-  createPermissionCheckHook,
-  createAuditLoggingHook,
-} from "./hook-creators.js";
+// Note: Hook creator functions previously exported from here
+// have been removed. Use Trigger Custom Handler for custom logic.
 
 // Checkpoint cleanup strategy (re-exported from core/utils/checkpoint)
 export {

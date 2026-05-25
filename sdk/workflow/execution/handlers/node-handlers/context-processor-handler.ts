@@ -15,7 +15,16 @@
  * - Batch Management: Control message visibility via startNewBatch() and rollbackToBatch()
  */
 
-import type { RuntimeNode, ContextProcessorNodeConfig, NamedMessageContext, MessageContextRegistry, LLMMessage } from "@wf-agent/types";
+import type {
+  RuntimeNode,
+  ContextProcessorNodeConfig,
+  ContextProcessorNodeOutput,
+  NamedMessageContext,
+  MessageContextRegistry,
+  LLMMessage,
+  MessageOperationConfig,
+  MessageOperationResult,
+} from "@wf-agent/types";
 import type { WorkflowExecution } from "@wf-agent/types";
 import { RuntimeValidationError } from "@wf-agent/types";
 import { createContextualLogger } from "../../../../utils/contextual-logger.js";
@@ -47,15 +56,9 @@ export interface ContextProcessorHandlerContext {
   /** Dialogue Manager */
   conversationManager: {
     executeMessageOperation: (
-      config: unknown,
-      callback: () => Promise<void>,
-    ) => Promise<{
-      stats?: {
-        originalMessageCount: number;
-        visibleMessageCount: number;
-        invisibleMessageCount: number;
-      };
-    }>;
+      config: MessageOperationConfig,
+      onAfterOperation?: (result: MessageOperationResult) => Promise<void>,
+    ) => Promise<MessageOperationResult>;
     getMessages: () => LLMMessage[];
     clearMessages: (keepSystemMessage?: boolean) => void;
     addMessages: (...messages: LLMMessage[]) => number;
@@ -71,15 +74,9 @@ export interface ContextProcessorHandlerContext {
       | {
           getConversationManager: () => {
             executeMessageOperation: (
-              config: unknown,
-              callback: () => Promise<void>,
-            ) => Promise<{
-              stats?: {
-                originalMessageCount: number;
-                visibleMessageCount: number;
-                invisibleMessageCount: number;
-              };
-            }>;
+              config: MessageOperationConfig,
+              onAfterOperation?: (result: MessageOperationResult) => Promise<void>,
+            ) => Promise<MessageOperationResult>;
             getMessages: () => LLMMessage[];
           };
         }
@@ -123,7 +120,7 @@ export async function contextProcessorHandler(
   workflowExecution: WorkflowExecution,
   node: RuntimeNode,
   context: ContextProcessorHandlerContext,
-): Promise<import("@wf-agent/types").ContextProcessorNodeOutput> {
+): Promise<ContextProcessorNodeOutput> {
   const config = node.config as ContextProcessorNodeConfig;
 
   // 1. Verify the configuration.
@@ -209,7 +206,7 @@ export async function contextProcessorHandler(
   }
 
   // 5. Execute message operations, which are internally handled by ConversationSession/MessageHistory for tasks such as refreshing and triggering events.
-  await targetConversationManager.executeMessageOperation(
+  const operationResult = await targetConversationManager.executeMessageOperation(
     config.operationConfig,
     async () => {
       // Operation callback: Refresh the tool visibility declaration
@@ -238,6 +235,10 @@ export async function contextProcessorHandler(
     messageCount,
     sourceContext: sourceContextId,
     targetContext: targetContextId,
-    stats: { originalMessageCount: 0, visibleMessageCount: messageCount, invisibleMessageCount: 0 },
+    stats: {
+      originalMessageCount: operationResult.stats.originalMessageCount,
+      visibleMessageCount: operationResult.stats.visibleMessageCount,
+      invisibleMessageCount: operationResult.stats.invisibleMessageCount,
+    },
   };
 }

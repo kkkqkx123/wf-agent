@@ -21,6 +21,7 @@ import type { WorkflowExecutionBuilder } from "./workflow-execution-builder.js";
 import type { TaskQueue } from "../../stores/task/task-queue.js";
 import type { WorkflowStateTransitor } from "../coordinators/workflow-state-transitor.js";
 import type { GlobalContext } from "../../../core/global-context.js";
+import type { WorkflowStateCoordinator } from "../../state-managers/workflow-state-coordinator.js";
 import { DependencyInjectionError } from "@wf-agent/types";
 
 /**
@@ -50,7 +51,7 @@ export interface SetVariableTriggerContext {
 
 /**
  * Execute Subgraph Trigger Context
- * Used for the execute_triggered_subgraph action
+ * Used for the execute_triggered_subworkflow action
  */
 export interface ExecuteSubgraphTriggerContext {
   workflowExecutionRegistry: WorkflowExecutionRegistry;
@@ -87,6 +88,8 @@ export interface TriggerHandlerContextFactoryConfig {
   taskQueueManager?: TaskQueue;
   /** Workflow State Transitor */
   workflowLifecycleCoordinator?: WorkflowStateTransitor;
+  /** Workflow State Coordinator Map (optional, for message operation actions) */
+  stateCoordinatorMap?: Map<string, WorkflowStateCoordinator>;
 }
 
 /**
@@ -122,7 +125,7 @@ export class TriggerHandlerContextFactory {
       case "set_variable":
         return this.createSetVariableContext();
 
-      case "execute_triggered_subgraph":
+      case "execute_triggered_subworkflow":
         return this.createSubgraphContext(trigger.id, trigger.action.type, trigger.executionId);
 
       default:
@@ -209,7 +212,7 @@ export class TriggerHandlerContextFactory {
   ): ExecuteSubgraphTriggerContext {
     if (!this.config.eventManager) {
       throw new DependencyInjectionError(
-        "EventRegistry is required for execute_triggered_subgraph trigger action",
+        "EventRegistry is required for execute_triggered_subworkflow trigger action",
         "EventRegistry",
         "TriggerHandlerContextFactory.createSubgraphContext",
         undefined,
@@ -220,7 +223,7 @@ export class TriggerHandlerContextFactory {
 
     if (!this.config.executionBuilder) {
       throw new DependencyInjectionError(
-        "WorkflowExecutionBuilder is required for execute_triggered_subgraph trigger action",
+        "WorkflowExecutionBuilder is required for execute_triggered_subworkflow trigger action",
         "WorkflowExecutionBuilder",
         "TriggerHandlerContextFactory.createSubgraphContext",
         undefined,
@@ -231,7 +234,7 @@ export class TriggerHandlerContextFactory {
 
     if (!this.config.taskQueueManager) {
       throw new DependencyInjectionError(
-        "TaskQueue is required for execute_triggered_subgraph trigger action",
+        "TaskQueue is required for execute_triggered_subworkflow trigger action",
         "TaskQueue",
         "TriggerHandlerContextFactory.createSubgraphContext",
         undefined,

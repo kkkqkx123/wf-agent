@@ -362,7 +362,7 @@ enabled = true
 eventType = "NODE_COMPLETED"
 
 [triggers.action]
-type = "execute_triggered_subgraph"
+type = "execute_triggered_subworkflow"
 
 [triggers.action.parameters]
 workflowId = "sub-wf-multi-ref"

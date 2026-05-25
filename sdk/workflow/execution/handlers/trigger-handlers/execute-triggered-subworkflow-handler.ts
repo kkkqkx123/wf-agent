@@ -1,19 +1,3 @@
-/**
- * Execute the trigger sub-workflow processing function
- * Responsible for running the isolated sub-workflows triggered by the trigger
- *
- * Responsibilities:
- * - Trigger the execution of the sub-workflow
- * - Pass in input data related to the trigger event
- * - Support both synchronous and asynchronous execution modes
- * - Manage execution using a task queue and workflow execution pool
- *
- * Note:
- * - Data transfer (variables, conversation history) is handled by the node processor
- * - The START_FROM_TRIGGER node is responsible for receiving input data
- * - The CONTINUE_FROM_TRIGGER node is responsible for sending data back to the main workflow execution
- */
-
 import type { TriggerAction, TriggerExecutionResult } from "@wf-agent/types";
 import type { ExecuteTriggeredSubworkflowActionConfig } from "@wf-agent/types";
 import {
@@ -22,13 +6,14 @@ import {
   WorkflowNotFoundError,
 } from "@wf-agent/types";
 import type { WorkflowExecutionRegistry } from "../../../stores/workflow-execution-registry.js";
-import { getErrorMessage, now, diffTimestamp } from "@wf-agent/common-utils";
+import { diffTimestamp, now } from "@wf-agent/common-utils";
 import type { TriggeredSubworkflowTask } from "../../types/triggered-subworkflow.types.js";
 import * as Identifiers from "../../../../core/di/service-identifiers.js";
 import type { GlobalContext } from "../../../../core/global-context.js";
 import type { WorkflowGraphRegistry } from "../../../stores/workflow-graph-registry.js";
 import type { TriggeredSubworkflowHandler } from "../triggered-subworkflow-handler.js";
 import type { AgentLoopEntity } from "../../../../agent/entities/agent-loop-entity.js";
+import { createFailureResult } from "./trigger-handler-utils.js";
 
 function createSyncSuccessResult(
   triggerId: string,
@@ -39,15 +24,15 @@ function createSyncSuccessResult(
     output: Record<string, unknown>;
     executionTime: number;
   },
-  executionTime: number,
+  overallExecutionTime: number,
 ): TriggerExecutionResult {
   return {
     triggerId,
     success: true,
     action,
-    executionTime,
+    executionTime: overallExecutionTime,
     result: {
-      message: `Triggered subgraph execution completed: ${data.triggeredWorkflowId}`,
+      message: `Triggered subworkflow execution completed: ${data.triggeredWorkflowId}`,
       triggeredWorkflowId: data.triggeredWorkflowId,
       input: data.input,
       output: data.output,
@@ -68,15 +53,15 @@ function createAsyncSuccessResult(
     status: string;
     executionTime: number;
   },
-  executionTime: number,
+  overallExecutionTime: number,
 ): TriggerExecutionResult {
   return {
     triggerId,
     success: true,
     action,
-    executionTime,
+    executionTime: overallExecutionTime,
     result: {
-      message: `Triggered subgraph submitted: ${data.triggeredWorkflowId}`,
+      message: `Triggered subworkflow submitted: ${data.triggeredWorkflowId}`,
       triggeredWorkflowId: data.triggeredWorkflowId,
       taskId: data.taskId,
       status: data.status,
@@ -88,22 +73,7 @@ function createAsyncSuccessResult(
   };
 }
 
-function createFailureResult(
-  triggerId: string,
-  action: TriggerAction,
-  error: unknown,
-  executionTime: number,
-): TriggerExecutionResult {
-  return {
-    triggerId,
-    success: false,
-    action,
-    executionTime,
-    error: getErrorMessage(error),
-  };
-}
-
-export async function executeTriggeredSubgraphHandler(
+export async function executeTriggeredSubworkflowHandler(
   action: TriggerAction,
   triggerId: string,
   workflowExecutionRegistry: WorkflowExecutionRegistry,
@@ -133,14 +103,20 @@ export async function executeTriggeredSubgraphHandler(
     const mainWorkflowExecutionEntity = workflowExecutionRegistry.get(executionId);
 
     if (!mainWorkflowExecutionEntity) {
-      throw new WorkflowExecutionNotFoundError(`Main workflow execution entity not found: ${executionId}`, executionId);
+      throw new WorkflowExecutionNotFoundError(
+        `Main workflow execution entity not found: ${executionId}`,
+        executionId,
+      );
     }
 
     if (!globalContext) {
-      throw new RuntimeValidationError("GlobalContext is required for execute_triggered_subgraph", {
-        operation: "handle",
-        field: "globalContext",
-      });
+      throw new RuntimeValidationError(
+        "GlobalContext is required for execute_triggered_subworkflow",
+        {
+          operation: "handle",
+          field: "globalContext",
+        },
+      );
     }
 
     const container = globalContext.container;
@@ -164,7 +140,7 @@ export async function executeTriggeredSubgraphHandler(
       triggerId,
       mainWorkflowExecutionEntity,
       config: parameters,
-      sourceType: agentLoopEntity ? 'agent' : 'workflow',
+      sourceType: agentLoopEntity ? "agent" : "workflow",
       sourceEntityId: agentLoopEntity?.id,
     };
 
@@ -203,7 +179,6 @@ export async function executeTriggeredSubgraphHandler(
       );
     }
   } catch (error) {
-    const executionTime = diffTimestamp(startTime, now());
-    return createFailureResult(triggerId, action, error, executionTime);
+    return createFailureResult(triggerId, action, error, diffTimestamp(startTime, now()));
   }
 }

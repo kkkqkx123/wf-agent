@@ -4,7 +4,7 @@
  */
 
 import type { ID, Metadata } from "./common.js";
-import type { Condition } from "./graph/condition.js";
+import type { Condition } from "./condition.js";
 
 /**
  * side type

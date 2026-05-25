@@ -317,8 +317,8 @@ export class TriggerCoordinator {
       graphRegistry,
       workflowExecutionRegistry,
       workflowRegistry,
-      workflowLifecycleCoordinator,
       eventManager,
+      stateCoordinatorMap,
     } = this.contextFactory.getDependencies();
     const stateManager = this.contextFactory.getStateManager();
 
@@ -367,13 +367,13 @@ export class TriggerCoordinator {
       case "stop_workflow_execution":
       case "pause_workflow_execution":
       case "resume_workflow_execution":
-        if (!workflowLifecycleCoordinator) {
+        if (!workflowExecutionRegistry) {
           throw new DependencyInjectionError(
-            "WorkflowLifecycleCoordinator not provided",
-            "WorkflowLifecycleCoordinator",
+            "WorkflowExecutionRegistry not provided",
+            "WorkflowExecutionRegistry",
           );
         }
-        await handler(trigger.action, trigger.id, workflowLifecycleCoordinator);
+        await handler(trigger.action, trigger.id, workflowExecutionRegistry);
         break;
 
       case "skip_node":
@@ -387,17 +387,23 @@ export class TriggerCoordinator {
         break;
 
       case "set_variable":
-      case "apply_message_operation":
         if (!workflowExecutionRegistry) {
           throw new DependencyInjectionError("WorkflowExecutionRegistry not provided", "WorkflowExecutionRegistry");
         }
         await handler(trigger.action, trigger.id, workflowExecutionRegistry);
         break;
 
-      case "execute_triggered_subgraph":
+      case "apply_message_operation":
+        if (!workflowExecutionRegistry) {
+          throw new DependencyInjectionError("WorkflowExecutionRegistry not provided", "WorkflowExecutionRegistry");
+        }
+        await handler(trigger.action, trigger.id, workflowExecutionRegistry, stateCoordinatorMap);
+        break;
+
+      case "execute_triggered_subworkflow":
         if (!workflowExecutionRegistry) {
           throw new DependencyInjectionError(
-            "WorkflowExecutionRegistry not provided for execute_triggered_subgraph",
+            "WorkflowExecutionRegistry not provided for execute_triggered_subworkflow",
             "WorkflowExecutionRegistry",
           );
         }
@@ -431,9 +437,11 @@ export class TriggerCoordinator {
         );
         break;
 
-      case "custom":
-        // Custom handler requires containerId to resolve CustomHandlerRegistry from DI container
-        await handler(trigger.action, trigger.id, trigger.executionId);
+      case "execute_script":
+        {
+          const globalContext = this.contextFactory.getGlobalContext();
+          await handler(trigger.action, trigger.id, globalContext);
+        }
         break;
 
       default:

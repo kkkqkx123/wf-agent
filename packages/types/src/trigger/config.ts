@@ -5,7 +5,7 @@
 import type { ID, Metadata } from "../common.js";
 import { EventType } from "../events/index.js";
 import type { MessageRole } from "../message/index.js";
-import type { Condition } from "../graph/condition.js";
+import type { Condition } from "../condition.js";
 
 /**
  * Trigger Condition Interface
@@ -41,12 +41,10 @@ export type TriggerActionType =
   | "set_variable"
   /** Send notification */
   | "send_notification"
-  /** Customized Actions */
-  | "custom"
   /** Application message manipulation (context compression, etc.) */
   | "apply_message_operation"
   /** Execution triggers subworkflows */
-  | "execute_triggered_subgraph"
+  | "execute_triggered_subworkflow"
   /** executable script */
   | "execute_script";
 
@@ -116,16 +114,6 @@ export interface SendNotificationActionParameters {
   level?: "info" | "warning" | "error" | "success";
   /** Notification channels */
   channel?: "email" | "sms" | "push" | "webhook" | "in_app";
-}
-
-/**
- * Customizing Action Parameters
- */
-export interface CustomActionParameters {
-  /** Custom processor name */
-  handlerName: string;
-  /** Customized parameters */
-  data?: Record<string, unknown>;
 }
 
 /**
@@ -217,14 +205,6 @@ export interface SendNotificationAction extends BaseTriggerAction {
 }
 
 /**
- * Customized Actions
- */
-export interface CustomAction extends BaseTriggerAction {
-  type: "custom";
-  parameters: CustomActionParameters;
-}
-
-/**
  * Apply message manipulation actions
  */
 export interface ApplyMessageOperationAction extends BaseTriggerAction {
@@ -235,8 +215,8 @@ export interface ApplyMessageOperationAction extends BaseTriggerAction {
 /**
  * Execute the trigger sub-workflow action
  */
-export interface ExecuteTriggeredSubgraphAction extends BaseTriggerAction {
-  type: "execute_triggered_subgraph";
+export interface ExecuteTriggeredSubworkflowAction extends BaseTriggerAction {
+  type: "execute_triggered_subworkflow";
   parameters: ExecuteTriggeredSubworkflowActionConfig;
 }
 
@@ -259,9 +239,8 @@ export type TriggerAction =
   | SkipNodeAction
   | SetVariableAction
   | SendNotificationAction
-  | CustomAction
   | ApplyMessageOperationAction
-  | ExecuteTriggeredSubgraphAction
+  | ExecuteTriggeredSubworkflowAction
   | ExecuteScriptAction;
 
 /**
@@ -287,7 +266,7 @@ export interface ExecuteTriggeredSubworkflowActionConfig {
   timeout?: number;
   /** Whether to record history */
   recordHistory?: boolean;
-  
+
   /**
    * Input mapping configuration
    * Maps parent workflow data to trigger subworkflow inputs
@@ -295,14 +274,14 @@ export interface ExecuteTriggeredSubworkflowActionConfig {
   inputMapping?: {
     /** Variable mapping: parent variable name → subworkflow input name */
     variables?: Record<string, string>;
-    
+
     /** Message context mapping: parent context ID → subworkflow message input externalName */
     messageContexts?: Record<string, string>;
-    
+
     /** Additional static parameters to pass */
     additionalParams?: Record<string, unknown>;
   };
-  
+
   /**
    * Output mapping configuration
    * Controls how subworkflow outputs are returned to parent workflow
@@ -312,19 +291,19 @@ export interface ExecuteTriggeredSubworkflowActionConfig {
     variables?: {
       /** List of variable names to return */
       include?: string[];
-      
+
       /** Whether to return all variables (default false) */
       includeAll?: boolean;
-      
+
       /** Mapping: subworkflow variable name → parent variable name */
       rename?: Record<string, string>;
     };
-    
+
     /** Message context output configuration */
     messageContexts?: {
       /** List of message context externalNames to return */
       include?: string[];
-      
+
       /** Whether to return all message contexts (default false) */
       includeAll?: boolean;
     };

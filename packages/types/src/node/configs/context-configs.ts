@@ -7,14 +7,22 @@ import type { MessageOperationConfig } from '../../message/index.js';
 
 /**
  * Context Processor Node Output
- * - operationsApplied: number - Number of message operations performed
+ * - operation: string - The type of operation performed (e.g. TRUNCATE, APPEND, CLEAR, etc.)
+ * - messageCount: number - Number of messages after processing
  * - sourceContext: string - The source context ID
  * - targetContext: string - The target context ID after processing
+ * - stats: object - Optional statistics about the operation
  */
 export interface ContextProcessorNodeOutput {
-  operationsApplied: number;
+  operation: string;
+  messageCount: number;
   sourceContext: string;
   targetContext: string;
+  stats?: {
+    originalMessageCount: number;
+    visibleMessageCount: number;
+    invisibleMessageCount: number;
+  };
 }
 
 /**

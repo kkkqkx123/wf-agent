@@ -17,6 +17,3 @@ export * from "./merge.js";
 
 // Exporting Preprocessed Chart Types
 export * from "./preprocessed-graph.js";
-
-// Export condition type
-export * from "./condition.js";

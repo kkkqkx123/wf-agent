@@ -37,7 +37,7 @@ export function createContextCompressionTriggerTemplate(): TriggerTemplate {
       eventType: "CONTEXT_COMPRESSION_REQUESTED",
     },
     action: {
-      type: "execute_triggered_subgraph",
+      type: "execute_triggered_subworkflow",
       parameters: {
         triggeredWorkflowId: CONTEXT_COMPRESSION_WORKFLOW_ID,
         waitForCompletion: true,

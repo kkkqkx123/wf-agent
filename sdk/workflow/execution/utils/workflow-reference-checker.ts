@@ -233,8 +233,8 @@ function isTriggerReferencingWorkflow(
 ): boolean {
   // Handling the WorkflowTrigger type
   if (isWorkflowTrigger(trigger)) {
-    // Process ExecuteTriggeredSubgraphActionConfig
-    if (trigger.action?.type === "execute_triggered_subgraph") {
+    // Process ExecuteTriggeredSubworkflowActionConfig
+    if (trigger.action?.type === "execute_triggered_subworkflow") {
       const triggeredWorkflowId = trigger.action.parameters?.["triggeredWorkflowId"];
       return triggeredWorkflowId === targetWorkflowId;
     }
@@ -242,7 +242,7 @@ function isTriggerReferencingWorkflow(
 
   // Handling the TriggerReference type
   if (isTriggerReference(trigger)) {
-    if (trigger.configOverride?.action?.type === "execute_triggered_subgraph") {
+    if (trigger.configOverride?.action?.type === "execute_triggered_subworkflow") {
       const triggeredWorkflowId = trigger.configOverride.action.parameters?.["triggeredWorkflowId"];
       return triggeredWorkflowId === targetWorkflowId;
     }

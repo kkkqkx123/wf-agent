@@ -1,61 +1,25 @@
-/**
- * Workflow Execution Suspension Handling Function
- *
- * Responsible for initiating the action to suspend a workflow execution
- * The suspension process is coordinated through the WorkflowStateTransitor.
- */
-
 import type { TriggerAction, TriggerExecutionResult } from "@wf-agent/types";
 import { RuntimeValidationError, WorkflowExecutionNotFoundError } from "@wf-agent/types";
 import type { WorkflowExecutionRegistry } from "../../../stores/workflow-execution-registry.js";
-import { getErrorMessage, now } from "@wf-agent/common-utils";
-
-function createSuccessResult(
-  triggerId: string,
-  action: TriggerAction,
-  data: unknown,
-  executionTime: number,
-): TriggerExecutionResult {
-  return {
-    triggerId,
-    success: true,
-    action,
-    executionTime,
-    result: data,
-  };
-}
-
-function createFailureResult(
-  triggerId: string,
-  action: TriggerAction,
-  error: unknown,
-  executionTime: number,
-): TriggerExecutionResult {
-  return {
-    triggerId,
-    success: false,
-    action,
-    executionTime,
-    error: getErrorMessage(error),
-  };
-}
+import { now, diffTimestamp } from "@wf-agent/common-utils";
+import { createSuccessResult, createFailureResult } from "./trigger-handler-utils.js";
 
 export async function pauseExecutionHandler(
   action: TriggerAction,
   triggerId: string,
   workflowExecutionRegistry: WorkflowExecutionRegistry,
 ): Promise<TriggerExecutionResult> {
-  const executionTime = now();
+  const startTime = now();
 
   try {
-    if (action.type !== "pause_workflow_execution") {
-      throw new RuntimeValidationError("Action type must be pause_workflow_execution", {
+    const { executionId } = action.parameters as { executionId?: string };
+
+    if (!executionId) {
+      throw new RuntimeValidationError("executionId is required for pause_workflow_execution", {
         operation: "handle",
-        field: "type",
+        field: "parameters.executionId",
       });
     }
-
-    const { executionId } = action.parameters;
 
     const executionEntity = workflowExecutionRegistry.get(executionId);
     if (!executionEntity) {
@@ -64,6 +28,8 @@ export async function pauseExecutionHandler(
 
     executionEntity.pause();
 
+    const executionTime = diffTimestamp(startTime, now());
+
     return createSuccessResult(
       triggerId,
       action,
@@ -71,6 +37,7 @@ export async function pauseExecutionHandler(
       executionTime,
     );
   } catch (error) {
+    const executionTime = diffTimestamp(startTime, now());
     return createFailureResult(triggerId, action, error, executionTime);
   }
 }

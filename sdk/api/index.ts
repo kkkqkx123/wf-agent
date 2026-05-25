@@ -261,15 +261,6 @@ export {
 } from "../core/validation/index.js";
 
 // ============================================================================
-// Workflow - Hook Creator
-// ============================================================================
-export {
-  createWorkflowExecutionStateCheckHook,
-  createPermissionCheckHook,
-  createAuditLoggingHook,
-} from "../workflow/execution/utils/hook-creators.js";
-
-// ============================================================================
 // Shared - Commands (LLM, Tool, Script)
 // ============================================================================
 

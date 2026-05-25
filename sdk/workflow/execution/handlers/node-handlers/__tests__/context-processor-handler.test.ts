@@ -43,9 +43,8 @@ beforeEach(() => {
     { role: 'user', content: 'processed' },
   ]);
   mockConversationManager.executeMessageOperation.mockImplementation(
-    async (_config: unknown, callback: () => Promise<void>) => {
-      await callback();
-      return { stats: { originalMessageCount: 1, visibleMessageCount: 1, invisibleMessageCount: 0 } };
+    async (_config: unknown, _onAfterOperation?: (result: any) => Promise<void>) => {
+      return { stats: { originalMessageCount: 1, visibleMessageCount: 1, invisibleMessageCount: 0 } } as any;
     },
   );
 });
@@ -102,9 +101,8 @@ describe('contextProcessorHandler', () => {
   it('should target parent execution when configured', async () => {
     const mockParentConversationManager = {
       executeMessageOperation: vi.fn().mockImplementation(
-        async (_config: unknown, callback: () => Promise<void>) => {
-          await callback();
-          return { stats: {} };
+        async (_config: unknown, _onAfterOperation?: (result: any) => Promise<void>) => {
+          return { stats: { originalMessageCount: 0, visibleMessageCount: 0, invisibleMessageCount: 0 } };
         },
       ),
       getMessages: vi.fn().mockReturnValue([]),

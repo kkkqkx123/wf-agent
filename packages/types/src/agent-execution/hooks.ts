@@ -8,7 +8,7 @@
  * Refer to NodeHook design pattern.
  */
 
-import type { Condition } from "../graph/condition.js";
+import type { Condition } from "../condition.js";
 
 /**
  * Agent Hook Type

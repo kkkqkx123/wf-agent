@@ -38,7 +38,6 @@ export {
   SkipNodeActionParametersSchema,
   SetVariableActionParametersSchema,
   SendNotificationActionParametersSchema,
-  CustomActionParametersSchema,
   ApplyMessageOperationActionParametersSchema,
   isTriggerCondition,
   isTriggerAction,

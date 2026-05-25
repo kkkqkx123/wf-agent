@@ -11,7 +11,6 @@ import type { LogStream, LogEntry, StreamOptions } from "../types.js";
  */
 interface QueueItem {
   entry: LogEntry;
-  callback?: () => void;
 }
 
 /**

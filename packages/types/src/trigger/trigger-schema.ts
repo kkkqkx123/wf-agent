@@ -72,9 +72,8 @@ const triggerActionTypeSchema = z.custom<TriggerActionType>((val): val is Trigge
     "skip_node",
     "set_variable",
     "send_notification",
-    "custom",
     "apply_message_operation",
-    "execute_triggered_subgraph",
+    "execute_triggered_subworkflow",
     "execute_script",
   ].includes(val as TriggerActionType),
 );
@@ -226,14 +225,6 @@ export const SendNotificationActionParametersSchema = z.object({
 });
 
 /**
- * Custom Action Parameters Schema
- */
-export const CustomActionParametersSchema = z.object({
-  handlerName: z.string().min(1, "Handler name is required"),
-  data: z.record(z.string(), z.any()).optional(),
-});
-
-/**
  * Apply Message Operation Action Parameters Schema
  */
 export const ApplyMessageOperationActionParametersSchema = z.object({
@@ -325,21 +316,15 @@ export const TriggerActionSchema = z.discriminatedUnion("type", [
     parameters: SendNotificationActionParametersSchema,
     metadata: z.record(z.string(), z.any()).optional(),
   }),
-  // custom
-  z.object({
-    type: z.literal("custom"),
-    parameters: CustomActionParametersSchema,
-    metadata: z.record(z.string(), z.any()).optional(),
-  }),
   // apply_message_operation
   z.object({
     type: z.literal("apply_message_operation"),
     parameters: ApplyMessageOperationActionParametersSchema,
     metadata: z.record(z.string(), z.any()).optional(),
   }),
-  // execute_triggered_subgraph
+  // execute_triggered_subworkflow
   z.object({
-    type: z.literal("execute_triggered_subgraph"),
+    type: z.literal("execute_triggered_subworkflow"),
     parameters: ExecuteTriggeredSubworkflowActionConfigSchema,
     metadata: z.record(z.string(), z.any()).optional(),
   }),

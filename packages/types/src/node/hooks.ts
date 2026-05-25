@@ -2,7 +2,7 @@
  * Node Hook Related Type Definitions
  */
 
-import type { Condition } from "../graph/condition.js";
+import type { Condition } from "../condition.js";
 
 /**
  * Hook Type

@@ -20,12 +20,15 @@ export interface FileStreamOptions extends BaseFileStreamOptions {
  */
 export class FileStream extends BaseFileStream implements LogStream {
   private writeStream: fs.WriteStream;
+  private append: boolean;
 
   constructor(options: FileStreamOptions = {}) {
     super(options);
 
+    this.append = options.append !== false;
+
     // Creating a Write Stream
-    const flags = options.append !== false ? "a" : "w";
+    const flags = this.append ? "a" : "w";
     this.writeStream = fs.createWriteStream(this.filePath, {
       flags,
       encoding: "utf8",
@@ -94,8 +97,12 @@ export class FileStream extends BaseFileStream implements LogStream {
     this.writeToFallback([lines]);
 
     try {
-      // Use fs.appendFileSync for synchronous write
-      fs.appendFileSync(this.filePath, lines, "utf8");
+      // Use the configured mode: writeFileSync for "w" (truncate), appendFileSync for "a"
+      if (this.append) {
+        fs.appendFileSync(this.filePath, lines, "utf8");
+      } else {
+        fs.writeFileSync(this.filePath, lines, "utf8");
+      }
     } catch (err) {
       this.handleError(err as Error);
     }

@@ -89,7 +89,8 @@ export class RotatingFileStream extends BaseFileStream implements LogStream {
     const lineSize = Buffer.byteLength(line, "utf8");
 
     // Check if rotation is needed
-    if (this.currentSize + lineSize > this.maxSize) {
+    // Skip rotation if the line itself is larger than maxSize (can't rotate infinitely)
+    if (this.currentSize + lineSize > this.maxSize && lineSize <= this.maxSize) {
       this.rotate();
     }
 

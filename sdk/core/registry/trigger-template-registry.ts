@@ -379,8 +379,7 @@ class TriggerTemplateRegistry {
       "skip_node",
       "set_variable",
       "send_notification",
-      "custom",
-      "execute_triggered_subgraph",
+      "execute_triggered_subworkflow",
       "execute_script",
       "apply_message_operation",
     ];

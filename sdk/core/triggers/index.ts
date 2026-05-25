@@ -33,8 +33,3 @@ export {
   isTriggerExpired,
   getRemainingTriggers,
 } from "./limiter.js";
-
-// Custom Handler Registry (re-export from registry)
-export { CustomHandlerRegistry } from "../registry/custom-handler-registry.js";
-
-export type { CustomTriggerHandler } from "../registry/custom-handler-registry.js";

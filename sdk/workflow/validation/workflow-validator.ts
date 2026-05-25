@@ -123,10 +123,10 @@ export class WorkflowValidator {
     const hasSubgraphNode = nodes.some(node => node.type === "SUBGRAPH");
 
     // Check if the EXECUTE_TRIGGERED_SUBGRAPH trigger is present.
-    const hasExecuteTriggeredSubgraphTrigger =
+    const hasExecuteTriggeredSubworkflowTrigger =
       triggers?.some(trigger => {
         if ("action" in trigger) {
-          return trigger.action.type === "execute_triggered_subgraph";
+          return trigger.action.type === "execute_triggered_subworkflow";
         }
         return false;
       }) || false;
@@ -184,10 +184,10 @@ export class WorkflowValidator {
             ),
           );
         }
-        if (hasExecuteTriggeredSubgraphTrigger) {
+        if (hasExecuteTriggeredSubworkflowTrigger) {
           errors.push(
             new ConfigurationValidationError(
-              "Standalone workflow should not contain EXECUTE_TRIGGERED_SUBGRAPH trigger. Use DEPENDENT type instead.",
+              "Standalone workflow should not contain EXECUTE_TRIGGERED_SUBWORKFLOW trigger. Use DEPENDENT type instead.",
               {
                 configType: "workflow",
                 configPath: "workflow.type",
@@ -199,10 +199,10 @@ export class WorkflowValidator {
 
       case "DEPENDENT":
         // The dependency workflow must include a SUBGRAPH node or an EXECUTE_TRIGGERED_SUBGRAPH trigger.
-        if (!hasSubgraphNode && !hasExecuteTriggeredSubgraphTrigger) {
+        if (!hasSubgraphNode && !hasExecuteTriggeredSubworkflowTrigger) {
           errors.push(
             new ConfigurationValidationError(
-              "Dependent workflow must contain either SUBGRAPH node or EXECUTE_TRIGGERED_SUBGRAPH trigger",
+              "Dependent workflow must contain either SUBGRAPH node or EXECUTE_TRIGGERED_SUBWORKFLOW trigger",
               {
                 configType: "workflow",
                 configPath: "workflow.type",

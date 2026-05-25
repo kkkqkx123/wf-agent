@@ -6,7 +6,7 @@
  */
 
 import type { StaticNode, NodeHook, NodeExecutionResult, NodeCustomEvent } from "@wf-agent/types";
-import { HookType, ExecutionError } from "@wf-agent/types";
+import { HookType } from "@wf-agent/types";
 import type { CheckpointDependencies } from "../../../checkpoint/checkpoint-coordinator.js";
 import { CheckpointCoordinator } from "../../../checkpoint/checkpoint-coordinator.js";
 import {
@@ -17,9 +17,7 @@ import {
   type HookHandler,
 } from "../../../../core/hooks/index.js";
 import { getErrorOrNew } from "@wf-agent/common-utils";
-import {
-  executeWithInterruptionHandling,
-} from "../../../../core/utils/interruption/index.js";
+import { executeWithInterruptionHandling } from "../../../../core/utils/interruption/index.js";
 import {
   getWorkflowInterruptionDescription,
   toWorkflowInterruptionResult,
@@ -102,33 +100,6 @@ function createCheckpointHandler(): HookHandler<HookExecutionContext> {
 }
 
 /**
- * Create a custom processor
- */
-function createCustomHandler(): HookHandler<HookExecutionContext> {
-  return async (context, hook, eventData) => {
-    const customHandler = hook.eventPayload?.["handler"];
-    if (customHandler && typeof customHandler === "function") {
-      try {
-        await customHandler(context, hook as NodeHook, eventData);
-      } catch (error) {
-        throw new ExecutionError(
-          "Custom handler execution failed",
-          context.node.id,
-          context.workflowExecutionEntity.getWorkflowId(),
-          {
-            eventName: hook.eventName,
-            nodeId: context.node.id,
-            operation: "custom_handler_execution",
-          },
-          getErrorOrNew(error),
-          "error",
-        );
-      }
-    }
-  };
-}
-
-/**
  * Create an event emitter handler
  */
 function createEventEmitterHandler(
@@ -168,34 +139,30 @@ export async function executeHook(
   // Create a processor chain
   const handlers: HookHandler<HookExecutionContext>[] = [
     createCheckpointHandler(),
-    createCustomHandler(),
     createEventEmitterHandler(emitEvent),
   ];
 
   const abortSignal = workflowExecutionEntity.getAbortSignal();
 
   // Execute Hook using unified interruption handling wrapper
-  const result = await executeWithInterruptionHandling(
-    async (signal) => {
-      // Execute Hooks with signal
-      await executeHooks(
-        hooks,
-        context,
-        buildGraphEvalContext,
-        handlers,
-        async () => {
-          // The event has been processed by createEventEmitterHandler.
-        },
-        {
-          parallel: true,
-          continueOnError: true,
-          warnOnConditionFailure: true,
-          abortSignal: signal, // Pass signal to executeHooks
-        },
-      );
-    },
-    abortSignal,
-  );
+  const result = await executeWithInterruptionHandling(async signal => {
+    // Execute Hooks with signal
+    await executeHooks(
+      hooks,
+      context,
+      buildGraphEvalContext,
+      handlers,
+      async () => {
+        // The event has been processed by createEventEmitterHandler.
+      },
+      {
+        parallel: true,
+        continueOnError: true,
+        warnOnConditionFailure: true,
+        abortSignal: signal, // Pass signal to executeHooks
+      },
+    );
+  }, abortSignal);
 
   // Handle interruption if needed
   if (!result.success) {
@@ -206,10 +173,10 @@ export async function executeHook(
       hookType,
       interruptionType: interruption.type,
     });
-    
+
     // Throw standard interruption error
     const interruptionError = new Error(
-      `Hook execution interrupted: ${getWorkflowInterruptionDescription(interruption)}`
+      `Hook execution interrupted: ${getWorkflowInterruptionDescription(interruption)}`,
     ) as Error & { interruption?: WorkflowInterruptionCheckResult };
     interruptionError.name = "InterruptionError";
     interruptionError.interruption = interruption;

@@ -1,13 +1,11 @@
 /**
- * Skill 类型定义
- *
- * 遵循 Claude Code Skill 规范
- * @see https://github.com/anthropics/claude-code
+ * Skill type definition
+ * Follow Claude Code Skill specification
  */
 
 /**
  * Skill Metadata
- * 
+ *
  * Parsed from SKILL.md's YAML frontmatter
  */
 export interface SkillMetadata {

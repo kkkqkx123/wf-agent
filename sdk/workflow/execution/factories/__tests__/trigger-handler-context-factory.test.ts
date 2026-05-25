@@ -251,8 +251,8 @@ describe('TriggerHandlerContextFactory', () => {
       expect((result as SetVariableTriggerContext).workflowExecutionRegistry).toBe(config.workflowExecutionRegistry);
     });
 
-    it('should create subgraph context for execute_triggered_subgraph', () => {
-      const trigger = createMockTrigger('execute_triggered_subgraph');
+    it('should create subgraph context for execute_triggered_subworkflow', () => {
+      const trigger = createMockTrigger('execute_triggered_subworkflow');
       const result = factory.createHandlerContext(trigger);
       
       expect(result).toHaveProperty('workflowExecutionRegistry');
@@ -268,7 +268,7 @@ describe('TriggerHandlerContextFactory', () => {
       expect((result as ExecuteSubgraphTriggerContext).parentExecutionId).toBe('exec456');
     });
 
-    it('should throw DependencyInjectionError when eventManager is missing for execute_triggered_subgraph', () => {
+    it('should throw DependencyInjectionError when eventManager is missing for execute_triggered_subworkflow', () => {
       // Remove eventManager from config
       const configWithoutEventManager = {
         ...config,
@@ -276,17 +276,17 @@ describe('TriggerHandlerContextFactory', () => {
       };
       const factoryWithoutEventManager = new TriggerHandlerContextFactory(configWithoutEventManager);
       
-      const trigger = createMockTrigger('execute_triggered_subgraph');
+      const trigger = createMockTrigger('execute_triggered_subworkflow');
       
       expect(() => 
         factoryWithoutEventManager.createHandlerContext(trigger)
       ).toThrow(DependencyInjectionError);
       expect(() => 
         factoryWithoutEventManager.createHandlerContext(trigger)
-      ).toThrow('EventRegistry is required for execute_triggered_subgraph trigger action');
+      ).toThrow('EventRegistry is required for execute_triggered_subworkflow trigger action');
     });
 
-    it('should throw DependencyInjectionError when executionBuilder is missing for execute_triggered_subgraph', () => {
+    it('should throw DependencyInjectionError when executionBuilder is missing for execute_triggered_subworkflow', () => {
       // Remove executionBuilder from config
       const configWithoutBuilder = {
         ...config,
@@ -294,17 +294,17 @@ describe('TriggerHandlerContextFactory', () => {
       };
       const factoryWithoutBuilder = new TriggerHandlerContextFactory(configWithoutBuilder);
       
-      const trigger = createMockTrigger('execute_triggered_subgraph');
+      const trigger = createMockTrigger('execute_triggered_subworkflow');
       
       expect(() => 
         factoryWithoutBuilder.createHandlerContext(trigger)
       ).toThrow(DependencyInjectionError);
       expect(() => 
         factoryWithoutBuilder.createHandlerContext(trigger)
-      ).toThrow('WorkflowExecutionBuilder is required for execute_triggered_subgraph trigger action');
+      ).toThrow('WorkflowExecutionBuilder is required for execute_triggered_subworkflow trigger action');
     });
 
-    it('should throw DependencyInjectionError when taskQueueManager is missing for execute_triggered_subgraph', () => {
+    it('should throw DependencyInjectionError when taskQueueManager is missing for execute_triggered_subworkflow', () => {
       // Remove taskQueueManager from config
       const configWithoutTaskQueue = {
         ...config,
@@ -312,14 +312,14 @@ describe('TriggerHandlerContextFactory', () => {
       };
       const factoryWithoutTaskQueue = new TriggerHandlerContextFactory(configWithoutTaskQueue);
       
-      const trigger = createMockTrigger('execute_triggered_subgraph');
+      const trigger = createMockTrigger('execute_triggered_subworkflow');
       
       expect(() => 
         factoryWithoutTaskQueue.createHandlerContext(trigger)
       ).toThrow(DependencyInjectionError);
       expect(() => 
         factoryWithoutTaskQueue.createHandlerContext(trigger)
-      ).toThrow('TaskQueue is required for execute_triggered_subgraph trigger action');
+      ).toThrow('TaskQueue is required for execute_triggered_subworkflow trigger action');
     });
 
     it('should return empty context for unknown trigger actions', () => {

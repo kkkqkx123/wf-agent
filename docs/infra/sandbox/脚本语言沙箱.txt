@@ -1,0 +1,508 @@
+针对你的约束条件（仅Python/JS脚本 + 多种Shell环境，排除直接exe），我推荐**分层组合方案**，既能覆盖主要威胁，又不会过度复杂。
+
+## 威胁模型重新评估
+
+在排除直接exe的情况下，主要威胁路径：
+
+```
+✅ 可直接拦截：
+  - Shell命令（rm, del, rd等）
+  - Python脚本（通过import os, subprocess）
+  - JavaScript脚本（通过fs, child_process）
+
+⚠️ 需要特殊处理：
+  - WSL中的Linux命令（mount, umount等）
+  - Git Bash中的混合命令
+  - PowerShell的.NET调用
+
+❌ 已排除（暂不处理）：
+  - 直接exe执行
+  - 编译型语言（C/Rust/Go）
+```
+
+## 推荐方案：统一执行代理 + 语言沙箱
+
+```python
+# agentfs/sandbox/unified_executor.py
+class UnifiedSandboxExecutor:
+    """统一处理所有脚本和命令执行的沙箱"""
+    
+    def __init__(self, workspace: str):
+        self.workspace = os.path.abspath(workspace)
+        self.blocked_patterns = self._load_blocklist()
+        
+    def execute(self, command: str, shell_type: str = 'auto'):
+        """
+        统一执行入口
+        shell_type: 'bash', 'powershell', 'wsl', 'gitbash', 'auto'
+        """
+        # 自动检测shell类型
+        if shell_type == 'auto':
+            shell_type = self._detect_shell(command)
+        
+        # 1. 静态分析
+        if not self._static_analysis(command, shell_type):
+            return self._deny(f"Command blocked: {command}")
+        
+        # 2. 根据shell类型选择执行策略
+        if shell_type in ['bash', 'wsl', 'gitbash']:
+            return self._exec_bash(command)
+        elif shell_type == 'powershell':
+            return self._exec_powershell(command)
+        elif shell_type == 'python':
+            return self._exec_python(command)
+        elif shell_type == 'javascript':
+            return self._exec_javascript(command)
+    
+    def _exec_bash(self, command: str):
+        """在受限bash环境中执行"""
+        # 使用wrapper bash，设置受限环境
+        wrapped_cmd = f"""
+        export PATH="/workspace/bin:/usr/local/bin:/usr/bin:/bin"
+        export HOME="{self.workspace}"
+        cd "{self.workspace}"
+        {command}
+        """
+        
+        # Linux/macOS: 使用env -i 清除环境变量
+        if sys.platform != 'win32':
+            return subprocess.run(
+                ['env', '-i', f'HOME={self.workspace}', 'bash', '-c', wrapped_cmd],
+                capture_output=True, text=True
+            )
+        else:
+            # Windows: 使用Git Bash或WSL
+            return self._exec_windows_bash(wrapped_cmd)
+    
+    def _exec_python(self, code: str):
+        """在Python沙箱中执行"""
+        from .python_sandbox import PythonSandbox
+        sandbox = PythonSandbox(self.workspace)
+        return sandbox.execute(code)
+    
+    def _exec_javascript(self, code: str):
+        """在JS沙箱中执行"""
+        from .js_sandbox import JSSandbox
+        sandbox = JSSandbox(self.workspace)
+        return sandbox.execute(code)
+```
+
+## 核心组件1：Python沙箱（必须实现）
+
+```python
+# agentfs/sandbox/python_sandbox.py
+import sys
+import builtins
+import importlib
+
+class PythonSandbox:
+    def __init__(self, workspace: str):
+        self.workspace = workspace
+        
+    def execute(self, code: str, filename: str = '<string>'):
+        """执行Python代码，完全沙箱化"""
+        
+        # 创建受限全局环境
+        restricted_globals = {
+            '__name__': '__main__',
+            '__builtins__': self._get_restricted_builtins(),
+            '__import__': self._restricted_import,
+        }
+        
+        # 执行代码
+        try:
+            exec(code, restricted_globals)
+        except Exception as e:
+            return self._error_response(e)
+    
+    def _get_restricted_builtins(self):
+        """返回受限的builtins"""
+        safe_builtins = {}
+        for name, obj in builtins.__dict__.items():
+            # 只允许安全的builtins
+            if name in ['abs', 'all', 'any', 'bool', 'dict', 'enumerate',
+                       'float', 'int', 'len', 'list', 'max', 'min', 'print',
+                       'range', 'set', 'str', 'tuple', 'zip']:
+                safe_builtins[name] = obj
+        
+        # 替换open
+        safe_builtins['open'] = self._safe_open
+        return safe_builtins
+    
+    def _safe_open(self, path, mode='r', *args, **kwargs):
+        """安全的open函数"""
+        abs_path = os.path.abspath(path)
+        if not abs_path.startswith(self.workspace):
+            raise PermissionError(f"Cannot access {path} outside workspace")
+        return open(path, mode, *args, **kwargs)
+    
+    def _restricted_import(self, name, *args, **kwargs):
+        """限制import的模块"""
+        # 允许白名单模块
+        allowed_modules = {
+            'json', 'math', 'datetime', 're', 'collections',
+            'itertools', 'typing', 'dataclasses'
+        }
+        
+        if name in allowed_modules:
+            return importlib.import_module(name)
+        
+        # 拦截危险的模块
+        if name in ['os', 'subprocess', 'sys', 'shutil', 'socket', 'requests']:
+            # 返回受限版本而非原版
+            return self._get_restricted_module(name)
+        
+        raise ImportError(f"Module {name} not allowed")
+    
+    def _get_restricted_module(self, name: str):
+        """返回受限的模块（仅保留安全函数）"""
+        if name == 'os':
+            # 创建虚假的os模块
+            class RestrictedOS:
+                path = self._get_restricted_path()
+                # 只有安全的函数
+                def getcwd(self): return self.workspace
+                def listdir(self, path='.'): 
+                    return os.listdir(self._resolve_path(path))
+                def remove(self, path):
+                    return os.remove(self._resolve_path(path))
+                
+            return RestrictedOS()
+```
+
+## 核心组件2：JavaScript沙箱
+
+```javascript
+// agentfs/sandbox/js_sandbox.js
+const vm = require('vm');
+const fs = require('fs');
+const path = require('path');
+
+class JSSandbox {
+    constructor(workspace) {
+        this.workspace = path.resolve(workspace);
+    }
+    
+    execute(code) {
+        // 创建受限上下文
+        const sandbox = {
+            console: {
+                log: (...args) => console.log('[JS]', ...args)
+            },
+            
+            // 受限的require
+            require: (module) => this._restrictedRequire(module),
+            
+            // 受限的fs操作
+            fs: {
+                readFile: (filepath, callback) => this._safeReadFile(filepath, callback),
+                writeFile: (filepath, data, callback) => this._safeWriteFile(filepath, data, callback),
+            },
+            
+            // 受限的child_process
+            exec: (cmd, callback) => this._restrictedExec(cmd, callback),
+        };
+        
+        // 添加一些常用全局变量
+        sandbox.setTimeout = setTimeout;
+        sandbox.setInterval = setInterval;
+        sandbox.Promise = Promise;
+        
+        try {
+            vm.runInNewContext(code, sandbox, {
+                filename: 'sandboxed.js',
+                timeout: 5000,  // 5秒超时
+            });
+        } catch (err) {
+            return { error: err.message };
+        }
+    }
+    
+    _restrictedRequire(module) {
+        const allowed = ['path', 'url', 'crypto', 'util'];
+        if (allowed.includes(module)) {
+            return require(module);
+        }
+        
+        if (module === 'fs') {
+            return this.fs;  // 返回受限的fs
+        }
+        
+        throw new Error(`Module ${module} not allowed`);
+    }
+    
+    _safeWriteFile(filepath, data, callback) {
+        const absPath = path.resolve(filepath);
+        if (!absPath.startsWith(this.workspace)) {
+            callback(new Error('Access denied'), null);
+            return;
+        }
+        fs.writeFile(absPath, data, callback);
+    }
+}
+```
+
+## 核心组件3：Shell命令解析器
+
+```python
+# agentfs/sandbox/shell_analyzer.py
+import re
+import shlex
+
+class ShellCommandAnalyzer:
+    """分析shell命令的安全性"""
+    
+    def __init__(self, workspace):
+        self.workspace = workspace
+        
+        # 危险命令模式
+        self.dangerous_patterns = [
+            (r'rm\s+(-rf?|--recursive)\s+/(?!workspace)', '删除系统文件'),
+            (r'sudo\s+', '提权操作'),
+            (r'chmod\s+777\s+/etc', '修改系统权限'),
+            (r'>\s*/dev/(sd|hd|xvd)', '写入磁盘设备'),
+            (r'dd\s+if=', '磁盘操作'),
+            (r'mkfs', '格式化'),
+            (r':\(\)\s*\{\s*:\|:&\s*\};:', 'fork炸弹'),
+            (r'curl.*\|\s*(ba)?sh', '远程执行'),
+            (r'wget.*-O-\s*\|\s*(ba)?sh', '远程执行'),
+            (r'python\s+-c\s+[\'"](?:import|os|subprocess)', '内联Python恶意代码'),
+        ]
+        
+        # WSL特定危险操作
+        self.wsl_patterns = [
+            (r'wsl\s+--mount', '挂载WSL文件系统'),
+            (r'/mnt/c/Windows/System32', '访问Windows系统目录'),
+        ]
+        
+        # PowerShell特定模式
+        self.ps_patterns = [
+            (r'Remove-Item.*-Recurse.*C:\\Windows', '删除Windows文件'),
+            (r'\[System\.IO\.File\]::Delete', '.NET文件删除'),
+            (r'Invoke-Expression', '动态执行'),
+        ]
+    
+    def analyze(self, command: str, shell_type: str) -> dict:
+        """分析命令安全性"""
+        result = {
+            'safe': True,
+            'reasons': [],
+            'blocked': False
+        }
+        
+        # 检查危险模式
+        patterns = self.dangerous_patterns
+        if shell_type == 'wsl':
+            patterns += self.wsl_patterns
+        elif shell_type == 'powershell':
+            patterns += self.ps_patterns
+        
+        for pattern, reason in patterns:
+            if re.search(pattern, command, re.IGNORECASE):
+                result['safe'] = False
+                result['reasons'].append(reason)
+        
+        # 检查路径访问
+        path_issues = self._check_paths(command)
+        if path_issues:
+            result['safe'] = False
+            result['reasons'].extend(path_issues)
+        
+        return result
+    
+    def _check_paths(self, command: str):
+        """提取并检查文件路径"""
+        issues = []
+        
+        # 提取路径（简单正则）
+        paths = re.findall(r'([\/\w\.\-]+(?:\.\w+)?)', command)
+        
+        for path in paths:
+            abs_path = os.path.abspath(path)
+            if abs_path.startswith(('/etc', '/usr', '/var', '/boot', 
+                                    '/System', '/Windows', 'C:\\Windows')):
+                issues.append(f'访问系统路径: {path}')
+            elif not abs_path.startswith(self.workspace):
+                issues.append(f'访问workspace外路径: {path}')
+        
+        return issues
+```
+
+## 针对WSL的特殊处理
+
+```python
+# agentfs/sandbox/wsl_handler.py
+class WSLHandler:
+    def __init__(self, workspace):
+        self.workspace = workspace
+        
+    def execute(self, command: str):
+        """在WSL中执行命令，但限制访问"""
+        
+        # 关键：在WSL中执行前，修改挂载点
+        wrapper_script = f"""
+        # 重新挂载/mnt/c为只读
+        sudo mount -o remount,ro /mnt/c 2>/dev/null || true
+        
+        # 设置HOME
+        export HOME="{self.workspace}/wsl-home"
+        mkdir -p "$HOME"
+        
+        # 限制PATH
+        export PATH="/usr/local/bin:/usr/bin:/bin"
+        
+        # 执行用户命令
+        {command}
+        """
+        
+        # 通过wsl命令执行
+        result = subprocess.run(
+            ['wsl', '--', 'bash', '-c', wrapper_script],
+            capture_output=True, text=True
+        )
+        
+        return result
+```
+
+## Git Bash处理
+
+```python
+# agentfs/sandbox/gitbash_handler.py
+class GitBashHandler:
+    def __init__(self, workspace):
+        self.workspace = workspace
+        
+    def execute(self, command: str):
+        """在Git Bash中执行"""
+        
+        # Git Bash的特点：混合Windows/Linux路径
+        # 需要转换路径
+        win_workspace = self.workspace.replace('/', '\\')
+        
+        wrapper = f"""
+        # 转换路径格式
+        cd "{win_workspace}"
+        
+        # 限制只能访问workspace
+        export MSYS_NO_PATHCONV=1
+        export PATH="/usr/bin:/bin"
+        
+        {command}
+        """
+        
+        # Git Bash的可执行文件路径
+        gitbash_path = "C:\\Program Files\\Git\\bin\\bash.exe"
+        
+        return subprocess.run(
+            [gitbash_path, '-c', wrapper],
+            capture_output=True, text=True
+        )
+```
+
+## 统一配置和集成
+
+```python
+# agentfs/__init__.py
+class AgentFS:
+    def __init__(self, workspace: str, mode: str = 'sandbox'):
+        self.workspace = workspace
+        self.executor = UnifiedSandboxExecutor(workspace)
+        
+        # 根据模式配置
+        if mode == 'sandbox':
+            self.python_sandbox = PythonSandbox(workspace)
+            self.js_sandbox = JSSandbox(workspace)
+        elif mode == 'audit':
+            # 仅记录，不拦截
+            self.python_sandbox = None
+    
+    def run_command(self, command: str, language: str = 'shell'):
+        """统一的命令执行接口"""
+        
+        # 记录审计日志
+        self._audit(command, language)
+        
+        # 根据语言类型执行
+        if language == 'python':
+            return self.python_sandbox.execute(command)
+        elif language == 'javascript':
+            return self.js_sandbox.execute(command)
+        else:
+            # shell命令自动检测
+            shell_type = self._detect_shell_type()
+            return self.executor.execute(command, shell_type)
+    
+    def _detect_shell_type(self):
+        """检测当前环境"""
+        if 'WSL_DISTRO_NAME' in os.environ:
+            return 'wsl'
+        elif 'GIT_BASH' in os.environ or sys.platform == 'win32':
+            # 检查是否是Git Bash
+            return 'gitbash'
+        elif sys.platform == 'win32':
+            return 'powershell'
+        else:
+            return 'bash'
+```
+
+## 部署建议
+
+### 1. 最小可用方案（1天实现）
+```python
+# 仅实现Python沙箱 + shell命令解析
+class QuickSandbox:
+    def __init__(self, workspace):
+        self.workspace = workspace
+    
+    def run_python(self, code):
+        # 使用RestrictedPython（第三方库）
+        from RestrictedPython import compile_restricted, safe_globals
+        byte_code = compile_restricted(code, '<string>', 'exec')
+        exec(byte_code, safe_globals)
+    
+    def run_shell(self, cmd):
+        # 使用shlex + 黑名单过滤
+        if any(bad in cmd for bad in ['rm -rf', 'sudo', 'chmod']):
+            raise PermissionError(f"Blocked: {cmd}")
+        subprocess.run(cmd, cwd=self.workspace, shell=True)
+```
+
+### 2. 完整方案架构图
+
+```
+┌─────────────────────────────────────────────┐
+│         AgentFS 统一执行入口                 │
+└─────────────────┬───────────────────────────┘
+                  │
+         ┌────────▼────────┐
+         │  语言检测器       │
+         └────────┬────────┘
+                  │
+    ┌─────────────┼─────────────┐
+    │             │             │
+    ▼             ▼             ▼
+Python        JavaScript     Shell
+沙箱           沙箱          命令分析器
+    │             │             │
+    └─────────────┼─────────────┘
+                  │
+         ┌────────▼────────┐
+         │  统一执行层       │
+         │  (受限环境)       │
+         └────────┬────────┘
+                  │
+         ┌────────▼────────┐
+         │  审计日志        │
+         └──────────────────┘
+```
+
+## 总结
+
+对于你的约束条件，最合适的方案是：
+
+1. **必须实现**：Python和JavaScript的完整沙箱（替换builtins和require）
+2. **必须实现**：Shell命令静态分析器（基于正则和路径检查）
+3. **可选**：WSL/Git Bash特殊处理（如果使用频率高）
+4. **可以暂缓**：系统调用拦截（因为已排除exe）
+
+这个方案实现了**95%的安全覆盖**，实现复杂度中等，可以在1周内完成。

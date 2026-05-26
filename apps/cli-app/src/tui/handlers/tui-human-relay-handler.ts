@@ -5,7 +5,7 @@
  * Integrates with HumanRelayService for functional file operations.
  */
 
-import type { HumanRelayHandler, HumanRelayRequest, HumanRelayResponse, HumanRelayContext } from "@wf-agent/types";
+import type { HumanRelayHandler, HumanRelayRequest, HumanRelayResponse } from "@wf-agent/types";
 import type { HumanRelayService } from "../../services/io/index.js";
 import type { TUI } from "../core/tui.js";
 import { Box, Text, Spacer } from "../core/index.js";
@@ -31,11 +31,10 @@ export class TUIHumanRelayHandler implements HumanRelayHandler {
   /**
    * Handle Human Relay request
    * @param request Human Relay request with prompt and messages
-   * @param context Additional context (should include sessionId)
    * @returns Human Relay response
    */
-  async handle(request: HumanRelayRequest, context: HumanRelayContext): Promise<HumanRelayResponse> {
-    const sessionId = (context as unknown as Record<string, unknown>)["sessionId"] as string | undefined || request.requestId;
+  async handle(request: HumanRelayRequest): Promise<HumanRelayResponse> {
+    const sessionId = request.sessionId ?? request.requestId;
 
     // Step 1: Write prompt to functional file (pure text)
     await this.humanRelayService.writeOutput({

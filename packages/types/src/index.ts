@@ -38,7 +38,7 @@ export * from "./storage/index.js";
 
 // User Interaction Module
 export * from "./interaction/index.js";
-export * from "./human-relay.js";
+export * from "./llm/human-relay.js";
 export * from "./result.js";
 export * from "./http.js";
 

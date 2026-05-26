@@ -5,8 +5,8 @@
  * HumanRelay is a special type of LLM Provider that allows human intervention in the LLM conversation process
  */
 
-import type { ID, Metadata } from "./common.js";
-import type { LLMMessage } from "./message/index.js";
+import type { ID, Metadata } from "../common.js";
+import type { LLMMessage } from "../message/index.js";
 
 /**
  * HumanRelay Request Type
@@ -20,6 +20,8 @@ export interface HumanRelayRequest {
   prompt: string;
   /** Request timeout in milliseconds */
   timeout: number;
+  /** Session ID (used by application layer) */
+  sessionId?: string;
   /** Additional operational information */
   metadata?: Metadata;
 }
@@ -49,32 +51,6 @@ export interface HumanRelayExecutionResult {
 }
 
 /**
- * HumanRelay Context
- * The execution context provided by the SDK to the application layer.
- */
-export interface HumanRelayContext {
-  /** Execution ID */
-  executionId: ID;
-  /** Workflow ID */
-  workflowId: ID;
-  /** Node ID */
-  nodeId: ID;
-  /** Getting the value of a variable */
-  getVariable(variableName: string): unknown;
-  /** Setting variable values */
-  setVariable(variableName: string, value: unknown): Promise<void>;
-  /** Get all variables */
-  getVariables(): Record<string, unknown>;
-  /** timeout control */
-  timeout: number;
-  /** Cancel Token */
-  cancelToken: {
-    cancelled: boolean;
-    cancel(): void;
-  };
-}
-
-/**
  * HumanRelay Processor Interface
  * Interface that must be implemented by the application layer to process manual inputs
  */
@@ -82,8 +58,7 @@ export interface HumanRelayHandler {
   /**
    * Processing HumanRelay Request
    * @param request HumanRelay Request
-   * @param context HumanRelay Context
    * @returns HumanRelay Response
    */
-  handle(request: HumanRelayRequest, context: HumanRelayContext): Promise<HumanRelayResponse>;
+  handle(request: HumanRelayRequest): Promise<HumanRelayResponse>;
 }

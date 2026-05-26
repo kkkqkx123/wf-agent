@@ -21,7 +21,6 @@ import type {
   HumanRelayHandler,
   HumanRelayRequest,
   HumanRelayResponse,
-  HumanRelayContext,
   LLMResult,
 } from "@wf-agent/types";
 import { ConfigurationError, ExecutionError } from "@wf-agent/types";
@@ -32,8 +31,6 @@ export interface HumanRelayClientConfig {
   handler: HumanRelayHandler;
   /** Default timeout in milliseconds */
   defaultTimeout?: number;
-  /** Context provider function that returns HumanRelayContext */
-  contextProvider: () => HumanRelayContext;
 }
 
 /**
@@ -47,13 +44,11 @@ export class HumanRelayClient implements LLMClient {
   private profile: LLMProfile;
   private handler: HumanRelayHandler;
   private defaultTimeout: number;
-  private contextProvider: () => HumanRelayContext;
 
   constructor(profile: LLMProfile, config: HumanRelayClientConfig) {
     this.profile = profile;
     this.handler = config.handler;
     this.defaultTimeout = config.defaultTimeout || 300000; // Default 5 minutes
-    this.contextProvider = config.contextProvider;
 
     this.validateConfig();
   }
@@ -65,11 +60,6 @@ export class HumanRelayClient implements LLMClient {
     if (!this.handler) {
       throw new ConfigurationError("HumanRelayHandler is required", "handler", {
         code: "HANDLER_REQUIRED",
-      });
-    }
-    if (!this.contextProvider) {
-      throw new ConfigurationError("Context provider is required", "contextProvider", {
-        code: "CONTEXT_PROVIDER_REQUIRED",
       });
     }
   }
@@ -88,13 +78,10 @@ export class HumanRelayClient implements LLMClient {
       // 1. Build HumanRelayRequest
       const humanRelayRequest = this.buildHumanRelayRequest(request, requestId);
 
-      // 2. Get HumanRelayContext from provider
-      const context = this.contextProvider();
+      // 2. Call handler to get human input
+      const response = await this.handler.handle(humanRelayRequest);
 
-      // 3. Call handler to get human input
-      const response = await this.handler.handle(humanRelayRequest, context);
-
-      // 4. Convert to LLMResult
+      // 3. Convert to LLMResult
       return this.buildLLMResult(response, request, startTime);
     } catch (error) {
       throw new ExecutionError(
@@ -121,11 +108,8 @@ export class HumanRelayClient implements LLMClient {
       // 1. Build HumanRelayRequest
       const humanRelayRequest = this.buildHumanRelayRequest(request, requestId);
 
-      // 2. Get HumanRelayContext from provider
-      const context = this.contextProvider();
-
-      // 3. Call handler to get human input
-      const response = await this.handler.handle(humanRelayRequest, context);
+      // 2. Call handler to get human input
+      const response = await this.handler.handle(humanRelayRequest);
 
       // 4. Yield partial result (simulating streaming)
       const partialResult: LLMResult = {

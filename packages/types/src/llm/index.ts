@@ -32,3 +32,6 @@ export * from "./tool-call-format.js";
 
 // Export Message Stream Event Types
 export * from "./message-stream-events.js";
+
+// Export Human Relay Types
+export * from "./human-relay.js";

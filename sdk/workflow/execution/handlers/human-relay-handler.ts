@@ -25,7 +25,6 @@ import type {
   HumanRelayResponse,
   HumanRelayExecutionResult,
   HumanRelayHandler,
-  HumanRelayContext,
 } from "@wf-agent/types";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
@@ -72,42 +71,12 @@ export function createHumanRelayRequest(task: HumanRelayTask): HumanRelayRequest
     messages: task.messages,
     prompt: task.prompt,
     timeout: task.timeout,
+    sessionId: task.workflowExecutionEntity.id,
     metadata: {
       workflowId: task.workflowExecutionEntity.getWorkflowId(),
       executionId: task.workflowExecutionEntity.id,
       nodeId: task.nodeId,
     },
-  };
-}
-
-/**
- * Create a HumanRelay context
- * @param task The HumanRelay task
- * @returns The HumanRelay context
- */
-export function createHumanRelayContext(task: HumanRelayTask): HumanRelayContext {
-  const cancelToken = {
-    cancelled: false,
-    cancel: () => {
-      cancelToken.cancelled = true;
-    },
-  };
-
-  return {
-    executionId: task.workflowExecutionEntity.id,
-    workflowId: task.workflowExecutionEntity.getWorkflowId(),
-    nodeId: task.nodeId,
-    getVariable: (variableName: string) => {
-      return task.workflowExecutionEntity.getVariable(variableName);
-    },
-    setVariable: async (variableName: string, value: unknown) => {
-      task.workflowExecutionEntity.setVariable(variableName, value);
-    },
-    getVariables: () => {
-      return task.workflowExecutionEntity.getAllVariables();
-    },
-    timeout: task.timeout,
-    cancelToken,
   };
 }
 
@@ -158,51 +127,22 @@ export async function emitHumanRelayRespondedEvent(
 /**
  * Get human input
  * @param request HumanRelay request
- * @param context HumanRelay context
  * @param handler HumanRelay handler
  * @returns HumanRelay response
  */
 export async function getHumanInput(
   request: HumanRelayRequest,
-  context: HumanRelayContext,
   handler: HumanRelayHandler,
 ): Promise<HumanRelayResponse> {
-  let cancelInterval: NodeJS.Timeout | null = null;
+  // Implement timeout control
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => {
+      reject(new Error(`HumanRelay timeout after ${request.timeout}ms`));
+    }, request.timeout);
+  });
 
-  try {
-    // Implement timeout control
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => {
-        reject(new Error(`HumanRelay timeout after ${request.timeout}ms`));
-      }, request.timeout);
-    });
-
-    // Cancel control with proper cleanup
-    const cancelPromise = new Promise<never>((_, reject) => {
-      cancelInterval = setInterval(() => {
-        if (context.cancelToken.cancelled) {
-          if (cancelInterval) {
-            clearInterval(cancelInterval);
-            cancelInterval = null;
-          }
-          reject(new Error("HumanRelay cancelled"));
-        }
-      }, 100);
-    });
-
-    // Race between handler execution, timeout, and cancellation
-    return await Promise.race([handler.handle(request, context), timeoutPromise, cancelPromise]);
-  } finally {
-    // Properly clean up interval to prevent memory leaks
-    if (cancelInterval) {
-      clearInterval(cancelInterval);
-      cancelInterval = null;
-    }
-    // Only cancel if not already cancelled
-    if (!context.cancelToken.cancelled) {
-      context.cancelToken.cancel();
-    }
-  }
+  // Race between handler execution and timeout
+  return await Promise.race([handler.handle(request), timeoutPromise]);
 }
 
 /**
@@ -268,13 +208,10 @@ export async function executeHumanRelay(
     // 2. Trigger the HUMAN_RELAY_REQUESTED event
     await emitHumanRelayRequestedEvent(task, request, eventManager);
 
-    // 3. Create the HumanRelay context
-    const context = createHumanRelayContext(task);
+    // 3. Call the application layer processor to obtain human input.
+    const response = await getHumanInput(request, humanRelayHandler);
 
-    // 4. Call the application layer processor to obtain human input.
-    const response = await getHumanInput(request, context, humanRelayHandler);
-
-    // 5. Trigger the HUMAN_RELAY_RESPONDED event
+    // 4. Trigger the HUMAN_RELAY_RESPONDED event
     await emitHumanRelayRespondedEvent(task, response, eventManager);
 
     // 6. Convert human input into LLM messages

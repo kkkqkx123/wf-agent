@@ -5,7 +5,7 @@
  * Handles request execution and response time statistics
  */
 
-import type { LLMRequest, LLMResult, LLMProfile, HumanRelayHandler, HumanRelayContext } from "@wf-agent/types";
+import type { LLMRequest, LLMResult, LLMProfile, HumanRelayHandler } from "@wf-agent/types";
 import { ProfileManager } from "./profile-manager.js";
 import { ClientFactory, MessageStream } from "./index.js";
 import {
@@ -57,14 +57,6 @@ export class LLMWrapper {
    */
   setHumanRelayHandler(handler: HumanRelayHandler): void {
     this.clientFactory.setHumanRelayHandler(handler);
-  }
-
-  /**
-   * Set Human Relay Context Provider
-   * @param provider Context provider function
-   */
-  setHumanRelayContextProvider(provider: () => HumanRelayContext): void {
-    this.clientFactory.setHumanRelayContextProvider(provider);
   }
 
   /**

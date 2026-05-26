@@ -5,7 +5,7 @@
  * Clients are created using the factory pattern, and client instances are cached to improve performance.
  */
 
-import type { LLMClient, LLMProfile, HumanRelayHandler, HumanRelayContext } from "@wf-agent/types";
+import type { LLMClient, LLMProfile, HumanRelayHandler } from "@wf-agent/types";
 import { OpenAIChatClient } from "./clients/openai-chat.js";
 import { OpenAIResponseClient } from "./clients/openai-response.js";
 import { AnthropicClient } from "./clients/anthropic.js";
@@ -20,7 +20,6 @@ import { ConfigurationError } from "@wf-agent/types";
 export class ClientFactory {
   private clientCache: Map<string, LLMClient> = new Map();
   private humanRelayHandler?: HumanRelayHandler;
-  private humanRelayContextProvider?: () => HumanRelayContext;
 
   /**
    * Set HumanRelayHandler
@@ -29,16 +28,6 @@ export class ClientFactory {
   setHumanRelayHandler(handler: HumanRelayHandler): void {
     this.humanRelayHandler = handler;
     // Clear cached HumanRelayClient to use new handler
-    this.clearClientCacheByProvider("HUMAN_RELAY");
-  }
-
-  /**
-   * Set HumanRelayContextProvider
-   * @param provider Context provider function that returns HumanRelayContext
-   */
-  setHumanRelayContextProvider(provider: () => HumanRelayContext): void {
-    this.humanRelayContextProvider = provider;
-    // Clear cached HumanRelayClient to use new provider
     this.clearClientCacheByProvider("HUMAN_RELAY");
   }
 
@@ -105,17 +94,9 @@ export class ClientFactory {
             { provider: profile.provider },
           );
         }
-        if (!this.humanRelayContextProvider) {
-          throw new ConfigurationError(
-            "HumanRelayContextProvider not registered. Please call setHumanRelayContextProvider() first.",
-            "provider",
-            { provider: profile.provider },
-          );
-        }
         return new HumanRelayClient(profile, {
           handler: this.humanRelayHandler,
           defaultTimeout: (profile.parameters?.["timeout"] as number) || 300000,
-          contextProvider: this.humanRelayContextProvider,
         });
 
       default:

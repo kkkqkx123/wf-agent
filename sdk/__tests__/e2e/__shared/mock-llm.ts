@@ -6,7 +6,7 @@
  * LLM nodes or Agent Loop execution.
  */
 
-import type { LLMProfile, HumanRelayHandler, HumanRelayRequest, HumanRelayResponse, HumanRelayContext } from "@wf-agent/types";
+import type { LLMProfile, HumanRelayHandler, HumanRelayRequest, HumanRelayResponse } from "@wf-agent/types";
 import type { SDKInstance } from "@/api/index.js";
 
 /**
@@ -39,7 +39,7 @@ export class MockHumanRelayHandler implements HumanRelayHandler {
     };
   }
 
-  async handle(request: HumanRelayRequest, _context: HumanRelayContext): Promise<HumanRelayResponse> {
+  async handle(request: HumanRelayRequest): Promise<HumanRelayResponse> {
     if (this.config.recordRequests) {
       this.requests.push(request);
     }
@@ -93,58 +93,11 @@ export function createMockLLMProfile(profileId: string = "mock-llm-profile"): LL
 }
 
 /**
- * Create a mock context provider for HumanRelayClient.
- * Returns a minimal HumanRelayContext for test execution.
- */
-export function createMockContextProvider(): () => HumanRelayContext {
-  const variables: Record<string, unknown> = {};
-  return () => ({
-    executionId: "mock-execution-id",
-    workflowId: "mock-workflow-id",
-    nodeId: "mock-node-id",
-    getVariable: (name: string) => variables[name],
-    setVariable: async (name: string, value: unknown) => {
-      variables[name] = value;
-    },
-    getVariables: () => ({ ...variables }),
-    timeout: 30000,
-    cancelToken: {
-      cancelled: false,
-      cancel: () => {},
-    },
-  });
-}
-
-/**
- * Create SDK options fragment for mocking LLM.
- * This config registers a mock profile + mock handler on SDK creation.
- *
- * @param mockHandler - The MockHumanRelayHandler instance
- * @param profileId - Profile ID to use
- */
-export function createMockLLMOptions(
-  mockHandler: MockHumanRelayHandler,
-  profileId: string = "mock-llm-profile",
-) {
-  return {
-    profiles: {
-      defaultProfileId: profileId,
-      profiles: [createMockLLMProfile(profileId)],
-    },
-    humanRelay: {
-      handler: mockHandler as any,
-    },
-  };
-}
-
-/**
  * Configure the mock LLM environment on an SDK instance.
  * Must be called after SDK bootstrap.
  *
- * Sets up:
- * 1. HumanRelay context provider (needed for HumanRelayClient)
- * 2. Registers the mock profile directly on the LLMWrapper's ProfileManager
- *    (bypassing LLMProfileRegistryAPI which has its own disconnected ProfileManager)
+ * Registers the mock profile directly on the LLMWrapper's ProfileManager
+ * (bypassing LLMProfileRegistryAPI which has its own disconnected ProfileManager)
  *
  * @param sdk - The SDK instance
  * @param profileId - Profile ID (must match createMockLLMOptions)
@@ -156,16 +109,9 @@ export function setupMockContextProvider(
   const deps = sdk.getFactory().getDependencies();
   const llmWrapper = deps.getLLMWrapper();
 
-  // Set context provider for HumanRelayClient
-  llmWrapper.setHumanRelayContextProvider(createMockContextProvider());
-
   // Register profile directly on LLMWrapper's ProfileManager
   // (LLMProfileRegistryAPI creates its own disconnected ProfileManager)
   const profile = createMockLLMProfile(profileId);
   llmWrapper.registerProfile(profile);
   llmWrapper.setDefaultProfile(profileId);
-
-  // Verify profile was registered successfully
-  // We need to check by calling generate() with a test request
-  // but for now just validate via the wrapper internals
 }

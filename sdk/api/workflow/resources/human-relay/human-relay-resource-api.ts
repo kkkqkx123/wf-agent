@@ -24,7 +24,7 @@ import { now, diffTimestamp } from "@wf-agent/common-utils";
 import { CrudResourceAPI } from "../../../shared/resources/generic-resource-api.js";
 import type { ExecutionResult } from "../../../shared/types/execution-result.js";
 import { success, failure } from "../../../shared/types/execution-result.js";
-import type { HumanRelayHandler, HumanRelayRequest, HumanRelayResponse, HumanRelayContext } from "@wf-agent/types";
+import type { HumanRelayHandler, HumanRelayRequest, HumanRelayResponse } from "@wf-agent/types";
 import { ConfigurationError, NotFoundError } from "@wf-agent/types";
 import type {
   HumanRelayRequestedEvent,
@@ -191,51 +191,13 @@ export class HumanRelayResourceAPI extends CrudResourceAPI<
         );
       }
 
-      // Creating a Relay Context
-      const context = this.createRelayContext(request);
-
       // invocation processor
-      const response = await this.humanRelayHandler.handle(request, context);
+      const response = await this.humanRelayHandler.handle(request);
 
       return success(response, diffTimestamp(startTime, now()));
     } catch (error) {
       return this.handleError(error, "HANDLE_RELAY_REQUEST", startTime);
     }
-  }
-
-  /**
-   * Create a Relay context
-   * @param request: A Human Relay request
-   * @returns: The Relay context
-   */
-  private createRelayContext(
-    request: HumanRelayRequest,
-  ): HumanRelayContext {
-    const cancelToken: { cancelled: boolean; cancel: () => void } = {
-      cancelled: false,
-      cancel: () => {
-        cancelToken.cancelled = true;
-      },
-    };
-
-    return {
-      executionId: (request.metadata?.["executionId"] as string) || "",
-      workflowId: (request.metadata?.["workflowId"] as string) || "",
-      nodeId: (request.metadata?.["nodeId"] as string) || "",
-      getVariable: () => {
-        // Simplifying the implementation, you should actually get the WorkflowExecutionContext from the
-        return undefined;
-      },
-      setVariable: async () => {
-        // Simplifying the implementation, you should actually update the variables in the WorkflowExecutionContext
-      },
-      getVariables: () => {
-        // Simplifying the implementation, you should actually get the WorkflowExecutionContext from the
-        return {};
-      },
-      timeout: request.timeout,
-      cancelToken: cancelToken as HumanRelayContext["cancelToken"],
-    };
   }
 
   // ============================================================================

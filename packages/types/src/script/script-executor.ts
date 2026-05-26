@@ -12,8 +12,16 @@ export type ShellType = "powershell" | "bash" | "cmd" | "auto";
 /**
  * Executor mode enumeration
  * Determines how the script command is executed against the terminal
+ * - Standard modes (existing behavior)
+ * - Sandbox modes (new, requires sandbox config)
  */
-export type ExecutorMode = "direct" | "shared" | "pty";
+export type ExecutorMode =
+  | "direct"
+  | "shared"
+  | "pty"
+  | "sandbox-shell"
+  | "sandbox-python"
+  | "sandbox-javascript";
 
 /**
  * Script Executor Configuration

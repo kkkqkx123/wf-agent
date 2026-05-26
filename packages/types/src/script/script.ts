@@ -5,7 +5,8 @@
 
 import type { ID, Metadata } from "../common.js";
 import type { ScriptArgument } from "./script-argument.js";
-import type { ScriptExecutorConfig } from "./script-executor.js";
+import type { ScriptExecutorConfig, ExecutorMode } from "./script-executor.js";
+import type { ScriptLanguage, SandboxConfig } from "./script-sandbox.js";
 
 /**
  * Script execution options
@@ -29,41 +30,10 @@ export interface ScriptExecutionOptions {
   sandboxConfig?: SandboxConfig;
   /** Abort signal (for canceling execution) */
   signal?: AbortSignal;
-  /** Executor mode (direct/shared/pty) */
-  executorMode?: "direct" | "shared" | "pty";
-}
-
-/**
- * Sandbox Configuration
- */
-export interface SandboxConfig {
-  /** Sandbox Type */
-  type: "docker" | "nodejs" | "python" | "custom";
-  /** Sandbox mirrors or environments */
-  image?: string;
-  /** Resource constraints */
-  resourceLimits?: {
-    /** Memory Limit (MB) */
-    memory?: number;
-    /** CPU limit (number of cores) */
-    cpu?: number;
-    /** Disk limit (MB) */
-    disk?: number;
-  };
-  /** Network Configuration */
-  network?: {
-    /** Network enabled or not */
-    enabled: boolean;
-    /** List of Allowed Domains */
-    allowedDomains?: string[];
-  };
-  /** File System Access Configuration */
-  filesystem?: {
-    /** List of allowed access paths */
-    allowedPaths?: string[];
-    /** Read-only or not */
-    readOnly?: boolean;
-  };
+  /** Executor mode (direct/shared/pty/sandbox-*) */
+  executorMode?: ExecutorMode;
+  /** Script language for sandbox routing */
+  language?: ScriptLanguage;
 }
 
 /**
@@ -112,6 +82,8 @@ export interface Script {
   executor?: ScriptExecutorConfig;
   /** Script execution options */
   options: ScriptExecutionOptions;
+  /** Script language (auto-detect if omitted) */
+  language?: ScriptLanguage;
   /** Script Metadata */
   metadata?: ScriptMetadata;
   /** Enable or not (default is true) */

@@ -6,14 +6,159 @@
 import { z } from "zod";
 
 // ============================================================================
-// Sandbox Config Schema
+// Sandbox Mode & Script Language Schemas
+// ============================================================================
+
+/**
+ * Sandbox Mode Schema
+ */
+export const SandboxModeSchema = z.enum(["disabled", "lenient", "strict", "custom"]);
+
+/**
+ * Script Language Schema
+ */
+export const ScriptLanguageSchema = z.enum(["auto", "shell", "python", "javascript"]);
+
+/**
+ * Script Risk Level Schema
+ */
+export const ScriptRiskLevelSchema = z.enum(["none", "low", "medium", "high"]);
+
+// ============================================================================
+// Policy Sub-Schemas
+// ============================================================================
+
+/**
+ * Filesystem Policy Schema
+ */
+export const FilesystemPolicySchema = z.object({
+  allowedReadPaths: z.array(z.string()),
+  allowedWritePaths: z.array(z.string()),
+  allowedRemovePaths: z.array(z.string()),
+  allowedExecutePaths: z.array(z.string()),
+  copyOnWrite: z.boolean(),
+  maxFileSize: z.number().nonnegative(),
+});
+
+/**
+ * Process Policy Schema
+ */
+export const ProcessPolicySchema = z.object({
+  allowedChildProcesses: z.array(z.string()),
+  deniedChildProcesses: z.array(z.string()),
+  maxChildProcesses: z.number().nonnegative(),
+  allowFork: z.boolean(),
+  allowExec: z.boolean(),
+});
+
+/**
+ * Network Policy Schema
+ */
+export const NetworkPolicySchema = z.object({
+  access: z.enum(["none", "localhost", "specific", "all"]),
+  allowedDomains: z.array(z.string()).optional(),
+  allowedPorts: z.array(z.tuple([z.number(), z.number()])).optional(),
+  allowDns: z.boolean(),
+});
+
+/**
+ * Resource Policy Schema
+ */
+export const ResourcePolicySchema = z.object({
+  cpuLimit: z.number().nonnegative().optional(),
+  memoryLimit: z.number().nonnegative().optional(),
+  diskLimit: z.number().nonnegative().optional(),
+  timeoutLimit: z.number().nonnegative(),
+});
+
+/**
+ * Shell Policy Schema
+ */
+export const ShellPolicySchema = z.object({
+  allowedCommands: z.array(z.string()),
+  deniedCommands: z.array(z.string()),
+  dangerousPatterns: z.array(z.string()),
+  allowPipe: z.boolean(),
+  allowRedirect: z.boolean(),
+});
+
+/**
+ * Python Policy Schema
+ */
+export const PythonPolicySchema = z.object({
+  allowedModules: z.array(z.string()),
+  deniedModules: z.array(z.string()),
+  allowSubprocess: z.boolean(),
+  restrictBuiltinOpen: z.boolean(),
+  allowDynamicEval: z.boolean(),
+});
+
+/**
+ * JavaScript Policy Schema
+ */
+export const JavaScriptPolicySchema = z.object({
+  allowedModules: z.array(z.string()),
+  deniedModules: z.array(z.string()),
+  allowChildProcess: z.boolean(),
+  allowFSWrite: z.boolean(),
+  allowDynamicEval: z.boolean(),
+});
+
+/**
+ * Sandbox Policy Schema
+ */
+export const SandboxPolicySchema = z.object({
+  mode: SandboxModeSchema,
+  filesystem: FilesystemPolicySchema.partial().optional(),
+  process: ProcessPolicySchema.partial().optional(),
+  network: NetworkPolicySchema.partial().optional(),
+  resource: ResourcePolicySchema.partial().optional(),
+  shell: ShellPolicySchema.partial().optional(),
+  python: PythonPolicySchema.partial().optional(),
+  javascript: JavaScriptPolicySchema.partial().optional(),
+});
+
+// ============================================================================
+// VFS Config Schema
+// ============================================================================
+
+/**
+ * VFS Config Schema
+ */
+export const VFSConfigSchema = z.object({
+  enabled: z.boolean(),
+  storage: z.enum(["memory", "sqlite"]),
+  workspaceRoot: z.string(),
+  dbPath: z.string().optional(),
+  pathPolicy: z
+    .object({
+      readable: z.array(z.string()).optional(),
+      writable: z.array(z.string()).optional(),
+    })
+    .optional(),
+});
+
+// ============================================================================
+// Sandbox Config Schema (Refactored with legacy compat)
 // ============================================================================
 
 /**
  * Sandbox Config Schema
  */
 export const SandboxConfigSchema = z.object({
-  type: z.enum(["docker", "nodejs", "python", "custom"]),
+  // Profile reference
+  profile: z.string().optional(),
+
+  // New fields
+  mode: SandboxModeSchema.optional(),
+  policy: SandboxPolicySchema.partial().optional(),
+  shellStrategy: z.array(z.string()).optional(),
+  pythonStrategy: z.array(z.string()).optional(),
+  javascriptStrategy: z.array(z.string()).optional(),
+  vfs: VFSConfigSchema.optional(),
+
+  // Legacy backward-compatible fields
+  type: z.enum(["docker", "nodejs", "python", "custom"]).optional(),
   image: z.string().optional(),
   resourceLimits: z
     .object({
@@ -37,6 +182,79 @@ export const SandboxConfigSchema = z.object({
 });
 
 // ============================================================================
+// Supporting Schemas (ScriptArgument, ScriptExecutorConfig)
+// ============================================================================
+
+/**
+ * Script Argument Schema
+ */
+export const ScriptArgumentSchema = z.object({
+  key: z.string().min(1),
+  type: z.enum(["string", "number", "boolean", "file"]),
+  label: z.string().optional(),
+  description: z.string().optional(),
+  default: z.any().optional(),
+  required: z.boolean().optional(),
+  source: z.enum(["static", "variable", "expression"]).optional(),
+  options: z.array(z.any()).optional(),
+  pattern: z.string().optional(),
+});
+
+/**
+ * Script Executor Config Schema
+ */
+export const ScriptExecutorConfigSchema = z.object({
+  mode: z.enum([
+    "direct",
+    "shared",
+    "pty",
+    "sandbox-shell",
+    "sandbox-python",
+    "sandbox-javascript",
+  ]),
+  shell: z.enum(["powershell", "bash", "cmd", "auto"]),
+  cwd: z.string().optional(),
+  environment: z.record(z.string(), z.string()).optional(),
+});
+
+// ============================================================================
+// Sandbox Profile Schemas
+// ============================================================================
+
+/**
+ * Sandbox Profile Schema
+ */
+export const SandboxProfileSchema = z.object({
+  name: z.string().min(1),
+  description: z.string().optional(),
+  mode: SandboxModeSchema,
+  shellStrategy: z.array(z.string()).optional(),
+  pythonStrategy: z.array(z.string()).optional(),
+  javascriptStrategy: z.array(z.string()).optional(),
+  policy: SandboxPolicySchema.partial().optional(),
+  vfs: VFSConfigSchema.optional(),
+});
+
+/**
+ * Sandbox Profile Rule Schema
+ */
+export const SandboxProfileRuleSchema = z.object({
+  language: z.union([ScriptLanguageSchema, z.array(ScriptLanguageSchema)]).optional(),
+  riskLevel: z.union([ScriptRiskLevelSchema, z.array(ScriptRiskLevelSchema)]).optional(),
+  profile: z.string().min(1),
+});
+
+/**
+ * Sandbox Global Config Schema
+ */
+export const SandboxGlobalConfigSchema = z.object({
+  mode: SandboxModeSchema.optional(),
+  profiles: z.array(SandboxProfileSchema).optional(),
+  rules: z.array(SandboxProfileRuleSchema).optional(),
+  defaultProfile: z.string().optional(),
+});
+
+// ============================================================================
 // Script Execution Options Schema
 // ============================================================================
 
@@ -52,6 +270,10 @@ export const ScriptExecutionOptionsSchema = z.object({
   environment: z.record(z.string(), z.string()).optional(),
   sandbox: z.boolean().optional(),
   sandboxConfig: SandboxConfigSchema.optional(),
+  executorMode: z
+    .enum(["direct", "shared", "pty", "sandbox-shell", "sandbox-python", "sandbox-javascript"])
+    .optional(),
+  language: ScriptLanguageSchema.optional(),
 });
 
 // ============================================================================
@@ -84,23 +306,22 @@ export const ScriptSchema = z
     description: z.string().min(1, "Script description is required"),
     content: z.string().optional(),
     filePath: z.string().optional(),
+    template: z.string().optional(),
+    arguments: z.array(ScriptArgumentSchema).optional(),
+    executor: ScriptExecutorConfigSchema.optional(),
     options: ScriptExecutionOptionsSchema,
+    language: ScriptLanguageSchema.optional(),
     metadata: ScriptMetadataSchema.optional(),
     enabled: z.boolean().optional(),
   })
-  .refine(data => data.content || data.filePath, {
-    message: "Script must have either content or filePath",
+  .refine(data => data.content || data.filePath || data.template, {
+    message: "Script must have either content, filePath, or template",
     path: ["content"],
   });
 
 // ============================================================================
 // Script Security Related Schemas
 // ============================================================================
-
-/**
- * Script Risk Level Schema
- */
-export const ScriptRiskLevelSchema = z.enum(["none", "low", "medium", "high"]);
 
 /**
  * Validation Result Schema
@@ -278,4 +499,45 @@ export const isScriptExecutionResult = (
   config: unknown,
 ): config is z.infer<typeof ScriptExecutionResultSchema> => {
   return ScriptExecutionResultSchema.safeParse(config).success;
+};
+
+/**
+ * Type guard for SandboxMode
+ */
+export const isSandboxMode = (config: unknown): config is z.infer<typeof SandboxModeSchema> => {
+  return SandboxModeSchema.safeParse(config).success;
+};
+
+/**
+ * Type guard for ScriptLanguage
+ */
+export const isScriptLanguage = (
+  config: unknown,
+): config is z.infer<typeof ScriptLanguageSchema> => {
+  return ScriptLanguageSchema.safeParse(config).success;
+};
+
+/**
+ * Type guard for SandboxPolicy
+ */
+export const isSandboxPolicy = (config: unknown): config is z.infer<typeof SandboxPolicySchema> => {
+  return SandboxPolicySchema.safeParse(config).success;
+};
+
+/**
+ * Type guard for SandboxProfile
+ */
+export const isSandboxProfile = (
+  config: unknown,
+): config is z.infer<typeof SandboxProfileSchema> => {
+  return SandboxProfileSchema.safeParse(config).success;
+};
+
+/**
+ * Type guard for SandboxGlobalConfig
+ */
+export const isSandboxGlobalConfig = (
+  config: unknown,
+): config is z.infer<typeof SandboxGlobalConfigSchema> => {
+  return SandboxGlobalConfigSchema.safeParse(config).success;
 };

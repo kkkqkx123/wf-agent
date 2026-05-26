@@ -7,6 +7,7 @@ export * from "./script-executor.js";
 export * from "./script-argument.js";
 export * from "./script-flow.js";
 export * from "./script-interactive.js";
+export * from "./script-sandbox.js";
 
 // Export Zod Schemas for Script Validation
 export {
@@ -21,6 +22,22 @@ export {
   ScriptSecurityPolicySchema,
   AuditEventSchema,
   ScriptExecutionResultSchema,
+  SandboxModeSchema,
+  ScriptLanguageSchema,
+  FilesystemPolicySchema,
+  ProcessPolicySchema,
+  NetworkPolicySchema,
+  ResourcePolicySchema,
+  ShellPolicySchema,
+  PythonPolicySchema,
+  JavaScriptPolicySchema,
+  SandboxPolicySchema,
+  VFSConfigSchema,
+  ScriptArgumentSchema,
+  ScriptExecutorConfigSchema,
+  SandboxProfileSchema,
+  SandboxProfileRuleSchema,
+  SandboxGlobalConfigSchema,
   isSandboxConfig,
   isScriptExecutionOptions,
   isScriptMetadata,
@@ -32,4 +49,9 @@ export {
   isScriptSecurityPolicy,
   isAuditEvent,
   isScriptExecutionResult,
+  isSandboxMode,
+  isScriptLanguage,
+  isSandboxPolicy,
+  isSandboxProfile,
+  isSandboxGlobalConfig,
 } from "./script-schema.js";

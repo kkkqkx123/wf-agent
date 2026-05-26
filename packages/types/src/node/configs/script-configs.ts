@@ -5,6 +5,7 @@
 
 import { ScriptRiskLevel } from '../../script/script-security.js';
 import type { ScriptExecutorConfig } from '../../script/script-executor.js';
+import { InteractionMode } from "../../script/script-interactive.js"
 
 /**
  * Script Node Output
@@ -59,7 +60,7 @@ export interface InteractiveScriptNodeConfig {
   /** Flow blueprint ID reference for interactive flow execution */
   flowId?: string;
   /** Interaction mode (blocking/llm-assisted/hybrid) */
-  interactionMode?: import("../../script/script-interactive.js").InteractionMode;
+  interactionMode?: InteractionMode;
   /** Prompt patterns to detect (regex strings indicating script is waiting for input) */
   promptPatterns?: string[];
   /** Maximum interaction rounds */

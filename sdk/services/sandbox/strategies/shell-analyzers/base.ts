@@ -2,11 +2,13 @@
  * Shell Analyzer — Base Types
  *
  * Common interface and result types for all shell-specific analyzers.
+ * ShellType hierarchy comes from @wf-agent/types (script-executor.ts).
  */
 
 import type { ShellPolicy } from "@wf-agent/types";
+import type { ScriptShellType } from "@wf-agent/types";
 
-export type ShellType = "powershell" | "bash" | "cmd";
+export type { ScriptShellType as ShellType };
 
 export interface ShellAnalysisResult {
   /** Whether the command passed static analysis */
@@ -16,7 +18,7 @@ export interface ShellAnalysisResult {
   /** Sanitized command (e.g., with path restrictions) */
   command: string;
   /** Shell type that was identified */
-  shellType: ShellType;
+  shellType: ScriptShellType;
 }
 
 export interface ShellAnalysisContext {
@@ -25,6 +27,6 @@ export interface ShellAnalysisContext {
 }
 
 export interface ShellAnalyzer {
-  readonly shellType: ShellType;
+  readonly shellType: ScriptShellType;
   analyze(ctx: ShellAnalysisContext): ShellAnalysisResult;
 }

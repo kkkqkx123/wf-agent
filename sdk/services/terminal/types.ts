@@ -5,19 +5,10 @@
  * terminal session management with multi-shell support.
  */
 
-/**
- * Supported shell types
- */
-export type ShellType =
-  | "bash"
-  | "zsh"
-  | "fish"
-  | "sh"
-  | "cmd"
-  | "powershell"
-  | "pwsh"
-  | "git-bash"
-  | "wsl";
+import type { ShellType } from "@wf-agent/types";
+
+// Re-export for consumers importing from @wf-agent/sdk/services
+export type { ShellType };
 
 /**
  * Terminal session status
@@ -111,6 +102,14 @@ export interface OutputOptions {
 }
 
 /**
+ * Shell path overrides for custom installation paths.
+ *
+ * Keyed by ShellType, value is the custom executable path.
+ * When set, overrides the default hardcoded path for that shell.
+ */
+export type ShellPathOverrides = Partial<Record<ShellType, string>>;
+
+/**
  * Terminal service configuration
  */
 export interface TerminalServiceConfig {
@@ -130,6 +129,8 @@ export interface TerminalServiceConfig {
   deniedCommands?: string[];
   /** Maximum number of concurrent sessions */
   maxSessions?: number;
+  /** Custom shell executable paths (overrides hardcoded defaults) */
+  shellPathOverrides?: ShellPathOverrides;
 }
 
 /**

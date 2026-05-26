@@ -15,6 +15,7 @@ export type {
   OutputOptions,
   TerminalServiceConfig,
   ShellInfo,
+  ShellPathOverrides,
   ProcessInfo,
   TerminalSessionWithProcess,
   TerminalServiceEvents,

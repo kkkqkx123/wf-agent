@@ -24,8 +24,7 @@ import { getTerminalService, type TerminalService } from "../../terminal/index.j
 import { BashAnalyzer } from "./shell-analyzers/bash.js";
 import { PowerShellAnalyzer } from "./shell-analyzers/powershell.js";
 import { CmdAnalyzer } from "./shell-analyzers/cmd.js";
-import type { ShellAnalyzer } from "./shell-analyzers/base.js";
-import type { ShellType } from "./shell-analyzers/base.js";
+import type { ShellAnalyzer, ShellType } from "./shell-analyzers/base.js";
 
 /**
  * Shell Static Analyzer Strategy
@@ -69,8 +68,9 @@ export class ShellStaticAnalyzerStrategy implements StrategyImplementation<Scrip
       return this.executionResult(false, startTime, "Empty command");
     }
 
-    // Resolve shell type from executor config, default to platform convention
-    const shellType = this.resolveShellType(options.shellType);
+    // Resolve shell type from executor config, default to platform convention.
+    // When runtime is "wsl", always use bash (WSL distro default).
+    const shellType = this.resolveShellType(options.shellType, options.runtime);
 
     // Resolve shell-specific policy
     const shellPolicy: ShellPolicy = {
@@ -98,11 +98,17 @@ export class ShellStaticAnalyzerStrategy implements StrategyImplementation<Scrip
   /**
    * Resolve shell type from options, falling back to platform default.
    *
+   * WSL runtime always resolves to bash regardless of shellType,
+   * because WSL runs Linux commands through its distro's default shell (bash).
+   *
    * Platform convention:
    *   - win32 → "powershell" (most Windows systems have PowerShell pre-installed)
    *   - other → "bash" (Linux/macOS default to bash)
    */
-  private resolveShellType(shellType?: ShellType | "auto"): ShellType {
+  private resolveShellType(shellType?: ShellType | "auto", runtime?: string): ShellType {
+    if (runtime === "wsl") {
+      return "bash";
+    }
     if (shellType && shellType !== "auto") {
       return shellType;
     }

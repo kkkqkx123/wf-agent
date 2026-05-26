@@ -1,19 +1,26 @@
 /**
  * Shell Detector
- * 
+ *
  * Detects available shells on the current system and provides
  * shell-specific configuration for command execution.
+ *
+ * Path resolution priority (highest to lowest):
+ *   1. Custom path override (from config / constructor)
+ *   2. Default hardcoded path (from SHELL_CONFIGS)
+ *   3. `where`/`which` lookup in system PATH
+ *   4. Executable name only (relies on OS PATH resolution)
  */
 
 import { existsSync } from "fs";
 import { homedir, platform } from "os";
 import { env } from "process";
-import type { ShellType, ShellInfo } from "./types.js";
+import { execSync } from "child_process";
+import type { ShellType, ShellInfo, ShellPathOverrides } from "./types.js";
 
 /**
- * Shell configuration mapping
+ * Shell configuration mapping (default hardcoded paths)
  */
-const SHELL_CONFIGS: Record<ShellType, Omit<ShellInfo, "available">> = {
+const DEFAULT_SHELL_CONFIGS: Record<ShellType, Omit<ShellInfo, "available">> = {
   bash: {
     type: "bash",
     path: "/bin/bash",
@@ -57,31 +64,39 @@ const SHELL_CONFIGS: Record<ShellType, Omit<ShellInfo, "available">> = {
   wsl: {
     type: "wsl",
     path: "wsl.exe",
-    commandFlag: "-e",
+    commandFlag: "--",
   },
 };
 
+/** Shell types that are built into Windows */
+const WINDOWS_BUILTIN_SHELLS: readonly ShellType[] = ["cmd", "powershell"];
+
+/** Shell types that are Windows-only */
+const WINDOWS_ONLY_SHELLS: readonly ShellType[] = ["cmd", "powershell", "pwsh", "git-bash", "wsl"];
+
 /**
  * Shell Detector
- * 
+ *
  * Provides shell detection and configuration for the terminal service.
  */
 export class ShellDetector {
   private cachedAvailableShells: Map<ShellType, boolean> = new Map();
+  private readonly pathOverrides: ShellPathOverrides;
+  private readonly currentPlatform: NodeJS.Platform;
+
+  constructor(pathOverrides?: ShellPathOverrides) {
+    this.pathOverrides = pathOverrides ?? {};
+    this.currentPlatform = platform();
+  }
 
   /**
    * Get the default shell for the current platform
    */
   getDefaultShell(): ShellType {
-    const currentPlatform = platform();
-
-    if (currentPlatform === "win32") {
-      // On Windows, prefer PowerShell
+    if (this.currentPlatform === "win32") {
       return "powershell";
     }
 
-    // On Unix-like systems, prefer bash
-    // Check SHELL environment variable for user preference
     const shellEnv = env["SHELL"];
     if (shellEnv) {
       if (shellEnv.includes("zsh")) return "zsh";
@@ -93,53 +108,72 @@ export class ShellDetector {
   }
 
   /**
+   * Resolve the executable path for a shell type.
+   *
+   * Priority:
+   *   1. Custom override (from ShellPathOverrides)
+   *   2. Default hardcoded path (from DEFAULT_SHELL_CONFIGS)
+   *   3. Platform-specific heuristics (multi-path search)
+   *   4. `where`/`which` lookup
+   *   5. Executable name only (OS PATH fallback)
+   */
+  resolveShellPath(shellType: ShellType): string {
+    // 1. Custom override
+    const override = this.pathOverrides[shellType];
+    if (override) {
+      return override;
+    }
+
+    const config = DEFAULT_SHELL_CONFIGS[shellType];
+
+    // 2. Platform-specific heuristic paths
+    const heuristic = this.resolveHeuristicPath(shellType, config);
+    if (heuristic) {
+      return heuristic;
+    }
+
+    // 3. Default config path
+    if (existsSync(config.path)) {
+      return config.path;
+    }
+
+    // 4. where/which lookup
+    const whichPath = this.lookupInPath(shellType);
+    if (whichPath) {
+      return whichPath;
+    }
+
+    // 5. Executable name only (OS PATH fallback)
+    return config.path.split("/").pop()?.split("\\").pop() ?? config.path;
+  }
+
+  /**
    * Check if a shell is available on the system
    */
   async isShellAvailable(shellType: ShellType): Promise<boolean> {
-    // Check cache first
     if (this.cachedAvailableShells.has(shellType)) {
       return this.cachedAvailableShells.get(shellType)!;
     }
 
-    const config = SHELL_CONFIGS[shellType];
-    const available = this.checkShellAvailability(config.path, shellType);
+    const available = this.checkShellAvailability(shellType);
 
-    // Cache the result
     this.cachedAvailableShells.set(shellType, available);
-
     return available;
   }
 
   /**
-   * Get the executable path for a shell type
+   * Get the highest-priority executable path for a shell type
+   * (delegates to resolveShellPath)
    */
   getShellPath(shellType: ShellType): string {
-    const config = SHELL_CONFIGS[shellType];
-
-    // Handle special cases
-    if (shellType === "git-bash") {
-      // Try common Git Bash installation paths
-      const gitBashPaths = [
-        "C:\\Program Files\\Git\\bin\\bash.exe",
-        "C:\\Program Files (x86)\\Git\\bin\\bash.exe",
-        `${homedir()}\\AppData\\Local\\Programs\\Git\\bin\\bash.exe`,
-      ];
-
-      for (const path of gitBashPaths) {
-        if (existsSync(path)) {
-          return path;
-        }
-      }
-    }
-
-    return config.path;
+    return this.resolveShellPath(shellType);
   }
 
   /**
    * Get shell arguments for executing a command
    */
   getShellArgs(shellType: ShellType, command: string): string[] {
-    const config = SHELL_CONFIGS[shellType];
+    const config = this.getEffectiveConfig(shellType);
     return [config.commandFlag, command];
   }
 
@@ -147,7 +181,7 @@ export class ShellDetector {
    * Get the command flag for a shell type
    */
   getCommandFlag(shellType: ShellType): string {
-    return SHELL_CONFIGS[shellType].commandFlag;
+    return this.getEffectiveConfig(shellType).commandFlag;
   }
 
   /**
@@ -156,7 +190,7 @@ export class ShellDetector {
   async getAvailableShells(): Promise<ShellType[]> {
     const available: ShellType[] = [];
 
-    for (const shellType of Object.keys(SHELL_CONFIGS) as ShellType[]) {
+    for (const shellType of Object.keys(DEFAULT_SHELL_CONFIGS) as ShellType[]) {
       if (await this.isShellAvailable(shellType)) {
         available.push(shellType);
       }
@@ -169,9 +203,9 @@ export class ShellDetector {
    * Get shell information for a shell type
    */
   async getShellInfo(shellType: ShellType): Promise<ShellInfo> {
-    const config = SHELL_CONFIGS[shellType];
+    const config = this.getEffectiveConfig(shellType);
     const available = await this.isShellAvailable(shellType);
-    const path = this.getShellPath(shellType);
+    const path = this.resolveShellPath(shellType);
 
     return {
       type: shellType,
@@ -183,7 +217,7 @@ export class ShellDetector {
 
   /**
    * Resolve shell type with fallback
-   * 
+   *
    * If the requested shell is not available, returns the default shell.
    */
   async resolveShellType(shellType?: ShellType): Promise<ShellType> {
@@ -196,79 +230,7 @@ export class ShellDetector {
       return shellType;
     }
 
-    // Fallback to default shell
     return this.getDefaultShell();
-  }
-
-  /**
-   * Check shell availability based on platform
-   */
-  private checkShellAvailability(path: string, shellType: ShellType): boolean {
-    const currentPlatform = platform();
-
-    // Windows-specific shells
-    if (["cmd", "powershell", "pwsh", "git-bash", "wsl"].includes(shellType)) {
-      if (currentPlatform !== "win32") {
-        // WSL can be checked on non-Windows, but others are Windows-only
-        if (shellType !== "wsl") {
-          return false;
-        }
-      }
-    }
-
-    // Unix-specific shells
-    if (["bash", "zsh", "fish", "sh"].includes(shellType)) {
-      if (currentPlatform === "win32") {
-        // On Windows, these might be available via Git Bash or WSL
-        // For simplicity, we check if the path exists
-        if (!existsSync(path)) {
-          // Check Git Bash path for bash
-          if (shellType === "bash") {
-            const gitBashPaths = [
-              "C:\\Program Files\\Git\\bin\\bash.exe",
-              "C:\\Program Files (x86)\\Git\\bin\\bash.exe",
-              `${homedir()}\\AppData\\Local\\Programs\\Git\\bin\\bash.exe`,
-            ];
-            return gitBashPaths.some((p) => existsSync(p));
-          }
-          return false;
-        }
-      }
-    }
-
-    // For built-in Windows commands, they're always available
-    if (shellType === "cmd" && currentPlatform === "win32") {
-      return true;
-    }
-
-    if (shellType === "powershell" && currentPlatform === "win32") {
-      return true;
-    }
-
-    // For other shells, check if the path exists
-    if (currentPlatform === "win32") {
-      // On Windows, check if the executable exists
-      if (shellType === "pwsh") {
-        // PowerShell Core might be installed
-        return existsSync(path) || existsSync("pwsh.exe");
-      }
-      if (shellType === "git-bash") {
-        const gitBashPaths = [
-          "C:\\Program Files\\Git\\bin\\bash.exe",
-          "C:\\Program Files (x86)\\Git\\bin\\bash.exe",
-          `${homedir()}\\AppData\\Local\\Programs\\Git\\bin\\bash.exe`,
-        ];
-        return gitBashPaths.some((p) => existsSync(p));
-      }
-      if (shellType === "wsl") {
-        // WSL is typically available if wsl.exe exists
-        return true; // Assume WSL is available on modern Windows
-      }
-      return existsSync(path);
-    }
-
-    // On Unix-like systems, check if the path exists
-    return existsSync(path);
   }
 
   /**
@@ -277,9 +239,144 @@ export class ShellDetector {
   clearCache(): void {
     this.cachedAvailableShells.clear();
   }
+
+  // ==========================================================================
+  // Private Helpers
+  // ==========================================================================
+
+  /**
+   * Get the effective config for a shell type (merged with overrides)
+   */
+  private getEffectiveConfig(shellType: ShellType): Omit<ShellInfo, "available"> {
+    return DEFAULT_SHELL_CONFIGS[shellType];
+  }
+
+  /**
+   * Check shell availability based on platform and path existence
+   */
+  private checkShellAvailability(shellType: ShellType): boolean {
+    // Platform compatibility gate
+    if (!this.isPlatformCompatible(shellType)) {
+      return false;
+    }
+
+    // Windows built-in shells are always available
+    if (WINDOWS_BUILTIN_SHELLS.includes(shellType) && this.currentPlatform === "win32") {
+      return true;
+    }
+
+    // Try override first
+    const override = this.pathOverrides[shellType];
+    if (override && existsSync(override)) {
+      return true;
+    }
+
+    // Try heuristic paths
+    const config = DEFAULT_SHELL_CONFIGS[shellType];
+    const heuristic = this.resolveHeuristicPath(shellType, config);
+    if (heuristic) {
+      return true;
+    }
+
+    // Try default path
+    if (existsSync(config.path)) {
+      return true;
+    }
+
+    // Try where/which
+    const whichPath = this.lookupInPath(shellType);
+    if (whichPath) {
+      return true;
+    }
+
+    // WSL special case: assume available on modern Windows
+    if (shellType === "wsl" && this.currentPlatform === "win32") {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Platform compatibility check
+   */
+  private isPlatformCompatible(shellType: ShellType): boolean {
+    if (this.currentPlatform === "win32") {
+      return true; // Windows can access Windows-only + Unix shells via WSL/Git Bash
+    }
+    if (WINDOWS_ONLY_SHELLS.includes(shellType)) {
+      return shellType === "wsl"; // Only WSL is checkable on non-Windows
+    }
+    return true; // Unix shells on Unix
+  }
+
+  /**
+   * Platform-specific heuristic path resolution
+   *
+   * Handles cases like Git Bash on Windows, pwsh cross-platform, etc.
+   */
+  private resolveHeuristicPath(
+    shellType: ShellType,
+    config: Omit<ShellInfo, "available">,
+  ): string | null {
+    // Git Bash on Windows — try common installation paths
+    if (shellType === "git-bash") {
+      const gitBashPaths = [
+        "C:\\Program Files\\Git\\bin\\bash.exe",
+        "C:\\Program Files (x86)\\Git\\bin\\bash.exe",
+        `${homedir()}\\AppData\\Local\\Programs\\Git\\bin\\bash.exe`,
+      ];
+      for (const p of gitBashPaths) {
+        if (existsSync(p)) return p;
+      }
+      return null;
+    }
+
+    // bash on Windows — check Git Bash paths
+    if (shellType === "bash" && this.currentPlatform === "win32") {
+      const gitBashPaths = [
+        "C:\\Program Files\\Git\\bin\\bash.exe",
+        "C:\\Program Files (x86)\\Git\\bin\\bash.exe",
+        `${homedir()}\\AppData\\Local\\Programs\\Git\\bin\\bash.exe`,
+      ];
+      for (const p of gitBashPaths) {
+        if (existsSync(p)) return p;
+      }
+    }
+
+    // pwsh (PowerShell Core) — cross-platform
+    if (shellType === "pwsh") {
+      if (existsSync(config.path)) return config.path;
+      if (existsSync("pwsh.exe")) return "pwsh.exe";
+      const pwshUnix = "/usr/bin/pwsh";
+      if (existsSync(pwshUnix)) return pwshUnix;
+      const pwshLinux = "/usr/local/bin/pwsh";
+      if (existsSync(pwshLinux)) return pwshLinux;
+    }
+
+    return null;
+  }
+
+  /**
+   * Lookup shell executable in system PATH using `where` (Windows) or `which` (Unix)
+   */
+  private lookupInPath(shellType: ShellType): string | null {
+    const config = DEFAULT_SHELL_CONFIGS[shellType];
+    // Extract just the executable name from the config path
+    const execName = config.path.split("/").pop()?.split("\\").pop() ?? config.path;
+
+    try {
+      const cmd = this.currentPlatform === "win32" ? `where ${execName}` : `which ${execName}`;
+      const result = execSync(cmd, { encoding: "utf-8", timeout: 3000 });
+      const firstMatch = result.split("\n")[0]?.trim();
+      return firstMatch && firstMatch.length > 0 ? firstMatch : null;
+    } catch {
+      return null;
+    }
+  }
 }
 
 /**
- * Default shell detector instance
+ * Default shell detector instance (no path overrides)
  */
 export const shellDetector = new ShellDetector();

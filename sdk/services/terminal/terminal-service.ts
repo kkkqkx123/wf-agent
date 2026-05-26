@@ -39,7 +39,9 @@ export class TerminalService extends EventEmitter<TerminalServiceEvents> {
   constructor(config?: TerminalServiceConfig) {
     super();
     this.config = config ?? {};
-    this.shellDetector = shellDetector;
+    this.shellDetector = this.config.shellPathOverrides
+      ? new ShellDetector(this.config.shellPathOverrides)
+      : shellDetector;
     this.registry = terminalRegistry;
   }
 

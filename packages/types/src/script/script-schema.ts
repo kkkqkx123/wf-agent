@@ -4,6 +4,7 @@
  */
 
 import { z } from "zod";
+import { EXECUTOR_SHELL_CONFIGS } from "./script-executor.js";
 
 // ============================================================================
 // Sandbox Mode & Script Language Schemas
@@ -203,6 +204,35 @@ export const ScriptArgumentSchema = z.object({
 /**
  * Script Executor Config Schema
  */
+
+/** Docker runtime connection config schema */
+export const DockerConfigSchema = z.object({
+  container: z.string().min(1, "Docker container name/ID is required"),
+  host: z.string().optional(),
+  tlsVerify: z.boolean().optional(),
+  user: z.string().optional(),
+  workdir: z.string().optional(),
+  extraFlags: z.array(z.string()).optional(),
+});
+
+/** SSH runtime connection config schema */
+export const SSHConfigSchema = z.object({
+  host: z.string().min(1, "SSH host is required"),
+  port: z.number().int().positive().optional(),
+  user: z.string().optional(),
+  identityFile: z.string().optional(),
+  passphrase: z.string().optional(),
+  password: z.string().optional(),
+  forwardAgent: z.boolean().optional(),
+  extraFlags: z.array(z.string()).optional(),
+});
+
+/** Runtime connection config schema (discriminated by runtime value) */
+export const RuntimeConfigSchema = z.union([DockerConfigSchema, SSHConfigSchema]);
+
+/**
+ * Script Executor Config Schema
+ */
 export const ScriptExecutorConfigSchema = z.object({
   mode: z.enum([
     "direct",
@@ -212,7 +242,9 @@ export const ScriptExecutorConfigSchema = z.object({
     "sandbox-python",
     "sandbox-javascript",
   ]),
-  shell: z.enum(["powershell", "bash", "cmd", "auto"]),
+  shell: z.enum(EXECUTOR_SHELL_CONFIGS),
+  runtime: z.enum(["native", "wsl", "docker", "ssh"]).optional(),
+  runtimeConfig: RuntimeConfigSchema.optional(),
   cwd: z.string().optional(),
   environment: z.record(z.string(), z.string()).optional(),
 });

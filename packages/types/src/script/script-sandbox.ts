@@ -163,6 +163,8 @@ export type JavaScriptSandboxStrategy =
   | "container"
   | "custom";
 
+import type { ExecutorShellConfig, ScriptRuntime, RuntimeConfig } from "./script-executor.js";
+
 /**
  * Minimal options passed into strategy execution
  */
@@ -176,7 +178,11 @@ export interface StrategyExecuteOptions {
   /** Timeout in milliseconds */
   timeout?: number;
   /** Target shell type, set by executor from Script.executor.shell */
-  shellType?: "powershell" | "bash" | "cmd" | "auto";
+  shellType?: ExecutorShellConfig;
+  /** Execution runtime environment, set by executor from Script.executor.runtime */
+  runtime?: ScriptRuntime;
+  /** Runtime-specific connection config (docker/ssh), set by executor from Script.executor.runtimeConfig */
+  runtimeConfig?: RuntimeConfig;
 }
 
 /**

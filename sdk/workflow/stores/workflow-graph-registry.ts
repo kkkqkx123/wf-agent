@@ -6,7 +6,8 @@
  *
  */
 
-import type { WorkflowGraph, ID } from "@wf-agent/types";
+import type { ID } from "@wf-agent/types";
+import type { WorkflowGraph } from "../types/graph/preprocessed-graph.js";
 
 /**
  * WorkflowGraph Registry Class

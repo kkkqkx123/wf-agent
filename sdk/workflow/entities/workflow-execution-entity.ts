@@ -16,7 +16,7 @@ import type {
   WorkflowExecutionStatus,
   WorkflowExecutionType,
 } from "@wf-agent/types";
-import type { WorkflowGraph } from "@wf-agent/types";
+import type { WorkflowGraph } from "../types/graph/preprocessed-graph.js";
 import type {
   ParentExecutionContext,
   ChildExecutionReference,
@@ -231,7 +231,7 @@ export class WorkflowExecutionEntity implements Abortable {
   // ========== Graph Navigation ----------
 
   getGraph(): WorkflowGraph {
-    return this.workflowExecution.graph;
+    return this.workflowExecution.graph as unknown as WorkflowGraph;
   }
 
   // ========== Subgraph Execution Status ----------

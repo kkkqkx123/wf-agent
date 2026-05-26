@@ -3,7 +3,8 @@
  * Provides an algorithm for detecting loops in workflow graphs
  */
 
-import type { ID, CycleDetectionResult, WorkflowGraphStructure } from "@wf-agent/types";
+import type { ID, WorkflowGraphStructure } from "@wf-agent/types";
+import type { CycleDetectionResult } from "../../types/graph/validation.js";
 import { dfsWithPathTrackingAndEarlyExit, type DfsCycleCallback } from "./workflow-traversal.js";
 
 /**

@@ -8,7 +8,7 @@ import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-
 import type { WorkflowExecutionEntity } from "../../entities/index.js";
 import type { WorkflowTrigger } from "@wf-agent/types";
 import type { TriggerReference } from "@wf-agent/types";
-import type { WorkflowReference, WorkflowReferenceInfo } from "@wf-agent/types";
+import type { WorkflowReference, WorkflowReferenceInfo } from "../../types/reference.js";
 
 /**
  * Check if the workflow is being referenced.

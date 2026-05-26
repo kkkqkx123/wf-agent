@@ -16,7 +16,7 @@ import type {
   BatchUnregisterOptions,
   UpdateOptions,
 } from "@wf-agent/types";
-import type { WorkflowReferenceInfo } from "@wf-agent/types";
+import type { WorkflowReferenceInfo } from "../types/reference.js";
 import type { WorkflowSummary } from "../../api/workflow/resources/workflows/workflow-registry-api.js";
 import type { WorkflowExecutionRegistry } from "./workflow-execution-registry.js";
 import {
@@ -513,7 +513,7 @@ export class WorkflowRegistry {
    * @returns Formatted string
    */
   private formatReferenceDetails(
-    references: import("@wf-agent/types").WorkflowReference[],
+    references: import("../types/reference.js").WorkflowReference[],
   ): string {
     if (references.length === 0) {
       return "  No references found.";
@@ -745,7 +745,7 @@ export class WorkflowRegistry {
    * @param workflowId Workflow ID
    * @returns Hierarchy structure information
    */
-  getWorkflowHierarchy(workflowId: string): import("@wf-agent/types").WorkflowHierarchy {
+  getWorkflowHierarchy(workflowId: string): import("../types/relationship.js").WorkflowHierarchy {
     return this.relationshipRegistry!.getWorkflowHierarchy(workflowId);
   }
 

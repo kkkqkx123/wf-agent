@@ -14,8 +14,8 @@ import type {
   CheckpointConfig,
   TriggeredSubworkflowConfig,
   WorkflowConfig,
-  WorkflowMetadata,
 } from "./index.js";
+import type { WorkflowMetadata } from "./definition.js";
 import type { VariableDefinition } from "../workflow-execution/variables.js";
 import { ToolApprovalOptionsSchema } from "../tool/tool-schema.js";
 

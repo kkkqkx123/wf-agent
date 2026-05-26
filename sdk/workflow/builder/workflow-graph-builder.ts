@@ -11,10 +11,9 @@ import type {
   ID,
   WorkflowNode,
   WorkflowEdge,
-  SubgraphMergeOptions,
-  SubgraphMergeResult,
-  WorkflowGraph,
 } from "@wf-agent/types";
+import type { SubgraphMergeOptions, SubgraphMergeResult } from "../types/graph/merge.js";
+import type { WorkflowGraph } from "../types/graph/preprocessed-graph.js";
 import { WorkflowGraphData } from "../entities/workflow-graph-data.js";
 import { WorkflowGraphEntity } from "../entities/workflow-graph.js";
 import { GraphValidator } from "../validation/graph-validation/graph-validator.js";

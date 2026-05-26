@@ -6,10 +6,9 @@
 import type {
   ID,
   EdgeType,
-  WorkflowGraphAnalysis,
-  ForkJoinValidationResult,
   WorkflowGraphStructure,
 } from "@wf-agent/types";
+import type { WorkflowGraphAnalysis, ForkJoinValidationResult } from "../../types/graph/analysis.js";
 import { detectCycles } from "./workflow-cycle-detector.js";
 import { analyzeReachability } from "./workflow-reachability-analyzer.js";
 import { topologicalSort } from "./workflow-topological-sorter.js";

@@ -3,7 +3,8 @@
  * Provides the topological sorting algorithm for workflow graphs (Kahn's algorithm)
  */
 
-import type { ID, TopologicalSortResult, WorkflowGraphStructure } from "@wf-agent/types";
+import type { ID, WorkflowGraphStructure } from "@wf-agent/types";
+import type { TopologicalSortResult } from "../../types/graph/validation.js";
 import { detectCycles } from "./workflow-cycle-detector.js";
 
 /**

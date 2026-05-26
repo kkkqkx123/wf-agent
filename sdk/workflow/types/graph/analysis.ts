@@ -2,8 +2,15 @@
  * Graph Analysis Result Type Definition
  */
 
-import type { EdgeType } from "../workflow/edge.js";
+import type { EdgeType } from "@wf-agent/types";
 import type {
+  CycleDetectionResult,
+  ReachabilityResult,
+  TopologicalSortResult,
+  ForkJoinValidationResult,
+} from "./validation.js";
+
+export type {
   CycleDetectionResult,
   ReachabilityResult,
   TopologicalSortResult,

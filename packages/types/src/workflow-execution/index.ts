@@ -19,5 +19,8 @@ export * from "./variables.js";
 // Export execution-related types (WorkflowExecutionOptions, WorkflowExecutionResult, etc.)
 export * from "./execution.js";
 
+// Export graph structure types (WorkflowGraphStructure, WorkflowNode, WorkflowEdge, etc.)
+export * from "./graph-structure.js";
+
 // Export History Type
 export * from "./history.js";

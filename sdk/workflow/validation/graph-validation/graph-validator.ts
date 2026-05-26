@@ -38,7 +38,7 @@
  * - Verification of the combination of nodes triggering sub-workflows (handled by WorkflowValidator).
  */
 
-import type { WorkflowGraphAnalysis } from "@wf-agent/types";
+import type { WorkflowGraphAnalysis } from "../../types/graph/analysis.js";
 import { ConfigurationValidationError } from "@wf-agent/types";
 import type { Result } from "@wf-agent/types";
 import { ok, err } from "@wf-agent/common-utils";

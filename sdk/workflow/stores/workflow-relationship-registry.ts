@@ -8,9 +8,11 @@
 import type {
   WorkflowRelationship,
   WorkflowHierarchy,
+} from "../types/relationship.js";
+import type {
   WorkflowReferenceRelation,
   WorkflowReferenceType,
-} from "@wf-agent/types";
+} from "../types/reference.js";
 
 /**
  * WorkflowRelationshipRegistry

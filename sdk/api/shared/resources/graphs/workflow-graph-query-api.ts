@@ -12,12 +12,12 @@
 
 import type { APIDependencyManager } from "../../core/sdk-dependencies.js";
 import type {
-  WorkflowGraph,
   WorkflowNode,
   WorkflowEdge,
-  WorkflowGraphAnalysis,
 } from "@wf-agent/types";
 import type { ID } from "@wf-agent/types";
+import type { WorkflowGraph } from "../../../../workflow/types/graph/preprocessed-graph.js";
+import type { WorkflowGraphAnalysis } from "../../../../workflow/types/graph/analysis.js";
 import { createContextualLogger } from "../../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ operation: "WorkflowGraphQueryAPI" });

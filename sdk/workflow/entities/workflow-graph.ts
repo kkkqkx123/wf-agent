@@ -4,12 +4,6 @@
  */
 
 import type {
-  WorkflowGraph as WorkflowGraphType,
-  IdMapping,
-  SubgraphRelationship,
-  WorkflowGraphAnalysis,
-  PreprocessValidationResult,
-  SubgraphMergeLog,
   ID,
   Timestamp,
   Version,
@@ -19,6 +13,16 @@ import type {
   EdgeType,
   StaticNode,
 } from "@wf-agent/types";
+import type {
+  WorkflowGraph as WorkflowGraphType,
+} from "../types/graph/preprocessed-graph.js";
+import type {
+  IdMapping,
+  SubgraphRelationship,
+  PreprocessValidationResult,
+  SubgraphMergeLog,
+} from "../types/preprocess.js";
+import type { WorkflowGraphAnalysis } from "../types/graph/analysis.js";
 import { WorkflowGraphData } from "./workflow-graph-data.js";
 
 /**

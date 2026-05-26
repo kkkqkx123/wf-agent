@@ -1,5 +1,9 @@
 /**
  * Graph Structure Type Definition
+ *
+ * NOTE: This module is placed under the workflow-execution directory because
+ * WorkflowGraphStructure is tightly coupled with WorkflowExecution.
+ * It defines the runtime graph structure used during workflow execution.
  */
 
 import type { ID } from "../common.js";
@@ -8,24 +12,24 @@ import type { Edge, EdgeType } from "../workflow/edge.js";
 
 /**
  * Workflow Node Type
- * 
+ *
  * Represents nodes in the workflow execution graph AFTER preprocessing.
  * This is a RuntimeNode with additional graph-specific properties.
- * 
+ *
  * IMPORTANT: Display metadata (name/description) are NOT part of RuntimeNode.
  * They are optionally copied here from StaticNode for logging/debugging convenience.
  * For CRUD/UI operations, always use the originalNode reference.
- * 
+ *
  * This is used during:
  * - Graph building and preprocessing
- * - Graph validation and analysis  
+ * - Graph validation and analysis
  * - Workflow execution (nodes retrieved from the graph)
  */
 export type WorkflowNode = RuntimeNode & {
   /** Reference to the original static node definition (for accessing display props if needed) */
   originalNode?: StaticNode;
-  
-  /** 
+
+  /**
    * Optional node name copied from static node for logging/debugging convenience.
    * NOTE: Prefer accessing via originalNode?.name for better separation of concerns.
    * This field may be removed in future versions.

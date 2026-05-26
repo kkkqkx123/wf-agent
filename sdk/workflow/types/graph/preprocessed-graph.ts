@@ -3,15 +3,9 @@
  * Extending the Graph interface to add preprocessing-related metadata
  */
 
-import type { WorkflowGraphStructure } from "./structure.js";
-import type { ID, Timestamp, Version } from "../common.js";
-import type { IdMapping, SubgraphRelationship } from "../workflow/id-mapping.js";
+import type { WorkflowGraphStructure, ID, Timestamp, Version, WorkflowTrigger, VariableDefinition, AvailableTools, StaticNode } from "@wf-agent/types";
+import type { IdMapping, SubgraphRelationship, PreprocessValidationResult, SubgraphMergeLog } from "../preprocess.js";
 import type { WorkflowGraphAnalysis } from "./analysis.js";
-import type { PreprocessValidationResult, SubgraphMergeLog } from "../workflow/preprocess.js";
-import type { WorkflowTrigger } from "../trigger/index.js";
-import type { VariableDefinition } from "../workflow-execution/variables.js";
-import type { AvailableTools } from "../workflow/tool-config.js";
-import type { StaticNode } from "../node/index.js";
 
 /**
  * Workflow Graph Interface

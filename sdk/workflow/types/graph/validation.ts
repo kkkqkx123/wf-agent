@@ -2,7 +2,7 @@
  * Graph Validation Related Type Definitions
  */
 
-import type { ID } from "../common.js";
+import type { ID } from "@wf-agent/types";
 
 /**
  * Ring test results

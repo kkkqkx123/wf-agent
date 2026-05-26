@@ -13,7 +13,8 @@
  * - This eliminates data redundancy and synchronization issues
  */
 
-import type { WorkflowGraph, WorkflowExecution, WorkflowExecutionOptions, WorkflowConfig, MessageContextRegistry, VariableDefinition } from "@wf-agent/types";
+import type { WorkflowExecution, WorkflowExecutionOptions, WorkflowConfig, MessageContextRegistry, VariableDefinition } from "@wf-agent/types";
+import type { WorkflowGraph } from "../../types/graph/preprocessed-graph.js";
 import { AvailableTools, resolveSchemaTools, resolveInitialTools } from "@wf-agent/types";
 import { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
 import { WorkflowExecutionState } from "../../state-managers/workflow-execution-state.js";
@@ -749,7 +750,7 @@ export class WorkflowExecutionBuilder {
     
     variableCoordinator.initializeFromDefinitions(
       child.variableStateManager,
-      child.getWorkflowExecutionData().graph.variables || []
+      (child.getWorkflowExecutionData().graph as unknown as WorkflowGraph).variables || []
     );
   }
 

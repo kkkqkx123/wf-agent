@@ -7,12 +7,35 @@ import type { Edge } from "./edge.js";
 import type { ID, Version, Timestamp } from "../common.js";
 import type { WorkflowTrigger } from "../trigger/index.js";
 import type { TriggerReference } from "../trigger/template.js";
-import type { WorkflowTemplateType } from "./type.js";
 import type { VariableDefinition } from "../workflow-execution/variables.js";
 import type { WorkflowConfig } from "./config.js";
-import type { WorkflowMetadata } from "./metadata.js";
 import type { TriggeredSubworkflowConfig } from "./config.js";
 import type { AvailableTools } from "./tool-config.js";
+
+/**
+ * Workflow Template Types
+ * Used to differentiate between different types of workflows, affecting preprocessing timing and checkpointing strategies
+ */
+export type WorkflowTemplateType =
+  /** Trigger subworkflow: must contain START_FROM_TRIGGER and CONTINUE_FROM_TRIGGER nodes, not start, end, subgraph nodes */
+  | "TRIGGERED_SUBWORKFLOW"
+  /** Standalone workflow: does not contain EXECUTE_TRIGGERED_SUBGRAPH triggers and does not contain SUBGRAPH nodes */
+  | "STANDALONE"
+  /** Dependent workflow: contains EXECUTE_TRIGGERED_SUBGRAPH trigger or SUBGRAPH node */
+  | "DEPENDENT";
+
+/**
+ * Workflow Metadata Types
+ * Used to store extended information
+ */
+export interface WorkflowMetadata {
+  /** Author Information */
+  author?: string;
+  /** tagged array */
+  tags?: string[];
+  /** categorization */
+  category?: string;
+}
 
 /**
  * Workflow Template Type

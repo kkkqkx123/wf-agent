@@ -3,7 +3,8 @@
  * Provide algorithms for workflow graph reachability analysis
  */
 
-import type { ID, ReachabilityResult, WorkflowGraphStructure } from "@wf-agent/types";
+import type { ID, WorkflowGraphStructure } from "@wf-agent/types";
+import type { ReachabilityResult } from "../../types/graph/validation.js";
 import { getReachableNodes, getNodesReachingTo } from "./workflow-traversal.js";
 
 /**

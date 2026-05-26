@@ -5,10 +5,13 @@
 // base type
 export * from "./common.js";
 
-// Graph Proprietary type
+// Workflow type
 export * from "./workflow/index.js";
-export * from "./graph/index.js";
+
+// Condition types
 export * from "./condition.js";
+
+// Node types
 export * from "./node/index.js";
 
 // Shared Hook Types
@@ -18,7 +21,7 @@ export * from "./hook.js";
 export * from "./agent/index.js";
 export * from "./agent-execution/index.js";
 
-// Implementation-related types
+// Workflow Execution type (includes graph structure types)
 export * from "./workflow-execution/index.js";
 export * from "./execution/index.js";
 export * from "./events/index.js";

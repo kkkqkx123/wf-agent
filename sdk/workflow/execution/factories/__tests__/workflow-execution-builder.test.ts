@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { WorkflowExecutionBuilder, type ChildExecutionOptions } from '../workflow-execution-builder.js';
 import { ExecutionError, RuntimeValidationError } from '@wf-agent/types';
-import type { WorkflowGraph } from '@wf-agent/types';
+import type { WorkflowGraph } from '../../../types/graph/preprocessed-graph.js';
 import type { GlobalContext } from '../../../../core/global-context.js';
 import type { WorkflowRegistry } from '../../../stores/workflow-registry.js';
 import type { WorkflowGraphRegistry } from '../../../stores/workflow-graph-registry.js';

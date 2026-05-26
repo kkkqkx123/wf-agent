@@ -2,7 +2,7 @@
  * Workflow relationship type definition
  */
 
-import type { ID } from "../common.js";
+import type { ID } from "@wf-agent/types";
 
 /**
  * Workflow Relationship Information

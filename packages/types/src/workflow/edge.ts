@@ -16,11 +16,6 @@ export type EdgeType =
   | "CONDITIONAL";
 
 /**
- * Side Condition Type (using the harmonized Condition type)
- */
-export type EdgeCondition = Condition;
-
-/**
  * Edge metadata type
  */
 export interface EdgeMetadata {
@@ -43,7 +38,7 @@ export interface Edge {
   /** side type */
   type: EdgeType;
   /** Optional conditional expression (only required for CONDITIONAL type) */
-  condition?: EdgeCondition;
+  condition?: Condition;
   /** Optional side labels */
   label?: string;
   /** Optional side descriptions */

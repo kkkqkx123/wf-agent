@@ -18,6 +18,7 @@ import { validateJoinNode } from "./join-validator.js";
 import { validateLoopStartNode } from "./loop-start-validator.js";
 import { validateLoopEndNode } from "./loop-end-validator.js";
 import { validateScriptNode } from "./script-validator.js";
+import { validateInteractiveScriptNode } from "./interactive-script-validator.js";
 import { validateContextProcessorNode } from "./context-processor-validator.js";
 import { validateRouteNode } from "./route-validator.js";
 import { validateVariableNode } from "./variable-validator.js";
@@ -37,6 +38,7 @@ export { validateLoopEndNode } from "./loop-end-validator.js";
 export { validateStartNode } from "./start-validator.js";
 export { validateEndNode } from "./end-validator.js";
 export { validateScriptNode } from "./script-validator.js";
+export { validateInteractiveScriptNode } from "./interactive-script-validator.js";
 export { validateContextProcessorNode } from "./context-processor-validator.js";
 export { validateRouteNode } from "./route-validator.js";
 export { validateVariableNode } from "./variable-validator.js";
@@ -70,6 +72,8 @@ export function validateNodeByType(node: StaticNode): Result<StaticNode, Configu
       return validateLoopEndNode(node);
     case "SCRIPT":
       return validateScriptNode(node);
+    case "INTERACTIVE_SCRIPT":
+      return validateInteractiveScriptNode(node);
     case "CONTEXT_PROCESSOR":
       return validateContextProcessorNode(node);
     case "ROUTE":

@@ -68,8 +68,10 @@ export {
 export {
   LLMNodeConfigSchema,
   ScriptNodeConfigSchema,
+  InteractiveScriptNodeConfigSchema,
   isLLMNodeConfig,
   isScriptNodeConfig,
+  isInteractiveScriptNodeConfig,
 } from './execution-configs-schema.js';
 
 export {

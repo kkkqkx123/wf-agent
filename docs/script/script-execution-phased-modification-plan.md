@@ -132,35 +132,35 @@ Phase 3 (集成) ───依赖 Phase 1 + Phase 2─────→
 
 ### Phase 1 任务（类型定义）
 
-- [ ] P1.1: 创建 `script-executor.ts` - 执行器配置类型
-- [ ] P1.2: 创建 `script-argument.ts` - 参数声明类型
-- [ ] P1.3: 创建 `script-flow.ts` - Flow 蓝图类型
-- [ ] P1.4: 创建 `script-interactive.ts` - 交互式脚本类型
-- [ ] P1.5: 修改 `script.ts` - 扩展 Script interface
-- [ ] P1.6: 修改 `script/index.ts` - 导出新增类型
-- [ ] P1.7: 修改 `execution-configs.ts` - 扩展 ScriptNodeConfig
-- [ ] P1.8: 修改 `runtime-node-types.ts` - 增加 INTERACTIVE_SCRIPT
-- [ ] P1.9: 修改 `static-node-types.ts` - 增加 INTERACTIVE_SCRIPT
-- [ ] P1.10: 修改 `user-interaction.ts` - 增加 SCRIPT_INTERACTION
+- [x] P1.1: 创建 `script-executor.ts` - 执行器配置类型
+- [x] P1.2: 创建 `script-argument.ts` - 参数声明类型
+- [x] P1.3: 创建 `script-flow.ts` - Flow 蓝图类型
+- [x] P1.4: 创建 `script-interactive.ts` - 交互式脚本类型
+- [x] P1.5: 修改 `script.ts` - 扩展 Script interface
+- [x] P1.6: 修改 `script/index.ts` - 导出新增类型
+- [x] P1.7: 修改 `execution-configs.ts` - 扩展 ScriptNodeConfig
+- [x] P1.8: 修改 `runtime-node-types.ts` - 增加 INTERACTIVE_SCRIPT
+- [x] P1.9: 修改 `static-node-types.ts` - 增加 INTERACTIVE_SCRIPT
+- [x] P1.10: 修改 `user-interaction.ts` - 增加 SCRIPT_INTERACTION
 
 ### Phase 2 任务（核心引擎）
 
-- [ ] P2.1: 创建 `script-template.ts` - 模板渲染引擎
-- [ ] P2.2: 创建 `base-executor.ts` - 执行器抽象基类  
-- [ ] P2.3: 创建 `direct-executor.ts` - 直接执行器
-- [ ] P2.4: 创建 `shared-executor.ts` - 共享会话执行器
-- [ ] P2.5: 创建 `pty-executor.ts` - PTY 执行器（桩）
-- [ ] P2.6: 创建 `argument-resolver.ts` - 参数解析器
-- [ ] P2.7: 创建 `dynamic-resolver.ts` - 动态绑定解析器
-- [ ] P2.8: 创建 `script-engine.ts` - 核心引擎
-- [ ] P2.9: 创建 `script-flow-engine.ts` - Flow 引擎
-- [ ] P2.10: 修改 `script-registry.ts` - 扩展注册表
-- [ ] P2.11: 修改 `script-executor.ts` - 增强执行器
+- [x] P2.1: 创建 `script-template.ts` - 模板渲染引擎
+- [x] P2.2: 创建 `base-executor.ts` - 执行器抽象基类  
+- [x] P2.3: 创建 `direct-executor.ts` - 直接执行器
+- [x] P2.4: 创建 `shared-executor.ts` - 共享会话执行器
+- [x] P2.5: 创建 `pty-executor.ts` - PTY 执行器（桩）
+- [x] P2.6: 创建 `argument-resolver.ts` - 参数解析器
+- [x] P2.7: 创建 `dynamic-resolver.ts` - 动态绑定解析器
+- [x] P2.8: 创建 `script-engine.ts` - 核心引擎
+- [x] P2.9: 创建 `script-flow-engine.ts` - Flow 引擎
+- [x] P2.10: 修改 `script-registry.ts` - 扩展注册表
+- [x] P2.11: 修改 `script-executor.ts` - 增强执行器
 
 ### Phase 3 任务（集成层）
 
-- [ ] P3.1: 增强 `script-handler.ts` - 支持 template/executor/flowId
-- [ ] P3.2: 创建 `interactive-script-handler.ts` - 交互式脚本处理器
+- [x] P3.1: 增强 `script-handler.ts` - 支持 template/executor/flowId
+- [x] P3.2: 创建 `interactive-script-handler.ts` - 交互式脚本处理器
 - [ ] P3.3: 创建 `script-interaction-coordinator.ts` - 脚本交互协调器
 - [ ] P3.4: 创建 `script-flow.ts` 配置处理器
 - [ ] P3.5: 创建 `script-interactive.ts` 配置处理器

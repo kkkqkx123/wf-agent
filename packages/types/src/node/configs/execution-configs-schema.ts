@@ -13,10 +13,20 @@ export const ScriptNodeConfigSchema = z.object({
   risk: z.enum(["none", "low", "medium", "high"], {
     message: "Risk level must be one of: none, low, medium, high",
   }),
-  timeout: z.number().positive("Timeout must be positive").optional(),
-  retries: z.number().nonnegative("Retries must be non-negative").optional(),
-  retryDelay: z.number().nonnegative("Retry delay must be non-negative").optional(),
   inline: z.boolean().optional(),
+  template: z.string().optional(),
+  executor: z.object({
+    mode: z.enum(["direct", "shared", "pty"], {
+      message: "Executor mode must be one of: direct, shared, pty",
+    }).optional(),
+    shell: z.enum(["powershell", "bash", "cmd", "auto"], {
+      message: "Shell type must be one of: powershell, bash, cmd, auto",
+    }).optional(),
+    cwd: z.string().optional(),
+    environment: z.record(z.string(), z.string()).optional(),
+  }).optional(),
+  flowId: z.string().optional(),
+  arguments: z.record(z.string(), z.unknown()).optional(),
 });
 
 /**

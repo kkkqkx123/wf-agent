@@ -63,8 +63,8 @@ const createMockSubgraphNode = (config?: Partial<SubgraphNodeConfig>): RuntimeNo
     ],
     variableOutputs: [{ internalName: "childResult", externalName: "parentResult" }],
     messagePassing: {
-      inputs: {},
-      outputs: {},
+      inputs: [],
+      outputs: [],
     },
   };
 

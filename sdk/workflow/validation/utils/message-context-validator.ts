@@ -69,22 +69,23 @@ export function validateAndMapMessageContexts(
   
   // Validate inputs
   if (subgraphConfig.messagePassing?.inputs) {
-    for (const [externalName, parentContextId] of Object.entries(subgraphConfig.messagePassing.inputs)) {
-      const inputDef = startConfig.messageInputs?.find((i: { externalName: string }) => i.externalName === externalName);
+    for (const input of subgraphConfig.messagePassing.inputs) {
+      const { externalName: parentContextId, internalName } = input;
+      const inputDef = startConfig.messageInputs?.find((i: { externalName: string; internalName: string }) => i.internalName === internalName);
       
       if (!inputDef) {
         errors.push(
           new ConfigurationValidationError(
-            `Subgraph '${subgraphConfig.subgraphId}' does not accept input '${externalName}'`,
+            `Subgraph '${subgraphConfig.subgraphId}' does not accept input '${internalName}'`,
             {
               configType: "node",
               configPath: `nodes[${subgraphNode.id}].config.messagePassing.inputs`,
-              value: externalName,
+              value: internalName,
               context: {
                 code: "INVALID_SUBGRAPH_INPUT",
                 nodeId: subgraphNode.id,
                 subgraphId: subgraphConfig.subgraphId,
-                externalName,
+                internalName,
               },
             }
           )
@@ -93,7 +94,16 @@ export function validateAndMapMessageContexts(
       }
       
       // Map parent context to subgraph internal name
-      mapping.inputMapping.set(parentContextId as string, inputDef.internalName);
+      mapping.inputMapping.set(parentContextId, inputDef.internalName);
+    }
+  }
+
+  // Populate output mapping
+  if (subgraphConfig.messagePassing?.outputs) {
+    for (const output of subgraphConfig.messagePassing.outputs) {
+      const { internalName, externalName: parentContextId } = output;
+      // Map subgraph internal name to parent context ID
+      mapping.outputMapping.set(internalName, parentContextId);
     }
   }
 
@@ -112,5 +122,9 @@ export function validateAndMapMessageContexts(
  */
 export function hasMessageContextConfig(subgraphNode: StaticNode): boolean {
   const config = subgraphNode.config as SubgraphNodeConfig;
-  return !!(config.messagePassing && (config.messagePassing.inputs || config.messagePassing.outputs));
+  return !!(
+    config.messagePassing && 
+    ((config.messagePassing.inputs && config.messagePassing.inputs.length > 0) || 
+     (config.messagePassing.outputs && config.messagePassing.outputs.length > 0))
+  );
 }

@@ -12,7 +12,7 @@
  */
 
 import type { ID } from '../../common.js';
-import type { WorkflowVariableInput, WorkflowVariableOutput, WorkflowDataInput } from '../../workflow/boundary-config.js';
+import type { WorkflowVariableInput, WorkflowVariableOutput, WorkflowDataInput, WorkflowMessageInput, WorkflowMessageOutput } from '../../workflow/boundary-config.js';
 
 /**
  * Subgraph Node Output
@@ -124,15 +124,17 @@ export interface SubgraphNodeConfig {
    * and subgraph outputs back to parent workflow contexts.
    * This provides explicit control over message context flow between workflows.
    *
-   * Note: This is different from WorkflowMessageInput/WorkflowMessageOutput used
-   * in START/END nodes. Those define the boundary contract of a workflow itself,
-   * while this defines how the SUBGRAPH node maps contexts between parent and child.
+   * Reuses WorkflowMessageInput/WorkflowMessageOutput from boundary-config
+   * for consistency with other workflow boundary configurations.
+   *
+   * For inputs: externalName = parent context registry key, internalName = subgraph internal name
+   * For outputs: internalName = subgraph internal name, externalName = parent context registry key
    */
   messagePassing?: {
-    /** Input mapping: parentContextId → subgraphInputExternalName */
-    inputs?: Record<string, string>;
+    /** Input mappings - parent registry key → subgraph internal name */
+    inputs?: WorkflowMessageInput[];
     
-    /** Output mapping: subgraphOutputExternalName → parentContextId */
-    outputs?: Record<string, string>;
+    /** Output mappings - subgraph internal name → parent registry key */
+    outputs?: WorkflowMessageOutput[];
   };
 }

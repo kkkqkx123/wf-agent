@@ -51,7 +51,6 @@ export {
   WorkflowDataOutputSchema,
   WorkflowStartConfigSchema,
   WorkflowEndConfigSchema,
-  VariableCallbackConfigSchema,
   isWorkflowVariableInput,
   isWorkflowVariableOutput,
   isWorkflowMessageInput,

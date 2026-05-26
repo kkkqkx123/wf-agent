@@ -1,6 +1,6 @@
 /**
  * Control Node Configuration Type Definition
- * Contains ROUTE node configuration
+ * Contains ROUTE node configuration, plus START/END node output types
  * 
  * Note: START and END nodes use WorkflowStartConfig and WorkflowEndConfig directly
  * from workflow/boundary-config.ts. No separate StartNodeConfig or EndNodeConfig types needed.
@@ -37,4 +37,21 @@ export interface RouteNodeConfig {
   }>;
   /** Default target node ID */
   defaultTargetNodeId?: string;
+}
+
+/**
+ * START / EMBED_START / START_FROM_TRIGGER node output shape.
+ * Matches the actual return value of start-handler.ts.
+ */
+export interface StartNodeOutput {
+  message: string;
+  input?: unknown;
+}
+
+/**
+ * END / EMBED_END / CONTINUE_FROM_TRIGGER node output shape.
+ * Matches the actual return value of end-handler.ts.
+ */
+export interface EndNodeOutput {
+  output: unknown;
 }

@@ -36,7 +36,9 @@ import type { AgentLoopNodeConfig, AgentLoopNodeOutput } from "./configs/agent-l
 import type { SubgraphNodeConfig, SubgraphNodeOutput } from "./configs/subgraph-configs.js";
 import type { SyncNodeConfig, SyncNodeOutput } from "./configs/sync-configs.js";
 // Import boundary configs for START/END nodes and trigger nodes
-import type { WorkflowStartConfig, WorkflowEndConfig, StartNodeOutput, EndNodeOutput } from "../workflow/boundary-config.js";
+import type { WorkflowStartConfig, WorkflowEndConfig } from "../workflow/boundary-config.js";
+// Import control node output types
+import type { StartNodeOutput, EndNodeOutput } from "./configs/control-configs.js";
 
 // ============================================================================
 // Runtime Node Types

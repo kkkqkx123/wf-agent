@@ -48,4 +48,6 @@ export {
   isTriggerReference,
   isTriggerTemplate,
   isTriggerConfigOverride,
+  VariableCallbackConfigSchema,
+  isVariableCallbackConfig,
 } from "./trigger-schema.js";

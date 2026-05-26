@@ -92,15 +92,6 @@ export const WorkflowEndConfigSchema = z.object({
 });
 
 /**
- * Variable callback configuration schema
- * For trigger-based workflows
- */
-export const VariableCallbackConfigSchema = z.object({
-  includeVariables: z.array(z.string()).optional(),
-  includeAll: z.boolean().optional(),
-});
-
-/**
  * Type guards
  */
 export const isWorkflowVariableInput = (config: unknown): config is z.infer<typeof WorkflowVariableInputSchema> => {

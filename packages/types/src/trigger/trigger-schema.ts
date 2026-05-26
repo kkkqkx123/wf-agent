@@ -418,6 +418,28 @@ export const TriggerTemplateSchema = z.object({
 });
 
 // ============================================================================
+// Variable Callback Config Schema
+// ============================================================================
+
+/**
+ * Variable callback configuration schema
+ * For trigger-based workflows
+ */
+export const VariableCallbackConfigSchema = z.object({
+  includeVariables: z.array(z.string()).optional(),
+  includeAll: z.boolean().optional(),
+});
+
+/**
+ * Type guard for VariableCallbackConfig
+ */
+export const isVariableCallbackConfig = (
+  config: unknown,
+): config is z.infer<typeof VariableCallbackConfigSchema> => {
+  return VariableCallbackConfigSchema.safeParse(config).success;
+};
+
+// ============================================================================
 // Type Guards
 // ============================================================================
 

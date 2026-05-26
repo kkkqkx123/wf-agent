@@ -14,8 +14,14 @@ export * from './fork-join-configs.js';
 // Exporting cyclic node configurations
 export * from './loop-configs.js';
 
-// Exporting Execution Node Configurations
-export * from './execution-configs.js';
+// Exporting Script Node Configurations
+export * from './script-configs.js';
+
+// Exporting LLM Node Configurations
+export * from './llm-configs.js';
+
+// Exporting Tool Visibility Node Configurations
+export * from './tool-visibility-configs.js';
 
 // Exporting Interactive Node Configurations
 export * from './interaction-configs.js';
@@ -67,12 +73,15 @@ export {
 
 export {
   LLMNodeConfigSchema,
+  isLLMNodeConfig,
+} from './llm-configs-schema.js';
+
+export {
   ScriptNodeConfigSchema,
   InteractiveScriptNodeConfigSchema,
-  isLLMNodeConfig,
   isScriptNodeConfig,
   isInteractiveScriptNodeConfig,
-} from './execution-configs-schema.js';
+} from './script-configs-schema.js';
 
 export {
   ForkNodeConfigSchema,

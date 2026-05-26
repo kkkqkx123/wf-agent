@@ -27,11 +27,9 @@ import type {
   ScriptNodeOutput,
   InteractiveScriptNodeConfig,
   InteractiveScriptNodeOutput,
-  LLMNodeConfig,
-  LLMNodeOutput,
-  ToolVisibilityNodeConfig,
-  ToolVisibilityNodeOutput,
-} from "./configs/execution-configs.js";
+} from "./configs/script-configs.js";
+import type { LLMNodeConfig, LLMNodeOutput } from "./configs/llm-configs.js";
+import type { ToolVisibilityNodeConfig, ToolVisibilityNodeOutput } from "./configs/tool-visibility-configs.js";
 import type { UserInteractionNodeConfig, UserInteractionNodeOutput } from "./configs/interaction-configs.js";
 import type { ContextProcessorNodeConfig, ContextProcessorNodeOutput } from "./configs/context-configs.js";
 import type { AgentLoopNodeConfig, AgentLoopNodeOutput } from "./configs/agent-loop-configs.js";

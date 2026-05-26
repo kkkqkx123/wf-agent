@@ -17,12 +17,9 @@ import type { RouteNodeConfig } from "./configs/control-configs.js";
 import type { VariableNodeConfig } from "./configs/variable-configs.js";
 import type { ForkNodeConfig, JoinNodeConfig } from "./configs/fork-join-configs.js";
 import type { LoopStartNodeConfig, LoopEndNodeConfig } from "./configs/loop-configs.js";
-import type {
-  ScriptNodeConfig,
-  InteractiveScriptNodeConfig,
-  LLMNodeConfig,
-  ToolVisibilityNodeConfig,
-} from "./configs/execution-configs.js";
+import type { ScriptNodeConfig, InteractiveScriptNodeConfig } from "./configs/script-configs.js";
+import type { LLMNodeConfig } from "./configs/llm-configs.js";
+import type { ToolVisibilityNodeConfig } from "./configs/tool-visibility-configs.js";
 import type { UserInteractionNodeConfig } from "./configs/interaction-configs.js";
 import type { ContextProcessorNodeConfig } from "./configs/context-configs.js";
 import type { SubgraphNodeConfig } from "./configs/subgraph-configs.js";

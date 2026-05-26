@@ -161,7 +161,7 @@ Phase 3 (集成) ───依赖 Phase 1 + Phase 2─────→
 
 - [x] P3.1: 增强 `script-handler.ts` - 支持 template/executor/flowId
 - [x] P3.2: 创建 `interactive-script-handler.ts` - 交互式脚本处理器
-- [ ] P3.3: 创建 `script-interaction-coordinator.ts` - 脚本交互协调器
-- [ ] P3.4: 创建 `script-flow.ts` 配置处理器
-- [ ] P3.5: 创建 `script-interactive.ts` 配置处理器
-- [ ] P3.6: 增强 `terminal-service.ts` - PTY/交互方法
+- [x] P3.3: 增强 `script-interaction-coordinator.ts` - 脚本交互协调器
+- [x] P3.4: 创建 `script-flow.ts` 配置处理器
+- [x] P3.5: 创建 `script-interactive.ts` 配置处理器
+- [x] P3.6: 增强 `terminal-service.ts` & `pty-executor.ts` - PTY/交互方法/会话管理

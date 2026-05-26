@@ -57,3 +57,17 @@ export {
   toActualTimeout,
   WAIT_FOREVER,
 } from "./timeout.js";
+
+// Script Flow processing function
+export {
+  validateScriptFlow,
+  transformScriptFlow,
+  exportScriptFlow,
+} from "./script-flow.js";
+
+// Interactive Script configuration processing function
+export {
+  validateInteractiveScript,
+  transformInteractiveScript,
+  exportInteractiveScript,
+} from "./script-interactive.js";

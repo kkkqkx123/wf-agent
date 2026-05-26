@@ -16,6 +16,13 @@ export {
 // Script processing function
 export { validateScript, transformScript, exportScript } from "./script.js";
 
+// Executor processing function
+export {
+  validateExecutorConfig,
+  transformExecutorConfig,
+  exportExecutorConfig,
+} from "./script-executor.js";
+
 // TriggerTemplate processing function
 export {
   validateTriggerTemplate,

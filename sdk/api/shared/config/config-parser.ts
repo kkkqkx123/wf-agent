@@ -21,6 +21,7 @@ import {
   validateWorkflow,
   validateNodeTemplate,
   validateScript,
+  validateExecutorConfig,
   validateTriggerTemplate,
   validateLLMProfile,
   validatePromptTemplate,
@@ -81,6 +82,8 @@ export class ConfigParser implements IConfigParser {
         return validateNodeTemplate(config as ParsedConfig<"node_template">);
       case "script":
         return validateScript(config as ParsedConfig<"script">);
+      case "executor":
+        return validateExecutorConfig(config as ParsedConfig<"executor">);
       case "trigger_template":
         return validateTriggerTemplate(config as ParsedConfig<"trigger_template">);
       case "llm_profile":

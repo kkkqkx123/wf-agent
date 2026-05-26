@@ -203,6 +203,10 @@ export const ScriptArgumentSchema = z.object({
 
 /**
  * Script Executor Config Schema
+ *
+ * Validation rules:
+ *   - runtime "docker" or "ssh" requires runtimeConfig to be set
+ *   - runtime "native" or "wsl" must NOT have runtimeConfig
  */
 
 /** Docker runtime connection config schema */
@@ -232,22 +236,51 @@ export const RuntimeConfigSchema = z.union([DockerConfigSchema, SSHConfigSchema]
 
 /**
  * Script Executor Config Schema
+ *
+ * Refine rules:
+ *   - runtime=docker|ssh  → runtimeConfig is required
+ *   - runtime=native|wsl  → runtimeConfig is not allowed
  */
-export const ScriptExecutorConfigSchema = z.object({
-  mode: z.enum([
-    "direct",
-    "shared",
-    "pty",
-    "sandbox-shell",
-    "sandbox-python",
-    "sandbox-javascript",
-  ]),
-  shell: z.enum(EXECUTOR_SHELL_CONFIGS),
-  runtime: z.enum(["native", "wsl", "docker", "ssh"]).optional(),
-  runtimeConfig: RuntimeConfigSchema.optional(),
-  cwd: z.string().optional(),
-  environment: z.record(z.string(), z.string()).optional(),
-});
+export const ScriptExecutorConfigSchema = z
+  .object({
+    mode: z.enum([
+      "direct",
+      "shared",
+      "pty",
+      "sandbox-shell",
+      "sandbox-python",
+      "sandbox-javascript",
+    ]),
+    shell: z.enum(EXECUTOR_SHELL_CONFIGS),
+    runtime: z.enum(["native", "wsl", "docker", "ssh"]).optional(),
+    runtimeConfig: RuntimeConfigSchema.optional(),
+    cwd: z.string().optional(),
+    environment: z.record(z.string(), z.string()).optional(),
+  })
+  .refine(
+    data => {
+      if (data.runtime === "docker" || data.runtime === "ssh") {
+        return data.runtimeConfig !== undefined;
+      }
+      return true;
+    },
+    {
+      message: "runtimeConfig is required when runtime is 'docker' or 'ssh'",
+      path: ["runtimeConfig"],
+    },
+  )
+  .refine(
+    data => {
+      if (data.runtimeConfig && data.runtime !== "docker" && data.runtime !== "ssh") {
+        return false;
+      }
+      return true;
+    },
+    {
+      message: "runtimeConfig is only allowed when runtime is 'docker' or 'ssh'",
+      path: ["runtimeConfig"],
+    },
+  );
 
 // ============================================================================
 // Sandbox Profile Schemas

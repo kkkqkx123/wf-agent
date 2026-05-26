@@ -19,7 +19,7 @@ import type { Edge } from "@wf-agent/types";
 import type { WorkflowTemplate } from "@wf-agent/types";
 import type { NodeTemplate } from "@wf-agent/types";
 import type { TriggerTemplate } from "@wf-agent/types";
-import type { Script } from "@wf-agent/types";
+import type { Script, ScriptExecutorConfig } from "@wf-agent/types";
 import type { LLMProfile } from "@wf-agent/types";
 import type { Tool } from "@wf-agent/types";
 import type { AgentLoopDefinition, AgentHookStatic, AgentTriggerStatic } from "@wf-agent/types";
@@ -70,6 +70,14 @@ export type TriggerTemplateConfigFile = TriggerTemplate;
  * Note: Simply reuse the Script type; it is completely identical.
  */
 export type ScriptConfigFile = Script;
+
+/**
+ * Executor Configuration File Format
+ *
+ * Allows standalone parsing of executor configurations (including runtime settings).
+ * This enables users to define reusable executor configs (e.g., docker, ssh) in separate files.
+ */
+export type ExecutorConfigFile = ScriptExecutorConfig;
 
 /**
  * LLM Profile Format
@@ -153,6 +161,7 @@ export type ConfigType =
   | "node_template" /** Node Template Configuration */
   | "trigger_template" /** Trigger Template Configuration */
   | "script" /** Script Configuration */
+  | "executor" /** Executor Configuration (runtime, shell, etc.) */
   | "llm_profile" /** LLM Profile Placement */
   | "prompt_template" /** Cue word template configuration */
   | "agent_loop" /** Agent Loop Configuration */
@@ -180,6 +189,7 @@ type ConfigTypeToFileMap = {
   node_template: NodeTemplateConfigFile;
   trigger_template: TriggerTemplateConfigFile;
   script: ScriptConfigFile;
+  executor: ExecutorConfigFile;
   llm_profile: LLMProfileConfigFile;
   prompt_template: PromptTemplateConfigFile;
   agent_loop: AgentLoopConfigFile;

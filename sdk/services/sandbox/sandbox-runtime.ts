@@ -22,6 +22,7 @@ import { DEFAULT_SANDBOX_POLICY } from "./default-policy.js";
 
 import { OverlayVFS } from "../vfs/overlay-vfs.js";
 import { CheckpointAwareVFS } from "../vfs/checkpoint-vfs.js";
+import type { CheckpointVFSBridge } from "./checkpoint-vfs-bridge.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "SandboxRuntime" });
@@ -50,10 +51,18 @@ export class SandboxRuntime {
   private globalConfig: SandboxGlobalConfig | null;
   private vfsInstances = new Map<string, OverlayVFS>();
   private checkpointVfsInstances = new Map<string, CheckpointAwareVFS>();
+  private checkpointBridge: CheckpointVFSBridge | null = null;
 
   constructor(globalConfig?: SandboxGlobalConfig) {
     this.resolver = new DefaultStrategyResolver();
     this.globalConfig = globalConfig ?? null;
+  }
+
+  /**
+   * Set the checkpoint bridge for automatic VFS snapshot management.
+   */
+  setCheckpointBridge(bridge: CheckpointVFSBridge): void {
+    this.checkpointBridge = bridge;
   }
 
   isEnabled(config?: SandboxConfig): boolean {
@@ -111,6 +120,11 @@ export class SandboxRuntime {
     if (!cpVfs) {
       cpVfs = new CheckpointAwareVFS(vfs);
       this.checkpointVfsInstances.set(workspaceRoot, cpVfs);
+
+      // Auto-attach to checkpoint bridge for lifecycle management
+      if (this.checkpointBridge) {
+        this.checkpointBridge.attach(cpVfs, workspaceRoot);
+      }
     }
     return cpVfs;
   }

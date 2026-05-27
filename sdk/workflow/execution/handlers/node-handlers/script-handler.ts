@@ -50,13 +50,26 @@ export async function scriptHandler(
     } else if (config.template) {
       const { ScriptEngine } = await import("../../../../core/script/engine/script-engine.js");
       const engine = new ScriptEngine();
-      const script = {
+
+      // Resolve executor mode: if sandboxConfig is provided, auto-select sandbox mode.
+      // Defaults to 'direct' when no executor mode is configured.
+      const executorMode: import("@wf-agent/types").ExecutorMode = config.sandboxConfig
+        ? "sandbox-shell"
+        : (config.executor?.mode ?? "direct");
+
+      const script: import("@wf-agent/types").Script = {
         id: node.id,
         name: config.scriptName || "inline",
         description: "Inline script from node config",
         template: config.template,
-        executor: config.executor,
-        options: { timeout: 30000 },
+        executor: config.executor
+          ? { ...config.executor, mode: executorMode }
+          : { mode: executorMode, shell: "auto" as const },
+        options: {
+          timeout: 30000,
+          sandboxConfig: config.sandboxConfig as import("@wf-agent/types").SandboxConfig | undefined,
+        },
+        language: config.sandboxConfig ? "auto" : undefined,
       };
       result = await engine.execute(script);
     } else {

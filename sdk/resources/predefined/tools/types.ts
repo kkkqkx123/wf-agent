@@ -6,7 +6,7 @@
 
 import type { ToolParameterSchema, ToolType } from "@wf-agent/types";
 import type { BuiltinToolsOptions } from "./builtin/types.js";
-import type { ShellPolicy } from "@wf-agent/types";
+import type { ShellPolicy, SandboxConfig } from "@wf-agent/types";
 
 /**
  * Tool Classification
@@ -110,6 +110,8 @@ export interface RunShellConfig {
   maxTimeout?: number;
   /** Shell policy for static analysis pre-check */
   shellPolicy?: ShellPolicy;
+  /** Sandbox configuration for unified sandbox runtime integration */
+  sandboxConfig?: SandboxConfig;
 }
 
 /**

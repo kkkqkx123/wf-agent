@@ -11,9 +11,10 @@
 import type { ShellType } from "@wf-agent/sdk/services";
 import { getTerminalService } from "@wf-agent/sdk/services";
 import { TimeoutController } from "@wf-agent/sdk/services";
-import type { ToolOutput } from "@wf-agent/types";
+import type { ToolOutput, ExecutorShellConfig } from "@wf-agent/types";
 import type { ShellPolicy } from "@wf-agent/types";
 import type { RunShellConfig } from "../../../types.js";
+import { getSandboxRuntime } from "../../../../../../services/sandbox/sandbox-runtime.js";
 import { BashAnalyzer } from "../../../../../../services/sandbox/strategies/shell-analyzers/bash.js";
 import { CmdAnalyzer } from "../../../../../../services/sandbox/strategies/shell-analyzers/cmd.js";
 import { PowerShellAnalyzer } from "../../../../../../services/sandbox/strategies/shell-analyzers/powershell.js";
@@ -69,6 +70,7 @@ export function createRunShellHandler(config?: RunShellConfig) {
   const maxTimeout = config?.maxTimeout ?? 600000;
   const terminalService = getTerminalService();
   const shellPolicy = config?.shellPolicy;
+  const sandboxConfig = config?.sandboxConfig;
   const analyzers = shellPolicy ? buildShellAnalyzers() : undefined;
 
   return async (params: Record<string, unknown>): Promise<ToolOutput> => {
@@ -86,7 +88,68 @@ export function createRunShellHandler(config?: RunShellConfig) {
       env?: Record<string, string>;
     };
 
-    // Phase A: Shell policy pre-check
+    if (!command) {
+      return {
+        success: false,
+        content: "",
+        error: "No command provided",
+      };
+    }
+
+    // Phase A: Sandbox policy enforcement via SandboxRuntime
+    // Preferred over direct shell policy analysis when sandboxConfig is provided
+    if (sandboxConfig) {
+      const runtime = getSandboxRuntime();
+      if (runtime.isEnabled(sandboxConfig)) {
+        const runtimeResult = await runtime.createRuntime(
+          "shell",
+          {
+            command,
+            cwd,
+            env,
+            timeout: timeout * 1000,
+            shellType: (shell_type ?? "auto") as ExecutorShellConfig,
+          },
+          sandboxConfig,
+        );
+
+        if (runtimeResult.strategy) {
+          const result = await runtimeResult.strategy.execute(
+            {
+              command,
+              cwd,
+              env,
+              timeout: timeout * 1000,
+              shellType: (shell_type ?? "auto") as ExecutorShellConfig,
+              vfs: runtimeResult.vfs ?? undefined,
+            },
+            runtimeResult.policy,
+          );
+
+          if (!result.success) {
+            return {
+              success: false,
+              content: "",
+              error: result.error ?? "Command rejected by sandbox",
+            };
+          }
+
+          // Strategy executed successfully, return result
+          let content = "";
+          if (result.stdout) content += result.stdout;
+          if (result.stderr) content += (content ? "\n[stderr]:\n" : "") + result.stderr;
+          if (!content) content = "(no output)";
+
+          return {
+            success: result.success,
+            content,
+            error: result.error,
+          };
+        }
+      }
+    }
+
+    // Phase B: Direct shell policy pre-check (legacy path, used when no sandboxConfig)
     if (command && shellPolicy && analyzers) {
       const policyError = runShellPolicyCheck(command, shellPolicy, analyzers);
       if (policyError) {

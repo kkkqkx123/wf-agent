@@ -56,6 +56,7 @@ export class SandboxJavaScriptExecutor extends BaseExecutor {
           cwd: options.cwd,
           env: options.env,
           timeout: options.timeout,
+          vfs: result.vfs ?? undefined,
         },
         result.policy,
       );

@@ -117,6 +117,10 @@ import {
 } from "../../api/shared/config/index.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
+// Sandbox services
+import { CheckpointVFSBridge } from "../../services/sandbox/checkpoint-vfs-bridge.js";
+import { getSandboxRuntime } from "../../services/sandbox/sandbox-runtime.js";
+
 const logger = createContextualLogger({ component: "ContainerConfig" });
 
 /**
@@ -1061,4 +1065,14 @@ export function configureContainerBindings(
       );
     })
     .inSingletonScope();
+
+  // ============================================================
+  // CheckpointVFSBridge: Wire EventRegistry → VFS snapshot management
+  // ============================================================
+
+  const eventRegistry = container.get(Identifiers.EventRegistry) as EventRegistry;
+  const bridge = new CheckpointVFSBridge(eventRegistry);
+  getSandboxRuntime().setCheckpointBridge(bridge);
+
+  logger.info("CheckpointVFSBridge wired to EventRegistry and SandboxRuntime");
 }

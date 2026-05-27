@@ -35,6 +35,8 @@ export interface ScriptNodeConfig {
   flowId?: string;
   /** Argument overrides for template rendering */
   arguments?: Record<string, unknown>;
+  /** Sandbox configuration for script isolation */
+  sandboxConfig?: import("../../script/script-sandbox.js").SandboxConfig;
 }
 
 /**
@@ -67,4 +69,6 @@ export interface InteractiveScriptNodeConfig {
   maxRounds?: number;
   /** Timeout per interaction round (milliseconds) */
   roundTimeout?: number;
+  /** Sandbox configuration for script isolation */
+  sandboxConfig?: import("../../script/script-sandbox.js").SandboxConfig;
 }

@@ -183,6 +183,8 @@ export interface StrategyExecuteOptions {
   runtime?: ScriptRuntime;
   /** Runtime-specific connection config (docker/ssh), set by executor from Script.executor.runtimeConfig */
   runtimeConfig?: RuntimeConfig;
+  /** Virtual File System provider for sandboxed file operations */
+  vfs?: VFSProvider;
 }
 
 /**
@@ -242,6 +244,29 @@ export interface VFSConfig {
     readable?: string[];
     writable?: string[];
   };
+}
+
+/**
+ * Minimal VFS provider interface for strategy execution.
+ * Strategies can use this to perform sandboxed file operations.
+ */
+export interface VFSProvider {
+  /** Read file contents from VFS */
+  readFile(path: string): Promise<Uint8Array | null>;
+  /** Write file contents to VFS */
+  writeFile(path: string, data: Uint8Array): Promise<void>;
+  /** Get file/directory metadata */
+  stat(path: string): Promise<{
+    name: string;
+    type: "file" | "directory";
+    size: number;
+  } | null>;
+  /** Check if path exists in VFS */
+  exists(path: string): Promise<boolean>;
+  /** Create a snapshot of current VFS state */
+  snapshot(): Promise<string>;
+  /** Restore VFS to a previous snapshot */
+  restore(snapshotId: string): Promise<void>;
 }
 
 // ============================================================================

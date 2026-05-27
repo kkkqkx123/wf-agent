@@ -124,7 +124,7 @@ export class ScriptEngine {
         cwd: script.executor?.cwd || options?.workingDirectory,
         env: { ...script.executor?.environment, ...options?.environment },
         timeout: options?.timeout,
-        sandboxConfig: options?.sandboxConfig,
+        sandboxConfig: options?.sandboxConfig ?? script.options?.sandboxConfig,
         language: options?.language ?? script.language,
       });
 

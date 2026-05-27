@@ -8,7 +8,6 @@ import type { WorkflowExecution } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import { ExecutionError, ValidationError, RuntimeValidationError } from "@wf-agent/types";
 import { now, getErrorMessage } from "@wf-agent/common-utils";
-import { getSkippedResult } from "./can-execute.js";
 
 /**
  * Loop state
@@ -150,7 +149,7 @@ function resolveIterable(
 function getLoopState(executionEntity: WorkflowExecutionEntity): LoopState | undefined {
   const manager = executionEntity.variableStateManager;
   // Loop state is stored with special key in current scope
-  return manager.getVariable('__loop_state') as LoopState | undefined;
+  return manager.getVariable("__loop_state") as LoopState | undefined;
 }
 
 /**
@@ -158,7 +157,7 @@ function getLoopState(executionEntity: WorkflowExecutionEntity): LoopState | und
  */
 function setLoopState(executionEntity: WorkflowExecutionEntity, loopState: LoopState): void {
   const manager = executionEntity.variableStateManager;
-  manager.setVariable('__loop_state', loopState);
+  manager.setVariable("__loop_state", loopState);
 }
 
 /**
@@ -167,7 +166,7 @@ function setLoopState(executionEntity: WorkflowExecutionEntity, loopState: LoopS
 function clearLoopState(executionEntity: WorkflowExecutionEntity): void {
   const manager = executionEntity.variableStateManager;
   // Just remove the loop state, the scope itself will be popped on exit
-  manager.deleteVariable('__loop_state');
+  manager.deleteVariable("__loop_state");
 }
 
 /**
@@ -243,7 +242,11 @@ function getCurrentValue(loopState: LoopState): unknown {
 /**
  * Set the loop variable within the current scope using VariableManager
  */
-function setLoopVariable(executionEntity: WorkflowExecutionEntity, variableName: string, value: unknown): void {
+function setLoopVariable(
+  executionEntity: WorkflowExecutionEntity,
+  variableName: string,
+  value: unknown,
+): void {
   const manager = executionEntity.variableStateManager;
   manager.setVariable(variableName, value);
 }
@@ -266,13 +269,8 @@ function updateLoopState(loopState: LoopState): void {
 export async function loopStartHandler(
   executionEntity: WorkflowExecutionEntity,
   node: RuntimeNode,
-  _context?: unknown,
 ): Promise<unknown> {
   const workflowExecution = executionEntity.getExecution();
-
-  // Check if it is possible to execute.
-  const skipped = getSkippedResult(executionEntity, node);
-  if (skipped) return skipped;
 
   const config = node.config as LoopStartNodeConfig;
 
@@ -290,7 +288,11 @@ export async function loopStartHandler(
     // If a dataSource is provided, then the iterable and variableName are parsed.
     if (config.dataSource) {
       // Parse an iterable (which can be a direct value or a variable expression).
-      resolvedIterable = resolveIterable(config.dataSource.iterable, workflowExecution, executionEntity);
+      resolvedIterable = resolveIterable(
+        config.dataSource.iterable,
+        workflowExecution,
+        executionEntity,
+      );
       variableName = config.dataSource.variableName;
     }
 
@@ -307,12 +309,12 @@ export async function loopStartHandler(
     // TODO Phase 2: Replace with explicit variable import for loop iterations
     // For now, scope isolation is removed. Loop variables will be handled through explicit mappings.
     // executionEntity.variableStateManager.enterSubgraphScope();
-    
+
     // Initialize loop-scoped variables from definitions (all go to flat structure now)
     for (const variable of workflowExecution.variables) {
       executionEntity.variableStateManager.setVariable(variable.name, variable.value);
     }
-    
+
     setLoopState(executionEntity, loopState);
   }
 
@@ -370,7 +372,7 @@ export async function loopStartHandler(
 /**
  * Handle explicit variable input mapping for loop
  * Maps parent workflow variables to loop internal variables using importVariables API
- * 
+ *
  * @param executionEntity WorkflowExecution entity
  * @param config LoopStart node configuration
  */
@@ -379,7 +381,7 @@ async function handleLoopVariableInputs(
   config: LoopStartNodeConfig,
 ): Promise<void> {
   const manager = executionEntity.variableStateManager;
-  
+
   // Process explicit variable inputs using the new importVariables API
   if (config.variableInputs && config.variableInputs.length > 0) {
     // For loops, we import from the same manager (self-reference)

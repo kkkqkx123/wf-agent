@@ -20,14 +20,12 @@ import { now, getErrorMessage } from "@wf-agent/common-utils";
 import * as Identifiers from "../../../../core/di/service-identifiers.js";
 import type { ScriptRegistry } from "../../../../core/registry/script-registry.js";
 import type { GlobalContext } from "../../../../core/global-context.js";
-import { getSkippedResult } from "./can-execute.js";
 
 /**
  * Script Node Processing Function
  * @param globalContext Global context for accessing DI container
  * @param workflowExecutionEntity WorkflowExecutionEntity instance
  * @param node Node definition
- * @param context Processor context (optional)
  * @returns Execution result
  *
  * Note:
@@ -39,11 +37,7 @@ export async function scriptHandler(
   globalContext: GlobalContext,
   workflowExecutionEntity: WorkflowExecutionEntity,
   node: RuntimeNode,
-  _context?: unknown,
 ): Promise<unknown> {
-  const skipped = getSkippedResult(workflowExecutionEntity, node);
-  if (skipped) return skipped;
-
   const config = node.config as ScriptNodeConfig;
 
   try {

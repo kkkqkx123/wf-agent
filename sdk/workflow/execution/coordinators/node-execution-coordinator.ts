@@ -627,6 +627,21 @@ export class NodeExecutionCoordinator {
   ): Promise<NodeExecutionResult> {
     const startTime = now();
 
+    // Centralized status guard: skip node if workflow is in a terminal/interrupted state.
+    // Only RUNNING and CREATED (for START node bootstrap) are valid execution states.
+    const executableStatuses = new Set<string>(["RUNNING", "CREATED"]);
+    if (!executableStatuses.has(workflowExecutionEntity.getStatus())) {
+      return {
+        nodeId: node.id,
+        nodeType: node.type,
+        status: "SKIPPED",
+        step: workflowExecutionEntity.getNodeResults().length + 1,
+        startTime,
+        endTime: startTime,
+        executionTime: 0,
+      } as NodeExecutionResult;
+    }
+
     // 1. Execute using the Node Handler function (the configuration has been statically verified during workflow registration).
     const handler = getNodeHandler(node.type);
 

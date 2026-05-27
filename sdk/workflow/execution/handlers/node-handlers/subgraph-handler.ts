@@ -27,7 +27,6 @@ import type { WorkflowExecutor } from "../../executors/workflow-executor.js";
 import type { WorkflowExecutionBuilder } from "../../factories/workflow-execution-builder.js";
 import { getErrorOrNew } from "@wf-agent/common-utils";
 import { cleanupChildExecution } from "../../utils/child-execution-cleanup.js";
-import { getSkippedResult } from "./can-execute.js";
 
 const logger = createContextualLogger({ component: "subgraph-node-handler" });
 
@@ -59,9 +58,6 @@ export async function subgraphHandler(
   node: RuntimeNode,
   context?: SubgraphHandlerContext,
 ): Promise<SubgraphNodeOutput> {
-  const skipped = getSkippedResult(workflowExecutionEntity, node);
-  if (skipped) return skipped as any;
-
   const config = node.config as SubgraphNodeConfig;
   const subworkflowId = config.subgraphId;
 

@@ -24,14 +24,9 @@ interface LoopState {
 }
 
 /**
- * Check whether the node can be executed.
+ * Check whether the node can be executed (idempotency check — status check is handled centrally).
  */
 function canExecute(workflowExecutionEntity: WorkflowExecutionEntity, node: RuntimeNode): boolean {
-  if (workflowExecutionEntity.getStatus() !== "RUNNING") {
-    return false;
-  }
-
-  // Check if this node has already been executed
   if (workflowExecutionEntity.getNodeResults().some(result => result.nodeId === node.id)) {
     return false;
   }
@@ -51,7 +46,7 @@ function canExecute(workflowExecutionEntity: WorkflowExecutionEntity, node: Runt
  */
 function getLoopState(executionEntity: WorkflowExecutionEntity): LoopState | undefined {
   const manager = executionEntity.variableStateManager;
-  return manager.getVariable('__loop_state') as LoopState | undefined;
+  return manager.getVariable("__loop_state") as LoopState | undefined;
 }
 
 /**
@@ -60,7 +55,7 @@ function getLoopState(executionEntity: WorkflowExecutionEntity): LoopState | und
 function clearLoopState(executionEntity: WorkflowExecutionEntity): void {
   const manager = executionEntity.variableStateManager;
   // Remove loop state
-  manager.deleteVariable('__loop_state');
+  manager.deleteVariable("__loop_state");
   // TODO Phase 2: Scope exit will be handled by explicit variable export mechanism
   // manager.exitSubgraphScope();
 }
@@ -88,7 +83,7 @@ function evaluateBreakCondition(
     // parsing is cached via ExpressionCompiler inside DependencyManager.
     if (executionEntity) {
       const depManager = executionEntity.getDepManager();
-      const key = `loopBreak:${loopId || ''}`;
+      const key = `loopBreak:${loopId || ""}`;
       const expression = breakCondition.expression;
       const cached = depManager.getTrackedExpression(key);
       if (cached) {
@@ -175,7 +170,6 @@ function updateLoopState(loopState: LoopState): void {
 export async function loopEndHandler(
   workflowExecutionEntity: WorkflowExecutionEntity,
   node: RuntimeNode,
-  _context?: unknown,
 ): Promise<unknown> {
   const workflowExecution = workflowExecutionEntity.getExecution();
 
@@ -210,7 +204,12 @@ export async function loopEndHandler(
   // Evaluating interrupt conditions
   let shouldBreak = false;
   if (config.breakCondition) {
-    shouldBreak = evaluateBreakCondition(config.breakCondition, workflowExecution, workflowExecutionEntity, config.loopId);
+    shouldBreak = evaluateBreakCondition(
+      config.breakCondition,
+      workflowExecution,
+      workflowExecutionEntity,
+      config.loopId,
+    );
   }
 
   // Check the loop condition.

@@ -7,7 +7,6 @@
 import type { RuntimeNode } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import { now } from "@wf-agent/common-utils";
-import { getSkippedResult } from "./can-execute.js";
 
 /**
  * EmbedEnd node processing function
@@ -20,10 +19,6 @@ export async function embedEndHandler(
   workflowExecutionEntity: WorkflowExecutionEntity,
   node: RuntimeNode,
 ): Promise<unknown> {
-  // Check execution status
-  const skipped = getSkippedResult(workflowExecutionEntity, node);
-  if (skipped) return skipped;
-
   // Idempotency check: skip if already executed
   if (workflowExecutionEntity.getNodeResults().some(result => result.nodeId === node.id)) {
     return {

@@ -7,7 +7,6 @@ import type { RuntimeNode, RouteNodeConfig } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import type { Condition, EvaluationContext } from "@wf-agent/types";
 import { ExecutionError } from "@wf-agent/types";
-import { getSkippedResult } from "./can-execute.js";
 
 /**
  * Evaluating routing conditions
@@ -56,10 +55,6 @@ export async function routeHandler(
   workflowExecutionEntity: WorkflowExecutionEntity,
   node: RuntimeNode,
 ): Promise<unknown> {
-  // Check if it can be executed.
-  const skipped = getSkippedResult(workflowExecutionEntity, node);
-  if (skipped) return skipped;
-
   const config = node.config as RouteNodeConfig;
 
   // Sort routing rules by priority.

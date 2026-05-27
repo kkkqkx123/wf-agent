@@ -28,7 +28,6 @@ import {
 } from "../../utils/event/index.js";
 import * as Identifiers from "../../../../core/di/service-identifiers.js";
 import { cleanupChildExecution } from "../../utils/child-execution-cleanup.js";
-import { getSkippedResult } from "./can-execute.js";
 
 const logger = createContextualLogger({ component: "fork-node-handler" });
 
@@ -58,10 +57,6 @@ export async function forkHandler(
   if (!forkPaths || forkPaths.length === 0) {
     throw new Error(`FORK node '${node.id}' must have at least one forkPath`);
   }
-
-  // Check if the node can be executed
-  const skipped = getSkippedResult(workflowExecutionEntity, node);
-  if (skipped) return skipped as any;
 
   // Validate required dependencies
   const builder = context?.executionBuilder;

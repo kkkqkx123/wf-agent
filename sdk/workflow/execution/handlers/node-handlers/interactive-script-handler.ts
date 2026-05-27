@@ -13,25 +13,19 @@ import type { WorkflowExecutionEntity } from "../../../entities/workflow-executi
 import { now, getErrorMessage } from "@wf-agent/common-utils";
 import type { GlobalContext } from "../../../../core/global-context.js";
 import { ScriptInteractionCoordinator } from "../../coordinators/script-interaction-coordinator.js";
-import { getSkippedResult } from "./can-execute.js";
 
 /**
- * Interactive Script Node Processing Function
- * @param globalContext Global context for accessing DI container
- * @param workflowExecutionEntity WorkflowExecutionEntity instance
- * @param node Node definition
- * @param context Processor context (optional)
+ * Interactive script node handler
+ * @param globalContext Global application context
+ * @param workflowExecutionEntity Workflow execution entity
+ * @param node Runtime node
  * @returns Execution result
  */
 export async function interactiveScriptHandler(
   globalContext: GlobalContext,
   workflowExecutionEntity: WorkflowExecutionEntity,
   node: RuntimeNode,
-  _context?: unknown,
 ): Promise<unknown> {
-  const skipped = getSkippedResult(workflowExecutionEntity, node);
-  if (skipped) return skipped;
-
   const config = node.config as InteractiveScriptNodeConfig;
 
   try {

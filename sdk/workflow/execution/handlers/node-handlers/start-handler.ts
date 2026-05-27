@@ -8,15 +8,9 @@ import type { WorkflowExecutionEntity } from "../../../entities/workflow-executi
 import { now } from "@wf-agent/common-utils";
 
 /**
- * Check whether the node can be executed.
+ * Check whether the node can be executed (idempotency check — status check is handled centrally).
  */
 function canExecute(workflowExecutionEntity: WorkflowExecutionEntity, node: RuntimeNode): boolean {
-  // The START node can be executed in either the CREATED or RUNNING state (if it has not been executed before).
-  const status = workflowExecutionEntity.getStatus();
-  if (status !== "CREATED" && status !== "RUNNING") {
-    return false;
-  }
-
   if (workflowExecutionEntity.getNodeResults().some(result => result.nodeId === node.id)) {
     return false;
   }
@@ -33,7 +27,6 @@ function canExecute(workflowExecutionEntity: WorkflowExecutionEntity, node: Runt
 export async function startHandler(
   workflowExecutionEntity: WorkflowExecutionEntity,
   node: RuntimeNode,
-  _context?: unknown,
 ): Promise<unknown> {
   // Check if it is possible to execute.
   if (!canExecute(workflowExecutionEntity, node)) {

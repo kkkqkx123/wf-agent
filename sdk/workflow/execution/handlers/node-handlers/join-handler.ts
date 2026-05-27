@@ -34,7 +34,6 @@ import {
   buildWorkflowExecutionJoinCompletedEvent,
   buildWorkflowExecutionJoinFailedEvent,
 } from "../../utils/event/index.js";
-import { getSkippedResult } from "./can-execute.js";
 
 const logger = createContextualLogger({ component: "join-handler" });
 
@@ -398,15 +397,6 @@ export async function joinHandler(
   workflowExecutionEntity: WorkflowExecutionEntity,
   node: RuntimeNode,
 ): Promise<JoinNodeOutput> {
-  if (getSkippedResult(workflowExecutionEntity, node)) {
-    return {
-      completedBranches: [],
-      failedBranches: [],
-      skippedBranches: [],
-      strategy: "SKIPPED",
-    };
-  }
-
   const config = node.config as JoinNodeConfig;
   const startTime = Date.now();
 

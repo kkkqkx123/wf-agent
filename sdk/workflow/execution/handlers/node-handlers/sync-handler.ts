@@ -33,7 +33,6 @@ import {
 } from "../../utils/event/index.js";
 import { emit } from "../../../../core/utils/event/event-emitter.js";
 import { getErrorOrNew } from "@wf-agent/common-utils";
-import { getSkippedResult } from "./can-execute.js";
 
 const logger = createContextualLogger({ component: "sync-handler" });
 
@@ -194,10 +193,6 @@ export async function syncHandler(
   workflowExecutionEntity: WorkflowExecutionEntity,
   node: RuntimeNode,
 ): Promise<unknown> {
-  // Check if execution is possible
-  const skipped = getSkippedResult(workflowExecutionEntity, node);
-  if (skipped) return skipped;
-
   const config = node.config as SyncNodeConfig;
 
   // Validate configuration

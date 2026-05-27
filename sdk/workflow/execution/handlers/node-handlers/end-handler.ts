@@ -8,13 +8,9 @@ import type { WorkflowExecutionEntity } from "../../../entities/workflow-executi
 import { now, diffTimestamp } from "@wf-agent/common-utils";
 
 /**
- * Check whether the node can be executed.
+ * Check whether the node can be executed (idempotency check — status check is handled centrally).
  */
 function canExecute(workflowExecutionEntity: WorkflowExecutionEntity, node: RuntimeNode): boolean {
-  if (workflowExecutionEntity.getStatus() !== "RUNNING") {
-    return false;
-  }
-
   if (workflowExecutionEntity.getNodeResults().some(result => result.nodeId === node.id)) {
     return false;
   }
@@ -31,7 +27,6 @@ function canExecute(workflowExecutionEntity: WorkflowExecutionEntity, node: Runt
 export async function endHandler(
   workflowExecutionEntity: WorkflowExecutionEntity,
   node: RuntimeNode,
-  _context?: unknown,
 ): Promise<unknown> {
   const startTime = Date.now();
   // Check if it is possible to execute.

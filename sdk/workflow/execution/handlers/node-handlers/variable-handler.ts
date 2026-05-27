@@ -7,7 +7,6 @@ import type { RuntimeNode, VariableNodeConfig, EvaluationContext } from "@wf-age
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import { RuntimeValidationError } from "@wf-agent/types";
 import { now } from "@wf-agent/common-utils";
-import { getSkippedResult } from "./can-execute.js";
 import { expressionEvaluator, setArrayItemByKey } from "../../../evaluation/index.js";
 
 /**
@@ -117,18 +116,12 @@ function convertType(value: unknown, targetType: string): unknown {
  * Variable Node Processing Function
  * @param executionEntity WorkflowExecutionEntity instance
  * @param node Node definition
- * @param _context Processor context (optional)
  * @returns Execution result
  */
 export async function variableHandler(
   executionEntity: WorkflowExecutionEntity,
   node: RuntimeNode,
-  _context?: unknown,
 ): Promise<unknown> {
-  // Check if it is possible to execute.
-  const skipped = getSkippedResult(executionEntity, node);
-  if (skipped) return skipped;
-
   const config = node.config as VariableNodeConfig;
 
   // Check if the variable is read-only.

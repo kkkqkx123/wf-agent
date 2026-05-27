@@ -8,7 +8,6 @@
 import type { RuntimeNode, MessageContextRegistry, WorkflowExecution, WorkflowEndConfig } from "@wf-agent/types";
 import { now } from "@wf-agent/common-utils";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
-import { getSkippedResult } from "./can-execute.js";
 
 /**
  * ContinueFromTrigger handler context
@@ -30,10 +29,7 @@ export async function continueFromTriggerHandler(
   node: RuntimeNode,
   context?: ContinueFromTriggerHandlerContext,
 ): Promise<unknown> {
-  // Check if it is possible to execute (status + idempotency).
-  const skipped = getSkippedResult(workflowExecutionEntity, node);
-  if (skipped) return skipped;
-
+  // Idempotency check: skip if already executed
   if (workflowExecutionEntity.getNodeResults().some(result => result.nodeId === node.id)) {
     return {
       nodeId: node.id,

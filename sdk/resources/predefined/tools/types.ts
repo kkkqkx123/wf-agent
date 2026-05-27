@@ -6,6 +6,7 @@
 
 import type { ToolParameterSchema, ToolType } from "@wf-agent/types";
 import type { BuiltinToolsOptions } from "./builtin/types.js";
+import type { ShellPolicy } from "@wf-agent/types";
 
 /**
  * Tool Classification
@@ -107,6 +108,8 @@ export interface RunShellConfig {
   defaultTimeout?: number;
   /** Maximum timeout period (in milliseconds) */
   maxTimeout?: number;
+  /** Shell policy for static analysis pre-check */
+  shellPolicy?: ShellPolicy;
 }
 
 /**
@@ -125,4 +128,8 @@ export interface SessionNoteConfig {
 export interface BackendShellConfig {
   /** Working directory */
   workspaceDir?: string;
+  /** Maximum runtime for background commands (ms), 0 = no limit, default: 3600000 (1h) */
+  maxBackgroundTimeout?: number;
+  /** Shell policy for static analysis pre-check */
+  shellPolicy?: ShellPolicy;
 }

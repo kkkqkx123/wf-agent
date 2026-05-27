@@ -25,8 +25,6 @@ export interface TerminalSessionOptions {
   cwd?: string;
   /** Environment variables */
   env?: Record<string, string>;
-  /** Whether to enable auto-approval for commands */
-  enableAutoApproval?: boolean;
   /** Session timeout in milliseconds */
   timeout?: number;
   /** Associated task ID */
@@ -65,8 +63,6 @@ export interface TerminalSession {
 export interface ExecuteOptions {
   /** Command timeout in milliseconds */
   timeout?: number;
-  /** Whether to check auto-approval */
-  checkApproval?: boolean;
   /** Working directory override */
   cwd?: string;
   /** Environment variable override */
@@ -121,12 +117,6 @@ export interface TerminalServiceConfig {
   defaultEnv?: Record<string, string>;
   /** Default timeout in milliseconds */
   defaultTimeout?: number;
-  /** Whether auto-approval is enabled by default */
-  enableAutoApproval?: boolean;
-  /** Allowed commands for auto-approval */
-  allowedCommands?: string[];
-  /** Denied commands for auto-approval */
-  deniedCommands?: string[];
   /** Maximum number of concurrent sessions */
   maxSessions?: number;
   /** Custom shell executable paths (overrides hardcoded defaults) */

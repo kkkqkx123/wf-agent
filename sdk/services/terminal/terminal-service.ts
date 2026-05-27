@@ -49,6 +49,11 @@ export class TerminalService extends EventEmitter<TerminalServiceEvents> {
    * Create a new terminal session
    */
   async createSession(options?: TerminalSessionOptions): Promise<TerminalSession> {
+    // Phase B: Enforce maxSessions limit
+    if (this.config.maxSessions && this.registry.getCount() >= this.config.maxSessions) {
+      throw new Error(`Max sessions (${this.config.maxSessions}) reached`);
+    }
+
     // Resolve shell type
     const shellType = await this.shellDetector.resolveShellType(
       options?.shellType ?? this.config.defaultShellType
@@ -178,6 +183,17 @@ export class TerminalService extends EventEmitter<TerminalServiceEvents> {
     command: string,
     options?: TerminalSessionOptions & ExecuteOptions
   ): Promise<ExecuteResult> {
+    // Phase B: Empty command check
+    if (!command?.trim()) {
+      return {
+        success: false,
+        stdout: "",
+        stderr: "",
+        exitCode: -1,
+        error: "Empty command",
+      };
+    }
+
     // Resolve shell type
     const shellType = await this.shellDetector.resolveShellType(
       options?.shellType ?? this.config.defaultShellType
@@ -549,7 +565,8 @@ export class TerminalService extends EventEmitter<TerminalServiceEvents> {
    */
   async startBackgroundCommand(
     sessionId: string,
-    command: string
+    command: string,
+    options?: { timeout?: number }
   ): Promise<ExecuteResult> {
     const session = this.registry.get(sessionId);
 
@@ -560,6 +577,17 @@ export class TerminalService extends EventEmitter<TerminalServiceEvents> {
         stderr: "",
         exitCode: -1,
         error: `Session not found: ${sessionId}`,
+      };
+    }
+
+    // Phase C: Empty command check
+    if (!command?.trim()) {
+      return {
+        success: false,
+        stdout: "",
+        stderr: "",
+        exitCode: -1,
+        error: "Empty command",
       };
     }
 
@@ -586,6 +614,14 @@ export class TerminalService extends EventEmitter<TerminalServiceEvents> {
     // Store process
     this.processes.set(sessionId, proc);
 
+    // Phase C: Auto timeout kill
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    if (options?.timeout && options.timeout > 0) {
+      timeoutId = setTimeout(() => {
+        this.killBackgroundCommand(sessionId);
+      }, options.timeout).unref();
+    }
+
     // Handle output
     const handleOutput = (data: Buffer) => {
       const lines = data.toString().split("\n");
@@ -602,6 +638,9 @@ export class TerminalService extends EventEmitter<TerminalServiceEvents> {
 
     // Handle completion
     proc.on("close", (code) => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
       this.registry.updateStatus(sessionId, "idle");
       this.processes.delete(sessionId);
 
@@ -618,6 +657,9 @@ export class TerminalService extends EventEmitter<TerminalServiceEvents> {
 
     // Handle error
     proc.on("error", (error) => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
       this.registry.updateStatus(sessionId, "idle");
       this.processes.delete(sessionId);
       this.registry.addOutput(sessionId, `Process error: ${error.message}`);

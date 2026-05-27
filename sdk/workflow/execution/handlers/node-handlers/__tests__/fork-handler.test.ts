@@ -67,7 +67,7 @@ describe('forkHandler', () => {
   it('should return SKIPPED when status is not RUNNING', async () => {
     (mockEntity.getStatus as any).mockReturnValue('COMPLETED');
 
-    const result = await forkHandler(mockGlobalContext, mockEntity, mockNode);
+    const result = await forkHandler(mockGlobalContext, mockEntity, mockNode, mockContext as any);
 
     expect(result).toEqual({
       nodeId: 'fork-node-1',

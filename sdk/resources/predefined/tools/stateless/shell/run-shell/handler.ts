@@ -12,7 +12,55 @@ import type { ShellType } from "@wf-agent/sdk/services";
 import { getTerminalService } from "@wf-agent/sdk/services";
 import { TimeoutController } from "@wf-agent/sdk/services";
 import type { ToolOutput } from "@wf-agent/types";
+import type { ShellPolicy } from "@wf-agent/types";
 import type { RunShellConfig } from "../../../types.js";
+import { BashAnalyzer } from "../../../../../../services/sandbox/strategies/shell-analyzers/bash.js";
+import { CmdAnalyzer } from "../../../../../../services/sandbox/strategies/shell-analyzers/cmd.js";
+import { PowerShellAnalyzer } from "../../../../../../services/sandbox/strategies/shell-analyzers/powershell.js";
+import type { ShellAnalyzer } from "../../../../../../services/sandbox/strategies/shell-analyzers/base.js";
+
+/**
+ * Detect shell type from command for static analysis
+ */
+function detectShellTypeFromCommand(command: string): "bash" | "powershell" | "cmd" {
+  const trimmed = command.trim().toLowerCase();
+  if (trimmed.startsWith("powershell") || trimmed.startsWith("pwsh")) return "powershell";
+  if (trimmed.startsWith("cmd") || trimmed.startsWith("cmd.exe")) return "cmd";
+  return "bash";
+}
+
+/**
+ * Build shell analyzers map for policy checks
+ */
+function buildShellAnalyzers(): Map<string, ShellAnalyzer> {
+  const analyzers = new Map<string, ShellAnalyzer>();
+  analyzers.set("bash", new BashAnalyzer());
+  analyzers.set("powershell", new PowerShellAnalyzer());
+  analyzers.set("cmd", new CmdAnalyzer());
+  return analyzers;
+}
+
+/**
+ * Run static analysis on a command using ShellPolicy.
+ * Returns null if allowed, or an error message if denied.
+ */
+function runShellPolicyCheck(
+  command: string,
+  policy: ShellPolicy,
+  analyzers: Map<string, ShellAnalyzer>,
+): string | null {
+  const shellType = detectShellTypeFromCommand(command);
+  const analyzer = analyzers.get(shellType);
+  if (!analyzer) {
+    return `Unsupported shell type for analysis: ${shellType}`;
+  }
+
+  const result = analyzer.analyze({ command, policy });
+  if (!result.allowed) {
+    return result.reason ?? "Command rejected by shell policy";
+  }
+  return null;
+}
 
 /**
  * Create a run_shell tool to execute functions
@@ -20,6 +68,8 @@ import type { RunShellConfig } from "../../../types.js";
 export function createRunShellHandler(config?: RunShellConfig) {
   const maxTimeout = config?.maxTimeout ?? 600000;
   const terminalService = getTerminalService();
+  const shellPolicy = config?.shellPolicy;
+  const analyzers = shellPolicy ? buildShellAnalyzers() : undefined;
 
   return async (params: Record<string, unknown>): Promise<ToolOutput> => {
     const {
@@ -35,6 +85,18 @@ export function createRunShellHandler(config?: RunShellConfig) {
       cwd?: string;
       env?: Record<string, string>;
     };
+
+    // Phase A: Shell policy pre-check
+    if (command && shellPolicy && analyzers) {
+      const policyError = runShellPolicyCheck(command, shellPolicy, analyzers);
+      if (policyError) {
+        return {
+          success: false,
+          content: "",
+          error: `Command rejected by shell policy: ${policyError}`,
+        };
+      }
+    }
 
     // Verification timeout (converting seconds to milliseconds)
     const actualTimeoutMs = Math.min(Math.max(timeout * 1000, 1000), maxTimeout);

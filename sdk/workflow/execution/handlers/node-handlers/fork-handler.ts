@@ -58,6 +58,17 @@ export async function forkHandler(
     throw new Error(`FORK node '${node.id}' must have at least one forkPath`);
   }
 
+  // Check if the node can be executed
+  if (workflowExecutionEntity.getStatus() !== "RUNNING") {
+    return {
+      nodeId: node.id,
+      nodeType: node.type,
+      status: "SKIPPED",
+      step: workflowExecutionEntity.getNodeResults().length + 1,
+      executionTime: 0,
+    } as any;
+  }
+
   // Validate required dependencies
   const builder = context?.executionBuilder;
   const executor = context?.workflowExecutor;

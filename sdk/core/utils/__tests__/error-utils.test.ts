@@ -8,13 +8,16 @@ import { logError, emitErrorEvent, handleError } from "../error-utils.js";
 import { SDKError } from "@wf-agent/types";
 import type { EventRegistry } from "../../registry/event-registry.js";
 
-// Mock logger
-vi.mock("../../utils/logger", () => ({
-  logger: {
-    error: vi.fn(),
-    warn: vi.fn(),
-    info: vi.fn(),
-  },
+// Create mock logger reference (captured in closure for vi.mock)
+const mockLogger = {
+  error: vi.fn(),
+  warn: vi.fn(),
+  info: vi.fn(),
+};
+
+// Mock logger - sdkLogger is the actual export from logger.ts
+vi.mock("../../../utils/logger", () => ({
+  sdkLogger: mockLogger,
 }));
 
 // Mock event builders
@@ -25,27 +28,21 @@ vi.mock("../event/builders/index.js", () => ({
   })),
 }));
 
+// Create mock event emitter reference (captured in closure for vi.mock)
+const mockSafeEmit = vi.fn();
+
 // Mock event emitter
 vi.mock("../event/event-emitter.js", () => ({
-  safeEmit: vi.fn(),
+  safeEmit: mockSafeEmit,
 }));
 
 describe("Error Utils", () => {
   let mockEventManager: EventRegistry;
   let mockSDKError: SDKError;
-  let mockLogger: any;
-  let mockSafeEmit: any;
 
   beforeEach(() => {
     // Reset mocks
     vi.clearAllMocks();
-
-    // Get the mocked modules (vi.mock hoists these, so we can access the mocked versions directly)
-    const mockedLoggerModule = require("../../../utils/logger.js");
-    const mockedEventEmitterModule = require("../event/event-emitter.js");
-
-    mockLogger = mockedLoggerModule.logger;
-    mockSafeEmit = mockedEventEmitterModule.safeEmit;
 
     // Mock event manager
     mockEventManager = {

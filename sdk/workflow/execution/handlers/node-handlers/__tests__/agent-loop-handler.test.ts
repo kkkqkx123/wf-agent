@@ -57,10 +57,10 @@ const mockExecute = vi.fn().mockResolvedValue({
   toolCallCount: 3,
 });
 
-vi.mock('../../../../agent/index.js', () => ({
-  AgentLoopCoordinator: vi.fn().mockImplementation(() => ({
-    execute: mockExecute,
-  })),
+vi.mock('../../../../../agent/index.js', () => ({
+  AgentLoopCoordinator: vi.fn().mockImplementation(function() {
+    return { execute: mockExecute };
+  }),
   AgentLoopExecutor: vi.fn(),
 }));
 

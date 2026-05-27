@@ -176,6 +176,7 @@ describe("subgraphHandler", () => {
       executionResult: { status: "COMPLETED", output: { result: "success" } },
       duration: expect.any(Number),
     });
+  });
 
     it("should handle subgraph without variable mappings", async () => {
       // Arrange

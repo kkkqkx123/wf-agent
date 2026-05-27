@@ -93,6 +93,7 @@ import {
 
 // Import builtin tools
 import { createBuiltinTools } from "./builtin/index.js";
+import { DEFAULT_SHELL_POLICY } from "../../../services/sandbox/default-policy.js";
 
 /**
  * Check if the tool is disabled.
@@ -149,7 +150,10 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
       type: "STATELESS",
       description: renderToolDescription(RUN_SHELL_TOOL_DESCRIPTION),
       parameters: runShellSchema,
-      execute: createRunShellHandler(config?.runShell),
+      execute: createRunShellHandler({
+        ...config?.runShell,
+        shellPolicy: config?.runShell?.shellPolicy ?? DEFAULT_SHELL_POLICY,
+      }),
     });
   }
 
@@ -186,7 +190,10 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
       type: "STATEFUL",
       description: renderToolDescription(BACKEND_SHELL_TOOL_DESCRIPTION),
       parameters: backendShellSchema,
-      factory: createBackendShellFactory(),
+      factory: createBackendShellFactory({
+        ...config?.backendShell,
+        shellPolicy: config?.backendShell?.shellPolicy ?? DEFAULT_SHELL_POLICY,
+      }),
     });
   }
 

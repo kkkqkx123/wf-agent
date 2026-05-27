@@ -11,13 +11,59 @@
 import type { ShellType } from "@wf-agent/sdk/services";
 import { getTerminalService } from "@wf-agent/sdk/services";
 import type { ShellOutputResult } from "./types.js";
+import type { BackendShellConfig } from "../../../types.js";
+import type { ShellPolicy } from "@wf-agent/types";
+import { BashAnalyzer } from "../../../../../../services/sandbox/strategies/shell-analyzers/bash.js";
+import { CmdAnalyzer } from "../../../../../../services/sandbox/strategies/shell-analyzers/cmd.js";
+import { PowerShellAnalyzer } from "../../../../../../services/sandbox/strategies/shell-analyzers/powershell.js";
+import type { ShellAnalyzer } from "../../../../../../services/sandbox/strategies/shell-analyzers/base.js";
+
+/**
+ * Detect shell type from command for static analysis
+ */
+function detectShellTypeFromCommand(command: string): "bash" | "powershell" | "cmd" {
+  const trimmed = command.trim().toLowerCase();
+  if (trimmed.startsWith("powershell") || trimmed.startsWith("pwsh")) return "powershell";
+  if (trimmed.startsWith("cmd") || trimmed.startsWith("cmd.exe")) return "cmd";
+  return "bash";
+}
+
+/**
+ * Run static analysis on a command using ShellPolicy.
+ * Returns null if allowed, or an error message if denied.
+ */
+function runShellPolicyCheck(
+  command: string,
+  policy: ShellPolicy,
+  analyzers: Map<string, ShellAnalyzer>,
+): string | null {
+  const shellType = detectShellTypeFromCommand(command);
+  const analyzer = analyzers.get(shellType);
+  if (!analyzer) {
+    return `Unsupported shell type for analysis: ${shellType}`;
+  }
+
+  const result = analyzer.analyze({ command, policy });
+  if (!result.allowed) {
+    return result.reason ?? "Command rejected by shell policy";
+  }
+  return null;
+}
 
 /**
  * Create a backend_shell tool factory
  *
  * Delegates all session management and process monitoring to TerminalService.
  */
-export function createBackendShellFactory() {
+export function createBackendShellFactory(config?: BackendShellConfig) {
+  const maxBackgroundTimeout = config?.maxBackgroundTimeout ?? 3600000;
+
+  // Build analyzers for shell policy checks
+  const analyzers = new Map<string, ShellAnalyzer>();
+  analyzers.set("bash", new BashAnalyzer());
+  analyzers.set("powershell", new PowerShellAnalyzer());
+  analyzers.set("cmd", new CmdAnalyzer());
+
   return () => {
     const terminalService = getTerminalService();
 
@@ -31,14 +77,33 @@ export function createBackendShellFactory() {
         };
 
         try {
+          // Phase A: Shell policy pre-check
+          if (command && config?.shellPolicy) {
+            const policyError = runShellPolicyCheck(command, config.shellPolicy, analyzers);
+            if (policyError) {
+              return {
+                success: false,
+                content: "",
+                error: `Command rejected by shell policy: ${policyError}`,
+                stdout: "",
+                stderr: `Command: ${command}\nReason: ${policyError}`,
+                exitCode: -1,
+              };
+            }
+          }
+
           // Create or get session with specified options
           const session = await terminalService.getOrCreateSession(cwd ?? process.cwd(), {
             shellType: shell_type,
             env: env,
           });
 
-          // Start background command
-          const result = await terminalService.startBackgroundCommand(session.sessionId, command);
+          // Phase C: Start background command with timeout protection
+          const result = await terminalService.startBackgroundCommand(
+            session.sessionId,
+            command,
+            { timeout: maxBackgroundTimeout > 0 ? maxBackgroundTimeout : undefined }
+          );
 
           if (!result.success) {
             return {

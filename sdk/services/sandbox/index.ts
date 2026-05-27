@@ -20,6 +20,6 @@ export { JavaScriptVmContextStrategy } from "./strategies/js-vm-context.js";
 export { SandboxRuntime, getSandboxRuntime, resetSandboxRuntime } from "./sandbox-runtime.js";
 export type { SandboxRuntimeResult } from "./sandbox-runtime.js";
 export { DefaultStrategyResolver } from "./strategy-resolver.js";
-export { DEFAULT_SANDBOX_POLICY, DEFAULT_SHELL_POLICY, DEFAULT_PYTHON_POLICY, DEFAULT_JS_POLICY } from "./default-policy.js";
+export { DEFAULT_SANDBOX_POLICY, DEFAULT_SHELL_POLICY, DEFAULT_PYTHON_POLICY, DEFAULT_JS_POLICY, SHELL_POLICY_PRESETS } from "./default-policy.js";
 // Phase 3: Checkpoint VFS Bridge
 export { CheckpointVFSBridge } from "./checkpoint-vfs-bridge.js";

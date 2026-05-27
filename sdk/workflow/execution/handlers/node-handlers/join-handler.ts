@@ -34,18 +34,9 @@ import {
   buildWorkflowExecutionJoinCompletedEvent,
   buildWorkflowExecutionJoinFailedEvent,
 } from "../../utils/event/index.js";
+import { getSkippedResult } from "./can-execute.js";
 
 const logger = createContextualLogger({ component: "join-handler" });
-
-/**
- * Check if the node can be executed.
- */
-function canExecute(workflowExecutionEntity: WorkflowExecutionEntity): boolean {
-  if (workflowExecutionEntity.getStatus() !== "RUNNING") {
-    return false;
-  }
-  return true;
-}
 
 /**
  * Collect branch execution entities by fork path IDs using parent's SyncBarrier.
@@ -407,7 +398,7 @@ export async function joinHandler(
   workflowExecutionEntity: WorkflowExecutionEntity,
   node: RuntimeNode,
 ): Promise<JoinNodeOutput> {
-  if (!canExecute(workflowExecutionEntity)) {
+  if (getSkippedResult(workflowExecutionEntity, node)) {
     return {
       completedBranches: [],
       failedBranches: [],

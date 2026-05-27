@@ -20,6 +20,7 @@ import { now, getErrorMessage } from "@wf-agent/common-utils";
 import * as Identifiers from "../../../../core/di/service-identifiers.js";
 import type { ScriptRegistry } from "../../../../core/registry/script-registry.js";
 import type { GlobalContext } from "../../../../core/global-context.js";
+import { getSkippedResult } from "./can-execute.js";
 
 /**
  * Script Node Processing Function
@@ -40,6 +41,9 @@ export async function scriptHandler(
   node: RuntimeNode,
   _context?: unknown,
 ): Promise<unknown> {
+  const skipped = getSkippedResult(workflowExecutionEntity, node);
+  if (skipped) return skipped;
+
   const config = node.config as ScriptNodeConfig;
 
   try {
@@ -65,7 +69,12 @@ export async function scriptHandler(
       result = await scriptService.execute(config.scriptName);
     }
 
-    if (result && typeof result === 'object' && 'isErr' in result && typeof result.isErr === 'function') {
+    if (
+      result &&
+      typeof result === "object" &&
+      "isErr" in result &&
+      typeof result.isErr === "function"
+    ) {
       if (result.isErr()) {
         throw result.error;
       }

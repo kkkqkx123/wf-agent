@@ -7,21 +7,7 @@
 import type { RuntimeNode } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import { now } from "@wf-agent/common-utils";
-
-/**
- * Check whether the node can be executed.
- */
-function canExecute(workflowExecutionEntity: WorkflowExecutionEntity, node: RuntimeNode): boolean {
-  if (workflowExecutionEntity.getStatus() !== "RUNNING") {
-    return false;
-  }
-
-  if (workflowExecutionEntity.getNodeResults().some(result => result.nodeId === node.id)) {
-    return false;
-  }
-
-  return true;
-}
+import { getSkippedResult } from "./can-execute.js";
 
 /**
  * EmbedStart node processing function
@@ -34,7 +20,12 @@ export async function embedStartHandler(
   workflowExecutionEntity: WorkflowExecutionEntity,
   node: RuntimeNode,
 ): Promise<unknown> {
-  if (!canExecute(workflowExecutionEntity, node)) {
+  // Check execution status
+  const skipped = getSkippedResult(workflowExecutionEntity, node);
+  if (skipped) return skipped;
+
+  // Idempotency check: skip if already executed
+  if (workflowExecutionEntity.getNodeResults().some(result => result.nodeId === node.id)) {
     return {
       nodeId: node.id,
       nodeType: node.type,

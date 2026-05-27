@@ -8,6 +8,7 @@ import type { WorkflowExecution } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import { ExecutionError, ValidationError, RuntimeValidationError } from "@wf-agent/types";
 import { now, getErrorMessage } from "@wf-agent/common-utils";
+import { getSkippedResult } from "./can-execute.js";
 
 /**
  * Loop state
@@ -19,19 +20,6 @@ interface LoopState {
   maxIterations: number;
   iterationCount: number;
   variableName: string | null; // Can be null (when counting loops).
-}
-
-/**
- * Check if the node can be executed.
- */
-function canExecute(executionEntity: WorkflowExecutionEntity, _node: RuntimeNode): boolean {
-  if (executionEntity.getStatus() !== "RUNNING") {
-    return false;
-  }
-
-  // LOOP_START node needs to be re-executed in each iteration, so we don't check if it was executed before.
-  // The loop continuation logic is handled inside the handler based on loopState.
-  return true;
 }
 
 /**
@@ -283,15 +271,8 @@ export async function loopStartHandler(
   const workflowExecution = executionEntity.getExecution();
 
   // Check if it is possible to execute.
-  if (!canExecute(executionEntity, node)) {
-    return {
-      nodeId: node.id,
-      nodeType: node.type,
-      status: "SKIPPED",
-      step: workflowExecution.nodeResults.length + 1,
-      executionTime: 0,
-    };
-  }
+  const skipped = getSkippedResult(executionEntity, node);
+  if (skipped) return skipped;
 
   const config = node.config as LoopStartNodeConfig;
 

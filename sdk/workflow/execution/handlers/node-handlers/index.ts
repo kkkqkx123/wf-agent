@@ -27,6 +27,7 @@ import { userInteractionHandler, type UserInteractionHandlerContext } from "./us
 import { variableHandler } from "./variable-handler.js";
 import { toolVisibilityHandler, type ToolVisibilityHandlerContext } from "./tool-visibility-handler.js";
 import { syncHandler } from "./sync-handler.js";
+import { getSkippedResult } from "./can-execute.js";
 
 // NodeHandlerFn signature: all handlers receive globalContext as first parameter
 export type NodeHandlerFn = (
@@ -47,16 +48,22 @@ export function getNodeHandler(nodeType: string): NodeHandlerFn {
       interactiveScriptHandler(globalContext, workflowExecutionEntity, node, context),
     
     // Handlers that don't use globalContext (ignore it)
-    CONTEXT_PROCESSOR: (_gc, workflowExecutionEntity, node, context) =>
-      contextProcessorHandler(workflowExecutionEntity.getExecution(), node, context as ContextProcessorHandlerContext),
+    CONTEXT_PROCESSOR: (_gc, workflowExecutionEntity, node, context) => {
+      const skipped = getSkippedResult(workflowExecutionEntity, node as RuntimeNode);
+      if (skipped) return skipped as any;
+      return contextProcessorHandler(workflowExecutionEntity.getExecution(), node, context as ContextProcessorHandlerContext);
+    },
     CONTINUE_FROM_TRIGGER: (_gc, workflowExecutionEntity, node, _ctx) =>
       continueFromTriggerHandler(workflowExecutionEntity, node),
     END: (_gc, workflowExecutionEntity, node, _ctx) => endHandler(workflowExecutionEntity, node),
     FORK: (globalContext, workflowExecutionEntity, node, context) =>
       forkHandler(globalContext, workflowExecutionEntity, node, context as any),
     JOIN: (globalContext, workflowExecutionEntity, node, _ctx) => joinHandler(globalContext, workflowExecutionEntity, node),
-    LLM: (_gc, workflowExecutionEntity, node, context) =>
-      llmHandler(workflowExecutionEntity.getExecution(), node, context as LLMHandlerContext),
+    LLM: (_gc, workflowExecutionEntity, node, context) => {
+      const skipped = getSkippedResult(workflowExecutionEntity, node as RuntimeNode);
+      if (skipped) return skipped as any;
+      return llmHandler(workflowExecutionEntity.getExecution(), node, context as LLMHandlerContext);
+    },
     LOOP_END: (_gc, workflowExecutionEntity, node, _ctx) => loopEndHandler(workflowExecutionEntity, node),
     LOOP_START: (_gc, workflowExecutionEntity, node, _ctx) => loopStartHandler(workflowExecutionEntity, node),
     ROUTE: (_gc, workflowExecutionEntity, node, _ctx) => routeHandler(workflowExecutionEntity, node),
@@ -69,11 +76,17 @@ export function getNodeHandler(nodeType: string): NodeHandlerFn {
       embedStartHandler(workflowExecutionEntity, node),
     EMBED_END: (_gc, workflowExecutionEntity, node, _ctx) =>
       embedEndHandler(workflowExecutionEntity, node),
-    USER_INTERACTION: (_gc, workflowExecutionEntity, node, context) =>
-      userInteractionHandler(workflowExecutionEntity.getExecution(), node, context as UserInteractionHandlerContext),
+    USER_INTERACTION: (_gc, workflowExecutionEntity, node, context) => {
+      const skipped = getSkippedResult(workflowExecutionEntity, node as RuntimeNode);
+      if (skipped) return skipped as any;
+      return userInteractionHandler(workflowExecutionEntity.getExecution(), node, context as UserInteractionHandlerContext);
+    },
     VARIABLE: (_gc, workflowExecutionEntity, node, _ctx) => variableHandler(workflowExecutionEntity, node),
-    TOOL_VISIBILITY: (_gc, _we, node, context) =>
-      toolVisibilityHandler(node, context as ToolVisibilityHandlerContext),
+    TOOL_VISIBILITY: (_gc, _we, node, context) => {
+      const skipped = getSkippedResult(_we, node as RuntimeNode);
+      if (skipped) return skipped as any;
+      return toolVisibilityHandler(node, context as ToolVisibilityHandlerContext);
+    },
     SYNC: (globalContext, workflowExecutionEntity, node, _ctx) => 
       syncHandler(globalContext, workflowExecutionEntity, node),
   };

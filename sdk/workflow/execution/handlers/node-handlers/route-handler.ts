@@ -7,16 +7,7 @@ import type { RuntimeNode, RouteNodeConfig } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import type { Condition, EvaluationContext } from "@wf-agent/types";
 import { ExecutionError } from "@wf-agent/types";
-
-/**
- * Check if the node can be executed.
- */
-function canExecute(workflowExecutionEntity: WorkflowExecutionEntity): boolean {
-  if (workflowExecutionEntity.getStatus() !== "RUNNING") {
-    return false;
-  }
-  return true;
-}
+import { getSkippedResult } from "./can-execute.js";
 
 /**
  * Evaluating routing conditions
@@ -61,17 +52,13 @@ function evaluateRouteCondition(
  * @param context Processor context (optional)
  * @returns Execution result
  */
-export async function routeHandler(workflowExecutionEntity: WorkflowExecutionEntity, node: RuntimeNode): Promise<unknown> {
+export async function routeHandler(
+  workflowExecutionEntity: WorkflowExecutionEntity,
+  node: RuntimeNode,
+): Promise<unknown> {
   // Check if it can be executed.
-  if (!canExecute(workflowExecutionEntity)) {
-    return {
-      nodeId: node.id,
-      nodeType: node.type,
-      status: "SKIPPED",
-      step: workflowExecutionEntity.getNodeResults().length + 1,
-      executionTime: 0,
-    };
-  }
+  const skipped = getSkippedResult(workflowExecutionEntity, node);
+  if (skipped) return skipped;
 
   const config = node.config as RouteNodeConfig;
 
@@ -79,7 +66,8 @@ export async function routeHandler(workflowExecutionEntity: WorkflowExecutionEnt
   const sortedRoutes = [...config.routes].sort((a, b) => (b.priority || 0) - (a.priority || 0));
 
   // Evaluate all routing conditions for the output record
-  const evaluatedConditions: Array<{ condition: string; result: boolean; targetNodeId: string }> = [];
+  const evaluatedConditions: Array<{ condition: string; result: boolean; targetNodeId: string }> =
+    [];
   for (const route of sortedRoutes) {
     const result = evaluateRouteCondition(route.condition, workflowExecutionEntity);
     evaluatedConditions.push({

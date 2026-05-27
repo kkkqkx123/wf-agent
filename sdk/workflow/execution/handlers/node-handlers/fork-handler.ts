@@ -28,6 +28,7 @@ import {
 } from "../../utils/event/index.js";
 import * as Identifiers from "../../../../core/di/service-identifiers.js";
 import { cleanupChildExecution } from "../../utils/child-execution-cleanup.js";
+import { getSkippedResult } from "./can-execute.js";
 
 const logger = createContextualLogger({ component: "fork-node-handler" });
 
@@ -59,15 +60,8 @@ export async function forkHandler(
   }
 
   // Check if the node can be executed
-  if (workflowExecutionEntity.getStatus() !== "RUNNING") {
-    return {
-      nodeId: node.id,
-      nodeType: node.type,
-      status: "SKIPPED",
-      step: workflowExecutionEntity.getNodeResults().length + 1,
-      executionTime: 0,
-    } as any;
-  }
+  const skipped = getSkippedResult(workflowExecutionEntity, node);
+  if (skipped) return skipped as any;
 
   // Validate required dependencies
   const builder = context?.executionBuilder;

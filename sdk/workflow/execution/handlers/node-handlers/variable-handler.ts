@@ -7,27 +7,8 @@ import type { RuntimeNode, VariableNodeConfig, EvaluationContext } from "@wf-age
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import { RuntimeValidationError } from "@wf-agent/types";
 import { now } from "@wf-agent/common-utils";
+import { getSkippedResult } from "./can-execute.js";
 import { expressionEvaluator, setArrayItemByKey } from "../../../evaluation/index.js";
-
-/**
- * Check whether the node can be executed.
- */
-function canExecute(executionEntity: WorkflowExecutionEntity, node: RuntimeNode): boolean {
-  if (executionEntity.getStatus() !== "RUNNING") {
-    return false;
-  }
-
-  const config = node.config as VariableNodeConfig;
-
-  // Check if the variable is read-only.
-  const workflowExecution = executionEntity.getExecution();
-  const existingVariable = workflowExecution.variables?.find((v: { name: string; readonly?: boolean }) => v.name === config.variableName);
-  if (existingVariable && existingVariable.readonly) {
-    return false;
-  }
-
-  return true;
-}
 
 /**
  * Evaluate the expression using ExpressionEvaluator (AST-based, safe)
@@ -136,7 +117,7 @@ function convertType(value: unknown, targetType: string): unknown {
  * Variable Node Processing Function
  * @param executionEntity WorkflowExecutionEntity instance
  * @param node Node definition
- * @param context Processor context (optional)
+ * @param _context Processor context (optional)
  * @returns Execution result
  */
 export async function variableHandler(
@@ -145,7 +126,15 @@ export async function variableHandler(
   _context?: unknown,
 ): Promise<unknown> {
   // Check if it is possible to execute.
-  if (!canExecute(executionEntity, node)) {
+  const skipped = getSkippedResult(executionEntity, node);
+  if (skipped) return skipped;
+
+  const config = node.config as VariableNodeConfig;
+
+  // Check if the variable is read-only.
+  const workflowExecution = executionEntity.getExecution();
+  const existingVariable = workflowExecution.variables?.find((v: { name: string; readonly?: boolean }) => v.name === config.variableName);
+  if (existingVariable && existingVariable.readonly) {
     return {
       nodeId: node.id,
       nodeType: node.type,
@@ -154,9 +143,6 @@ export async function variableHandler(
       executionTime: 0,
     };
   }
-
-  const config = node.config as VariableNodeConfig;
-  const workflowExecution = executionEntity.getExecution();
 
   // Evaluate the expression using AST-based evaluator (safe, preserves types)
   const result = evaluateExpression(config.expression, config.variableType, executionEntity);

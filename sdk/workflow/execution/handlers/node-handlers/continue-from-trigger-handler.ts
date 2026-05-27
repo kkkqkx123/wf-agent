@@ -8,6 +8,7 @@
 import type { RuntimeNode, MessageContextRegistry, WorkflowExecution, WorkflowEndConfig } from "@wf-agent/types";
 import { now } from "@wf-agent/common-utils";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
+import { getSkippedResult } from "./can-execute.js";
 
 /**
  * ContinueFromTrigger handler context
@@ -15,21 +16,6 @@ import type { WorkflowExecutionEntity } from "../../../entities/workflow-executi
 export interface ContinueFromTriggerHandlerContext {
   /** Main workflow execution entity */
   mainWorkflowExecutionEntity?: WorkflowExecutionEntity;
-}
-
-/**
- * Check whether the node can be executed.
- */
-function canExecute(workflowExecutionEntity: WorkflowExecutionEntity, node: RuntimeNode): boolean {
-  if (workflowExecutionEntity.getStatus() !== "RUNNING") {
-    return false;
-  }
-
-  if (workflowExecutionEntity.getNodeResults().some(result => result.nodeId === node.id)) {
-    return false;
-  }
-
-  return true;
 }
 
 /**
@@ -44,8 +30,11 @@ export async function continueFromTriggerHandler(
   node: RuntimeNode,
   context?: ContinueFromTriggerHandlerContext,
 ): Promise<unknown> {
-  // Check if it is possible to execute.
-  if (!canExecute(workflowExecutionEntity, node)) {
+  // Check if it is possible to execute (status + idempotency).
+  const skipped = getSkippedResult(workflowExecutionEntity, node);
+  if (skipped) return skipped;
+
+  if (workflowExecutionEntity.getNodeResults().some(result => result.nodeId === node.id)) {
     return {
       nodeId: node.id,
       nodeType: node.type,

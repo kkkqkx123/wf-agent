@@ -30,6 +30,7 @@ import { ToolRegistry } from "../../../../core/registry/tool-registry.js";
 import * as Identifiers from "../../../../core/di/service-identifiers.js";
 import type { GlobalContext } from "../../../../core/global-context.js";
 import { createContextualLogger } from "../../../../utils/contextual-logger.js";
+import { getSkippedResult } from "./can-execute.js";
 
 const logger = createContextualLogger({ component: "AgentLoopHandler" });
 
@@ -274,6 +275,9 @@ export async function agentLoopHandler(
   node: RuntimeNode,
   context: AgentLoopHandlerContext & { workflowExecutionEntity?: any },
 ): Promise<AgentLoopExecutionResult> {
+  const skipped = getSkippedResult(executionEntity, node);
+  if (skipped) return skipped as any;
+
   const execution = executionEntity.getExecution();
   const config = node.config as AgentLoopNodeConfig;
   const startTime = now();

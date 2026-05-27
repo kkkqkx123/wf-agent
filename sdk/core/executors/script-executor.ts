@@ -3,7 +3,7 @@
  * 
  * Simplified script execution that leverages the Terminal Service.
  * Scripts are treated as shell commands without type distinctions.
- * Supports template rendering and executor mode selection.
+ * Supports template rendering and executor mode selection including sandbox modes.
  */
 
 import type { Script, ScriptExecutionOptions, ScriptExecutionResult, ExecutorMode } from "@wf-agent/types";
@@ -11,6 +11,9 @@ import { getTerminalService, type TerminalService } from "../../services/termina
 import { ScriptTemplateEngine } from "../script/engine/script-template.js";
 import { DirectExecutor } from "../script/executors/direct-executor.js";
 import { SharedExecutor } from "../script/executors/shared-executor.js";
+import { SandboxShellExecutor } from "../script/executors/sandbox-shell-executor.js";
+import { SandboxPythonExecutor } from "../script/executors/sandbox-python-executor.js";
+import { SandboxJavaScriptExecutor } from "../script/executors/sandbox-javascript-executor.js";
 import type { BaseExecutor } from "../script/executors/base-executor.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
@@ -34,6 +37,9 @@ export class ScriptExecutor {
     this.executors = new Map();
     this.executors.set("direct", new DirectExecutor(this.terminalService));
     this.executors.set("shared", new SharedExecutor(this.terminalService));
+    this.executors.set("sandbox-shell", new SandboxShellExecutor(this.terminalService));
+    this.executors.set("sandbox-python", new SandboxPythonExecutor(this.terminalService));
+    this.executors.set("sandbox-javascript", new SandboxJavaScriptExecutor(this.terminalService));
   }
 
   /**
@@ -79,6 +85,7 @@ export class ScriptExecutor {
           cwd: script.executor?.cwd || options?.workingDirectory,
           env: { ...script.executor?.environment, ...options?.environment },
           timeout: options?.timeout,
+          sandboxConfig: script.options?.sandboxConfig ?? options?.sandboxConfig,
         });
         return {
           ...result,

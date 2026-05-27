@@ -15,6 +15,9 @@ import { DynamicResolver } from "../resolvers/dynamic-resolver.js";
 import { DirectExecutor } from "../executors/direct-executor.js";
 import { SharedExecutor } from "../executors/shared-executor.js";
 import { PtyExecutor } from "../executors/pty-executor.js";
+import { SandboxShellExecutor } from "../executors/sandbox-shell-executor.js";
+import { SandboxPythonExecutor } from "../executors/sandbox-python-executor.js";
+import { SandboxJavaScriptExecutor } from "../executors/sandbox-javascript-executor.js";
 import type { BaseExecutor } from "../executors/base-executor.js";
 import { getTerminalService } from "../../../services/terminal/index.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
@@ -51,6 +54,9 @@ export class ScriptEngine {
     this.executors.set("direct", new DirectExecutor(terminalService));
     this.executors.set("shared", new SharedExecutor(terminalService));
     this.executors.set("pty", new PtyExecutor());
+    this.executors.set("sandbox-shell", new SandboxShellExecutor(terminalService));
+    this.executors.set("sandbox-python", new SandboxPythonExecutor(terminalService));
+    this.executors.set("sandbox-javascript", new SandboxJavaScriptExecutor(terminalService));
   }
 
   /**
@@ -118,6 +124,8 @@ export class ScriptEngine {
         cwd: script.executor?.cwd || options?.workingDirectory,
         env: { ...script.executor?.environment, ...options?.environment },
         timeout: options?.timeout,
+        sandboxConfig: options?.sandboxConfig,
+        language: options?.language ?? script.language,
       });
 
       return {

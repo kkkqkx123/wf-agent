@@ -8,7 +8,7 @@
 import type { ShellPolicy } from "@wf-agent/types";
 import type { ScriptShellType } from "@wf-agent/types";
 
-export type { ScriptShellType as ShellType };
+export type { ScriptShellType as ShellType, ShellPolicy };
 
 export interface ShellAnalysisResult {
   /** Whether the command passed static analysis */

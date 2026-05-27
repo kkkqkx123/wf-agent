@@ -4,6 +4,7 @@
  */
 
 import type { ScriptExecutionResult } from "@wf-agent/types";
+import type { SandboxConfig, ScriptLanguage } from "@wf-agent/types";
 
 /**
  * Base execution options
@@ -17,6 +18,10 @@ export interface BaseExecuteOptions {
   env?: Record<string, string>;
   /** Timeout in milliseconds */
   timeout?: number;
+  /** Sandbox configuration (for sandbox executors) */
+  sandboxConfig?: SandboxConfig;
+  /** Script language (for sandbox routing) */
+  language?: ScriptLanguage;
 }
 
 /**

@@ -31,17 +31,6 @@ const DEFAULT_DENIED_MODULES: string[] = [
 ];
 
 /**
- * Default denied builtin functions.
- */
-const DEFAULT_DENIED_BUILTINS: string[] = [
-  "__import__",
-  "eval",
-  "exec",
-  "compile",
-  "open",
-];
-
-/**
  * Python Builtin-hook Strategy
  *
  * Generates a wrapped Python script that:

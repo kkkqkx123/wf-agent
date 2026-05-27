@@ -299,3 +299,39 @@ export {
   type HttpResponse as HttpServiceResponse,
   type HttpClientConfig,
 } from './http/index.js';
+
+// ============================================================================
+// Sandbox Service
+// ============================================================================
+export {
+  SandboxRuntime,
+  getSandboxRuntime,
+  resetSandboxRuntime,
+  DefaultStrategyResolver,
+  CheckpointVFSBridge,
+  DEFAULT_SANDBOX_POLICY,
+  DEFAULT_SHELL_POLICY,
+  DEFAULT_PYTHON_POLICY,
+  DEFAULT_JS_POLICY,
+  ShellStaticAnalyzerStrategy,
+  PythonBuiltinHookStrategy,
+  PythonASTAnalyzerStrategy,
+  JavaScriptVmContextStrategy,
+  type SandboxExecutionResult,
+  type SandboxRuntimeResult,
+} from './sandbox/index.js';
+
+// ============================================================================
+// VFS Service
+// ============================================================================
+export {
+  OverlayVFS,
+  CheckpointAwareVFS,
+  WhiteoutCache,
+  MemoryDelta,
+  HostFS,
+  type VFSEntry,
+  type VFSOperations,
+  type DeltaFileSystem,
+  type BaseFileSystem,
+} from './vfs/index.js';

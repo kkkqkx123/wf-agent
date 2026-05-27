@@ -11,7 +11,7 @@
  */
 
 import type { ShellAnalysisContext, ShellAnalysisResult, ShellAnalyzer } from "./base.js";
-import type { ShellType } from "./base.js";
+import type { ShellType, ShellPolicy } from "./base.js";
 
 const SHELL_TYPE: ShellType = "bash";
 
@@ -162,12 +162,12 @@ export class BashAnalyzer implements ShellAnalyzer {
 
     const tokens = trimmed.split(/\s+/);
 
-    let primary = tokens[0];
+    let primary: string | undefined = tokens[0];
     while (primary && PREFIX_COMMANDS.includes(primary)) {
       const idx = tokens.indexOf(primary);
-      primary = tokens[idx + 1] || "";
+      primary = tokens[idx + 1];
     }
 
-    return primary.replace(/[^a-zA-Z0-9_\-./\\]/g, "");
+    return (primary ?? "").replace(/[^a-zA-Z0-9_\-./\\]/g, "");
   }
 }

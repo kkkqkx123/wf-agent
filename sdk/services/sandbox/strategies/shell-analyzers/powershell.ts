@@ -15,7 +15,7 @@
  */
 
 import type { ShellAnalysisContext, ShellAnalysisResult, ShellAnalyzer } from "./base.js";
-import type { ShellType } from "./base.js";
+import type { ShellType, ShellPolicy } from "./base.js";
 
 const SHELL_TYPE: ShellType = "powershell";
 

@@ -233,11 +233,11 @@ export interface StrategyResolver {
 export interface VFSConfig {
   /** Enable VFS overlay */
   enabled: boolean;
-  /** Storage backend */
-  storage: "memory" | "sqlite";
+  /** Storage backend (defaults to sqlite) */
+  storage?: "memory" | "sqlite";
   /** Workspace root path */
   workspaceRoot: string;
-  /** SQLite database path (sqlite mode only) */
+  /** SQLite database path (sqlite mode only, defaults to :memory:) */
   dbPath?: string;
   /** Path access policy */
   pathPolicy?: {
@@ -263,10 +263,6 @@ export interface VFSProvider {
   } | null>;
   /** Check if path exists in VFS */
   exists(path: string): Promise<boolean>;
-  /** Create a snapshot of current VFS state */
-  snapshot(): Promise<string>;
-  /** Restore VFS to a previous snapshot */
-  restore(snapshotId: string): Promise<void>;
 }
 
 // ============================================================================

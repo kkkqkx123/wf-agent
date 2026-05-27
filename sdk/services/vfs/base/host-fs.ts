@@ -112,7 +112,6 @@ export class HostFS implements BaseFileSystem {
       mode: stats.mode,
       createdAt: stats.birthtimeMs,
       modifiedAt: stats.mtimeMs,
-      isWhiteout: false,
     };
   }
 

@@ -20,7 +20,6 @@ export interface VFSEntry {
   mode: number;
   createdAt: number;
   modifiedAt: number;
-  isWhiteout: boolean;
 }
 
 /**
@@ -37,10 +36,6 @@ export interface VFSOperations {
   readdir(path: string): Promise<VFSEntry[]>;
   mkdir(path: string): Promise<void>;
   rmdir(path: string): Promise<void>;
-
-  snapshot(): Promise<string>;
-  restore(snapshotId: string): Promise<void>;
-  diff(snapshotA: string, snapshotB: string): Promise<VFSEntry[]>;
 
   exists(path: string): Promise<boolean>;
   isAllowed(path: string): boolean;
@@ -60,12 +55,6 @@ export interface DeltaFileSystem {
   readdir(path: string): Promise<VFSEntry[]>;
   mkdir(path: string): Promise<void>;
   rmdir(path: string): Promise<void>;
-
-  snapshot(): Promise<string>;
-  restore(snapshotId: string): Promise<void>;
-  getSnapshotIds(): string[];
-
-  hasPendingChanges(): boolean;
 }
 
 /**

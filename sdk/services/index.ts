@@ -308,7 +308,6 @@ export {
   getSandboxRuntime,
   resetSandboxRuntime,
   DefaultStrategyResolver,
-  CheckpointVFSBridge,
   DEFAULT_SANDBOX_POLICY,
   DEFAULT_SHELL_POLICY,
   DEFAULT_PYTHON_POLICY,
@@ -326,10 +325,8 @@ export {
 // ============================================================================
 export {
   OverlayVFS,
-  CheckpointAwareVFS,
-  WhiteoutCache,
-  MemoryDelta,
   HostFS,
+  SqliteDelta,
   type VFSEntry,
   type VFSOperations,
   type DeltaFileSystem,

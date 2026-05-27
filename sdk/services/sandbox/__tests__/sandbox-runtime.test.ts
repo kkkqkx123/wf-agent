@@ -123,7 +123,6 @@ describe("SandboxRuntime", () => {
         mode: "strict",
         vfs: {
           enabled: true,
-          storage: "memory",
           workspaceRoot: "/test/workspace",
         },
       };

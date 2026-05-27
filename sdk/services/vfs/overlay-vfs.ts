@@ -1,33 +1,41 @@
 /**
- * OverlayVFS — Three-layer Copy-on-Write virtual file system
+ * OverlayVFS — Two-layer overlay virtual file system
  *
- * Architecture reference: docs/infra/sandbox/strategies/vfs-overlay.md
+ * Architecture:
+ *   1. Delta layer (SQLite-backed, writable) — files created/modified by sandbox
+ *   2. Base layer (HostFS, read-only) — access to host workspace with path policy
  *
- * Lookup order:
- *   1. Delta layer (writable) — return if present
- *   2. Whiteout cache — if found, return "not found"
- *   3. Base layer (read-only) — delegate to HostFS with path policy
+ * Lookup order: Delta → Base
+ *
+ * VFS is for sandbox access control during script execution.
+ * File persistence is handled by SqliteDelta; snapshot/checkpoint
+ * integration is managed by CheckpointCoordinator at the workflow level.
  */
 
+import * as path from "node:path";
 import type { VFSEntry, VFSOperations, DeltaFileSystem, BaseFileSystem } from "./types.js";
 import type { VFSConfig } from "./types.js";
-import { WhiteoutCache } from "./whiteout-cache.js";
-import { MemoryDelta } from "./delta/memory-delta.js";
+import { SqliteDelta } from "./delta/sqlite-delta.js";
 import { HostFS } from "./base/host-fs.js";
 
 export class OverlayVFS implements VFSOperations {
   private delta: DeltaFileSystem;
-  private whiteout: WhiteoutCache;
   private base: BaseFileSystem;
+  private workspaceRoot: string;
+
+  /**
+   * Track base-file deletions so read/stat don't fall through to base.
+   * This is a minimal replacement for the removed WhiteoutCache trie.
+   */
+  private deletedBaseFiles = new Set<string>();
 
   constructor(config: VFSConfig) {
-    this.delta = new MemoryDelta();
-    this.whiteout = new WhiteoutCache();
+    this.workspaceRoot = config.workspaceRoot;
 
-    const workspaceRoot = config.workspaceRoot;
-    const pathPolicy = config.pathPolicy;
+    const dbPath = config.dbPath ?? ":memory:";
+    this.delta = new SqliteDelta({ dbPath });
 
-    this.base = new HostFS(workspaceRoot, pathPolicy);
+    this.base = new HostFS(config.workspaceRoot, config.pathPolicy);
   }
 
   // =========================================================================
@@ -35,55 +43,61 @@ export class OverlayVFS implements VFSOperations {
   // =========================================================================
 
   async stat(path: string): Promise<VFSEntry | null> {
-    // 1. Check Delta layer
-    const deltaEntry = await this.delta.stat(path);
+    const normalizedPath = this.normalize(path);
+
+    if (this.deletedBaseFiles.has(normalizedPath)) {
+      return null;
+    }
+
+    const deltaEntry = await this.delta.stat(normalizedPath);
     if (deltaEntry) return deltaEntry;
 
-    // 2. Check Whiteout cache
-    if (this.whiteout.hasWhiteout(path)) return null;
-
-    // 3. Check Base layer
-    return this.base.stat(this.toHostPath(path));
+    return this.base.stat(this.toHostPath(normalizedPath));
   }
 
   async readFile(vfsPath: string): Promise<Buffer | null> {
-    // 1. Check Delta layer
-    const deltaData = await this.delta.readFile(vfsPath);
+    const normalizedPath = this.normalize(vfsPath);
+
+    if (this.deletedBaseFiles.has(normalizedPath)) {
+      return null;
+    }
+
+    const deltaData = await this.delta.readFile(normalizedPath);
     if (deltaData) return deltaData;
 
-    // 2. Check Whiteout cache
-    if (this.whiteout.hasWhiteout(vfsPath)) return null;
-
-    // 3. Check Base layer
-    return this.base.readFile(this.toHostPath(vfsPath));
+    return this.base.readFile(this.toHostPath(normalizedPath));
   }
 
   async writeFile(vfsPath: string, data: Buffer): Promise<void> {
-    // Writing removes whiteout
-    this.whiteout.clearWhiteout(vfsPath);
-    await this.delta.writeFile(vfsPath, data);
+    const normalizedPath = this.normalize(vfsPath);
+    this.deletedBaseFiles.delete(normalizedPath);
+    await this.delta.writeFile(normalizedPath, data);
   }
 
   async remove(vfsPath: string): Promise<void> {
-    // Check if file exists in delta or base
-    const deltaEntry = await this.delta.stat(vfsPath);
+    const normalizedPath = this.normalize(vfsPath);
+
+    const deltaEntry = await this.delta.stat(normalizedPath);
     if (deltaEntry) {
-      await this.delta.remove(vfsPath);
+      await this.delta.remove(normalizedPath);
       return;
     }
 
-    const hostPath = this.toHostPath(vfsPath);
+    const hostPath = this.toHostPath(normalizedPath);
     const baseEntry = await this.base.stat(hostPath);
     if (baseEntry) {
-      // Mark as whiteout in delta
-      this.whiteout.markWhiteout(vfsPath);
-      return;
+      this.deletedBaseFiles.add(normalizedPath);
     }
   }
 
   async rename(oldPath: string, newPath: string): Promise<void> {
-    await this.delta.rename(oldPath, newPath);
-    this.whiteout.clearWhiteout(newPath);
+    const oldNormalized = this.normalize(oldPath);
+    const newNormalized = this.normalize(newPath);
+
+    this.deletedBaseFiles.delete(oldNormalized);
+    this.deletedBaseFiles.delete(newNormalized);
+
+    await this.delta.rename(oldNormalized, newNormalized);
   }
 
   // =========================================================================
@@ -91,71 +105,45 @@ export class OverlayVFS implements VFSOperations {
   // =========================================================================
 
   async readdir(vfsPath: string): Promise<VFSEntry[]> {
+    const normalizedPath = this.normalize(vfsPath);
     const entries: Map<string, VFSEntry> = new Map();
 
-    // 1. Collect from Base layer (filtered by path policy)
-    const hostPath = this.toHostPath(vfsPath);
+    const hostPath = this.toHostPath(normalizedPath);
     const baseEntries = await this.base.readdir(hostPath);
     for (const entry of baseEntries) {
-      if (!this.whiteout.hasWhiteout(entry.path)) {
+      if (!this.deletedBaseFiles.has(entry.path)) {
         entries.set(entry.name, entry);
       }
     }
 
-    // 2. Overlay with Delta layer
-    const deltaFiles = await this.delta.readdir(vfsPath);
+    const deltaFiles = await this.delta.readdir(normalizedPath);
     for (const entry of deltaFiles) {
-      if (entry.isWhiteout) {
-        entries.delete(entry.name);
-      } else {
-        entries.set(entry.name, entry);
-      }
+      entries.set(entry.name, entry);
     }
 
     return Array.from(entries.values());
   }
 
-  async mkdir(path: string): Promise<void> {
-    this.whiteout.clearWhiteout(path);
-    await this.delta.mkdir(path);
+  async mkdir(vfsPath: string): Promise<void> {
+    const normalizedPath = this.normalize(vfsPath);
+    this.deletedBaseFiles.delete(normalizedPath);
+    await this.delta.mkdir(normalizedPath);
   }
 
-  async rmdir(path: string): Promise<void> {
-    const deltaEntry = await this.delta.stat(path);
+  async rmdir(vfsPath: string): Promise<void> {
+    const normalizedPath = this.normalize(vfsPath);
+
+    const deltaEntry = await this.delta.stat(normalizedPath);
     if (deltaEntry) {
-      await this.delta.rmdir(path);
+      await this.delta.rmdir(normalizedPath);
       return;
     }
 
-    const hostPath = this.toHostPath(path);
+    const hostPath = this.toHostPath(normalizedPath);
     const baseEntry = await this.base.stat(hostPath);
     if (baseEntry) {
-      this.whiteout.markWhiteout(path);
-      return;
+      this.deletedBaseFiles.add(normalizedPath);
     }
-  }
-
-  // =========================================================================
-  // Snapshot operations
-  // =========================================================================
-
-  async snapshot(): Promise<string> {
-    return this.delta.snapshot();
-  }
-
-  async restore(snapshotId: string): Promise<void> {
-    await this.delta.restore(snapshotId);
-  }
-
-  async diff(snapshotA: string, snapshotB: string): Promise<VFSEntry[]> {
-    // Note: full diff computation requires tracking change metadata
-    // For now, return entries changed between two snapshots
-    const changed: VFSEntry[] = [];
-    const allIds = this.delta.getSnapshotIds();
-    if (!allIds.includes(snapshotA) || !allIds.includes(snapshotB)) {
-      return changed;
-    }
-    return changed;
   }
 
   // =========================================================================
@@ -176,12 +164,17 @@ export class OverlayVFS implements VFSOperations {
   // Internal helpers
   // =========================================================================
 
-  /**
-   * Convert a VFS path to a host filesystem path.
-   */
+  private normalize(vfsPath: string): string {
+    const normalized = vfsPath.replace(/\\/g, "/").replace(/\/+/g, "/");
+    if (normalized.length > 1 && normalized.endsWith("/")) {
+      return normalized.slice(0, -1);
+    }
+    return normalized.startsWith("/") ? normalized : `/${normalized}`;
+  }
+
   private toHostPath(vfsPath: string): string {
-    // VFS paths are relative to workspace root
-    // This is handled by HostFS which stores the workspaceRoot
-    return vfsPath;
+    const normalized = this.normalize(vfsPath);
+    const relative = normalized.startsWith("/") ? normalized.slice(1) : normalized;
+    return path.join(this.workspaceRoot, relative.replace(/\//g, path.sep));
   }
 }

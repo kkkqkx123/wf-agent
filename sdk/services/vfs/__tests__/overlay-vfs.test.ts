@@ -5,7 +5,7 @@ import type { VFSConfig } from "@wf-agent/types";
 function createVFSConfig(overrides?: Partial<VFSConfig>): VFSConfig {
   return {
     enabled: true,
-    storage: "memory",
+    storage: "sqlite",
     workspaceRoot: "/test/workspace",
     ...overrides,
   };
@@ -86,42 +86,8 @@ describe("OverlayVFS", () => {
     });
   });
 
-  describe("snapshot operations", () => {
-    it("should create and restore snapshots", async () => {
-      await vfs.writeFile("/snap-test.txt", Buffer.from("before"));
-
-      const snapId = await vfs.snapshot();
-      expect(snapId).toBeDefined();
-      expect(snapId.length).toBeGreaterThan(0);
-
-      await vfs.writeFile("/snap-test.txt", Buffer.from("after"));
-
-      await vfs.restore(snapId);
-
-      const data = await vfs.readFile("/snap-test.txt");
-      expect(data).not.toBeNull();
-      expect(data!.toString()).toBe("before");
-    });
-
-    it("should restore to state without files created after snapshot", async () => {
-      await vfs.writeFile("/persistent.txt", Buffer.from("keep"));
-
-      const snapId = await vfs.snapshot();
-
-      await vfs.writeFile("/ephemeral.txt", Buffer.from("discard"));
-
-      await vfs.restore(snapId);
-
-      const persistent = await vfs.readFile("/persistent.txt");
-      expect(persistent).not.toBeNull();
-
-      const ephemeral = await vfs.readFile("/ephemeral.txt");
-      expect(ephemeral).toBeNull();
-    });
-  });
-
-  describe("write and whiteout interaction", () => {
-    it("should clear whiteout when writing to a deleted path", async () => {
+  describe("write and delete interaction", () => {
+    it("should allow writing to a path after deletion", async () => {
       await vfs.writeFile("/test.txt", Buffer.from("original"));
       await vfs.remove("/test.txt");
 

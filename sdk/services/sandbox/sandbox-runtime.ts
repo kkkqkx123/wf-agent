@@ -21,8 +21,6 @@ import { DefaultStrategyResolver } from "./strategy-resolver.js";
 import { DEFAULT_SANDBOX_POLICY } from "./default-policy.js";
 
 import { OverlayVFS } from "../vfs/overlay-vfs.js";
-import { CheckpointAwareVFS } from "../vfs/checkpoint-vfs.js";
-import type { CheckpointVFSBridge } from "./checkpoint-vfs-bridge.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "SandboxRuntime" });
@@ -50,19 +48,10 @@ export class SandboxRuntime {
   private resolver: DefaultStrategyResolver;
   private globalConfig: SandboxGlobalConfig | null;
   private vfsInstances = new Map<string, OverlayVFS>();
-  private checkpointVfsInstances = new Map<string, CheckpointAwareVFS>();
-  private checkpointBridge: CheckpointVFSBridge | null = null;
 
   constructor(globalConfig?: SandboxGlobalConfig) {
     this.resolver = new DefaultStrategyResolver();
     this.globalConfig = globalConfig ?? null;
-  }
-
-  /**
-   * Set the checkpoint bridge for automatic VFS snapshot management.
-   */
-  setCheckpointBridge(bridge: CheckpointVFSBridge): void {
-    this.checkpointBridge = bridge;
   }
 
   isEnabled(config?: SandboxConfig): boolean {
@@ -92,8 +81,8 @@ export class SandboxRuntime {
       const workspaceRoot = vfsConfig.workspaceRoot || options.cwd || process.cwd();
       const overlayVfs = new OverlayVFS({
         enabled: true,
-        storage: vfsConfig.storage ?? "memory",
         workspaceRoot,
+        dbPath: vfsConfig.dbPath,
         pathPolicy: vfsConfig.pathPolicy,
       });
       this.vfsInstances.set(workspaceRoot, overlayVfs);
@@ -101,7 +90,6 @@ export class SandboxRuntime {
 
       logger.debug("VFS initialized for sandbox execution", {
         workspaceRoot,
-        storage: vfsConfig.storage,
       });
     }
 
@@ -110,23 +98,6 @@ export class SandboxRuntime {
       vfs,
       policy: mergedPolicy,
     };
-  }
-
-  createCheckpointAwareVFS(workspaceRoot: string): CheckpointAwareVFS | null {
-    const vfs = this.vfsInstances.get(workspaceRoot);
-    if (!vfs) return null;
-
-    let cpVfs = this.checkpointVfsInstances.get(workspaceRoot);
-    if (!cpVfs) {
-      cpVfs = new CheckpointAwareVFS(vfs);
-      this.checkpointVfsInstances.set(workspaceRoot, cpVfs);
-
-      // Auto-attach to checkpoint bridge for lifecycle management
-      if (this.checkpointBridge) {
-        this.checkpointBridge.attach(cpVfs, workspaceRoot);
-      }
-    }
-    return cpVfs;
   }
 
   registerStrategy(

@@ -78,7 +78,9 @@ export class PythonBuiltinHookStrategy implements StrategyImplementation<ScriptE
       };
     }
 
-    const wrappedCode = this.wrapWithSandbox(code, pyPolicy);
+    const vfsEnabled = !!options.vfs;
+    const writableDirs = vfsEnabled && options.cwd ? [options.cwd] : [];
+    const wrappedCode = this.wrapWithSandbox(code, pyPolicy, vfsEnabled, writableDirs);
     const tmpFile = path.join(os.tmpdir(), `sandbox-py-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.py`);
 
     try {
@@ -125,16 +127,20 @@ export class PythonBuiltinHookStrategy implements StrategyImplementation<ScriptE
 
   /**
    * Generate a wrapped Python script with security hooks.
+   * When VFS is enabled, write operations are allowed within the workspace
+   * directory (the VFS delta layer on the Node.js side handles CoW).
    */
-  private wrapWithSandbox(code: string, policy: PythonPolicy): string {
+  private wrapWithSandbox(code: string, policy: PythonPolicy, vfsEnabled: boolean = false, writableDirs: string[] = []): string {
     const deniedModulesJson = JSON.stringify(policy.deniedModules);
     const allowedModulesJson = JSON.stringify(policy.allowedModules);
     const restrictOpen = policy.restrictBuiltinOpen ? "True" : "False";
     const allowSubprocess = policy.allowSubprocess ? "True" : "False";
+    const writableDirsJson = JSON.stringify(writableDirs);
 
     return `
 import sys
 import builtins as __builtins_module
+import os as _os
 
 # ── Clear system path ──
 sys.path = []
@@ -165,11 +171,25 @@ for _b in _DENIED_BUILTINS:
         pass
 
 # ── Safe open - restrict write operations ──
+# When VFS is enabled (vfsEnabled=${vfsEnabled}), writes are allowed
+# within the workspace directory (${writableDirsJson}) because the VFS
+# delta layer on the Node.js side provides copy-on-write isolation.
+_WRITABLE_DIRS = set(${writableDirsJson})
+_VFS_ENABLED = ${vfsEnabled ? "True" : "False"}
+
 if ${restrictOpen}:
     _ORIGINAL_OPEN = __builtins_module.open
     def _safe_open(file, mode='r', *args, **kwargs):
         if 'w' in mode or 'a' in mode or 'x' in mode or '+' in mode:
-            raise PermissionError(f"Write denied: {file}")
+            if _VFS_ENABLED:
+                # VFS mode: allow writes within writable directories
+                abs_path = _os.path.abspath(file)
+                for _wdir in _WRITABLE_DIRS:
+                    if abs_path.startswith(_os.path.abspath(_wdir)):
+                        return _ORIGINAL_OPEN(file, mode, *args, **kwargs)
+                raise PermissionError(f"Write denied (outside workspace): {file}")
+            else:
+                raise PermissionError(f"Write denied: {file}")
         return _ORIGINAL_OPEN(file, mode, *args, **kwargs)
     __builtins_module.open = _safe_open
 

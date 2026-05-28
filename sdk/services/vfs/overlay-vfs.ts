@@ -14,11 +14,12 @@
 
 import * as path from "node:path";
 import type { VFSEntry, VFSOperations, DeltaFileSystem, BaseFileSystem } from "./types.js";
+import type { VFSProvider } from "@wf-agent/types";
 import type { VFSConfig } from "./types.js";
 import { SqliteDelta } from "./delta/sqlite-delta.js";
 import { HostFS } from "./base/host-fs.js";
 
-export class OverlayVFS implements VFSOperations {
+export class OverlayVFS implements VFSOperations, VFSProvider {
   private delta: DeltaFileSystem;
   private base: BaseFileSystem;
   private workspaceRoot: string;

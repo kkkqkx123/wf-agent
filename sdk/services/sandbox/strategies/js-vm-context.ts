@@ -9,7 +9,7 @@
  */
 
 import vm from "node:vm";
-import type { SandboxPolicy, JavaScriptPolicy, ScriptExecutionResult, StrategyExecuteOptions } from "@wf-agent/types";
+import type { SandboxPolicy, JavaScriptPolicy, ScriptExecutionResult, StrategyExecuteOptions, VFSProvider } from "@wf-agent/types";
 import type { StrategyImplementation } from "../types.js";
 
 /**
@@ -119,6 +119,7 @@ export class JavaScriptVmContextStrategy implements StrategyImplementation<Scrip
     }
 
     const outputBuffer: string[] = [];
+    const vfs = options.vfs ?? null;
 
     const sandboxGlobals: Record<string, unknown> = {
       console: {
@@ -157,12 +158,17 @@ export class JavaScriptVmContextStrategy implements StrategyImplementation<Scrip
         uptime: () => 0,
         memoryUsage: () => ({ rss: 0, heapTotal: 0, heapUsed: 0, external: 0 }),
       },
-      require: (moduleName: string) => this.restrictedRequire(moduleName, jsPolicy),
+      require: (moduleName: string) => this.restrictedRequire(moduleName, jsPolicy, vfs),
       global: {},
       globalThis: {},
       eval: undefined,
       Function: undefined as unknown,
     };
+
+    // Expose VFS as a sandbox global when available
+    if (vfs) {
+      sandboxGlobals["vfs"] = this.createVFSHelper(vfs);
+    }
 
     const sandbox = vm.createContext(sandboxGlobals);
 
@@ -211,7 +217,7 @@ export class JavaScriptVmContextStrategy implements StrategyImplementation<Scrip
   /**
    * Restricted require with module whitelist/blacklist and readonly fs proxy.
    */
-  private restrictedRequire(moduleName: string, policy: JavaScriptPolicy): unknown {
+  private restrictedRequire(moduleName: string, policy: JavaScriptPolicy, vfs: VFSProvider | null): unknown {
     const denylist = new Set(policy.deniedModules);
     if (policy.deniedModules.length === 0) {
       for (const m of DEFAULT_DENIED_MODULES) {
@@ -232,7 +238,7 @@ export class JavaScriptVmContextStrategy implements StrategyImplementation<Scrip
     }
 
     if (moduleName === "fs" && !policy.allowFSWrite) {
-      return this.createReadonlyFS();
+      return vfs ? this.createVFSBackedFS(vfs) : this.createReadonlyFS();
     }
 
     try {
@@ -260,5 +266,114 @@ export class JavaScriptVmContextStrategy implements StrategyImplementation<Scrip
         return target[prop];
       },
     });
+  }
+
+  /**
+   * Create a VFS-backed fs proxy for the sandbox.
+   * Routes file operations through the VFS overlay instead of the real filesystem.
+   * Async methods (readFile, writeFile, stat) return Promises.
+   * Sync methods throw with a message directing to use the async API.
+   */
+  private createVFSBackedFS(vfs: VFSProvider): Record<string, unknown> {
+    const fsProxy: Record<string, unknown> = {};
+
+    // Read operations — delegate to VFS, return Promise
+    fsProxy["readFile"] = async (path: string, ..._args: unknown[]) => {
+      const data = await vfs.readFile(path);
+      if (data === null) {
+        throw new Error(`ENOENT: no such file or directory, open '${path}'`);
+      }
+      return data;
+    };
+
+    fsProxy["stat"] = async (path: string) => {
+      const entry = await vfs.stat(path);
+      if (entry === null) {
+        throw new Error(`ENOENT: no such file or directory, stat '${path}'`);
+      }
+      return entry;
+    };
+
+    fsProxy["exists"] = vfs.exists.bind(vfs);
+
+    // Write operations — delegate to VFS delta layer, return Promise
+    fsProxy["writeFile"] = async (path: string, data: Uint8Array | string) => {
+      const buf = typeof data === "string" ? Buffer.from(data, "utf-8") : Buffer.from(data);
+      await vfs.writeFile(path, buf);
+    };
+
+    fsProxy["appendFile"] = async (path: string, data: Uint8Array | string) => {
+      const existing = await vfs.readFile(path);
+      const existingBuf = existing ? Buffer.from(existing) : Buffer.alloc(0);
+      const newData = typeof data === "string" ? Buffer.from(data, "utf-8") : Buffer.from(data);
+      await vfs.writeFile(path, Buffer.concat([existingBuf, newData]));
+    };
+
+    // Read directory
+    fsProxy["readdir"] = async (path: string) => {
+      // VFSProvider doesn't have readdir, so fall back to real fs readdir
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const realFs = require("fs") as { readdir: (p: string, cb: (e: Error | null, f: string[]) => void) => void };
+      return new Promise<string[]>((resolve, reject) => {
+        realFs.readdir(path, (err, files) => {
+          if (err) reject(err);
+          else resolve(files);
+        });
+      });
+    };
+
+    // Sync methods are not supported with async VFS — throw clear error
+    const syncBlocked = [
+      "readFileSync", "writeFileSync", "appendFileSync", "statSync",
+      "existsSync", "readdirSync", "mkdirSync", "rmdirSync",
+      "unlinkSync", "renameSync", "copyFileSync", "chmodSync",
+      "openSync", "closeSync", "fsyncSync",
+    ];
+    for (const method of syncBlocked) {
+      fsProxy[method] = () => {
+        throw new Error(
+          `VFS-backed filesystem: ${method} is not supported. Use the async version (${method.replace("Sync", "")}) instead.`,
+        );
+      };
+    }
+
+    // mkdir, rmdir, unlink — throw clear message (VFSProvider doesn't expose these)
+    const forbidden = ["mkdir", "rmdir", "unlink", "rename", "chmod", "copyFile", "truncate"];
+    for (const method of forbidden) {
+      fsProxy[method] = () => {
+        throw new Error(`VFS-backed filesystem: ${method} is not supported via require('fs'). Use the vfs sandbox global instead.`);
+      };
+    }
+
+    return fsProxy;
+  }
+
+  /**
+   * Create a VFS helper object exposing VFS operations as sandbox globals.
+   * Available as `vfs.readFile(path)`, `vfs.writeFile(path, data)`, etc.
+   * All methods return Promises.
+   */
+  private createVFSHelper(vfs: VFSProvider): Record<string, unknown> {
+    return {
+      readFile: async (path: string) => {
+        const data = await vfs.readFile(path);
+        if (data === null) {
+          throw new Error(`ENOENT: no such file or directory, read '${path}'`);
+        }
+        return data;
+      },
+      writeFile: async (path: string, data: Uint8Array | string) => {
+        const buf = typeof data === "string" ? Buffer.from(data, "utf-8") : Buffer.from(data);
+        await vfs.writeFile(path, buf);
+      },
+      stat: async (path: string) => {
+        const entry = await vfs.stat(path);
+        if (entry === null) {
+          throw new Error(`ENOENT: no such file or directory, stat '${path}'`);
+        }
+        return entry;
+      },
+      exists: async (path: string) => vfs.exists(path),
+    };
   }
 }

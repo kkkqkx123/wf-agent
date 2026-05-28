@@ -12,6 +12,8 @@ export type {
   VFSConfig,
 } from "./types.js";
 
+export type { VFSProvider } from "@wf-agent/types";
+
 export { HostFS } from "./base/host-fs.js";
 export { OverlayVFS } from "./overlay-vfs.js";
 export { SqliteDelta } from "./delta/sqlite-delta.js";

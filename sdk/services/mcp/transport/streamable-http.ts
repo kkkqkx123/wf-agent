@@ -15,6 +15,25 @@ import { createContextualLogger } from "../../../utils/contextual-logger.js";
 const logger = createContextualLogger({ component: "StreamableHttpTransport" });
 
 /**
+ * Read a ReadableStream completely and return as text
+ */
+async function readStreamAsText(stream: ReadableStream<Uint8Array>): Promise<string> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let result = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      result += decoder.decode(value, { stream: true });
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return result;
+}
+
+/**
  * Streamable HTTP Transport
  * Communicates with MCP server via HTTP with streaming responses
  */
@@ -57,7 +76,7 @@ export class StreamableHttpTransport implements IMcpTransport {
 
     try {
       // Validate the endpoint is reachable using HEAD request
-      await this.httpClient.get("", { method: "HEAD" });
+      await this.httpClient.head("");
       this._isConnected = true;
       logger.debug("Transport started successfully", { url: this.config.url });
     } catch (error) {
@@ -103,6 +122,7 @@ export class StreamableHttpTransport implements IMcpTransport {
               Accept: "application/json, text/event-stream",
             },
             signal: this.abortController!.signal,
+            stream: true, // Get raw ReadableStream for SSE support
           });
         },
         this.retryConfig,
@@ -110,9 +130,18 @@ export class StreamableHttpTransport implements IMcpTransport {
 
       // Handle streaming response
       const contentType = response.headers?.["content-type"] || "";
+      const dataStream = response.data as ReadableStream<Uint8Array>;
 
-      if (contentType.includes("text/event-stream") && response.data instanceof ReadableStream) {
-        await this.handleStreamingResponse(response.data);
+      if (contentType.includes("text/event-stream") && dataStream instanceof ReadableStream) {
+        await this.handleStreamingResponse(dataStream);
+      } else if (dataStream instanceof ReadableStream) {
+        // JSON response — read the stream and parse
+        const text = await readStreamAsText(dataStream);
+        try {
+          this.handlers.onData?.(JSON.parse(text));
+        } catch {
+          this.handlers.onData?.(text);
+        }
       } else {
         this.handlers.onData?.(response.data);
       }

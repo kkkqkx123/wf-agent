@@ -38,23 +38,23 @@ export class HttpClient {
   constructor(config: HttpClientConfig = {}) {
     this.config = {
       baseURL: config.baseURL || "",
-      defaultHeaders: config.defaultHeaders || {
+      defaultHeaders: config.defaultHeaders ?? {
         "Content-Type": "application/json",
       },
-      timeout: config.timeout || 30000,
-      maxRetries: config.maxRetries || 3,
-      retryDelay: config.retryDelay || 1000,
-      enableCircuitBreaker: config.enableCircuitBreaker || false,
-      enableRateLimiter: config.enableRateLimiter || false,
-      circuitBreakerFailureThreshold: config.circuitBreakerFailureThreshold || 5,
-      rateLimiterCapacity: config.rateLimiterCapacity || 60,
-      rateLimiterRefillRate: config.rateLimiterRefillRate || 10,
+      timeout: config.timeout ?? 30000,
+      maxRetries: config.maxRetries ?? 3,
+      retryDelay: config.retryDelay ?? 1000,
+      enableCircuitBreaker: config.enableCircuitBreaker ?? false,
+      enableRateLimiter: config.enableRateLimiter ?? false,
+      circuitBreakerFailureThreshold: config.circuitBreakerFailureThreshold ?? 5,
+      rateLimiterCapacity: config.rateLimiterCapacity ?? 60,
+      rateLimiterRefillRate: config.rateLimiterRefillRate ?? 10,
       logger: config.logger,
     };
 
     this.retryConfig = {
-      maxRetries: this.config.maxRetries || 3,
-      baseDelay: this.config.retryDelay || 1000,
+      maxRetries: this.config.maxRetries ?? 3,
+      baseDelay: this.config.retryDelay ?? 1000,
     };
 
     if (this.config.enableCircuitBreaker) {

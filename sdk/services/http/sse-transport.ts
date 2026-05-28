@@ -83,7 +83,19 @@ export class SseTransport {
 
       try {
         while (true) {
-          const { done, value } = await reader.read();
+          // Race reader.read() against abort signal
+          const readPromise = reader.read();
+          const abortPromise = new Promise<never>((_, reject) => {
+            if (controller.signal.aborted) {
+              reject(new DOMException("The operation was aborted", "AbortError"));
+            } else {
+              controller.signal.addEventListener("abort", () => {
+                reject(new DOMException("The operation was aborted", "AbortError"));
+              }, { once: true });
+            }
+          });
+
+          const { done, value } = await Promise.race([readPromise, abortPromise]);
           if (done) break;
 
           buffer += decoder.decode(value, { stream: true });

@@ -13,3 +13,4 @@ export * from "./workflow-adapter.js";
 export * from "./workflow-execution-adapter.js";
 export * from "./agent-loop-adapter.js";
 export * from "./metrics-storage-adapter.js";
+export * from "./file-checkpoint-adapter.js";

@@ -28,6 +28,7 @@ import type { AgentLoopCoordinator } from "../../../agent/execution/coordinators
 import type { MetricsRegistry } from "../../../core/metrics/metrics-registry.js";
 import type { TaskRegistry } from "../../../workflow/stores/task/task-registry.js";
 import type { CheckpointStorageAdapter, WorkflowStorageAdapter, WorkflowExecutionStorageAdapter, TaskStorageAdapter } from "@wf-agent/storage";
+import type { FileCheckpointManager } from "@wf-agent/common-utils";
 import type { ServiceIdentifier } from "@wf-agent/common-utils";
 import type { GlobalContext } from "../../../core/global-context.js";
 import type { LLMWrapper } from "../../../core/llm/wrapper.js";
@@ -241,6 +242,19 @@ export class APIDependencyManager {
       ) as TaskStorageAdapter | null;
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * Get the FileCheckpointManager (may be undefined if not configured)
+   */
+  getFileCheckpointManager(): FileCheckpointManager | undefined {
+    try {
+      return this.globalContext.container.get(
+        Identifiers.FileCheckpointManager as ServiceIdentifier<FileCheckpointManager>,
+      ) as FileCheckpointManager | undefined;
+    } catch {
+      return undefined;
     }
   }
 

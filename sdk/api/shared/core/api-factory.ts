@@ -30,6 +30,7 @@ import { TaskResourceAPI } from "../resources/tasks/task-resource-api.js";
 import { WorkflowGraphQueryAPI } from "../resources/graphs/workflow-graph-query-api.js";
 import { StorageDiagnosticsAPI } from "../resources/diagnostics/storage-diagnostics-api.js";
 import { SearchAPI } from "../resources/search/search-api.js";
+import { FileCheckpointResourceAPI } from "../../workflow/resources/file-checkpoints/file-checkpoint-resource-api.js";
 import { APIDependencyManager } from "./sdk-dependencies.js";
 
 /**
@@ -74,6 +75,8 @@ export interface AllAPIs {
   diagnostics: StorageDiagnosticsAPI;
   /** Search API */
   search: SearchAPI;
+  /** File Checkpoint API */
+  fileCheckpoints: FileCheckpointResourceAPI;
 }
 
 /**
@@ -285,6 +288,14 @@ export class APIFactory {
   }
 
   /**
+   * Create a File Checkpoint API
+   * @returns FileCheckpointResourceAPI instance
+   */
+  public createFileCheckpointAPI(): FileCheckpointResourceAPI {
+    return this.createAPI("fileCheckpoints", FileCheckpointResourceAPI);
+  }
+
+  /**
    * Create all API instances
    * @returns All API instances
    */
@@ -309,6 +320,7 @@ export class APIFactory {
       graphs: this.createWorkflowGraphQueryAPI(),
       diagnostics: this.createStorageDiagnosticsAPI(),
       search: this.createSearchAPI(),
+      fileCheckpoints: this.createFileCheckpointAPI(),
     };
   }
 

@@ -31,7 +31,7 @@ export * from "./json/index.js";
 // SQLite Storage Implementation
 export * from "./sqlite/index.js";
 
-// PostgreSQL Storage Implementation
+// Postgres Storage Implementation
 export * from "./postgres/index.js";
 
 // In-Memory Storage Implementation (for testing)

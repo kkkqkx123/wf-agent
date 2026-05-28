@@ -20,6 +20,9 @@ import { APIFactory } from "./api-factory.js";
 import { sdkLogger as logger, configureSDKLogger } from "../../../utils/logger.js";
 import { getErrorMessage } from "@wf-agent/common-utils";
 import { createIsolatedContainer, ContainerManager } from "../../../core/di/container-manager.js";
+import type { FileCheckpointStorageAdapter } from "@wf-agent/common-utils";
+import { mergeFileCheckpointConfig, toFileCheckpointManagerConfig } from "../config/processors/file-checkpoint.js";
+import { SqliteFileCheckpointStore } from "@wf-agent/storage";
 import * as ServiceIdentifiers from "../../../core/di/service-identifiers.js";
 import { registerAllPredefinedContent } from "../../../resources/predefined/registration.js";
 import { registerPredefinedPromptTemplates } from "../../../resources/predefined/prompts/index.js";
@@ -64,6 +67,20 @@ export class SDKInstance {
     // Validate required configurations
     this.validateConfig(options);
     
+    // Process file checkpoint configuration
+    const fileCheckpointConfig = options?.fileCheckpoint
+      ? mergeFileCheckpointConfig(options.fileCheckpoint)
+      : null;
+    const fcManagerConfig = fileCheckpointConfig
+      ? toFileCheckpointManagerConfig(fileCheckpointConfig)
+      : undefined;
+    const fcStorageAdapter: FileCheckpointStorageAdapter | undefined =
+      fileCheckpointConfig?.enabled
+        ? new SqliteFileCheckpointStore({
+            dbPath: fileCheckpointConfig.storage.dbPath || "file-checkpoints.db",
+          })
+        : undefined;
+    
     // Create isolated DI container with storage adapters
     const { container, containerId } = createIsolatedContainer({
       checkpoint: options?.checkpointStorageAdapter,
@@ -71,6 +88,8 @@ export class SDKInstance {
       workflow: options?.workflowStorageAdapter,
       workflowExecution: options?.workflowExecutionStorageAdapter,
       agentLoop: options?.agentLoopCheckpointStorageAdapter,
+      fileCheckpointStorageAdapter: fcStorageAdapter,
+      fileCheckpointManagerConfig: fcManagerConfig,
     });
     this.containerId = containerId;
     
@@ -287,6 +306,19 @@ export class SDKInstance {
         logger.info("Human Relay handler registered");
       } catch (error) {
         logger.error(`Failed to register Human Relay handler: ${getErrorMessage(error)}`);
+      }
+    }
+
+    // Initialize file checkpoint manager if enabled
+    if (this.config?.fileCheckpoint?.enabled) {
+      try {
+        const fcApi = this.apiFactory.createFileCheckpointAPI();
+        await fcApi.initialize();
+        logger.info("File checkpoint manager initialized", {
+          dbPath: this.config.fileCheckpoint.storage?.dbPath,
+        });
+      } catch (error) {
+        logger.error(`Failed to initialize file checkpoint manager: ${getErrorMessage(error)}`);
       }
     }
 
@@ -776,6 +808,14 @@ export class SDKInstance {
   }
 
   /**
+   * Get the File Checkpoint API
+   */
+  get fileCheckpoints() {
+    this.ensureReady();
+    return this.apiFactory.createFileCheckpointAPI();
+  }
+
+  /**
    * Obtain an instance of the API factory.
    */
   getFactory(): APIFactory {
@@ -874,6 +914,17 @@ export class SDKInstance {
       await this.shutdown();
     } catch (error) {
       logger.error("Error during shutdown", { error: getErrorMessage(error) });
+    }
+
+    // Close file checkpoint manager if initialized
+    try {
+      const fcApi = this.apiFactory.createFileCheckpointAPI();
+      if (fcApi.isEnabled()) {
+        await fcApi.close();
+        logger.info("File checkpoint manager closed");
+      }
+    } catch (error) {
+      logger.error("Failed to close file checkpoint manager", { error: getErrorMessage(error) });
     }
 
     // Clean up the resources of each module.

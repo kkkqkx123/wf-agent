@@ -78,3 +78,9 @@ export {
   transformInteractiveScript,
   exportInteractiveScript,
 } from "./script-interactive.js";
+
+// File Checkpoint configuration processing function
+export {
+  mergeFileCheckpointConfig,
+  toFileCheckpointManagerConfig,
+} from "./file-checkpoint.js";

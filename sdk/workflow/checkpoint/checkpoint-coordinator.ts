@@ -41,6 +41,7 @@ import { generateId, mergeMetadata } from "../../utils/index.js";
 import { now } from "@wf-agent/common-utils";
 import type { Metadata } from "@wf-agent/types";
 import type { ExecutionHierarchyRegistry } from "../../core/registry/execution-hierarchy-registry.js";
+import type { FileCheckpointManager } from "@wf-agent/common-utils";
 import { HierarchyIntegrityService } from "../../core/execution/hierarchy-integrity-service.js";
 
 const logger = createContextualLogger({ component: "CheckpointCoordinator" });
@@ -59,6 +60,8 @@ export interface CheckpointDependencies {
   deltaConfig?: DeltaStorageConfig;
   /** WorkflowStateCoordinator map (optional, for new architecture) */
   stateCoordinatorMap?: Map<string, WorkflowStateCoordinator>;
+  /** File checkpoint manager (optional, enables file state checkpointing) */
+  fileCheckpointManager?: FileCheckpointManager;
 }
 
 /**
@@ -221,7 +224,21 @@ export class CheckpointCoordinator {
     }
 
     // Step 7: Call CheckpointState to create a checkpoint
-    return await checkpointStateManager.create(checkpoint);
+    const executionCheckpointId = await checkpointStateManager.create(checkpoint);
+
+    // Step 8: Create file checkpoint (if file checkpoint manager is available)
+    if (dependencies.fileCheckpointManager) {
+      try {
+        await dependencies.fileCheckpointManager.createCheckpoint(workflowExecutionId);
+        logger.info("File checkpoint created alongside execution checkpoint", {
+          executionId: workflowExecutionId,
+        });
+      } catch (error) {
+        logger.error("File checkpoint creation failed (non-fatal)", { error });
+      }
+    }
+
+    return executionCheckpointId;
   }
 
   /**
@@ -572,6 +589,29 @@ export class CheckpointCoordinator {
 
     // Step 19: Register with WorkflowExecutionRegistry
     workflowExecutionRegistry.register(workflowExecutionEntity);
+
+    // Step 20: Restore file checkpoint (if file checkpoint manager is available)
+    if (dependencies.fileCheckpointManager) {
+      try {
+        const fileCheckpoints = await dependencies.fileCheckpointManager
+          .getStorage()
+          .listByEntity(checkpoint.executionId, { limit: 1 });
+        if (fileCheckpoints.length > 0) {
+          const result = await dependencies.fileCheckpointManager.restoreCheckpoint(
+            checkpoint.executionId,
+            fileCheckpoints[0]!.id,
+          );
+          logger.info("File checkpoint restored alongside execution checkpoint", {
+            executionId: checkpoint.executionId,
+            restoredCount: result.restoredCount,
+            deletedCount: result.deletedCount,
+            skippedCount: result.skippedCount,
+          });
+        }
+      } catch (error) {
+        logger.error("File checkpoint restore failed (non-fatal)", { error });
+      }
+    }
 
     return {
       workflowExecutionEntity,

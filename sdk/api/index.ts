@@ -164,6 +164,10 @@ export {
   type CheckpointChainAnalysis,
 } from "./workflow/resources/checkpoints/checkpoint-resource-api.js";
 export {
+  FileCheckpointResourceAPI,
+  type FileCheckpointFilter,
+} from "./workflow/resources/file-checkpoints/file-checkpoint-resource-api.js";
+export {
   MessageResourceAPI,
   type MessageFilter as WorkflowMessageFilter,
   type MessageStats,

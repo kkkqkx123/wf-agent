@@ -137,6 +137,9 @@ export {
   // Timeout
   mergeTimeoutWithDefaults,
   getTimeoutEnvironmentDefaults,
+  // File Checkpoint
+  mergeFileCheckpointConfig,
+  toFileCheckpointManagerConfig,
 } from "./processors/index.js";
 
 // Cue word template loader export - from loaders/
@@ -155,3 +158,8 @@ export {
 export {
   loadTimeoutConfigFromFile,
 } from "./loaders/timeout-config-loader.js";
+
+// File checkpoint configuration loader
+export {
+  loadFileCheckpointConfigFromFile,
+} from "./loaders/file-checkpoint-config-loader.js";

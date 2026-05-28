@@ -58,7 +58,9 @@ import type {
   TaskStorageAdapter as TaskStorageAdapterType,
   WorkflowExecutionStorageAdapter as WorkflowExecutionStorageAdapterType,
   AgentLoopStorageAdapter as AgentLoopStorageAdapterType,
+  FileCheckpointStorageAdapter as FileCheckpointStorageAdapterType,
 } from "@wf-agent/storage";
+import type { FileCheckpointManager as FileCheckpointManagerType } from "@wf-agent/common-utils";
 import type { MetricsRegistry as MetricsRegistryType } from "../metrics/metrics-registry.js";
 import type { ToolPermissionManager as ToolPermissionManagerType } from "../coordinators/tool-permission-manager.js";
 import type { RejectionMessageBuilder as RejectionMessageBuilderType } from "../coordinators/rejection-message-builder.js";
@@ -410,6 +412,18 @@ export const AgentLoopStorageAdapter: ServiceIdentifier<AgentLoopStorageAdapterT
  * Provides metrics persistence operations
  */
 export const MetricsStorageAdapter: ServiceIdentifier<import("@wf-agent/storage").MetricsStorageAdapter> = Symbol("MetricsStorageAdapter");
+
+/**
+ * FileCheckpointManager - File Checkpoint Manager
+ * Manages workspace file state checkpoints independent of VFS
+ */
+export const FileCheckpointManager: ServiceIdentifier<FileCheckpointManagerType> = Symbol("FileCheckpointManager");
+
+/**
+ * FileCheckpointStorageAdapter - File Checkpoint Storage Adapter
+ * Storage adapter for file checkpoint persistence
+ */
+export const FileCheckpointStorageAdapter: ServiceIdentifier<FileCheckpointStorageAdapterType> = Symbol("FileCheckpointStorageAdapter");
 
 // ============================================================
 // Metrics Services

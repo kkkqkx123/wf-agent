@@ -28,6 +28,9 @@ export * from "./utils/compression/index.js";
 // Codec (serialization/deserialization)
 export * from "./codec/index.js";
 
+// File Monitoring Module (file watching, checkpoint management)
+export * from "./file-monitoring/index.js";
+
 // Log system (selective export to avoid naming conflicts)
 export {
   createLogger,

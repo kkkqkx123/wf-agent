@@ -29,3 +29,8 @@ export {
 export {
   loadTimeoutConfigFromFile,
 } from "./timeout-config-loader.js";
+
+// File checkpoint configuration loader
+export {
+  loadFileCheckpointConfigFromFile,
+} from "./file-checkpoint-config-loader.js";

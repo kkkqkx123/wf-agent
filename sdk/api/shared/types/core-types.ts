@@ -4,6 +4,7 @@
  */
 
 import type { WorkflowExecutionOptions, PresetsConfig, MetricsConfig, TimeoutConfig } from "@wf-agent/types";
+import type { FileCheckpointConfig } from "@wf-agent/types";
 import type {
   CheckpointStorageAdapter,
   WorkflowStorageAdapter,
@@ -201,6 +202,8 @@ export interface SDKOptions {
   metrics?: MetricsConfig;
   /** Timeout configuration for SDK operations */
   timeout?: TimeoutConfig;
+  /** File checkpoint configuration */
+  fileCheckpoint?: FileCheckpointConfig;
 }
 
 export type { WorkflowExecutionOptions };

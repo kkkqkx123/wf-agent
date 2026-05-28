@@ -32,7 +32,9 @@ import type {
   WorkflowExecutionStorageAdapter,
   AgentLoopStorageAdapter,
   MetricsStorageAdapter,
+  FileCheckpointStorageAdapter as FileCheckpointStorageAdapterType,
 } from "@wf-agent/storage";
+import type { FileCheckpointManager, FileCheckpointManagerConfig } from "@wf-agent/common-utils";
 import type { GlobalContext } from "../global-context.js";
 import * as Identifiers from "./service-identifiers.js";
 import type {
@@ -128,6 +130,8 @@ export interface ContainerStorageConfig {
   task?: TaskStorageAdapter;
   workflowExecution?: WorkflowExecutionStorageAdapter;
   agentLoop?: AgentLoopStorageAdapter;
+  fileCheckpointStorageAdapter?: FileCheckpointStorageAdapterType;
+  fileCheckpointManagerConfig?: FileCheckpointManagerConfig;
 }
 
 /**
@@ -174,6 +178,39 @@ export function configureContainerBindings(
     .bind(Identifiers.AgentLoopStorageAdapter)
     .toDynamicValue(() => adapters.agentLoop || null)
     .inSingletonScope();
+
+  // FileCheckpointStorageAdapter (optional, only bound when file checkpoint is enabled)
+  if (adapters.fileCheckpointStorageAdapter) {
+    container
+      .bind(Identifiers.FileCheckpointStorageAdapter)
+      .toDynamicValue(() => adapters.fileCheckpointStorageAdapter)
+      .inSingletonScope();
+  } else {
+    container
+      .bind(Identifiers.FileCheckpointStorageAdapter)
+      .toDynamicValue(() => null)
+      .inSingletonScope();
+  }
+
+  // FileCheckpointManager (dynamic, created when adapter is provided and config is valid)
+  if (adapters.fileCheckpointStorageAdapter && adapters.fileCheckpointManagerConfig?.enabled) {
+    container
+      .bind(Identifiers.FileCheckpointManager)
+      .toDynamicValue(async () => {
+        const { FileCheckpointManager: FCM } = await import("@wf-agent/common-utils");
+        const fcm = new FCM(
+          adapters.fileCheckpointStorageAdapter!,
+          adapters.fileCheckpointManagerConfig!,
+        );
+        return fcm;
+      })
+      .inSingletonScope();
+  } else {
+    container
+      .bind(Identifiers.FileCheckpointManager)
+      .toDynamicValue(() => undefined)
+      .inSingletonScope();
+  }
 
   // ============================================================
   // First Layer: A storage layer service with no dependencies
@@ -861,6 +898,16 @@ export function configureContainerBindings(
   container
     .bind(Identifiers.CheckpointCoordinator)
     .toDynamicValue((c: IContainer) => {
+      const getFileCheckpointManager = (): FileCheckpointManager | undefined => {
+        try {
+          return c.isBound(Identifiers.FileCheckpointManager)
+            ? (c.get(Identifiers.FileCheckpointManager) as FileCheckpointManager)
+            : undefined;
+        } catch {
+          return undefined;
+        }
+      };
+
       return {
         dependencies: {
           workflowExecutionRegistry: c.get(
@@ -869,6 +916,7 @@ export function configureContainerBindings(
           checkpointStateManager: c.get(Identifiers.CheckpointState) as CheckpointState,
           workflowRegistry: c.get(Identifiers.WorkflowRegistry) as WorkflowRegistry,
           workflowGraphRegistry: c.get(Identifiers.WorkflowGraphRegistry) as WorkflowGraphRegistry,
+          fileCheckpointManager: getFileCheckpointManager(),
         },
         createCheckpoint: (workflowExecutionId: string, metadata?: Record<string, unknown>) => {
           return CheckpointCoordinator.createCheckpoint(
@@ -882,6 +930,7 @@ export function configureContainerBindings(
               workflowGraphRegistry: c.get(
                 Identifiers.WorkflowGraphRegistry,
               ) as WorkflowGraphRegistry,
+              fileCheckpointManager: getFileCheckpointManager(),
             },
             metadata,
           );
@@ -896,6 +945,7 @@ export function configureContainerBindings(
             workflowGraphRegistry: c.get(
               Identifiers.WorkflowGraphRegistry,
             ) as WorkflowGraphRegistry,
+            fileCheckpointManager: getFileCheckpointManager(),
           });
         },
       };

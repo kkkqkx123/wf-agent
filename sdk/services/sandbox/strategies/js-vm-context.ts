@@ -219,11 +219,6 @@ export class JavaScriptVmContextStrategy implements StrategyImplementation<Scrip
    */
   private restrictedRequire(moduleName: string, policy: JavaScriptPolicy, vfs: VFSProvider | null): unknown {
     const denylist = new Set(policy.deniedModules);
-    if (policy.deniedModules.length === 0) {
-      for (const m of DEFAULT_DENIED_MODULES) {
-        denylist.add(m);
-      }
-    }
 
     if (policy.allowedModules.length > 0 && !policy.allowedModules.includes(moduleName)) {
       throw new Error(`Module not allowed: ${moduleName}`);
@@ -239,8 +234,11 @@ export class JavaScriptVmContextStrategy implements StrategyImplementation<Scrip
       throw new Error(`Module denied: ${moduleName}`);
     }
 
-    if (moduleName === "fs" && !policy.allowFSWrite) {
-      return vfs ? this.createVFSBackedFS(vfs) : this.createReadonlyFS();
+    if (moduleName === "fs") {
+      if (vfs) {
+        return this.createVFSBackedFS(vfs, policy.allowFSWrite);
+      }
+      return policy.allowFSWrite ? require("fs") : this.createReadonlyFS();
     }
 
     try {
@@ -276,7 +274,7 @@ export class JavaScriptVmContextStrategy implements StrategyImplementation<Scrip
    * Async methods (readFile, writeFile, stat) return Promises.
    * Sync methods throw with a message directing to use the async API.
    */
-  private createVFSBackedFS(vfs: VFSProvider): Record<string, unknown> {
+  private createVFSBackedFS(vfs: VFSProvider, allowWrite: boolean): Record<string, unknown> {
     const fsProxy: Record<string, unknown> = {};
 
     // Read operations — delegate to VFS, return Promise
@@ -298,13 +296,19 @@ export class JavaScriptVmContextStrategy implements StrategyImplementation<Scrip
 
     fsProxy["exists"] = vfs.exists.bind(vfs);
 
-    // Write operations — delegate to VFS delta layer, return Promise
+    // Write operations — delegate to VFS delta layer when allowed
     fsProxy["writeFile"] = async (path: string, data: Uint8Array | string) => {
+      if (!allowWrite) {
+        throw new Error("Write permissions are not allowed");
+      }
       const buf = typeof data === "string" ? Buffer.from(data, "utf-8") : Buffer.from(data);
       await vfs.writeFile(path, buf);
     };
 
     fsProxy["appendFile"] = async (path: string, data: Uint8Array | string) => {
+      if (!allowWrite) {
+        throw new Error("Write permissions are not allowed");
+      }
       const existing = await vfs.readFile(path);
       const existingBuf = existing ? Buffer.from(existing) : Buffer.alloc(0);
       const newData = typeof data === "string" ? Buffer.from(data, "utf-8") : Buffer.from(data);

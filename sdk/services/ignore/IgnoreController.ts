@@ -397,10 +397,10 @@ export class IgnoreController {
   /**
    * Set the ignore mode
    */
-  setMode(mode: IgnoreMode): void {
+  async setMode(mode: IgnoreMode): Promise<void> {
     if (this.mode !== mode) {
       this.mode = mode;
-      this.loadIgnoreFiles();
+      await this.loadIgnoreFiles();
     }
   }
 }

@@ -10,7 +10,7 @@
 
 import type { SandboxPolicy, PythonPolicy, ScriptExecutionResult, StrategyExecuteOptions } from "@wf-agent/types";
 import type { StrategyImplementation } from "../types.js";
-import { PythonBuiltinHookStrategy } from "./python-builtin-hook.js";
+import { PythonBuiltinHookStrategy, DEFAULT_DENIED_MODULES } from "./python-builtin-hook.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -53,7 +53,7 @@ export class PythonASTAnalyzerStrategy implements StrategyImplementation<ScriptE
     const code = options.command;
     const pyPolicy: PythonPolicy = {
       allowedModules: policy.python?.allowedModules ?? [],
-      deniedModules: policy.python?.deniedModules ?? [],
+      deniedModules: policy.python?.deniedModules ?? DEFAULT_DENIED_MODULES,
       allowSubprocess: policy.python?.allowSubprocess ?? false,
       restrictBuiltinOpen: policy.python?.restrictBuiltinOpen ?? true,
       allowDynamicEval: policy.python?.allowDynamicEval ?? false,

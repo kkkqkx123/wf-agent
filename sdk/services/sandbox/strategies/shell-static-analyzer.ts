@@ -26,6 +26,7 @@ import { BashAnalyzer } from "./shell-analyzers/bash.js";
 import { PowerShellAnalyzer } from "./shell-analyzers/powershell.js";
 import { CmdAnalyzer } from "./shell-analyzers/cmd.js";
 import type { ShellAnalyzer, ShellType } from "./shell-analyzers/base.js";
+import { parseCommandChain } from "../../command-safety/command-chain-parser.js";
 
 /**
  * Shell Static Analyzer Strategy
@@ -88,16 +89,28 @@ export class ShellStaticAnalyzerStrategy implements StrategyImplementation<Scrip
       return this.deny(command, startTime, `Unsupported shell type: ${shellType}`);
     }
 
-    const result = analyzer.analyze({ command, policy: shellPolicy });
-    if (!result.allowed) {
-      return this.deny(command, startTime, result.reason ?? "Analysis failed");
+    // Layer 2: Chain-aware static analysis
+    // Parse command chain (&&, ||, ;, |) and analyze each sub-command independently.
+    // This prevents a safe-looking first segment from masking a dangerous second segment
+    // (e.g. `git checkout main && rm -rf /` would be fully analyzed).
+    const subCommands = parseCommandChain(command);
+
+    for (const subCommand of subCommands) {
+      const result = analyzer.analyze({ command: subCommand, policy: shellPolicy });
+      if (!result.allowed) {
+        return this.deny(command, startTime,
+          `Sub-command "${subCommand}" denied: ${result.reason ?? "Analysis failed"}`);
+      }
     }
 
-    // Layer 3: VFS path policy check (if VFS is enabled)
+    // Layer 3: VFS path policy check (chain-aware, per sub-command)
     if (options.vfs) {
-      const pathViolation = await this.checkVFSPaths(command, options.vfs);
-      if (pathViolation) {
-        return this.deny(command, startTime, pathViolation);
+      for (const subCommand of subCommands) {
+        const pathViolation = await this.checkVFSPaths(subCommand, options.vfs);
+        if (pathViolation) {
+          return this.deny(command, startTime,
+            `Sub-command "${subCommand}" path violation: ${pathViolation}`);
+        }
       }
     }
 
@@ -172,10 +185,14 @@ export class ShellStaticAnalyzerStrategy implements StrategyImplementation<Scrip
   }
 
   /**
-   * Extract file paths from a shell command and check them against VFS policy.
+   * Extract file paths from a single sub-command and check them against VFS policy.
    * Uses a simple heuristic — scans for arguments that look like file paths
    * (tokens after commands like cat, ls, rm, cp, mv, etc.) and verifies
    * they exist in the VFS or are within allowed paths.
+   *
+   * NOTE: Only called per sub-command (after chain parsing), not on the full raw command.
+   * This ensures that `cat safe.txt && rm /etc/passwd` checks each sub-command's
+   * file paths independently, rather than mixing tokens across chain operators.
    *
    * Note: This is a best-effort check. Shell command parsing is inherently
    * complex (quoting, escaping, glob expansion). Full VFS interception

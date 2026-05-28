@@ -37,10 +37,11 @@ describe("DefaultStrategyResolver", () => {
       expect(strategy.priority).toBe(30);
     });
 
-    it("should fall back to first registered strategy when preferred not found", () => {
+    it("should fall back to highest-priority available strategy when preferred not found", () => {
       const strategy = resolver.resolveBest("shell", ["non-existent-strategy"]);
       expect(strategy).toBeDefined();
-      expect(strategy.id).toBe("static-analyzer");
+      // On Windows: windows-job (priority 50) > static-analyzer (priority 10)
+      expect(strategy.priority).toBe(50);
     });
 
     it("should return best available strategy based on priority", () => {

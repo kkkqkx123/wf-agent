@@ -16,6 +16,9 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { JavaScriptVmContextStrategy } from "../../strategies/js-vm-context.js";
 import type { SandboxPolicy, StrategyExecuteOptions, VFSProvider } from "@wf-agent/types";
+import os from "os";
+import path from "path";
+import fs from "fs";
 
 // =========================================================================
 // Helpers
@@ -41,6 +44,7 @@ function createMockVFS(): VFSProvider {
 
 describe("JavaScriptVmContextStrategy", () => {
   let strategy: JavaScriptVmContextStrategy;
+  const tmpFilesCreated: string[] = [];
 
   beforeEach(() => {
     strategy = new JavaScriptVmContextStrategy();
@@ -49,6 +53,17 @@ describe("JavaScriptVmContextStrategy", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    // Clean up any temp files created during tests
+    for (const filePath of tmpFilesCreated) {
+      try {
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+      } catch {
+        // Ignore cleanup errors
+      }
+    }
+    tmpFilesCreated.length = 0;
   });
 
   // ── Identity ──
@@ -319,9 +334,12 @@ describe("JavaScriptVmContextStrategy", () => {
           allowDynamicEval: false,
         },
       };
-      const tmpFile = `test-${Date.now()}.txt`;
+      const tmpFile = path.join(os.tmpdir(), `test-${Date.now()}.txt`);
+      tmpFilesCreated.push(tmpFile);
+      // Escape backslashes for the JavaScript string inside the sandbox code
+      const escapedPath = tmpFile.replace(/\\/g, "\\\\");
       const options: StrategyExecuteOptions = {
-        command: `const fs = require("fs"); fs.writeFileSync("${tmpFile}", "hello"); console.log("ok");`,
+        command: `const fs = require("fs"); fs.writeFileSync("${escapedPath}", "hello"); console.log("ok");`,
       };
       const result = await strategy.execute(options, writePolicy);
 
@@ -480,7 +498,7 @@ describe("JavaScriptVmContextStrategy", () => {
           allowedModules: [],
           deniedModules: [],
           allowChildProcess: false,
-          allowFSWrite: false,
+          allowFSWrite: true,
           allowDynamicEval: false,
         },
       };

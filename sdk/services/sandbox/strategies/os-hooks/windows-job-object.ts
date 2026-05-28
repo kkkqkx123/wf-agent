@@ -12,6 +12,9 @@ import type { StrategyImplementation } from "../../types.js";
 import { getTerminalService, type TerminalService } from "../../../terminal/index.js";
 import { spawn } from "child_process";
 import { executePassthrough } from "./base.js";
+import { createContextualLogger } from "../../../../utils/contextual-logger.js";
+
+const logger = createContextualLogger({ component: "WindowsJobObjectStrategy" });
 
 export class WindowsJobObjectStrategy implements StrategyImplementation<ScriptExecutionResult> {
   id = "windows-job";
@@ -50,6 +53,7 @@ export class WindowsJobObjectStrategy implements StrategyImplementation<ScriptEx
     // If koffi is not installed (optional dep), fall back to passthrough.
     const binding = this.getKoffiBinding();
     if (!binding) {
+      logger.warn("koffi binding unavailable, falling back to passthrough (no OS-level isolation)");
       return executePassthrough(this.terminalService, options, startTime);
     }
 

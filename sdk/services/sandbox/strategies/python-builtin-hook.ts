@@ -17,7 +17,7 @@ import * as os from "node:os";
 /**
  * Default denied Python modules when policy.python.deniedModules is empty.
  */
-const DEFAULT_DENIED_MODULES: string[] = [
+export const DEFAULT_DENIED_MODULES: string[] = [
   "os",
   "subprocess",
   "shutil",
@@ -142,8 +142,9 @@ import sys
 import builtins as __builtins_module
 import os as _os
 
-# ── Clear system path ──
-sys.path = []
+# ── Clear system path (unless in whitelist mode, where allowed modules need import paths) ──
+if not ${allowedModulesJson}:
+    sys.path = []
 
 # ── Disable dangerous pre-loaded modules ──
 for _mod in ${deniedModulesJson}:

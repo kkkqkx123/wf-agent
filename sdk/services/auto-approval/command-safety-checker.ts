@@ -1,7 +1,13 @@
 /**
  * Command Safety Checker
  * Detects dangerous command patterns and implements longest prefix match for allowlist/denylist
+ *
+ * IMPORTANT: Command chain parsing (parseCommandChain) is shared with the sandbox module
+ * via @wf-services/command-safety. Any changes to chain parsing logic must be made in
+ * `command-safety/command-chain-parser.ts` to keep both layers in sync.
  */
+
+import { parseCommandChain } from "../command-safety/command-chain-parser.js";
 
 /**
  * Detect dangerous parameter substitutions that could lead to command execution.
@@ -228,23 +234,5 @@ export function getSingleCommandDecision(
   return longestAllowedMatch.length > longestDeniedMatch.length ? "auto_approve" : "auto_deny";
 }
 
-/**
- * Parse command chain into individual commands
- * Splits by &&, ||, ;, |, &
- *
- * @param command - The full command string
- * @returns Array of individual commands
- */
-function parseCommandChain(command: string): string[] {
-  // Simple implementation: split by common chain operators
-  // This is a basic implementation; a more robust parser could be used
-  const operators = ["&&", "||", ";", "|"];
-
-  let result = [command];
-
-  for (const op of operators) {
-    result = result.flatMap((cmd) => cmd.split(op).map((c) => c.trim()));
-  }
-
-  return result.filter((cmd) => cmd.length > 0);
-}
+// NOTE: parseCommandChain is imported from ../command-safety/command-chain-parser.js
+// Shared between auto-approval and sandbox modules. Keep chain parsing logic in sync.

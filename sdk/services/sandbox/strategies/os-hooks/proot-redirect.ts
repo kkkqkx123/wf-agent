@@ -13,6 +13,9 @@ import { getTerminalService, type TerminalService } from "../../../terminal/inde
 import { execSync } from "child_process";
 import { existsSync } from "fs";
 import { executePassthrough } from "./base.js";
+import { createContextualLogger } from "../../../../utils/contextual-logger.js";
+
+const logger = createContextualLogger({ component: "ProotLikeRedirectStrategy" });
 
 export class ProotLikeRedirectStrategy implements StrategyImplementation<ScriptExecutionResult> {
   id = "proot-redirect";
@@ -40,7 +43,7 @@ export class ProotLikeRedirectStrategy implements StrategyImplementation<ScriptE
     // Try to use proot for path redirection.
     const prootPath = this.findProotBinary();
     if (!prootPath) {
-      // Fall back to passthrough when proot binary not found
+      logger.warn("proot binary not found, falling back to passthrough (no filesystem isolation)");
       return executePassthrough(this.terminalService, options, startTime);
     }
 

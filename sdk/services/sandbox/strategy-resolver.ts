@@ -24,7 +24,7 @@ import {
   LinuxSeccompStrategy,
   WindowsJobObjectStrategy,
   ProotLikeRedirectStrategy,
-} from "./strategies/os-hook.js";
+} from "./strategies/os-hooks/index.js";
 import { getTerminalService } from "../terminal/index.js";
 
 class PassthroughStrategy implements StrategyImplementation<ScriptExecutionResult> {

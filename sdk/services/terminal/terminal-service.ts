@@ -23,6 +23,7 @@ import type {
   OutputOptions,
   TerminalServiceConfig,
   TerminalServiceEvents,
+  ProcessSpawnOptions,
 } from "./types.js";
 
 /**
@@ -216,6 +217,126 @@ export class TerminalService extends EventEmitter<TerminalServiceEvents> {
       execEnv,
       options?.timeout ?? this.config.defaultTimeout
     );
+  }
+
+  /**
+   * Spawn a shell subprocess and return the ChildProcess handle
+   *
+   * Resolves shell type, working directory, and environment variables like
+   * executeOneOff(), but returns the raw ChildProcess instead of wrapping
+   * it in a Promise<ExecuteResult>.
+   *
+   * Caller is responsible for managing the process lifecycle and using
+   * monitorProcess() to collect output with timeout handling.
+   */
+  async spawnProcess(options: ProcessSpawnOptions): Promise<ChildProcess> {
+    // Resolve shell type
+    const shellType = await this.shellDetector.resolveShellType(
+      options?.shellType ?? this.config.defaultShellType
+    );
+
+    // Resolve working directory
+    const execCwd = options?.cwd ?? this.config.defaultCwd ?? processCwd();
+
+    // Merge environment variables
+    const execEnv = {
+      ...this.config.defaultEnv,
+      ...options?.env,
+    };
+
+    // Get shell path and args
+    const shellPath = this.shellDetector.getShellPath(shellType);
+    const shellArgs = this.shellDetector.getShellArgs(shellType, options.command);
+
+    // Merge with process environment
+    const mergedEnv = {
+      ...process.env,
+      ...execEnv,
+    };
+
+    // Spawn process
+    const proc = spawn(shellPath, shellArgs, {
+      cwd: execCwd,
+      env: mergedEnv,
+      windowsHide: true,
+    });
+
+    return proc;
+  }
+
+  /**
+   * Monitor a ChildProcess, collecting stdout/stderr with optional timeout
+   *
+   * Copies the output-collection and timeout logic from the private
+   * executeCommand() method. Returns an ExecuteResult.
+   *
+   * @param proc - The ChildProcess to monitor (from spawnProcess or spawn)
+   * @param timeout - Optional timeout in milliseconds
+   */
+  async monitorProcess(proc: ChildProcess, timeout?: number): Promise<ExecuteResult> {
+    return new Promise((resolve) => {
+      let stdout = "";
+      let stderr = "";
+
+      // Set up timeout
+      let timeoutId: ReturnType<typeof setTimeout> | undefined;
+      if (timeout) {
+        timeoutId = setTimeout(() => {
+          proc.kill("SIGKILL");
+          resolve({
+            success: false,
+            stdout,
+            stderr: stderr + "\nCommand timed out",
+            exitCode: -1,
+            error: "Command timed out",
+          });
+        }, timeout);
+      }
+
+      // Handle stdout
+      proc.stdout?.on("data", (data: Buffer) => {
+        const chunk = data.toString();
+        stdout += chunk;
+      });
+
+      // Handle stderr
+      proc.stderr?.on("data", (data: Buffer) => {
+        stderr += data.toString();
+      });
+
+      // Handle completion
+      proc.on("close", (code) => {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+
+        const exitCode = code ?? 0;
+        const success = exitCode === 0;
+
+        resolve({
+          success,
+          stdout,
+          stderr,
+          exitCode,
+          error: success ? undefined : `Command failed with exit code ${exitCode}`,
+        });
+      });
+
+      // Handle error
+      proc.on("error", (error) => {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+
+        resolve({
+          success: false,
+          stdout,
+          stderr: stderr + "\n" + error.message,
+          exitCode: -1,
+          error: error.message,
+        });
+      });
+    });
   }
 
   /**

@@ -138,6 +138,24 @@ export interface ShellInfo {
 }
 
 /**
+ * Options for spawning a process
+ */
+export interface ProcessSpawnOptions {
+  /** Command to execute */
+  command: string;
+  /** Shell type override */
+  shellType?: ShellType;
+  /** Whether to use a shell (default: true) */
+  shell?: boolean;
+  /** Working directory */
+  cwd?: string;
+  /** Environment variables */
+  env?: Record<string, string>;
+  /** Timeout in milliseconds */
+  timeout?: number;
+}
+
+/**
  * Process information for a running command
  */
 export interface ProcessInfo {

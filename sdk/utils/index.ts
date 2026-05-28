@@ -13,9 +13,6 @@ export {
 // Token Estimator
 export { TokenEstimator, defaultEstimator, estimateTokens } from "./token-estimator.js";
 
-// TOML parser
-export { TomlParserManager } from "./toml-parser-manager.js";
-
 // Log tool
 export {
   sdkLogger,

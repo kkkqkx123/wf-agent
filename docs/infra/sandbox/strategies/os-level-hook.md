@@ -2,10 +2,12 @@
 
 ## 概述
 
-- **策略标识**: `"os-hook"`
-- **安全级别**: OS级 (平台相关)
+- **策略标识**: `"os-hook"`（用户配置层，自动映射到平台具体 ID）
+- **安全级别**: OS 级（平台相关）
 - **适用平台**: Linux / Windows / macOS
-- **定位**: 作为轻量策略的增强层, 叠加使用
+- **定位**: 作为轻量策略的增强层，叠加使用
+
+> 详细实现方案见: [os-level-hook-implementation.md](./os-level-hook-implementation.md)
 
 ## 设计原则
 

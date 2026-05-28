@@ -395,6 +395,7 @@ export {
 // Shared - Configuration Parsing Utilities
 // ============================================================================
 export {
+  initializeTomlParser,
   parseToml,
   parseJson,
   parseWorkflow,

@@ -1,26 +1,65 @@
 /**
  * TOML Parser
  * Responsible for parsing configuration files in TOML format
- *
- * Design Principles:
- * - Use TomlParserManager to obtain the TOML parser
- * - Provide clear error messages
- * - Implement unified error handling
- * - Maintain a consistent interface to avoid impacting existing code
  */
 
 import type { WorkflowConfigFile } from "../types.js";
 import { ConfigurationError } from "@wf-agent/types";
-import { TomlParserManager } from "../../../../utils/toml-parser-manager.js";
 import { isError } from "@wf-agent/common-utils";
 
+// =========================================================================
+// Singleton — @iarna/toml lazy load with preload support
+// =========================================================================
+
+/** The lazily-loaded TOML parser module (null = not yet initialised) */
+let parserInstance: { parse: (content: string) => unknown } | null = null;
+
+/** Stores the in-flight initialisation promise so concurrent calls wait once */
+let initializationPromise: Promise<void> | null = null;
+
 /**
- * Get a TOML parser instance
- * @returns TOML parser
- * @throws {ConfigurationError} Throws when the TOML parsing library is not found
+ * Preload the TOML parser. Called during SDK bootstrap.
+ * Safe to call multiple times — only the first call loads the module.
+ * @throws {Error} If the @iarna/toml library is not installed
+ */
+export async function initializeTomlParser(): Promise<void> {
+  if (parserInstance) return;
+  if (!initializationPromise) {
+    initializationPromise = (async () => {
+      try {
+        const mod = await import("@iarna/toml");
+        parserInstance = mod as { parse: (content: string) => unknown };
+      } catch {
+        throw new Error(
+          "TOML parsing library (@iarna/toml) not found. Run: pnpm install @iarna/toml",
+        );
+      }
+    })();
+  }
+  await initializationPromise;
+}
+
+/**
+ * Check if the TOML parser has been preloaded
+ */
+export function isTomlParserInitialized(): boolean {
+  return parserInstance !== null;
+}
+
+/**
+ * Get the TOML parser singleton.
+ * Must be called after {@link initializeTomlParser} has resolved successfully.
+ * @throws {Error} If the parser has not been initialised
  */
 function getTomlParser(): { parse: (content: string) => unknown } {
-  return TomlParserManager.getInstance() as { parse: (content: string) => unknown };
+  if (!parserInstance) {
+    throw new ConfigurationError(
+      "TOML parser is not initialised. Ensure SDK bootstrap has completed.",
+      undefined,
+      { suggestion: "The TOML parser is automatically preloaded during SDK initialisation." },
+    );
+  }
+  return parserInstance;
 }
 
 /**

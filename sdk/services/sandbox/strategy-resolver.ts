@@ -20,6 +20,11 @@ import { ShellStaticAnalyzerStrategy } from "./strategies/shell-static-analyzer.
 import { PythonBuiltinHookStrategy } from "./strategies/python-builtin-hook.js";
 import { PythonASTAnalyzerStrategy } from "./strategies/python-ast-analyzer.js";
 import { JavaScriptVmContextStrategy } from "./strategies/js-vm-context.js";
+import {
+  LinuxSeccompStrategy,
+  WindowsJobObjectStrategy,
+  ProotLikeRedirectStrategy,
+} from "./strategies/os-hook.js";
 import { getTerminalService } from "../terminal/index.js";
 
 class PassthroughStrategy implements StrategyImplementation<ScriptExecutionResult> {
@@ -113,6 +118,14 @@ export class DefaultStrategyResolver implements StrategyResolver {
 
   private registerDefaultStrategies(): void {
     this.shellStrategies.set("static-analyzer", new ShellStaticAnalyzerStrategy());
+
+    // Register OS Hook strategies — each has a unique platform-specific id.
+    // Resolver uses id directly; SandboxRuntime maps "os-hook" to the
+    // platform-specific id before calling resolveBest().
+    const terminalService = getTerminalService();
+    this.shellStrategies.set("linux-seccomp", new LinuxSeccompStrategy(terminalService));
+    this.shellStrategies.set("windows-job", new WindowsJobObjectStrategy(terminalService));
+    this.shellStrategies.set("proot-redirect", new ProotLikeRedirectStrategy(terminalService));
 
     this.pythonStrategies.set("builtin-hook", new PythonBuiltinHookStrategy());
     this.pythonStrategies.set("ast-analyzer", new PythonASTAnalyzerStrategy());

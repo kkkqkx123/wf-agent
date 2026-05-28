@@ -26,7 +26,7 @@ import { SqliteFileCheckpointStore } from "@wf-agent/storage";
 import * as ServiceIdentifiers from "../../../core/di/service-identifiers.js";
 import { registerAllPredefinedContent } from "../../../resources/predefined/registration.js";
 import { registerPredefinedPromptTemplates } from "../../../resources/predefined/prompts/index.js";
-import { TomlParserManager } from "../../../utils/toml-parser-manager.js";
+import { initializeTomlParser } from "../config/parsers/toml-parser.js";
 import { createRotatingFileStream, createConsoleStream, createMultistream } from "@wf-agent/common-utils";
 import type { HumanRelayHandler, LLMProfile } from "@wf-agent/types";
 import { SDKError as SDKErrorClass } from "@wf-agent/types";
@@ -260,9 +260,9 @@ export class SDKInstance {
       agentLoop: !!this.config?.agentLoopCheckpointStorageAdapter,
     });
     
-    // Preload lazy-loaded modules (TomlParserManager)
+    // Preload lazy-loaded modules (TOML parser)
     try {
-      await TomlParserManager.initialize();
+      await initializeTomlParser();
     } catch (error) {
       logger.error(`Failed to initialize TOML parser: ${getErrorMessage(error)}`);
     }

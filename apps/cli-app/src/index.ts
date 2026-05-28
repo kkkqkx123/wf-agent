@@ -61,8 +61,8 @@ program
 
     // 0. Initialize TOML parser first (required for config loading)
     try {
-      const { utils } = await import("@wf-agent/sdk");
-      await utils.TomlParserManager.initialize();
+      const { initializeTomlParser } = await import("@wf-agent/sdk/api");
+      await initializeTomlParser();
     } catch (_error) {
       // Continue without TOML parser - will use JSON or defaults
     }

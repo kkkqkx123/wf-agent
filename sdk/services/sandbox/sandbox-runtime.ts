@@ -182,7 +182,19 @@ export class SandboxRuntime {
 
     switch (language) {
       case "shell":
-        preferredIds = config.shellStrategy ?? ["static-analyzer"];
+        preferredIds = config.shellStrategy ?? ["os-hook", "static-analyzer"];
+        // Map user-facing "os-hook" to platform-specific strategy ID before resolution
+        preferredIds = preferredIds.map((id) => {
+          if (id !== "os-hook") return id;
+          switch (process.platform) {
+            case "linux":
+              return "linux-seccomp";
+            case "win32":
+              return "windows-job";
+            default:
+              return "proot-redirect";
+          }
+        });
         return this.resolver.resolveBest("shell", preferredIds) as StrategyImplementation<ScriptExecutionResult>;
       case "python":
         preferredIds = config.pythonStrategy ?? ["ast-analyzer", "builtin-hook"];

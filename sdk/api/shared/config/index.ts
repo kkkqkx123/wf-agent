@@ -64,7 +64,7 @@ export {
 export { parseJson, stringifyJson, validateJsonSyntax } from "./parsers/index.js";
 
 // TOML parsing function - from parsers/
-export { parseToml, validateTomlSyntax } from "./parsers/index.js";
+export { initializeTomlParser, isTomlParserInitialized, parseToml, validateTomlSyntax } from "./parsers/index.js";
 
 // resolver - from utils/
 export { ConfigTransformer } from "./utils/index.js";

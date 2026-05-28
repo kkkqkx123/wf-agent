@@ -78,7 +78,7 @@ const DANGEROUS_PATTERNS: string[] = [
 ];
 
 /** Bash prefix commands that should be skipped when extracting primary command */
-const PREFIX_COMMANDS = ["time", "env", "nice", "nohup", "command", "\\", "sudo", "su"];
+const PREFIX_COMMANDS = ["time", "env", "nice", "nohup", "command", "\\", "sudo"];
 
 export class BashAnalyzer implements ShellAnalyzer {
   readonly shellType = SHELL_TYPE;

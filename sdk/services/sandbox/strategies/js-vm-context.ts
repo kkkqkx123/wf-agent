@@ -229,12 +229,14 @@ export class JavaScriptVmContextStrategy implements StrategyImplementation<Scrip
       throw new Error(`Module not allowed: ${moduleName}`);
     }
 
-    if (denylist.has(moduleName)) {
+    // Allow child_process when explicitly permitted, bypassing denylist
+    if (moduleName === "child_process") {
+      if (!policy.allowChildProcess) {
+        throw new Error("child_process module is not allowed");
+      }
+      // Fall through to require below
+    } else if (denylist.has(moduleName)) {
       throw new Error(`Module denied: ${moduleName}`);
-    }
-
-    if (moduleName === "child_process" && !policy.allowChildProcess) {
-      throw new Error("child_process module is not allowed");
     }
 
     if (moduleName === "fs" && !policy.allowFSWrite) {

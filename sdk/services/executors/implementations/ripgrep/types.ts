@@ -28,6 +28,8 @@ export interface RipgrepSearchOptions {
 export interface RipgrepListFilesOptions {
   /** Workspace path */
   workspacePath: string;
+  /** Working directory for the ripgrep process */
+  cwd?: string;
   /** Maximum number of files to return (default: 500) */
   limit?: number;
   /** Whether to follow symlinks (default: true) */
@@ -36,6 +38,8 @@ export interface RipgrepListFilesOptions {
   hidden?: boolean;
   /** Additional glob patterns to exclude */
   excludePatterns?: string[];
+  /** Execution timeout in milliseconds (no timeout if omitted) */
+  timeout?: number;
 }
 
 /**

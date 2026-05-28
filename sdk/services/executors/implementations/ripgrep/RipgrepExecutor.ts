@@ -48,20 +48,48 @@ export class RipgrepExecutor extends BaseExecutor {
    * Get default search paths for ripgrep binary
    */
   protected getDefaultPaths(): string[] {
+    const paths: string[] = [];
+
     if (isWindows) {
-      return [
+      paths.push(
         "C:\\Program Files\\ripgrep\\rg.exe",
         "C:\\Program Files (x86)\\ripgrep\\rg.exe",
-        path.join(process.env["LOCALAPPDATA"] ?? "", "ripgrep", "rg.exe"),
-      ];
+      );
+
+      // LOCALAPPDATA\Microsoft\WinGet\packages\BurntSushi.ripgrep.MSVC
+      const localAppData = process.env["LOCALAPPDATA"];
+      if (localAppData) {
+        paths.push(path.join(localAppData, "ripgrep", "rg.exe"));
+      }
+
+      // cargo install ripgrep
+      const userProfile = process.env["USERPROFILE"];
+      if (userProfile) {
+        paths.push(path.join(userProfile, ".cargo", "bin", "rg.exe"));
+      }
+
+      // Scoop
+      const scoopPath = process.env["SCOOP"];
+      if (scoopPath) {
+        paths.push(path.join(scoopPath, "apps", "ripgrep", "current", "rg.exe"));
+      }
     } else {
-      return [
+      paths.push(
         "/usr/local/bin/rg",
         "/usr/bin/rg",
         "/opt/homebrew/bin/rg",
-        path.join(process.env["HOME"] ?? "", ".local", "bin", "rg"),
-      ];
+      );
+
+      const home = process.env["HOME"];
+      if (home) {
+        paths.push(
+          path.join(home, ".local", "bin", "rg"),
+          path.join(home, ".cargo", "bin", "rg"),
+        );
+      }
     }
+
+    return paths;
   }
 
   /**
@@ -210,6 +238,7 @@ export class RipgrepExecutor extends BaseExecutor {
       limit = 500,
       follow = true,
       hidden = true,
+      timeout,
       excludePatterns = ["**/node_modules/**", "**/.git/**", "**/out/**", "**/dist/**"],
     } = options;
 
@@ -230,17 +259,30 @@ export class RipgrepExecutor extends BaseExecutor {
     args.push(workspacePath);
 
     return new Promise((resolve, reject) => {
-      const proc = childProcess.spawn(bin, args);
+      const proc = childProcess.spawn(bin, args, {
+        cwd: options.cwd,
+      });
       const rl = readline.createInterface({
         input: proc.stdout,
         crlfDelay: Infinity,
       });
+
+      let timedOut = false;
+      let timeoutId: NodeJS.Timeout | undefined;
+      if (timeout && timeout > 0) {
+        timeoutId = setTimeout(() => {
+          timedOut = true;
+          proc.kill();
+          rl.close();
+        }, timeout);
+      }
 
       const fileResults: FileResult[] = [];
       const dirSet = new Set<string>();
       let count = 0;
 
       rl.on("line", (line) => {
+        if (timedOut) return;
         if (count < limit) {
           try {
             const relativePath = path.relative(workspacePath, line).replace(/\\/g, "/");
@@ -274,7 +316,10 @@ export class RipgrepExecutor extends BaseExecutor {
       });
 
       rl.on("close", () => {
-        if (errorOutput && fileResults.length === 0) {
+        if (timeoutId) clearTimeout(timeoutId);
+        if (timedOut) {
+          reject(new Error(`ripgrep list-files timed out after ${timeout}ms`));
+        } else if (errorOutput && fileResults.length === 0) {
           reject(new Error(`ripgrep process error: ${errorOutput}`));
         } else {
           const dirResults = Array.from(dirSet).map((dirPath) => ({
@@ -288,6 +333,7 @@ export class RipgrepExecutor extends BaseExecutor {
       });
 
       proc.on("error", (error) => {
+        if (timeoutId) clearTimeout(timeoutId);
         reject(new Error(`ripgrep process error: ${error.message}`));
       });
     });

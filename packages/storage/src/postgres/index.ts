@@ -14,6 +14,16 @@ export { PostgresWorkflowExecutionStorage } from "./postgres-workflow-execution-
 export { PostgresAgentLoopStorage } from "./postgres-agent-loop-storage.js";
 
 export {
+  PostgresMetricsStorage,
+  type PostgresMetricsStorageConfig,
+} from "./postgres-metrics-storage.js";
+
+export {
+  PostgresFileCheckpointStore,
+  type PostgresFileCheckpointStoreConfig,
+} from "./postgres-file-checkpoint-store.js";
+
+export {
   PostgresConnectionPool,
   type PostgresPoolConfig,
   getGlobalConnectionPool as getPostgresGlobalConnectionPool,

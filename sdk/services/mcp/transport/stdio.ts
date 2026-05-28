@@ -127,23 +127,65 @@ export class StdioTransport implements IMcpTransport {
       return;
     }
 
+    const isWindows = process.platform === "win32";
+
     return new Promise((resolve) => {
       if (this.process) {
-        this.process.on("exit", () => {
+        const cleanup = () => {
           this.process = null;
           this._isConnected = false;
           resolve();
-        });
+        };
 
-        // Gracefully terminate the process
-        this.process.kill("SIGTERM");
+        this.process.on("exit", cleanup);
 
-        // Force kill after timeout
-        setTimeout(() => {
-          if (this.process) {
-            this.process.kill("SIGKILL");
+        if (isWindows) {
+          // On Windows, SIGTERM triggers TerminateProcess (no graceful shutdown).
+          // Instead, write 'exit' to stdin and wait for graceful shutdown.
+          try {
+            this.process.stdin?.write("exit\n");
+          } catch {
+            // stdin may already be closed, fall through to force-kill
           }
-        }, 5000);
+
+          // Wait for graceful exit, then force-kill if still alive
+          setTimeout(() => {
+            if (this.process) {
+              this.process.removeListener("exit", cleanup);
+              try {
+                this.process.kill();
+              } catch {
+                // process may already be dead
+              }
+              // Give kill a moment, then finalize
+              setImmediate(() => {
+                this.process = null;
+                this._isConnected = false;
+                resolve();
+              });
+            }
+          }, 5000);
+        } else {
+          // Gracefully terminate the process (SIGTERM)
+          this.process.kill("SIGTERM");
+
+          // Force kill after timeout (SIGKILL)
+          setTimeout(() => {
+            if (this.process) {
+              this.process.removeListener("exit", cleanup);
+              try {
+                this.process.kill("SIGKILL");
+              } catch {
+                // process may already be dead
+              }
+              setImmediate(() => {
+                this.process = null;
+                this._isConnected = false;
+                resolve();
+              });
+            }
+          }, 5000);
+        }
       } else {
         resolve();
       }

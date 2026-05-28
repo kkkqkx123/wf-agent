@@ -7,6 +7,8 @@
 import { now, diffTimestamp } from "../../utils/timestamp-utils.js";
 import type { HttpClientConfig, HttpRequestOptions, HttpResponse, HttpLogger } from "@wf-agent/types";
 import { TimeoutError, CircuitBreakerOpenError, HttpError } from "@wf-agent/types";
+import { InterceptorManager } from "./interceptors.js";
+import type { RequestConfig, ResponseData } from "./interceptors.js";
 import {
   BadRequestError,
   UnauthorizedError,
@@ -31,6 +33,7 @@ export class HttpClient {
   private readonly retryConfig: RetryConfig;
   private readonly circuitBreaker?: CircuitBreaker;
   private readonly rateLimiter?: RateLimiter;
+  readonly interceptors = new InterceptorManager();
 
   constructor(config: HttpClientConfig = {}) {
     this.config = {
@@ -184,6 +187,22 @@ export class HttpClient {
    * Execute the actual HTTP request.
    */
   private async executeRequest<T = unknown>(options: HttpRequestOptions): Promise<HttpResponse<T>> {
+    // Apply request interceptors to transform request options
+    const reqConfig: RequestConfig = {
+      url: options.url || "",
+      method: options.method || "GET",
+      headers: { ...this.config.defaultHeaders, ...options.headers },
+      body: options.body,
+    };
+    const transformedConfig = await this.interceptors.applyRequestInterceptors(reqConfig);
+    options = {
+      ...options,
+      url: transformedConfig.url,
+      method: transformedConfig.method as HttpRequestOptions["method"],
+      headers: transformedConfig.headers as Record<string, string>,
+      body: transformedConfig.body,
+    };
+
     const url = this.buildURL(options.url || "", options.query);
     const method = options.method || "GET";
     const timeout = options.timeout || this.config.timeout;
@@ -262,28 +281,41 @@ export class HttpClient {
         data = (await response.text()) as T;
       }
 
-      return {
-        data,
+      // Apply response interceptors to transform response data
+      const transformedResponse = await this.interceptors.applyResponseInterceptors({
+        data: data as ResponseData["data"],
         status: response.status,
         statusText: response.statusText,
         headers: this.headersToObject(response.headers),
+      });
+      data = transformedResponse.data as unknown as T;
+
+      return {
+        data,
+        status: transformedResponse.status ?? response.status,
+        statusText: transformedResponse.statusText ?? response.statusText,
+        headers: transformedResponse.headers ?? this.headersToObject(response.headers),
         requestId: response.headers.get("x-request-id") || undefined,
       };
-    } catch (error) {
+    } catch (error: unknown) {
       clearTimeout(timeoutId);
       const duration = diffTimestamp(startTime, now());
 
       if (isAbortError(error)) {
         this.log("error", `[HTTP] ${method} ${url} timeout after ${duration}ms`, { timeout });
-        throw new TimeoutError(`Request timeout after ${timeout}ms`, timeout || 30000, {
-          url: options.url,
-        });
+        throw await this.interceptors.applyErrorInterceptors(
+          new TimeoutError(`Request timeout after ${timeout}ms`, timeout || 30000, {
+            url: options.url,
+          }),
+        );
       }
 
       this.log("error", `[HTTP] ${method} ${url} error after ${duration}ms`, {
         error: String(error),
       });
-      throw error;
+      throw await this.interceptors.applyErrorInterceptors(
+        error instanceof Error ? error : new Error(String(error))
+      );
     }
   }
 

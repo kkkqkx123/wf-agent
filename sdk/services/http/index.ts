@@ -19,13 +19,7 @@ export {
 export { HttpClient } from "./http-client.js";
 
 // Export Transport Protocol
-export {
-  HttpTransport,
-  SseTransport,
-  Transport,
-  TransportResponse,
-  TransportOptions,
-} from "./transport.js";
+export { SseTransport } from "./sse-transport.js";
 
 // Export Retry Processor
 export { executeWithRetry } from "./retry-handler.js";

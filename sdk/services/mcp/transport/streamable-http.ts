@@ -61,14 +61,11 @@ export class StreamableHttpTransport implements IMcpTransport {
       this._isConnected = true;
       logger.debug("Transport started successfully", { url: this.config.url });
     } catch (error) {
-      // Even if HEAD fails, we might still be able to communicate
-      // So we mark as connected and let actual requests fail if needed
-      this._isConnected = true;
-      // Log warning for debugging
-      logger.warn("HEAD request failed, but continuing anyway", {
+      logger.error("HEAD request failed — server unreachable", {
         url: this.config.url,
         error: error instanceof Error ? error.message : String(error),
       });
+      throw error;
     }
   }
 
@@ -156,25 +153,4 @@ export class StreamableHttpTransport implements IMcpTransport {
     this.handlers = handlers;
   }
 
-  /**
-   * Send a message and wait for response
-   * This is a convenience method for request-response pattern
-   */
-  async sendAndWait<T = unknown>(message: unknown): Promise<T> {
-    return new Promise((resolve, reject) => {
-      const originalHandler = this.handlers.onData;
-
-      this.handlers.onData = data => {
-        this.handlers.onData = originalHandler;
-        resolve(data as T);
-      };
-
-      this.handlers.onError = error => {
-        this.handlers.onData = originalHandler;
-        reject(error);
-      };
-
-      this.send(message).catch(reject);
-    });
-  }
 }

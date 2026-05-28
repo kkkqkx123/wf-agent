@@ -52,7 +52,7 @@ const DENIED_COMMANDS: string[] = [
 ];
 
 /** cmd.exe-specific dangerous patterns */
-const DANGEROUS_PATTERNS: string[] = [
+export const DANGEROUS_PATTERNS: string[] = [
   // Format disk
   "format\\s+[A-Za-z]:",
   "format\\s+/",

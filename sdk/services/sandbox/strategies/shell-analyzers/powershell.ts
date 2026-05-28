@@ -58,7 +58,7 @@ const DENIED_COMMANDS: string[] = [
 ];
 
 /** PowerShell-specific dangerous patterns */
-const DANGEROUS_PATTERNS: string[] = [
+export const DANGEROUS_PATTERNS: string[] = [
   // IEX — the most common PowerShell attack vector
   "IEX\\s*\\(?\\s*(New-Object|Invoke-WebRequest|Invoke-RestMethod)",
   "Invoke-Expression\\s*\\(?\\s*(New-Object|Invoke-WebRequest)",

@@ -262,11 +262,7 @@ export {
   // HTTP Client
   HttpClient,
   // HTTP Transport (distinct from MCP transport)
-  HttpTransport as HttpServiceTransport,
   SseTransport as HttpSseTransport,
-  Transport as HttpBaseTransport,
-  type TransportResponse as HttpTransportResponse,
-  type TransportOptions as HttpTransportOptions,
   // Retry
   executeWithRetry,
   NonRetryableStatusCode,

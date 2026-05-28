@@ -52,7 +52,7 @@ const DENIED_COMMANDS: string[] = [
 ];
 
 /** Bash-specific dangerous patterns */
-const DANGEROUS_PATTERNS: string[] = [
+export const DANGEROUS_PATTERNS: string[] = [
   // Fork bomb variants
   ":?\\(\\)\\s*\\{.*:\\s*:\\s*\\};?:",
   // Remote pipe-to-shell

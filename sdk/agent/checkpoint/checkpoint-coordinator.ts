@@ -26,6 +26,10 @@ import type { CheckpointDependencies as BaseCheckpointDependencies } from "../..
 export interface CheckpointOptions {
   /** Checkpoint metadata */
   metadata?: CheckpointMetadata;
+  /** Optional description */
+  description?: string;
+  /** Optional tags */
+  tags?: string[];
 }
 
 /**
@@ -60,15 +64,15 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
    * Create a checkpoint
    * @param entity Agent Loop entity
    * @param dependencies dependencies
-   * @param metadata checkpoint metadata
+   * @param options checkpoint options
    * @returns checkpoint ID
    */
   override async createCheckpoint(
     entity: AgentLoopEntity,
     dependencies: CheckpointDependencies,
-    metadata?: CheckpointMetadata,
+    options?: CheckpointOptions,
   ): Promise<string> {
-    return await super.createCheckpoint(entity, dependencies, metadata);
+    return await super.createCheckpoint(entity, dependencies, options?.metadata);
   }
 
   /**

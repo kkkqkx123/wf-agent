@@ -343,7 +343,9 @@ export class TriggerCoordinator {
             trigger.executionId,
             dependencies,
             {
-              description: trigger.checkpointDescription || `Trigger: ${trigger.name}`,
+              metadata: {
+                description: trigger.checkpointDescription || `Trigger: ${trigger.name}`,
+              },
             },
           );
         } catch (error) {

@@ -8,6 +8,7 @@
 export {
   CheckpointCoordinator,
   type CheckpointDependencies,
+  type CheckpointOptions,
   type CreateCheckpointOptions,
 } from "./checkpoint-coordinator.js";
 

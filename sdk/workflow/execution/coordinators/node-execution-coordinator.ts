@@ -243,10 +243,12 @@ export class NodeExecutionCoordinator {
           workflowExecutionId,
           this.checkpointDependencies,
           {
-            description: `Workflow execution ${type.toLowerCase()} at node: ${nodeId}`,
-            customFields: {
-              interruptionType: type,
-              interruptedAt: now(),
+            metadata: {
+              description: `Workflow execution ${type.toLowerCase()} at node: ${nodeId}`,
+              customFields: {
+                interruptionType: type,
+                interruptedAt: now(),
+              },
             },
           },
         );
@@ -397,9 +399,11 @@ export class NodeExecutionCoordinator {
                 nodeId,
                 this.checkpointDependencies!,
                 {
-                  description:
-                    configResult.description ||
-                    `Before node: ${(node as WorkflowNode).name || (node as RuntimeNode as WorkflowNode).originalNode?.name}`,
+                  metadata: {
+                    description:
+                      configResult.description ||
+                      `Before node: ${(node as WorkflowNode).name || (node as RuntimeNode as WorkflowNode).originalNode?.name}`,
+                  },
                 },
               );
             } catch (error) {
@@ -510,9 +514,11 @@ export class NodeExecutionCoordinator {
                 nodeId,
                 this.checkpointDependencies,
                 {
-                  description:
-                    configResult.description ||
-                    `After node: ${(node as WorkflowNode).name || (node as RuntimeNode as WorkflowNode).originalNode?.name}`,
+                  metadata: {
+                    description:
+                      configResult.description ||
+                      `After node: ${(node as WorkflowNode).name || (node as RuntimeNode as WorkflowNode).originalNode?.name}`,
+                  },
                 },
               );
             } catch (error) {

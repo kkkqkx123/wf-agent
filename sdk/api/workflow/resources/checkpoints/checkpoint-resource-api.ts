@@ -243,7 +243,7 @@ export class CheckpointResourceAPI extends CrudResourceAPI<Checkpoint, string, C
     const checkpointId = await CheckpointCoordinator.createCheckpoint(
       executionId,
       dependencies,
-      metadata,
+      { metadata },
     );
     return checkpointId;
   }

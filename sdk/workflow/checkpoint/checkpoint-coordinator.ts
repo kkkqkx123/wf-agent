@@ -68,25 +68,45 @@ export interface CheckpointDependencies {
  * Checkpoint creation options
  * Note: Sync persistence is handled at the storage adapter layer, not here.
  */
- 
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface CheckpointOptions {
+  /** Custom metadata for the checkpoint */
+  metadata?: CheckpointMetadata;
+
+  /** Human-readable description for the checkpoint */
+  description?: string;
+
+  /** Source node ID (marks which node triggered the checkpoint) */
+  nodeId?: string;
+
+  /** Source tool ID (marks which tool triggered the checkpoint) */
+  toolId?: string;
+
+  /**
+   * Force checkpoint type
+   * - Omitted: Coordinator auto-determines based on delta config
+   * - 'FULL': Force full snapshot
+   * - 'DELTA': Force delta (auto-downgrades to FULL if no baseline exists)
+   */
+  forceType?: 'FULL' | 'DELTA';
+
+  /**
+   * Skip condition
+   * - 'never': Always create (default)
+   * - 'if_no_changes': Skip if no changes since last checkpoint
+   * - 'if_recent': Skip if a checkpoint was created recently
+   */
+  skipIf?: 'never' | 'if_no_changes' | 'if_recent';
+
+  /** Tags for query/filtering */
+  tags?: string[];
 }
 
 /**
  * Checkpoint creation options for the convenience function
  */
-export interface CreateCheckpointOptions {
+export interface CreateCheckpointOptions extends CheckpointOptions {
   /** WorkflowExecution ID */
   workflowExecutionId: string;
-  /** Node ID (optional) */
-  nodeId?: string;
-  /** Tool ID (optional) */
-  toolId?: string;
-  /** Checkpoint Description */
-  description?: string;
-  /** Custom metadata */
-  metadata?: CheckpointMetadata;
 }
 
 /**
@@ -100,14 +120,14 @@ export class CheckpointCoordinator {
    * Create a checkpoint (static method)
    * @param workflowExecutionId WorkflowExecution ID
    * @param dependencies Dependencies
-   * @param metadata Checkpoint metadata
+   * @param options Checkpoint options (metadata, description, tags, etc.)
    * @param conversationManager Optional ConversationSession (if not using stateCoordinatorMap)
    * @returns Checkpoint ID
    */
   static async createCheckpoint(
     workflowExecutionId: string,
     dependencies: CheckpointDependencies,
-    metadata?: CheckpointMetadata,
+    options?: CheckpointOptions,
     conversationManager?: ConversationSession,
   ): Promise<string> {
     const { workflowExecutionRegistry, checkpointStateManager, deltaConfig, stateCoordinatorMap } =
@@ -144,11 +164,27 @@ export class CheckpointCoordinator {
     const checkpointCount = previousCheckpointIds.length;
 
     // Step 4: Determine the type of checkpoint
-    const checkpointType = CheckpointCoordinator.determineCheckpointType(checkpointCount, config);
+    // If forceType is specified, use it directly; otherwise determine automatically
+    const checkpointType = options?.forceType ?? CheckpointCoordinator.determineCheckpointType(checkpointCount, config);
 
     // Step 5: Generate a unique checkpointId and timestamp
     const checkpointId = generateId();
     const timestamp = now();
+
+    // Build the final metadata from options
+    const metadata = options?.metadata
+      ? mergeMetadata(options.metadata as Metadata, {
+          ...(options.description ? { description: options.description } : {}),
+          ...(options.tags ? { tags: options.tags } : {}),
+          ...(options.nodeId ? { customFields: mergeMetadata({} as Metadata, { nodeId: options.nodeId }) } : {}),
+          ...(options.toolId ? { customFields: mergeMetadata({} as Metadata, { toolId: options.toolId }) } : {}),
+        })
+      : ({
+          ...(options?.description ? { description: options.description } : {}),
+          ...(options?.tags ? { tags: options.tags } : {}),
+          ...(options?.nodeId ? { customFields: { nodeId: options.nodeId } } : {}),
+          ...(options?.toolId ? { customFields: { toolId: options.toolId } } : {}),
+        } as CheckpointMetadata | undefined);
 
     // Step 6: Create a checkpoint
     let checkpoint: Checkpoint;
@@ -625,23 +661,24 @@ export class CheckpointCoordinator {
    * Create a node-level checkpoint (static method)
    * @param workflowExecutionId WorkflowExecution ID
    * @param nodeId Node ID
-   * @param metadata Checkpoint metadata
    * @param dependencies Dependencies
+   * @param options Checkpoint options (metadata, description, tags, etc.)
    * @returns Checkpoint ID
    */
   static async createNodeCheckpoint(
     workflowExecutionId: string,
     nodeId: string,
     dependencies: CheckpointDependencies,
-    metadata?: CheckpointMetadata,
+    options?: CheckpointOptions,
   ): Promise<string> {
     return CheckpointCoordinator.createCheckpoint(
       workflowExecutionId,
       dependencies,
-      mergeMetadata((metadata as Metadata) || {}, {
-        description: metadata?.description || `Node checkpoint for node ${nodeId}`,
-        customFields: mergeMetadata((metadata?.customFields as Metadata) || {}, { nodeId }),
-      }),
+      {
+        ...options,
+        nodeId,
+        description: options?.description || `Node checkpoint for node ${nodeId}`,
+      } as CheckpointOptions,
     );
   }
 
@@ -650,22 +687,23 @@ export class CheckpointCoordinator {
    * @param workflowExecutionId WorkflowExecution ID
    * @param toolId Tool ID
    * @param dependencies Dependencies
-   * @param description Checkpoint description
+   * @param options Checkpoint options (metadata, description, tags, etc.)
    * @returns Checkpoint ID
    */
   static async createToolCheckpoint(
     workflowExecutionId: string,
     toolId: string,
     dependencies: CheckpointDependencies,
-    description?: string,
+    options?: CheckpointOptions,
   ): Promise<string> {
     return CheckpointCoordinator.createCheckpoint(
       workflowExecutionId,
       dependencies,
-      mergeMetadata({} as Metadata, {
-        description: description || `Tool checkpoint for tool ${toolId}`,
-        customFields: mergeMetadata({} as Metadata, { toolId }),
-      }),
+      {
+        ...options,
+        toolId,
+        description: options?.description || `Tool checkpoint for tool ${toolId}`,
+      } as CheckpointOptions,
     );
   }
 
@@ -682,15 +720,15 @@ export class CheckpointCoordinator {
     const promises = optionsList.map(options => CheckpointCoordinator.createCheckpoint(
       options.workflowExecutionId,
       dependencies,
-      mergeMetadata((options.metadata as Metadata) || {}, {
+      {
+        metadata: options.metadata,
         description: options.description || `Checkpoint for execution ${options.workflowExecutionId}`,
-        customFields: options.nodeId || options.toolId
-          ? mergeMetadata({} as Metadata, {
-              ...(options.nodeId ? { nodeId: options.nodeId } : {}),
-              ...(options.toolId ? { toolId: options.toolId } : {}),
-            })
-          : undefined,
-      }),
+        nodeId: options.nodeId,
+        toolId: options.toolId,
+        tags: options.tags,
+        forceType: options.forceType,
+        skipIf: options.skipIf,
+      } as CheckpointOptions,
     ));
     return await Promise.all(promises);
   }

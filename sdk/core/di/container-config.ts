@@ -107,7 +107,7 @@ import { ExecutionHierarchyRegistry } from "../registry/execution-hierarchy-regi
 import { AgentLoopCoordinator } from "../../agent/execution/coordinators/agent-loop-coordinator.js";
 import { WorkflowExecutionEntity } from "../../workflow/entities/workflow-execution-entity.js";
 import { MetricsRegistry } from "../metrics/metrics-registry.js";
-import type { MetricsConfig, TimeoutConfig } from "@wf-agent/types";
+import type { MetricsConfig, TimeoutConfig, CheckpointMetadata } from "@wf-agent/types";
 import type { SDKOptions } from "../../api/shared/types/core-types.js";
 import {
   loadMetricsConfigFromFile,
@@ -387,8 +387,10 @@ export function configureContainerBindings(
         eventBuilder,
         createCheckpointFn: (options, deps) =>
           CheckpointCoordinator.createCheckpoint(options.workflowExecutionId, deps, {
-            description: options.description,
-            ...(options.toolId ? { customFields: { toolId: options.toolId } } : {}),
+            metadata: {
+              description: options.description,
+              ...(options.toolId ? { customFields: { toolId: options.toolId } } : {}),
+            },
           }),
         safeEmitFn: emit,
       });
@@ -935,7 +937,7 @@ export function configureContainerBindings(
               ) as WorkflowGraphRegistry,
               fileCheckpointManager: getFileCheckpointManager(),
             },
-            metadata,
+            { metadata: metadata as CheckpointMetadata | undefined },
           );
         },
         restoreFromCheckpoint: (checkpointId: string) => {

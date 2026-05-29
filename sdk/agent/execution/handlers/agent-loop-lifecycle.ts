@@ -34,6 +34,8 @@ export interface AgentLoopCheckpointDependencies {
  */
 export interface AgentLoopCheckpointOptions {
   metadata?: unknown;
+  description?: string;
+  tags?: string[];
 }
 
 /**
@@ -58,7 +60,11 @@ export async function createAgentLoopCheckpoint(
   const checkpointId = await coordinator.createCheckpoint(
     entity,
     dependencies as CheckpointDependencies,
-    options?.metadata as CheckpointMetadata | undefined,
+    {
+      metadata: options?.metadata as CheckpointMetadata | undefined,
+      description: options?.description,
+      tags: options?.tags,
+    },
   );
 
   logger.info("Agent Loop checkpoint created successfully", {

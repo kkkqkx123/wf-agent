@@ -164,11 +164,13 @@ export class GracefulShutdownManager {
             entity.id,
             this.checkpointDependencies,
             {
-              description: `Graceful shutdown (${signal})`,
-              customFields: {
-                shutdownSignal: signal,
-                timestamp: Date.now(),
-                reason: "process_termination",
+              metadata: {
+                description: `Graceful shutdown (${signal})`,
+                customFields: {
+                  shutdownSignal: signal,
+                  timestamp: Date.now(),
+                  reason: "process_termination",
+                },
               },
             },
             undefined, // conversationManager will be retrieved from stateCoordinatorMap

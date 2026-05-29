@@ -536,11 +536,13 @@ export class LLMExecutionCoordinator {
             workflowGraphRegistry: approvalContext.graphRegistry,
           };
           checkpointId = await CheckpointCoordinator.createCheckpoint(executionId, dependencies, {
-            description: "Waiting for tool approval",
-            customFields: {
-              toolApprovalState: {
-                pendingToolCall: toolCall,
-                interactionId,
+            metadata: {
+              description: "Waiting for tool approval",
+              customFields: {
+                toolApprovalState: {
+                  pendingToolCall: toolCall,
+                  interactionId,
+                },
               },
             },
           });
@@ -696,4 +698,3 @@ export class LLMExecutionCoordinator {
     });
   }
 }
-

@@ -69,9 +69,7 @@ function createCheckpointHandler(): HookHandler<HookExecutionContext> {
         context.workflowExecutionEntity.id,
         context.node.id,
         context.checkpointDependencies,
-        {
-          description: nodeHook.checkpointDescription || `Hook: ${hook.eventName}`,
-        },
+        {},
       );
     } catch (error) {
       logger.warn(

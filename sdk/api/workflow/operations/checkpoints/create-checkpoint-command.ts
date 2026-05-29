@@ -75,7 +75,7 @@ export class CreateCheckpointCommand extends BaseCommand<string> {
     const checkpointId = await CheckpointCoordinator.createCheckpoint(
       this.params.executionId,
       dependencies,
-      this.params.metadata,
+      { metadata: this.params.metadata },
     );
 
     return checkpointId;

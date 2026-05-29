@@ -51,7 +51,7 @@ export function registerIdleTimeout(
     ...registrationOptions
   } = options;
 
-  const checkTimerId: NodeJS.Timeout | undefined = undefined;
+  let checkTimerId: NodeJS.Timeout | undefined = undefined;
 
   // Create the actual timeout registration
   const handle = manager.register({

@@ -2,6 +2,12 @@
  * Script Interaction Coordinator
  * Coordinates interactive script execution with user/LLM input handling
  *
+ * Uses a persistent PTY session for true interactive I/O:
+ * 1. Creates a terminal session and starts the script in background
+ * 2. Polls for output, detecting prompt patterns
+ * 3. Sends input via session stdin when the script waits for input
+ * 4. Repeats until the script finishes or maxRounds is reached
+ *
  * Handles three interaction modes:
  * - blocking: Use provided inputProvider callback for user input
  * - llm-assisted: LLM provides automatic responses
@@ -9,10 +15,11 @@
  */
 
 import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
-import type { InteractionMode, InteractiveScriptNodeConfig, LLMMessage } from "@wf-agent/types";
+import type { InteractionMode, InteractiveScriptNodeConfig, LLMMessage, Script } from "@wf-agent/types";
 import * as Identifiers from "../../../core/di/service-identifiers.js";
 import type { ScriptRegistry } from "../../../core/registry/script-registry.js";
 import type { GlobalContext } from "../../../core/global-context.js";
+import { ScriptTemplateEngine } from "../../../core/script/engine/script-template.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import { getTerminalService } from "../../../services/terminal/index.js";
 
@@ -36,6 +43,8 @@ interface InteractionRound {
 export interface InteractiveExecutionResult {
   /** Overall success */
   success: boolean;
+  /** Node execution status (mirrors NodeExecutionResult.status) */
+  status: "COMPLETED" | "FAILED";
   /** Final accumulated output */
   output: string;
   /** Interaction rounds performed */
@@ -55,6 +64,7 @@ export type InputProvider = (prompt: string, defaultValue?: string) => Promise<s
 /**
  * Script Interaction Coordinator
  * Handles interactive script execution across blocking, llm-assisted, and hybrid modes
+ * Uses a persistent PTY session for true interactive I/O instead of one-off command execution.
  */
 export class ScriptInteractionCoordinator {
   private globalContext: GlobalContext;
@@ -71,7 +81,7 @@ export class ScriptInteractionCoordinator {
   }
 
   /**
-   * Execute a script with interaction support
+   * Execute a script with interaction support using a persistent PTY session
    * @param scriptName Script name to execute
    * @param config Interactive script node configuration (optional)
    * @returns Interactive execution result
@@ -79,6 +89,7 @@ export class ScriptInteractionCoordinator {
   async executeWithInteraction(
     scriptName: string,
     config?: InteractiveScriptNodeConfig,
+    abortSignal?: AbortSignal,
   ): Promise<InteractiveExecutionResult> {
     const scriptService = this.globalContext.container.get(
       Identifiers.ScriptRegistry,
@@ -96,40 +107,122 @@ export class ScriptInteractionCoordinator {
     });
 
     const startTime = Date.now();
-    const rounds: InteractionRound[] = [];
 
-    const executeResult = await scriptService.execute(scriptName);
-
-    if (executeResult.isErr()) {
+    if (abortSignal?.aborted) {
       return {
         success: false,
+        status: "FAILED",
+        output: "",
+        rounds: [],
+        executionTime: 0,
+        error: "Execution cancelled",
+      };
+    }
+    const rounds: InteractionRound[] = [];
+
+    // Step 1: Get script definition and render command
+    let script: Script;
+    try {
+      script = scriptService.getScript(scriptName);
+    } catch {
+      return {
+        success: false,
+        status: "FAILED",
         output: "",
         rounds: [],
         executionTime: Date.now() - startTime,
-        error: String(executeResult.error),
+        error: `Script not found: ${scriptName}`,
       };
     }
 
-    const rawResult = executeResult.value;
-    let accumulatedOutput = rawResult.stdout || rawResult.stderr || "";
-
-    if (!this.needsInput(accumulatedOutput, promptPatterns)) {
+    let command: string;
+    try {
+      command = this.renderCommand(script);
+    } catch (error) {
       return {
-        success: rawResult.success,
-        output: accumulatedOutput,
-        rounds,
+        success: false,
+        status: "FAILED",
+        output: "",
+        rounds: [],
         executionTime: Date.now() - startTime,
+        error: error instanceof Error ? error.message : String(error),
       };
     }
 
-    for (let i = 0; i < maxRounds; i++) {
-      let input: string;
+    if (!command) {
+      return {
+        success: false,
+        status: "FAILED",
+        output: "",
+        rounds: [],
+        executionTime: Date.now() - startTime,
+        error: "Empty script command",
+      };
+    }
 
+    // Step 2: Create PTY session and start command in background
+    let session;
+    try {
+      session = await this.terminalService.createSession({
+        cwd: script.executor?.cwd,
+        env: script.executor?.environment,
+      });
+    } catch (error) {
+      return {
+        success: false,
+        status: "FAILED",
+        output: "",
+        rounds: [],
+        executionTime: Date.now() - startTime,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+
+    const bgResult = await this.terminalService.startBackgroundCommand(
+      session.sessionId,
+      command,
+      { timeout: roundTimeout * maxRounds },
+    );
+
+    if (!bgResult.success) {
+      await this.terminalService.terminateSession(session.sessionId);
+      return {
+        success: false,
+        status: "FAILED",
+        output: "",
+        rounds: [],
+        executionTime: Date.now() - startTime,
+        error: bgResult.error || "Failed to start background command",
+      };
+    }
+
+    // Step 3: Poll for initial output
+    let accumulatedOutput = await this.pollForOutput(
+      session.sessionId,
+      roundTimeout,
+      promptPatterns,
+      "",
+      abortSignal,
+    );
+
+    // Step 4: Interaction loop
+    for (let i = 0; i < maxRounds; i++) {
+      if (abortSignal?.aborted) {
+        break;
+      }
+
+      if (!this.needsInput(accumulatedOutput, promptPatterns)) {
+        break;
+      }
+
+      let input: string;
       try {
         input = await this.getResponse(accumulatedOutput, interactionMode, roundTimeout);
       } catch (error) {
+        await this.cleanupSession(session.sessionId);
         return {
           success: false,
+          status: "FAILED",
           output: accumulatedOutput,
           rounds,
           executionTime: Date.now() - startTime,
@@ -137,28 +230,119 @@ export class ScriptInteractionCoordinator {
         };
       }
 
-      if (interactionMode === "blocking") {
-        const inputResult = await this.terminalService.executeWithInput("", input, {
-          timeout: roundTimeout,
-        });
-        accumulatedOutput += `\n${inputResult.stdout}${inputResult.stderr}`;
-      } else {
-        accumulatedOutput += `\n[input]: ${input}`;
-      }
-
-      rounds.push({ input, output: accumulatedOutput, round: i + 1 });
-
-      if (!this.needsInput(accumulatedOutput, promptPatterns)) {
+      const sent = await this.terminalService.sendInput(session.sessionId, input);
+      if (!sent) {
+        logger.warn("Failed to send input, process may have ended", { scriptName, round: i + 1 });
         break;
       }
+
+      const newOutput = await this.pollForOutput(
+        session.sessionId,
+        roundTimeout,
+        promptPatterns,
+        accumulatedOutput,
+        abortSignal,
+      );
+      accumulatedOutput += newOutput;
+
+      rounds.push({ input, output: accumulatedOutput, round: i + 1 });
     }
+
+    // Step 5: Cleanup
+    await this.cleanupSession(session.sessionId);
 
     return {
       success: true,
+      status: "COMPLETED",
       output: accumulatedOutput,
       rounds,
       executionTime: Date.now() - startTime,
     };
+  }
+
+  /**
+   * Render the script command from the script definition
+   */
+  private renderCommand(script: Script): string {
+    if (script.template) {
+      const templateEngine = new ScriptTemplateEngine();
+      const args = script.arguments || [];
+      const resolvedArgs = templateEngine.resolveArguments(args);
+      const renderResult = templateEngine.render(script.template, resolvedArgs as Record<string, unknown>);
+      if (!renderResult.resolved) {
+        logger.warn("Template has unresolved placeholders", {
+          scriptName: script.name,
+          placeholders: renderResult.unresolvedPlaceholders,
+        });
+      }
+      return renderResult.command;
+    }
+    return script.content || "";
+  }
+
+  /**
+   * Poll for output from the session until prompt pattern detected, process idle, or timeout.
+   * Returns only the NEW output accumulated during this poll.
+   */
+  private async pollForOutput(
+    sessionId: string,
+    timeout: number,
+    promptPatterns: string[],
+    accumulatedSoFar: string,
+    abortSignal?: AbortSignal,
+  ): Promise<string> {
+    const pollStart = Date.now();
+    let output = "";
+    let idlePolls = 0;
+
+    while (Date.now() - pollStart < timeout) {
+      if (abortSignal?.aborted) break;
+      await this.delay(200);
+      const newOutput = await this.terminalService.getOutput(sessionId);
+      if (newOutput) {
+        if (output) {
+          output += `\n${newOutput}`;
+        } else {
+          output = newOutput;
+        }
+        idlePolls = 0;
+        if (this.needsInput(accumulatedSoFar + output, promptPatterns)) {
+          break;
+        }
+      } else {
+        idlePolls++;
+        if (idlePolls >= 5) {
+          break;
+        }
+      }
+    }
+
+    const finalOutput = await this.terminalService.getOutput(sessionId);
+    if (finalOutput) {
+      if (output) {
+        output += `\n${finalOutput}`;
+      } else {
+        output = finalOutput;
+      }
+    }
+
+    return output;
+  }
+
+  /**
+   * Clean up the PTY session
+   */
+  private async cleanupSession(sessionId: string): Promise<void> {
+    try {
+      await this.terminalService.killBackgroundCommand(sessionId);
+    } catch {
+      // Ignore cleanup errors
+    }
+    try {
+      await this.terminalService.terminateSession(sessionId);
+    } catch {
+      // Ignore cleanup errors
+    }
   }
 
   /**
@@ -170,8 +354,7 @@ export class ScriptInteractionCoordinator {
     }
     return patterns.some(pattern => {
       try {
-        const regex =
-          typeof pattern === "string" ? new RegExp(pattern, "m") : new RegExp(pattern, "m");
+        const regex = new RegExp(pattern, "m");
         return regex.test(output);
       } catch {
         return false;
@@ -243,5 +426,9 @@ export class ScriptInteractionCoordinator {
     );
 
     return result.content?.trim() ?? "";
+  }
+
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 }

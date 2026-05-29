@@ -44,7 +44,7 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc && node scripts/transform-aliases.cjs",
+    "build": "tsc",
     "build:watch": "tsc --watch",
     "test": "vitest run --reporter=verbose",
     "test:watch": "vitest --watch",

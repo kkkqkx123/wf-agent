@@ -24,6 +24,7 @@ import type { ToolPermissionManager } from "../../../core/coordinators/tool-perm
 import type { RejectionMessageBuilder } from "../../../core/coordinators/rejection-message-builder.js";
 import { LLMExecutionCoordinator } from "../coordinators/llm-execution-coordinator.js";
 import { ExecutionError } from "@wf-agent/types";
+import type { InputProvider } from "../coordinators/script-interaction-coordinator.js";
 
 /**
  * Node Processor Context Factory Configuration
@@ -55,6 +56,8 @@ export interface NodeHandlerContextFactoryConfig {
   permissionManager?: ToolPermissionManager;
   /** Rejection Message Builder (optional, required for TOOL_VISIBILITY nodes) */
   rejectionBuilder?: RejectionMessageBuilder;
+  /** Input provider for INTERACTIVE_SCRIPT node (optional, required for blocking/hybrid modes) */
+  interactiveScriptInputProvider?: InputProvider;
 }
 
 /**
@@ -99,6 +102,7 @@ export class NodeHandlerContextFactory {
     ["FORK", (node, entity) => this.createForkContext(node, entity)],
     ["SUBGRAPH", (node, entity) => this.createSubgraphContext(node, entity)],
     ["START_FROM_TRIGGER", (_node, entity) => this.createStartFromTriggerContext(entity)],
+    ["INTERACTIVE_SCRIPT", () => this.createInteractiveScriptContext()],
   ]);
 
   /**
@@ -302,6 +306,16 @@ export class NodeHandlerContextFactory {
       conversationManager: this.config.conversationManager,
       // Note: triggerInput should be passed from the external trigger mechanism,
       // not created here. It will be injected by the caller when executing the node.
+    };
+  }
+
+  /**
+   * Create an INTERACTIVE_SCRIPT node context
+   * @returns Context with optional inputProvider for blocking/hybrid modes
+   */
+  private createInteractiveScriptContext(): Record<string, unknown> {
+    return {
+      inputProvider: this.config.interactiveScriptInputProvider,
     };
   }
 }

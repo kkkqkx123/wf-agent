@@ -36,6 +36,7 @@ import type { WorkflowExecutor } from "../executors/workflow-executor.js";
 import type { ToolPermissionManager } from "../../../core/coordinators/tool-permission-manager.js";
 import type { RejectionMessageBuilder } from "../../../core/coordinators/rejection-message-builder.js";
 import { LLMExecutionCoordinator } from "./llm-execution-coordinator.js";
+import type { InputProvider } from "./script-interaction-coordinator.js";
 import { SDKError } from "@wf-agent/types";
 
 import { executeHook } from "../handlers/hook-handlers/hook-handler.js";
@@ -115,6 +116,8 @@ export interface NodeExecutionCoordinatorConfig {
   permissionManager?: ToolPermissionManager | null;
   /** Rejection Message Builder (optional, new architecture) */
   rejectionBuilder?: RejectionMessageBuilder;
+  /** Input provider for INTERACTIVE_SCRIPT node (optional) */
+  interactiveScriptInputProvider?: InputProvider;
 }
 
 /**
@@ -183,6 +186,7 @@ export class NodeExecutionCoordinator {
       workflowExecutor: config.workflowExecutor,
       permissionManager: config.permissionManager || undefined,
       rejectionBuilder: config.rejectionBuilder,
+      interactiveScriptInputProvider: config.interactiveScriptInputProvider,
     });
   }
 
@@ -629,7 +633,7 @@ export class NodeExecutionCoordinator {
   private async executeNodeLogic(
     workflowExecutionEntity: WorkflowExecutionEntity,
     node: WorkflowNode | RuntimeNode,
-    _abortSignal?: AbortSignal,
+    abortSignal?: AbortSignal,
   ): Promise<NodeExecutionResult> {
     const startTime = now();
 
@@ -652,10 +656,15 @@ export class NodeExecutionCoordinator {
     const handler = getNodeHandler(node.type);
 
     // 2. Use the factory to create the processor context.
-    const handlerContext = this.handlerContextFactory.createHandlerContext(
-      node as RuntimeNode,
-      workflowExecutionEntity,
-    );
+    const handlerContext: Record<string, unknown> = {
+      ...this.handlerContextFactory.createHandlerContext(
+        node as RuntimeNode,
+        workflowExecutionEntity,
+      ),
+    };
+    if (abortSignal) {
+      handlerContext["abortSignal"] = abortSignal;
+    }
 
     // 3. Execute the processor (signal will be used by specific handlers if needed)
     const output = await handler(

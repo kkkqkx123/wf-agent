@@ -238,7 +238,7 @@ export class JavaScriptVmContextStrategy implements StrategyImplementation<Scrip
       if (vfs) {
         return this.createVFSBackedFS(vfs, policy.allowFSWrite);
       }
-      return policy.allowFSWrite ? await import("fs") : this.createReadonlyFS();
+      return policy.allowFSWrite ? require("fs") : this.createReadonlyFS();
     }
 
     try {

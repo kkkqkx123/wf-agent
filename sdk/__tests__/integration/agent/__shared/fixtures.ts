@@ -5,19 +5,14 @@
  * with mock dependencies for integration testing.
  */
 
-import type { AgentLoopRuntimeConfig, AgentLoopResult } from "@wf-agent/types";
+import type { AgentLoopRuntimeConfig } from "@wf-agent/types";
 import { AgentLoopStatus } from "@wf-agent/types";
-import { AgentLoopEntity } from "@/agent/entities/agent-loop-entity.js";
 import { AgentLoopRegistry } from "@/agent/stores/agent-loop-registry.js";
-import { AgentLoopExecutor } from "@/agent/execution/executors/agent-loop-executor.js";
 import { AgentLoopCoordinator } from "@/agent/execution/coordinators/agent-loop-coordinator.js";
-import { createContextualLogger } from "@/utils/contextual-logger.js";
 import { MemoryAgentLoopStorage } from "@wf-agent/storage";
 import { MockLLMService } from "../../__shared/mock-llm-service.js";
 import * as Identifiers from "@/core/di/service-identifiers.js";
 import { InterruptionState } from "@/core/utils/interruption/interruption-state.js";
-
-const logger = createContextualLogger({ component: "AgentLoopTestFixtures" });
 
 // =============================================================================
 // Constants

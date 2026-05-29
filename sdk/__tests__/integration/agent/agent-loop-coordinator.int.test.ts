@@ -10,11 +10,9 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { AgentLoopStatus } from "@wf-agent/types";
 import {
   createAgentLoopFixture,
   createBasicAgentConfig,
-  MOCK_PROFILE_ID,
 } from "./__shared/fixtures.js";
 import type { AgentLoopTestFixture } from "./__shared/fixtures.js";
 

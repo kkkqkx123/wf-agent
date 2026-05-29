@@ -126,10 +126,10 @@ describe("Workflow Storage E2E", () => {
 
       const versions = await storage.listWorkflowVersions(wfId);
       expect(versions).toHaveLength(3);
-      expect(versions[0].version).toBe("1.0.0");
-      expect(versions[0].changeNote).toBe("Initial release");
-      expect(versions[1].version).toBe("1.1.0");
-      expect(versions[2].version).toBe("2.0.0");
+      expect(versions[0]!.version).toBe("1.0.0");
+      expect(versions[0]!.changeNote).toBe("Initial release");
+      expect(versions[1]!.version).toBe("1.1.0");
+      expect(versions[2]!.version).toBe("2.0.0");
     });
 
     it("should load a specific workflow version", async () => {
@@ -156,7 +156,7 @@ describe("Workflow Storage E2E", () => {
       await storage.deleteWorkflowVersion(wfId, "1.0.0");
       const versions = await storage.listWorkflowVersions(wfId);
       expect(versions).toHaveLength(1);
-      expect(versions[0].version).toBe("2.0.0");
+      expect(versions[0]!.version).toBe("2.0.0");
     });
 
     it("should list workflow versions with pagination", async () => {
@@ -237,9 +237,9 @@ describe("Workflow Storage E2E", () => {
 
       const results = await storage.loadBatch(["wf-1", "wf-2", "non-existent"]);
       expect(results).toHaveLength(3);
-      expect(Array.from(results[0].data!)).toEqual([10]);
-      expect(Array.from(results[1].data!)).toEqual([20]);
-      expect(results[2].data).toBeNull();
+      expect(Array.from(results[0]!.data!)).toEqual([10]);
+      expect(Array.from(results[1]!.data!)).toEqual([20]);
+      expect(results[2]!.data).toBeNull();
     });
 
     it("should delete multiple workflows in batch", async () => {

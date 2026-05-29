@@ -12,7 +12,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createSDK, ExecutionBuilder } from "@/api/index.js";
 import type { SDKInstance } from "@/api/index.js";
-import type { Script } from "@wf-agent/types";
+
 import {
   MemoryCheckpointStorage,
   MemoryWorkflowStorage,
@@ -105,7 +105,7 @@ describe("Workflow Execution E2E", () => {
     it("should execute a workflow with multiple SCRIPT nodes in sequence", async () => {
       // Register scripts with unique names (test file has unique workflow IDs)
       const scriptRegistry = sdk.getGlobalContext().scriptRegistry;
-      for (const [name, cmd] of [["multi-step-a", "echo step-a"], ["multi-step-b", "echo step-b"], ["multi-step-c", "echo step-c"]]) {
+      for (const [name, cmd] of [["multi-step-a", "echo step-a"], ["multi-step-b", "echo step-b"], ["multi-step-c", "echo step-c"]] as const) {
         scriptRegistry.registerScript({
           id: name,
           name,

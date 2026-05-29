@@ -12,7 +12,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { createSDK } from "@/api/index.js";
 import type { SDKInstance } from "@/api/index.js";
 import type { AgentLoopRuntimeConfig, Tool } from "@wf-agent/types";
-import { AgentLoopStatus } from "@wf-agent/types";
+
 import {
   MemoryCheckpointStorage,
   MemoryWorkflowStorage,
@@ -39,7 +39,6 @@ const MOCK_TOOL_ID = "mock_echo_tool";
 
 const mockEchoTool: Tool = {
   id: MOCK_TOOL_ID,
-  name: "Mock Echo Tool",
   description: "A mock tool that echoes back the input for testing.",
   type: "STATELESS",
   parameters: {
@@ -56,7 +55,7 @@ const mockEchoTool: Tool = {
     execute: async (args: Record<string, unknown>) => {
       return {
         success: true,
-        data: { echo: args.message || "no message" },
+        data: { echo: args["message"] || "no message" },
       };
     },
   },
@@ -236,8 +235,8 @@ describe("Agent Loop Execution E2E", () => {
       // - The mock handler was called
       // - The registry properly tracks the entity
       const allEntities = registry.getAll();
-      const executedEntity = allEntities.find(
-        (e: { id: string }) => e.id === result.iterations,
+      allEntities.find(
+        (e: { id: string }) => e.id === String(result.iterations),
       );
       // At minimum verify the execution completed successfully
       expect(result.success).toBe(true);

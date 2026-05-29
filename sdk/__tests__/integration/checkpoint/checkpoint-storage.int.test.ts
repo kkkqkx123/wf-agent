@@ -30,12 +30,9 @@ describe("Checkpoint Storage Integration", () => {
 
       // Save checkpoint (returns void)
       await fixture.storage.save("cp-1", data, {
-        id: "cp-1",
         entityId,
-        entityType: "AGENT_LOOP",
-        type: "FULL",
+        entityType: "agent",
         timestamp: Date.now(),
-        version: 1,
         tags: [],
       });
 
@@ -59,17 +56,17 @@ describe("Checkpoint Storage Integration", () => {
       const data2 = encoder.encode(JSON.stringify({ iteration: 2 }));
 
       await fixture.storage.save("cp-1", data1, {
-        id: "cp-1", entityId, entityType: "AGENT_LOOP", type: "FULL", timestamp: Date.now(), version: 1, tags: [],
+        entityId, entityType: "agent", timestamp: Date.now(), tags: [],
       });
       await fixture.storage.save("cp-2", data2, {
-        id: "cp-2", entityId, entityType: "AGENT_LOOP", type: "FULL", timestamp: Date.now() + 100, version: 2, tags: [],
+        entityId, entityType: "agent", timestamp: Date.now() + 100, tags: [],
       });
 
       // Use listByEntityWithMetadata for entity-based filtering
-      const items = await fixture.storage.listByEntityWithMetadata(entityId, "AGENT_LOOP");
+      const items = await fixture.storage.listByEntityWithMetadata(entityId, "agent");
       expect(items.length).toBe(2);
-      // Sorted by timestamp descending, so first item should be cp-2 (version 2)
-      expect(items[0]!.metadata.version).toBe(2);
+      // Sorted by timestamp descending, so first item should be cp-2 (timestamp newer)
+      expect(items[0]!.metadata.timestamp).toBeGreaterThan(items[1]!.metadata.timestamp);
     });
   });
 
@@ -80,19 +77,16 @@ describe("Checkpoint Storage Integration", () => {
       const data = new TextEncoder().encode(JSON.stringify(stateData));
 
       await fixture.storage.save("full-cp-1", data, {
-        id: "full-cp-1",
         entityId,
-        entityType: "WORKFLOW",
-        type: "FULL",
+        entityType: "workflow",
         timestamp: Date.now(),
-        version: 1,
         tags: [],
       });
 
       // Verify metadata
       const metadata = await fixture.storage.getMetadata("full-cp-1");
       expect(metadata).not.toBeNull();
-      expect(metadata!.type).toBe("FULL");
+      expect(metadata!.entityType).toBe("workflow");
 
       // Verify data
       const loadedData = await fixture.storage.load("full-cp-1");
@@ -107,7 +101,7 @@ describe("Checkpoint Storage Integration", () => {
     it("should clear all data", async () => {
       const data = new TextEncoder().encode(JSON.stringify({}));
       await fixture.storage.save("cp-1", data, {
-        id: "cp-1", entityId: "e1", entityType: "AGENT_LOOP", type: "FULL", timestamp: Date.now(), version: 1, tags: [],
+        entityId: "e1", entityType: "agent", timestamp: Date.now(), tags: [],
       });
 
       await fixture.storage.clear();

@@ -11,7 +11,6 @@
 import type { AgentLoopResult } from "@wf-agent/types";
 import type { AgentLoopEntity } from "@/agent/entities/agent-loop-entity.js";
 import { AgentLoopExecutor } from "@/agent/execution/executors/agent-loop-executor.js";
-import { LLMExecutor } from "@/core/executors/llm-executor.js";
 
 // =============================================================================
 // Constants
@@ -54,7 +53,7 @@ export class MockLLMService {
    */
   private getNextResponse(): string {
     if (this.config.responseSequence.length > 0) {
-      const response = this.config.responseSequence[this.callIndex % this.config.responseSequence.length];
+      const response = this.config.responseSequence[this.callIndex % this.config.responseSequence.length]!;
       this.callIndex++;
       return response;
     }
@@ -95,24 +94,10 @@ export class MockLLMService {
    * This creates an executor with mock dependencies wired to the mock LLM
    */
   createExecutor(): AgentLoopExecutor {
-    // Create individual mock dependencies
-    const mockLLMExecutor = {
-      execute: async (messages: any[], options?: any, signal?: AbortSignal) => {
-        const content = this.getNextResponse();
-        return {
-          content,
-          toolCalls: [],
-          usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
-        };
-      },
-      executeStream: async function* () {},
-    };
-
     return {
-      execute: async (entity: AgentLoopEntity): Promise<AgentLoopResult> => {
+      execute: async (_entity: AgentLoopEntity): Promise<AgentLoopResult> => {
         // Simulate a single iteration of agent loop execution
         const response = this.getNextResponse();
-        entity.state.complete();
         return {
           success: true,
           content: response,
@@ -120,7 +105,7 @@ export class MockLLMService {
           toolCallCount: 0,
         };
       },
-      executeStream: async function* (entity: AgentLoopEntity) {},
+      executeStream: async function* (_entity: AgentLoopEntity) {},
     } as unknown as AgentLoopExecutor;
   }
 }

@@ -120,7 +120,7 @@ describe("Agent Loop Checkpoint E2E", () => {
       expect(result.success).toBe(true);
 
       // MemoryAgentLoopStorage should have records if agent loop was persisted
-      const allIds = ctx.agentLoopStorage.listAllIds ? await ctx.agentLoopStorage.listAllIds() : undefined;
+      void ctx.agentLoopStorage.list();
       // Storage may or may not persist depending on implementation - just verify execution works
       expect(result.iterations).toBeDefined();
     });

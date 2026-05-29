@@ -236,8 +236,8 @@ describe("Task Storage E2E", () => {
 
       const results = await storage.loadBatch(["task-1", "non-existent"]);
       expect(results).toHaveLength(2);
-      expect(Array.from(results[0].data!)).toEqual([10]);
-      expect(results[1].data).toBeNull();
+      expect(Array.from(results[0]!.data!)).toEqual([10]);
+      expect(results[1]!.data).toBeNull();
     });
 
     it("should delete multiple tasks in batch", async () => {

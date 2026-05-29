@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { MemoryCheckpointStorage } from "@wf-agent/storage";
-import type { CheckpointStorageAdapter, CheckpointOptions } from "@wf-agent/storage";
-import type { CheckpointStorageMetadata, CheckpointEntityType } from "@wf-agent/types";
+import type { CheckpointStorageAdapter } from "@wf-agent/storage";
+import type { CheckpointStorageMetadata } from "@wf-agent/types";
 
 const createMetadata = (overrides: Partial<CheckpointStorageMetadata> = {}): CheckpointStorageMetadata => ({
   entityType: "workflow",
@@ -113,12 +113,12 @@ describe("Checkpoint Storage E2E", () => {
       const results = await storage.loadBatch(["cp-1", "cp-3", "non-existent"]);
 
       expect(results).toHaveLength(3);
-      expect(results[0].id).toBe("cp-1");
-      expect(results[0].data).not.toBeNull();
-      expect(results[1].id).toBe("cp-3");
-      expect(results[1].data).not.toBeNull();
-      expect(results[2].id).toBe("non-existent");
-      expect(results[2].data).toBeNull();
+      expect(results[0]!.id).toBe("cp-1");
+      expect(results[0]!.data).not.toBeNull();
+      expect(results[1]!.id).toBe("cp-3");
+      expect(results[1]!.data).not.toBeNull();
+      expect(results[2]!.id).toBe("non-existent");
+      expect(results[2]!.data).toBeNull();
     });
 
     it("should delete multiple checkpoints in batch", async () => {
@@ -185,7 +185,7 @@ describe("Checkpoint Storage E2E", () => {
 
       const latest = await storage.getLatestByEntity("wf-1", "workflow", 2, true);
       expect(latest).toHaveLength(2);
-      expect(latest[0].data).toBeDefined();
+      expect(latest[0]!.data).toBeDefined();
     });
 
     it("should delete checkpoints by entity", async () => {
@@ -220,10 +220,8 @@ describe("Checkpoint Storage E2E", () => {
     it("should save checkpoint with sync option", async () => {
       const data = new Uint8Array([1, 2, 3]);
       const metadata = createMetadata({ entityId: "wf-1" });
-      const options: CheckpointOptions = { sync: true, syncTimeout: 5000 };
-
       await expect(
-        storage.save("cp-sync", data, metadata, options),
+        storage.save("cp-sync", data, metadata, { sync: true, syncTimeout: 5000 }),
       ).resolves.not.toThrow();
     });
   });
@@ -295,7 +293,7 @@ describe("Checkpoint Storage E2E", () => {
 
       const results = await storage.listWithMetadata({ tags: ["alpha"] });
       expect(results).toHaveLength(1);
-      expect(results[0].id).toBe("cp-1");
+      expect(results[0]!.id).toBe("cp-1");
     });
 
     it("should return empty listByEntity for non-existent entity", async () => {

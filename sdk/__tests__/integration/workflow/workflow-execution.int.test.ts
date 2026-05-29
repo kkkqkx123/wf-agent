@@ -58,7 +58,7 @@ describe("Workflow Execution Integration", () => {
   describe("Workflow Registry (WF-INT-04)", () => {
     it("should have workflow registry available", () => {
       const ctx = sdk.getGlobalContext();
-      const registry = (ctx as any).workflowRegistry;
+      void (ctx as any).workflowRegistry;
       // Registry may be undefined until workflows are registered
       // Just verify SDK doesn't crash
       expect(sdk).toBeDefined();

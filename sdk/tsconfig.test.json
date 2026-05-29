@@ -12,7 +12,8 @@
     "api/**/*",
     "utils/**/*",
     "resources/**/*",
-    "workflow/**/*"
+    "workflow/**/*",
+    "__tests__/**/*"
   ],
   "exclude": ["node_modules", "dist"]
 }

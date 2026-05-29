@@ -100,9 +100,9 @@ describe('validateSubgraphExistence', () => {
 
       const errors = validateSubgraphExistence(graph);
       expect(errors).toHaveLength(1);
-      expect(errors[0].message).toContain('missing subgraphId');
-      expect(errors[0].context?.code).toBe('MISSING_SUBGRAPH_ID');
-      expect(errors[0].context?.nodeId).toBe('subgraph1');
+      expect(errors[0]!.message).toContain('missing subgraphId');
+      expect(errors[0]!.context?.['code']).toBe('MISSING_SUBGRAPH_ID');
+      expect(errors[0]!.context?.['nodeId']).toBe('subgraph1');
     });
 
     it('should fail validation when SUBGRAPH node has empty subgraphId', () => {
@@ -120,7 +120,7 @@ describe('validateSubgraphExistence', () => {
 
       const errors = validateSubgraphExistence(graph);
       expect(errors).toHaveLength(1);
-      expect(errors[0].message).toContain('missing subgraphId');
+      expect(errors[0]!.message).toContain('missing subgraphId');
     });
 
     it('should fail validation when SUBGRAPH node has undefined config', () => {
@@ -135,7 +135,7 @@ describe('validateSubgraphExistence', () => {
 
       const errors = validateSubgraphExistence(graph);
       expect(errors).toHaveLength(1);
-      expect(errors[0].message).toContain('missing subgraphId');
+      expect(errors[0]!.message).toContain('missing subgraphId');
     });
 
     it('should report multiple errors for multiple invalid SUBGRAPH nodes', () => {
@@ -158,8 +158,8 @@ describe('validateSubgraphExistence', () => {
 
       const errors = validateSubgraphExistence(graph);
       expect(errors).toHaveLength(2);
-      expect(errors[0].context?.nodeId).toBe('subgraph1');
-      expect(errors[1].context?.nodeId).toBe('subgraph2');
+      expect(errors[0]!.context?.['nodeId']).toBe('subgraph1');
+      expect(errors[1]!.context?.['nodeId']).toBe('subgraph2');
     });
   });
 });
@@ -318,9 +318,9 @@ describe('validateSubgraphCompatibility', () => {
 
       const errors = validateSubgraphCompatibility(graph);
       expect(errors).toHaveLength(1);
-      expect(errors[0].message).toContain('missing externalName');
-      expect(errors[0].context?.code).toBe('MISSING_EXTERNAL_NAME');
-      expect(errors[0].context?.nodeId).toBe('subgraph1');
+      expect(errors[0]!.message).toContain('missing externalName');
+      expect(errors[0]!.context?.['code']).toBe('MISSING_EXTERNAL_NAME');
+      expect(errors[0]!.context?.['nodeId']).toBe('subgraph1');
     });
 
     it('should fail validation when variableInput has whitespace-only externalName', () => {
@@ -341,7 +341,7 @@ describe('validateSubgraphCompatibility', () => {
 
       const errors = validateSubgraphCompatibility(graph);
       expect(errors).toHaveLength(1);
-      expect(errors[0].message).toContain('missing externalName');
+      expect(errors[0]!.message).toContain('missing externalName');
     });
 
     it('should fail validation when variableInput has missing internalName', () => {
@@ -362,8 +362,8 @@ describe('validateSubgraphCompatibility', () => {
 
       const errors = validateSubgraphCompatibility(graph);
       expect(errors).toHaveLength(1);
-      expect(errors[0].message).toContain('missing internalName');
-      expect(errors[0].context?.code).toBe('MISSING_INTERNAL_NAME');
+      expect(errors[0]!.message).toContain('missing internalName');
+      expect(errors[0]!.context?.['code']).toBe('MISSING_INTERNAL_NAME');
     });
 
     it('should fail validation when variableInput has whitespace-only internalName', () => {
@@ -384,7 +384,7 @@ describe('validateSubgraphCompatibility', () => {
 
       const errors = validateSubgraphCompatibility(graph);
       expect(errors).toHaveLength(1);
-      expect(errors[0].message).toContain('missing internalName');
+      expect(errors[0]!.message).toContain('missing internalName');
     });
 
     it('should report multiple errors for multiple invalid variableInputs', () => {
@@ -428,9 +428,9 @@ describe('validateSubgraphCompatibility', () => {
 
       const errors = validateSubgraphCompatibility(graph);
       expect(errors).toHaveLength(1);
-      expect(errors[0].message).toContain('missing internalName');
-      expect(errors[0].context?.code).toBe('MISSING_OUTPUT_INTERNAL_NAME');
-      expect(errors[0].context?.nodeId).toBe('subgraph1');
+      expect(errors[0]!.message).toContain('missing internalName');
+      expect(errors[0]!.context?.['code']).toBe('MISSING_OUTPUT_INTERNAL_NAME');
+      expect(errors[0]!.context?.['nodeId']).toBe('subgraph1');
     });
 
     it('should fail validation when variableOutput has whitespace-only internalName', () => {
@@ -451,7 +451,7 @@ describe('validateSubgraphCompatibility', () => {
 
       const errors = validateSubgraphCompatibility(graph);
       expect(errors).toHaveLength(1);
-      expect(errors[0].message).toContain('missing internalName');
+      expect(errors[0]!.message).toContain('missing internalName');
     });
 
     it('should fail validation when variableOutput has missing externalName', () => {
@@ -472,8 +472,8 @@ describe('validateSubgraphCompatibility', () => {
 
       const errors = validateSubgraphCompatibility(graph);
       expect(errors).toHaveLength(1);
-      expect(errors[0].message).toContain('missing externalName');
-      expect(errors[0].context?.code).toBe('MISSING_OUTPUT_EXTERNAL_NAME');
+      expect(errors[0]!.message).toContain('missing externalName');
+      expect(errors[0]!.context?.['code']).toBe('MISSING_OUTPUT_EXTERNAL_NAME');
     });
 
     it('should fail validation when variableOutput has whitespace-only externalName', () => {
@@ -494,7 +494,7 @@ describe('validateSubgraphCompatibility', () => {
 
       const errors = validateSubgraphCompatibility(graph);
       expect(errors).toHaveLength(1);
-      expect(errors[0].message).toContain('missing externalName');
+      expect(errors[0]!.message).toContain('missing externalName');
     });
 
     it('should report multiple errors for multiple invalid variableOutputs', () => {
@@ -549,8 +549,8 @@ describe('validateSubgraphCompatibility', () => {
       const errors = validateSubgraphCompatibility(graph);
       expect(errors.length).toBeGreaterThanOrEqual(2);
       
-      const inputErrors = errors.filter(e => e.context?.code === 'MISSING_EXTERNAL_NAME');
-      const outputErrors = errors.filter(e => e.context?.code === 'MISSING_OUTPUT_EXTERNAL_NAME');
+      const inputErrors = errors.filter(e => e.context?.['code'] === 'MISSING_EXTERNAL_NAME');
+      const outputErrors = errors.filter(e => e.context?.['code'] === 'MISSING_OUTPUT_EXTERNAL_NAME');
       
       expect(inputErrors.length).toBeGreaterThanOrEqual(1);
       expect(outputErrors.length).toBeGreaterThanOrEqual(1);

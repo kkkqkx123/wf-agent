@@ -5,7 +5,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { BaseCheckpointStateManager } from '../base-checkpoint-state-manager.js';
-import type { BaseCheckpoint, CheckpointStorageMetadata, CleanupPolicy, CleanupResult, CheckpointInfo, BaseEvent } from '@wf-agent/types';
+import type { BaseCheckpoint, CheckpointStorageMetadata, CleanupPolicy } from '@wf-agent/types';
 import type { EventRegistry } from '../../registry/event-registry.js';
 import type { CheckpointStorageAdapter } from '../types.js';
 

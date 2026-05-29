@@ -125,8 +125,8 @@ describe("setArrayItemByKey", () => {
     ];
     const result = setArrayItemByKey(arr, "name", "var1", "value", 100);
     expect(result).toBe(true);
-    expect(arr[0].value).toBe(100);
-    expect(arr[1].value).toBe(2);
+    expect(arr[0]!.value).toBe(100);
+    expect(arr[1]!.value).toBe(2);
   });
 
   it("should return false if item not found", () => {

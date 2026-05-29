@@ -100,9 +100,9 @@ describe('validateEmbedGraphExistence', () => {
 
       const errors = validateEmbedGraphExistence(graph);
       expect(errors).toHaveLength(1);
-      expect(errors[0].message).toContain('missing embedId');
-      expect(errors[0].context?.code).toBe('MISSING_EMBED_ID');
-      expect(errors[0].context?.nodeId).toBe('embed1');
+      expect(errors[0]!.message).toContain('missing embedId');
+      expect(errors[0]!.context?.['code']).toBe('MISSING_EMBED_ID');
+      expect(errors[0]!.context?.['nodeId']).toBe('embed1');
     });
 
     it('should fail validation when EMBED_GRAPH node has empty embedId', () => {
@@ -120,7 +120,7 @@ describe('validateEmbedGraphExistence', () => {
 
       const errors = validateEmbedGraphExistence(graph);
       expect(errors).toHaveLength(1);
-      expect(errors[0].message).toContain('missing embedId');
+      expect(errors[0]!.message).toContain('missing embedId');
     });
 
     it('should fail validation when EMBED_GRAPH node has undefined config', () => {
@@ -135,7 +135,7 @@ describe('validateEmbedGraphExistence', () => {
 
       const errors = validateEmbedGraphExistence(graph);
       expect(errors).toHaveLength(1);
-      expect(errors[0].message).toContain('missing embedId');
+      expect(errors[0]!.message).toContain('missing embedId');
     });
 
     it('should report multiple errors for multiple invalid EMBED_GRAPH nodes', () => {
@@ -158,8 +158,8 @@ describe('validateEmbedGraphExistence', () => {
 
       const errors = validateEmbedGraphExistence(graph);
       expect(errors).toHaveLength(2);
-      expect(errors[0].context?.nodeId).toBe('embed1');
-      expect(errors[1].context?.nodeId).toBe('embed2');
+      expect(errors[0]!.context?.['nodeId']).toBe('embed1');
+      expect(errors[1]!.context?.['nodeId']).toBe('embed2');
     });
   });
 });
@@ -255,9 +255,9 @@ describe('validateEmbedGraphConstraints', () => {
 
       const errors = validateEmbedGraphConstraints(graph);
       expect(errors).toHaveLength(1);
-      expect(errors[0].message).toContain('should not have variableInputs');
-      expect(errors[0].context?.code).toBe('EMBED_GRAPH_HAS_VARIABLE_INPUTS');
-      expect(errors[0].context?.nodeId).toBe('embed1');
+      expect(errors[0]!.message).toContain('should not have variableInputs');
+      expect(errors[0]!.context?.['code']).toBe('EMBED_GRAPH_HAS_VARIABLE_INPUTS');
+      expect(errors[0]!.context?.['nodeId']).toBe('embed1');
     });
 
     it('should fail validation when EMBED_GRAPH has variableOutputs', () => {
@@ -278,9 +278,9 @@ describe('validateEmbedGraphConstraints', () => {
 
       const errors = validateEmbedGraphConstraints(graph);
       expect(errors).toHaveLength(1);
-      expect(errors[0].message).toContain('should not have variableOutputs');
-      expect(errors[0].context?.code).toBe('EMBED_GRAPH_HAS_VARIABLE_OUTPUTS');
-      expect(errors[0].context?.nodeId).toBe('embed1');
+      expect(errors[0]!.message).toContain('should not have variableOutputs');
+      expect(errors[0]!.context?.['code']).toBe('EMBED_GRAPH_HAS_VARIABLE_OUTPUTS');
+      expect(errors[0]!.context?.['nodeId']).toBe('embed1');
     });
 
     it('should fail validation when EMBED_GRAPH has both variableInputs and variableOutputs', () => {
@@ -304,8 +304,8 @@ describe('validateEmbedGraphConstraints', () => {
 
       const errors = validateEmbedGraphConstraints(graph);
       expect(errors).toHaveLength(2);
-      expect(errors[0].context?.code).toBe('EMBED_GRAPH_HAS_VARIABLE_INPUTS');
-      expect(errors[1].context?.code).toBe('EMBED_GRAPH_HAS_VARIABLE_OUTPUTS');
+      expect(errors[0]!.context?.['code']).toBe('EMBED_GRAPH_HAS_VARIABLE_INPUTS');
+      expect(errors[1]!.context?.['code']).toBe('EMBED_GRAPH_HAS_VARIABLE_OUTPUTS');
     });
 
     it('should report errors for multiple EMBED_GRAPH nodes with violations', () => {
@@ -336,8 +336,8 @@ describe('validateEmbedGraphConstraints', () => {
 
       const errors = validateEmbedGraphConstraints(graph);
       expect(errors).toHaveLength(2);
-      expect(errors[0].context?.nodeId).toBe('embed1');
-      expect(errors[1].context?.nodeId).toBe('embed2');
+      expect(errors[0]!.context?.['nodeId']).toBe('embed1');
+      expect(errors[1]!.context?.['nodeId']).toBe('embed2');
     });
 
     it('should not report error for empty variableInputs array', () => {

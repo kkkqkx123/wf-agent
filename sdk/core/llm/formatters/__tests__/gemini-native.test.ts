@@ -35,7 +35,7 @@ describe("GeminiNativeFormatter", () => {
       },
       stream: false,
       timeout: 30000,
-    } as FormatterConfig;
+    } as unknown as FormatterConfig;
   });
 
   describe("getSupportedProvider", () => {
@@ -117,7 +117,7 @@ describe("GeminiNativeFormatter", () => {
       const result = formatter.parseResponse(data, mockConfig);
       expect(result.toolCalls).toBeDefined();
       expect(result.toolCalls).toHaveLength(1);
-      expect(result.toolCalls![0].function.name).toBe("get_weather");
+      expect(result.toolCalls![0]!.function.name).toBe("get_weather");
     });
 
     it("should extract thinking content", () => {
@@ -221,7 +221,7 @@ describe("GeminiNativeFormatter", () => {
         { functionCall: { name: "search", args: { q: "test" } } },
       ];
       const result = formatter.parseToolCalls(toolCalls);
-      expect(result[0].function.name).toBe("search");
+      expect(result[0]!.function.name).toBe("search");
     });
 
     it("should handle empty input", () => {

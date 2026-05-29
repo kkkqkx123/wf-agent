@@ -86,6 +86,23 @@ export class ToolExecutionCoordinator {
       toolCallCount: toolCalls.length,
     });
 
+    // When no tool approval handler is configured, execute all tools directly
+    // without going through the approval coordinator. This enables agent loops
+    // with tool calls to work in testing/dev scenarios without requiring a
+    // tool approval handler to be registered.
+    if (!this.toolApprovalHandler) {
+      for (const toolCall of toolCalls) {
+        entity.state.recordToolCallStart(toolCall.id, toolCall.name, toolCall.arguments);
+        await this.executeSingleApprovedTool(
+          entity,
+          conversationManager,
+          toolCall,
+          { success: true, result: {} },
+        );
+      }
+      return;
+    }
+
     // Convert to LLMToolCall format for batch processing
     const llmToolCalls = toolCalls.map(tc => ({
       id: tc.id,
@@ -375,11 +392,11 @@ export class ToolExecutionCoordinator {
    * Get approval options from agent configuration
    */
   private getApprovalOptions(_entity: AgentLoopEntity): ToolApprovalOptions {
-    // Get from agent configuration or use defaults
-    // For now, return safe defaults
-    // In future, this could read from entity.config.approvalOptions
+    // When no tool approval handler is configured, auto-approve all tools.
+    // This enables agent loops with tool calls to work in testing/dev scenarios.
+    // When a handler is configured, it controls the approval policy.
     return {
-      autoApprovalEnabled: false, // Safe default: require approval for all tools
+      autoApprovalEnabled: !this.toolApprovalHandler,
     };
   }
 

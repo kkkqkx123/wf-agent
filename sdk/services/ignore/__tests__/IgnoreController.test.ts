@@ -499,17 +499,15 @@ describe("IgnoreController", () => {
       mockFastIgnore.mockReturnValue(vi.fn(() => true));
 
       // We need to check what patterns are passed
-      let capturedPattern = "";
-      mockFastIgnore.mockImplementation((pattern: string) => {
-        capturedPattern = pattern;
+      mockFastIgnore.mockImplementation((_pattern: string) => {
         return vi.fn(() => true);
       });
 
-      const controller = new IgnoreController({ cwd: testCwd, mode: "builtin" });
+      new IgnoreController({ cwd: testCwd, mode: "builtin" });
 
       // Verify fast-ignore was called with builtin patterns
       expect(mockFastIgnore).toHaveBeenCalled();
-      const patternsArg = mockFastIgnore.mock.calls[0][0];
+      const patternsArg = mockFastIgnore.mock.calls[0]![0];
       expect(patternsArg).toContain("node_modules");
       expect(patternsArg).toContain("**/.*/**");
       expect(patternsArg).toContain("dist");

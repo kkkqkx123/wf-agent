@@ -234,8 +234,8 @@ describe('validateSyncNodes', () => {
       const errors = validateSyncNodes(graph);
       // Now reports config error (and continues to check other validations)
       expect(errors.length).toBeGreaterThanOrEqual(1);
-      expect(errors[0].message).toContain('missing required sourcePathId');
-      expect(errors[0].context?.code).toBe('MISSING_SYNC_SOURCE_PATH_ID');
+      expect(errors[0]!.message).toContain('missing required sourcePathId');
+      expect(errors[0]!.context?.['code']).toBe('MISSING_SYNC_SOURCE_PATH_ID');
       // Note: sync1 has edges so it's not isolated, but other validations still run
     });
 
@@ -262,8 +262,8 @@ describe('validateSyncNodes', () => {
 
       const errors = validateSyncNodes(graph);
       expect(errors).toHaveLength(1);
-      expect(errors[0].message).toContain('does not exist in any FORK node');
-      expect(errors[0].context?.code).toBe('INVALID_SYNC_SOURCE_PATH_ID');
+      expect(errors[0]!.message).toContain('does not exist in any FORK node');
+      expect(errors[0]!.context?.['code']).toBe('INVALID_SYNC_SOURCE_PATH_ID');
     });
 
     it('should error when targetPathId does not exist in any FORK', () => {
@@ -313,8 +313,8 @@ describe('validateSyncNodes', () => {
 
       const errors = validateSyncNodes(graph);
       expect(errors).toHaveLength(1);
-      expect(errors[0].message).toContain('does not exist in any FORK node');
-      expect(errors[0].context?.code).toBe('INVALID_SYNC_TARGET_PATH_ID');
+      expect(errors[0]!.message).toContain('does not exist in any FORK node');
+      expect(errors[0]!.context?.['code']).toBe('INVALID_SYNC_TARGET_PATH_ID');
     });
 
     it('should error when variableMapping has missing externalName', () => {
@@ -361,8 +361,8 @@ describe('validateSyncNodes', () => {
 
       const errors = validateSyncNodes(graph);
       expect(errors).toHaveLength(1);
-      expect(errors[0].message).toContain('missing externalName');
-      expect(errors[0].context?.code).toBe('MISSING_SYNC_MAPPING_EXTERNAL_NAME');
+      expect(errors[0]!.message).toContain('missing externalName');
+      expect(errors[0]!.context?.['code']).toBe('MISSING_SYNC_MAPPING_EXTERNAL_NAME');
     });
 
     it('should error when variableMapping has missing internalName', () => {
@@ -409,8 +409,8 @@ describe('validateSyncNodes', () => {
 
       const errors = validateSyncNodes(graph);
       expect(errors).toHaveLength(1);
-      expect(errors[0].message).toContain('missing internalName');
-      expect(errors[0].context?.code).toBe('MISSING_SYNC_MAPPING_INTERNAL_NAME');
+      expect(errors[0]!.message).toContain('missing internalName');
+      expect(errors[0]!.context?.['code']).toBe('MISSING_SYNC_MAPPING_INTERNAL_NAME');
     });
 
     it('should error when variableMapping has duplicate externalName', () => {
@@ -458,8 +458,8 @@ describe('validateSyncNodes', () => {
 
       const errors = validateSyncNodes(graph);
       expect(errors).toHaveLength(1);
-      expect(errors[0].message).toContain('duplicate externalName');
-      expect(errors[0].context?.code).toBe('DUPLICATE_SYNC_MAPPING_EXTERNAL_NAME');
+      expect(errors[0]!.message).toContain('duplicate externalName');
+      expect(errors[0]!.context?.['code']).toBe('DUPLICATE_SYNC_MAPPING_EXTERNAL_NAME');
     });
 
     it('should error when variableMapping has duplicate internalName', () => {
@@ -507,8 +507,8 @@ describe('validateSyncNodes', () => {
 
       const errors = validateSyncNodes(graph);
       expect(errors).toHaveLength(1);
-      expect(errors[0].message).toContain('duplicate internalName');
-      expect(errors[0].context?.code).toBe('DUPLICATE_SYNC_MAPPING_INTERNAL_NAME');
+      expect(errors[0]!.message).toContain('duplicate internalName');
+      expect(errors[0]!.context?.['code']).toBe('DUPLICATE_SYNC_MAPPING_INTERNAL_NAME');
     });
 
     it('should error when SYNC node is isolated', () => {
@@ -552,8 +552,8 @@ describe('validateSyncNodes', () => {
 
       const errors = validateSyncNodes(graph);
       expect(errors).toHaveLength(1);
-      expect(errors[0].message).toContain('is isolated');
-      expect(errors[0].context?.code).toBe('ISOLATED_SYNC_NODE');
+      expect(errors[0]!.message).toContain('is isolated');
+      expect(errors[0]!.context?.['code']).toBe('ISOLATED_SYNC_NODE');
     });
   });
 
@@ -621,8 +621,8 @@ describe('validateSyncNodes', () => {
 
       const errors = validateSyncNodes(graph);
       expect(errors).toHaveLength(1);
-      expect(errors[0].message).toContain('map to the same internalName');
-      expect(errors[0].context?.code).toBe('CONFLICTING_SYNC_MAPPINGS');
+      expect(errors[0]!.message).toContain('map to the same internalName');
+      expect(errors[0]!.context?.['code']).toBe('CONFLICTING_SYNC_MAPPINGS');
     });
 
     it('should error when circular variable dependency detected', () => {
@@ -688,7 +688,7 @@ describe('validateSyncNodes', () => {
 
       const errors = validateSyncNodes(graph);
       expect(errors.length).toBeGreaterThan(0);
-      const circularError = errors.find(e => e.context?.code === 'CIRCULAR_SYNC_DEPENDENCY');
+      const circularError = errors.find(e => e.context?.['code'] === 'CIRCULAR_SYNC_DEPENDENCY');
       expect(circularError).toBeDefined();
       expect(circularError?.message).toContain('Circular variable dependency');
     });
@@ -766,7 +766,7 @@ describe('validateSyncNodes', () => {
 
       const errors = validateSyncNodes(graph);
       expect(errors.length).toBeGreaterThan(0);
-      const cycleError = errors.find(e => e.context?.code === 'CIRCULAR_DATA_FLOW');
+      const cycleError = errors.find(e => e.context?.['code'] === 'CIRCULAR_DATA_FLOW');
       expect(cycleError).toBeDefined();
       expect(cycleError?.message).toContain('Circular data flow');
     });

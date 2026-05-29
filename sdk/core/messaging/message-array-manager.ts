@@ -5,11 +5,10 @@
 
 import { now } from "@wf-agent/common-utils";
 import type {
-  Message,
-  MessageArrayState,
-  MessageOperationConfig,
-  MessageOperationResult,
-  MessageArrayStats,
+ Message,
+ MessageArrayState,
+ MessageOperationResult,
+ MessageArrayStats,
   BatchSnapshot,
   AppendMessageOperation,
   InsertMessageOperation,
@@ -42,7 +41,16 @@ export class MessageArrayManager {
    * @param operation: Operation configuration
    * @returns: Operation result
    */
-  execute(operation: MessageOperationConfig): MessageOperationResult {
+  execute(
+    operation:
+      | AppendMessageOperation
+      | InsertMessageOperation
+      | ReplaceMessageOperation
+      | TruncateMessageOperation
+      | ClearMessageOperation
+      | FilterMessageOperation
+      | RollbackMessageOperation,
+  ): MessageOperationResult {
     switch (operation.operation) {
       case "APPEND":
         return this.executeAppend(operation as AppendMessageOperation);

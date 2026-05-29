@@ -1,7 +1,6 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { ExpressionCompiler, expressionCompiler } from "../expression-compiler.js";
 import type { EvaluationContext } from "@wf-agent/types";
-import { dslParse } from "../dsl/index.js";
 
 function makeContext(variables: Record<string, unknown> = {}): EvaluationContext {
   return { variables, input: {}, output: {} };

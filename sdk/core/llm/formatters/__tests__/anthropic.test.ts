@@ -50,7 +50,7 @@ describe("AnthropicFormatter", () => {
       },
       stream: false,
       timeout: 60000,
-    } as FormatterConfig;
+    } as unknown as FormatterConfig;
   });
 
   describe("constructor", () => {
@@ -74,27 +74,27 @@ describe("AnthropicFormatter", () => {
     it("should return HTTP request with /v1/messages endpoint", () => {
       const request: LLMRequest = { messages: [{ role: "user", content: "Hello" }] };
       const result = formatter.buildRequest(request, mockConfig);
-      expect(result.httpRequest.url).toContain("/v1/messages");
-      expect(result.httpRequest.method).toBe("POST");
+      expect(result.httpRequest!.url).toContain("/v1/messages");
+      expect(result.httpRequest!.method).toBe("POST");
     });
 
     it("should include anthropic-specific headers", () => {
       const request: LLMRequest = { messages: [{ role: "user", content: "Hi" }] };
       const result = formatter.buildRequest(request, mockConfig);
-      expect(result.httpRequest.headers["anthropic-version"]).toBeDefined();
-      expect(result.httpRequest.headers["anthropic-dangerous-direct-browser-access"]).toBe("false");
+      expect(result.httpRequest!.headers!["anthropic-version"]).toBeDefined();
+      expect(result.httpRequest!.headers!["anthropic-dangerous-direct-browser-access"]).toBe("false");
     });
 
     it("should include x-api-key header when apiKey is set", () => {
       const request: LLMRequest = { messages: [{ role: "user", content: "Hi" }] };
       const result = formatter.buildRequest(request, mockConfig);
-      expect(result.httpRequest.headers).toHaveProperty("x-api-key");
+      expect(result.httpRequest!.headers).toHaveProperty("x-api-key");
     });
 
     it("should include max_tokens in body", () => {
       const request: LLMRequest = { messages: [{ role: "user", content: "Hello" }] };
       const result = formatter.buildRequest(request, mockConfig);
-      const body = result.httpRequest.body as Record<string, unknown>;
+      const body = result.httpRequest!.body as Record<string, unknown>;
       expect(body["max_tokens"]).toBeDefined();
     });
   });
@@ -136,8 +136,8 @@ describe("AnthropicFormatter", () => {
       const result = formatter.parseResponse(data, mockConfig);
       expect(result.toolCalls).toBeDefined();
       expect(result.toolCalls).toHaveLength(1);
-      expect(result.toolCalls![0].function.name).toBe("get_weather");
-      expect(result.toolCalls![0].id).toBe("toolu-1");
+      expect(result.toolCalls![0]!.function!.name).toBe("get_weather");
+      expect(result.toolCalls![0]!.id).toBe("toolu-1");
     });
 
     it("should extract thinking content", () => {
@@ -186,7 +186,7 @@ describe("AnthropicFormatter", () => {
       const result = formatter.parseStreamChunk(data);
       expect(result.valid).toBe(true);
       expect(result.chunk.toolCallsDelta).toBeDefined();
-      expect(result.chunk.toolCallsDelta![0].function.name).toBe("get_weather");
+      expect(result.chunk.toolCallsDelta![0]!.function!.name).toBe("get_weather");
     });
 
     it("should handle message delta with stop reason", () => {
@@ -253,8 +253,8 @@ describe("AnthropicFormatter", () => {
       ];
       const result = formatter.parseToolCalls(toolCalls);
       expect(result).toHaveLength(1);
-      expect(result[0].function.name).toBe("get_weather");
-      expect(result[0].function.arguments).toBe('{"city":"Tokyo"}');
+      expect(result[0]!.function!.name).toBe("get_weather");
+      expect(result[0]!.function!.arguments).toBe('{"city":"Tokyo"}');
     });
 
     it("should handle string input", () => {
@@ -262,11 +262,11 @@ describe("AnthropicFormatter", () => {
         { id: "toolu-2", name: "search", input: '{"q":"test"}' },
       ];
       const result = formatter.parseToolCalls(toolCalls);
-      expect(result[0].function.arguments).toBe('{"q":"test"}');
+      expect(result[0]!.function!.arguments).toBe('{"q":"test"}');
     });
 
     it("should handle null input", () => {
-      const result = formatter.parseToolCalls(null);
+      const result = formatter.parseToolCalls([] as unknown[]);
       expect(result).toEqual([]);
     });
   });
@@ -277,8 +277,8 @@ describe("AnthropicFormatter", () => {
         messages: [{ role: "user", content: "Hello" }],
       };
       const result = formatter.buildCountTokensRequest(request, mockConfig);
-      expect(result.httpRequest.url).toContain("/v1/messages");
-      expect(result.httpRequest.method).toBe("POST");
+      expect(result.httpRequest!.url).toContain("/v1/messages");
+      expect(result.httpRequest!.method).toBe("POST");
     });
 
     it("should include system message if present", () => {
@@ -289,7 +289,7 @@ describe("AnthropicFormatter", () => {
         ],
       };
       const result = formatter.buildCountTokensRequest(request, mockConfig);
-      const body = result.httpRequest.body as Record<string, unknown>;
+      const body = result.httpRequest!.body as Record<string, unknown>;
       expect(body["system"]).toBe("You are helpful.");
     });
   });

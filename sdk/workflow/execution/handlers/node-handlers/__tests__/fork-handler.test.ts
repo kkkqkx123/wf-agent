@@ -41,7 +41,7 @@ const mockNode: RuntimeNode = {
   config: {
     forkPaths: [{ id: 'branch-1', label: 'Branch 1' }],
   },
-} as RuntimeNode;
+} as unknown as RuntimeNode;
 
 beforeEach(() => {
   vi.clearAllMocks();

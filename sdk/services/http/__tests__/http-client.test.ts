@@ -103,7 +103,7 @@ describe("HttpClient", () => {
       mockFetch(200, {});
 
       await client.get("/test");
-      const callHeaders = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].headers;
+      const callHeaders = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]![1].headers;
       expect(callHeaders["X-App"]).toBe("test");
       expect(callHeaders["Content-Type"]).toBe("application/json");
     });
@@ -117,7 +117,7 @@ describe("HttpClient", () => {
 
       const options: HttpRequestOptions = { headers: { Authorization: "Bearer custom" } };
       await client.get("/test", options);
-      const callHeaders = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].headers;
+      const callHeaders = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]![1].headers;
       expect(callHeaders["Authorization"]).toBe("Bearer custom");
     });
 
@@ -125,7 +125,7 @@ describe("HttpClient", () => {
       mockFetch(200, {});
       const options: HttpRequestOptions = { query: { page: "1", limit: 10 } };
       await client.get("/items", options);
-      const calledUrl = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      const calledUrl = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]![0];
       expect(calledUrl).toBe("https://api.test.com/items?page=1&limit=10");
     });
   });
@@ -194,7 +194,7 @@ describe("HttpClient", () => {
       });
 
       await client.get("/test");
-      const callHeaders = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].headers;
+      const callHeaders = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]![1].headers;
       expect(callHeaders["X-Interceptor"]).toBe("applied");
     });
 

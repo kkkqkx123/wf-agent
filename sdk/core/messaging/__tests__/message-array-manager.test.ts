@@ -3,7 +3,7 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { MessageArrayManager } from '../message-array-manager.js';
-import type { Message } from '@wf-agent/types';
+import type { Message, LLMMessage } from '@wf-agent/types';
 
 describe('MessageArrayManager', () => {
   let manager: MessageArrayManager;
@@ -272,7 +272,7 @@ describe('MessageArrayManager', () => {
     it('should filter by multiple roles', () => {
       manager = new MessageArrayManager([
         { role: 'user', content: 'A' },
-        { role: 'tool', toolCallId: 't1', content: 'R1' },
+        { role: 'tool', toolCallId: 't1', content: 'R1' } as LLMMessage,
         { role: 'assistant', content: 'B' },
       ]);
       const result = manager.execute({

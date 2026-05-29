@@ -1,8 +1,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { SandboxShellExecutor } from "../sandbox-shell-executor.js";
 import { resetSandboxRuntime } from "../../../../services/sandbox/sandbox-runtime.js";
-import type { BaseExecuteOptions } from "./base-executor.js";
-import type { SandboxConfig } from "@wf-agent/types";
+import type { BaseExecuteOptions } from "../base-executor.js";
 
 describe("SandboxShellExecutor", () => {
   let executor: SandboxShellExecutor;

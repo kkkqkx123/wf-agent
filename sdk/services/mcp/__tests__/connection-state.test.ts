@@ -55,9 +55,9 @@ describe("Connection State Management", () => {
       const state = makeState();
       const updated = addErrorToHistory(state, "Connection failed");
       expect(updated.errorHistory).toHaveLength(1);
-      expect(updated.errorHistory[0].message).toBe("Connection failed");
-      expect(updated.errorHistory[0].level).toBe("error");
-      expect(typeof updated.errorHistory[0].timestamp).toBe("number");
+      expect(updated.errorHistory[0]!.message).toBe("Connection failed");
+      expect(updated.errorHistory[0]!.level).toBe("error");
+      expect(typeof updated.errorHistory[0]!.timestamp).toBe("number");
     });
 
     it("should set current error", () => {
@@ -71,7 +71,7 @@ describe("Connection State Management", () => {
       const longMsg = "x".repeat(2000);
       const updated = addErrorToHistory(state, longMsg);
       expect(updated.error!.length).toBeLessThanOrEqual(1000 + 14); // 1000 + "(truncated)"
-      expect(updated.error).toContain("(truncated)");
+      expect(updated.error!).toContain("(truncated)");
     });
 
     it("should respect maxHistory", () => {
@@ -86,10 +86,10 @@ describe("Connection State Management", () => {
     it("should support warn and info levels", () => {
       const state = makeState();
       const warn = addErrorToHistory(state, "Warning", "warn");
-      expect(warn.errorHistory[0].level).toBe("warn");
+      expect(warn.errorHistory[0]!.level).toBe("warn");
 
       const info = addErrorToHistory(state, "Info", "info");
-      expect(info.errorHistory[0].level).toBe("info");
+      expect(info.errorHistory[0]!.level).toBe("info");
     });
   });
 

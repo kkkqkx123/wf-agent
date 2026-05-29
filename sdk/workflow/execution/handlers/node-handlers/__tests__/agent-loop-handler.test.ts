@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { agentLoopHandler } from '../agent-loop-handler.js';
 import type { GlobalContext } from '../../../../../core/global-context.js';
-import type { WorkflowExecution, AgentLoopNodeConfig } from '@wf-agent/types';
+import type { AgentLoopNodeConfig } from '@wf-agent/types';
 import type { RuntimeNode } from '@wf-agent/types';
 import type { AgentLoopHandlerContext } from '../agent-loop-handler.js';
 

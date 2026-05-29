@@ -18,7 +18,6 @@ import {
 } from "../index.js";
 import { executePassthrough } from "../base.js";
 import type { SandboxPolicy, StrategyExecuteOptions } from "@wf-agent/types";
-import type { StrategyImplementation } from "../../../types.js";
 import type { TerminalService } from "../../../../terminal/index.js";
 
 // =========================================================================

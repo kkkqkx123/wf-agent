@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { conditionLexer } from "../tokens.js";
 import { ConditionLexer, conditionLexerInstance } from "../condition-lexer.js";
-import { ConditionParser, conditionParser } from "../condition-parser.js";
-import { ConditionCstToAstVisitor, conditionCstToAstVisitor } from "../condition-cst-to-ast.js";
+import { conditionParser } from "../condition-parser.js";
+import { conditionCstToAstVisitor } from "../condition-cst-to-ast.js";
 import {
   dslParse,
   dslParseWithErrors,
@@ -45,19 +45,19 @@ describe("Tokens", () => {
   it("should tokenize string literals with single quotes", () => {
     const result = conditionLexer.tokenize("'hello world'");
     expect(result.errors).toHaveLength(0);
-    expect(result.tokens[0].image).toBe("'hello world'");
+    expect(result.tokens[0]!.image).toBe("'hello world'");
   });
 
   it("should tokenize string literals with double quotes", () => {
     const result = conditionLexer.tokenize('"hello world"');
     expect(result.errors).toHaveLength(0);
-    expect(result.tokens[0].image).toBe('"hello world"');
+    expect(result.tokens[0]!.image).toBe('"hello world"');
   });
 
   it("should tokenize string literals with escape sequences", () => {
     const result = conditionLexer.tokenize("'hello\\'world'");
     expect(result.errors).toHaveLength(0);
-    expect(result.tokens[0].image).toBe("'hello\\'world'");
+    expect(result.tokens[0]!.image).toBe("'hello\\'world'");
   });
 
   it("should tokenize number literals correctly", () => {
@@ -77,8 +77,8 @@ describe("Tokens", () => {
   it("should distinguish keywords from identifiers", () => {
     const result = conditionLexer.tokenize("true trueValue");
     expect(result.errors).toHaveLength(0);
-    expect(result.tokens[0].tokenType.name).toBe("True");
-    expect(result.tokens[1].tokenType.name).toBe("Identifier");
+    expect(result.tokens[0]!.tokenType.name).toBe("True");
+    expect(result.tokens[1]!.tokenType.name).toBe("Identifier");
   });
 
   it("should handle array methods", () => {
@@ -661,7 +661,7 @@ describe("Public API - index.ts", () => {
       const result = parseToCst("@invalid");
       expect(result.cst).toBeNull();
       expect(result.errors.length).toBeGreaterThan(0);
-      expect(result.errors[0].severity).toBe("error");
+      expect(result.errors[0]!.severity).toBe("error");
     });
 
     it("should handle parse errors gracefully", () => {

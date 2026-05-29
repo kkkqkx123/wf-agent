@@ -56,7 +56,7 @@ describe("SseTransport", () => {
 
       await transport.execute("/search", { query: { q: "hello", page: 1 } });
 
-      const calledUrl = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      const calledUrl = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]![0];
       expect(calledUrl).toContain("q=hello");
       expect(calledUrl).toContain("page=1");
     });
@@ -92,7 +92,7 @@ describe("SseTransport", () => {
       transport = new SseTransport();
 
       const generator = transport.executeStream("/stream");
-      await expect(generator.next()).rejects.toThrow("HTTP 500");
+      await expect(generator[Symbol.asyncIterator]().next()).rejects.toThrow("HTTP 500");
     });
 
     it("should throw when response body is null", async () => {
@@ -104,7 +104,7 @@ describe("SseTransport", () => {
       transport = new SseTransport();
 
       const generator = transport.executeStream("/stream");
-      await expect(generator.next()).rejects.toThrow("Response body is null");
+      await expect(generator[Symbol.asyncIterator]().next()).rejects.toThrow("Response body is null");
     });
 
     it("should abort on timeout", async () => {
@@ -127,7 +127,7 @@ describe("SseTransport", () => {
       const generator = transport.executeStream("/stream");
 
       // Advance time past the timeout
-      const promise = generator.next();
+      const promise = (generator as any).next();
       vi.advanceTimersByTime(6000);
 
       await expect(promise).rejects.toThrow();

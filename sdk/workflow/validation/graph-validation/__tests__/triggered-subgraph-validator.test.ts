@@ -239,10 +239,10 @@ describe('validateTriggeredSubgraphConnectivity', () => {
       const errors = validateTriggeredSubgraphConnectivity(graph);
       // After improvement: script2 only gets UNREACHABLE error, not the duplicate CANNOT_REACH error
       expect(errors).toHaveLength(1);
-      expect(errors[0].message).toContain('not reachable from START_FROM_TRIGGER');
-      expect(errors[0].message).toContain('disconnected from the workflow');
-      expect(errors[0].context?.code).toBe('UNREACHABLE_FROM_START_FROM_TRIGGER');
-      expect(errors[0].context?.nodeId).toBe('script2');
+      expect(errors[0]!.message).toContain('not reachable from START_FROM_TRIGGER');
+      expect(errors[0]!.message).toContain('disconnected from the workflow');
+      expect(errors[0]!.context?.['code']).toBe('UNREACHABLE_FROM_START_FROM_TRIGGER');
+      expect(errors[0]!.context?.['nodeId']).toBe('script2');
     });
 
     it('should fail validation when node cannot reach CONTINUE_FROM_TRIGGER', () => {
@@ -265,16 +265,16 @@ describe('validateTriggeredSubgraphConnectivity', () => {
       expect(errors.length).toBeGreaterThanOrEqual(2);
       
       const script2Error = errors.find(e => 
-        e.context?.code === 'CANNOT_REACH_CONTINUE_FROM_TRIGGER' && 
-        e.context?.nodeId === 'script2'
+        e.context?.['code'] === 'CANNOT_REACH_CONTINUE_FROM_TRIGGER' && 
+        e.context?.['nodeId'] === 'script2'
       );
       expect(script2Error).toBeDefined();
       expect(script2Error?.message).toContain('cannot reach CONTINUE_FROM_TRIGGER');
       expect(script2Error?.message).toContain('proper connections');
       
       const script1Error = errors.find(e => 
-        e.context?.code === 'CANNOT_REACH_CONTINUE_FROM_TRIGGER' && 
-        e.context?.nodeId === 'script1'
+        e.context?.['code'] === 'CANNOT_REACH_CONTINUE_FROM_TRIGGER' && 
+        e.context?.['nodeId'] === 'script1'
       );
       expect(script1Error).toBeDefined();
     });
@@ -299,7 +299,7 @@ describe('validateTriggeredSubgraphConnectivity', () => {
       expect(errors.length).toBeGreaterThanOrEqual(2);
       
       const unreachableErrors = errors.filter(e => 
-        e.context?.code === 'UNREACHABLE_FROM_START_FROM_TRIGGER'
+        e.context?.['code'] === 'UNREACHABLE_FROM_START_FROM_TRIGGER'
       );
       expect(unreachableErrors.length).toBeGreaterThanOrEqual(2);
     });
@@ -325,7 +325,7 @@ describe('validateTriggeredSubgraphConnectivity', () => {
       expect(errors.length).toBeGreaterThanOrEqual(3);
       
       const cannotReachErrors = errors.filter(e => 
-        e.context?.code === 'CANNOT_REACH_CONTINUE_FROM_TRIGGER'
+        e.context?.['code'] === 'CANNOT_REACH_CONTINUE_FROM_TRIGGER'
       );
       expect(cannotReachErrors.length).toBeGreaterThanOrEqual(3);
     });

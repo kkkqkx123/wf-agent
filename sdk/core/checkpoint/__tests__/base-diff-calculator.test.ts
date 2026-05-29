@@ -3,7 +3,7 @@
  * Tests for generic deep comparison, delta calculation, and delta application
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { BaseDiffCalculator } from '../base-diff-calculator.js';
 
 describe('BaseDiffCalculator', () => {
@@ -25,7 +25,7 @@ describe('BaseDiffCalculator', () => {
       const current = { name: 'bar', value: 42 };
       const delta = calculator.calculateDelta(previous, current);
       expect(delta).toHaveProperty('name');
-      expect(delta.name).toEqual({ from: 'foo', to: 'bar' });
+      expect(delta['name']).toEqual({ from: 'foo', to: 'bar' });
       expect(delta).not.toHaveProperty('value');
     });
 
@@ -34,7 +34,7 @@ describe('BaseDiffCalculator', () => {
       const current = { a: 1, c: 3 };
       const delta = calculator.calculateDelta(previous, current);
       expect(delta).toHaveProperty('b');
-      expect(delta.b).toEqual({ from: 2, to: undefined });
+      expect(delta['b']).toEqual({ from: 2, to: undefined });
     });
 
     it('should detect newly added keys', () => {
@@ -42,7 +42,7 @@ describe('BaseDiffCalculator', () => {
       const current = { a: 1, b: 2 };
       const delta = calculator.calculateDelta(previous, current);
       expect(delta).toHaveProperty('b');
-      expect(delta.b).toEqual({ from: undefined, to: 2 });
+      expect(delta['b']).toEqual({ from: undefined, to: 2 });
     });
 
     it('should handle nested object changes', () => {
@@ -50,8 +50,8 @@ describe('BaseDiffCalculator', () => {
       const current = { nested: { x: 99, y: 2 } };
       const delta = calculator.calculateDelta(previous, current);
       expect(delta).toHaveProperty('nested');
-      expect(delta.nested.from).toEqual({ x: 1, y: 2 });
-      expect(delta.nested.to).toEqual({ x: 99, y: 2 });
+      expect(delta['nested']!.from).toEqual({ x: 1, y: 2 });
+      expect(delta['nested']!.to).toEqual({ x: 99, y: 2 });
     });
 
     it('should handle array changes', () => {
@@ -64,14 +64,14 @@ describe('BaseDiffCalculator', () => {
     it('should detect type changes', () => {
       const previous = { value: '42' };
       const current = { value: 42 };
-      const delta = calculator.calculateDelta(previous, current);
+      const delta = calculator.calculateDelta(previous, current as unknown as { value: string; });
       expect(delta).toHaveProperty('value');
     });
 
     it('should detect null vs undefined changes', () => {
       const previous = { a: null };
       const current = { a: undefined };
-      const delta = calculator.calculateDelta(previous, current);
+      const delta = calculator.calculateDelta(previous, current as unknown as { a: null });
       expect(delta).toHaveProperty('a');
     });
 
@@ -84,15 +84,15 @@ describe('BaseDiffCalculator', () => {
       const previous = { level1: { level2: { value: 1 } } };
       const current = { level1: { level2: { value: 2 } } };
       const delta = calculator.calculateDelta(previous, current);
-      expect(delta.level1.from).toEqual({ level2: { value: 1 } });
-      expect(delta.level1.to).toEqual({ level2: { value: 2 } });
+      expect(delta['level1']!.from).toEqual({ level2: { value: 1 } });
+      expect(delta['level1']!.to).toEqual({ level2: { value: 2 } });
     });
 
     it('should detect boolean changes', () => {
       const previous = { flag: true };
       const current = { flag: false };
       const delta = calculator.calculateDelta(previous, current);
-      expect(delta.flag).toEqual({ from: true, to: false });
+      expect(delta['flag']).toEqual({ from: true, to: false });
     });
 
     it('should treat same object reference as equal', () => {

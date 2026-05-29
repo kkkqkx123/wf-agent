@@ -7,6 +7,7 @@
 
 import type { ID, Metadata } from "../common.js";
 import type { LLMMessage } from "../message/index.js";
+import type { LLMToolCall } from "../message/message.js";
 
 /**
  * HumanRelay Request Type
@@ -28,6 +29,10 @@ export interface HumanRelayRequest {
 
 /**
  * HumanRelay Response Type
+ *
+ * For testing/mock scenarios, the `toolCalls` field can be populated to simulate
+ * LLM responses that include function/tool calls. This allows agent loop E2E tests
+ * to verify multi-iteration and tool execution flows without a real LLM API.
  */
 export interface HumanRelayResponse {
   /** Request ID */
@@ -36,6 +41,12 @@ export interface HumanRelayResponse {
   content: string;
   /** response time stamp */
   timestamp: number;
+  /**
+   * Mock tool calls to include in the LLM result (for testing only).
+   * When set, the HumanRelayClient will pass these through to the LLMResult,
+   * enabling agent loop multi-iteration and tool execution tests.
+   */
+  toolCalls?: LLMToolCall[];
 }
 
 /**

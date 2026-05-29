@@ -26,8 +26,6 @@ describe('message-context-utils', () => {
 
     it('should pre-populate initial messages into the "current" context', () => {
       const workflowConfig: WorkflowConfig = {
-        nodes: [],
-        edges: [],
         initialMessages: [
           { role: 'system', content: 'System prompt' },
           { role: 'user', content: 'Hello' },
@@ -50,8 +48,6 @@ describe('message-context-utils', () => {
 
     it('should register static contexts if defined', () => {
       const workflowConfig: WorkflowConfig = {
-        nodes: [],
-        edges: [],
         staticContexts: [
           {
             id: 'memory',
@@ -69,8 +65,6 @@ describe('message-context-utils', () => {
 
     it('should handle static contexts without messages', () => {
       const workflowConfig: WorkflowConfig = {
-        nodes: [],
-        edges: [],
         staticContexts: [
           { id: 'empty-ctx' } as any,
         ],
@@ -97,7 +91,7 @@ describe('message-context-utils', () => {
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
-      registry.register(ctx);
+      registry.register(ctx as any);
 
       const result = getOrCreateContext(registry, 'existing');
       expect(result.id).toBe('existing');
@@ -137,7 +131,7 @@ describe('message-context-utils', () => {
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
-      registry.register(ctx);
+      registry.register(ctx as any);
 
       const result = getOrCreateContext(registry, 'has-messages');
       expect(result.messages).toHaveLength(1);

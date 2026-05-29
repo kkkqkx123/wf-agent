@@ -3,7 +3,7 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { InMemoryMessageContextRegistry } from '../message-context-registry.js';
-import type { NamedMessageContext } from '@wf-agent/types';
+import type { LLMMessage, NamedMessageContext } from '@wf-agent/types';
 
 describe('InMemoryMessageContextRegistry', () => {
   let registry: InMemoryMessageContextRegistry;
@@ -78,7 +78,7 @@ describe('InMemoryMessageContextRegistry', () => {
       const context = createContext('ctx-1');
       registry.register(context);
 
-      const newMessages = [{ role: 'user', content: 'Updated' }];
+      const newMessages = [{ role: 'user', content: 'Updated' }] as unknown as LLMMessage[];
       registry.update('ctx-1', newMessages);
 
       const retrieved = registry.get('ctx-1');

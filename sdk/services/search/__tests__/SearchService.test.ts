@@ -115,7 +115,7 @@ describe("SearchService", () => {
 
       // "Button.tsx" should match "but" fuzzily
       expect(result.length).toBeGreaterThan(0);
-      expect(result[0].path).toBe("src/components/Button.tsx");
+      expect(result[0]!.path).toBe("src/components/Button.tsx");
     });
 
     it("should return empty array when no files match the query", async () => {

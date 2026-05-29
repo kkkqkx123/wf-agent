@@ -12,8 +12,8 @@ describe('BaseDeltaRestorer', () => {
   let restorer: BaseDeltaRestorer<BaseCheckpoint<Record<string, { from: unknown; to: unknown }>, Record<string, unknown>>, Record<string, unknown>>;
 
   beforeEach(() => {
-    mockLoadCheckpoint = vi.fn();
-    restorer = new BaseDeltaRestorer(mockLoadCheckpoint);
+    mockLoadCheckpoint = vi.fn<(id: string) => Promise<BaseCheckpoint<Record<string, { from: unknown; to: unknown }>, Record<string, unknown>> | null>>();
+    restorer = new BaseDeltaRestorer(mockLoadCheckpoint as unknown as (id: string) => Promise<BaseCheckpoint<Record<string, { from: unknown; to: unknown }>, Record<string, unknown>> | null>);
   });
 
   function createFullCheckpoint(id: string, snapshot: Record<string, unknown>): BaseCheckpoint<Record<string, { from: unknown; to: unknown }>, Record<string, unknown>> {

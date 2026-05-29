@@ -114,7 +114,7 @@ describe("PythonBuiltinHookStrategy", () => {
 
       expect(mockTerminal.executeOneOff).toHaveBeenCalled();
       // Should have been called with python command and options
-      const callArg = mockTerminal.executeOneOff.mock.calls[0][0];
+      const callArg = mockTerminal.executeOneOff.mock.calls![0]![0];
       expect(callArg).toContain("python");
       expect(callArg).toContain(".py");
 
@@ -145,7 +145,7 @@ describe("PythonBuiltinHookStrategy", () => {
       const options: StrategyExecuteOptions = { command: "print(1)" };
       await strategy.execute(options, defaultPolicy);
 
-      const callOptions = mockTerminal.executeOneOff.mock.calls[0][1];
+      const callOptions = mockTerminal.executeOneOff.mock.calls![0]![1];
       expect(callOptions.env.PYTHONPATH).toBe("");
       expect(callOptions.env.PYTHONDONTWRITEBYTECODE).toBe("1");
       expect(callOptions.env.PYTHONSTARTUP).toBe("");

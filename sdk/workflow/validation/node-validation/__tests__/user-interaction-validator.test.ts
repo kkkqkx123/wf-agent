@@ -21,8 +21,7 @@ describe('validateUserInteractionNode', () => {
           variables: [
             {
               variableName: 'var1',
-              expression: '42',
-              scope: 'execution'
+              expression: '42'
             }
           ],
           prompt: 'Please approve'

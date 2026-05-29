@@ -108,7 +108,7 @@ describe("LinuxSeccompStrategy", () => {
       // We need to mock the findSeccompLoader to return null
       // Since it's a private method, we test via the strategy's behavior
       // by ensuring isAvailable returns true before calling execute
-      const result = await strategy.execute(baseOptions, defaultPolicy);
+      await strategy.execute(baseOptions, defaultPolicy);
 
       // On Linux without seccomp-loader, should fall back to passthrough (executeOneOff)
       // But findSeccompLoader uses execSync('which ...') which will fail in test env
@@ -176,7 +176,7 @@ describe("WindowsJobObjectStrategy", () => {
       Object.defineProperty(process, "platform", { value: "win32" });
 
       // On Windows without koffi installed, falls back to executeOneOff passthrough
-      const result = await strategy.execute(baseOptions, defaultPolicy);
+      await strategy.execute(baseOptions, defaultPolicy);
       expect(mockTerminalService.executeOneOff).toHaveBeenCalled();
 
       Object.defineProperty(process, "platform", { value: originalPlatform });
@@ -217,7 +217,7 @@ describe("ProotLikeRedirectStrategy", () => {
     };
 
     it("should passthrough when proot binary not found", async () => {
-      const result = await strategy.execute(baseOptions, defaultPolicy);
+      await strategy.execute(baseOptions, defaultPolicy);
 
       // Since proot is not available, should fall back to executeOneOff
       expect(mockTerminalService.executeOneOff).toHaveBeenCalledWith(

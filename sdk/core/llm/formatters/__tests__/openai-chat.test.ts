@@ -64,7 +64,7 @@ describe("OpenAIChatFormatter", () => {
       },
       stream: false,
       timeout: 30000,
-    } as FormatterConfig;
+    } as unknown as FormatterConfig;
   });
 
   describe("getSupportedProvider", () => {
@@ -84,13 +84,13 @@ describe("OpenAIChatFormatter", () => {
     it("should include Authorization header when apiKey is set", () => {
       const request: LLMRequest = { messages: [{ role: "user", content: "Hi" }] };
       const result = formatter.buildRequest(request, mockConfig);
-      expect(result.httpRequest.headers).toHaveProperty("Authorization");
+      expect(result.httpRequest!.headers).toHaveProperty("Authorization");
     });
 
     it("should include tools in body when provided", () => {
       const request: LLMRequest = {
         messages: [{ role: "user", content: "Use a tool" }],
-        tools: [{ name: "test_tool", description: "A test tool", inputSchema: { type: "object", properties: {} } }],
+        tools: [{ id: "tool-1", description: "A test tool", parameters: { type: "object", properties: {}, required: [] } }],
       };
       const result = formatter.buildRequest(request, mockConfig);
       const body = result.httpRequest.body as Record<string, unknown>;
@@ -143,7 +143,7 @@ describe("OpenAIChatFormatter", () => {
       const result = formatter.parseResponse(data, mockConfig);
       expect(result.toolCalls).toBeDefined();
       expect(result.toolCalls).toHaveLength(1);
-      expect(result.toolCalls![0].function.name).toBe("get_weather");
+      expect(result.toolCalls![0]!.function.name).toBe("get_weather");
       expect(result.finishReason).toBe("tool_calls");
     });
 
@@ -250,7 +250,7 @@ describe("OpenAIChatFormatter", () => {
       ];
       const result = formatter.parseToolCalls(toolCalls);
       expect(result).toHaveLength(1);
-      expect(result[0].function.name).toBe("get_weather");
+      expect(result![0]!.function.name).toBe("get_weather");
     });
 
     it("should handle non-array input", () => {

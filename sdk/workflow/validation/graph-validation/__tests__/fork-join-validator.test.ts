@@ -161,10 +161,10 @@ describe('validateForkJoinPairs', () => {
       const errors = validateForkJoinPairs(graph);
       // Now reports both config error and unpaired error
       expect(errors.length).toBeGreaterThanOrEqual(1);
-      expect(errors[0].message).toContain('forkPaths must be a non-empty array');
-      expect(errors[0].context?.code).toBe('INVALID_FORK_PATHS');
+      expect(errors[0]!.message).toContain('forkPaths must be a non-empty array');
+      expect(errors[0]!.context?.['code']).toBe('INVALID_FORK_PATHS');
       // Should also report unpaired fork
-      const unpairedError = errors.find(e => e.context?.code === 'UNPAIRED_FORK');
+      const unpairedError = errors.find(e => e.context?.['code'] === 'UNPAIRED_FORK');
       expect(unpairedError).toBeDefined();
     });
 
@@ -188,9 +188,9 @@ describe('validateForkJoinPairs', () => {
       const errors = validateForkJoinPairs(graph);
       // Now reports both config error and unpaired error
       expect(errors.length).toBeGreaterThanOrEqual(1);
-      expect(errors[0].message).toContain('forkPaths must be a non-empty array');
+      expect(errors[0]!.message).toContain('forkPaths must be a non-empty array');
       // Should also report unpaired fork
-      const unpairedError = errors.find(e => e.context?.code === 'UNPAIRED_FORK');
+      const unpairedError = errors.find(e => e.context?.['code'] === 'UNPAIRED_FORK');
       expect(unpairedError).toBeDefined();
     });
 
@@ -223,7 +223,7 @@ describe('validateForkJoinPairs', () => {
 
       const errors = validateForkJoinPairs(graph);
       expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].message).toContain('must contain pathId and childNodeId');
+      expect(errors[0]!.message).toContain('must contain pathId and childNodeId');
     });
 
     it('should error when forkPaths item is missing childNodeId', () => {
@@ -255,7 +255,7 @@ describe('validateForkJoinPairs', () => {
 
       const errors = validateForkJoinPairs(graph);
       expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].message).toContain('must contain pathId and childNodeId');
+      expect(errors[0]!.message).toContain('must contain pathId and childNodeId');
     });
 
     it('should error when pathId is duplicated within workflow', () => {
@@ -287,7 +287,7 @@ describe('validateForkJoinPairs', () => {
 
       const errors = validateForkJoinPairs(graph);
       expect(errors.length).toBeGreaterThan(0);
-      const duplicateError = errors.find(e => e.context?.code === 'DUPLICATE_FORK_PATH_ID');
+      const duplicateError = errors.find(e => e.context?.['code'] === 'DUPLICATE_FORK_PATH_ID');
       expect(duplicateError).toBeDefined();
       expect(duplicateError?.message).toContain('is not unique within the workflow definition');
     });
@@ -330,7 +330,7 @@ describe('validateForkJoinPairs', () => {
 
       const errors = validateForkJoinPairs(graph);
       expect(errors.length).toBeGreaterThan(0);
-      const duplicateError = errors.find(e => e.context?.code === 'DUPLICATE_FORK_PAIR_ID');
+      const duplicateError = errors.find(e => e.context?.['code'] === 'DUPLICATE_FORK_PAIR_ID');
       expect(duplicateError).toBeDefined();
       expect(duplicateError?.message).toContain('is already used by another FORK node');
     });
@@ -360,8 +360,8 @@ describe('validateForkJoinPairs', () => {
 
       const errors = validateForkJoinPairs(graph);
       expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].message).toContain('forkPathIds of JOIN node');
-      expect(errors[0].context?.code).toBe('INVALID_FORK_PATH_IDS');
+      expect(errors[0]!.message).toContain('forkPathIds of JOIN node');
+      expect(errors[0]!.context?.['code']).toBe('INVALID_FORK_PATH_IDS');
     });
 
     it('should error when mainPathId is not in forkPathIds', () => {
@@ -402,7 +402,7 @@ describe('validateForkJoinPairs', () => {
 
       const errors = validateForkJoinPairs(graph);
       expect(errors.length).toBeGreaterThan(0);
-      const mainPathError = errors.find(e => e.context?.code === 'MAIN_PATH_ID_NOT_FOUND');
+      const mainPathError = errors.find(e => e.context?.['code'] === 'MAIN_PATH_ID_NOT_FOUND');
       expect(mainPathError).toBeDefined();
       expect(mainPathError?.message).toContain('mainPathId');
     });
@@ -456,7 +456,7 @@ describe('validateForkJoinPairs', () => {
 
       const errors = validateForkJoinPairs(graph);
       expect(errors.length).toBeGreaterThan(0);
-      const duplicateError = errors.find(e => e.context?.code === 'DUPLICATE_JOIN_PAIR_ID');
+      const duplicateError = errors.find(e => e.context?.['code'] === 'DUPLICATE_JOIN_PAIR_ID');
       expect(duplicateError).toBeDefined();
       expect(duplicateError?.message).toContain('is already used by another JOIN node');
     });
@@ -488,7 +488,7 @@ describe('validateForkJoinPairs', () => {
 
       const errors = validateForkJoinPairs(graph);
       expect(errors.length).toBeGreaterThan(0);
-      const unpairedError = errors.find(e => e.context?.code === 'UNPAIRED_FORK');
+      const unpairedError = errors.find(e => e.context?.['code'] === 'UNPAIRED_FORK');
       expect(unpairedError).toBeDefined();
       expect(unpairedError?.message).toContain('has no matching JOIN node');
     });
@@ -526,7 +526,7 @@ describe('validateForkJoinPairs', () => {
 
       const errors = validateForkJoinPairs(graph);
       expect(errors.length).toBeGreaterThan(0);
-      const unpairedError = errors.find(e => e.context?.code === 'UNPAIRED_JOIN');
+      const unpairedError = errors.find(e => e.context?.['code'] === 'UNPAIRED_JOIN');
       expect(unpairedError).toBeDefined();
       expect(unpairedError?.message).toContain('has no matching FORK node');
     });
@@ -568,7 +568,7 @@ describe('validateForkJoinPairs', () => {
 
       const errors = validateForkJoinPairs(graph);
       expect(errors.length).toBeGreaterThan(0);
-      const mismatchError = errors.find(e => e.context?.code === 'FORK_JOIN_MISMATCH');
+      const mismatchError = errors.find(e => e.context?.['code'] === 'FORK_JOIN_MISMATCH');
       expect(mismatchError).toBeDefined();
       expect(mismatchError?.message).toContain('do not match');
     });
@@ -617,7 +617,7 @@ describe('validateForkJoinPairs', () => {
 
       const errors = validateForkJoinPairs(graph);
       expect(errors.length).toBeGreaterThan(0);
-      const reachableError = errors.find(e => e.context?.code === 'FORK_JOIN_NOT_REACHABLE');
+      const reachableError = errors.find(e => e.context?.['code'] === 'FORK_JOIN_NOT_REACHABLE');
       expect(reachableError).toBeDefined();
       expect(reachableError?.message).toContain('cannot reach the paired JOIN node');
     });

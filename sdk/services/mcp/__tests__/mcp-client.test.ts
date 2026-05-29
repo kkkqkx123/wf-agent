@@ -214,7 +214,7 @@ describe("McpClient", () => {
 
   describe("close", () => {
     it("should close transport and clear pending requests", async () => {
-      const promise = client.listTools();
+      void client.listTools();
       await client.close();
       expect(mock.transport.close).toHaveBeenCalled();
 

@@ -8,7 +8,6 @@ import { BaseCheckpointCoordinator } from '../base-checkpoint-coordinator.js';
 import { BaseDiffCalculator } from '../base-diff-calculator.js';
 import type { BaseCheckpoint, CheckpointMetadata } from '@wf-agent/types';
 import type { CheckpointableEntity, CheckpointDependencies } from '../types.js';
-import { DEFAULT_DELTA_STORAGE_CONFIG } from '../../utils/checkpoint/constants.js';
 
 // Concrete implementation for testing the abstract class
 interface TestState {
@@ -58,11 +57,11 @@ class TestCheckpointCoordinator extends BaseCheckpointCoordinator<TestCheckpoint
           // Get snapshot from previous (full) or from delta chain's base
           let previousSnapshot: Record<string, unknown> | undefined;
           if (previousCp.snapshot) {
-            previousSnapshot = previousCp.snapshot as Record<string, unknown>;
+            previousSnapshot = previousCp.snapshot as unknown as Record<string, unknown>;
           } else if (previousCp.baseCheckpointId) {
             // Load base checkpoint for snapshot
             const baseCp = await dependencies.getCheckpoint(previousCp.baseCheckpointId);
-            previousSnapshot = baseCp?.snapshot as Record<string, unknown> | undefined;
+            previousSnapshot = baseCp?.snapshot as unknown as Record<string, unknown> | undefined;
           }
 
           if (previousSnapshot) {
@@ -142,7 +141,7 @@ describe('BaseCheckpointCoordinator', () => {
     it('should create a DELTA checkpoint when incremental storage is enabled', async () => {
       // First: FULL checkpoint
       const entity = { id: 'entity-1', name: 'v1', value: 1 };
-      const cpId1 = await coordinator.createCheckpoint(entity, mockDependencies);
+      await coordinator.createCheckpoint(entity, mockDependencies);
 
       // Second: DELTA checkpoint
       const entity2 = { id: 'entity-1', name: 'v2', value: 2 };
@@ -151,8 +150,8 @@ describe('BaseCheckpointCoordinator', () => {
       const cp2 = savedCheckpoints.get(cpId2)!;
       expect(cp2.type).toBe('DELTA');
       expect(cp2.delta).toBeDefined();
-      expect(cp2.delta!.name).toBeDefined();
-      expect(cp2.delta!.value).toBeDefined();
+      expect(cp2.delta!['name']).toBeDefined();
+      expect(cp2.delta!['value']).toBeDefined();
     });
 
     it('should create FULL checkpoint on baseline interval', async () => {
@@ -167,7 +166,7 @@ describe('BaseCheckpointCoordinator', () => {
       // The 4th checkpoint (index 3) should be FULL because baselineInterval=3 and checkpointCount (3) % 3 === 0
       // After 3 checkpoints saved, the count is 3 → 3 % 3 === 0 → FULL
       const ids = Array.from(savedCheckpoints.keys());
-      const fourthCp = savedCheckpoints.get(ids[3])!;
+      const fourthCp = savedCheckpoints.get(ids[3]!)!;
       expect(fourthCp.type).toBe('FULL');
     });
 
@@ -210,10 +209,10 @@ describe('BaseCheckpointCoordinator', () => {
       const entity = { id: 'entity-1', name: 'v1', value: 1 };
 
       // Create a chain of checkpoints
-      const cpId1 = await coordinator.createCheckpoint(entity, mockDependencies);
+      await coordinator.createCheckpoint(entity, mockDependencies);
       entity.name = 'v2';
       entity.value = 2;
-      const cpId2 = await coordinator.createCheckpoint(entity, mockDependencies);
+      await coordinator.createCheckpoint(entity, mockDependencies);
       entity.name = 'v3';
       entity.value = 3;
       const cpId3 = await coordinator.createCheckpoint(entity, mockDependencies);

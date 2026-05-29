@@ -3,6 +3,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { MessageBuilder } from '../message-builder.js';
+import type { LLMToolCall } from '@wf-agent/types';
 
 describe('MessageBuilder', () => {
   describe('buildUserMessage', () => {
@@ -45,7 +46,7 @@ describe('MessageBuilder', () => {
       const toolCalls = [
         { id: 'call_1', name: 'get_weather', arguments: { city: 'Beijing' } },
       ];
-      const message = MessageBuilder.buildAssistantMessage('Let me check', toolCalls);
+      const message = MessageBuilder.buildAssistantMessage('Let me check', toolCalls as unknown as LLMToolCall[]);
       expect(message.role).toBe('assistant');
       expect(message.content).toBe('Let me check');
       expect(message.toolCalls).toEqual(toolCalls);
@@ -66,7 +67,7 @@ describe('MessageBuilder', () => {
         { id: 'call_2', name: 'search', arguments: { query: 'test' } },
       ];
       const thinking = 'Searching...';
-      const message = MessageBuilder.buildAssistantMessage('Searching now', toolCalls, thinking);
+      const message = MessageBuilder.buildAssistantMessage('Searching now', toolCalls as unknown as LLMToolCall[], thinking);
       expect(message.role).toBe('assistant');
       expect(message.content).toBe('Searching now');
       expect(message.toolCalls).toEqual(toolCalls);

@@ -3,7 +3,7 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { MessageHistory } from '../message-history.js';
-import type { LLMMessage } from '@wf-agent/types';
+import type { LLMMessage, LLMToolCall } from '@wf-agent/types';
 
 describe('MessageHistory', () => {
   let history: MessageHistory;
@@ -271,7 +271,7 @@ describe('MessageHistory', () => {
         const toolCalls = [
           { id: 'call_1', name: 'test_tool', arguments: { arg1: 'val1' } },
         ];
-        history.addAssistantMessage('Using tool', toolCalls);
+        history.addAssistantMessage('Using tool', toolCalls as unknown as LLMToolCall[]);
         const msg = history.getMessages()[0]!;
         expect(msg.role).toBe('assistant');
         expect(msg.toolCalls).toEqual(toolCalls);

@@ -1,6 +1,5 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { ProtectController, SHIELD_SYMBOL } from "../ProtectController.js";
-import type { ProtectControllerConfig } from "../ProtectController.js";
 
 // We need to access the default patterns via the controller instance
 // since they aren't exported directly
@@ -271,8 +270,8 @@ describe("ProtectController", () => {
     it("should preserve the original path strings", () => {
       const paths = [".env", ".git/config"];
       const annotated = controller.annotatePathsWithProtection(paths);
-      expect(annotated[0].path).toBe(".env");
-      expect(annotated[1].path).toBe(".git/config");
+      expect(annotated[0]!.path).toBe(".env");
+      expect(annotated[1]!.path).toBe(".git/config");
     });
   });
 

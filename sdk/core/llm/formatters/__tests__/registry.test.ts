@@ -1,7 +1,7 @@
 /**
  * Unit tests for Formatter Registry
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import {
   FormatterRegistry,
   formatterRegistry,

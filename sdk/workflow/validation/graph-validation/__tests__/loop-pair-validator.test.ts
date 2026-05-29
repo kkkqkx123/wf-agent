@@ -181,7 +181,7 @@ describe('validateLoopPairs', () => {
 
       const errors = validateLoopPairs(graph);
       expect(errors.length).toBeGreaterThanOrEqual(1);
-      const missingError = errors.find(e => e.context?.code === 'LOOP_START_MISSING_LOOP_ID');
+      const missingError = errors.find(e => e.context?.['code'] === 'LOOP_START_MISSING_LOOP_ID');
       expect(missingError).toBeDefined();
       expect(missingError!.message).toContain('loopId');
     });
@@ -212,7 +212,7 @@ describe('validateLoopPairs', () => {
       );
 
       const errors = validateLoopPairs(graph);
-      const missingError = errors.find(e => e.context?.code === 'LOOP_END_MISSING_LOOP_ID');
+      const missingError = errors.find(e => e.context?.['code'] === 'LOOP_END_MISSING_LOOP_ID');
       expect(missingError).toBeDefined();
       expect(missingError!.message).toContain('loopId');
     });
@@ -259,7 +259,7 @@ describe('validateLoopPairs', () => {
       );
 
       const errors = validateLoopPairs(graph);
-      const duplicateError = errors.find(e => e.context?.code === 'DUPLICATE_LOOP_START_LOOP_ID');
+      const duplicateError = errors.find(e => e.context?.['code'] === 'DUPLICATE_LOOP_START_LOOP_ID');
       expect(duplicateError).toBeDefined();
       expect(duplicateError!.message).toContain('dup-loop');
     });
@@ -298,7 +298,7 @@ describe('validateLoopPairs', () => {
       );
 
       const errors = validateLoopPairs(graph);
-      const duplicateError = errors.find(e => e.context?.code === 'DUPLICATE_LOOP_END_LOOP_ID');
+      const duplicateError = errors.find(e => e.context?.['code'] === 'DUPLICATE_LOOP_END_LOOP_ID');
       expect(duplicateError).toBeDefined();
       expect(duplicateError!.message).toContain('dup-loop');
     });
@@ -325,7 +325,7 @@ describe('validateLoopPairs', () => {
       );
 
       const errors = validateLoopPairs(graph);
-      const unpairedError = errors.find(e => e.context?.code === 'UNPAIRED_LOOP_START');
+      const unpairedError = errors.find(e => e.context?.['code'] === 'UNPAIRED_LOOP_START');
       expect(unpairedError).toBeDefined();
       expect(unpairedError!.message).toContain('has no matching LOOP_END');
     });
@@ -350,7 +350,7 @@ describe('validateLoopPairs', () => {
       );
 
       const errors = validateLoopPairs(graph);
-      const unpairedError = errors.find(e => e.context?.code === 'UNPAIRED_LOOP_END');
+      const unpairedError = errors.find(e => e.context?.['code'] === 'UNPAIRED_LOOP_END');
       expect(unpairedError).toBeDefined();
       expect(unpairedError!.message).toContain('has no matching LOOP_START');
     });
@@ -386,7 +386,7 @@ describe('validateLoopPairs', () => {
       );
 
       const errors = validateLoopPairs(graph);
-      const refError = errors.find(e => e.context?.code === 'INVALID_LOOP_START_NODE_REFERENCE');
+      const refError = errors.find(e => e.context?.['code'] === 'INVALID_LOOP_START_NODE_REFERENCE');
       expect(refError).toBeDefined();
       expect(refError!.message).toContain('non-existent');
     });
@@ -433,7 +433,7 @@ describe('validateLoopPairs', () => {
       );
 
       const errors = validateLoopPairs(graph);
-      const mismatchError = errors.find(e => e.context?.code === 'LOOP_ID_MISMATCH');
+      const mismatchError = errors.find(e => e.context?.['code'] === 'LOOP_ID_MISMATCH');
       expect(mismatchError).toBeDefined();
       expect(mismatchError!.message).toContain('does not match');
     });
@@ -464,7 +464,7 @@ describe('validateLoopPairs', () => {
       );
 
       const errors = validateLoopPairs(graph);
-      const topoError = errors.find(e => e.context?.code === 'LOOP_START_NO_OUTGOING_EDGES');
+      const topoError = errors.find(e => e.context?.['code'] === 'LOOP_START_NO_OUTGOING_EDGES');
       expect(topoError).toBeDefined();
       expect(topoError!.message).toContain('outgoing edge');
     });
@@ -495,7 +495,7 @@ describe('validateLoopPairs', () => {
       );
 
       const errors = validateLoopPairs(graph);
-      const topoError = errors.find(e => e.context?.code === 'LOOP_END_NO_OUTGOING_EDGES');
+      const topoError = errors.find(e => e.context?.['code'] === 'LOOP_END_NO_OUTGOING_EDGES');
       expect(topoError).toBeDefined();
       expect(topoError!.message).toContain('outgoing edge');
     });
@@ -526,7 +526,7 @@ describe('validateLoopPairs', () => {
       );
 
       const errors = validateLoopPairs(graph);
-      const topoError = errors.find(e => e.context?.code === 'LOOP_START_NO_INCOMING_EDGES');
+      const topoError = errors.find(e => e.context?.['code'] === 'LOOP_START_NO_INCOMING_EDGES');
       expect(topoError).toBeDefined();
       expect(topoError!.message).toContain('incoming edge');
     });

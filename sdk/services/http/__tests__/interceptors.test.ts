@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import {
   InterceptorManager,
   createAuthInterceptor,
@@ -43,7 +43,7 @@ describe("InterceptorManager", () => {
         url: "/test",
         method: "GET",
       });
-      expect(result.headers?.async).toBe("true");
+      expect(result.headers?.["async"]).toBe("true");
     });
 
     it("should return config unchanged when no interceptors", async () => {
@@ -108,13 +108,13 @@ describe("createAuthInterceptor", () => {
   it("should add Bearer token by default", () => {
     const interceptor = createAuthInterceptor("my-token");
     const result = interceptor.intercept({ url: "/api", method: "GET" });
-    expect(result.headers).toEqual({ Authorization: "Bearer my-token" });
+    expect((result as RequestConfig).headers).toEqual({ Authorization: "Bearer my-token" });
   });
 
   it("should support custom scheme", () => {
     const interceptor = createAuthInterceptor("key-123", "ApiKey");
     const result = interceptor.intercept({ url: "/api", method: "GET" });
-    expect(result.headers).toEqual({ Authorization: "ApiKey key-123" });
+    expect((result as RequestConfig).headers).toEqual({ Authorization: "ApiKey key-123" });
   });
 
   it("should preserve existing headers", () => {
@@ -124,7 +124,7 @@ describe("createAuthInterceptor", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
     });
-    expect(result.headers).toEqual({
+    expect((result as RequestConfig).headers).toEqual({
       "Content-Type": "application/json",
       Authorization: "Bearer tok",
     });

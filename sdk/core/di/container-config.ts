@@ -828,9 +828,12 @@ export function configureContainerBindings(
         create: () => {
           const llmExecutor = c.get(Identifiers.LLMExecutor) as LLMExecutor;
           const toolService = c.get(Identifiers.ToolRegistry) as ToolRegistry;
+          const globalContext = c.get(Identifiers.GlobalContext) as GlobalContext;
           return new AgentLoopExecutor({
             llmExecutor,
             toolService,
+            globalContext,
+            eventManager: globalContext?.eventRegistry,
           });
         },
       };

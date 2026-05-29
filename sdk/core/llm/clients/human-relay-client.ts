@@ -208,10 +208,12 @@ export class HumanRelayClient implements LLMClient {
       message: {
         role: "assistant",
         content: humanResponse.content,
+        toolCalls: humanResponse.toolCalls,
       },
       finishReason: "stop",
       duration: now() - startTime,
       metadata,
+      toolCalls: humanResponse.toolCalls,
     };
   }
 }

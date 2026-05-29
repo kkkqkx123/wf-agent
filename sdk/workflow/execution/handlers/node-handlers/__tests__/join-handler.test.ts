@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { joinHandler } from '../join-handler.js';
 import type { WorkflowExecutionEntity } from '../../../../entities/workflow-execution-entity.js';
-import type { RuntimeNode, JoinNodeConfig, JoinNodeOutput } from '@wf-agent/types';
+import type { RuntimeNode, JoinNodeConfig } from '@wf-agent/types';
 import type { GlobalContext } from '../../../../../core/global-context.js';
 import * as Identifiers from '../../../../../core/di/service-identifiers.js';
 
@@ -92,7 +92,7 @@ beforeEach(() => {
   // Default mock state
   (mockEntity.getStatus as any).mockReturnValue('RUNNING');
   mockEntity.getSyncBarrier = vi.fn().mockReturnValue(mockSyncBarrier);
-  mockGlobalContext.container.get = vi.fn((id: symbol) => {
+  (mockGlobalContext.container.get as any) = vi.fn((id: symbol) => {
     if (id === Identifiers.WorkflowExecutionRegistry) {
       return mockExecutionRegistry;
     }

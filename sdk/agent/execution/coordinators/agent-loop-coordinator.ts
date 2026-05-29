@@ -335,14 +335,21 @@ export class AgentLoopCoordinator {
       .execute(entity)
       .then(async result => {
         if (result.success) {
-          await this.stateTransitor.completeAgentLoop(entity, result);
+          if (entity.getStatus() === AgentLoopStatus.RUNNING) {
+            await this.stateTransitor.completeAgentLoop(entity, result);
+          }
         } else {
-          await this.stateTransitor.failAgentLoop(entity, result.error);
+          if (entity.getStatus() === AgentLoopStatus.RUNNING) {
+            await this.stateTransitor.failAgentLoop(entity, result.error);
+          }
         }
         this.cleanupExecutionEventListeners(entity.id);
       })
       .catch(async error => {
-        await this.stateTransitor.failAgentLoop(entity, error);
+        // Only fail if still RUNNING to avoid state machine violation
+        if (entity.getStatus() === AgentLoopStatus.RUNNING) {
+          await this.stateTransitor.failAgentLoop(entity, error);
+        }
         this.cleanupExecutionEventListeners(entity.id);
       });
 

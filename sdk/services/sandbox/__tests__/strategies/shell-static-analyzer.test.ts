@@ -257,7 +257,7 @@ describe("ShellStaticAnalyzerStrategy", () => {
     it("should reject unsupported shell type", async () => {
       const options: StrategyExecuteOptions = {
         command: "echo test",
-        shellType: "fish",
+        shellType: "fish" as any,
       };
 
       const result = await strategy.execute(options, defaultPolicy);

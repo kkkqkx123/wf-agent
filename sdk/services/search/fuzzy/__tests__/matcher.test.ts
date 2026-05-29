@@ -113,7 +113,7 @@ describe("sortByFuzzyMatch", () => {
   it("should sort items by score descending", () => {
     const result = sortByFuzzyMatch(items, "but", (item) => item);
     expect(result.length).toBeGreaterThan(0);
-    expect(result[0].item).toBe("src/components/Button.tsx");
+    expect(result[0]!.item).toBe("src/components/Button.tsx");
   });
 
   it("should exclude items that don't match", () => {
@@ -127,8 +127,8 @@ describe("sortByFuzzyMatch", () => {
       "short.ts",
     ];
     const result = sortByFuzzyMatch(shortItems, "short", (item) => item);
-    if (result.length === 2 && result[0].score === result[1].score) {
-      expect(result[0].item).toBe("short.ts");
+    if (result.length === 2 && result[0]!.score === result[1]!.score) {
+      expect(result[0]!.item).toBe("short.ts");
     }
   });
 
@@ -139,7 +139,7 @@ describe("sortByFuzzyMatch", () => {
     ];
     const result = sortByFuzzyMatch(objects, "world", (item) => item.name);
     expect(result).toHaveLength(1);
-    expect(result[0].item).toEqual({ name: "world.ts", path: "/src/world.ts" });
+    expect(result[0]!.item).toEqual({ name: "world.ts", path: "/src/world.ts" });
   });
 
   it("should return empty array for empty items", () => {

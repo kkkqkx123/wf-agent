@@ -241,7 +241,7 @@ export async function subgraphHandler(
 
     // Re-throw with more context
     throw new Error(`Subgraph execution failed for node '${node.id}': ${errorObj.message}`, {
-      cause: errorObj,
+      cause: error,
     });
   }
 }

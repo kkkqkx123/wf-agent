@@ -126,7 +126,7 @@ export abstract class BaseCheckpointStateManager<
         size: data.length,
         error: error instanceof Error ? error.message : String(error),
       });
-      throw new Error(`Checkpoint data corrupted: ${checkpointId} (${data.length} bytes)`);
+      throw new Error(`Checkpoint data corrupted: ${checkpointId} (${data.length} bytes)`, { cause: error });
     }
   }
 

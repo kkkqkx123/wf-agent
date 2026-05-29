@@ -22,7 +22,7 @@ export function parseToCst(expression: string): { cst: CstNode | null; errors: D
             line: err.line ?? 1, // Use line from error or default to 1
             column: err.column ?? 1, // Use column from error or default to 1
           },
-          severity: "error" as "error",
+          severity: "error" as const,
         })),
       };
     }

@@ -206,7 +206,7 @@ print(json.dumps({"safe": len(violations) == 0, "violations": violations}))
    */
   private checkPythonAvailable(): boolean {
     try {
-      const { spawnSync } = require("child_process");
+      const { spawnSync } = await import("child_process");
       const result = spawnSync("python", ["--version"], {
         timeout: 5000,
         stdio: "pipe",

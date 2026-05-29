@@ -210,7 +210,8 @@ ${code}
    */
   private checkPythonAvailable(): boolean {
     try {
-      const result = require("child_process").spawnSync("python", ["--version"], {
+      const { spawnSync } = await import("child_process");
+      const result = spawnSync("python", ["--version"], {
         timeout: 5000,
         stdio: "pipe",
         encoding: "utf-8",

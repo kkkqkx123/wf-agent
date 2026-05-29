@@ -37,7 +37,7 @@ export class ExpressionEvaluator {
     try {
       const compiled = expressionCompiler.compile(expression);
       ast = compiled.ast;
-    } catch (e) {
+    } catch {
       throw new RuntimeValidationError(
         `Failed to evaluate expression: ${expression}`,
         { operation: "evaluate", field: "expression", value: expression },

@@ -75,7 +75,7 @@ export const DANGEROUS_PATTERNS: string[] = [
   "AmsiUtils",
   "amsiInitFailed",
   "System.Management.Automation.AmsiUtils",
-  "\[Ref\].*Assembly.*Load.*System\\.Management\\.Automation",
+  "\\[Ref\\].*Assembly.*Load.*System\\.Management\\.Automation",
   // Reflection-based bypass
   "GetField\\s*\\(\\s*['\"]amsi",
   "SetValue\\s*\\(\\s*null",

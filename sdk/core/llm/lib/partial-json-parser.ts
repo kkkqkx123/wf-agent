@@ -140,7 +140,7 @@ function tokenize(input: string): Token[] {
       }
 
       // Skip past the closing quote (required to avoid re-reading it as a new string)
-      char = input[++current];
+      current++;
 
       if (!danglingQuote) {
         tokens.push({ type: "string", value });

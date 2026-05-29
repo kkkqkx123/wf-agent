@@ -58,7 +58,7 @@ export class TimeoutController {
     } catch (error) {
       // If aborted via signal, throw appropriate error
       if (signal?.aborted) {
-        throw new Error("Tool execution aborted");
+        throw new Error("Tool execution aborted", { cause: error });
       }
       throw error;
     } finally {

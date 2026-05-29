@@ -167,9 +167,10 @@ export class ExpressionCompiler {
       case "ternary":
         return 3 + this.calculateComplexity(node.condition) + Math.max(this.calculateComplexity(node.consequent), this.calculateComplexity(node.alternate));
 
-      case "call":
+      case "call": {
         const argComplexity = node.arguments.reduce((sum, arg) => sum + this.calculateComplexity(arg), 0);
         return 4 + this.calculateComplexity(node.callee) + argComplexity;
+      }
 
       case "arrayLiteral":
         return 1 + node.elements.reduce((sum, el) => sum + this.calculateComplexity(el), 0);

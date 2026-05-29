@@ -400,7 +400,7 @@ export class TriggerCoordinator {
         await handler(trigger.action, trigger.id, workflowExecutionRegistry, stateCoordinatorMap);
         break;
 
-      case "execute_triggered_subworkflow":
+      case "execute_triggered_subworkflow": {
         if (!workflowExecutionRegistry) {
           throw new DependencyInjectionError(
             "WorkflowExecutionRegistry not provided for execute_triggered_subworkflow",
@@ -436,6 +436,7 @@ export class TriggerCoordinator {
           agentLoopEntity,
         );
         break;
+      }
 
       case "execute_script":
         {

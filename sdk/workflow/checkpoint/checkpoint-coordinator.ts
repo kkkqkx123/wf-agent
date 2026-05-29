@@ -68,7 +68,8 @@ export interface CheckpointDependencies {
  * Checkpoint creation options
  * Note: Sync persistence is handled at the storage adapter layer, not here.
  */
-// eslint-disable-next-line @typescript-eslint/no-empty-interface
+ 
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface CheckpointOptions {
 }
 

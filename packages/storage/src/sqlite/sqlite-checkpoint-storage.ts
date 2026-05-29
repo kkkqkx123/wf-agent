@@ -8,7 +8,7 @@
  * - List queries only scan metadata table, avoiding BLOB reads
  */
 
-import type { CheckpointStorageMetadata, CheckpointStorageListOptions } from "@wf-agent/types";
+import type { CheckpointStorageMetadata, CheckpointStorageListOptions, CheckpointEntityType } from "@wf-agent/types";
 import type { CheckpointStorageAdapter } from "../types/adapter/index.js";
 import type { CheckpointOptions } from "../types/checkpoint-options.js";
 import { BaseSqliteStorage, BaseSqliteStorageConfig } from "./base-sqlite-storage.js";
@@ -474,7 +474,7 @@ export class SqliteCheckpointStorage
       }
 
       return {
-        entityType: row.entityType as any,
+        entityType: row.entityType as CheckpointEntityType,
         entityId: row.entityId,
         timestamp: row.timestamp,
         tags: row.tags ? JSON.parse(row.tags) : undefined,
@@ -578,7 +578,7 @@ export class SqliteCheckpointStorage
       return rows.map(row => ({
         id: row.id,
         metadata: {
-          entityType: row.entityType as any,
+          entityType: row.entityType as CheckpointEntityType,
           entityId: row.entityId,
           timestamp: row.timestamp,
           tags: row.tags ? JSON.parse(row.tags) : undefined,
@@ -922,7 +922,7 @@ export class SqliteCheckpointStorage
       return rows.map(row => ({
         id: row.id,
         metadata: {
-          entityType: row.entity_type as any,
+          entityType: row.entity_type as CheckpointEntityType,
           entityId: row.entity_id,
           timestamp: row.timestamp,
           customFields: {
@@ -990,7 +990,7 @@ export class SqliteCheckpointStorage
         const result: { id: string; metadata: CheckpointStorageMetadata; data?: Uint8Array } = {
           id: row.id,
           metadata: {
-            entityType: row.entity_type as any,
+            entityType: row.entity_type as CheckpointEntityType,
             entityId: row.entity_id,
             timestamp: row.timestamp,
             customFields: {

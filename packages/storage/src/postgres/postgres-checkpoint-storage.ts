@@ -10,7 +10,8 @@
 
 import type { 
   CheckpointStorageMetadata, 
-  CheckpointStorageListOptions 
+  CheckpointStorageListOptions,
+  CheckpointEntityType 
 } from "@wf-agent/types";
 import type { CheckpointStorageAdapter } from "../types/adapter/index.js";
 import type { CheckpointOptions } from "../types/checkpoint-options.js";
@@ -748,7 +749,7 @@ export class PostgresCheckpointStorage
         WHERE entity_id = $1 AND entity_type = $2
         ORDER BY timestamp DESC
       `;
-      const params: any[] = [entityId, entityType];
+      const params: (string | number)[] = [entityId, entityType];
 
       // Pagination
       if (options?.limit !== undefined) {
@@ -763,10 +764,17 @@ export class PostgresCheckpointStorage
 
       const result = await client.query(sql, params);
       
-      return result.rows.map((row: any) => ({
+      type ListByEntityPgRow = {
+        id: string; entity_type: string; entity_id: string; timestamp: string;
+        checkpoint_type: string | null; base_checkpoint_id: string | null;
+        previous_checkpoint_id: string | null; message_count: number | null;
+        variable_count: number | null; blob_size: number | null; blob_hash: string | null;
+        tags: string | null; custom_fields: string | null;
+      };
+      return (result.rows as ListByEntityPgRow[]).map(row => ({
         id: row.id,
         metadata: {
-          entityType: row.entity_type,
+          entityType: row.entity_type as CheckpointEntityType,
           entityId: row.entity_id,
           timestamp: parseInt(row.timestamp),
           customFields: {
@@ -879,7 +887,7 @@ export class PostgresCheckpointStorage
         SELECT id FROM checkpoint_metadata
         WHERE entity_id = $1 AND entity_type = $2
       `;
-      const params: any[] = [entityId, entityType];
+      const params: (string | number)[] = [entityId, entityType];
 
       // Add time-based filter
       if (options?.olderThan) {
@@ -898,7 +906,7 @@ export class PostgresCheckpointStorage
 
       // Get IDs to delete
       const selectResult = await client.query(selectSql, params);
-      const idsToDelete = selectResult.rows.map((row: any) => row.id);
+      const idsToDelete = (selectResult.rows as Array<{ id: string }>).map(row => row.id);
 
       if (idsToDelete.length === 0) {
         return 0;

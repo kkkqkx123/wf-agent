@@ -275,9 +275,9 @@ export class MemoryCheckpointStorage
     const results: Array<{ id: string; metadata: CheckpointStorageMetadata; data?: Uint8Array }> = [];
     
     for (const item of list) {
-      const result: any = { id: item.id, metadata: item.metadata };
+      const result: { id: string; metadata: CheckpointStorageMetadata; data?: Uint8Array } = { id: item.id, metadata: item.metadata };
       if (includeData) {
-        result.data = await this.load(item.id);
+        result.data = (await this.load(item.id)) ?? undefined;
       }
       results.push(result);
     }

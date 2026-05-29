@@ -155,7 +155,7 @@ export abstract class BaseFileStream implements LogStream {
     if (this.json) {
       return JSON.stringify(entry);
     } else {
-      const { level, message, timestamp, context, metadata, logger, traceId, spanId, parentSpanId, sampled, category, tags, v, ...rest } = entry;
+      const { level, message, timestamp, context, metadata, ...rest } = entry;
       const timestampStr = timestamp ? `[${timestamp}] ` : "";
       const levelStr = `[${level.toUpperCase()}] `;
 

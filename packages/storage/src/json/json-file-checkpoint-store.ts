@@ -192,7 +192,7 @@ export class JsonFileCheckpointStore implements FileCheckpointStorageAdapter {
     const cpDir = path.join(this.baseDir, "file-checkpoints");
 
     try {
-      let entries = await fs.readdir(cpDir, { withFileTypes: true });
+      const entries = await fs.readdir(cpDir, { withFileTypes: true });
       let ids = entries.filter(e => e.isDirectory()).map(e => e.name);
 
       // Filter by metadata if needed

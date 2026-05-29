@@ -77,7 +77,7 @@ interface MetadataIndexEntry<TMetadata> {
  * @template TMetadata Metadata Type
  * @template TSaveOptions Save operation options type (default: void)
  */
-export abstract class BaseJsonStorage<TMetadata extends {}, TSaveOptions = void> {
+export abstract class BaseJsonStorage<TMetadata extends object, TSaveOptions = void> {
   protected metadataIndex: Map<string, MetadataIndexEntry<TMetadata>> = new Map();
   protected initialized: boolean = false;
   protected lockFiles: Map<string, Promise<void>> = new Map();

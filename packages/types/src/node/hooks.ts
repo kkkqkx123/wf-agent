@@ -16,4 +16,4 @@ export type HookType =
 /**
  * Node Hook Configuration
  */
-export interface NodeHook extends BaseHookConfig<HookType> {}
+export type NodeHook = BaseHookConfig<HookType>;

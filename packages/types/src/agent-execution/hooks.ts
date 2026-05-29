@@ -37,4 +37,4 @@ export type AgentHookType =
  *
  * @see AgentHookStatic - Static hook definition for file-based configuration
  */
-export interface AgentHook extends BaseHookConfig<AgentHookType> {}
+export type AgentHook = BaseHookConfig<AgentHookType>;

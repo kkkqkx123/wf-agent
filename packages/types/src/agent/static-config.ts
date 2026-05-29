@@ -22,9 +22,7 @@ import type { BaseHookStaticConfig } from "../hook.js";
  *
  * @see AgentHook - Runtime hook with parsed Condition object
  */
-export interface AgentHookStatic extends BaseHookStaticConfig<AgentHookType> {
-  // All fields are inherited from BaseHookStaticConfig
-}
+export type AgentHookStatic = BaseHookStaticConfig<AgentHookType>;
 
 /**
  * Agent Trigger Action Configuration

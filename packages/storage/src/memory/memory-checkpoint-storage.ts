@@ -6,6 +6,9 @@
 import type { CheckpointStorageMetadata, CheckpointStorageListOptions } from "@wf-agent/types";
 import type { CheckpointStorageAdapter } from "../types/adapter/checkpoint-adapter.js";
 import { BaseMemoryStorage, type MemoryStorageConfig } from "./base-memory-storage.js";
+import { createModuleLogger } from "../logger.js";
+
+const logger = createModuleLogger("memory-storage");
 
 /**
  * Memory-based checkpoint storage implementation
@@ -91,6 +94,41 @@ export class MemoryCheckpointStorage
   }
 
   /**
+   * Save multiple checkpoints with index updates
+   */
+  override async saveBatch(
+    items: Array<{ id: string; data: Uint8Array; metadata: CheckpointStorageMetadata }>,
+  ): Promise<void> {
+    const startTime = Date.now();
+    this.ensureInitialized();
+    await this.simulateLatency();
+
+    logger.debug("Starting batch save", { count: items.length });
+
+    try {
+      // Save all items and update indexes
+      for (const item of items) {
+        await super.save(item.id, item.data, item.metadata);
+        this.updateIndexes(item.id, item.metadata);
+      }
+
+      const elapsed = Date.now() - startTime;
+      const totalSize = items.reduce((sum, item) => sum + item.data.length, 0);
+      this.updateMetric('save', elapsed / items.length, totalSize);
+
+      logger.debug("Batch save completed", {
+        count: items.length,
+        totalTimeMs: elapsed,
+      });
+    } catch (error) {
+      logger.error("Batch save failed", {
+        error: (error as Error).message,
+      });
+      throw error;
+    }
+  }
+
+  /**
    * Delete checkpoint with index cleanup
    */
   override async delete(id: string): Promise<void> {
@@ -126,9 +164,15 @@ export class MemoryCheckpointStorage
     } else if (options?.tags && options.tags.length > 0) {
       // For tags, find intersection of all tag sets
       const tagSets = options.tags.map(tag => this.tagIndex.get(tag) || new Set<string>());
-      ids = new Set<string>(tagSets[0]);
-      for (let i = 1; i < tagSets.length; i++) {
-        ids = new Set([...ids].filter(id => tagSets[i]!.has(id)));
+      
+      // If any tag has no checkpoints, return empty set
+      if (tagSets.some(set => set.size === 0)) {
+        ids = new Set();
+      } else {
+        ids = new Set<string>(tagSets[0]);
+        for (let i = 1; i < tagSets.length; i++) {
+          ids = new Set([...ids].filter(id => tagSets[i]!.has(id)));
+        }
       }
     } else {
       // No filters, return all IDs
@@ -195,9 +239,15 @@ export class MemoryCheckpointStorage
     } else if (options?.tags && options.tags.length > 0) {
       // For tags, find intersection of all tag sets
       const tagSets = options.tags.map(tag => this.tagIndex.get(tag) || new Set<string>());
-      ids = new Set<string>(tagSets[0]);
-      for (let i = 1; i < tagSets.length; i++) {
-        ids = new Set([...ids].filter(id => tagSets[i]!.has(id)));
+      
+      // If any tag has no checkpoints, return empty set
+      if (tagSets.some(set => set.size === 0)) {
+        ids = new Set();
+      } else {
+        ids = new Set<string>(tagSets[0]);
+        for (let i = 1; i < tagSets.length; i++) {
+          ids = new Set([...ids].filter(id => tagSets[i]!.has(id)));
+        }
       }
     } else {
       // No filters, return all IDs

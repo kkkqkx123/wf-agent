@@ -186,14 +186,12 @@ export class SqliteCheckpointStorage
       // Use transaction to ensure atomicity
       const insertMetadata = db.prepare(`
         INSERT INTO checkpoint_metadata (
-          id, execution_id, workflow_id, entity_type, entity_id, timestamp, checkpoint_type,
+          id, entity_type, entity_id, timestamp, checkpoint_type,
           base_checkpoint_id, previous_checkpoint_id, message_count, variable_count,
           blob_size, blob_hash, tags, custom_fields, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
-          execution_id = excluded.execution_id,
-          workflow_id = excluded.workflow_id,
           entity_type = excluded.entity_type,
           entity_id = excluded.entity_id,
           timestamp = excluded.timestamp,
@@ -401,25 +399,41 @@ export class SqliteCheckpointStorage
       }
 
       if (options?.tags && options.tags.length > 0) {
-        // Use parameterized query for tags to prevent SQL injection
-        const tagPattern = `%${options.tags[0]}%`;
-        conditions.push("tags LIKE ?");
-        params.push(tagPattern);
+        for (const tag of options.tags) {
+          conditions.push("instr(tags, ?) > 0");
+          params.push(`"${tag}"`);
+        }
       }
 
-      if (conditions.length > 0) {
+if (conditions.length > 0) {
         sql += " WHERE " + conditions.join(" AND ");
       }
 
-      // Sort by timestamp descending
-      sql += " ORDER BY timestamp DESC";
+      // Add sorting options if specified
+      if (options?.sortBy) {
+        let order = options.sortOrder === 'asc' ? 'ASC' : 'DESC';
+        switch (options.sortBy) {
+          case 'timestamp':
+            sql += ` ORDER BY timestamp ${order}`;
+            break;
+          case 'size':
+            sql += ` ORDER BY blob_size ${order}`;
+            break;
+          case 'id':
+            sql += ` ORDER BY id ${order}`;
+            break;
+        }
+      } else {
+        // Default sort by timestamp descending
+        sql += " ORDER BY timestamp DESC";
+      }
 
       // Pagination with validation
       const { limit: validatedLimit, offset: validatedOffset } = this.validatePagination(
         options?.limit,
         options?.offset
       );
-      
+
       if (options?.limit !== undefined) {
         sql += " LIMIT ?";
         params.push(validatedLimit);
@@ -501,8 +515,6 @@ export class SqliteCheckpointStorage
       let sql = `
         SELECT 
           id,
-          execution_id as "executionId",
-          workflow_id as "workflowId",
           entity_type as "entityType",
           entity_id as "entityId",
           timestamp,
@@ -523,35 +535,42 @@ export class SqliteCheckpointStorage
         params.push(options.entityId);
       }
 
-      if (options?.entityType) {
-        conditions.push("entity_type = ?");
-        params.push(options.entityType);
-      }
-
-      if (options?.entityId) {
-        conditions.push("entity_id = ?");
-        params.push(options.entityId);
-      }
-
       if (options?.tags && options.tags.length > 0) {
-        const tagPattern = `%${options.tags[0]}%`;
-        conditions.push("tags LIKE ?");
-        params.push(tagPattern);
+        for (const tag of options.tags) {
+          conditions.push("instr(tags, ?) > 0");
+          params.push(`"${tag}"`);
+        }
       }
 
-      if (conditions.length > 0) {
+if (conditions.length > 0) {
         sql += " WHERE " + conditions.join(" AND ");
       }
 
-      // Sort by timestamp descending
-      sql += " ORDER BY timestamp DESC";
+      // Add sorting options if specified
+      if (options?.sortBy) {
+        let order = options.sortOrder === 'asc' ? 'ASC' : 'DESC';
+        switch (options.sortBy) {
+          case 'timestamp':
+            sql += ` ORDER BY timestamp ${order}`;
+            break;
+          case 'size':
+            sql += ` ORDER BY blob_size ${order}`;
+            break;
+          case 'id':
+            sql += ` ORDER BY id ${order}`;
+            break;
+        }
+      } else {
+        // Default sort by timestamp descending
+        sql += " ORDER BY timestamp DESC";
+      }
 
       // Pagination with validation
       const { limit: validatedLimit, offset: validatedOffset } = this.validatePagination(
         options?.limit,
         options?.offset
       );
-      
+
       if (options?.limit !== undefined) {
         sql += " LIMIT ?";
         params.push(validatedLimit);
@@ -703,14 +722,12 @@ export class SqliteCheckpointStorage
           
           db.prepare(`
             INSERT INTO checkpoint_metadata (
-              id, execution_id, workflow_id, entity_type, entity_id, timestamp, checkpoint_type,
+              id, entity_type, entity_id, timestamp, checkpoint_type,
               base_checkpoint_id, previous_checkpoint_id, message_count, variable_count,
               blob_size, blob_hash, tags, custom_fields, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
-              execution_id = excluded.execution_id,
-              workflow_id = excluded.workflow_id,
               entity_type = excluded.entity_type,
               entity_id = excluded.entity_id,
               timestamp = excluded.timestamp,

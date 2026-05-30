@@ -218,6 +218,41 @@ describe("Workflow Storage E2E", () => {
       const paged = await storage.list({ limit: 2, offset: 1 });
       expect(paged).toHaveLength(2);
     });
+
+    it("should sort by name ascending", async () => {
+      const ids = await storage.list({ sortBy: "name", sortOrder: "asc" });
+      expect(ids).toEqual(["wf-4", "wf-1", "wf-2", "wf-3"]);
+    });
+
+    it("should sort by name descending", async () => {
+      const ids = await storage.list({ sortBy: "name", sortOrder: "desc" });
+      expect(ids).toEqual(["wf-3", "wf-2", "wf-1", "wf-4"]);
+    });
+
+    it("should apply multiple filters simultaneously", async () => {
+      const ids = await storage.list({ author: "alice", enabled: true });
+      expect(ids.sort()).toEqual(["wf-1", "wf-3"]);
+    });
+
+    it("should filter by time ranges with custom data", async () => {
+      const now = Date.now();
+      // Use far-future times so they don't overlap with workflows from beforeEach
+      const farFuture = now + 100000;
+      const timeWorkflows = [
+        { id: "wf-t1", name: "Old", createdAt: farFuture - 20000, updatedAt: farFuture - 10000 },
+        { id: "wf-t2", name: "Mid", createdAt: farFuture - 10000, updatedAt: farFuture - 5000 },
+        { id: "wf-t3", name: "New", createdAt: farFuture, updatedAt: farFuture },
+      ];
+      for (const wf of timeWorkflows) {
+        await storage.save(wf.id, new Uint8Array([1]), createMetadata(wf));
+      }
+
+      const createdAtFilter = await storage.list({ createdAtFrom: farFuture - 15000, createdAtTo: farFuture - 5000 });
+      expect(createdAtFilter.sort()).toEqual(["wf-t2"]);
+
+      const updatedAtFilter = await storage.list({ updatedAtFrom: farFuture - 8000 });
+      expect(updatedAtFilter.sort()).toEqual(["wf-t2", "wf-t3"]);
+    });
   });
 
   describe("Batch Operations", () => {

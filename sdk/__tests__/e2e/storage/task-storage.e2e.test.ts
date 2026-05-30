@@ -135,6 +135,21 @@ describe("Task Storage E2E", () => {
       const paged = await storage.list({ limit: 2, offset: 1 });
       expect(paged).toHaveLength(2);
     });
+
+    it("should filter by start time range", async () => {
+      const ids = await storage.list({ startTimeFrom: now + 250, startTimeTo: now + 500 });
+      expect(ids.sort()).toEqual(["task-2", "task-3"]);
+    });
+
+    it("should filter by complete time range", async () => {
+      const ids = await storage.list({ completeTimeFrom: now + 250, completeTimeTo: now + 600 });
+      expect(ids).toEqual(["task-3"]);
+    });
+
+    it("should return empty when no tasks match all filters", async () => {
+      const ids = await storage.list({ executionId: "exec-1", status: "FAILED" });
+      expect(ids).toEqual([]);
+    });
   });
 
   describe("Task Statistics", () => {
@@ -175,6 +190,28 @@ describe("Task Storage E2E", () => {
       const stats = await storage.getTaskStats({ workflowId: "wf-1" });
       expect(stats.avgExecutionTime).toBeDefined();
       expect(stats.maxExecutionTime).toBeDefined();
+    });
+
+    it("should filter statistics by time range", async () => {
+      const now2 = Date.now();
+      const tasks = [
+        { id: "ts-1", workflowId: "wf-1", status: "COMPLETED" as TaskStatus, submitTime: now2 - 5000, startTime: now2 - 4000, completeTime: now2 - 3000 },
+        { id: "ts-2", workflowId: "wf-1", status: "COMPLETED" as TaskStatus, submitTime: now2 - 2000, startTime: now2 - 1500, completeTime: now2 - 1000 },
+      ];
+      for (const task of tasks) {
+        const { id, ...metaFields } = task;
+        await storage.save(id, new Uint8Array([1]), createMetadata(metaFields));
+      }
+
+      // Only first task in range
+      const stats = await storage.getTaskStats({ timeFrom: now2 - 6000, timeTo: now2 - 3000 });
+      expect(stats.total).toBe(1);
+      expect(stats.byStatus["COMPLETED"]).toBe(1);
+    });
+
+    it("should return empty stats when no tasks match time filter", async () => {
+      const stats = await storage.getTaskStats({ timeFrom: Date.now() + 86400000 });
+      expect(stats.total).toBe(0);
     });
   });
 

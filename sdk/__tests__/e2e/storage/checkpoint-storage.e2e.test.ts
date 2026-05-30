@@ -216,6 +216,56 @@ describe("Checkpoint Storage E2E", () => {
     });
   });
 
+  describe("Multi-Tag Filtering", () => {
+    it("should filter with single tag", async () => {
+      await storage.saveBatch([
+        { id: "cp-t1", data: new Uint8Array([1]), metadata: createMetadata({ entityId: "wf-1", tags: ["prod"] }) },
+        { id: "cp-t2", data: new Uint8Array([2]), metadata: createMetadata({ entityId: "wf-1", tags: ["prod", "backup"] }) },
+        { id: "cp-t3", data: new Uint8Array([3]), metadata: createMetadata({ entityId: "wf-2", tags: ["dev"] }) },
+      ]);
+
+      const prodOnly = await storage.listWithMetadata({ tags: ["prod"] });
+      expect(prodOnly).toHaveLength(2);
+    });
+
+    it("should filter with multiple tags (AND logic)", async () => {
+      await storage.saveBatch([
+        { id: "cp-t1", data: new Uint8Array([1]), metadata: createMetadata({ entityId: "wf-1", tags: ["prod", "backup"] }) },
+        { id: "cp-t2", data: new Uint8Array([2]), metadata: createMetadata({ entityId: "wf-1", tags: ["prod"] }) },
+        { id: "cp-t3", data: new Uint8Array([3]), metadata: createMetadata({ entityId: "wf-2", tags: ["backup"] }) },
+      ]);
+
+      const prodAndBackup = await storage.listWithMetadata({ tags: ["prod", "backup"] });
+      expect(prodAndBackup).toHaveLength(1);
+      expect(prodAndBackup[0]!.id).toBe("cp-t1");
+    });
+
+    it("should return empty when no checkpoint matches tags", async () => {
+      await storage.save("cp-nt", new Uint8Array([1]), createMetadata({ entityId: "wf-1", tags: ["prod"] }));
+
+      const result = await storage.listWithMetadata({ tags: ["nonexistent"] });
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe("Sorting and Pagination", () => {
+    it("should listWithMetadata sorted by timestamp descending by default", async () => {
+      const baseTime = Date.now();
+      await storage.saveBatch([
+        { id: "cp-s1", data: new Uint8Array([1]), metadata: createMetadata({ entityId: "wf-1", timestamp: baseTime + 100 }) },
+        { id: "cp-s2", data: new Uint8Array([2]), metadata: createMetadata({ entityId: "wf-1", timestamp: baseTime + 300 }) },
+        { id: "cp-s3", data: new Uint8Array([3]), metadata: createMetadata({ entityId: "wf-1", timestamp: baseTime + 200 }) },
+      ]);
+
+      const result = await storage.listWithMetadata({ entityType: "workflow", entityId: "wf-1" });
+      expect(result).toHaveLength(3);
+      // Default sort is timestamp descending
+      expect(result[0]!.id).toBe("cp-s2");
+      expect(result[1]!.id).toBe("cp-s3");
+      expect(result[2]!.id).toBe("cp-s1");
+    });
+  });
+
   describe("Checkpoint Options", () => {
     it("should save checkpoint with sync option", async () => {
       const data = new Uint8Array([1, 2, 3]);

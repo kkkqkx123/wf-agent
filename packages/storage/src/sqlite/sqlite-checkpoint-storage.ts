@@ -405,6 +405,21 @@ export class SqliteCheckpointStorage
         }
       }
 
+      if (options?.type) {
+        conditions.push("checkpoint_type = ?");
+        params.push(options.type);
+      }
+
+      if (options?.timestampFrom) {
+        conditions.push("timestamp >= ?");
+        params.push(options.timestampFrom);
+      }
+
+      if (options?.timestampTo) {
+        conditions.push("timestamp <= ?");
+        params.push(options.timestampTo);
+      }
+
 if (conditions.length > 0) {
         sql += " WHERE " + conditions.join(" AND ");
       }

@@ -38,7 +38,7 @@ export class JsonWorkflowExecutionStorage
   /**
    * List workflow execution IDs
    */
-  async list(options?: WorkflowExecutionListOptions): Promise<string[]> {
+  override async list(options?: WorkflowExecutionListOptions): Promise<string[]> {
     this.ensureInitialized();
 
     let ids = this.getAllIds();

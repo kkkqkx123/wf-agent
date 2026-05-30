@@ -6,6 +6,9 @@
 // Export base adapter
 export * from "./base-storage-adapter.js";
 
+// Export unified abstract base class
+export * from "./storage-adapter-base.js";
+
 // Export specific adapters
 export * from "./checkpoint-adapter.js";
 export * from "./task-adapter.js";

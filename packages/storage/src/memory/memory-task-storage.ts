@@ -148,6 +148,9 @@ export class MemoryTaskStorage
     let totalExecutionTime = 0;
     let executionTimeCount = 0;
     let maxExecutionTime = 0;
+    let minExecutionTime = Infinity;
+    let completedCount = 0;
+    let timeoutCount = 0;
 
     for (const entry of entries) {
       const status = entry.metadata.status;
@@ -156,12 +159,20 @@ export class MemoryTaskStorage
       const workflowId = entry.metadata.workflowId;
       byWorkflow[workflowId] = (byWorkflow[workflowId] || 0) + 1;
 
+      if (status === "COMPLETED") {
+        completedCount++;
+      }
+      if (status === "TIMEOUT") {
+        timeoutCount++;
+      }
+
       // Calculate execution time if available
       if (entry.metadata.startTime && entry.metadata.completeTime) {
         const execTime = entry.metadata.completeTime - entry.metadata.startTime;
         totalExecutionTime += execTime;
         executionTimeCount++;
         maxExecutionTime = Math.max(maxExecutionTime, execTime);
+        minExecutionTime = Math.min(minExecutionTime, execTime);
       }
     }
 
@@ -173,6 +184,9 @@ export class MemoryTaskStorage
       byWorkflow,
       avgExecutionTime,
       maxExecutionTime,
+      minExecutionTime: executionTimeCount > 0 ? minExecutionTime : undefined,
+      successRate: entries.length > 0 ? completedCount / entries.length : undefined,
+      timeoutRate: entries.length > 0 ? timeoutCount / entries.length : undefined,
     };
   }
 

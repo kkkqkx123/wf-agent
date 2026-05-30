@@ -38,7 +38,7 @@ export class JsonCheckpointStorage
   /**
    * List checkpoint IDs
    */
-  async list(options?: CheckpointStorageListOptions): Promise<string[]> {
+  override async list(options?: CheckpointStorageListOptions): Promise<string[]> {
     this.ensureInitialized();
 
     let ids = this.getAllIds();

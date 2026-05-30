@@ -3,11 +3,10 @@
  * Fast, isolated storage implementation perfect for testing
  */
 
-import type { BaseStorageAdapter } from "../types/adapter/base-storage-adapter.js";
 import { StorageError } from "../types/storage-errors.js";
-import { createModuleLogger } from "../logger.js";
+import { StorageAdapterBase } from "../types/adapter/storage-adapter-base.js";
 import type { StorageMetrics } from "../types/metrics.js";
-import { DEFAULT_STORAGE_METRICS } from "../types/metrics.js";
+import { createModuleLogger } from "../logger.js";
 
 const logger = createModuleLogger("memory-storage");
 
@@ -32,14 +31,13 @@ export interface MemoryStorageConfig {
  * @template TListOptions List options type
  */
 export abstract class BaseMemoryStorage<TMetadata, TListOptions = Record<string, unknown>>
-  implements BaseStorageAdapter<TMetadata, TListOptions>
+  extends StorageAdapterBase<TMetadata, TListOptions>
 {
   protected store: Map<string, { data: Uint8Array; metadata: TMetadata }> = new Map();
-  protected initialized: boolean = false;
   protected config: Required<MemoryStorageConfig>;
-  protected metrics: StorageMetrics = { ...DEFAULT_STORAGE_METRICS };
 
   constructor(config: MemoryStorageConfig = {}) {
+    super();
     this.config = {
       simulateLatency: config.simulateLatency ?? false,
       latencyMs: config.latencyMs ?? 10,
@@ -182,32 +180,6 @@ export abstract class BaseMemoryStorage<TMetadata, TListOptions = Record<string,
   }
 
   /**
-   * Reset metrics counters
-   */
-  resetMetrics(): void {
-    this.metrics = { ...DEFAULT_STORAGE_METRICS };
-  }
-
-  /**
-   * Update metrics for an operation
-   */
-  protected updateMetric(operation: string, timeMs: number, dataSize?: number): void {
-    const countKey = `${operation}Count` as keyof StorageMetrics;
-    const timeKey = `avg${operation.charAt(0).toUpperCase()}${operation.slice(1)}Time` as keyof StorageMetrics;
-
-    this.metrics[countKey] = (this.metrics[countKey] as number) + 1;
-
-    // Running average calculation
-    const currentAvg = this.metrics[timeKey] as number;
-    const count = this.metrics[countKey] as number;
-    this.metrics[timeKey] = currentAvg + (timeMs - currentAvg) / count;
-
-    if (dataSize !== undefined) {
-      this.metrics.totalBlobSize += dataSize;
-    }
-  }
-
-  /**
    * Get storage statistics
    */
   getStats(): { count: number; totalSize: number } {
@@ -220,15 +192,6 @@ export abstract class BaseMemoryStorage<TMetadata, TListOptions = Record<string,
       count: this.store.size,
       totalSize,
     };
-  }
-
-  /**
-   * Ensure storage is initialized
-   */
-  protected ensureInitialized(): void {
-    if (!this.initialized) {
-      throw new StorageError("Memory storage not initialized. Call initialize() first.", "initialize");
-    }
   }
 
   /**
@@ -258,7 +221,7 @@ export abstract class BaseMemoryStorage<TMetadata, TListOptions = Record<string,
    * More efficient than individual saves for bulk operations
    * @param items Array of items to save with id, data, and metadata
    */
-  async saveBatch(
+  override async saveBatch(
     items: Array<{ id: string; data: Uint8Array; metadata: TMetadata }>,
   ): Promise<void> {
     const startTime = Date.now();
@@ -298,7 +261,7 @@ export abstract class BaseMemoryStorage<TMetadata, TListOptions = Record<string,
    * @param ids Array of IDs to load
    * @returns Array of loaded data (null if not found), maintaining order
    */
-  async loadBatch(ids: string[]): Promise<Array<{ id: string; data: Uint8Array | null }>> {
+  override async loadBatch(ids: string[]): Promise<Array<{ id: string; data: Uint8Array | null }>> {
     const startTime = Date.now();
     this.ensureInitialized();
     await this.simulateLatency();
@@ -342,7 +305,7 @@ export abstract class BaseMemoryStorage<TMetadata, TListOptions = Record<string,
    * More efficient than individual deletes for bulk operations
    * @param ids Array of IDs to delete
    */
-  async deleteBatch(ids: string[]): Promise<void> {
+  override async deleteBatch(ids: string[]): Promise<void> {
     const startTime = Date.now();
     this.ensureInitialized();
     await this.simulateLatency();

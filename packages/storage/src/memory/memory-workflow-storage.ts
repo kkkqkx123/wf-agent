@@ -100,11 +100,15 @@ export class MemoryWorkflowStorage
 
     const versions = this.versionStore.get(workflowId) || [];
 
+    const latestVersion = versions.length > 0
+      ? versions.reduce((latest, v) => v.createdAt > latest.createdAt ? v : latest, versions[0]!).version
+      : null;
+
     let result = versions.map(v => ({
       version: v.version,
       createdAt: v.createdAt,
       changeNote: v.changeNote,
-      isCurrent: false, // Would need to track current version separately
+      isCurrent: v.version === latestVersion,
     }));
 
     // Apply pagination

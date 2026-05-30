@@ -120,7 +120,7 @@ export class JsonAgentLoopStorage
   /**
    * List agent loop IDs with filtering support
    */
-  async list(options?: AgentEntityListOptions): Promise<string[]> {
+  override async list(options?: AgentEntityListOptions): Promise<string[]> {
     this.ensureInitialized();
 
     let ids = this.getAllIds();

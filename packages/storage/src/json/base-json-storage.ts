@@ -7,6 +7,7 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import { createHash } from "crypto";
 import { StorageError, SerializationError } from "../types/storage-errors.js";
+import { StorageAdapterBase } from "../types/adapter/storage-adapter-base.js";
 import { createModuleLogger } from "../logger.js";
 import { selectCompressionStrategy } from "@wf-agent/common-utils";
 import {
@@ -16,7 +17,6 @@ import {
 } from "@wf-agent/common-utils";
 import { LRUCache } from "lru-cache";
 import type { StorageMetrics } from "../types/metrics.js";
-import { DEFAULT_STORAGE_METRICS } from "../types/metrics.js";
 
 const logger = createModuleLogger("json-storage");
 
@@ -77,16 +77,17 @@ interface MetadataIndexEntry<TMetadata> {
  * @template TMetadata Metadata Type
  * @template TSaveOptions Save operation options type (default: void)
  */
-export abstract class BaseJsonStorage<TMetadata extends object, TSaveOptions = void> {
+export abstract class BaseJsonStorage<TMetadata extends object, TSaveOptions = void>
+  extends StorageAdapterBase<TMetadata, Record<string, unknown>, TSaveOptions>
+{
   protected metadataIndex: Map<string, MetadataIndexEntry<TMetadata>> = new Map();
-  protected initialized: boolean = false;
   protected lockFiles: Map<string, Promise<void>> = new Map();
   // Lazy loading support
   protected metadataCache: LRUCache<string, TMetadata> | null = null;
   protected lazyMode: boolean = false;
-  protected metrics: StorageMetrics = { ...DEFAULT_STORAGE_METRICS };
 
   constructor(protected readonly config: BaseJsonStorageConfig) {
+    super();
     this.lazyMode = config.lazyLoading ?? false;
     if (this.lazyMode) {
       const cacheSize = config.metadataCacheSize ?? 100;
@@ -271,15 +272,6 @@ export abstract class BaseJsonStorage<TMetadata extends object, TSaveOptions = v
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
         throw error;
       }
-    }
-  }
-
-  /**
-   * Ensure storage is initialized
-   */
-  protected ensureInitialized(): void {
-    if (!this.initialized) {
-      throw new StorageError("Storage not initialized. Call initialize() first.", "initialize");
     }
   }
 
@@ -691,29 +683,11 @@ export abstract class BaseJsonStorage<TMetadata extends object, TSaveOptions = v
   }
 
   /**
-   * Reset metrics counters
+   * List all IDs
    */
-  resetMetrics(): void {
-    this.metrics = { ...DEFAULT_STORAGE_METRICS };
-  }
-
-  /**
-   * Update metrics for an operation
-   */
-  protected updateMetric(operation: string, timeMs: number, dataSize?: number): void {
-    const countKey = `${operation}Count` as keyof StorageMetrics;
-    const timeKey = `avg${operation.charAt(0).toUpperCase()}${operation.slice(1)}Time` as keyof StorageMetrics;
-
-    this.metrics[countKey] = (this.metrics[countKey] as number) + 1;
-
-    // Running average calculation
-    const currentAvg = this.metrics[timeKey] as number;
-    const count = this.metrics[countKey] as number;
-    this.metrics[timeKey] = currentAvg + (timeMs - currentAvg) / count;
-
-    if (dataSize !== undefined) {
-      this.metrics.totalBlobSize += dataSize;
-    }
+  async list(_options?: Record<string, unknown>): Promise<string[]> {
+    this.ensureInitialized();
+    return this.getAllIds();
   }
 
   /**
@@ -721,7 +695,7 @@ export abstract class BaseJsonStorage<TMetadata extends object, TSaveOptions = v
    * More efficient than sequential saves for bulk operations
    * @param items Array of items to save with id, data, and metadata
    */
-  async saveBatch(
+  override async saveBatch(
     items: Array<{ id: string; data: Uint8Array; metadata: TMetadata }>,
   ): Promise<void> {
     const startTime = Date.now();
@@ -761,7 +735,7 @@ export abstract class BaseJsonStorage<TMetadata extends object, TSaveOptions = v
    * @param ids Array of IDs to load
    * @returns Array of loaded data (null if not found), maintaining order
    */
-  async loadBatch(ids: string[]): Promise<Array<{ id: string; data: Uint8Array | null }>> {
+  override async loadBatch(ids: string[]): Promise<Array<{ id: string; data: Uint8Array | null }>> {
     const startTime = Date.now();
     this.ensureInitialized();
 
@@ -808,7 +782,7 @@ export abstract class BaseJsonStorage<TMetadata extends object, TSaveOptions = v
    * More efficient than sequential deletes for bulk operations
    * @param ids Array of IDs to delete
    */
-  async deleteBatch(ids: string[]): Promise<void> {
+  override async deleteBatch(ids: string[]): Promise<void> {
     const startTime = Date.now();
     this.ensureInitialized();
 

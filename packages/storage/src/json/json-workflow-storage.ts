@@ -163,7 +163,7 @@ export class JsonWorkflowStorage
   /**
    * List workflow IDs
    */
-  async list(options?: WorkflowListOptions): Promise<string[]> {
+  override async list(options?: WorkflowListOptions): Promise<string[]> {
     this["ensureInitialized"]();
 
     let ids = this.getAllIds();

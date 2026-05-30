@@ -52,18 +52,15 @@ export class PostgresAgentLoopStorage
     await client.query(`
       CREATE TABLE IF NOT EXISTS agent_loop_metadata (
         id TEXT PRIMARY KEY,
-        agent_id TEXT NOT NULL,
+        profile_id TEXT,
         status TEXT NOT NULL,
-        current_step TEXT,
-        started_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-        last_activity_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
         completed_at TIMESTAMP WITH TIME ZONE,
         blob_size INTEGER,
         blob_hash TEXT,
         tags JSONB,
-        custom_fields JSONB,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        custom_fields JSONB
       )
     `);
 
@@ -83,19 +80,16 @@ export class PostgresAgentLoopStorage
 
     // Create indexes for optimized queries
     await client.query(
-      'CREATE INDEX IF NOT EXISTS idx_al_meta_agent_id ON agent_loop_metadata(agent_id)'
-    );
-    await client.query(
       'CREATE INDEX IF NOT EXISTS idx_al_meta_status ON agent_loop_metadata(status)'
     );
     await client.query(
-      'CREATE INDEX IF NOT EXISTS idx_al_meta_last_activity ON agent_loop_metadata(last_activity_at)'
-    );
-    await client.query(
-      'CREATE INDEX IF NOT EXISTS idx_al_meta_agent_status ON agent_loop_metadata(agent_id, status)'
+      'CREATE INDEX IF NOT EXISTS idx_al_meta_profile_id ON agent_loop_metadata(profile_id)'
     );
     await client.query(
       'CREATE INDEX IF NOT EXISTS idx_al_meta_created_at ON agent_loop_metadata(created_at)'
+    );
+    await client.query(
+      'CREATE INDEX IF NOT EXISTS idx_al_meta_status_created ON agent_loop_metadata(status, created_at)'
     );
 
     logger.debug('Agent loop schema created');
@@ -160,30 +154,27 @@ export class PostgresAgentLoopStorage
     // Insert or update metadata
     await client.query(
       `INSERT INTO agent_loop_metadata (
-        id, agent_id, status, current_step, started_at, last_activity_at,
-        completed_at, blob_size, blob_hash, tags, custom_fields, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, TO_TIMESTAMP($5), TO_TIMESTAMP($6), 
-                CASE WHEN $7 IS NOT NULL THEN TO_TIMESTAMP($7) ELSE NULL END,
-                $8, $9, $10, $11, NOW(), NOW())
+        id, profile_id, status, created_at, updated_at,
+        completed_at, blob_size, blob_hash, tags, custom_fields
+      ) VALUES ($1, $2, $3, TO_TIMESTAMP($4), TO_TIMESTAMP($5),
+                CASE WHEN $6 IS NOT NULL THEN TO_TIMESTAMP($6) ELSE NULL END,
+                $7, $8, $9, $10)
       ON CONFLICT (id) DO UPDATE SET
-        agent_id = EXCLUDED.agent_id,
+        profile_id = EXCLUDED.profile_id,
         status = EXCLUDED.status,
-        current_step = EXCLUDED.current_step,
-        started_at = EXCLUDED.started_at,
-        last_activity_at = EXCLUDED.last_activity_at,
+        created_at = EXCLUDED.created_at,
+        updated_at = NOW(),
         completed_at = EXCLUDED.completed_at,
         blob_size = EXCLUDED.blob_size,
         blob_hash = EXCLUDED.blob_hash,
         tags = EXCLUDED.tags,
-        custom_fields = EXCLUDED.custom_fields,
-        updated_at = NOW()`,
+        custom_fields = EXCLUDED.custom_fields`,
       [
         agentLoopId,
-        metadata.agentLoopId,
+        metadata.profileId ?? metadata.agentLoopId,
         metadata.status,
-        null, // current_step - not in metadata type
         metadata.createdAt / 1000,
-        metadata.updatedAt ? metadata.updatedAt / 1000 : now / 1000,
+        now / 1000,
         metadata.completedAt ? metadata.completedAt / 1000 : null,
         compressed.length,
         blobHash,
@@ -312,7 +303,7 @@ export class PostgresAgentLoopStorage
       }
 
       if (options?.profileId) {
-        conditions.push(`agent_id = $${paramIndex++}`);
+        conditions.push(`profile_id = $${paramIndex++}`);
         params.push(options.profileId);
       }
 
@@ -406,7 +397,7 @@ export class PostgresAgentLoopStorage
         createdAt: new Date(row.created_at).getTime(),
         updatedAt: new Date(row.updated_at).getTime(),
         completedAt: row.completed_at ? new Date(row.completed_at).getTime() : undefined,
-        profileId: row.agent_id ?? undefined,
+        profileId: row.profile_id ?? undefined,
         tags: row.tags ? JSON.parse(row.tags) : undefined,
         customFields: row.custom_fields,
       };
@@ -431,18 +422,21 @@ export class PostgresAgentLoopStorage
     try {
       const now = Date.now();
       
-      // If status is completed, set completed_at
-      const completedUpdate = status === "COMPLETED"
+      // Set completed_at for terminal statuses
+      const terminalStatuses: AgentLoopStatus[] = ["COMPLETED", "FAILED", "CANCELLED"];
+      const isTerminal = terminalStatuses.includes(status);
+      
+      const completedUpdate = isTerminal
         ? ', completed_at = TO_TIMESTAMP($2)'
         : '';
       
-      const params = status === "COMPLETED"
+      const params = isTerminal
         ? [status, now / 1000, agentLoopId]
         : [status, agentLoopId];
 
       await client.query(
         `UPDATE agent_loop_metadata 
-         SET status = $1${completedUpdate}, last_activity_at = NOW(), updated_at = NOW()
+         SET status = $1${completedUpdate}, updated_at = NOW()
          WHERE id = $${params.length}`,
         params
       );

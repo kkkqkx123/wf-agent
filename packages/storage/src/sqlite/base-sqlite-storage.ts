@@ -5,13 +5,13 @@
 
 import Database, { SqliteError } from "better-sqlite3";
 import { StorageError, StorageInitializationError } from "../types/storage-errors.js";
+import { StorageAdapterBase } from "../types/adapter/storage-adapter-base.js";
 import { createModuleLogger } from "../logger.js";
 import {
   SqliteConnectionPool,
   getGlobalConnectionPool,
 } from "./connection-pool.js";
 import type { StorageMetrics } from "../types/metrics.js";
-import { DEFAULT_STORAGE_METRICS } from "../types/metrics.js";
 
 const logger = createModuleLogger("sqlite-storage");
 
@@ -48,18 +48,21 @@ const MAX_PAGE_LIMIT = 1000;
 /**
  * SQLite File Storage Abstract Base Class
  * @template TMetadata metadata type
+ * @template TListOptions list options type
  */
-export abstract class BaseSqliteStorage<TMetadataType> {
+export abstract class BaseSqliteStorage<TMetadataType, TListOptions = Record<string, unknown>>
+  extends StorageAdapterBase<TMetadataType, TListOptions>
+{
   protected db: Database.Database | null = null;
-  protected initialized: boolean = false;
   protected usingPool: boolean = false;
   private connectionPool: SqliteConnectionPool | null = null;
-  protected metrics: StorageMetrics = { ...DEFAULT_STORAGE_METRICS };
   protected loadCounter: number = 0; // Counter for integrity check frequency
   private statementCache: Map<string, Database.Statement> = new Map();
   private readonly MAX_CACHE_SIZE = 100;
 
-  constructor(protected readonly config: BaseSqliteStorageConfig) {}
+  constructor(protected readonly config: BaseSqliteStorageConfig) {
+    super();
+  }
 
   /**
    * Get table name
@@ -185,19 +188,13 @@ export abstract class BaseSqliteStorage<TMetadataType> {
   }
 
   /**
-   * Ensure that it has been initialized
-   */
-  protected ensureInitialized(): void {
-    if (!this.initialized || !this.db) {
-      throw new StorageError("Storage not initialized. Call initialize() first.", "initialize");
-    }
-  }
-
-  /**
    * Getting a database instance
    */
   protected getDb(): Database.Database {
     this.ensureInitialized();
+    if (!this.db) {
+      throw new StorageError("Storage not initialized. Call initialize() first.", "initialize");
+    }
     return this.db!;
   }
 
@@ -489,28 +486,6 @@ export abstract class BaseSqliteStorage<TMetadataType> {
   }
 
   /**
-   * Update metrics for an operation
-   * @param operation Operation name (save, load, delete, list)
-   * @param timeMs Time taken in milliseconds
-   * @param dataSize Optional data size in bytes
-   */
-  protected updateMetric(operation: string, timeMs: number, dataSize?: number): void {
-    const countKey = `${operation}Count` as keyof StorageMetrics;
-    const timeKey = `avg${operation.charAt(0).toUpperCase()}${operation.slice(1)}Time` as keyof StorageMetrics;
-
-    this.metrics[countKey] = (this.metrics[countKey] as number) + 1;
-
-    // Running average calculation
-    const currentAvg = this.metrics[timeKey] as number;
-    const count = this.metrics[countKey] as number;
-    this.metrics[timeKey] = currentAvg + (timeMs - currentAvg) / count;
-
-    if (dataSize !== undefined) {
-      this.metrics.totalBlobSize += dataSize;
-    }
-  }
-
-  /**
    * Get storage metrics
    * @returns Storage metrics including operation counts, timings, and sizes
    */
@@ -535,32 +510,17 @@ export abstract class BaseSqliteStorage<TMetadataType> {
     }
   }
 
-  /**
-   * Reset metrics counters
-   * Preserves size information but resets operation counts and timings
-   */
-  resetMetrics(): void {
-    this.metrics = {
-      saveCount: 0,
-      loadCount: 0,
-      deleteCount: 0,
-      listCount: 0,
-      avgSaveTime: 0,
-      avgLoadTime: 0,
-      avgDeleteTime: 0,
-      avgListTime: 0,
-      totalMetadataSize: this.metrics.totalMetadataSize,
-      totalBlobSize: this.metrics.totalBlobSize,
-      totalCount: this.metrics.totalCount,
-    };
-  }
+  // ── CRUD abstract methods (must be implemented by subclasses) ──────────
+  abstract override save(id: string, data: Uint8Array, metadata: TMetadataType): Promise<void>;
+  abstract override list(options?: TListOptions): Promise<string[]>;
+  abstract override getMetadata(id: string): Promise<TMetadataType | null>;
 
   /**
    * Save multiple items in a single transaction
    * More efficient than individual saves for bulk operations
    * @param items Array of items to save with id, data, and metadata
    */
-  async saveBatch(
+  override async saveBatch(
     items: Array<{ id: string; data: Uint8Array; metadata: TMetadataType }>,
   ): Promise<void> {
     const db = this.getDb();
@@ -646,7 +606,7 @@ export abstract class BaseSqliteStorage<TMetadataType> {
    * @param ids Array of IDs to load
    * @returns Array of loaded data (null if not found), maintaining order
    */
-  async loadBatch(
+  override async loadBatch(
     ids: string[],
   ): Promise<Array<{ id: string; data: Uint8Array | null }>> {
     const db = this.getDb();
@@ -755,7 +715,7 @@ export abstract class BaseSqliteStorage<TMetadataType> {
    * More efficient than individual deletes for bulk operations
    * @param ids Array of IDs to delete
    */
-  async deleteBatch(ids: string[]): Promise<void> {
+  override async deleteBatch(ids: string[]): Promise<void> {
     const db = this.getDb();
     const startTime = Date.now();
 

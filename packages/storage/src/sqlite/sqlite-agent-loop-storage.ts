@@ -59,6 +59,8 @@ export class SqliteAgentLoopStorage
         updated_at INTEGER,
         completed_at INTEGER,
         profile_id TEXT,
+        blob_size INTEGER,
+        blob_hash TEXT,
         tags TEXT,
         custom_fields TEXT
       )
@@ -69,8 +71,12 @@ export class SqliteAgentLoopStorage
       CREATE TABLE IF NOT EXISTS agent_loop_blob (
         agent_loop_id TEXT PRIMARY KEY,
         blob_data BLOB NOT NULL,
-        compressed BOOLEAN DEFAULT FALSE,
+        compressed INTEGER DEFAULT 0 CHECK(compressed IN (0, 1)),
         compression_algorithm TEXT,
+        CHECK (
+          (compressed = 0 AND compression_algorithm IS NULL) OR
+          (compressed = 1 AND compression_algorithm IS NOT NULL)
+        ),
         FOREIGN KEY (agent_loop_id) REFERENCES agent_loop_metadata(id) ON DELETE CASCADE
       )
     `);
@@ -97,24 +103,28 @@ export class SqliteAgentLoopStorage
     const db = this.getDb();
 
     try {
-      // Get adaptive compression config
       // Get compression config based on data characteristics
       const config = selectCompressionStrategy(data);
 
       // Compress BLOB data
       const { compressed, algorithm } = await compressBlob(data, config);
 
+      // Compute blob hash
+      const blobHash = await this.computeHash(data);
+
       const insertMetadata = db.prepare(`
         INSERT INTO agent_loop_metadata (
           id, status, created_at, updated_at, completed_at,
-          profile_id, tags, custom_fields
+          profile_id, blob_size, blob_hash, tags, custom_fields
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           status = excluded.status,
           updated_at = excluded.updated_at,
           completed_at = excluded.completed_at,
           profile_id = excluded.profile_id,
+          blob_size = excluded.blob_size,
+          blob_hash = excluded.blob_hash,
           tags = excluded.tags,
           custom_fields = excluded.custom_fields
       `);
@@ -136,11 +146,13 @@ export class SqliteAgentLoopStorage
           metadata.updatedAt ?? null,
           metadata.completedAt ?? null,
           metadata.profileId ?? null,
+          compressed.length,
+          blobHash,
           metadata.tags ? JSON.stringify(metadata.tags) : null,
           metadata.customFields ? JSON.stringify(metadata.customFields) : null,
         );
 
-        insertBlob.run(agentLoopId, Buffer.from(compressed), algorithm ? 1 : 0, algorithm);
+        insertBlob.run(agentLoopId, Buffer.from(compressed), algorithm ? 1 : 0, algorithm ?? null);
       })();
     } catch (error) {
       this.handleSqliteError(error, "save", { agentLoopId });

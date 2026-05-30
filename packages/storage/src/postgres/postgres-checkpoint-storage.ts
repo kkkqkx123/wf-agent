@@ -68,7 +68,7 @@ export class PostgresCheckpointStorage
         variable_count INTEGER,
         blob_size INTEGER,
         blob_hash TEXT,
-        tags TEXT,
+        tags JSONB,
         custom_fields JSONB,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -197,30 +197,62 @@ export class PostgresCheckpointStorage
     // Compute blob hash
     const blobHash = await this.computeHash(data);
 
+    // Extract metrics and checkpoint metadata from data
+    let checkpointType: string | null = null;
+    let baseCheckpointId: string | null = null;
+    let previousCheckpointId: string | null = null;
+    let messageCount: number | null = null;
+    let variableCount: number | null = null;
+
+    try {
+      const decoder = new TextDecoder();
+      const jsonStr = decoder.decode(data);
+      const checkpoint = JSON.parse(jsonStr);
+      checkpointType = checkpoint.type ?? null;
+      baseCheckpointId = checkpoint.baseCheckpointId ?? null;
+      previousCheckpointId = checkpoint.previousCheckpointId ?? null;
+      const executionState = checkpoint.executionState;
+      messageCount = executionState?.conversationState?.messages?.length ?? null;
+      variableCount = executionState?.variables?.length ?? null;
+    } catch {
+      // Ignore parsing errors, use null defaults
+    }
+
     // Insert or update metadata
     await client.query(
       `INSERT INTO checkpoint_metadata (
-        id, entity_type, entity_id, timestamp, tags, custom_fields,
-        blob_size, blob_hash, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
+        id, entity_type, entity_id, timestamp, checkpoint_type,
+        base_checkpoint_id, previous_checkpoint_id, message_count, variable_count,
+        blob_size, blob_hash, tags, custom_fields, created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), NOW())
       ON CONFLICT (id) DO UPDATE SET
         entity_type = EXCLUDED.entity_type,
         entity_id = EXCLUDED.entity_id,
         timestamp = EXCLUDED.timestamp,
-        tags = EXCLUDED.tags,
-        custom_fields = EXCLUDED.custom_fields,
+        checkpoint_type = EXCLUDED.checkpoint_type,
+        base_checkpoint_id = EXCLUDED.base_checkpoint_id,
+        previous_checkpoint_id = EXCLUDED.previous_checkpoint_id,
+        message_count = EXCLUDED.message_count,
+        variable_count = EXCLUDED.variable_count,
         blob_size = EXCLUDED.blob_size,
         blob_hash = EXCLUDED.blob_hash,
+        tags = EXCLUDED.tags,
+        custom_fields = EXCLUDED.custom_fields,
         updated_at = NOW()`,
       [
         checkpointId,
         metadata.entityType,
         metadata.entityId,
         metadata.timestamp,
-        metadata.tags ? JSON.stringify(metadata.tags) : null,
-        metadata.customFields ? JSON.stringify(metadata.customFields) : null,
+        checkpointType,
+        baseCheckpointId,
+        previousCheckpointId,
+        messageCount,
+        variableCount,
         compressed.length,
         blobHash,
+        metadata.tags ? JSON.stringify(metadata.tags) : null,
+        metadata.customFields ? JSON.stringify(metadata.customFields) : null,
       ]
     );
 
@@ -334,7 +366,7 @@ export class PostgresCheckpointStorage
 
       // Build dynamic query based on filters
       const conditions: string[] = [];
-      const params: Array<string | number> = [];
+      const params: Array<string | number | string[]> = [];
       let paramIndex = 1;
 
       if (options?.entityType) {
@@ -360,6 +392,11 @@ export class PostgresCheckpointStorage
       if (options?.timestampTo) {
         conditions.push(`timestamp <= $${paramIndex++}`);
         params.push(options.timestampTo);
+      }
+
+      if (options?.tags && options.tags.length > 0) {
+        conditions.push(`tags::jsonb ?| $${paramIndex++}::text[]`);
+        params.push(options.tags);
       }
 
       const whereClause = conditions.length > 0 

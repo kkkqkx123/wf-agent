@@ -61,7 +61,6 @@ export class PostgresTaskStorage
         start_time BIGINT,
         complete_time BIGINT,
         timeout INTEGER,
-        execution_duration BIGINT,
         error TEXT,
         error_stack TEXT,
         blob_size INTEGER,
@@ -157,12 +156,6 @@ export class PostgresTaskStorage
     data: Uint8Array,
     metadata: TaskStorageMetadata
   ): Promise<void> {
-    // Calculate execution duration if both start and complete times are available
-    const executionDuration =
-      metadata.completeTime && metadata.startTime
-        ? metadata.completeTime - metadata.startTime
-        : null;
-
     // Get compression config
     const config = selectCompressionStrategy(data);
 
@@ -176,9 +169,9 @@ export class PostgresTaskStorage
     await client.query(
       `INSERT INTO task_metadata (
         id, execution_id, workflow_id, status, submit_time, start_time,
-        complete_time, timeout, execution_duration, error, error_stack,
+        complete_time, timeout, error, error_stack,
         blob_size, blob_hash, tags, custom_fields, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW(), NOW())
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW(), NOW())
       ON CONFLICT (id) DO UPDATE SET
         execution_id = EXCLUDED.execution_id,
         workflow_id = EXCLUDED.workflow_id,
@@ -187,7 +180,6 @@ export class PostgresTaskStorage
         start_time = EXCLUDED.start_time,
         complete_time = EXCLUDED.complete_time,
         timeout = EXCLUDED.timeout,
-        execution_duration = EXCLUDED.execution_duration,
         error = EXCLUDED.error,
         error_stack = EXCLUDED.error_stack,
         blob_size = EXCLUDED.blob_size,
@@ -204,7 +196,6 @@ export class PostgresTaskStorage
         metadata.startTime ?? null,
         metadata.completeTime ?? null,
         metadata.timeout ?? null,
-        executionDuration,
         metadata.error ?? null,
         metadata.errorStack ?? null,
         compressed.length,
@@ -564,15 +555,15 @@ export class PostgresTaskStorage
         byWorkflow[row.workflow_id] = parseInt(row.count, 10);
       });
 
-      // Calculate execution time statistics
+      // Calculate execution time statistics from start_time/complete_time
       const execTimeResult = await client.query(
         `SELECT 
-           AVG(execution_duration) as avg_time,
-           MAX(execution_duration) as max_time,
-           MIN(execution_duration) as min_time
+           AVG(complete_time - start_time) as avg_time,
+           MAX(complete_time - start_time) as max_time,
+           MIN(complete_time - start_time) as min_time
          FROM task_metadata 
-         ${whereClause}
-         AND execution_duration IS NOT NULL`,
+         ${whereClause ? whereClause + ' AND' : 'WHERE'}
+         start_time IS NOT NULL AND complete_time IS NOT NULL`,
         params
       );
 
@@ -583,10 +574,7 @@ export class PostgresTaskStorage
 
       // Calculate success rate
       const completedCount = byStatus.COMPLETED || 0;
-      const failedCount = byStatus.FAILED || 0;
-      const successRate = (completedCount + failedCount) > 0 
-        ? completedCount / (completedCount + failedCount) 
-        : undefined;
+      const successRate = total > 0 ? completedCount / total : undefined;
 
       // Calculate timeout rate
       const timeoutCount = byStatus.TIMEOUT || 0;
@@ -623,7 +611,8 @@ export class PostgresTaskStorage
     try {
       const result = await client.query(
         `DELETE FROM task_metadata 
-         WHERE complete_time IS NOT NULL 
+         WHERE status IN ('COMPLETED', 'FAILED', 'CANCELLED', 'TIMEOUT')
+         AND complete_time IS NOT NULL 
          AND complete_time < $1`,
         [cutoffTime]
       );

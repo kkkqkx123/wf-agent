@@ -67,7 +67,6 @@ export class SqliteTaskStorage
         start_time INTEGER,
         complete_time INTEGER,
         timeout INTEGER,
-        execution_duration INTEGER,
         error TEXT CHECK(length(error) <= 4096),
         error_stack TEXT CHECK(length(error_stack) <= 8192),
         blob_size INTEGER,
@@ -121,29 +120,22 @@ export class SqliteTaskStorage
     const now = Date.now();
 
     try {
-      // Calculate execution duration if both start and complete times are available
-      const executionDuration =
-        metadata.completeTime && metadata.startTime
-          ? metadata.completeTime - metadata.startTime
-          : null;
-
-      // Compute blob hash
-      const blobHash = await this.computeHash(data);
-
-      // Get adaptive compression config
       // Get compression config based on data characteristics
       const config = selectCompressionStrategy(data);
 
       // Compress BLOB data
       const { compressed, algorithm } = await compressBlob(data, config);
 
+      // Compute blob hash
+      const blobHash = await this.computeHash(data);
+
       const insertMetadata = db.prepare(`
         INSERT INTO task_metadata (
           id, execution_id, workflow_id, status, submit_time, start_time,
-          complete_time, timeout, execution_duration, error, error_stack,
+          complete_time, timeout, error, error_stack,
           blob_size, blob_hash, tags, custom_fields, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           execution_id = excluded.execution_id,
           workflow_id = excluded.workflow_id,
@@ -152,7 +144,6 @@ export class SqliteTaskStorage
           start_time = excluded.start_time,
           complete_time = excluded.complete_time,
           timeout = excluded.timeout,
-          execution_duration = excluded.execution_duration,
           error = excluded.error,
           error_stack = excluded.error_stack,
           blob_size = excluded.blob_size,
@@ -182,7 +173,6 @@ export class SqliteTaskStorage
             metadata.startTime ?? null,
             metadata.completeTime ?? null,
             metadata.timeout ?? null,
-            executionDuration,
             metadata.error ?? null,
             metadata.errorStack ?? null,
             compressed.length,
@@ -348,10 +338,9 @@ export class SqliteTaskStorage
       }
 
       if (options?.tags && options.tags.length > 0) {
-        // Use parameterized query for tags to prevent SQL injection
-        const tagPattern = `%${options.tags[0]}%`;
-        conditions.push("tags LIKE ?");
-        params.push(tagPattern);
+        // Use json_each for exact tag matching (same semantics as Postgres JSONB ?|)
+        conditions.push(`EXISTS (SELECT 1 FROM json_each(tags) AS j WHERE j.value IN (${options.tags.map(() => "?").join(", ")}))`);
+        params.push(...options.tags);
       }
 
       if (conditions.length > 0) {

@@ -17,8 +17,8 @@ describe("JsonCheckpointStorage", () => {
   const createMetadata = (
     overrides?: Partial<CheckpointStorageMetadata>,
   ): CheckpointStorageMetadata => ({
-    executionId: "execution-1",
-    workflowId: "workflow-1",
+    entityType: "workflow",
+    entityId: "execution-1",
     timestamp: Date.now(),
     ...overrides,
   });
@@ -112,17 +112,17 @@ describe("JsonCheckpointStorage", () => {
       await storage.save(
         "cp-1",
         new Uint8Array([1]),
-        createMetadata({ executionId: "execution-1", timestamp: 1000 }),
+        createMetadata({ entityId: "execution-1", timestamp: 1000 }),
       );
       await storage.save(
         "cp-2",
         new Uint8Array([2]),
-        createMetadata({ executionId: "execution-1", timestamp: 2000 }),
+        createMetadata({ entityId: "execution-1", timestamp: 2000 }),
       );
       await storage.save(
         "cp-3",
         new Uint8Array([3]),
-        createMetadata({ executionId: "execution-2", timestamp: 3000 }),
+        createMetadata({ entityId: "execution-2", timestamp: 3000 }),
       );
     });
 
@@ -131,8 +131,8 @@ describe("JsonCheckpointStorage", () => {
       expect(ids).toHaveLength(3);
     });
 
-    it("should filter by executionId", async () => {
-      const ids = await storage.list({ executionId: "execution-1" });
+    it("should filter by entityId", async () => {
+      const ids = await storage.list({ entityId: "execution-1" });
       expect(ids).toHaveLength(2);
     });
 

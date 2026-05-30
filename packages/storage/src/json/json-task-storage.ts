@@ -43,7 +43,7 @@ export class JsonTaskStorage
   /**
    * List task IDs
    */
-  async list(options?: TaskListOptions): Promise<string[]> {
+  override async list(options?: TaskListOptions): Promise<string[]> {
     this.ensureInitialized();
 
     let ids = this.getAllIds();

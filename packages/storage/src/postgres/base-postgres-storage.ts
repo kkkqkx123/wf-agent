@@ -5,13 +5,13 @@
 
 import { Pool, PoolClient, DatabaseError } from 'pg';
 import { StorageError, StorageInitializationError } from '../types/storage-errors.js';
+import { StorageAdapterBase } from '../types/adapter/storage-adapter-base.js';
 import { createModuleLogger } from '../logger.js';
 import {
   PostgresConnectionPool,
   getGlobalConnectionPool,
 } from './connection-pool.js';
 import type { StorageMetrics } from '../types/metrics.js';
-import { DEFAULT_STORAGE_METRICS } from '../types/metrics.js';
 
 const logger = createModuleLogger('postgres-storage');
 
@@ -56,16 +56,19 @@ export interface BasePostgresStorageConfig {
 /**
  * PostgreSQL File Storage Abstract Base Class
  * @template TMetadata metadata type
+ * @template TListOptions list options type
  */
-export abstract class BasePostgresStorage<TMetadataType> {
+export abstract class BasePostgresStorage<TMetadataType, TListOptions = Record<string, unknown>>
+  extends StorageAdapterBase<TMetadataType, TListOptions>
+{
   protected pool: Pool | null = null;
-  protected initialized: boolean = false;
   protected usingPool: boolean = false;
   private connectionPool: PostgresConnectionPool | null = null;
-  protected metrics: StorageMetrics = { ...DEFAULT_STORAGE_METRICS };
   protected loadCounter: number = 0; // Counter for integrity check frequency
 
-  constructor(protected readonly config: BasePostgresStorageConfig) {}
+  constructor(protected readonly config: BasePostgresStorageConfig) {
+    super();
+  }
 
   /**
    * Get table name
@@ -194,15 +197,6 @@ export abstract class BasePostgresStorage<TMetadataType> {
     const validatedOffset = offset !== undefined ? Math.max(0, offset) : 0;
     
     return { limit: validatedLimit, offset: validatedOffset };
-  }
-
-  /**
-   * Ensure that it has been initialized
-   */
-  protected ensureInitialized(): void {
-    if (!this.initialized || !this.pool) {
-      throw new StorageError('Storage not initialized. Call initialize() first.', 'initialize');
-    }
   }
 
   /**
@@ -358,25 +352,6 @@ export abstract class BasePostgresStorage<TMetadataType> {
   }
 
   /**
-   * Update metrics for an operation
-   */
-  protected updateMetric(operation: string, timeMs: number, dataSize?: number): void {
-    const countKey = `${operation}Count` as keyof StorageMetrics;
-    const timeKey = `avg${operation.charAt(0).toUpperCase()}${operation.slice(1)}Time` as keyof StorageMetrics;
-
-    this.metrics[countKey] = (this.metrics[countKey] as number) + 1;
-
-    // Running average calculation
-    const currentAvg = this.metrics[timeKey] as number;
-    const count = this.metrics[countKey] as number;
-    this.metrics[timeKey] = currentAvg + (timeMs - currentAvg) / count;
-
-    if (dataSize !== undefined) {
-      this.metrics.totalBlobSize += dataSize;
-    }
-  }
-
-  /**
    * Get storage metrics
    */
   async getMetrics(): Promise<StorageMetrics> {
@@ -405,29 +380,16 @@ export abstract class BasePostgresStorage<TMetadataType> {
     }
   }
 
-  /**
-   * Reset metrics counters
-   */
-  resetMetrics(): void {
-    this.metrics = {
-      saveCount: 0,
-      loadCount: 0,
-      deleteCount: 0,
-      listCount: 0,
-      avgSaveTime: 0,
-      avgLoadTime: 0,
-      avgDeleteTime: 0,
-      avgListTime: 0,
-      totalMetadataSize: this.metrics.totalMetadataSize,
-      totalBlobSize: this.metrics.totalBlobSize,
-      totalCount: this.metrics.totalCount,
-    };
-  }
+  // ── CRUD abstract methods (must be implemented by subclasses) ──────────
+  abstract override save(id: string, data: Uint8Array, metadata: TMetadataType): Promise<void>;
+  abstract override load(id: string): Promise<Uint8Array | null>;
+  abstract override list(options?: TListOptions): Promise<string[]>;
+  abstract override getMetadata(id: string): Promise<TMetadataType | null>;
 
   /**
    * Clear all data
    */
-  async clear(): Promise<void> {
+  override async clear(): Promise<void> {
     const client = await this.getClient();
     
     try {
@@ -472,7 +434,7 @@ export abstract class BasePostgresStorage<TMetadataType> {
   /**
    * Save multiple items in a single transaction
    */
-  async saveBatch(
+  override async saveBatch(
     items: Array<{ id: string; data: Uint8Array; metadata: TMetadataType }>,
   ): Promise<void> {
     const client = await this.getClient();
@@ -527,7 +489,7 @@ export abstract class BasePostgresStorage<TMetadataType> {
   /**
    * Load multiple items efficiently
    */
-  async loadBatch(
+  override async loadBatch(
     ids: string[],
   ): Promise<Array<{ id: string; data: Uint8Array | null }>> {
     const client = await this.getClient();
@@ -577,7 +539,7 @@ export abstract class BasePostgresStorage<TMetadataType> {
   /**
    * Delete multiple items in a single transaction
    */
-  async deleteBatch(ids: string[]): Promise<void> {
+  override async deleteBatch(ids: string[]): Promise<void> {
     const client = await this.getClient();
     const startTime = Date.now();
 

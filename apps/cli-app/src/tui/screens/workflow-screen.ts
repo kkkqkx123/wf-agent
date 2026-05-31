@@ -6,7 +6,8 @@
 import { Box, Container, Text, SelectList } from "../core/index.js";
 import type { Screen } from "./screen.js";
 import { WorkflowAdapter } from "../../adapters/workflow-adapter.js";
-import type { MessageBus, MessageSubscription } from "@wf-agent/sdk/api";
+import type { MessageBus } from "@wf-agent/sdk/api";
+import type { TUIOutputHandler } from "../../handlers/tui/tui-output-handler.js";
 import { MessageCategory, WorkflowExecutionMessageType } from "@wf-agent/types";
 import type {
   BaseComponentMessage,
@@ -19,14 +20,14 @@ export class WorkflowScreen implements Screen {
   private workflowList: SelectList;
   private detailPanel: Box;
   private adapter: WorkflowAdapter;
-  private messageBus?: MessageBus;
+  private tuiOutputHandler?: TUIOutputHandler;
   private currentWorkflowId?: string;
   private onBack?: () => void;
-  private subscriptions: MessageSubscription[] = [];
+  private unsubscribeTUI?: () => void;
   private logger = createContextualLogger({ component: "WorkflowScreen" });
 
-  constructor(messageBus?: MessageBus, onBack?: () => void) {
-    this.messageBus = messageBus;
+  constructor(_messageBus?: MessageBus, onBack?: () => void, tuiOutputHandler?: TUIOutputHandler) {
+    this.tuiOutputHandler = tuiOutputHandler;
     this.onBack = onBack;
     this.adapter = new WorkflowAdapter();
     this.container = new Container();
@@ -65,37 +66,30 @@ export class WorkflowScreen implements Screen {
 
   /**
    * Setup message subscriptions for real-time workflow execution updates
+   * Subscribes to TUIOutputHandler and dispatches by message category
    */
   private setupMessageSubscriptions() {
-    if (!this.messageBus) return;
+    if (!this.tuiOutputHandler) return;
 
-    // Subscribe to node execution events
-    const nodeSubscription = this.messageBus.subscribe(
-      {
-        categories: [MessageCategory.WORKFLOW_EXECUTION],
-        types: [
-          WorkflowExecutionMessageType.NODE_START,
-          WorkflowExecutionMessageType.NODE_END,
-          WorkflowExecutionMessageType.NODE_ERROR,
-          WorkflowExecutionMessageType.NODE_SKIP,
-        ],
-      },
-      (message: BaseComponentMessage) => this.handleNodeMessage(message)
-    );
-    this.subscriptions.push(nodeSubscription);
+    this.unsubscribeTUI = this.tuiOutputHandler.subscribe((message: BaseComponentMessage) => {
+      if (message.category !== MessageCategory.WORKFLOW_EXECUTION) return;
 
-    // Subscribe to workflow lifecycle events
-    const workflowSubscription = this.messageBus.subscribe(
-      {
-        categories: [MessageCategory.WORKFLOW_EXECUTION],
-        types: [
-          WorkflowExecutionMessageType.EXECUTION_START,
-          WorkflowExecutionMessageType.EXECUTION_END,
-        ],
-      },
-      (message: BaseComponentMessage) => this.handleWorkflowMessage(message)
-    );
-    this.subscriptions.push(workflowSubscription);
+      const nodeTypes: string[] = [
+        WorkflowExecutionMessageType.NODE_START,
+        WorkflowExecutionMessageType.NODE_END,
+        WorkflowExecutionMessageType.NODE_ERROR,
+        WorkflowExecutionMessageType.NODE_SKIP,
+      ];
+
+      if (nodeTypes.includes(message.type as WorkflowExecutionMessageType)) {
+        this.handleNodeMessage(message);
+      } else if (
+        message.type === WorkflowExecutionMessageType.EXECUTION_START ||
+        message.type === WorkflowExecutionMessageType.EXECUTION_END
+      ) {
+        this.handleWorkflowMessage(message);
+      }
+    });
   }
 
   /**
@@ -245,8 +239,6 @@ export class WorkflowScreen implements Screen {
   }
 
   destroy(): void {
-    // Cleanup subscriptions
-    this.subscriptions.forEach(subscription => subscription.unsubscribe());
-    this.subscriptions = [];
+    this.unsubscribeTUI?.();
   }
 }

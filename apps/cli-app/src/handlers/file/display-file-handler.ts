@@ -6,7 +6,7 @@
  */
 
 import type { OutputHandler, BaseComponentMessage } from "@wf-agent/types";
-import { OutputTarget } from "@wf-agent/types";
+import { OutputTarget, AgentMessageType, WorkflowExecutionMessageType, SystemMessageType } from "@wf-agent/types";
 import type { DisplayOutputService, DisplaySection } from "../../services/io/index.js";
 import { createContextualLogger } from "@wf-agent/sdk/utils";
 import type {
@@ -39,13 +39,13 @@ export class DisplayFileHandler implements OutputHandler {
    * Handles tool results, workflow events, checkpoints, and iterations
    */
   supports(message: BaseComponentMessage): boolean {
-    const supportedTypes = [
-      "agent.tool.result",
-      "workflow-execution.node.start",
-      "workflow-execution.node.end",
-      "workflow-execution.checkpoint.create",
-      "agent.iteration.start",
-      "system.error",
+    const supportedTypes: string[] = [
+      AgentMessageType.TOOL_RESULT,
+      WorkflowExecutionMessageType.NODE_START,
+      WorkflowExecutionMessageType.NODE_END,
+      AgentMessageType.CHECKPOINT_CREATE,
+      AgentMessageType.ITERATION_START,
+      SystemMessageType.ERROR,
     ];
 
     return supportedTypes.includes(message.type);
@@ -82,22 +82,22 @@ export class DisplayFileHandler implements OutputHandler {
    */
   private createSectionFromMessage(message: BaseComponentMessage): DisplaySection | null {
     switch (message.type) {
-      case "agent.tool.result":
+      case AgentMessageType.TOOL_RESULT:
         return this.createToolResultSection(message);
 
-      case "workflow-execution.node.start":
+      case WorkflowExecutionMessageType.NODE_START:
         return this.createNodeStartSection(message);
 
-      case "workflow-execution.node.end":
+      case WorkflowExecutionMessageType.NODE_END:
         return this.createNodeEndSection(message);
 
-      case "workflow-execution.checkpoint.create":
+      case AgentMessageType.CHECKPOINT_CREATE:
         return this.createCheckpointSection(message);
 
-      case "agent.iteration.start":
+      case AgentMessageType.ITERATION_START:
         return this.createIterationSection(message);
 
-      case "system.error":
+      case SystemMessageType.ERROR:
         return this.createErrorSection(message);
 
       default:

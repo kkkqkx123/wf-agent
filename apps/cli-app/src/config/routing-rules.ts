@@ -5,7 +5,12 @@
  */
 
 import type { RoutingRule } from "@wf-agent/types";
-import { MessageCategory, OutputTarget } from "@wf-agent/types";
+import {
+  MessageCategory,
+  OutputTarget,
+  AgentMessageType,
+  WorkflowExecutionMessageType,
+} from "@wf-agent/types";
 
 /**
  * Default routing rules for CLI-App
@@ -15,7 +20,7 @@ export const CLI_ROUTING_RULES: RoutingRule[] = [
   {
     name: "agent-llm-stream",
     match: {
-      types: ["agent.llm.stream"],
+      types: [AgentMessageType.LLM_STREAM],
     },
     decision: {
       targets: [OutputTarget.TUI],
@@ -30,7 +35,7 @@ export const CLI_ROUTING_RULES: RoutingRule[] = [
   {
     name: "agent-human-relay-request",
     match: {
-      types: ["agent.human_relay.request"],
+      types: [AgentMessageType.HUMAN_RELAY_REQUEST],
     },
     decision: {
       targets: [OutputTarget.TUI, OutputTarget.FILE_FUNCTIONAL, OutputTarget.FILE_DISPLAY],
@@ -41,11 +46,30 @@ export const CLI_ROUTING_RULES: RoutingRule[] = [
     priority: 100,
   },
 
-  // Rule 3: Agent tool call start/end -> TUI (summary)
+  // Rule 3: Agent Human Relay response/timeout/cancel -> TUI + FILE_DISPLAY
+  {
+    name: "agent-human-relay-status",
+    match: {
+      types: [
+        AgentMessageType.HUMAN_RELAY_RESPONSE,
+        AgentMessageType.HUMAN_RELAY_TIMEOUT,
+        AgentMessageType.HUMAN_RELAY_CANCEL,
+      ],
+    },
+    decision: {
+      targets: [OutputTarget.TUI, OutputTarget.FILE_DISPLAY],
+      aggregateToParent: true,
+      aggregateLevel: "summary",
+      notifyParent: true,
+    },
+    priority: 100,
+  },
+
+  // Rule 4: Agent tool call start/end -> TUI (summary)
   {
     name: "agent-tool-call",
     match: {
-      types: ["agent.tool.call_start", "agent.tool.call_end"],
+      types: [AgentMessageType.TOOL_CALL_START, AgentMessageType.TOOL_CALL_END],
     },
     decision: {
       targets: [OutputTarget.TUI],
@@ -60,7 +84,7 @@ export const CLI_ROUTING_RULES: RoutingRule[] = [
   {
     name: "agent-tool-result",
     match: {
-      types: ["agent.tool.result"],
+      types: [AgentMessageType.TOOL_RESULT],
     },
     decision: {
       targets: [OutputTarget.FILE_DISPLAY],
@@ -75,7 +99,7 @@ export const CLI_ROUTING_RULES: RoutingRule[] = [
   {
     name: "workflow-execution-node",
     match: {
-      types: ["workflow-execution.node.start", "workflow-execution.node.end"],
+      types: [WorkflowExecutionMessageType.NODE_START, WorkflowExecutionMessageType.NODE_END],
     },
     decision: {
       targets: [OutputTarget.TUI, OutputTarget.FILE_DISPLAY],
@@ -90,7 +114,7 @@ export const CLI_ROUTING_RULES: RoutingRule[] = [
   {
     name: "workflow-execution-fork-branch",
     match: {
-      types: ["workflow-execution.fork.branch_start", "workflow-execution.fork.branch_end"],
+      types: [WorkflowExecutionMessageType.FORK_BRANCH_START, WorkflowExecutionMessageType.FORK_BRANCH_END],
     },
     decision: {
       targets: [OutputTarget.FILE_DISPLAY],

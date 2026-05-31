@@ -4,7 +4,8 @@
 
 import { Box, Container, Text, SelectList } from "../core/index.js";
 import type { Screen } from "./screen.js";
-import type { MessageBus, MessageSubscription } from "@wf-agent/sdk/api";
+import type { MessageBus } from "@wf-agent/sdk/api";
+import type { TUIOutputHandler } from "../../handlers/tui/tui-output-handler.js";
 import { MessageCategory, AgentMessageType, WorkflowExecutionMessageType } from "@wf-agent/types";
 import type { BaseComponentMessage } from "@wf-agent/types";
 
@@ -12,14 +13,14 @@ export class DashboardScreen implements Screen {
   private container: Container;
   private menuList!: SelectList;
   private statusPanel!: Box;
-  private messageBus?: MessageBus;
+  private tuiOutputHandler?: TUIOutputHandler;
   private onNavigate?: (screenId: string) => void;
-  private subscriptions: MessageSubscription[] = [];
+  private unsubscribeTUI?: () => void;
   private activeAgents: number = 0;
   private runningThreads: number = 0;
 
-  constructor(messageBus?: MessageBus, onNavigate?: (screenId: string) => void) {
-    this.messageBus = messageBus;
+  constructor(_messageBus?: MessageBus, onNavigate?: (screenId: string) => void, tuiOutputHandler?: TUIOutputHandler) {
+    this.tuiOutputHandler = tuiOutputHandler;
     this.onNavigate = onNavigate;
     this.container = new Container();
     this.setupLayout();
@@ -86,36 +87,18 @@ export class DashboardScreen implements Screen {
   }
 
   /**
-   * Setup live status updates via message subscriptions
+   * Setup live status updates via TUI output handler subscriptions
    */
   private setupLiveUpdates() {
-    if (!this.messageBus) return;
+    if (!this.tuiOutputHandler) return;
 
-    // Subscribe to agent lifecycle events
-    const agentSubscription = this.messageBus.subscribe(
-      {
-        categories: [MessageCategory.AGENT],
-        types: [
-          AgentMessageType.AGENT_START,
-          AgentMessageType.AGENT_END,
-        ],
-      },
-      (message: BaseComponentMessage) => this.handleAgentMessage(message)
-    );
-    this.subscriptions.push(agentSubscription);
-
-    // Subscribe to workflow execution lifecycle events
-    const workflowSubscription = this.messageBus.subscribe(
-      {
-        categories: [MessageCategory.WORKFLOW_EXECUTION],
-        types: [
-          WorkflowExecutionMessageType.EXECUTION_START,
-          WorkflowExecutionMessageType.EXECUTION_END,
-        ],
-      },
-      (message: BaseComponentMessage) => this.handleWorkflowMessage(message)
-    );
-    this.subscriptions.push(workflowSubscription);
+    this.unsubscribeTUI = this.tuiOutputHandler.subscribe((message: BaseComponentMessage) => {
+      if (message.category === MessageCategory.AGENT) {
+        this.handleAgentMessage(message);
+      } else if (message.category === MessageCategory.WORKFLOW_EXECUTION) {
+        this.handleWorkflowMessage(message);
+      }
+    });
   }
 
   /**
@@ -166,8 +149,6 @@ export class DashboardScreen implements Screen {
   }
 
   destroy(): void {
-    // Cleanup subscriptions
-    this.subscriptions.forEach(subscription => subscription.unsubscribe());
-    this.subscriptions = [];
+    this.unsubscribeTUI?.();
   }
 }

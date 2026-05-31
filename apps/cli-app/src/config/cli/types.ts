@@ -9,10 +9,11 @@ import type {
   PresetsConfig,
   LogLevel,
   OutputFormat,
+  RoutingRule,
 } from "@wf-agent/types";
 
 // Re-export types from @wf-agent/types for convenience
-export type { StorageConfig, OutputConfig, PresetsConfig, LogLevel, OutputFormat };
+export type { StorageConfig, OutputConfig, PresetsConfig, LogLevel, OutputFormat, RoutingRule };
 
 /**
  * Complete CLI Configuration
@@ -29,4 +30,5 @@ export interface CLIConfig {
   storage?: StorageConfig;
   output?: OutputConfig;
   presets?: PresetsConfig;
+  customRoutingRules?: RoutingRule[];
 }

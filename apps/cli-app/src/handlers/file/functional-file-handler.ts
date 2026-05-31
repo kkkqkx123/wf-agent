@@ -59,4 +59,12 @@ export class FunctionalFileHandler implements OutputHandler {
   private generateSessionId(): string {
     return `session-${Date.now()}`;
   }
+
+  async flush(): Promise<void> {
+    // FunctionalFileHandler writes synchronously; no buffering needed
+  }
+
+  async close(): Promise<void> {
+    // No resources to release
+  }
 }

@@ -7,7 +7,8 @@ import { Box, Container, Text, Input } from "../core/index.js";
 import type { Screen } from "./screen.js";
 import type { Component } from "../core/tui.js";
 import type { AgentLoopRuntimeConfig } from "@wf-agent/types";
-import type { MessageBus, MessageSubscription } from "@wf-agent/sdk/api";
+import type { MessageBus } from "@wf-agent/sdk/api";
+import type { TUIOutputHandler } from "../../handlers/tui/tui-output-handler.js";
 import { MessageCategory, AgentMessageType } from "@wf-agent/types";
 import type {
   AgentStartData,
@@ -34,17 +35,17 @@ export class AgentScreen implements Screen {
   private iterationPanel: IterationPanel;
   private toolCallPanel: ToolCallIndicator;
   private messageInput!: Input;
-  private messageBus?: MessageBus;
+  private tuiOutputHandler?: TUIOutputHandler;
   private currentAgentId?: string;
   private isRunning: boolean = false;
   private logEntries: LogEntry[] = [];
   private onBack?: () => void;
-  private subscriptions: MessageSubscription[] = [];
+  private unsubscribeTUI?: () => void;
   private streamingBuffer: string = "";
   private lastRenderTime: number = 0;
 
-  constructor(messageBus?: MessageBus, onBack?: () => void) {
-    this.messageBus = messageBus;
+  constructor(_messageBus?: MessageBus, onBack?: () => void, tuiOutputHandler?: TUIOutputHandler) {
+    this.tuiOutputHandler = tuiOutputHandler;
     this.onBack = onBack;
     this.container = new Container();
     this.statusPanel = new Box();
@@ -58,73 +59,17 @@ export class AgentScreen implements Screen {
 
   /**
    * Setup message subscriptions for real-time agent event updates
+   * Subscribes to TUIOutputHandler and dispatches by message type
    */
   private setupMessageSubscriptions() {
-    if (!this.messageBus) return;
+    if (!this.tuiOutputHandler) return;
 
-    // Subscribe to all agent messages for this instance (granular filtering)
-    if (this.currentAgentId) {
-      const agentSubscription = this.messageBus.subscribe(
-        {
-          categories: [MessageCategory.AGENT],
-          entityIds: [this.currentAgentId],
-        },
-        (message: BaseComponentMessage) => this.handleAgentMessage(message)
-      );
-      this.subscriptions.push(agentSubscription);
-    } else {
-      // Fallback: subscribe to all agent messages if no specific agent ID
-      const lifecycleSubscription = this.messageBus.subscribe(
-        {
-          categories: [MessageCategory.AGENT],
-          types: [
-            AgentMessageType.AGENT_START,
-            AgentMessageType.AGENT_END,
-            AgentMessageType.AGENT_PAUSE,
-            AgentMessageType.AGENT_RESUME,
-            AgentMessageType.AGENT_CANCEL,
-          ],
-        },
-        (message: BaseComponentMessage) => this.handleAgentLifecycleMessage(message)
-      );
-      this.subscriptions.push(lifecycleSubscription);
-
-      // Subscribe to iteration events
-      const iterationSubscription = this.messageBus.subscribe(
-        {
-          categories: [MessageCategory.AGENT],
-          types: [
-            AgentMessageType.ITERATION_START,
-            AgentMessageType.ITERATION_END,
-          ],
-        },
-        (message: BaseComponentMessage) => this.handleIterationMessage(message)
-      );
-      this.subscriptions.push(iterationSubscription);
-
-      // Subscribe to LLM streaming events
-      const llmSubscription = this.messageBus.subscribe(
-        {
-          categories: [MessageCategory.AGENT],
-          types: [AgentMessageType.LLM_STREAM],
-        },
-        (message: BaseComponentMessage) => this.handleLLMStreamMessage(message)
-      );
-      this.subscriptions.push(llmSubscription);
-
-      // Subscribe to tool execution events
-      const toolSubscription = this.messageBus.subscribe(
-        {
-          categories: [MessageCategory.AGENT],
-          types: [
-            AgentMessageType.TOOL_CALL_START,
-            AgentMessageType.TOOL_CALL_END,
-          ],
-        },
-        (message: BaseComponentMessage) => this.handleToolMessage(message)
-      );
-      this.subscriptions.push(toolSubscription);
-    }
+    this.unsubscribeTUI = this.tuiOutputHandler.subscribe((message: BaseComponentMessage) => {
+      if (message.category !== MessageCategory.AGENT) return;
+      // Entity-level filter: ignore messages for other agent instances
+      if (this.currentAgentId && message.entity?.id && message.entity.id !== this.currentAgentId) return;
+      this.handleAgentMessage(message);
+    });
   }
 
   /**
@@ -376,9 +321,9 @@ export class AgentScreen implements Screen {
     // Generate agent ID
     this.currentAgentId = `agent-${Date.now()}-${Math.random().toString(36).substring(7)}`;
     
-    // Clear old subscriptions and setup new ones with entity filtering
-    this.subscriptions.forEach(sub => sub.unsubscribe());
-    this.subscriptions = [];
+    // Clear old subscription and re-subscribe with new entity filter
+    this.unsubscribeTUI?.();
+    this.unsubscribeTUI = undefined;
     this.setupMessageSubscriptions();
 
     this.isRunning = true;
@@ -441,9 +386,7 @@ export class AgentScreen implements Screen {
   }
 
   destroy(): void {
-    // Cleanup subscriptions
-    this.subscriptions.forEach(subscription => subscription.unsubscribe());
-    this.subscriptions = [];
+    this.unsubscribeTUI?.();
     
     // Cleanup running agent if needed
     if (this.isRunning) {

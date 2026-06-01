@@ -7,7 +7,7 @@
 
 import * as fs from "fs/promises";
 import * as path from "path";
-import type { Skill, SkillMetadata, SkillConfig, SkillMatchResult } from "@wf-agent/types";
+import type { Skill, SkillMetadata, SkillConfig, SkillMatchResult, SkillResourceType } from "@wf-agent/types";
 import {
   SkillParseError as SkillParseErrorClass,
   SkillValidationError as SkillValidationErrorClass,
@@ -23,6 +23,7 @@ export class SkillRegistry {
   private config: SkillConfig;
   private contentCache: Map<string, { content: string; timestamp: number }> = new Map();
   private resourceCache: Map<string, { content: string | Buffer; timestamp: number }> = new Map();
+  private cacheClearHandlers: Array<() => void> = [];
 
   constructor(config: SkillConfig) {
     this.config = {
@@ -103,9 +104,29 @@ export class SkillRegistry {
         );
       }
 
+      // Auto-discover resource directories and populate resource file names
+      const resourceTypes: SkillResourceType[] = ["references", "examples", "scripts", "assets"];
+      const resources: Partial<Pick<Skill, "references" | "examples" | "scripts" | "assets">> = {};
+
+      for (const resourceType of resourceTypes) {
+        try {
+          const resourceDir = path.join(skillDir, resourceType);
+          const entries = await fs.readdir(resourceDir, { withFileTypes: true });
+          const files = entries.filter(entry => entry.isFile()).map(entry => entry.name);
+
+          if (files.length > 0) {
+            // Initialize with empty object so callers can check existence via key lookup
+            (resources as Record<string, Record<string, undefined>>)[resourceType] = {};
+          }
+        } catch {
+          // Resource directory doesn't exist; skip
+        }
+      }
+
       const skill: Skill = {
         metadata,
         path: skillDir,
+        ...resources,
       };
 
       this.skills.set(metadata.name, skill);
@@ -164,6 +185,7 @@ export class SkillRegistry {
       return {
         name: metadata["name"] as string,
         description: metadata["description"] as string,
+        enabled: true,
         version: metadata["version"] as string | undefined,
         license: metadata["license"] as string | undefined,
         allowedTools: metadata["allowedTools"] as string[] | undefined,
@@ -279,6 +301,67 @@ export class SkillRegistry {
    */
   getSkill(name: string): Skill | undefined {
     return this.skills.get(name);
+  }
+
+  /**
+   * Enable a Skill
+   * @param name Skill name
+   * @throws Error if skill not found
+   */
+  enableSkill(name: string): void {
+    const skill = this.skills.get(name);
+    if (!skill) {
+      throw new Error(`Skill '${name}' not found`);
+    }
+    skill.metadata.enabled = true;
+    logger.info(`Skill enabled: ${name}`);
+  }
+
+  /**
+   * Disable a Skill
+   * @param name Skill name
+   * @throws Error if skill not found
+   */
+  disableSkill(name: string): void {
+    const skill = this.skills.get(name);
+    if (!skill) {
+      throw new Error(`Skill '${name}' not found`);
+    }
+    skill.metadata.enabled = false;
+    logger.info(`Skill disabled: ${name}`);
+  }
+
+  /**
+   * Check if a Skill is enabled
+   * @param name Skill name
+   * @returns true if enabled
+   */
+  isSkillEnabled(name: string): boolean {
+    const skill = this.skills.get(name);
+    if (!skill) {
+      return false;
+    }
+    return skill.metadata.enabled;
+  }
+
+  /**
+   * Get all enabled Skill metadata
+   * @returns Array of enabled Skill metadata
+   */
+  getEnabledSkills(): SkillMetadata[] {
+    return Array.from(this.skills.values())
+      .filter(skill => skill.metadata.enabled)
+      .map(skill => skill.metadata);
+  }
+
+  /**
+   * Get all disabled Skill metadata
+   * @returns Array of disabled Skill metadata
+   */
+  getDisabledSkills(): SkillMetadata[] {
+    return Array.from(this.skills.values())
+      .filter(skill => !skill.metadata.enabled)
+      .map(skill => skill.metadata);
   }
 
   /**
@@ -554,6 +637,16 @@ export class SkillRegistry {
   }
 
   /**
+   * Register a handler to be called when the cache is cleared or skills are reloaded.
+   * Used to propagate cache invalidation to dependent services (e.g., SkillLoader).
+   *
+   * @param handler Callback invoked after cache clear or reload
+   */
+  onCacheClear(handler: () => void): void {
+    this.cacheClearHandlers.push(handler);
+  }
+
+  /**
    * Clear the cache
    */
   clearCache(): void {
@@ -566,6 +659,11 @@ export class SkillRegistry {
       skill.examples = undefined;
       skill.scripts = undefined;
       skill.assets = undefined;
+    }
+
+    // Notify all registered handlers
+    for (const handler of this.cacheClearHandlers) {
+      handler();
     }
   }
 

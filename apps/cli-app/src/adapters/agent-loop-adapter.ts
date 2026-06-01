@@ -17,9 +17,19 @@ import {
   type AgentLoopEntity,
 } from "@wf-agent/sdk/agent";
 import { EventRegistry, LLMWrapper, LLMExecutor, ToolRegistry } from "@wf-agent/sdk/core";
-import type { AgentLoopRuntimeConfig, AgentLoopResult, ID, Message, AgentStreamEvent, MessageStreamEvent } from "@wf-agent/types";
+import type {
+  AgentLoopRuntimeConfig,
+  AgentLoopResult,
+  ID,
+  Message,
+  AgentStreamEvent,
+  MessageStreamEvent,
+  Tool,
+} from "@wf-agent/types";
 import { CLINotFoundError } from "../types/cli-types.js";
 import { CLIToolApprovalHandler } from "../handlers/user-interaction/tool-approval.js";
+import type { SkillHandlerConfig } from "@wf-agent/sdk/resources";
+import { skillSchema, SKILL_TOOL_DESCRIPTION } from "@wf-agent/sdk/resources";
 
 /**
  * Agent Loop Adapter
@@ -28,6 +38,7 @@ export class AgentLoopAdapter extends BaseAdapter {
   private coordinator: AgentLoopCoordinator;
   private registry: AgentLoopRegistry;
   private eventRegistry: EventRegistry;
+  private toolRegistry: ToolRegistry;
 
   constructor() {
     super();
@@ -37,19 +48,82 @@ export class AgentLoopAdapter extends BaseAdapter {
 
     const llmWrapper = new LLMWrapper(this.eventRegistry);
     const llmExecutor = new LLMExecutor(llmWrapper);
-    const toolRegistry = new ToolRegistry();
+    this.toolRegistry = new ToolRegistry();
     const toolApprovalHandler = new CLIToolApprovalHandler();
-    
+
     const executor = new AgentLoopExecutor({
       llmExecutor,
-      toolService: toolRegistry,
+      toolService: this.toolRegistry,
       eventManager: this.eventRegistry,
       toolApprovalHandler,
     });
-    
+
     // Get globalContext from SDK instance
     const globalContext = this.sdk.getGlobalContext();
     this.coordinator = new AgentLoopCoordinator(this.registry, executor, globalContext);
+  }
+
+  /**
+   * Register the skill tool into the agent loop's SDK ToolRegistry.
+   * Must be called before executing the agent loop for the skill tool to be available.
+   *
+   * @param loader Skill loader configuration for loading skill content
+   */
+  registerSkillTool(loader: SkillHandlerConfig): void {
+    const descriptionText = `${SKILL_TOOL_DESCRIPTION.description}
+
+Parameters:
+${SKILL_TOOL_DESCRIPTION.parameters.map(p => `  - ${p.name} (${p.type}, ${p.required ? "required" : "optional"}): ${p.description}`).join("\n")}
+${SKILL_TOOL_DESCRIPTION.tips && SKILL_TOOL_DESCRIPTION.tips.length > 0 ? `\nTips:\n${SKILL_TOOL_DESCRIPTION.tips.map(t => `  - ${t}`).join("\n")}` : ""}`;
+
+    const skillTool: Tool = {
+      id: "skill",
+      type: "STATELESS",
+      description: descriptionText,
+      parameters: skillSchema as Tool["parameters"],
+      config: {
+        execute: async (params: Record<string, unknown>) => {
+          try {
+            const { skill, args } = params as {
+              skill: string;
+              args?: Record<string, unknown> | null;
+            };
+
+            if (!skill || typeof skill !== "string") {
+              return {
+                success: false,
+                result: undefined,
+                error: "Missing or invalid 'skill' parameter",
+                executionTime: 0,
+                retryCount: 0,
+              };
+            }
+
+            const variables = args || undefined;
+            const content = await loader.loader.loadContent(skill, variables);
+
+            return {
+              success: true,
+              result: content,
+              error: undefined,
+              executionTime: 0,
+              retryCount: 0,
+            };
+          } catch (error) {
+            return {
+              success: false,
+              result: undefined,
+              error: error instanceof Error ? error.message : String(error),
+              executionTime: 0,
+              retryCount: 0,
+            };
+          }
+        },
+      },
+    };
+
+    this.toolRegistry.registerTool(skillTool, { skipIfExists: true });
+    this.output.infoLog("Skill tool registered in agent loop");
   }
 
   /**
@@ -153,7 +227,10 @@ export class AgentLoopAdapter extends BaseAdapter {
    * @param config Loop configuration
    * @param options Execution options
    */
-  async startAgentLoop(config: AgentLoopRuntimeConfig, options: AgentLoopEntityOptions = {}): Promise<ID> {
+  async startAgentLoop(
+    config: AgentLoopRuntimeConfig,
+    options: AgentLoopEntityOptions = {},
+  ): Promise<ID> {
     return this.executeWithErrorHandling(async () => {
       const id = await this.coordinator.start(config, options);
       this.output.infoLog(`Agent Loop started: ${id}`);
@@ -199,13 +276,16 @@ export class AgentLoopAdapter extends BaseAdapter {
    * Get Agent Loop instance
    * @param id Instance ID
    */
-  async getAgentLoop(id: ID): Promise<{
-    id: ID;
-    status: string;
-    currentIteration: number;
-    toolCallCount: number;
-    messageCount: number;
-  } | undefined> {
+  async getAgentLoop(id: ID): Promise<
+    | {
+        id: ID;
+        status: string;
+        currentIteration: number;
+        toolCallCount: number;
+        messageCount: number;
+      }
+    | undefined
+  > {
     const entity = await this.coordinator.get(id);
     if (!entity) {
       return undefined;

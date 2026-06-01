@@ -81,12 +81,15 @@ export class SkillAdapter extends BaseAdapter {
   /**
    * Load Skill full content (Progressive Disclosure Level 2)
    * @param name Skill name
+   * @param variables Optional key-value pairs for template variable substitution
    * @returns Skill content
    */
-  async loadContent(name: string): Promise<string> {
+  async loadContent(name: string, variables?: Record<string, unknown>): Promise<string> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.skills;
-      const result = await api.loadContent(name);
+      const result = await api.loadContent(name, {
+        context: variables ? { variables } : undefined,
+      });
 
       if (isFailure(result)) {
         throw new CLINotFoundError(`Skill not found: ${name}`, "Skill", name);
@@ -243,5 +246,61 @@ export class SkillAdapter extends BaseAdapter {
 
     // No Skill, remove placeholder
     return systemPrompt.replace("{SKILLS_METADATA}", "");
+  }
+
+  /**
+   * Enable a Skill by name
+   * @param name Skill name
+   */
+  async enable(name: string): Promise<void> {
+    return this.executeWithErrorHandling(async () => {
+      const api = this.sdk.skills;
+      const result = await api.enable(name);
+
+      if (isFailure(result)) {
+        throw getError(result);
+      }
+
+      this.output.infoLog(`Skill enabled: ${name}`);
+    }, "Enable Skill");
+  }
+
+  /**
+   * Disable a Skill by name
+   * @param name Skill name
+   */
+  async disable(name: string): Promise<void> {
+    return this.executeWithErrorHandling(async () => {
+      const api = this.sdk.skills;
+      const result = await api.disable(name);
+
+      if (isFailure(result)) {
+        throw getError(result);
+      }
+
+      this.output.infoLog(`Skill disabled: ${name}`);
+    }, "Disable Skill");
+  }
+
+  /**
+   * Get enabled skills
+   * @returns Enabled skills metadata array
+   */
+  async getEnabledSkills(): Promise<SkillMetadata[]> {
+    return this.executeWithErrorHandling(async () => {
+      const api = this.sdk.skills;
+      return api.getEnabledSkills();
+    }, "Get Enabled Skills");
+  }
+
+  /**
+   * Get disabled skills
+   * @returns Disabled skills metadata array
+   */
+  async getDisabledSkills(): Promise<SkillMetadata[]> {
+    return this.executeWithErrorHandling(async () => {
+      const api = this.sdk.skills;
+      return api.getDisabledSkills();
+    }, "Get Disabled Skills");
   }
 }

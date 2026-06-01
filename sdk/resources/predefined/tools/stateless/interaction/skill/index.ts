@@ -4,4 +4,5 @@
 
 export { skillSchema } from "./schema.js";
 export { createSkillHandler } from "./handler.js";
+export type { SkillHandlerConfig } from "./handler.js";
 export { SKILL_TOOL_DESCRIPTION } from "./description.js";

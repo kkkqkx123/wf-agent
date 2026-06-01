@@ -40,6 +40,7 @@ export interface SkillLoadOptions {
   context?: {
     tools?: string[];
     agentContext?: unknown;
+    variables?: Record<string, unknown>;
   };
   /** Whether to use caching */
   useCache?: boolean;
@@ -306,6 +307,58 @@ export class SkillRegistryAPI extends ReadonlyResourceAPI<SkillMetadata, string,
   }
 
   /**
+   * Enable a Skill by name
+   *
+   * @param name Skill name
+   * @returns Execution result
+   */
+  async enable(name: string): Promise<ExecutionResult<void>> {
+    const startTime = now();
+
+    try {
+      this.getSkillRegistry().enableSkill(name);
+      return success(undefined, diffTimestamp(startTime, now()));
+    } catch (error) {
+      return this.handleError(error, "ENABLE_SKILL", startTime);
+    }
+  }
+
+  /**
+   * Disable a Skill by name
+   *
+   * @param name Skill name
+   * @returns Execution result
+   */
+  async disable(name: string): Promise<ExecutionResult<void>> {
+    const startTime = now();
+
+    try {
+      this.getSkillRegistry().disableSkill(name);
+      return success(undefined, diffTimestamp(startTime, now()));
+    } catch (error) {
+      return this.handleError(error, "DISABLE_SKILL", startTime);
+    }
+  }
+
+  /**
+   * Get all enabled skills
+   *
+   * @returns Array of enabled Skill metadata
+   */
+  getEnabledSkills(): SkillMetadata[] {
+    return this.getSkillRegistry().getEnabledSkills();
+  }
+
+  /**
+   * Get all disabled skills
+   *
+   * @returns Array of disabled Skill metadata
+   */
+  getDisabledSkills(): SkillMetadata[] {
+    return this.getSkillRegistry().getDisabledSkills();
+  }
+
+  /**
    * Clear Cache
    *
    * @param name (Optional) Specifies the name of the Skill to be cleared
@@ -313,6 +366,11 @@ export class SkillRegistryAPI extends ReadonlyResourceAPI<SkillMetadata, string,
   clearCache(name?: string): void {
     if (name) {
       this.getSkillLoader().clearCache(name);
+      // Also clear SkillRegistry's cached content for this skill
+      const skill = this.getSkillRegistry().getSkill(name);
+      if (skill) {
+        skill.content = undefined;
+      }
     } else {
       this.getSkillLoader().clearCache();
       this.getSkillRegistry().clearCache();

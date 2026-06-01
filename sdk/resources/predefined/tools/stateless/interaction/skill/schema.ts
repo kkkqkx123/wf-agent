@@ -16,9 +16,11 @@ export const skillSchema: ToolParameterSchema = {
         "Name of the skill to load (e.g., create-mcp-server, create-mode). Must match a skill name from the available skills list.",
     },
     args: {
-      type: "string",
+      type: "object",
       nullable: true,
-      description: "Optional context or arguments to pass to the skill",
+      description:
+        "Optional key-value pairs to pass as variables to the skill. These will be substituted into the skill content as template variables (e.g., {variableName}).",
+      additionalProperties: true,
     },
   },
   required: ["skill"],

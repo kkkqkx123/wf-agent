@@ -7,6 +7,7 @@
 import type { ToolParameterSchema, ToolType } from "@wf-agent/types";
 import type { BuiltinToolsOptions } from "./builtin/types.js";
 import type { ShellPolicy, SandboxConfig } from "@wf-agent/types";
+import type { SkillHandlerConfig } from "./stateless/interaction/skill/index.js";
 
 /**
  * Tool Classification
@@ -59,6 +60,7 @@ export interface PredefinedToolsOptions {
     runShell?: RunShellConfig;
     sessionNote?: SessionNoteConfig;
     backendShell?: BackendShellConfig;
+    skill?: SkillHandlerConfig;
   };
   /** Builtin tools options */
   builtin?: BuiltinToolsOptions;

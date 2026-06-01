@@ -281,7 +281,7 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
       type: "STATELESS",
       description: renderToolDescription(SKILL_TOOL_DESCRIPTION),
       parameters: skillSchema,
-      execute: createSkillHandler(),
+      execute: createSkillHandler(config?.skill),
     });
   }
 

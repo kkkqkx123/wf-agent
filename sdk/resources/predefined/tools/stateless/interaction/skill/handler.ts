@@ -8,12 +8,28 @@
 import type { ToolOutput } from "@wf-agent/types";
 
 /**
- * Create the `skill` tool execution function
+ * Configuration for the skill tool handler
  */
-export function createSkillHandler() {
+export interface SkillHandlerConfig {
+  loader: {
+    loadContent: (name: string, variables?: Record<string, unknown>) => Promise<string>;
+  };
+}
+
+/**
+ * Create the `skill` tool execution function
+ *
+ * @param config Optional configuration with a loader that provides skill content loading.
+ *               If not provided, the handler returns an error indicating the skill system
+ *               is not available.
+ */
+export function createSkillHandler(config?: SkillHandlerConfig) {
   return async (params: Record<string, unknown>): Promise<ToolOutput> => {
     try {
-      const { skill, args } = params as { skill: string; args?: string | null };
+      const { skill, args } = params as {
+        skill: string;
+        args?: Record<string, unknown> | null;
+      };
 
       if (!skill || typeof skill !== "string") {
         return {
@@ -23,11 +39,21 @@ export function createSkillHandler() {
         };
       }
 
-      // Return a special result indicating skill execution
-      // The workflow engine should handle this by loading and executing the skill
+      if (!config) {
+        return {
+          success: false,
+          content: "",
+          error:
+            "Skill system is not available. Please configure skill paths before using skills.",
+        };
+      }
+
+      const variables = args || undefined;
+      const content = await config.loader.loadContent(skill, variables);
+
       return {
         success: true,
-        content: `Skill: ${skill}${args ? ` with args: ${args}` : ""}`,
+        content,
       };
     } catch (error) {
       return {

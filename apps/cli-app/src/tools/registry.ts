@@ -10,7 +10,7 @@ import {
   toSdkTool,
   type ToolDefinitionLike,
 } from "@wf-agent/sdk/services";
-import { createPredefinedTools, type PredefinedToolsOptions } from "@wf-agent/sdk/resources";
+import { createPredefinedTools, type PredefinedToolsOptions, type SkillHandlerConfig } from "@wf-agent/sdk/resources";
 import type { ToolRegistryConfig } from "./types.js";
 import { getOutput } from "../utils/output.js";
 
@@ -56,7 +56,7 @@ export class ToolRegistry {
    * Register all built-in tools
    * Using SDK predefined tools
    */
-  async registerAll(): Promise<void> {
+  async registerAll(skillConfig?: SkillHandlerConfig): Promise<void> {
     // Build SDK predefined tool configuration
     const predefinedOptions: PredefinedToolsOptions = {
       config: {
@@ -67,6 +67,7 @@ export class ToolRegistry {
           workspaceDir: this.config.workspaceDir!,
           memoryFile: this.config.memoryFile!,
         },
+        skill: skillConfig,
       },
     };
 

@@ -22,6 +22,7 @@ function formatSkillMetadata(skill: SkillMetadata, verbose?: boolean): string {
   lines.push(`\n${"─".repeat(60)}`);
   lines.push(`  Name: ${skill.name}`);
   lines.push(`  Description: ${skill.description}`);
+  lines.push(`  Status: ${skill.enabled ? "enabled" : "disabled"}`);
 
   if (verbose) {
     if (skill.version) {
@@ -295,6 +296,71 @@ export function createSkillCommands(): Command {
         handleError(error, {
           operation: "clearSkillCache",
           additionalInfo: { name: options.name },
+        });
+      }
+    });
+
+  // Enable Skill command
+  skillCmd
+    .command("enable <name>")
+    .description("Enable a Skill")
+    .action(async name => {
+      try {
+        const adapter = new SkillAdapter();
+        await adapter.enable(name);
+
+        output.newLine();
+        output.info(`Skill enabled: ${name}`);
+      } catch (error) {
+        handleError(error, {
+          operation: "enableSkill",
+          additionalInfo: { name },
+        });
+      }
+    });
+
+  // Disable Skill command
+  skillCmd
+    .command("disable <name>")
+    .description("Disable a Skill")
+    .action(async name => {
+      try {
+        const adapter = new SkillAdapter();
+        await adapter.disable(name);
+
+        output.newLine();
+        output.info(`Skill disabled: ${name}`);
+      } catch (error) {
+        handleError(error, {
+          operation: "disableSkill",
+          additionalInfo: { name },
+        });
+      }
+    });
+
+  // List enabled/disabled skills command
+  skillCmd
+    .command("status")
+    .description("List enabled and disabled skills")
+    .option("-t, --table", "Output in tabular format")
+    .action(async (options: CommandOptions & { table?: boolean }) => {
+      try {
+        const adapter = new SkillAdapter();
+        const enabled = await adapter.getEnabledSkills();
+        const disabled = await adapter.getDisabledSkills();
+
+        output.newLine();
+        output.subsection("Enabled Skills");
+        output.output(formatSkillList(enabled, { table: options.table }));
+
+        if (disabled.length > 0) {
+          output.newLine();
+          output.subsection("Disabled Skills");
+          output.output(formatSkillList(disabled, { table: options.table }));
+        }
+      } catch (error) {
+        handleError(error, {
+          operation: "listSkillStatus",
         });
       }
     });

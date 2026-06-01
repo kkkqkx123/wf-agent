@@ -24,6 +24,8 @@ import type { CheckpointDependencies } from "../../checkpoint/checkpoint-coordin
 import { CheckpointCoordinator } from "../../checkpoint/checkpoint-coordinator.js";
 import { convertToTrigger } from "@wf-agent/types";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
+import { matchTriggers } from "../../../core/triggers/index.js";
+import type { BaseEventData, BaseTriggerDefinition } from "../../../core/triggers/index.js";
 import {
   TriggerHandlerContextFactory,
   type TriggerHandlerContextFactoryConfig,
@@ -227,6 +229,11 @@ export class TriggerCoordinator {
 
   /**
    * Handle an event (called directly by WorkflowExecutor)
+   *
+   * Uses the core matchTriggers for event matching (eventType, eventName, condition expression, maxTriggers)
+   * while preserving workflow-specific pre-filters (workflowId/executionId association) and
+   * the workflow-specific executeTrigger logic (checkpointing, handler dispatch, state updates).
+   *
    * @param event The event object
    */
   async handleEvent(event: BaseEvent): Promise<void> {
@@ -242,55 +249,60 @@ export class TriggerCoordinator {
       };
     }
 
-    // Filter out triggers that are listening for this event type and have been enabled.
-    const enabledTriggers = triggers.filter(
-      trigger =>
-        trigger.condition.eventType === event.type &&
-        trigger.status === ("enabled" as TriggerStatus),
-    );
+    // Step 1: Pre-filter by workflow-specific concerns (status, workflowId, executionId)
+    const preFilteredTriggers = triggers.filter(trigger => {
+      // Only enabled triggers (runtime status check, specific to TriggerCoordinator)
+      if (trigger.status !== ("enabled" as TriggerStatus)) {
+        return false;
+      }
 
-    // Evaluate and execute the trigger.
-    for (const trigger of enabledTriggers) {
+      // Check workflowId association
+      if (trigger.workflowId && event.workflowId !== trigger.workflowId) {
+        return false;
+      }
+
+      // Check executionId association
+      if (trigger.executionId && event.executionId !== trigger.executionId) {
+        return false;
+      }
+
+      return true;
+    });
+
+    // Convert BaseEvent to BaseEventData for the core matcher
+    const eventData: BaseEventData = {
+      type: event.type,
+      eventName: event.type === "NODE_CUSTOM_EVENT"
+        ? (event as NodeCustomEvent).eventName
+        : undefined,
+      data: event.type === "NODE_CUSTOM_EVENT"
+        ? (event as NodeCustomEvent).eventData
+        : {},
+      timestamp: event.timestamp,
+      sourceId: event.executionId,
+    };
+
+    // Step 2: Use core matchTriggers for event matching
+    // (handles eventType, eventName, condition expression, enabled/disabled, maxTriggers)
+    // Note: Type assertion is needed because TriggerAction discriminated union parameter types
+    // lack index signatures, and BaseTriggerDefinition.eventType is wider (string vs EventType).
+    // At runtime, Trigger structurally satisfies BaseTriggerDefinition.
+    const matchedTriggers = matchTriggers(
+      preFilteredTriggers as unknown as BaseTriggerDefinition[],
+      eventData,
+    ) as unknown as Trigger[];
+
+    // Step 3: Execute matched triggers with workflow-specific execution logic
+    for (const trigger of matchedTriggers) {
       try {
-        // Check the trigger count limit.
-        if (
-          trigger.maxTriggers &&
-          trigger.maxTriggers > 0 &&
-          (trigger.triggerCount ?? 0) >= trigger.maxTriggers
-        ) {
-          continue;
-        }
-
-        // Check the associations.
-        if (trigger.workflowId && event.workflowId !== trigger.workflowId) {
-          continue;
-        }
-        if (trigger.executionId && event.executionId !== trigger.executionId) {
-          continue;
-        }
-
-        // For the NODE_CUSTOM_EVENT, it is necessary to additionally match the eventName.
-        if (event.type === "NODE_CUSTOM_EVENT") {
-          const customEvent = event as NodeCustomEvent;
-          if (
-            trigger.condition.eventName &&
-            trigger.condition.eventName !== customEvent.eventName
-          ) {
-            continue;
-          }
-        }
-
-        // Execute the trigger with event context
         await this.executeTrigger(trigger, eventContext);
       } catch (error) {
         // Handle errors based on configured strategy
         const errorObj = getErrorOrNew(error);
         switch (this.errorHandlingStrategy) {
           case 'silent':
-            // Silently ignore errors to prevent affecting other triggers
             break;
           case 'log':
-            // Log the error but continue with other triggers
             logger.warn('Trigger execution failed', {
               triggerId: trigger.id,
               triggerName: trigger.name,
@@ -299,7 +311,6 @@ export class TriggerCoordinator {
             }, undefined, errorObj);
             break;
           case 'throw':
-            // Re-throw the error (will stop processing remaining triggers)
             throw error;
         }
       }

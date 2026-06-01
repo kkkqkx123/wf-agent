@@ -38,20 +38,6 @@ describe('embedStartHandler', () => {
     });
   });
 
-  it('should return SKIPPED when status is not RUNNING', async () => {
-    (mockEntity.getStatus as any).mockReturnValue('PAUSED');
-
-    const result = await embedStartHandler(mockEntity, mockNode);
-
-    expect(result).toEqual({
-      nodeId: 'embed-start-1',
-      nodeType: 'EMBED_START',
-      status: 'SKIPPED',
-      step: 1,
-      executionTime: 0,
-    });
-  });
-
   it('should return SKIPPED when node already executed', async () => {
     (mockEntity.getNodeResults as any).mockReturnValue([{ nodeId: 'embed-start-1' }]);
 

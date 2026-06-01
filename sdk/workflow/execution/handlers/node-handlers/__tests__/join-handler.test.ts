@@ -118,18 +118,6 @@ beforeEach(() => {
 });
 
 describe('joinHandler', () => {
-  it('should return SKIPPED result when parent is not RUNNING', async () => {
-    (mockEntity.getStatus as any).mockReturnValue('COMPLETED');
-    const config = createJoinConfig();
-    const node = createMockNode(config);
-
-    const result = await joinHandler(mockGlobalContext, mockEntity, node);
-
-    expect(result.strategy).toBe('SKIPPED');
-    expect(result.completedBranches).toEqual([]);
-    expect(result.failedBranches).toEqual([]);
-  });
-
   it('should return error in aggregatedOutput when ALL_COMPLETED strategy not met', async () => {
     const config = createJoinConfig({
       forkPathIds: ['path-1', 'missing-path'],

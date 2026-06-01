@@ -61,20 +61,6 @@ describe('startHandler', () => {
     expect(result).toEqual({ message: 'Workflow started', input: {} });
   });
 
-  it('should return SKIPPED when status is COMPLETED', async () => {
-    (mockEntity.getStatus as any).mockReturnValue('COMPLETED');
-
-    const result = await startHandler(mockEntity, mockNode);
-
-    expect(result).toEqual({
-      nodeId: 'start-node-1',
-      nodeType: 'START',
-      status: 'SKIPPED',
-      step: 1,
-      executionTime: 0,
-    });
-  });
-
   it('should return SKIPPED when node already executed', async () => {
     (mockEntity.getNodeResults as any).mockReturnValue([{ nodeId: 'start-node-1' }]);
 

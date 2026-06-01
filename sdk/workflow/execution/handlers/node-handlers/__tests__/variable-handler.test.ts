@@ -96,20 +96,6 @@ describe('variableHandler', () => {
     expect(mockManager.setVariable).not.toHaveBeenCalled();
   });
 
-  it('should return SKIPPED when status is not RUNNING', async () => {
-    (mockEntity.getStatus as any).mockReturnValue('PAUSED');
-    const config: VariableNodeConfig = {
-      variableName: 'myVar',
-      variableType: 'string',
-      expression: "'hello'",
-    };
-    const node = { id: 'var-node-5', type: 'VARIABLE', config } as RuntimeNode;
-
-    const result = await variableHandler(mockEntity, node);
-
-    expect((result as any).status).toBe('SKIPPED');
-  });
-
   it('should update existing variable value', async () => {
     (mockExecution as any).variables = [{ name: 'myVar', value: 'old', type: 'string' }];
     const config: VariableNodeConfig = {

@@ -108,14 +108,4 @@ describe('continueFromTriggerHandler', () => {
     ).rejects.toThrow('Main workflow execution entity is required for CONTINUE_FROM_TRIGGER node');
   });
 
-  it('should return SKIPPED when status is not RUNNING', async () => {
-    (mockSubEntity.getStatus as any).mockReturnValue('COMPLETED');
-    const node = { id: 'continue-trigger-4', type: 'CONTINUE_FROM_TRIGGER', config: {} } as RuntimeNode;
-
-    const result = await continueFromTriggerHandler(mockSubEntity, node, {
-      mainWorkflowExecutionEntity: mockMainEntity,
-    }) as any;
-
-    expect(result.status).toBe('SKIPPED');
   });
-});

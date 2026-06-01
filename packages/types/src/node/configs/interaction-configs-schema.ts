@@ -15,7 +15,7 @@ const workflowVariableUpdateConfigSchema = z.object({
   expression: z.string().min(1, { message: "Expression is required" }),
   scope: z.enum(["global", "execution", "subgraph", "loop"], {
     message: "Variable scope must be one of: global, execution, subgraph, loop",
-  }),
+  }).optional(),
 });
 
 /**

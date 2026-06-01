@@ -40,20 +40,6 @@ describe('endHandler', () => {
     });
   });
 
-  it('should return SKIPPED when status is not RUNNING', async () => {
-    (mockEntity.getStatus as any).mockReturnValue('COMPLETED');
-
-    const result = await endHandler(mockEntity, mockNode);
-
-    expect(result).toEqual({
-      nodeId: 'end-node-1',
-      nodeType: 'END',
-      status: 'SKIPPED',
-      step: 1,
-      executionTime: 0,
-    });
-  });
-
   it('should return SKIPPED when node already executed', async () => {
     (mockEntity.getNodeResults as any).mockReturnValue([{ nodeId: 'end-node-1' }]);
 

@@ -33,3 +33,7 @@ export {
   isTriggerExpired,
   getRemainingTriggers,
 } from "./limiter.js";
+
+// Executor
+export { executeTriggers } from "./executor.js";
+export type { TriggerExecutorConfig } from "./executor.js";

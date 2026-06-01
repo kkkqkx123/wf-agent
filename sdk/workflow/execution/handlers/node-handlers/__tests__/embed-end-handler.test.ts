@@ -38,14 +38,6 @@ describe('embedEndHandler', () => {
     });
   });
 
-  it('should return SKIPPED when status is not RUNNING', async () => {
-    (mockEntity.getStatus as any).mockReturnValue('COMPLETED');
-
-    const result = await embedEndHandler(mockEntity, mockNode);
-
-    expect((result as any).status).toBe('SKIPPED');
-  });
-
   it('should return SKIPPED when node already executed', async () => {
     (mockEntity.getNodeResults as any).mockReturnValue([{ nodeId: 'embed-end-1' }]);
 

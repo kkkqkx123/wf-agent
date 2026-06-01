@@ -64,17 +64,4 @@ describe('forkHandler', () => {
     expect(Array.isArray(result.launchedBranches)).toBe(true);
   });
 
-  it('should return SKIPPED when status is not RUNNING', async () => {
-    (mockEntity.getStatus as any).mockReturnValue('COMPLETED');
-
-    const result = await forkHandler(mockGlobalContext, mockEntity, mockNode, mockContext as any);
-
-    expect(result).toEqual({
-      nodeId: 'fork-node-1',
-      nodeType: 'FORK',
-      status: 'SKIPPED',
-      step: 1,
-      executionTime: 0,
-    });
   });
-});

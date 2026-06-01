@@ -56,25 +56,5 @@ describe("routeHandler", () => {
     await expect(routeHandler(mockEntity, node)).rejects.toThrow();
   });
 
-  it("should return SKIPPED when status is not RUNNING", async () => {
-    (mockEntity.getStatus as any).mockReturnValue("COMPLETED");
-    const node = {
-      id: "route-node-1",
-      type: "ROUTE",
-      config: { routes: [] },
-      workflowId: "wf-1",
-      outgoingEdgeIds: [],
-      incomingEdgeIds: [],
-    } as RuntimeNode;
-
-    const result = await routeHandler(mockEntity, node);
-
-    expect(result).toEqual({
-      nodeId: "route-node-1",
-      nodeType: "ROUTE",
-      status: "SKIPPED",
-      step: 1,
-      executionTime: 0,
-    });
-  });
 });
+

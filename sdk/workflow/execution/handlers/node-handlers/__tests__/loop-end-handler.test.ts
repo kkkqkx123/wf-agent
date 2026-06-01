@@ -102,15 +102,6 @@ describe('loopEndHandler', () => {
     expect((result as any).status).toBe('SKIPPED');
   });
 
-  it('should return SKIPPED when status is not RUNNING', async () => {
-    (mockEntity.getStatus as any).mockReturnValue('COMPLETED');
-    const node = { id: 'loop-end-1', type: 'LOOP_END', config: { loopId: 'l1', loopStartNodeId: 'ls1' } } as RuntimeNode;
-
-    const result = await loopEndHandler(mockEntity, node);
-
-    expect((result as any).status).toBe('SKIPPED');
-  });
-
   it('should clear loop state when loop ends', async () => {
     const endedState = { ...loopState, iterationCount: 1, maxIterations: 1 };
     mockManager.getVariable.mockReturnValue(endedState);

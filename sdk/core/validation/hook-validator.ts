@@ -11,7 +11,7 @@ import { ok, err } from "@wf-agent/common-utils";
 import { validateExpression } from "../../workflow/evaluation/index.js";
 import type { Result } from "@wf-agent/types";
 import { validateConfig } from "./utils.js";
-import { all } from "@wf-agent/common-utils";
+import { allWithErrors } from "@wf-agent/common-utils";
 
 /**
  * Hook configuration schema
@@ -88,10 +88,19 @@ export function validateHooks(
 
   const results = hooks.map(hook => {
     if (!hook) {
-      return ok(hook);
+      return err([
+        new ConfigurationValidationError("Hook must not be null or undefined", {
+          configType: "node",
+          configPath: `node.${nodeId}.hooks`,
+        }),
+      ]);
     }
     return validateHook(hook, nodeId);
   });
 
-  return all(results);
+  const combined = allWithErrors(results);
+  if (combined.isErr()) {
+    return err(combined.error.flat());
+  }
+  return combined;
 }

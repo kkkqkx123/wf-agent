@@ -27,8 +27,8 @@ export class RuntimeValidator {
     const result = schema.safeParse(parameters);
 
     if (!result.success) {
-      const firstError = result.error.issues[0];
-      if (!firstError) {
+      const issues = result.error.issues;
+      if (issues.length === 0) {
         logger.debug("Tool parameter validation failed", {
           toolId: tool.id,
           reason: "Unknown validation error",
@@ -39,15 +39,20 @@ export class RuntimeValidator {
           value: parameters,
         });
       }
-      const field = firstError.path.join(".");
+
+      const messages = issues.map(
+        issue => `${issue.path.join(".")}: ${issue.message}`,
+      );
+      const combinedMessage = messages.join("; ");
+      const firstField = issues[0]!.path.join(".");
+
       logger.debug("Tool parameter validation failed", {
         toolId: tool.id,
-        field,
-        message: firstError.message,
+        issues: messages,
       });
-      throw new RuntimeValidationError(firstError.message, {
+      throw new RuntimeValidationError(combinedMessage, {
         operation: "validate",
-        field: field,
+        field: firstField,
         value: parameters,
       });
     }

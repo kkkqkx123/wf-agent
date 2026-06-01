@@ -120,15 +120,19 @@ export class BaseDiffCalculator {
     // Set
     if (a instanceof Set && b instanceof Set) {
       if (a.size !== b.size) return false;
-      // Set order is not significant, compare by sorted contents
-      const itemsA = [...a].sort();
-      const itemsB = [...b].sort();
-      return itemsA.every((item, i) => this.deepEqual(item, itemsB[i]));
+      // Set order is not significant, compare by content equality
+      for (const item of a) {
+        if (!b.has(item) || !this.deepEqual(item, item)) return false;
+      }
+      return true;
     }
 
-    // Uint8Array / Buffer
-    if (a instanceof Uint8Array && b instanceof Uint8Array) {
-      return a.length === b.length && a.every((val, i) => val === b[i]);
+    // Typed arrays (Uint8Array, Int32Array, Float32Array, etc.)
+    if (ArrayBuffer.isView(a) && ArrayBuffer.isView(b)) {
+      if (a.byteLength !== b.byteLength) return false;
+      const aView = new Uint8Array(a.buffer, a.byteOffset, a.byteLength);
+      const bView = new Uint8Array(b.buffer, b.byteOffset, b.byteLength);
+      return aView.every((val, i) => val === bView[i]);
     }
 
     // Arrays

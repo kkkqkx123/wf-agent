@@ -158,9 +158,17 @@ export function validateTriggers(
   const errors: ConfigurationValidationError[] = [];
   for (let i = 0; i < triggers.length; i++) {
     const trigger = triggers[i];
-    if (!trigger) continue;
-
     const itemPath = `${path}[${i}]`;
+
+    if (!trigger) {
+      errors.push(
+        new ConfigurationValidationError("Trigger must not be null or undefined", {
+          configType: "trigger",
+          configPath: itemPath,
+        }),
+      );
+      continue;
+    }
 
     // Check the uniqueness of the ID.
     const triggerId = "id" in trigger ? trigger.id : trigger.triggerId;

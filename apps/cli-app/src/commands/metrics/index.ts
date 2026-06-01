@@ -114,7 +114,7 @@ export function createMetricsCommands(): Command {
           output.output("=== Agent Loop Metrics ===");
           output.output(`Total Executions: ${metrics.totalExecutions}`);
           output.output(`Average Iterations: ${metrics.avgIterations.toFixed(2)}`);
-          output.output(`Average Tool Calls: ${metrics.avgToolCalls.toFixed(2)}`);
+
           
           if (Object.keys(metrics.byProfile).length > 0) {
             output.output("\nExecutions by Profile:");

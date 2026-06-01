@@ -12,12 +12,13 @@ import {
   StatelessToolConfigSchema,
   StatefulToolConfigSchema,
   RestToolConfigSchema,
+  BuiltinToolConfigSchema,
   ToolDefinitionSchema,
 } from "@wf-agent/types";
 import { ConfigurationValidationError } from "@wf-agent/types";
 import type { Result } from "@wf-agent/types";
 import { ok, err } from "@wf-agent/common-utils";
-import { validateConfig } from "./utils.js";
+import { validateConfig, convertZodError } from "./utils.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "ToolStaticValidator" });
@@ -82,6 +83,9 @@ export class StaticValidator {
       case "REST":
         result = RestToolConfigSchema.safeParse(config);
         break;
+      case "BUILTIN":
+        result = BuiltinToolConfigSchema.safeParse(config);
+        break;
       default:
         return err([
           new ConfigurationValidationError(`Unknown tool type: ${toolType}`, {
@@ -92,13 +96,7 @@ export class StaticValidator {
     }
 
     if (!result.success) {
-      const errors = result.error.issues.map(
-        issue =>
-          new ConfigurationValidationError(issue.message, {
-            configType: "tool",
-            configPath: `config.${issue.path.map(p => String(p)).join(".")}`,
-          }),
-      );
+      const errors = convertZodError(result.error, "config", "tool");
       return err(errors);
     }
     return ok(result.data);

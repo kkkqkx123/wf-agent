@@ -7,7 +7,6 @@
 import { CheckpointType } from "@wf-agent/types";
 import type { BaseCheckpoint } from "@wf-agent/types";
 
-// Re-export BaseCheckpoint for backward compatibility
 export type { BaseCheckpoint };
 
 /**
@@ -61,13 +60,11 @@ export abstract class DeltaRestorer<
       throw new Error(`Checkpoint not found: ${checkpointId}`);
     }
 
-    // If it's a full checkpoint, return the snapshot directly.
     if (!checkpoint.type || checkpoint.type === CheckpointType["FULL"]) {
       const snapshot = this.extractSnapshot(checkpoint);
       return this.createRestoreResult(snapshot);
     }
 
-    // If it is an incremental checkpoint, chain recovery is required.
     const snapshot = await this.restoreDeltaCheckpoint(checkpoint);
     return this.createRestoreResult(snapshot);
   }
@@ -79,13 +76,10 @@ export abstract class DeltaRestorer<
    * @returns Full snapshot
    */
   protected async restoreDeltaCheckpoint(deltaCheckpoint: TCheckpoint): Promise<TSnapshot> {
-    // 1. Find the baseline checkpoint
     const baseCheckpoint = await this.findBaseCheckpoint(deltaCheckpoint);
 
-    // 2. Build the delta chain
     const deltaChain = await this.buildDeltaChain(baseCheckpoint.id, deltaCheckpoint.id);
 
-    // 3. Apply delta sequentially
     let snapshot = this.extractSnapshot(baseCheckpoint);
     for (const delta of deltaChain) {
       snapshot = this.applyDelta(snapshot, delta);
@@ -101,7 +95,6 @@ export abstract class DeltaRestorer<
    * @returns Baseline checkpoint
    */
   protected async findBaseCheckpoint(checkpoint: TCheckpoint): Promise<TCheckpoint> {
-    // If there is a baseCheckpointId, load it directly.
     if (checkpoint.baseCheckpointId) {
       const base = await this.loader.load(checkpoint.baseCheckpointId);
       if (base && this.hasSnapshot(base)) {
@@ -109,11 +102,9 @@ export abstract class DeltaRestorer<
       }
     }
 
-    // Otherwise, find the most recent full checkpoint
     const parentId = this.extractParentId(checkpoint);
     const checkpointIds = await this.loader.list(parentId);
 
-    // Load all checkpoints and find the full checkpoint
     const checkpoints: TCheckpoint[] = [];
     for (const id of checkpointIds) {
       const cp = await this.loader.load(id);
@@ -122,7 +113,6 @@ export abstract class DeltaRestorer<
       }
     }
 
-    // Sort by timestamp in descending order
     checkpoints.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
 
     for (const cp of checkpoints) {
@@ -149,13 +139,11 @@ export abstract class DeltaRestorer<
       return deltas;
     }
 
-    // Recursively build the chain
     if (checkpoint.baseCheckpointId && checkpoint.baseCheckpointId !== baseId) {
       const parentDeltas = await this.buildDeltaChain(baseId, checkpoint.baseCheckpointId);
       deltas.push(...parentDeltas);
     }
 
-    // Add the current delta
     if (checkpoint.delta) {
       deltas.push(checkpoint.delta);
     }

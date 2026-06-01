@@ -10,7 +10,7 @@ import type {
   CheckpointMetadata,
   DeltaStorageConfig,
 } from "@wf-agent/types";
-import { DEFAULT_DELTA_STORAGE_CONFIG } from "../utils/checkpoint/constants.js";
+import { DEFAULT_DELTA_STORAGE_CONFIG } from "./utils/constants.js";
 import { BaseDiffCalculator } from "./base-diff-calculator.js";
 import { BaseDeltaRestorer } from "./base-delta-restorer.js";
 import type { CheckpointableEntity, CheckpointDependencies } from "./types.js";

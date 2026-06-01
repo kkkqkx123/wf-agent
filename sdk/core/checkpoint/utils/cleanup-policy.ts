@@ -36,23 +36,17 @@ export class TimeBasedCleanupStrategy implements CheckpointCleanupStrategy {
     const retentionMs = this.policy.retentionDays * 24 * 60 * 60 * 1000;
     const minRetention = this.policy.minRetention || 0;
 
-    // Sort in ascending order by timestamp (with the oldest item at the front)
     const sorted = [...checkpoints].sort((a, b) => a.metadata.timestamp - b.metadata.timestamp);
 
-    // Identify the checkpoints that need to be deleted.
     const toDelete: string[] = [];
 
-    // Check from the oldest checkpoint.
     for (let i = 0; i < sorted.length; i++) {
       const checkpoint = sorted[i];
       if (!checkpoint) continue;
 
       const age = currentTime - checkpoint.metadata.timestamp;
 
-      // Ensure that at least `minRetention` checkpoints are retained.
-      // Retain the latest `minRetention` checkpoints (the `minRetention` number of checkpoints at the end of the array).
       if (i < sorted.length - minRetention) {
-        // Delete checkpoints that exceed the retention period.
         if (age > retentionMs) {
           toDelete.push(checkpoint.checkpointId);
         }
@@ -73,21 +67,16 @@ export class CountBasedCleanupStrategy implements CheckpointCleanupStrategy {
     const maxCount = this.policy.maxCount;
     const minRetention = this.policy.minRetention || 0;
 
-    // Sort in descending order by timestamp.
     const sorted = [...checkpoints].sort((a, b) => b.metadata.timestamp - a.metadata.timestamp);
 
-    // If the number of checkpoints does not exceed the maximum value, there is no need to delete any.
     if (sorted.length <= maxCount) {
       return [];
     }
 
-    // Calculate the number of items that need to be deleted.
     const deleteCount = Math.max(0, sorted.length - maxCount);
 
-    // Ensure that at least `minRetention` checkpoints are retained.
     const actualDeleteCount = Math.min(deleteCount, sorted.length - minRetention);
 
-    // Return the checkpoint IDs that need to be deleted (starting from the oldest one).
     return sorted.slice(sorted.length - actualDeleteCount).map(cp => cp.checkpointId);
   }
 }
@@ -98,33 +87,28 @@ export class CountBasedCleanupStrategy implements CheckpointCleanupStrategy {
 export class SizeBasedCleanupStrategy implements CheckpointCleanupStrategy {
   constructor(
     private policy: SizeBasedCleanupPolicy,
-    private checkpointSizes: Map<string, number>, // checkpointId -> size in bytes
+    private checkpointSizes: Map<string, number>,
   ) {}
 
   execute(checkpoints: CheckpointInfo[]): string[] {
     const maxSize = this.policy.maxSizeBytes;
     const minRetention = this.policy.minRetention || 0;
 
-    // Sort in ascending order by timestamp (with the oldest first)
     const sorted = [...checkpoints].sort((a, b) => a.metadata.timestamp - b.metadata.timestamp);
 
-    // Calculate the total storage space
     let totalSize = 0;
     for (const checkpoint of sorted) {
       const size = this.checkpointSizes.get(checkpoint.checkpointId) || 0;
       totalSize += size;
     }
 
-    // If the total storage space does not exceed the maximum value, there is no need to delete anything.
     if (totalSize <= maxSize) {
       return [];
     }
 
-    // Delete from the oldest checkpoint until the space requirements are met.
     const toDelete: string[] = [];
     let currentSize = totalSize;
 
-    // Delete from the oldest checkpoint onwards.
     for (let i = 0; i < sorted.length; i++) {
       const checkpoint = sorted[i];
       if (!checkpoint) continue;
@@ -132,19 +116,14 @@ export class SizeBasedCleanupStrategy implements CheckpointCleanupStrategy {
       const checkpointId = checkpoint.checkpointId;
       const size = this.checkpointSizes.get(checkpointId) || 0;
 
-      // Ensure that at least `minRetention` checkpoints are retained.
-      // Retain the latest `minRetention` checkpoints (the `minRetention` number of checkpoints at the end of the array).
       if (i < sorted.length - minRetention) {
-        // Delete checkpoints
         toDelete.push(checkpointId);
         currentSize -= size;
 
-        // Stop deleting if the space requirements have already been met.
         if (currentSize <= maxSize) {
           break;
         }
       } else {
-        // If the current checkpoint is one of the `minRetention` checkpoints that need to be retained, stop the deletion process.
         break;
       }
     }

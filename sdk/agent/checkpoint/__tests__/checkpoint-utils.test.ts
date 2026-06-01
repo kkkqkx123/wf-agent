@@ -64,7 +64,7 @@ describe("AgentLoopCheckpointCoordinator", () => {
       dependencies.listCheckpoints = vi.fn().mockResolvedValue([]);
 
       await coordinator.createCheckpoint(mockEntity, dependencies, {
-        customFields: { customField: "customValue" },
+        metadata: { customFields: { customField: "customValue" } },
       });
 
       const savedCheckpoint = (dependencies.saveCheckpoint as any).mock.calls[0][0];
@@ -77,7 +77,7 @@ describe("AgentLoopCheckpointCoordinator", () => {
 
       await coordinator.createCheckpoint(mockEntity, dependencies, {
         description: "Test checkpoint",
-        customFields: { customField: "customValue" },
+        metadata: { customFields: { customField: "customValue" } },
       });
 
       const savedCheckpoint = (dependencies.saveCheckpoint as any).mock.calls[0][0];
@@ -85,14 +85,14 @@ describe("AgentLoopCheckpointCoordinator", () => {
       expect(savedCheckpoint.metadata?.customFields?.customField).toBe("customValue");
     });
 
-    it("should use default description when not provided", async () => {
+    it("should not include metadata when no options provided", async () => {
       dependencies.saveCheckpoint = vi.fn().mockResolvedValue("cp-1");
       dependencies.listCheckpoints = vi.fn().mockResolvedValue([]);
 
       await coordinator.createCheckpoint(mockEntity, dependencies);
 
       const savedCheckpoint = (dependencies.saveCheckpoint as any).mock.calls[0][0];
-      expect(savedCheckpoint.metadata?.description).toContain("agent-1");
+      expect(savedCheckpoint.metadata).toBeUndefined();
     });
   });
 

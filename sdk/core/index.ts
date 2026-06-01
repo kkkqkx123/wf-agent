@@ -4,9 +4,6 @@
 // Checkpoint - Universal Layer
 export * from "./checkpoint/index.js";
 
-// Checkpoint - Utils
-export * from "./utils/checkpoint/index.js";
-
 // Coordinators
 export * from "./coordinators/index.js";
 

@@ -59,7 +59,7 @@ export interface CacheConfig {
  *
  * @example
  * ```typescript
- * const store = new CheckpointStore<string>({ ttl: 60000 }); // 1 minute TTL
+ * const store = new CheckpointStore<string>({ ttl: 60000 });
  * store.set('key', 'value');
  * const value = store.get('key');
  * ```
@@ -71,12 +71,8 @@ export class CheckpointStore<T = unknown> {
   private hits: number = 0;
   private misses: number = 0;
 
-  /**
-   * Constructor
-   * @param config Cache configuration
-   */
   constructor(config: CacheConfig = {}) {
-    this.ttl = config.ttl ?? 300000; // Default: 5 minutes
+    this.ttl = config.ttl ?? 300000;
     this.maxSize = config.maxSize;
   }
 
@@ -93,7 +89,6 @@ export class CheckpointStore<T = unknown> {
       return null;
     }
 
-    // Check if expired
     if (this.isExpired(entry)) {
       this.cache.delete(key);
       this.misses++;
@@ -111,7 +106,6 @@ export class CheckpointStore<T = unknown> {
    * @param metadata Optional metadata
    */
   set(key: string, value: T, metadata?: Record<string, unknown>): void {
-    // Enforce max size
     if (this.maxSize !== undefined && this.cache.size >= this.maxSize) {
       this.evictOldest();
     }
@@ -225,10 +219,6 @@ export class CheckpointStore<T = unknown> {
     this.set(key, value);
     return value;
   }
-
-  // ============================================================
-  // Private methods
-  // ============================================================
 
   /**
    * Check if a cache entry is expired

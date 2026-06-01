@@ -15,7 +15,7 @@ import type {
 } from "@wf-agent/types";
 import type { SkillRegistry } from "../registry/skill-registry.js";
 import type { EventRegistry } from "../registry/event-registry.js";
-import { CheckpointStore } from "./checkpoint/checkpoint-store.js";
+import { CheckpointStore } from "../checkpoint/utils/checkpoint-store.js";
 import {
   buildSkillLoadStartedEvent,
   buildSkillLoadCompletedEvent,

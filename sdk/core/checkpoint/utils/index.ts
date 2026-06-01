@@ -1,7 +1,3 @@
-/**
- * Checkpoint tool functions are exported uniformly.
- */
-
 export * from "./cleanup-policy.js";
 export * from "./delta-calculator.js";
 export * from "./delta-restorer.js";

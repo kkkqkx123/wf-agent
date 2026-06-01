@@ -79,13 +79,11 @@ export abstract class DeltaCalculator<TSnapshot, TDelta> {
       return [];
     }
 
-    // If a key extractor is provided, deduplicate based on the key.
     if (keyExtractor) {
       const previousKeys = new Set(previous.map(keyExtractor));
       return current.filter((item) => !previousKeys.has(keyExtractor(item)));
     }
 
-    // Default: Assume arrays are append-only, return the added portion.
     if (current.length > previous.length) {
       return current.slice(previous.length);
     }
@@ -114,7 +112,6 @@ export abstract class DeltaCalculator<TSnapshot, TDelta> {
 
     const ignoreFields = new Set(this.options.ignoreFields || []);
 
-    // Check for added and modified fields.
     for (const key of Object.keys(current)) {
       if (ignoreFields.has(key)) continue;
 
@@ -125,7 +122,6 @@ export abstract class DeltaCalculator<TSnapshot, TDelta> {
       }
     }
 
-    // Check removed fields
     for (const key of Object.keys(previous)) {
       if (ignoreFields.has(key)) continue;
 
@@ -149,20 +145,16 @@ export abstract class DeltaCalculator<TSnapshot, TDelta> {
       return JSON.stringify(a) === JSON.stringify(b);
     }
 
-    // Deep comparison
     if (typeof a === "object") {
-      // Handle Date
       if (a instanceof Date && b instanceof Date) {
         return a.getTime() === b.getTime();
       }
 
-      // Handle Array
       if (Array.isArray(a) && Array.isArray(b)) {
         if (a.length !== b.length) return false;
         return a.every((item, index) => this.isEqual(item, b[index]));
       }
 
-      // Handle Map
       if (a instanceof Map && b instanceof Map) {
         if (a.size !== b.size) return false;
         for (const [key, value] of a) {
@@ -173,7 +165,6 @@ export abstract class DeltaCalculator<TSnapshot, TDelta> {
         return true;
       }
 
-      // Handle Set
       if (a instanceof Set && b instanceof Set) {
         if (a.size !== b.size) return false;
         for (const value of a) {
@@ -182,7 +173,6 @@ export abstract class DeltaCalculator<TSnapshot, TDelta> {
         return true;
       }
 
-      // Handle plain object
       const keysA = Object.keys(a as object);
       const keysB = Object.keys(b as object);
       if (keysA.length !== keysB.length) return false;
@@ -196,38 +186,4 @@ export abstract class DeltaCalculator<TSnapshot, TDelta> {
 
     return false;
   }
-}
-
-/**
- * Create a simple array delta calculator function
- *
- * Utility function for simple array diff calculations without needing to
- * create a full DeltaCalculator subclass.
- *
- * @param keyExtractor Optional key extractor for deduplication
- * @returns Function that calculates array delta
- */
-export function createArrayDeltaCalculator<T>(
-  keyExtractor?: (item: T) => string,
-): (previous: T[], current: T[]) => T[] {
-  return (previous: T[], current: T[]) => {
-    if (!previous || previous.length === 0) {
-      return [...current];
-    }
-
-    if (!current || current.length === 0) {
-      return [];
-    }
-
-    if (keyExtractor) {
-      const previousKeys = new Set(previous.map(keyExtractor));
-      return current.filter((item) => !previousKeys.has(keyExtractor(item)));
-    }
-
-    if (current.length > previous.length) {
-      return current.slice(previous.length);
-    }
-
-    return [];
-  };
 }

@@ -57,7 +57,6 @@ export abstract class CheckpointConfigResolver {
    * @returns The result of the parsing
    */
   resolve(layers: ConfigLayer[]): CheckpointConfigResult {
-    // Traverse all levels to find the first one that is explicitly configured.
     for (const layer of layers) {
       if (layer.enabled !== undefined) {
         logger.debug("Checkpoint config resolved", {
@@ -73,7 +72,6 @@ export abstract class CheckpointConfigResolver {
       }
     }
 
-    // No explicit configuration is provided; default values are used.
     logger.debug("Checkpoint config using default", {
       enabled: this.defaultEnabled,
       description: this.defaultDescription,

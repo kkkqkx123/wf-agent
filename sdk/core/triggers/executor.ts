@@ -23,6 +23,7 @@ import type {
   TriggerExecutionResult,
 } from "./types.js";
 import { matchTriggers } from "./matcher.js";
+import { incrementTriggerCount } from "./limiter.js";
 import { getGlobalLogger } from "@wf-agent/common-utils";
 
 const logger = getGlobalLogger().child("TriggerExecutor", { module: "core/triggers" });
@@ -80,6 +81,7 @@ export async function executeTriggers<T extends BaseTriggerDefinition>(
   for (const trigger of matchedTriggers) {
     try {
       const result = await handler(trigger, event);
+      incrementTriggerCount(trigger);
       results.push(result);
     } catch (error) {
       const errorResult: TriggerExecutionResult = {

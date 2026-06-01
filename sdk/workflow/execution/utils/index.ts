@@ -105,7 +105,7 @@ export {
   CountBasedCleanupStrategy,
   SizeBasedCleanupStrategy,
   createCleanupStrategy,
-} from "../../../core/utils/checkpoint/cleanup-policy.js";
+} from "../../../core/checkpoint/utils/cleanup-policy.js";
 
 // Workflow-Specific Interruption Utilities
 export {

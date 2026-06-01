@@ -8,7 +8,7 @@
 import type { BaseCheckpoint, CleanupPolicy, CleanupResult, CheckpointStorageMetadata, CheckpointInfo, BaseEvent } from "@wf-agent/types";
 import type { EventRegistry } from "../registry/event-registry.js";
 import { StateCodec } from "@wf-agent/common-utils";
-import { createCleanupStrategy } from "../utils/checkpoint/cleanup-policy.js";
+import { createCleanupStrategy } from "./utils/cleanup-policy.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 import type { CheckpointStorageAdapter } from "./types.js";
 

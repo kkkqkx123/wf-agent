@@ -72,7 +72,14 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
     dependencies: CheckpointDependencies,
     options?: CheckpointOptions,
   ): Promise<string> {
-    return await super.createCheckpoint(entity, dependencies, options?.metadata);
+    const mergedMetadata: CheckpointMetadata | undefined = options
+      ? {
+          ...options.metadata,
+          description: options.description ?? options.metadata?.description,
+          tags: options.tags ?? options.metadata?.tags,
+        }
+      : undefined;
+    return await super.createCheckpoint(entity, dependencies, mergedMetadata);
   }
 
   /**

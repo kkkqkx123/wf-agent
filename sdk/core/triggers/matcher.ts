@@ -8,7 +8,7 @@
 
 import type { BaseTriggerCondition, BaseEventData, TriggerMatcher } from "./types.js";
 import type { EvaluationContext } from "@wf-agent/types";
-import { conditionEvaluator, DependencyManager } from "../../workflow/evaluation/index.js";
+import { DependencyManager } from "../../workflow/evaluation/index.js";
 import { canTrigger } from "./limiter.js";
 import type { BaseTriggerDefinition } from "./types.js";
 import { getGlobalLogger } from "@wf-agent/common-utils";
@@ -80,25 +80,17 @@ export const defaultTriggerMatcher: TriggerMatcher = (
   if (condition.condition) {
     const ctx = buildEvalContext(event);
     try {
-      const exprKey = `${condition.condition.expression}`;
+      const exprKey = condition.condition.expression;
       let passed: boolean;
 
-      // Use dependency manager for cached evaluation.
-      // If the condition is already registered, it will skip re-evaluation when
-      // no dependency variables have changed. On first call, it registers and evaluates.
-      try {
+      const tracked = depManager.getTrackedExpression(exprKey);
+      if (tracked) {
+        const result = depManager.evaluateIfChanged(exprKey, ctx);
+        passed = Boolean(result);
+      } else {
+        depManager.register(exprKey, condition.condition.expression, ctx);
         const tracked = depManager.getTrackedExpression(exprKey);
-        if (tracked) {
-          const result = depManager.evaluateIfChanged(exprKey, ctx);
-          passed = Boolean(result);
-        } else {
-          depManager.register(exprKey, condition.condition.expression, ctx);
-          const tracked = depManager.getTrackedExpression(exprKey);
-          passed = Boolean(tracked?.lastResult);
-        }
-      } catch {
-        // Fallback to direct condition evaluation if dependency manager fails
-        passed = conditionEvaluator.evaluate(condition.condition, ctx);
+        passed = Boolean(tracked?.lastResult);
       }
 
       if (!passed) {

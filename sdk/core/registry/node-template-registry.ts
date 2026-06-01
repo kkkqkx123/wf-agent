@@ -282,19 +282,17 @@ class NodeTemplateRegistry {
       incomingEdgeIds: [],
     } as StaticNode;
 
-    try {
-      validateNodeByType(mockNode);
-    } catch (error) {
-      if (error instanceof ValidationError) {
-        throw new ConfigurationValidationError(
-          `Invalid node configuration for template '${template.name}': ${error.message}`,
-          {
-            configType: "node",
-            configPath: "template.config",
-          },
-        );
-      }
-      throw error;
+    const validationResult = validateNodeByType(mockNode);
+    if (validationResult.isErr()) {
+      const errors = validationResult.error;
+      const errorMessage = errors.length > 0 ? errors[0]!.message : "Unknown validation error";
+      throw new ConfigurationValidationError(
+        `Invalid node configuration for template '${template.name}': ${errorMessage}`,
+        {
+          configType: "node",
+          configPath: "template.config",
+        },
+      );
     }
   }
 

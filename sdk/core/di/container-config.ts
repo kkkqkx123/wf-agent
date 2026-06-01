@@ -254,7 +254,10 @@ export function configureContainerBindings(
     .toDynamicValue(() => new ToolRegistry())
     .inSingletonScope();
 
-  container.bind(Identifiers.ScriptRegistry).to(ScriptRegistry).inSingletonScope();
+  container
+    .bind(Identifiers.ScriptRegistry)
+    .toDynamicValue(() => new ScriptRegistry())
+    .inSingletonScope();
 
   container.bind(Identifiers.NodeTemplateRegistry).to(NodeTemplateRegistry).inSingletonScope();
 

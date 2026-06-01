@@ -38,8 +38,8 @@ class ScriptRegistry {
   private scriptEngine: ScriptEngine | null = null;
   private flowEngine: ScriptFlowEngine | null = null;
 
-  constructor() {
-    this.executor = new ScriptExecutor();
+  constructor(executor?: ScriptExecutor) {
+    this.executor = executor ?? new ScriptExecutor();
   }
 
   /**

@@ -21,8 +21,8 @@ export interface DeltaCalculatorContext {
  * Delta calculation options
  */
 export interface DeltaCalculatorOptions {
-  /** Whether to enable deep comparison */
-  deepCompare?: boolean;
+  /** Whether to enable strict deep comparison (recursive); when disabled, uses JSON serialization */
+  strictCompare?: boolean;
   /** Fields to ignore */
   ignoreFields?: string[];
 }
@@ -38,7 +38,7 @@ export abstract class DeltaCalculator<TSnapshot, TDelta> {
 
   constructor(options: DeltaCalculatorOptions = {}) {
     this.options = {
-      deepCompare: true,
+      strictCompare: true,
       ignoreFields: [],
       ...options,
     };
@@ -59,14 +59,14 @@ export abstract class DeltaCalculator<TSnapshot, TDelta> {
   ): TDelta;
 
   /**
-   * Calculate array difference (return only newly added elements)
+   * Calculate newly appended array elements (only detects additions at the end)
    *
    * @param previous Previous array
    * @param current Current array
    * @param keyExtractor Optional key extractor for deduplication
    * @returns Newly added elements
    */
-  protected calculateArrayDelta<T>(
+  protected calculateAppendedDelta<T>(
     previous: T[],
     current: T[],
     keyExtractor?: (item: T) => string,
@@ -141,7 +141,7 @@ export abstract class DeltaCalculator<TSnapshot, TDelta> {
     if (a == null || b == null) return a === b;
     if (typeof a !== typeof b) return false;
 
-    if (!this.options.deepCompare) {
+    if (!this.options.strictCompare) {
       return JSON.stringify(a) === JSON.stringify(b);
     }
 

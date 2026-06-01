@@ -129,9 +129,19 @@ export abstract class DeltaRestorer<
    *
    * @param baseId Baseline checkpoint ID
    * @param targetId Target checkpoint ID
+   * @param visited Set of already-visited checkpoint IDs (for circular reference detection)
    * @returns Delta array
    */
-  protected async buildDeltaChain(baseId: string, targetId: string): Promise<TDelta[]> {
+  protected async buildDeltaChain(
+    baseId: string,
+    targetId: string,
+    visited: Set<string> = new Set(),
+  ): Promise<TDelta[]> {
+    if (visited.has(targetId)) {
+      throw new Error(`Circular reference detected in delta chain: ${targetId}`);
+    }
+    visited.add(targetId);
+
     const deltas: TDelta[] = [];
     const checkpoint = await this.loader.load(targetId);
 
@@ -139,8 +149,8 @@ export abstract class DeltaRestorer<
       return deltas;
     }
 
-    if (checkpoint.baseCheckpointId && checkpoint.baseCheckpointId !== baseId) {
-      const parentDeltas = await this.buildDeltaChain(baseId, checkpoint.baseCheckpointId);
+    if (checkpoint.previousCheckpointId && checkpoint.previousCheckpointId !== baseId) {
+      const parentDeltas = await this.buildDeltaChain(baseId, checkpoint.previousCheckpointId, visited);
       deltas.push(...parentDeltas);
     }
 

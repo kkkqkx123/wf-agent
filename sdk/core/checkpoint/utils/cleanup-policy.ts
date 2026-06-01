@@ -36,7 +36,8 @@ export class TimeBasedCleanupStrategy implements CheckpointCleanupStrategy {
     const retentionMs = this.policy.retentionDays * 24 * 60 * 60 * 1000;
     const minRetention = this.policy.minRetention || 0;
 
-    const sorted = [...checkpoints].sort((a, b) => a.metadata.timestamp - b.metadata.timestamp);
+    const sorted = checkpoints.filter((cp): cp is CheckpointInfo => cp != null)
+      .sort((a, b) => a.metadata.timestamp - b.metadata.timestamp);
 
     const toDelete: string[] = [];
 
@@ -67,17 +68,28 @@ export class CountBasedCleanupStrategy implements CheckpointCleanupStrategy {
     const maxCount = this.policy.maxCount;
     const minRetention = this.policy.minRetention || 0;
 
-    const sorted = [...checkpoints].sort((a, b) => b.metadata.timestamp - a.metadata.timestamp);
+    const sorted = checkpoints.filter((cp): cp is CheckpointInfo => cp != null)
+      .sort((a, b) => a.metadata.timestamp - b.metadata.timestamp);
 
     if (sorted.length <= maxCount) {
       return [];
     }
 
-    const deleteCount = Math.max(0, sorted.length - maxCount);
+    const toDelete: string[] = [];
+    for (let i = 0; i < sorted.length; i++) {
+      const checkpoint = sorted[i];
+      if (!checkpoint) continue;
 
-    const actualDeleteCount = Math.min(deleteCount, sorted.length - minRetention);
+      if (i < sorted.length - minRetention) {
+        toDelete.push(checkpoint.checkpointId);
+      }
 
-    return sorted.slice(sorted.length - actualDeleteCount).map(cp => cp.checkpointId);
+      if (toDelete.length >= sorted.length - maxCount) {
+        break;
+      }
+    }
+
+    return toDelete;
   }
 }
 
@@ -94,12 +106,24 @@ export class SizeBasedCleanupStrategy implements CheckpointCleanupStrategy {
     const maxSize = this.policy.maxSizeBytes;
     const minRetention = this.policy.minRetention || 0;
 
-    const sorted = [...checkpoints].sort((a, b) => a.metadata.timestamp - b.metadata.timestamp);
+    const sorted = checkpoints.filter((cp): cp is CheckpointInfo => cp != null)
+      .sort((a, b) => a.metadata.timestamp - b.metadata.timestamp);
 
     let totalSize = 0;
+    const missingSizeIds: string[] = [];
     for (const checkpoint of sorted) {
-      const size = this.checkpointSizes.get(checkpoint.checkpointId) || 0;
-      totalSize += size;
+      const size = this.checkpointSizes.get(checkpoint.checkpointId);
+      if (size === undefined) {
+        missingSizeIds.push(checkpoint.checkpointId);
+      }
+      totalSize += size ?? 0;
+    }
+
+    if (missingSizeIds.length > 0) {
+      console.warn(
+        `SizeBasedCleanupStrategy: ${missingSizeIds.length} checkpoint(s) have no recorded size and will be treated as 0 bytes`,
+        { missingSizeIds },
+      );
     }
 
     if (totalSize <= maxSize) {
@@ -114,7 +138,7 @@ export class SizeBasedCleanupStrategy implements CheckpointCleanupStrategy {
       if (!checkpoint) continue;
 
       const checkpointId = checkpoint.checkpointId;
-      const size = this.checkpointSizes.get(checkpointId) || 0;
+      const size = this.checkpointSizes.get(checkpointId) ?? 0;
 
       if (i < sorted.length - minRetention) {
         toDelete.push(checkpointId);

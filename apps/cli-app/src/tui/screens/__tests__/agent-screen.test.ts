@@ -37,7 +37,7 @@ describe("AgentScreen", () => {
       return Promise.resolve({ success: true });
     });
     
-    screen = new AgentScreen(onBackMock as any);
+    screen = new AgentScreen(onBackMock);
   });
 
   describe("constructor", () => {

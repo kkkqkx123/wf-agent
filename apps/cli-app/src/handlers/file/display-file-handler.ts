@@ -14,6 +14,9 @@ import type {
   WorkflowExecutionNodeData,
   AgentCheckpointData,
   AgentIterationData,
+  AgentHumanRelayRequestData,
+  AgentHumanRelayResponseData,
+  WorkflowExecutionForkBranchData,
 } from "@wf-agent/types";
 
 /**
@@ -43,8 +46,17 @@ export class DisplayFileHandler implements OutputHandler {
       AgentMessageType.TOOL_RESULT,
       WorkflowExecutionMessageType.NODE_START,
       WorkflowExecutionMessageType.NODE_END,
+      WorkflowExecutionMessageType.NODE_ERROR,
+      AgentMessageType.HUMAN_RELAY_REQUEST,
+      AgentMessageType.HUMAN_RELAY_RESPONSE,
+      AgentMessageType.HUMAN_RELAY_TIMEOUT,
+      AgentMessageType.HUMAN_RELAY_CANCEL,
+      WorkflowExecutionMessageType.FORK_BRANCH_START,
+      WorkflowExecutionMessageType.FORK_BRANCH_END,
       AgentMessageType.CHECKPOINT_CREATE,
+      AgentMessageType.CHECKPOINT_RESTORE,
       AgentMessageType.ITERATION_START,
+      AgentMessageType.ITERATION_END,
       SystemMessageType.ERROR,
     ];
 
@@ -94,8 +106,35 @@ export class DisplayFileHandler implements OutputHandler {
       case AgentMessageType.CHECKPOINT_CREATE:
         return this.createCheckpointSection(message);
 
+      case AgentMessageType.CHECKPOINT_RESTORE:
+        return this.createCheckpointRestoreSection(message);
+
       case AgentMessageType.ITERATION_START:
         return this.createIterationSection(message);
+
+      case AgentMessageType.ITERATION_END:
+        return this.createIterationEndSection(message);
+
+      case AgentMessageType.HUMAN_RELAY_REQUEST:
+        return this.createHumanRelayRequestSection(message);
+
+      case AgentMessageType.HUMAN_RELAY_RESPONSE:
+        return this.createHumanRelayResponseSection(message);
+
+      case AgentMessageType.HUMAN_RELAY_TIMEOUT:
+        return this.createHumanRelayTimeoutSection(message);
+
+      case AgentMessageType.HUMAN_RELAY_CANCEL:
+        return this.createHumanRelayCancelSection(message);
+
+      case WorkflowExecutionMessageType.FORK_BRANCH_START:
+        return this.createForkBranchStartSection(message);
+
+      case WorkflowExecutionMessageType.FORK_BRANCH_END:
+        return this.createForkBranchEndSection(message);
+
+      case WorkflowExecutionMessageType.NODE_ERROR:
+        return this.createNodeErrorSection(message);
 
       case SystemMessageType.ERROR:
         return this.createErrorSection(message);
@@ -174,6 +213,130 @@ export class DisplayFileHandler implements OutputHandler {
     return {
       title: `Iteration Started: ${iteration}`,
       content: `[${timestamp}] Iteration ${iteration} started`,
+    };
+  }
+
+  /**
+   * Create section for iteration end
+   */
+  private createIterationEndSection(message: BaseComponentMessage): DisplaySection {
+    const data = message.data as AgentIterationData;
+    const iteration = data.iteration || 0;
+    const duration = data.duration ? `${data.duration}ms` : "N/A";
+    const timestamp = new Date(message.timestamp).toLocaleTimeString();
+
+    return {
+      title: `Iteration Completed: ${iteration}`,
+      content: `[${timestamp}] Iteration ${iteration} completed\nDuration: ${duration}`,
+    };
+  }
+
+  /**
+   * Create section for checkpoint restore
+   */
+  private createCheckpointRestoreSection(message: BaseComponentMessage): DisplaySection {
+    const data = message.data as AgentCheckpointData;
+    const checkpointId = data.checkpointId || "unknown";
+    const timestamp = new Date(message.timestamp).toLocaleTimeString();
+
+    return {
+      title: `Checkpoint Restored: ${checkpointId}`,
+      content: `[${timestamp}] Checkpoint "${checkpointId}" restored`,
+    };
+  }
+
+  /**
+   * Create section for human relay request
+   */
+  private createHumanRelayRequestSection(message: BaseComponentMessage): DisplaySection {
+    const data = message.data as AgentHumanRelayRequestData;
+    const requestId = data.requestId || "unknown";
+    const timestamp = new Date(message.timestamp).toLocaleTimeString();
+
+    return {
+      title: `Human Relay Request: ${requestId}`,
+      content: `[${timestamp}] Human relay request received\nPrompt: ${data.prompt || "N/A"}`,
+    };
+  }
+
+  /**
+   * Create section for human relay response
+   */
+  private createHumanRelayResponseSection(message: BaseComponentMessage): DisplaySection {
+    const data = message.data as AgentHumanRelayResponseData;
+    const requestId = data.requestId || "unknown";
+    const timestamp = new Date(message.timestamp).toLocaleTimeString();
+
+    return {
+      title: `Human Relay Response: ${requestId}`,
+      content: `[${timestamp}] Human relay response received (${data.responseTime || "N/A"}ms)`,
+    };
+  }
+
+  /**
+   * Create section for human relay timeout
+   */
+  private createHumanRelayTimeoutSection(message: BaseComponentMessage): DisplaySection {
+    const timestamp = new Date(message.timestamp).toLocaleTimeString();
+
+    return {
+      title: "Human Relay Timeout",
+      content: `[${timestamp}] Human relay request timed out`,
+    };
+  }
+
+  /**
+   * Create section for human relay cancel
+   */
+  private createHumanRelayCancelSection(message: BaseComponentMessage): DisplaySection {
+    const timestamp = new Date(message.timestamp).toLocaleTimeString();
+
+    return {
+      title: "Human Relay Cancelled",
+      content: `[${timestamp}] Human relay request was cancelled`,
+    };
+  }
+
+  /**
+   * Create section for fork branch start
+   */
+  private createForkBranchStartSection(message: BaseComponentMessage): DisplaySection {
+    const data = message.data as WorkflowExecutionForkBranchData;
+    const branchIndex = data.branchIndex ?? 0;
+    const timestamp = new Date(message.timestamp).toLocaleTimeString();
+
+    return {
+      title: `Fork Branch Started: ${branchIndex}`,
+      content: `[${timestamp}] Fork branch ${branchIndex} started`,
+    };
+  }
+
+  /**
+   * Create section for fork branch end
+   */
+  private createForkBranchEndSection(message: BaseComponentMessage): DisplaySection {
+    const data = message.data as WorkflowExecutionForkBranchData;
+    const branchIndex = data.branchIndex ?? 0;
+    const timestamp = new Date(message.timestamp).toLocaleTimeString();
+
+    return {
+      title: `Fork Branch Completed: ${branchIndex}`,
+      content: `[${timestamp}] Fork branch ${branchIndex} completed`,
+    };
+  }
+
+  /**
+   * Create section for node error
+   */
+  private createNodeErrorSection(message: BaseComponentMessage): DisplaySection {
+    const data = message.data as WorkflowExecutionNodeData;
+    const nodeId = data.nodeId || "unknown";
+    const error = data.error || "Unknown error";
+    const timestamp = new Date(message.timestamp).toLocaleTimeString();
+
+    return {
+      title: `Node Error: ${nodeId}`,
+      content: `[${timestamp}] Node "${nodeId}" failed\nError: ${error}`,
     };
   }
 

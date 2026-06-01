@@ -52,7 +52,7 @@ describe("WorkflowScreen", () => {
       return Promise.reject(new Error("Workflow not found"));
     });
     
-    screen = new WorkflowScreen(onBackMock as any);
+    screen = new WorkflowScreen(onBackMock);
   });
 
   describe("constructor", () => {

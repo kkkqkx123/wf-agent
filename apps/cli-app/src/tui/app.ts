@@ -64,22 +64,22 @@ export class CLIAppTUI {
    * Initialize all available screens
    */
   private initializeScreens() {
-    // Register dashboard screen - pass tuiOutputHandler for TUI-targeted message subscription
+    // Register dashboard screen - pass messageBus for TUI-targeted message subscription
     const dashboardScreen = new DashboardScreen(this.messageBus, (screenId) => {
       this.showScreen(screenId);
-    }, this.tuiOutputHandler);
+    });
     this.screens.set("dashboard", dashboardScreen);
 
-    // Register workflow screen - pass tuiOutputHandler for node execution events
+    // Register workflow screen - pass messageBus for node execution events
     const workflowScreen = new WorkflowScreen(this.messageBus, () => {
       this.showScreen("dashboard");
-    }, this.tuiOutputHandler);
+    });
     this.screens.set("workflow", workflowScreen);
 
-    // Register agent screen - pass tuiOutputHandler for agent lifecycle events
+    // Register agent screen - pass messageBus for agent lifecycle events
     const agentScreen = new AgentScreen(this.messageBus, () => {
       this.showScreen("dashboard");
-    }, this.tuiOutputHandler);
+    });
     this.screens.set("agent", agentScreen);
 
     // TODO: Register other screens in future phases

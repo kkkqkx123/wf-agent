@@ -7,8 +7,6 @@ import { Box, Container, Text, Input } from "../core/index.js";
 import type { Screen } from "./screen.js";
 import type { Component } from "../core/tui.js";
 import type { AgentLoopRuntimeConfig } from "@wf-agent/types";
-import type { MessageBus } from "@wf-agent/sdk/api";
-import type { TUIOutputHandler } from "../../handlers/tui/tui-output-handler.js";
 import { MessageCategory, AgentMessageType } from "@wf-agent/types";
 import type {
   AgentStartData,
@@ -17,8 +15,15 @@ import type {
   AgentLLMStreamData,
   AgentToolCallData,
   AgentToolEndData,
+  HumanRelayRequestData,
+  HumanRelayResponseData,
+  HumanRelayTimeoutData,
+  HumanRelayCancelData,
+  CheckpointCreateData,
+  CheckpointRestoreData,
   BaseComponentMessage,
 } from "@wf-agent/types";
+import type { MessageBus, MessageSubscription } from "@wf-agent/sdk/api";
 import { IterationPanel } from "../components/iteration-panel.js";
 import { ToolCallIndicator } from "../components/tool-call-indicator.js";
 
@@ -35,41 +40,44 @@ export class AgentScreen implements Screen {
   private iterationPanel: IterationPanel;
   private toolCallPanel: ToolCallIndicator;
   private messageInput!: Input;
-  private tuiOutputHandler?: TUIOutputHandler;
+  private messageBus: MessageBus;
   private currentAgentId?: string;
   private isRunning: boolean = false;
   private logEntries: LogEntry[] = [];
   private onBack?: () => void;
-  private unsubscribeTUI?: () => void;
+  private messageSubscription?: MessageSubscription;
   private streamingBuffer: string = "";
   private lastRenderTime: number = 0;
 
-  constructor(_messageBus?: MessageBus, onBack?: () => void, tuiOutputHandler?: TUIOutputHandler) {
-    this.tuiOutputHandler = tuiOutputHandler;
+  private messageHandler = (message: BaseComponentMessage): void => {
+    if (message.category !== MessageCategory.AGENT) return;
+    if (this.currentAgentId && message.entity?.id && message.entity.id !== this.currentAgentId)
+      return;
+    this.handleAgentMessage(message);
+  };
+
+  constructor(messageBus: MessageBus, onBack?: () => void) {
+    this.messageBus = messageBus;
     this.onBack = onBack;
     this.container = new Container();
     this.statusPanel = new Box();
     this.logPanel = new Box();
     this.iterationPanel = new IterationPanel({ maxHeight: 8 });
     this.toolCallPanel = new ToolCallIndicator({ maxDisplayCalls: 5, showArguments: false });
-    
+
     this.setupLayout();
     this.setupMessageSubscriptions();
   }
 
   /**
    * Setup message subscriptions for real-time agent event updates
-   * Subscribes to TUIOutputHandler and dispatches by message type
+   * Subscribes to MessageBus with AGENT category filter
    */
   private setupMessageSubscriptions() {
-    if (!this.tuiOutputHandler) return;
-
-    this.unsubscribeTUI = this.tuiOutputHandler.subscribe((message: BaseComponentMessage) => {
-      if (message.category !== MessageCategory.AGENT) return;
-      // Entity-level filter: ignore messages for other agent instances
-      if (this.currentAgentId && message.entity?.id && message.entity.id !== this.currentAgentId) return;
-      this.handleAgentMessage(message);
-    });
+    this.messageSubscription = this.messageBus.subscribe(
+      { categories: [MessageCategory.AGENT] },
+      this.messageHandler,
+    );
   }
 
   /**
@@ -97,6 +105,16 @@ export class AgentScreen implements Screen {
       case AgentMessageType.TOOL_CALL_END:
         this.handleToolMessage(message);
         break;
+      case AgentMessageType.HUMAN_RELAY_REQUEST:
+      case AgentMessageType.HUMAN_RELAY_RESPONSE:
+      case AgentMessageType.HUMAN_RELAY_TIMEOUT:
+      case AgentMessageType.HUMAN_RELAY_CANCEL:
+        this.handleHumanRelayMessage(message);
+        break;
+      case AgentMessageType.CHECKPOINT_CREATE:
+      case AgentMessageType.CHECKPOINT_RESTORE:
+        this.handleCheckpointMessage(message);
+        break;
     }
   }
 
@@ -122,7 +140,7 @@ export class AgentScreen implements Screen {
           this.updateStatus(endData.status === "completed" ? "completed" : "error");
           this.appendLog(
             `Agent ended: ${endData.status} (${endData.totalIterations} iterations, ${endData.duration}ms)`,
-            "system"
+            "system",
           );
         }
         break;
@@ -150,7 +168,7 @@ export class AgentScreen implements Screen {
    */
   private handleIterationMessage(message: BaseComponentMessage) {
     const data = message.data as AgentIterationData;
-    
+
     if (message.type === AgentMessageType.ITERATION_START) {
       this.iterationPanel.updateIteration(data);
       this.appendLog(`Iteration ${data.iteration} started`, "system");
@@ -158,7 +176,7 @@ export class AgentScreen implements Screen {
       this.iterationPanel.completeIteration(data.iteration, data.duration);
       this.appendLog(
         `Iteration ${data.iteration} completed${data.duration ? ` (${data.duration}ms)` : ""}`,
-        "system"
+        "system",
       );
     }
   }
@@ -171,7 +189,7 @@ export class AgentScreen implements Screen {
     if (data.chunk) {
       // Buffer streaming chunks for performance
       this.streamingBuffer += data.chunk;
-      
+
       const now = Date.now();
       // Render every 100ms or when buffer is large enough
       if (now - this.lastRenderTime > 100 || this.streamingBuffer.length > 200) {
@@ -195,6 +213,55 @@ export class AgentScreen implements Screen {
       this.toolCallPanel.handleToolCallEnd(data);
       const success = data.success ? "✓" : "✗";
       this.appendLog(`${success} Tool ${data.toolName} completed (${data.duration}ms)`, "tool");
+    }
+  }
+
+  /**
+   * Handle human relay messages
+   */
+  private handleHumanRelayMessage(message: BaseComponentMessage) {
+    switch (message.type) {
+      case AgentMessageType.HUMAN_RELAY_REQUEST: {
+        const data = message.data as HumanRelayRequestData;
+        this.appendLog(
+          `Human relay requested: ${data.requestId} (timeout: ${data.timeout}ms)`,
+          "system",
+        );
+        break;
+      }
+      case AgentMessageType.HUMAN_RELAY_RESPONSE: {
+        const data = message.data as HumanRelayResponseData;
+        this.appendLog(`Human relay response received (${data.source})`, "system");
+        break;
+      }
+      case AgentMessageType.HUMAN_RELAY_TIMEOUT: {
+        const data = message.data as HumanRelayTimeoutData;
+        this.appendLog(`Human relay timed out after ${data.timeout}ms`, "system");
+        break;
+      }
+      case AgentMessageType.HUMAN_RELAY_CANCEL: {
+        const data = message.data as HumanRelayCancelData;
+        this.appendLog(`Human relay cancelled: ${data.reason}`, "system");
+        break;
+      }
+    }
+  }
+
+  /**
+   * Handle checkpoint messages
+   */
+  private handleCheckpointMessage(message: BaseComponentMessage) {
+    switch (message.type) {
+      case AgentMessageType.CHECKPOINT_CREATE: {
+        const data = message.data as CheckpointCreateData;
+        this.appendLog(`Checkpoint created: ${data.checkpointId} (${data.entityType})`, "system");
+        break;
+      }
+      case AgentMessageType.CHECKPOINT_RESTORE: {
+        const data = message.data as CheckpointRestoreData;
+        this.appendLog(`Checkpoint restored: ${data.checkpointId} (${data.entityType})`, "system");
+        break;
+      }
     }
   }
 
@@ -228,7 +295,7 @@ export class AgentScreen implements Screen {
     const inputBox = new Box();
     inputBox.addChild(new Text("Message:", 1, 0));
     this.messageInput = new Input("Enter your message...");
-    this.messageInput.onSubmit = (text) => {
+    this.messageInput.onSubmit = text => {
       if (text.trim()) {
         this.sendMessage(text);
       }
@@ -245,7 +312,7 @@ export class AgentScreen implements Screen {
 
   private updateStatus(status: "idle" | "running" | "paused" | "completed" | "error") {
     this.statusPanel.clear();
-    
+
     const statusIcon = {
       idle: "⏸️",
       running: "▶️",
@@ -253,29 +320,33 @@ export class AgentScreen implements Screen {
       completed: "✅",
       error: "❌",
     }[status];
-    
+
     this.statusPanel.addChild(new Text(`Status: ${statusIcon} ${status.toUpperCase()}`, 1, 0));
     this.statusPanel.addChild(new Text(`Agent ID: ${this.currentAgentId || "N/A"}`, 1, 0));
     this.statusPanel.addChild(new Text(`Messages: ${this.logEntries.length}`, 1, 0));
   }
 
-  private appendLog(message: string, type: LogEntry["type"] = "system", options?: { stream?: boolean }) {
+  private appendLog(
+    message: string,
+    type: LogEntry["type"] = "system",
+    options?: { stream?: boolean },
+  ) {
     const entry: LogEntry = {
       timestamp: new Date(),
       type,
       message,
     };
-    
+
     if (options?.stream) {
       // For streaming, append without full re-render (performance optimization)
       // In a real implementation, this would use virtual scrolling or append-only updates
       this.logEntries.push(entry);
-      
+
       // Only keep last 100 entries for performance
       if (this.logEntries.length > 100) {
         this.logEntries.shift();
       }
-      
+
       // Append to log panel without full rebuild
       const timeStr = entry.timestamp.toLocaleTimeString();
       const typeIcon = {
@@ -284,18 +355,18 @@ export class AgentScreen implements Screen {
         system: "ℹ️",
         tool: "🔧",
       }[type];
-      
+
       const formatted = `[${timeStr}] ${typeIcon} ${message}`;
       this.logPanel.addChild(new Text(formatted, 1, 0));
     } else {
       // For non-streaming, add as new entry and rebuild
       this.logEntries.push(entry);
-      
+
       // Keep only last 50 entries for performance
       if (this.logEntries.length > 50) {
         this.logEntries.shift();
       }
-      
+
       // Clear and rebuild log panel
       this.logPanel.clear();
       this.logEntries.forEach(entry => {
@@ -306,7 +377,7 @@ export class AgentScreen implements Screen {
           system: "ℹ️",
           tool: "🔧",
         }[entry.type];
-        
+
         this.logPanel.addChild(new Text(`[${timeStr}] ${typeIcon} ${entry.message}`, 1, 0));
       });
     }
@@ -320,11 +391,8 @@ export class AgentScreen implements Screen {
 
     // Generate agent ID
     this.currentAgentId = `agent-${Date.now()}-${Math.random().toString(36).substring(7)}`;
-    
-    // Clear old subscription and re-subscribe with new entity filter
-    this.unsubscribeTUI?.();
-    this.unsubscribeTUI = undefined;
-    this.setupMessageSubscriptions();
+
+    // No need to re-subscribe; messageHandler dynamically checks currentAgentId
 
     this.isRunning = true;
     this.updateStatus("running");
@@ -335,7 +403,6 @@ export class AgentScreen implements Screen {
     // The actual agent loop should be started by publishing an AGENT_START message
   }
 
-
   private async sendMessage(text: string) {
     if (!this.isRunning) {
       this.appendLog("Start agent first before sending messages", "system");
@@ -343,10 +410,10 @@ export class AgentScreen implements Screen {
     }
 
     this.appendLog(text, "user");
-    
+
     // Clear input
     this.messageInput.setValue("");
-    
+
     // In a real implementation, this would send the message to the running agent
     // For now, just log it
     this.appendLog("Message sent (integration pending)", "system");
@@ -362,32 +429,32 @@ export class AgentScreen implements Screen {
       this.onBack?.();
       return true;
     }
-    
+
     if (data === "s" || data === "S") {
       // TODO: Show configuration dialog and start agent
       this.appendLog("Start agent - configuration dialog to be implemented", "system");
       return true;
     }
-    
+
     if (data === "c" || data === "C") {
       this.isRunning = false;
       this.updateStatus("idle");
       this.appendLog("Agent cancelled", "system");
       return true;
     }
-    
+
     // Delegate to message input when focused
     if (this.messageInput.handleInput) {
       this.messageInput.handleInput(data);
       return true;
     }
-    
+
     return false;
   }
 
   destroy(): void {
-    this.unsubscribeTUI?.();
-    
+    this.messageSubscription?.unsubscribe();
+
     // Cleanup running agent if needed
     if (this.isRunning) {
       this.isRunning = false;

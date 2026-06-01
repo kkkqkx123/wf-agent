@@ -4,23 +4,30 @@
 
 import { Box, Container, Text, SelectList } from "../core/index.js";
 import type { Screen } from "./screen.js";
-import type { MessageBus } from "@wf-agent/sdk/api";
-import type { TUIOutputHandler } from "../../handlers/tui/tui-output-handler.js";
 import { MessageCategory, AgentMessageType, WorkflowExecutionMessageType } from "@wf-agent/types";
 import type { BaseComponentMessage } from "@wf-agent/types";
+import type { MessageBus, MessageSubscription } from "@wf-agent/sdk/api";
 
 export class DashboardScreen implements Screen {
   private container: Container;
   private menuList!: SelectList;
   private statusPanel!: Box;
-  private tuiOutputHandler?: TUIOutputHandler;
+  private messageBus: MessageBus;
   private onNavigate?: (screenId: string) => void;
-  private unsubscribeTUI?: () => void;
+  private messageSubscription?: MessageSubscription;
   private activeAgents: number = 0;
   private runningThreads: number = 0;
 
-  constructor(_messageBus?: MessageBus, onNavigate?: (screenId: string) => void, tuiOutputHandler?: TUIOutputHandler) {
-    this.tuiOutputHandler = tuiOutputHandler;
+  private messageHandler = (message: BaseComponentMessage): void => {
+    if (message.category === MessageCategory.AGENT) {
+      this.handleAgentMessage(message);
+    } else if (message.category === MessageCategory.WORKFLOW_EXECUTION) {
+      this.handleWorkflowMessage(message);
+    }
+  };
+
+  constructor(messageBus: MessageBus, onNavigate?: (screenId: string) => void) {
+    this.messageBus = messageBus;
     this.onNavigate = onNavigate;
     this.container = new Container();
     this.setupLayout();
@@ -87,18 +94,21 @@ export class DashboardScreen implements Screen {
   }
 
   /**
-   * Setup live status updates via TUI output handler subscriptions
+   * Setup live status updates via MessageBus subscriptions
    */
   private setupLiveUpdates() {
-    if (!this.tuiOutputHandler) return;
-
-    this.unsubscribeTUI = this.tuiOutputHandler.subscribe((message: BaseComponentMessage) => {
-      if (message.category === MessageCategory.AGENT) {
-        this.handleAgentMessage(message);
-      } else if (message.category === MessageCategory.WORKFLOW_EXECUTION) {
-        this.handleWorkflowMessage(message);
-      }
-    });
+    this.messageSubscription = this.messageBus.subscribe(
+      {
+        categories: [MessageCategory.AGENT, MessageCategory.WORKFLOW_EXECUTION],
+        types: [
+          AgentMessageType.AGENT_START,
+          AgentMessageType.AGENT_END,
+          WorkflowExecutionMessageType.EXECUTION_START,
+          WorkflowExecutionMessageType.EXECUTION_END,
+        ],
+      },
+      this.messageHandler,
+    );
   }
 
   /**
@@ -149,6 +159,6 @@ export class DashboardScreen implements Screen {
   }
 
   destroy(): void {
-    this.unsubscribeTUI?.();
+    this.messageSubscription?.unsubscribe();
   }
 }

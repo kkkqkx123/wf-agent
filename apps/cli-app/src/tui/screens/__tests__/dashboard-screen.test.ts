@@ -12,7 +12,7 @@ describe("DashboardScreen", () => {
 
   beforeEach(() => {
     onNavigateMock = vi.fn();
-    screen = new DashboardScreen(onNavigateMock as any);
+    screen = new DashboardScreen(onNavigateMock);
   });
 
   describe("constructor", () => {

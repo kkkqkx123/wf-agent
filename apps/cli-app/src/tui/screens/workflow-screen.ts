@@ -6,34 +6,52 @@
 import { Box, Container, Text, SelectList } from "../core/index.js";
 import type { Screen } from "./screen.js";
 import { WorkflowAdapter } from "../../adapters/workflow-adapter.js";
-import type { MessageBus } from "@wf-agent/sdk/api";
-import type { TUIOutputHandler } from "../../handlers/tui/tui-output-handler.js";
 import { MessageCategory, WorkflowExecutionMessageType } from "@wf-agent/types";
-import type {
-  BaseComponentMessage,
-  WorkflowExecutionNodeData,
-} from "@wf-agent/types";
+import type { BaseComponentMessage, WorkflowExecutionNodeData } from "@wf-agent/types";
+import type { MessageBus, MessageSubscription } from "@wf-agent/sdk/api";
 import { createContextualLogger } from "@wf-agent/sdk/utils";
 
 export class WorkflowScreen implements Screen {
   private container: Container;
   private workflowList: SelectList;
   private detailPanel: Box;
+  private logPanel: Box;
   private adapter: WorkflowAdapter;
-  private tuiOutputHandler?: TUIOutputHandler;
+  private messageBus: MessageBus;
   private currentWorkflowId?: string;
   private onBack?: () => void;
-  private unsubscribeTUI?: () => void;
+  private messageSubscription?: MessageSubscription;
   private logger = createContextualLogger({ component: "WorkflowScreen" });
 
-  constructor(_messageBus?: MessageBus, onBack?: () => void, tuiOutputHandler?: TUIOutputHandler) {
-    this.tuiOutputHandler = tuiOutputHandler;
+  private messageHandler = (message: BaseComponentMessage): void => {
+    if (message.category !== MessageCategory.WORKFLOW_EXECUTION) return;
+
+    const nodeTypes: string[] = [
+      WorkflowExecutionMessageType.NODE_START,
+      WorkflowExecutionMessageType.NODE_END,
+      WorkflowExecutionMessageType.NODE_ERROR,
+      WorkflowExecutionMessageType.NODE_SKIP,
+    ] as string[];
+
+    if (nodeTypes.includes(message.type as string)) {
+      this.handleNodeMessage(message);
+    } else if (
+      message.type === WorkflowExecutionMessageType.EXECUTION_START ||
+      message.type === WorkflowExecutionMessageType.EXECUTION_END
+    ) {
+      this.handleWorkflowMessage(message);
+    }
+  };
+
+  constructor(messageBus: MessageBus, onBack?: () => void) {
+    this.messageBus = messageBus;
     this.onBack = onBack;
     this.adapter = new WorkflowAdapter();
     this.container = new Container();
     this.workflowList = new SelectList([]);
     this.detailPanel = new Box();
-    
+    this.logPanel = new Box();
+
     this.setupLayout();
     this.loadWorkflows();
     this.setupMessageSubscriptions();
@@ -60,36 +78,25 @@ export class WorkflowScreen implements Screen {
     splitContainer.addChild(listBox);
     splitContainer.addChild(detailBox);
 
+    // Execution log panel (separate from detail panel to avoid log loss on CRUD operations)
+    const logBox = new Box();
+    logBox.addChild(new Text("Execution Log:", 1, 0));
+    logBox.addChild(this.logPanel);
+
     this.container.addChild(toolbar);
     this.container.addChild(splitContainer);
+    this.container.addChild(logBox);
   }
 
   /**
    * Setup message subscriptions for real-time workflow execution updates
-   * Subscribes to TUIOutputHandler and dispatches by message category
+   * Subscribes to MessageBus with WORKFLOW_EXECUTION category filter
    */
   private setupMessageSubscriptions() {
-    if (!this.tuiOutputHandler) return;
-
-    this.unsubscribeTUI = this.tuiOutputHandler.subscribe((message: BaseComponentMessage) => {
-      if (message.category !== MessageCategory.WORKFLOW_EXECUTION) return;
-
-      const nodeTypes: string[] = [
-        WorkflowExecutionMessageType.NODE_START,
-        WorkflowExecutionMessageType.NODE_END,
-        WorkflowExecutionMessageType.NODE_ERROR,
-        WorkflowExecutionMessageType.NODE_SKIP,
-      ];
-
-      if (nodeTypes.includes(message.type as WorkflowExecutionMessageType)) {
-        this.handleNodeMessage(message);
-      } else if (
-        message.type === WorkflowExecutionMessageType.EXECUTION_START ||
-        message.type === WorkflowExecutionMessageType.EXECUTION_END
-      ) {
-        this.handleWorkflowMessage(message);
-      }
-    });
+    this.messageSubscription = this.messageBus.subscribe(
+      { categories: [MessageCategory.WORKFLOW_EXECUTION] },
+      this.messageHandler,
+    );
   }
 
   /**
@@ -97,24 +104,18 @@ export class WorkflowScreen implements Screen {
    */
   private handleNodeMessage(message: BaseComponentMessage) {
     const data = message.data as WorkflowExecutionNodeData;
-    
+
     switch (message.type) {
       case WorkflowExecutionMessageType.NODE_START:
         this.appendLog(`Node started: ${data.nodeId} (${data.nodeType})`, "system");
         break;
 
       case WorkflowExecutionMessageType.NODE_END:
-        this.appendLog(
-          `Node completed: ${data.nodeId} (${data.duration}ms)`,
-          "system"
-        );
+        this.appendLog(`Node completed: ${data.nodeId} (${data.duration}ms)`, "system");
         break;
 
       case WorkflowExecutionMessageType.NODE_ERROR:
-        this.appendLog(
-          `Node error: ${data.nodeId} - ${data.error}`,
-          "error"
-        );
+        this.appendLog(`Node error: ${data.nodeId} - ${data.error}`, "error");
         break;
 
       case WorkflowExecutionMessageType.NODE_SKIP:
@@ -141,8 +142,8 @@ export class WorkflowScreen implements Screen {
     const timestamp = new Date().toLocaleTimeString();
     const icon = type === "error" ? "❌" : "ℹ️";
     const logEntry = `[${timestamp}] ${icon} ${message}`;
-    
-    this.detailPanel.addChild(new Text(logEntry, 1, 0));
+
+    this.logPanel.addChild(new Text(logEntry, 1, 0));
   }
 
   private async loadWorkflows() {
@@ -153,17 +154,21 @@ export class WorkflowScreen implements Screen {
         label: w.name,
         description: `${w.version || "v1.0"} | ${w.status}`,
       }));
-      
+
       this.workflowList.setItems(items);
-      
+
       // Set up selection handler
-      this.workflowList.onSelect = async (item) => {
+      this.workflowList.onSelect = async item => {
         await this.showWorkflowDetail(item.value);
       };
     } catch (error) {
-      this.logger.error("Failed to load workflows", {}, { 
-        error: error instanceof Error ? error.message : String(error) 
-      });
+      this.logger.error(
+        "Failed to load workflows",
+        {},
+        {
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
     }
   }
 
@@ -171,10 +176,10 @@ export class WorkflowScreen implements Screen {
     try {
       this.currentWorkflowId = id;
       const workflow = await this.adapter.getWorkflow(id);
-      
+
       // Clear and update detail panel
       this.detailPanel.clear();
-      
+
       // Format workflow details as plain text (no Markdown)
       const details = [
         `ID: ${workflow.id}`,
@@ -188,15 +193,18 @@ export class WorkflowScreen implements Screen {
         `Created: ${workflow.createdAt || "N/A"}`,
         `Updated: ${workflow.updatedAt || "N/A"}`,
       ];
-      
+
       details.forEach(line => {
         this.detailPanel.addChild(new Text(line, 1, 0));
       });
-      
     } catch (error) {
       this.detailPanel.clear();
       this.detailPanel.addChild(
-        new Text(`Error loading workflow: ${error instanceof Error ? error.message : String(error)}`, 1, 0)
+        new Text(
+          `Error loading workflow: ${error instanceof Error ? error.message : String(error)}`,
+          1,
+          0,
+        ),
       );
     }
   }
@@ -211,34 +219,34 @@ export class WorkflowScreen implements Screen {
       this.onBack?.();
       return true;
     }
-    
+
     if (data === "r" || data === "R") {
       this.loadWorkflows();
       return true;
     }
-    
+
     if (data === "n" || data === "N") {
       // TODO: Implement new workflow dialog
       this.logger.info("New workflow - to be implemented");
       return true;
     }
-    
-    if (data === "d" || data === "D" && this.currentWorkflowId) {
+
+    if (data === "d" || (data === "D" && this.currentWorkflowId)) {
       // TODO: Implement delete with confirmation
       this.logger.info("Delete workflow - to be implemented");
       return true;
     }
-    
+
     // Delegate to workflow list
     if (this.workflowList.handleInput) {
       this.workflowList.handleInput(data);
       return true;
     }
-    
+
     return false;
   }
 
   destroy(): void {
-    this.unsubscribeTUI?.();
+    this.messageSubscription?.unsubscribe();
   }
 }

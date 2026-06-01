@@ -2,11 +2,14 @@
  * Functional File Handler
  * 
  * Handles functional file IO operations (program-to-program data exchange).
- * Specifically handles Human Relay requests by writing prompts to files.
+ * Primarily processes Human Relay request messages by writing prompts to files.
+ *
+ * Note: For TUI mode, the TUIHumanRelayHandler is the sole writer of
+ * human-relay-output.txt. This handler exists to support non-TUI modes.
  */
 
 import type { OutputHandler, BaseComponentMessage } from "@wf-agent/types";
-import { OutputTarget } from "@wf-agent/types";
+import { OutputTarget, AgentMessageType } from "@wf-agent/types";
 import type { HumanRelayService } from "../../services/io/index.js";
 
 /**
@@ -26,7 +29,7 @@ export class FunctionalFileHandler implements OutputHandler {
    * Only handles Human Relay request messages
    */
   supports(message: BaseComponentMessage): boolean {
-    return message.type === "agent.human_relay.request";
+    return message.type === AgentMessageType.HUMAN_RELAY_REQUEST;
   }
 
   /**
@@ -34,7 +37,7 @@ export class FunctionalFileHandler implements OutputHandler {
    * Writes Human Relay prompt to human-relay-output.txt
    */
   async handle(message: BaseComponentMessage): Promise<void> {
-    if (message.type === "agent.human_relay.request") {
+    if (message.type === AgentMessageType.HUMAN_RELAY_REQUEST) {
       const data = message.data as { prompt: string };
       const { prompt } = data;
 
@@ -46,9 +49,6 @@ export class FunctionalFileHandler implements OutputHandler {
         sessionId,
         content: prompt,
       });
-
-      // Note: File watching is handled separately by TUIHumanRelayHandler
-      // This handler only writes the output file
     }
   }
 

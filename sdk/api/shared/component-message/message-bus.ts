@@ -377,6 +377,13 @@ export class MessageBus {
         return handler;
       }
     }
+
+    logger.warn("No handler found for target", {
+      target,
+      messageType: message.type,
+      messageCategory: message.category,
+      availableHandlers: Array.from(this.handlers.keys()),
+    });
     return undefined;
   }
 

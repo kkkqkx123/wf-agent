@@ -70,7 +70,14 @@ interface AuditLogEntry {
   contextId: string;
   toolCallId: string;
   toolName: string;
-  decision: "AUTO_APPROVED" | "AUTO_DENIED" | "MANUALLY_APPROVED" | "MANUALLY_REJECTED" | "TIMEOUT_AUTO_RESPONSE" | "ERROR" | "USAGE_LIMIT_EXCEEDED";
+  decision:
+    | "AUTO_APPROVED"
+    | "AUTO_DENIED"
+    | "MANUALLY_APPROVED"
+    | "MANUALLY_REJECTED"
+    | "TIMEOUT_AUTO_RESPONSE"
+    | "ERROR"
+    | "USAGE_LIMIT_EXCEEDED";
   riskLevel?: string;
   reason?: string;
   editedParameters?: Record<string, unknown>;
@@ -106,7 +113,7 @@ export interface ExtendedToolApprovalCoordinatorParams extends ToolApprovalCoord
 export class ToolApprovalCoordinator {
   /** State map for tracking approval limits per context */
   private approvalStates: Map<string, ApprovalState> = new Map();
-  
+
   /** Cleanup interval for stale states (5 minutes) */
   private readonly STATE_CLEANUP_INTERVAL = 5 * 60 * 1000;
 
@@ -146,25 +153,25 @@ export class ToolApprovalCoordinator {
     // 0. Check usage limits BEFORE auto-approval
     const state = this.getOrCreateState(contextId);
     const usageLimitCheck = this.checkUsageLimits(state, options || {});
-    
+
     if (!usageLimitCheck.allowed) {
       logger.info("Usage limit exceeded, requiring manual approval", {
         contextId,
         reason: usageLimitCheck.reason,
         consecutiveCount: state.consecutiveAutoApprovedCount,
       });
-      
+
       // Reset counters after requiring manual approval
       this.resetState(contextId);
-      
+
       // Proceed to manual approval
       const manualResult = await this.requestUserApproval(params);
-      
+
       // If user approves manually, reset the counter
       if (manualResult.approved) {
         this.resetState(contextId);
       }
-      
+
       return manualResult;
     }
 
@@ -182,8 +189,10 @@ export class ToolApprovalCoordinator {
       }
 
       // Use provided riskLevel or extract from tool
-      const effectiveRiskLevel = (riskLevel || tool?.metadata?.riskLevel) as ToolRiskLevel | undefined;
-      
+      const effectiveRiskLevel = (riskLevel || tool?.metadata?.riskLevel) as
+        | ToolRiskLevel
+        | undefined;
+
       if (!effectiveRiskLevel && !tool) {
         logger.error("Cannot determine risk level - both tool and riskLevel are missing", {
           toolCallId: toolCall.id,
@@ -195,34 +204,36 @@ export class ToolApprovalCoordinator {
           rejectionReason: "Cannot determine tool risk level for approval check",
         };
       }
-      
-      const effectiveTool = tool 
+
+      const effectiveTool = tool
         ? { ...tool, metadata: { ...tool.metadata, riskLevel: effectiveRiskLevel } }
         : undefined;
 
       const context = extractContextFromParameters(tool?.id || "unknown", parameters);
       const decision = checkAutoApproval({
         options: options || {},
-        tool: effectiveTool || { 
-          id: "unknown", 
-          type: "STATELESS" as const, 
-          description: "Unknown tool", 
-          parameters: { type: "object" as const, properties: {} }, 
-          metadata: { riskLevel: effectiveRiskLevel || "WRITE" } 
-        } as Tool,
+        tool:
+          effectiveTool ||
+          ({
+            id: "unknown",
+            type: "STATELESS" as const,
+            description: "Unknown tool",
+            parameters: { type: "object" as const, properties: {} },
+            metadata: { riskLevel: effectiveRiskLevel || "WRITE" },
+          } as Tool),
         context,
       });
 
       if (decision.decision === "approve") {
-        logger.debug("Tool auto-approved", { 
+        logger.debug("Tool auto-approved", {
           toolId: tool?.id || "unknown",
           riskLevel: effectiveRiskLevel,
           consecutiveCount: state.consecutiveAutoApprovedCount + 1,
         });
-        
+
         // Update state for auto-approved request
         this.updateStateAfterApproval(contextId);
-        
+
         // Log audit trail
         this.logAuditTrail({
           contextId,
@@ -232,17 +243,17 @@ export class ToolApprovalCoordinator {
           riskLevel: effectiveRiskLevel,
           reason: "Passed auto-approval checks",
         });
-        
+
         return { approved: true, toolCallId: toolCall.id };
       }
 
       if (decision.decision === "deny") {
-        logger.info("Tool auto-denied by policy", { 
-          toolId: tool?.id || "unknown", 
+        logger.info("Tool auto-denied by policy", {
+          toolId: tool?.id || "unknown",
           riskLevel: effectiveRiskLevel,
           reason: decision.reason,
         });
-        
+
         // Log audit trail
         this.logAuditTrail({
           contextId,
@@ -252,7 +263,7 @@ export class ToolApprovalCoordinator {
           riskLevel: effectiveRiskLevel,
           reason: decision.reason,
         });
-        
+
         return {
           approved: false,
           toolCallId: toolCall.id,
@@ -261,14 +272,14 @@ export class ToolApprovalCoordinator {
       }
 
       if (decision.decision === "timeout") {
-        logger.debug("Tool approval timeout with auto-response", { 
+        logger.debug("Tool approval timeout with auto-response", {
           toolId: tool?.id || "unknown",
           timeoutMs: decision.timeout,
         });
-        
+
         // Update state for timeout auto-response
         this.updateStateAfterApproval(contextId);
-        
+
         // Log audit trail
         this.logAuditTrail({
           contextId,
@@ -278,7 +289,7 @@ export class ToolApprovalCoordinator {
           riskLevel: effectiveRiskLevel,
           reason: `Timeout (${decision.timeout}ms) with auto-response`,
         });
-        
+
         return {
           approved: true,
           toolCallId: toolCall.id,
@@ -289,26 +300,33 @@ export class ToolApprovalCoordinator {
       // Enhanced error handling with actionable messages
       const errorMessage = error instanceof Error ? error.message : String(error);
       const errorStack = error instanceof Error ? error.stack : undefined;
-      
-      logger.error("Auto-approval check failed with exception", { 
+
+      logger.error("Auto-approval check failed with exception", {
         error: errorMessage,
         stack: errorStack,
         toolId: tool?.id,
         toolName: toolCall.function?.name,
         contextId,
       });
-      
+
       // Provide actionable error message to user
       const userMessage = "Auto-approval system encountered an error. ";
-      
+
       if (errorMessage.includes("Invalid or missing")) {
-        logger.warn(userMessage + "Tool parameters are invalid. Please review the tool call and try again.");
+        logger.warn(
+          userMessage + "Tool parameters are invalid. Please review the tool call and try again.",
+        );
       } else if (errorMessage.includes("path") || errorMessage.includes("command")) {
-        logger.warn(userMessage + "Required parameter is missing or invalid. Check the tool configuration.");
+        logger.warn(
+          userMessage + "Required parameter is missing or invalid. Check the tool configuration.",
+        );
       } else {
-        logger.warn(userMessage + "Manual approval required due to system error. Please review this tool call carefully.");
+        logger.warn(
+          userMessage +
+            "Manual approval required due to system error. Please review this tool call carefully.",
+        );
       }
-      
+
       // Log audit trail for error case
       this.logAuditTrail({
         contextId,
@@ -318,7 +336,7 @@ export class ToolApprovalCoordinator {
         reason: `System error: ${errorMessage}`,
         requiresManualReview: true,
       });
-      
+
       // Fall back to manual approval with clear explanation
       return this.requestUserApproval({
         ...params,
@@ -328,7 +346,7 @@ export class ToolApprovalCoordinator {
 
     // 2. Request user approval
     const manualResult = await this.requestUserApproval(params);
-    
+
     // Log audit trail for manual approval
     this.logAuditTrail({
       contextId,
@@ -340,7 +358,7 @@ export class ToolApprovalCoordinator {
       editedParameters: manualResult.editedParameters,
       userInstruction: manualResult.userInstruction,
     });
-    
+
     return manualResult;
   }
 
@@ -378,8 +396,11 @@ export class ToolApprovalCoordinator {
     });
 
     // Step 1: Split into auto-execute prefix and first confirmation tool
-    const { autoPrefix, firstConfirmTool, remainingAfterConfirm } =
-      this.splitToolBatch(toolCalls, options, contextId);
+    const { autoPrefix, firstConfirmTool, remainingAfterConfirm } = this.splitToolBatch(
+      toolCalls,
+      options,
+      contextId,
+    );
 
     logger.debug("Tool batch split", {
       batchId,
@@ -483,8 +504,7 @@ export class ToolApprovalCoordinator {
       });
 
       // Determine remaining queue based on approval decision
-      const finalRemaining =
-        approvalResult.continueBatch !== false ? remainingAfterConfirm : [];
+      const finalRemaining = approvalResult.continueBatch !== false ? remainingAfterConfirm : [];
 
       return {
         batchId,
@@ -492,8 +512,7 @@ export class ToolApprovalCoordinator {
         confirmationRequired: firstConfirmTool,
         confirmationResult: approvalResult,
         remainingQueue: finalRemaining,
-        allCompleted:
-          !approvalResult.continueBatch || remainingAfterConfirm.length === 0,
+        allCompleted: !approvalResult.continueBatch || remainingAfterConfirm.length === 0,
       };
     }
 
@@ -555,7 +574,6 @@ export class ToolApprovalCoordinator {
     }
   }
 
-
   /**
    * Trigger approval requested event
    */
@@ -608,10 +626,10 @@ export class ToolApprovalCoordinator {
     let firstConfirmIndex = -1;
 
     for (let i = 0; i < toolCalls.length; i++) {
-      const call = toolCalls[i]!;
-      const tool = this.getToolByName(call.function?.name || "");
+    const call = toolCalls[i]!;
+    const tool = undefined;
 
-      if (this.requiresConfirmation(tool, options, contextId)) {
+    if (this.requiresConfirmation(tool, options, contextId)) {
         if (!firstConfirmTool) {
           firstConfirmTool = call;
           firstConfirmIndex = i;
@@ -687,7 +705,7 @@ export class ToolApprovalCoordinator {
     // Create approval request with batch context and configuration
     const request: ToolApprovalRequest = {
       toolCall,
-      toolDescription: this.getToolDescription(toolCall),
+      toolDescription: undefined,
       contextId,
       nodeId,
       interactionId,
@@ -736,7 +754,7 @@ export class ToolApprovalCoordinator {
 
     // Add remaining auto-executable tools first
     queue.push(
-      ...remainingAuto.map((call) => ({
+      ...remainingAuto.map(call => ({
         id: call.id,
         name: call.function?.name || "unknown",
         arguments: call.function?.arguments,
@@ -754,7 +772,7 @@ export class ToolApprovalCoordinator {
 
     // Add remaining tools after confirmation
     queue.push(
-      ...remainingAfterConfirm.map((call) => ({
+      ...remainingAfterConfirm.map(call => ({
         id: call.id,
         name: call.function?.name || "unknown",
         arguments: call.function?.arguments,
@@ -783,28 +801,12 @@ export class ToolApprovalCoordinator {
   /**
    * Get tool description
    */
-  private getToolDescription(toolCall: LLMToolCall): string | undefined {
-    const tool = this.getToolByName(toolCall.function?.name || "");
-    return tool?.description;
-  }
 
-  /**
-   * Get tool by name from registry (placeholder)
-   * TODO: Inject tool service or registry
-   */
-  private getToolByName(_name: string): Tool | undefined {
-    // TODO: Implement tool lookup
-    // For now, return undefined - tool info comes from params
-    return undefined;
-  }
 
   /**
    * Safe event emission with error handling
    */
-  private async safeEmit(
-    eventManager: EventRegistry,
-    event: BaseEvent,
-  ): Promise<void> {
+  private async safeEmit(eventManager: EventRegistry, event: BaseEvent): Promise<void> {
     try {
       await eventManager.emit(event);
     } catch (error) {
@@ -824,7 +826,7 @@ export class ToolApprovalCoordinator {
    */
   private getOrCreateState(contextId: string): ApprovalState {
     let state = this.approvalStates.get(contextId);
-  
+
     if (!state) {
       state = {
         consecutiveAutoApprovedCount: 0,
@@ -838,10 +840,10 @@ export class ToolApprovalCoordinator {
       // Update activity timestamp
       state.lastActivityAt = Date.now();
     }
-  
+
     // Periodic cleanup of stale states
     this.cleanupStaleStates();
-  
+
     return state;
   }
 
@@ -895,7 +897,7 @@ export class ToolApprovalCoordinator {
       state.consecutiveAutoApprovedCount += 1;
       state.lastActivityAt = Date.now();
       state.lastApprovalTime = Date.now();
-  
+
       logger.debug("Updated approval state", {
         contextId,
         consecutiveCount: state.consecutiveAutoApprovedCount,
@@ -913,7 +915,7 @@ export class ToolApprovalCoordinator {
       state.lastResetIndex += 1;
       state.lastActivityAt = Date.now();
       state.totalAutoApprovedCost = 0;
-  
+
       logger.debug("Reset approval state", {
         contextId,
         resetIndex: state.lastResetIndex,
@@ -926,7 +928,7 @@ export class ToolApprovalCoordinator {
    */
   private cleanupStaleStates(): void {
     const now = Date.now();
-    
+
     for (const [contextId, state] of this.approvalStates.entries()) {
       if (now - state.lastActivityAt > this.STATE_CLEANUP_INTERVAL) {
         this.approvalStates.delete(contextId);
@@ -955,7 +957,7 @@ export class ToolApprovalCoordinator {
 
   /**
    * Log approval decision to audit trail
-   * 
+   *
    * This provides a complete history of all approval decisions for:
    * - Security review and compliance
    * - Debugging approval issues
@@ -979,6 +981,5 @@ export class ToolApprovalCoordinator {
       reason: auditEntry.reason,
       requiresManualReview: auditEntry.requiresManualReview,
     });
-
   }
 }

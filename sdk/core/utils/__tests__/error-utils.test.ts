@@ -8,12 +8,19 @@ import { logError, emitErrorEvent, handleError } from "../error-utils.js";
 import { SDKError } from "@wf-agent/types";
 import type { EventRegistry } from "../../registry/event-registry.js";
 
-// Create mock logger reference (captured in closure for vi.mock)
-const mockLogger = {
-  error: vi.fn(),
-  warn: vi.fn(),
-  info: vi.fn(),
-};
+// Create mock references using vi.hoisted to ensure they are initialized before vi.mock hoisting
+const { mockLogger, mockEmit, mockBuildErrorEvent } = vi.hoisted(() => ({
+  mockLogger: {
+    error: vi.fn(),
+    warn: vi.fn(),
+    info: vi.fn(),
+  },
+  mockEmit: vi.fn(),
+  mockBuildErrorEvent: vi.fn((params: Record<string, unknown>) => ({
+    type: "ERROR",
+    ...params,
+  })),
+}));
 
 // Mock logger - sdkLogger is the actual export from logger.ts
 vi.mock("../../../utils/logger", () => ({
@@ -22,18 +29,12 @@ vi.mock("../../../utils/logger", () => ({
 
 // Mock event builders
 vi.mock("../event/builders/index.js", () => ({
-  buildErrorEvent: vi.fn(params => ({
-    type: "ERROR",
-    ...params,
-  })),
+  buildErrorEvent: mockBuildErrorEvent,
 }));
 
-// Create mock event emitter reference (captured in closure for vi.mock)
-const mockSafeEmit = vi.fn();
-
-// Mock event emitter
+// Mock event emitter — must export 'emit' to match what error-utils.ts imports
 vi.mock("../event/event-emitter.js", () => ({
-  safeEmit: mockSafeEmit,
+  emit: mockEmit,
 }));
 
 describe("Error Utils", () => {
@@ -140,7 +141,7 @@ describe("Error Utils", () => {
   });
 
   describe("emitErrorEvent", () => {
-    it("The `safeEmit` should be used to trigger error events.", async () => {
+    it("The `emit` should be used to trigger error events.", async () => {
       await emitErrorEvent(mockEventManager, {
         executionId: "test-workflow-execution",
         workflowId: "test-workflow",
@@ -148,7 +149,7 @@ describe("Error Utils", () => {
         error: mockSDKError,
       });
 
-      expect(mockSafeEmit).toHaveBeenCalledWith(
+      expect(mockEmit).toHaveBeenCalledWith(
         mockEventManager,
         expect.objectContaining({
           type: "ERROR",
@@ -167,7 +168,7 @@ describe("Error Utils", () => {
         error: mockSDKError,
       });
 
-      expect(mockSafeEmit).toHaveBeenCalledWith(
+      expect(mockEmit).toHaveBeenCalledWith(
         mockEventManager,
         expect.objectContaining({
           type: "ERROR",
@@ -185,7 +186,9 @@ describe("Error Utils", () => {
         error: mockSDKError,
       });
 
-      expect(mockSafeEmit).toHaveBeenCalledWith(undefined, expect.any(Object));
+      // When eventManager is undefined, emitErrorEvent logs a warning and returns early
+      expect(mockEmit).not.toHaveBeenCalled();
+      expect(mockLogger.warn).toHaveBeenCalled();
     });
   });
 
@@ -208,7 +211,7 @@ describe("Error Utils", () => {
       );
 
       // Verify event triggering
-      expect(mockSafeEmit).toHaveBeenCalledWith(
+      expect(mockEmit).toHaveBeenCalledWith(
         mockEventManager,
         expect.objectContaining({
           type: "ERROR",
@@ -248,7 +251,7 @@ describe("Error Utils", () => {
       });
 
       expect(mockLogger.error).toHaveBeenCalled();
-      expect(mockSafeEmit).toHaveBeenCalled();
+      expect(mockEmit).toHaveBeenCalled();
     });
 
     it("It should be able to handle the undefined eventManager.", async () => {
@@ -258,7 +261,8 @@ describe("Error Utils", () => {
       });
 
       expect(mockLogger.error).toHaveBeenCalled();
-      expect(mockSafeEmit).toHaveBeenCalledWith(undefined, expect.any(Object));
+      // handleError -> emitErrorEvent returns early when eventManager is undefined
+      expect(mockEmit).not.toHaveBeenCalled();
     });
   });
 

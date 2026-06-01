@@ -209,7 +209,7 @@ export class TimeoutMetricsCollector extends BaseMetricCollector {
         
         const prometheusMetric = {
           name: aggregated.metricName.replace(/\./g, '_'),
-          type: 'gauge' as const,
+          type: aggregated.metricType,
           help: `Timeout metric: ${aggregated.metricName}`,
           samples,
         };

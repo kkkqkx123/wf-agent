@@ -51,7 +51,7 @@ export class NodeMetricsCollector extends BaseMetricCollector {
       return;
     }
 
-    this.incrementCounter('node.execution.started.count', {
+    this.incrementCounter(NODE_METRICS.STARTED_COUNT, {
       node_type: nodeType,
       node_id: nodeId,
       workflow_id: workflowId,

@@ -119,7 +119,6 @@ export class AgentMetricsCollector extends BaseMetricCollector {
   getAgentStats(profileId?: string): {
     totalExecutions: number;
     avgIterations: number;
-    avgToolCalls: number;
     byProfile: Record<string, number>;
   } {
     const filter = profileId ? {
@@ -140,7 +139,8 @@ export class AgentMetricsCollector extends BaseMetricCollector {
       ...filter,
     });
 
-    const totalExecutions = countResult.totalCount;
+    const countMetric = countResult.metrics.get('agent.loop.execution.count');
+    const totalExecutions = countMetric ? countMetric.value : 0;
 
     // Calculate average iterations
     let avgIterations = 0;
@@ -152,7 +152,6 @@ export class AgentMetricsCollector extends BaseMetricCollector {
 
     // Group by profile
     const byProfile: Record<string, number> = {};
-    const countMetric = countResult.metrics.get('agent.loop.execution.count');
     if (countMetric) {
       for (const [labelKey, labelAgg] of countMetric.byLabel.entries()) {
         try {
@@ -169,7 +168,6 @@ export class AgentMetricsCollector extends BaseMetricCollector {
     return {
       totalExecutions,
       avgIterations,
-      avgToolCalls: 0, // Would need additional tracking
       byProfile,
     };
   }

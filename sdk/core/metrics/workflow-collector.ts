@@ -17,6 +17,8 @@ import { createContextualLogger } from "../../utils/contextual-logger.js";
 const logger = createContextualLogger({ component: "WorkflowMetricsCollector" });
 
 export class WorkflowMetricsCollector extends BaseMetricCollector {
+  private activeCount: number = 0;
+
   constructor(config?: MetricCollectorConfig) {
     super(config);
   }
@@ -42,7 +44,8 @@ export class WorkflowMetricsCollector extends BaseMetricCollector {
     });
 
     // Track active executions
-    this.incrementCounter(WORKFLOW_METRICS.ACTIVE_COUNT, {
+    this.activeCount += 1;
+    this.setGauge(WORKFLOW_METRICS.ACTIVE_COUNT, this.activeCount, {
       workflow_id: workflowId,
     });
 
@@ -64,9 +67,10 @@ export class WorkflowMetricsCollector extends BaseMetricCollector {
     }
 
     // Decrement active executions
-    this.incrementCounter(WORKFLOW_METRICS.ACTIVE_COUNT, {
+    this.activeCount = Math.max(0, this.activeCount - 1);
+    this.setGauge(WORKFLOW_METRICS.ACTIVE_COUNT, this.activeCount, {
       workflow_id: workflowId,
-    }, -1);
+    });
 
     // Record duration histogram
     this.observeHistogram(WORKFLOW_METRICS.EXECUTION_DURATION, result.duration, {

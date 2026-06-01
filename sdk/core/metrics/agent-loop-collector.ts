@@ -1,6 +1,6 @@
 /**
  * Agent Loop Execution Metrics Collector
- * 
+ *
  * Collects and aggregates metrics specific to Agent Loop executions including:
  * - Execution duration and lifecycle
  * - Iteration counts and distributions
@@ -19,6 +19,8 @@ import { PrometheusFormatter, type PrometheusMetric } from "./utils/prometheus-f
  * Extends BaseMetricCollector with agent loop-specific convenience methods
  */
 export class AgentLoopMetricsCollector extends BaseMetricCollector {
+  private activeCount: number = 0;
+
   constructor(config?: MetricCollectorConfig) {
     super(config);
   }
@@ -35,10 +37,10 @@ export class AgentLoopMetricsCollector extends BaseMetricCollector {
       status: "started",
     });
 
-    // Track active agent loops
-    this.incrementCounter(AGENT_LOOP_METRICS.ACTIVE_COUNT, {
+    this.activeCount += 1;
+    this.setGauge(AGENT_LOOP_METRICS.ACTIVE_COUNT, this.activeCount, {
       agent_loop_id: agentLoopId,
-    }, 1);
+    });
   }
 
   /**
@@ -77,22 +79,22 @@ export class AgentLoopMetricsCollector extends BaseMetricCollector {
       execution_id: executionId,
     });
 
-    // Record success/failure
-    this.incrementCounter(AGENT_LOOP_METRICS.ERROR_COUNT, {
-      agent_loop_id: agentLoopId,
-      execution_id: executionId,
-      error_type: success ? "none" : "execution_failed",
-    }, success ? 0 : 1);
+    // Record success/failure as separate counters
+    if (success) {
+      this.incrementCounter(`${AGENT_LOOP_METRICS.SUCCESS_RATE}.success`, {
+        agent_loop_id: agentLoopId,
+      });
+    } else {
+      this.incrementCounter(`${AGENT_LOOP_METRICS.SUCCESS_RATE}.failure`, {
+        agent_loop_id: agentLoopId,
+      });
+    }
 
-    // Record success rate (gauge: 1 for success, 0 for failure)
-    this.setGauge(AGENT_LOOP_METRICS.SUCCESS_RATE, success ? 1 : 0, {
+    // Decrement active count using gauge
+    this.activeCount = Math.max(0, this.activeCount - 1);
+    this.setGauge(AGENT_LOOP_METRICS.ACTIVE_COUNT, this.activeCount, {
       agent_loop_id: agentLoopId,
     });
-
-    // Decrement active count
-    this.incrementCounter(AGENT_LOOP_METRICS.ACTIVE_COUNT, {
-      agent_loop_id: agentLoopId,
-    }, -1);
   }
 
   /**
@@ -177,11 +179,7 @@ export class AgentLoopMetricsCollector extends BaseMetricCollector {
    * @param errorType Error type/category
    * @param iteration Optional iteration where error occurred
    */
-  recordError(
-    agentLoopId: string,
-    errorType: string,
-    iteration?: number,
-  ): void {
+  recordError(agentLoopId: string, errorType: string, iteration?: number): void {
     this.incrementCounter(AGENT_LOOP_METRICS.ERROR_COUNT, {
       agent_loop_id: agentLoopId,
       error_type: errorType,
@@ -209,37 +207,35 @@ export class AgentLoopMetricsCollector extends BaseMetricCollector {
    * @returns Number of active agent loops
    */
   getActiveAgentLoops(): number {
-    const result = this.query({
-      metricName: AGENT_LOOP_METRICS.ACTIVE_COUNT,
-    });
-
-    const aggregated = result.metrics.get(AGENT_LOOP_METRICS.ACTIVE_COUNT);
-    return aggregated ? Math.round(aggregated.value) : 0;
+    return this.activeCount;
   }
 
   /**
    * Get average iterations per agent loop
+   * Uses histogram data when available, falls back to gauge/counter ratio
    * @returns Average iteration count
    */
   getAverageIterations(): number {
-    const result = this.query({
-      metricName: AGENT_LOOP_METRICS.ITERATION_COUNT,
-    });
-
-    const aggregated = result.metrics.get(AGENT_LOOP_METRICS.ITERATION_COUNT);
-    if (!aggregated || aggregated.value === 0) {
-      return 0;
-    }
-
     const executionCount = this.query({
       metricName: AGENT_LOOP_METRICS.EXECUTION_COUNT,
       labels: { status: "started" },
     });
 
     const countAgg = executionCount.metrics.get(AGENT_LOOP_METRICS.EXECUTION_COUNT);
-    const executions = countAgg ? countAgg.value : 1;
+    const executions = countAgg ? countAgg.value : 0;
 
-    return aggregated.value / executions;
+    if (executions === 0) {
+      return 0;
+    }
+
+    const iterationGauge = this.query({
+      metricName: AGENT_LOOP_METRICS.ITERATION_COUNT,
+    });
+
+    const iterAgg = iterationGauge.metrics.get(AGENT_LOOP_METRICS.ITERATION_COUNT);
+    const totalIterations = iterAgg ? iterAgg.value : 0;
+
+    return totalIterations / executions;
   }
 
   /**
@@ -248,21 +244,19 @@ export class AgentLoopMetricsCollector extends BaseMetricCollector {
   toPrometheus(): string[] {
     const result = this.query({});
     const metrics: PrometheusMetric[] = [];
-    
+
     // Extract totals
     let totalExecutions = 0;
-    let activeCount = 0;
     let totalErrors = 0;
     let totalPauses = 0;
     let totalResumes = 0;
-    
+    let successCount = 0;
+    let failureCount = 0;
+
     for (const [metricName, aggregated] of result.metrics.entries()) {
       switch (metricName) {
         case AGENT_LOOP_METRICS.EXECUTION_COUNT:
           totalExecutions += aggregated.value;
-          break;
-        case AGENT_LOOP_METRICS.ACTIVE_COUNT:
-          activeCount = Math.round(aggregated.value);
           break;
         case AGENT_LOOP_METRICS.ERROR_COUNT:
           totalErrors += aggregated.value;
@@ -273,67 +267,91 @@ export class AgentLoopMetricsCollector extends BaseMetricCollector {
         case AGENT_LOOP_METRICS.RESUME_COUNT:
           totalResumes += aggregated.value;
           break;
+        default:
+          if (metricName === `${AGENT_LOOP_METRICS.SUCCESS_RATE}.success`) {
+            successCount += aggregated.value;
+          } else if (metricName === `${AGENT_LOOP_METRICS.SUCCESS_RATE}.failure`) {
+            failureCount += aggregated.value;
+          }
+          break;
       }
     }
-    
+
     // Total executions
     metrics.push({
-      name: 'agent_loop_execution_total',
-      type: 'counter',
-      help: 'Total agent loop executions',
-      samples: [{ value: totalExecutions }]
+      name: "agent_loop_execution_total",
+      type: "counter",
+      help: "Total agent loop executions",
+      samples: [{ value: totalExecutions }],
     });
-    
+
     // Active count
     metrics.push({
-      name: 'agent_loop_active_count',
-      type: 'gauge',
-      help: 'Active agent loops',
-      samples: [{ value: activeCount }]
+      name: "agent_loop_active_count",
+      type: "gauge",
+      help: "Active agent loops",
+      samples: [{ value: this.activeCount }],
     });
-    
+
+    // Success/failure counts
+    metrics.push({
+      name: "agent_loop_success_total",
+      type: "counter",
+      help: "Successful agent loop executions",
+      samples: [{ value: successCount }],
+    });
+
+    if (failureCount > 0) {
+      metrics.push({
+        name: "agent_loop_failure_total",
+        type: "counter",
+        help: "Failed agent loop executions",
+        samples: [{ value: failureCount }],
+      });
+    }
+
     // Errors
     if (totalErrors > 0) {
       metrics.push({
-        name: 'agent_loop_error_total',
-        type: 'counter',
-        help: 'Total agent loop errors',
-        samples: [{ value: totalErrors }]
+        name: "agent_loop_error_total",
+        type: "counter",
+        help: "Total agent loop errors",
+        samples: [{ value: totalErrors }],
       });
     }
-    
+
     // Pauses
     if (totalPauses > 0) {
       metrics.push({
-        name: 'agent_loop_pause_total',
-        type: 'counter',
-        help: 'Total agent loop pauses',
-        samples: [{ value: totalPauses }]
+        name: "agent_loop_pause_total",
+        type: "counter",
+        help: "Total agent loop pauses",
+        samples: [{ value: totalPauses }],
       });
     }
-    
+
     // Resumes
     if (totalResumes > 0) {
       metrics.push({
-        name: 'agent_loop_resume_total',
-        type: 'counter',
-        help: 'Total agent loop resumes',
-        samples: [{ value: totalResumes }]
+        name: "agent_loop_resume_total",
+        type: "counter",
+        help: "Total agent loop resumes",
+        samples: [{ value: totalResumes }],
       });
     }
-    
+
     // Format all metrics
     return metrics.flatMap(m => PrometheusFormatter.formatMetric(m));
   }
-  
+
   /**
    * Export as JSON
    */
   toJSON(): Record<string, unknown> {
     return {
-      type: 'agent_loop',
+      type: "agent_loop",
       activeAgentLoops: this.getActiveAgentLoops(),
-      averageIterations: this.getAverageIterations()
+      averageIterations: this.getAverageIterations(),
     };
   }
 }

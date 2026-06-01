@@ -164,7 +164,6 @@ export class MetricsResourceAPI {
   async getAgentMetrics(options?: AgentMetricsQuery): Promise<{
     totalExecutions: number;
     avgIterations: number;
-    avgToolCalls: number;
     byProfile: Record<string, number>;
   }> {
     const collector = this.metricsRegistry.getAgentCollector();

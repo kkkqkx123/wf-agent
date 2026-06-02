@@ -2,7 +2,7 @@
  * Summary of Tool Usage Guidelines
  */
 
-import type { SystemPromptFragment } from "@wf-agent/prompt-templates";
+import type { SystemPromptFragment } from "@wf-agent/types";
 
 /**
  * XML Format Tool Call Summary Fragment

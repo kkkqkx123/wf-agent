@@ -2,7 +2,7 @@
  * Tool Description for `ask_followup_question`
  */
 
-import type { ToolDescriptionData } from "@wf-agent/prompt-templates";
+import type { ToolDescriptionData } from "@wf-agent/types";
 
 export const ASK_FOLLOWUP_QUESTION_TOOL_DESCRIPTION: ToolDescriptionData = {
   id: "ask_followup_question",

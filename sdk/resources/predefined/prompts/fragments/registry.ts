@@ -6,7 +6,8 @@
  */
 
 // Reuse the FragmentRegistry class and types from the packages layer.
-import { FragmentRegistry, type SystemPromptFragment } from "@wf-agent/prompt-templates";
+import type { SystemPromptFragment } from "@wf-agent/types";
+import { FragmentRegistry } from "../../prompt-templates/fragment-registry.js";
 
 // Import all fragments
 import {

@@ -2,7 +2,7 @@
  * Tool Description for `write_file`
  */
 
-import type { ToolDescriptionData } from "@wf-agent/prompt-templates";
+import type { ToolDescriptionData } from "@wf-agent/types";
 
 export const WRITE_FILE_TOOL_DESCRIPTION: ToolDescriptionData = {
   id: "write_file",

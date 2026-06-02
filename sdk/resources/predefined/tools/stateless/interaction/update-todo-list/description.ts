@@ -2,7 +2,7 @@
  * Tool Description for `update_todo_list`
  */
 
-import type { ToolDescriptionData } from "@wf-agent/prompt-templates";
+import type { ToolDescriptionData } from "@wf-agent/types";
 
 export const UPDATE_TODO_LIST_TOOL_DESCRIPTION: ToolDescriptionData = {
   id: "update_todo_list",

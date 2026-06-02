@@ -2,7 +2,7 @@
  * Cancel Workflow Tool Description
  */
 
-import type { ToolDescriptionData } from "@wf-agent/prompt-templates";
+import type { ToolDescriptionData } from "@wf-agent/types";
 
 /**
  * Cancel workflow tool description

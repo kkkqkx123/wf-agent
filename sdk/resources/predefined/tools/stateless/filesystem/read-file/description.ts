@@ -2,7 +2,7 @@
  * Tool Description for `read_file`
  */
 
-import type { ToolDescriptionData } from "@wf-agent/prompt-templates";
+import type { ToolDescriptionData } from "@wf-agent/types";
 
 export const READ_FILE_TOOL_DESCRIPTION: ToolDescriptionData = {
   id: "read_file",

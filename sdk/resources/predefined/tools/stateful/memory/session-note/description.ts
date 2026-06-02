@@ -2,7 +2,7 @@
  * session-note Tool Description Definition
  */
 
-import type { ToolDescriptionData } from "@wf-agent/prompt-templates";
+import type { ToolDescriptionData } from "@wf-agent/types";
 
 export const RECORD_NOTE_TOOL_DESCRIPTION: ToolDescriptionData = {
   id: "record_note",

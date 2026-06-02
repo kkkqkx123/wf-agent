@@ -3,7 +3,7 @@
  * Used to define user instructions for code reviews
  */
 
-import type { PromptTemplate } from "@wf-agent/prompt-templates";
+import type { PromptTemplate } from "@wf-agent/types";
 
 /**
  * Code Review Instruction Template

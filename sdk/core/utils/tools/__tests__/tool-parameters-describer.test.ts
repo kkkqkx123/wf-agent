@@ -14,14 +14,14 @@ import {
 import type { Tool } from "@wf-agent/types";
 
 // Mock templates and tools
-vi.mock("@wf-agent/common-utils", () => ({
+vi.mock("../../../utils/template-renderer/index.js", () => ({
   renderTemplate: vi.fn((template: string, variables: Record<string, unknown>) => {
     // A simple template rendering implementation for testing purposes
     return template.replace(/\{\{(\w+)\}\}/g, (_, key) => String(variables[key] || ""));
   }),
 }));
 
-vi.mock("@wf-agent/prompt-templates", () => ({
+vi.mock("../../../resources/predefined/prompt-templates/tool-parameters-templates.js", () => ({
   TOOL_PARAMETERS_SCHEMA_TEMPLATE: {
     content:
       "Tool: {{toolName}} ({{toolId}})\nDescription: {{toolDescription}}\nSchema: {{parametersSchema}}\nParameters:\n{{parametersDescription}}",

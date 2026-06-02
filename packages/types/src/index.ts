@@ -65,3 +65,9 @@ export * from "./component-message/index.js";
 
 // Configuration Types
 export * from "./config/index.js";
+
+// Prompt Template Types
+export * from "./prompt-template.js";
+export * from "./tool-description.js";
+export * from "./fragment.js";
+export * from "./prompt-template-schema.js";

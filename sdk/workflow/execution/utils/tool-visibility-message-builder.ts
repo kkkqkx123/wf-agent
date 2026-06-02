@@ -9,8 +9,8 @@
  */
 
 import type { ToolRegistry } from "../../../core/registry/tool-registry.js";
-import { renderTemplate } from "@wf-agent/common-utils";
-import { TOOL_VISIBILITY_DECLARATION_TEMPLATE } from "@wf-agent/prompt-templates";
+import { renderTemplate } from "../../../core/utils/template-renderer/index.js";
+import { TOOL_VISIBILITY_DECLARATION_TEMPLATE } from "../../../resources/predefined/prompt-templates/tool-visibility-template.js";
 
 /**
  * Tool Visibility Message Builder

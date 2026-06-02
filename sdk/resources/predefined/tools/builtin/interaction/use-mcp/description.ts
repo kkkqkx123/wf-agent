@@ -2,7 +2,7 @@
  * Tool Description for `use_mcp`
  */
 
-import type { ToolDescriptionData } from "@wf-agent/prompt-templates";
+import type { ToolDescriptionData } from "@wf-agent/types";
 
 export const USE_MCP_TOOL_DESCRIPTION: ToolDescriptionData = {
   id: "use_mcp",

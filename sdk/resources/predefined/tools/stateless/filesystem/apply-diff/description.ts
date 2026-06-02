@@ -2,7 +2,7 @@
  * Tool Description for `apply_diff`
  */
 
-import type { ToolDescriptionData } from "@wf-agent/prompt-templates";
+import type { ToolDescriptionData } from "@wf-agent/types";
 
 export const APPLY_DIFF_TOOL_DESCRIPTION: ToolDescriptionData = {
   id: "apply_diff",

@@ -2,7 +2,7 @@
  * General Assistant Role Definition Segment
  */
 
-import type { SystemPromptFragment } from "@wf-agent/prompt-templates";
+import type { SystemPromptFragment } from "@wf-agent/types";
 
 /**
  * General Assistant Role Segment

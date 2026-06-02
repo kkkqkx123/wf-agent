@@ -9,11 +9,11 @@
  */
 
 import type { Tool, ToolProperty } from "@wf-agent/types";
-import { renderTemplate } from "@wf-agent/common-utils";
+import { renderTemplate } from "../template-renderer/index.js";
 import {
   TOOL_PARAMETERS_SCHEMA_TEMPLATE,
   PARAMETER_DESCRIPTION_LINE_TEMPLATE,
-} from "@wf-agent/prompt-templates";
+} from "../../../resources/predefined/prompt-templates/tool-parameters-templates.js";
 
 /**
  * Generates a description line for a single parameter.
@@ -42,7 +42,7 @@ function generateParameterDescriptionLine(
     required: isRequired ? "(required)" : "(optional)",
   };
 
-  return renderTemplate(PARAMETER_DESCRIPTION_LINE_TEMPLATE, variables);
+  return renderTemplate(PARAMETER_DESCRIPTION_LINE_TEMPLATE.content, variables);
 }
 
 /**

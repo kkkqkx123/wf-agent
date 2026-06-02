@@ -35,7 +35,7 @@ vi.mock("../history-converter.js", () => ({
   },
 }));
 
-vi.mock("@wf-agent/prompt-templates", () => ({
+vi.mock("../../../resources/predefined/prompt-templates/tool-format-templates.js", () => ({
   TOOLS_XML_LIST_TEMPLATE: "<tools_xml>",
   TOOLS_JSON_LIST_TEMPLATE: "<tools_json>",
   TOOLS_RAW_LIST_TEMPLATE: "<tools_raw>",

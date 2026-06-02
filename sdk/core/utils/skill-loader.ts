@@ -24,7 +24,7 @@ import {
 import {
   generateSkillMetadataListPrompt,
   generateSkillContentPrompt,
-} from "@wf-agent/prompt-templates";
+} from "../../resources/predefined/prompt-templates/skill-templates.js";
 
 /**
  * Skill Loader Class

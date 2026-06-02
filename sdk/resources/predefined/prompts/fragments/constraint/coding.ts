@@ -2,7 +2,7 @@
  * Programming-related constraints segment
  */
 
-import type { SystemPromptFragment } from "@wf-agent/prompt-templates";
+import type { SystemPromptFragment } from "@wf-agent/types";
 
 /**
  * Important Notes for Programming Assistants Segment

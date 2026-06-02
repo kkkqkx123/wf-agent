@@ -2,7 +2,7 @@
  * Call Agent Tool Description
  */
 
-import type { ToolDescriptionData } from "@wf-agent/prompt-templates";
+import type { ToolDescriptionData } from "@wf-agent/types";
 
 /**
  * Call agent tool description

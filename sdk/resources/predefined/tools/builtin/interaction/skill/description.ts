@@ -2,7 +2,7 @@
  * Tool Description for `skill`
  */
 
-import type { ToolDescriptionData } from "@wf-agent/prompt-templates";
+import type { ToolDescriptionData } from "@wf-agent/types";
 
 export const SKILL_TOOL_DESCRIPTION: ToolDescriptionData = {
   id: "skill",

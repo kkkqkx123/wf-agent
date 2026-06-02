@@ -3,7 +3,7 @@
  * Renders command templates by injecting runtime arguments
  */
 
-import { renderTemplate } from "@wf-agent/common-utils";
+import { renderTemplate } from "../../utils/template-renderer/index.js";
 import type { ScriptArgument } from "@wf-agent/types";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 

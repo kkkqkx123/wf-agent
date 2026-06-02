@@ -13,7 +13,7 @@
  *
  */
 
-import type { PromptTemplate, VariableDefinition } from "@wf-agent/prompt-templates";
+import type { PromptTemplate, PromptVariableDefinition } from "@wf-agent/types";
 import { ConfigFormat } from "../types.js";
 import type { PromptTemplateConfigFile } from "../types.js";
 import { parseToml } from "../parsers/toml-parser.js";
@@ -138,7 +138,7 @@ function mergeVariables(
   }
 
   // Create a variable mapping with application layer variables taking precedence.
-  const variableMap = new Map<string, VariableDefinition>();
+  const variableMap = new Map<string, PromptVariableDefinition>();
 
   // First, add default variables.
   for (const variable of defaultVariables) {

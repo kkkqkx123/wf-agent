@@ -7,9 +7,6 @@
 // Utility functions
 export * from "./utils/index.js";
 
-// Template renderer
-export * from "./template/template-renderer.js";
-
 // Error Handling Tools
 export * from "./error/index.js";
 

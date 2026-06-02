@@ -14,8 +14,8 @@ import {
 import type { Tool } from "@wf-agent/types";
 
 // Mock templates and tools
-vi.mock("@wf-agent/prompt-templates", async importOriginal => {
-  const actual = await importOriginal<typeof import("@wf-agent/prompt-templates")>();
+vi.mock("../../../resources/predefined/prompt-templates/tool-description-renderer.js", async importOriginal => {
+  const actual = await importOriginal<typeof import("../../../resources/predefined/prompt-templates/tool-description-renderer.js")>();
   return {
     ...actual,
     renderToolDescription: vi.fn(data => {

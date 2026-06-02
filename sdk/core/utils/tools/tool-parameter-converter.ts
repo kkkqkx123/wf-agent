@@ -9,7 +9,7 @@
  */
 
 import type { ToolParameterSchema, ToolProperty } from "@wf-agent/types";
-import type { ToolParameterDescription } from "@wf-agent/prompt-templates";
+import type { ToolParameterDescription } from "@wf-agent/types";
 
 /**
  * Convert JSON Schema property type to string representation

@@ -7,7 +7,7 @@
 
 import type { ToolCallFormat, ToolCallFormatConfig, ToolCallFormatMarkers } from "@wf-agent/types";
 import { DEFAULT_JSON_MARKERS, getDefaultFormatConfig } from "@wf-agent/types";
-import type { PromptTemplate } from "@wf-agent/prompt-templates";
+import type { PromptTemplate } from "@wf-agent/types";
 import {
   TOOLS_XML_LIST_TEMPLATE,
   TOOLS_JSON_LIST_TEMPLATE,
@@ -20,7 +20,7 @@ import {
   TOOL_XML_PARAMETER_LINE_TEMPLATE,
   TOOL_JSON_PARAMETER_LINE_TEMPLATE,
   TOOL_RAW_PARAMETER_LINE_TEMPLATE,
-} from "@wf-agent/prompt-templates";
+} from "../../../resources/predefined/prompt-templates/tool-format-templates.js";
 import type { ToolCallParseOptions } from "./types.js";
 
 /**

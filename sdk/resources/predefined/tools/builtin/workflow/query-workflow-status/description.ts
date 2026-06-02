@@ -2,7 +2,7 @@
  * Query Workflow Status Tool Description
  */
 
-import type { ToolDescriptionData } from "@wf-agent/prompt-templates";
+import type { ToolDescriptionData } from "@wf-agent/types";
 
 /**
  * Query workflow status tool description

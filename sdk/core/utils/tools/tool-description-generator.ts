@@ -12,13 +12,13 @@
  */
 
 import type { Tool } from "@wf-agent/types";
-import type { ToolDescriptionData, ToolParameterDescription } from "@wf-agent/prompt-templates";
+import type { ToolDescriptionData, ToolParameterDescription } from "@wf-agent/types";
 import {
   renderToolDescription,
   renderToolDescriptionSingleLine,
   renderToolDescriptionListItem,
   renderToolDescriptionTableRow,
-} from "@wf-agent/prompt-templates";
+} from "../../../resources/predefined/prompt-templates/tool-description-renderer.js";
 import { toolDescriptionRegistry } from "./tool-description-registry.js";
 import { convertToolParameters } from "./tool-parameter-converter.js";
 

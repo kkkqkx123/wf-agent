@@ -2,7 +2,7 @@
  * Programming Skills Description Section
  */
 
-import type { SystemPromptFragment } from "@wf-agent/prompt-templates";
+import type { SystemPromptFragment } from "@wf-agent/types";
 
 /**
  * Programming ability snippet

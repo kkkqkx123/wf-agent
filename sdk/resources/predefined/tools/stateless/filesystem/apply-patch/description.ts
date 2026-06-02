@@ -2,7 +2,7 @@
  * Tool Description for `apply_patch`
  */
 
-import type { ToolDescriptionData } from "@wf-agent/prompt-templates";
+import type { ToolDescriptionData } from "@wf-agent/types";
 
 export const APPLY_PATCH_TOOL_DESCRIPTION: ToolDescriptionData = {
   id: "apply_patch",

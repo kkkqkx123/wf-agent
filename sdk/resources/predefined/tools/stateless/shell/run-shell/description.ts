@@ -2,7 +2,7 @@
  * Run-shell Tool Description Definition
  */
 
-import type { ToolDescriptionData } from "@wf-agent/prompt-templates";
+import type { ToolDescriptionData } from "@wf-agent/types";
 
 export const RUN_SHELL_TOOL_DESCRIPTION: ToolDescriptionData = {
   id: "run_shell",

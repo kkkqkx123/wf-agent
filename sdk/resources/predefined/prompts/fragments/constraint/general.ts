@@ -2,7 +2,7 @@
  * General constraint conditions segment
  */
 
-import type { SystemPromptFragment } from "@wf-agent/prompt-templates";
+import type { SystemPromptFragment } from "@wf-agent/types";
 
 /**
  * Important Notes for the General Assistant Fragment

@@ -9,9 +9,9 @@ import { ConfigFormat } from "../types.js";
 import type { Result } from "@wf-agent/types";
 import { ValidationError, ConfigurationError, ConfigurationValidationError } from "@wf-agent/types";
 import { ok, err } from "@wf-agent/common-utils";
-import type { PromptTemplate } from "@wf-agent/prompt-templates";
+import type { PromptTemplate } from "@wf-agent/types";
 import type { PromptTemplateConfigFile } from "../types.js";
-import { PromptTemplateSchema } from "@wf-agent/prompt-templates";
+import { PromptTemplateSchema } from "@wf-agent/types";
 import { loadPromptTemplateConfig, mergePromptTemplateConfig } from "../loaders/prompt-template-loader.js";
 import { stringifyJson } from "../parsers/json-parser.js";
 

@@ -10,8 +10,8 @@
  * - Type safety: Full TypeScript type support
  */
 
-import type { PromptTemplate } from "@wf-agent/prompt-templates";
-import { renderTemplate } from "@wf-agent/common-utils";
+import type { PromptTemplate } from "@wf-agent/types";
+import { renderTemplate } from "../../core/utils/template-renderer/index.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "PromptTemplateRegistry" });

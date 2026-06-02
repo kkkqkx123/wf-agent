@@ -10,7 +10,7 @@
  * - Type-safe: Full TypeScript type support
  */
 
-import type { ToolDescriptionData } from "@wf-agent/prompt-templates";
+import type { ToolDescriptionData } from "@wf-agent/types";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "ToolDescriptionRegistry" });

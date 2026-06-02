@@ -2,7 +2,7 @@
  * Tool Description for `edit`
  */
 
-import type { ToolDescriptionData } from "@wf-agent/prompt-templates";
+import type { ToolDescriptionData } from "@wf-agent/types";
 
 export const EDIT_TOOL_DESCRIPTION: ToolDescriptionData = {
   id: "edit",

@@ -1,0 +1,1 @@
+export { renderTemplate, renderTemplates, validateTemplateVariables, getVariableValue, TemplateRenderError } from "./template-renderer.js";

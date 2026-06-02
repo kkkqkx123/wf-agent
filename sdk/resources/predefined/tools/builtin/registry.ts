@@ -5,7 +5,7 @@
  */
 
 import type { Tool } from "@wf-agent/types";
-import { renderToolDescription } from "@wf-agent/prompt-templates";
+import { renderToolDescription } from "../../prompt-templates/tool-description-renderer.js";
 import type { BuiltinToolsOptions } from "./types.js";
 
 // Import workflow tools

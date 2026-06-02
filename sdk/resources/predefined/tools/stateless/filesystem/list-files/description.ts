@@ -2,7 +2,7 @@
  * Tool Description for `list_files`
  */
 
-import type { ToolDescriptionData } from "@wf-agent/prompt-templates";
+import type { ToolDescriptionData } from "@wf-agent/types";
 
 export const LIST_FILES_TOOL_DESCRIPTION: ToolDescriptionData = {
   id: "list_files",

@@ -5,7 +5,7 @@
  *
  */
 
-import type { PromptTemplate } from "@wf-agent/prompt-templates";
+import type { PromptTemplate } from "@wf-agent/types";
 import { templateRegistry } from "../template-registry.js";
 import {
   buildSystemPrompt,

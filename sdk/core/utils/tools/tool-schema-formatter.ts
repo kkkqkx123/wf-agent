@@ -10,7 +10,7 @@
  */
 
 import type { Tool, ToolParameterSchema } from "@wf-agent/types";
-import { renderTemplate } from "@wf-agent/common-utils";
+import { renderTemplate } from "../template-renderer/index.js";
 import {
   TOOL_XML_FORMAT_TEMPLATE,
   TOOLS_XML_LIST_TEMPLATE,
@@ -18,7 +18,7 @@ import {
   TOOL_JSON_FORMAT_TEMPLATE,
   TOOLS_JSON_LIST_TEMPLATE,
   TOOL_JSON_PARAMETER_LINE_TEMPLATE,
-} from "@wf-agent/prompt-templates";
+} from "../../../resources/predefined/prompt-templates/tool-format-templates.js";
 
 /**
  * LLM Tool Schema Format (Function Call Mode)

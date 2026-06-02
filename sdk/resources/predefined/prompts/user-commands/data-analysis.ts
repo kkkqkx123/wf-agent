@@ -3,7 +3,7 @@
  * Used to define user commands for data analysis
  */
 
-import type { PromptTemplate } from "@wf-agent/prompt-templates";
+import type { PromptTemplate } from "@wf-agent/types";
 
 /**
  * Data Analysis Instruction Template

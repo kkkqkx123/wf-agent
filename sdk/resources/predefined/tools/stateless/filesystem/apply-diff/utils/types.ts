@@ -12,6 +12,8 @@ export interface SearchReplaceBlock {
   replaceContent: string;
   /** Optional line number hint for precise location */
   startLine?: number;
+  /** Optional context hint (function/class name) for disambiguation */
+  contextHint?: string;
 }
 
 /**

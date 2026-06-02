@@ -9,6 +9,22 @@ import type { SearchReplaceBlock } from "./types.js";
  *
  * Supports format:
  * <<<<<<< SEARCH
+ * [search content]
+ * =======
+ * [replace content]
+ * >>>>>>> REPLACE
+ *
+ * With optional hints:
+ * <<<<<<< SEARCH
+ * # line: 10
+ * # context: function authenticate
+ * [search content]
+ * =======
+ * [replace content]
+ * >>>>>>> REPLACE
+ *
+ * Compatible with legacy format:
+ * <<<<<<< SEARCH
  * :start_line:10
  * -------
  * [search content]
@@ -22,7 +38,7 @@ export function parseSearchReplaceBlocks(diffContent: string): {
 } {
   const blocks: SearchReplaceBlock[] = [];
 
-  // Regex to match SEARCH/REPLACE blocks (built as string to avoid escaping issues)
+  // Regex to match SEARCH/REPLACE blocks
   const pattern =
     '(?:^|\\n)(?<!\\\\)<<<<<<< SEARCH>?\\s*\\n' +
     '((?:\\:start_line:\\s*(\\d+)\\s*\\n))?' +
@@ -32,7 +48,7 @@ export function parseSearchReplaceBlocks(diffContent: string): {
     '(?:(?<=\\n)(?<!\\\\)=======\\s*\\n)' +
     '([\\s\\S]*?)(?:\\n)?' +
     '(?:(?<=\\n)(?<!\\\\)>>>>>>> REPLACE)(?=\\n|$)';
-  
+
   const blockRegex = new RegExp(pattern, 'g');
   const matches = [...diffContent.matchAll(blockRegex)];
 
@@ -44,18 +60,76 @@ export function parseSearchReplaceBlocks(diffContent: string): {
   }
 
   for (const match of matches) {
-    const startLine = match[2] ? parseInt(match[2], 10) : undefined;
     const searchContent = unescapeMarkers(match[6] || "");
     const replaceContent = unescapeMarkers(match[7] || "");
-
-    blocks.push({
-      startLine,
+    const block: SearchReplaceBlock = {
       searchContent,
       replaceContent,
-    });
+    };
+
+    // Parse :start_line:N (legacy)
+    const legacyLine = match[2] ? parseInt(match[2], 10) : undefined;
+    if (legacyLine !== undefined) {
+      block.startLine = legacyLine;
+    }
+
+    // Parse inline hints from search content (new format)
+    const searchLines = block.searchContent.split("\n");
+    const hints = extractHints(searchLines);
+    if (hints.startLine !== undefined) {
+      block.startLine = hints.startLine;
+    }
+    if (hints.contextHint !== undefined) {
+      block.contextHint = hints.contextHint;
+    }
+
+    // Strip hint lines from search content
+    if (hints.linesRemoved > 0) {
+      block.searchContent = searchLines.slice(hints.linesRemoved).join("\n");
+    }
+
+    blocks.push(block);
   }
 
   return { blocks };
+}
+
+/**
+ * Extract hint lines from the beginning of search content.
+ * Supports:
+ *   # line: N
+ *   # context: text
+ */
+function extractHints(lines: string[]): {
+  startLine?: number;
+  contextHint?: string;
+  linesRemoved: number;
+} {
+  let startLine: number | undefined;
+  let contextHint: string | undefined;
+  let linesRemoved = 0;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    const lineMatch = trimmed.match(/^#\s*line:\s*(\d+)$/i);
+    if (lineMatch && lineMatch[1]) {
+      startLine = parseInt(lineMatch[1], 10);
+      linesRemoved++;
+      continue;
+    }
+
+    const contextMatch = trimmed.match(/^#\s*context:\s*(.+)$/i);
+    if (contextMatch && contextMatch[1]) {
+      contextHint = contextMatch[1].trim();
+      linesRemoved++;
+      continue;
+    }
+
+    break;
+  }
+
+  return { startLine, contextHint, linesRemoved };
 }
 
 /**

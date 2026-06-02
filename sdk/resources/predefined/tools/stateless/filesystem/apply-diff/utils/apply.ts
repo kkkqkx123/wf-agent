@@ -17,21 +17,21 @@ function preserveIndentation(
   // Get original indentation
   const originalIndents = matchedLines.map((line) => {
     const match = line.match(/^[\t ]*/);
-    return match ? match[0] : "";
+    return match![0];
   });
 
   // Get search block indentation
   const searchIndents = searchLines.map((line) => {
     const match = line.match(/^[\t ]*/);
-    return match ? match[0] : "";
+    return match![0];
   });
 
   // Apply replacement with preserved indentation
   return replaceLines.map((line) => {
-    const matchedIndent = originalIndents[0] || "";
+    const matchedIndent = originalIndents[0] ?? "";
     const currentIndentMatch = line.match(/^[\t ]*/);
     const currentIndent = currentIndentMatch ? currentIndentMatch[0] : "";
-    const searchBaseIndent = searchIndents[0] || "";
+    const searchBaseIndent = searchIndents[0] ?? "";
 
     // Calculate relative indentation level
     const searchBaseLevel = searchBaseIndent.length;
@@ -49,6 +49,20 @@ function preserveIndentation(
 }
 
 /**
+ * Find context hint position in file for disambiguation.
+ * Returns the line index where context hint first appears.
+ */
+function findContextHint(lines: string[], hint: string): number | null {
+  const lowerHint = hint.toLowerCase();
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i]!.toLowerCase().includes(lowerHint)) {
+      return i;
+    }
+  }
+  return null;
+}
+
+/**
  * Apply a single SEARCH/REPLACE block to the content lines.
  */
 export function applyBlock(
@@ -56,7 +70,7 @@ export function applyBlock(
   block: SearchReplaceBlock,
   delta: number,
 ): { success: true; lines: string[]; delta: number } | BlockApplyResult {
-  const { searchContent, replaceContent } = block;
+  const { searchContent, replaceContent, contextHint } = block;
   const startLine = block.startLine ? block.startLine + delta : 0;
 
   // Split content into lines
@@ -79,15 +93,45 @@ export function applyBlock(
     searchStartIndex = startLine - 1;
   }
 
-  // Use seekSequence for multi-pass matching (exact → trim-end → trim → unicode-normalized)
-  const matchIndex = seekSequence(resultLines, searchLines, searchStartIndex);
+  // If contextHint provided, search near the context first
+  let matchIndex: number | null = null;
+  if (contextHint) {
+    const contextIndex = findContextHint(resultLines, contextHint);
+    if (contextIndex !== null) {
+      // Search around the context hint (±10 lines)
+      const contextStart = Math.max(0, contextIndex - 10);
+      const contextEnd = Math.min(
+        resultLines.length,
+        contextIndex + searchLines.length + 10,
+      );
+      const contextLines = resultLines.slice(0, contextEnd);
+      matchIndex = seekSequence(contextLines, searchLines, contextStart);
+    }
+  }
+
+  // Fall back to full search if context hint search failed
+  if (matchIndex === null) {
+    matchIndex = seekSequence(resultLines, searchLines, searchStartIndex);
+  }
 
   // Check if match is found
   if (matchIndex === null) {
-    const lineRange = startLine ? ` at line: ${startLine}` : "";
+    const lineRange = startLine ? ` near line: ${startLine}` : "";
+    const context =
+      startLine > 0
+        ? resultLines.slice(
+            Math.max(0, startLine - 3),
+            Math.min(resultLines.length, startLine + 4),
+          )
+        : resultLines.slice(0, 7);
+    const contextStr = context.map((l, i) => {
+      const lineNum = startLine > 0 ? startLine - 3 + i : i + 1;
+      return `${lineNum}: ${l}`;
+    }).join("\n");
+    const contextLabel = contextHint ? ` near "${contextHint}"` : "";
     return {
       success: false,
-      error: `No match found${lineRange}. The search content does not match any section of the file.`,
+      error: `No match found${lineRange}${contextLabel}.\nNearby lines:\n${contextStr}`,
     };
   }
 

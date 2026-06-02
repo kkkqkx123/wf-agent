@@ -1,5 +1,6 @@
 export {
   resolveSystemPrompt,
+  injectSkillMetadata,
   type SystemPromptConfig,
 } from "./system-prompt-resolver.js";
 

@@ -27,6 +27,9 @@ import {
 } from "../../utils/event/index.js";
 import { LLMExecutor } from "../../../../core/executors/llm-executor.js";
 import { ToolRegistry } from "../../../../core/registry/tool-registry.js";
+import type { SkillRegistry } from "../../../../core/registry/skill-registry.js";
+import type { SkillLoader } from "../../../../core/utils/skill-loader.js";
+import { injectSkillMetadata } from "../../../../core/messaging/prompt/system-prompt-resolver.js";
 import * as Identifiers from "../../../../core/di/service-identifiers.js";
 import type { GlobalContext } from "../../../../core/global-context.js";
 import { createContextualLogger } from "../../../../utils/contextual-logger.js";
@@ -333,7 +336,30 @@ export async function agentLoopHandler(
       }
     }
 
-    // 2. Create a Coordinator and execute it.
+    // 2. Inject skill metadata into system prompt if skills are configured
+    try {
+      const skillRegistry = globalContext.container.get(Identifiers.SkillRegistry) as SkillRegistry | undefined;
+      const skillLoader = globalContext.container.get(Identifiers.SkillLoader) as SkillLoader | undefined;
+      if (skillRegistry && skillLoader && skillRegistry.getEnabledSkills().length > 0) {
+        resolvedConfig.systemPrompt = injectSkillMetadata(
+          resolvedConfig.systemPrompt || "",
+          skillRegistry,
+          skillLoader,
+        );
+        if (!resolvedConfig.availableTools) {
+          resolvedConfig.availableTools = { tools: ["skill"] };
+        } else if (
+          resolvedConfig.availableTools.tools &&
+          !resolvedConfig.availableTools.tools.includes("skill")
+        ) {
+          resolvedConfig.availableTools.tools = [...resolvedConfig.availableTools.tools, "skill"];
+        }
+      }
+    } catch {
+      logger.debug("Skills not configured, skipping skill metadata injection");
+    }
+
+    // 3. Create a Coordinator and execute it.
     const coordinator = createCoordinator(globalContext, context);
 
     const result = await coordinator.execute(

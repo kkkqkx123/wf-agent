@@ -16,7 +16,7 @@ import {
   type AgentLoopCheckpointDependencies,
   type AgentLoopEntity,
 } from "@wf-agent/sdk/agent";
-import { EventRegistry, LLMWrapper, LLMExecutor, ToolRegistry } from "@wf-agent/sdk/core";
+import { EventRegistry, LLMWrapper, LLMExecutor, ToolRegistry, ServiceIdentifiers, injectSkillMetadata } from "@wf-agent/sdk/core";
 import type {
   AgentLoopRuntimeConfig,
   AgentLoopResult,
@@ -24,12 +24,9 @@ import type {
   Message,
   AgentStreamEvent,
   MessageStreamEvent,
-  Tool,
 } from "@wf-agent/types";
 import { CLINotFoundError } from "../types/cli-types.js";
 import { CLIToolApprovalHandler } from "../handlers/user-interaction/tool-approval.js";
-import type { SkillHandlerConfig } from "@wf-agent/sdk/resources";
-import { skillSchema, SKILL_TOOL_DESCRIPTION } from "@wf-agent/sdk/resources";
 
 /**
  * Agent Loop Adapter
@@ -64,66 +61,42 @@ export class AgentLoopAdapter extends BaseAdapter {
   }
 
   /**
-   * Register the skill tool into the agent loop's SDK ToolRegistry.
-   * Must be called before executing the agent loop for the skill tool to be available.
+   * Apply skills integration to the agent loop runtime config.
+   * Resolves SkillRegistry and SkillLoader from the SDK's DI container
+   * and injects skill metadata into the system prompt.
    *
-   * @param loader Skill loader configuration for loading skill content
+   * Safe to call even if skills are not configured — a no-op in that case.
+   *
+   * @param config The runtime config to apply skills integration to
    */
-  registerSkillTool(loader: SkillHandlerConfig): void {
-    const descriptionText = `${SKILL_TOOL_DESCRIPTION.description}
+  applySkillsToConfig(config: AgentLoopRuntimeConfig): void {
+    try {
+      const globalContext = this.sdk.getGlobalContext();
+      const container = globalContext.container;
+      const skillRegistry = container.get(ServiceIdentifiers.SkillRegistry);
+      const skillLoader = container.get(ServiceIdentifiers.SkillLoader);
+      if (skillRegistry && skillLoader && skillRegistry.getEnabledSkills().length > 0) {
+        config.systemPrompt = injectSkillMetadata(
+          config.systemPrompt || "",
+          skillRegistry,
+          skillLoader,
+        );
 
-Parameters:
-${SKILL_TOOL_DESCRIPTION.parameters.map(p => `  - ${p.name} (${p.type}, ${p.required ? "required" : "optional"}): ${p.description}`).join("\n")}
-${SKILL_TOOL_DESCRIPTION.tips && SKILL_TOOL_DESCRIPTION.tips.length > 0 ? `\nTips:\n${SKILL_TOOL_DESCRIPTION.tips.map(t => `  - ${t}`).join("\n")}` : ""}`;
+        // Ensure "skill" tool is in availableTools
+        if (!config.availableTools) {
+          config.availableTools = { tools: ["skill"] };
+        } else if (
+          config.availableTools.tools &&
+          !config.availableTools.tools.includes("skill")
+        ) {
+          config.availableTools.tools = [...config.availableTools.tools, "skill"];
+        }
 
-    const skillTool: Tool = {
-      id: "skill",
-      type: "STATELESS",
-      description: descriptionText,
-      parameters: skillSchema as Tool["parameters"],
-      config: {
-        execute: async (params: Record<string, unknown>) => {
-          try {
-            const { skill, args } = params as {
-              skill: string;
-              args?: Record<string, unknown> | null;
-            };
-
-            if (!skill || typeof skill !== "string") {
-              return {
-                success: false,
-                result: undefined,
-                error: "Missing or invalid 'skill' parameter",
-                executionTime: 0,
-                retryCount: 0,
-              };
-            }
-
-            const variables = args || undefined;
-            const content = await loader.loader.loadContent(skill, variables);
-
-            return {
-              success: true,
-              result: content,
-              error: undefined,
-              executionTime: 0,
-              retryCount: 0,
-            };
-          } catch (error) {
-            return {
-              success: false,
-              result: undefined,
-              error: error instanceof Error ? error.message : String(error),
-              executionTime: 0,
-              retryCount: 0,
-            };
-          }
-        },
-      },
-    };
-
-    this.toolRegistry.registerTool(skillTool, { skipIfExists: true });
-    this.output.infoLog("Skill tool registered in agent loop");
+        this.output.infoLog("Skill metadata injected into system prompt");
+      }
+    } catch {
+      this.output.infoLog("Skills not configured, running without skill support");
+    }
   }
 
   /**

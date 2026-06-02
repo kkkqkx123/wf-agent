@@ -5,7 +5,6 @@
 import { Command } from "commander";
 import { AgentLoopAdapter } from "../../adapters/agent-loop-adapter.js";
 import { AgentLoopCheckpointAdapter } from "../../adapters/agent-loop-checkpoint-adapter.js";
-import { SkillAdapter } from "../../adapters/skill-adapter.js";
 import { getOutput } from "../../utils/output.js";
 import { formatAgentLoop, formatAgentLoopList } from "../../utils/cli-formatters.js";
 import type { CommandOptions } from "../../types/cli-types.js";
@@ -103,46 +102,8 @@ export function createAgentCommands(): Command {
 
           const adapter = new AgentLoopAdapter();
 
-          // Inject skill metadata into system prompt and register skill tool
-          try {
-            const skillAdapter = new SkillAdapter();
-            const metadataPrompt = skillAdapter.generateMetadataPrompt();
-
-            if (metadataPrompt) {
-              // Inject skill metadata into system prompt
-              if (config.systemPrompt) {
-                config.systemPrompt = skillAdapter.injectSkillsMetadata(config.systemPrompt);
-              } else {
-                // If no system prompt set, create one with skills metadata
-                const skillSectionHeader = "## Available Skills";
-                config.systemPrompt = `${skillSectionHeader}\n\nThe following skills are available for use. Use the \`skill\` tool to load the complete content of a skill when needed.\n\n${metadataPrompt}`;
-              }
-
-              // Register the skill tool in the agent loop adapter
-              adapter.registerSkillTool({
-                loader: {
-                  loadContent: async (name, variables) => {
-                    const result = await skillAdapter.loadContent(name, variables);
-                    return typeof result === "string" ? result : JSON.stringify(result);
-                  },
-                },
-              });
-
-              // Auto-add skill tool to the available tools list
-              if (!config.availableTools) {
-                config.availableTools = { tools: ["skill"] };
-              } else if (config.availableTools.tools) {
-                if (!config.availableTools.tools.includes("skill")) {
-                  config.availableTools.tools.push("skill");
-                }
-              }
-
-              output.infoLog("Skill metadata injected and skill tool registered");
-            }
-          } catch (_skillError) {
-            // Skills not configured - continue without skills integration
-            output.infoLog("Skills not configured, running without skill support");
-          }
+          // Apply skills integration: inject metadata into system prompt
+          adapter.applySkillsToConfig(config);
 
           if (config.stream || options.stream) {
             // Stream execution

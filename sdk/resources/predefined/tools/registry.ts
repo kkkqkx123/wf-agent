@@ -58,7 +58,7 @@ import {
   skillSchema,
   createSkillHandler,
   SKILL_TOOL_DESCRIPTION,
-} from "./stateless/interaction/skill/index.js";
+} from "./builtin/interaction/skill/index.js";
 import {
   updateTodoListSchema,
   createUpdateTodoListHandler,
@@ -66,9 +66,10 @@ import {
 } from "./stateless/interaction/update-todo-list/index.js";
 import {
   useMcpSchema,
-  createUseMcpHandler,
+  createLazyUseMcpHandler,
   USE_MCP_TOOL_DESCRIPTION,
-} from "./stateless/interaction/use-mcp/index.js";
+} from "./builtin/interaction/use-mcp/index.js";
+import { getMcpManager } from "../../../services/mcp/server-registry.js";
 
 // Importing a stateful tool
 import {
@@ -303,7 +304,7 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
       type: "STATELESS",
       description: renderToolDescription(USE_MCP_TOOL_DESCRIPTION),
       parameters: useMcpSchema,
-      execute: createUseMcpHandler(),
+      execute: createLazyUseMcpHandler(() => getMcpManager()),
     });
   }
 

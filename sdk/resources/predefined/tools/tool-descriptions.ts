@@ -30,15 +30,22 @@ export { RUN_SHELL_TOOL_DESCRIPTION } from "./stateless/shell/run-shell/index.js
 // Stateless - Interaction tools
 // TODO: RUN_SLASH_COMMAND_TOOL_DESCRIPTION not implemented yet
 // export { RUN_SLASH_COMMAND_TOOL_DESCRIPTION } from "./stateless/interaction/run-slash-command/index.js";
-export { SKILL_TOOL_DESCRIPTION } from "./stateless/interaction/skill/index.js";
+export { SKILL_TOOL_DESCRIPTION } from "./builtin/interaction/skill/index.js";
 export { UPDATE_TODO_LIST_TOOL_DESCRIPTION } from "./stateless/interaction/update-todo-list/index.js";
-export { USE_MCP_TOOL_DESCRIPTION } from "./stateless/interaction/use-mcp/index.js";
+export { USE_MCP_TOOL_DESCRIPTION } from "./builtin/interaction/use-mcp/index.js";
 
 // Stateful - Memory tools
-export { RECORD_NOTE_TOOL_DESCRIPTION, RECALL_NOTES_TOOL_DESCRIPTION } from "./stateful/memory/session-note/index.js";
+export {
+  RECORD_NOTE_TOOL_DESCRIPTION,
+  RECALL_NOTES_TOOL_DESCRIPTION,
+} from "./stateful/memory/session-note/index.js";
 
 // Stateful - Shell tools
-export { BACKEND_SHELL_TOOL_DESCRIPTION, SHELL_OUTPUT_TOOL_DESCRIPTION, SHELL_KILL_TOOL_DESCRIPTION } from "./stateful/shell/backend-shell/index.js";
+export {
+  BACKEND_SHELL_TOOL_DESCRIPTION,
+  SHELL_OUTPUT_TOOL_DESCRIPTION,
+  SHELL_KILL_TOOL_DESCRIPTION,
+} from "./stateful/shell/backend-shell/index.js";
 
 // Builtin - Workflow tools
 export { EXECUTE_WORKFLOW_TOOL_DESCRIPTION } from "./builtin/workflow/execute-workflow/index.js";
@@ -56,11 +63,18 @@ import { GREP_TOOL_DESCRIPTION } from "./stateless/filesystem/grep/index.js";
 import { RUN_SHELL_TOOL_DESCRIPTION } from "./stateless/shell/run-shell/index.js";
 // TODO: RUN_SLASH_COMMAND_TOOL_DESCRIPTION not implemented yet
 // import { RUN_SLASH_COMMAND_TOOL_DESCRIPTION } from "./stateless/interaction/run-slash-command/index.js";
-import { SKILL_TOOL_DESCRIPTION } from "./stateless/interaction/skill/index.js";
+import { SKILL_TOOL_DESCRIPTION } from "./builtin/interaction/skill/index.js";
 import { UPDATE_TODO_LIST_TOOL_DESCRIPTION } from "./stateless/interaction/update-todo-list/index.js";
-import { USE_MCP_TOOL_DESCRIPTION } from "./stateless/interaction/use-mcp/index.js";
-import { RECORD_NOTE_TOOL_DESCRIPTION, RECALL_NOTES_TOOL_DESCRIPTION } from "./stateful/memory/session-note/index.js";
-import { BACKEND_SHELL_TOOL_DESCRIPTION, SHELL_OUTPUT_TOOL_DESCRIPTION, SHELL_KILL_TOOL_DESCRIPTION } from "./stateful/shell/backend-shell/index.js";
+import { USE_MCP_TOOL_DESCRIPTION } from "./builtin/interaction/use-mcp/index.js";
+import {
+  RECORD_NOTE_TOOL_DESCRIPTION,
+  RECALL_NOTES_TOOL_DESCRIPTION,
+} from "./stateful/memory/session-note/index.js";
+import {
+  BACKEND_SHELL_TOOL_DESCRIPTION,
+  SHELL_OUTPUT_TOOL_DESCRIPTION,
+  SHELL_KILL_TOOL_DESCRIPTION,
+} from "./stateful/shell/backend-shell/index.js";
 import { EXECUTE_WORKFLOW_TOOL_DESCRIPTION } from "./builtin/workflow/execute-workflow/index.js";
 import { QUERY_WORKFLOW_STATUS_TOOL_DESCRIPTION } from "./builtin/workflow/query-workflow-status/index.js";
 import { CANCEL_WORKFLOW_TOOL_DESCRIPTION } from "./builtin/workflow/cancel-workflow/index.js";

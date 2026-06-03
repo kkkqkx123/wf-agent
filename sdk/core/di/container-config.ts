@@ -69,7 +69,6 @@ import { WorkflowExecutionPool } from "../../workflow/execution/workflow-executi
 import { LLMExecutor, ToolCallExecutor } from "../executors/index.js";
 import { ToolApprovalCoordinator } from "../coordinators/tool-approval-coordinator.js";
 import { SkillRegistry } from "../registry/skill-registry.js";
-import { SkillLoader } from "../utils/skill-loader.js";
 import { emit } from "../../workflow/execution/utils/index.js";
 import { CheckpointCoordinator } from "../../workflow/checkpoint/checkpoint-coordinator.js";
 import {
@@ -291,29 +290,20 @@ export function configureContainerBindings(
   // ============================================================
 
   // SkillRegistry - Skill registry, path needs to be configured
-  // Use the factory pattern to allow the application layer to provide configuration
-  // The default configuration uses an empty path list; the application layer should rebind this service and provide the actual configuration at initialization time
+  // Uses the factory pattern to allow the application layer to provide configuration
+  // The default configuration uses an empty path list; the application layer should
+  // rebind this service and provide the actual configuration at initialization time
   container
     .bind(Identifiers.SkillRegistry)
-    .toDynamicValue(() => {
+    .toDynamicValue((c: IContainer): SkillRegistry => {
       const config = {
         paths: [],
         autoScan: true,
         cacheEnabled: true,
         cacheTTL: 300000,
       };
-      return new SkillRegistry(config);
-    })
-    .inSingletonScope();
-
-  // SkillLoader - A Skill loader that relies on SkillRegistry and EventRegistry
-  container
-    .bind(Identifiers.SkillLoader)
-    .toDynamicValue((c: IContainer): SkillLoader => {
-      return new SkillLoader(
-        c.get(Identifiers.SkillRegistry) as SkillRegistry,
-        c.get(Identifiers.EventRegistry) as EventRegistry,
-      );
+      const eventManager = c.get(Identifiers.EventRegistry) as EventRegistry;
+      return new SkillRegistry(config, eventManager);
     })
     .inSingletonScope();
 

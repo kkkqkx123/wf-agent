@@ -24,13 +24,6 @@ export interface SkillMetadata {
   description: string;
 
   /**
-   * Whether the Skill is enabled
-   * - Default: true
-   * - Disabled skills are hidden from metadata prompts and cannot be loaded
-   */
-  enabled: boolean;
-
-  /**
    * Skill version number (optional)
    */
   version?: string;

@@ -16,7 +16,7 @@ import {
   type AgentLoopCheckpointDependencies,
   type AgentLoopEntity,
 } from "@wf-agent/sdk/agent";
-import { EventRegistry, LLMWrapper, LLMExecutor, ToolRegistry, ServiceIdentifiers, injectSkillMetadata } from "@wf-agent/sdk/core";
+import { EventRegistry, LLMWrapper, LLMExecutor, ToolRegistry, ServiceIdentifiers } from "@wf-agent/sdk/core";
 import type {
   AgentLoopRuntimeConfig,
   AgentLoopResult,
@@ -62,7 +62,7 @@ export class AgentLoopAdapter extends BaseAdapter {
 
   /**
    * Apply skills integration to the agent loop runtime config.
-   * Resolves SkillRegistry and SkillLoader from the SDK's DI container
+   * Resolves SkillRegistry from the SDK's DI container
    * and injects skill metadata into the system prompt.
    *
    * Safe to call even if skills are not configured — a no-op in that case.
@@ -74,12 +74,9 @@ export class AgentLoopAdapter extends BaseAdapter {
       const globalContext = this.sdk.getGlobalContext();
       const container = globalContext.container;
       const skillRegistry = container.get(ServiceIdentifiers.SkillRegistry);
-      const skillLoader = container.get(ServiceIdentifiers.SkillLoader);
-      if (skillRegistry && skillLoader && skillRegistry.getEnabledSkills().length > 0) {
-        config.systemPrompt = injectSkillMetadata(
+      if (skillRegistry && skillRegistry.getEnabledSkills().length > 0) {
+        config.systemPrompt = skillRegistry.injectSkillMetadata(
           config.systemPrompt || "",
-          skillRegistry,
-          skillLoader,
         );
 
         // Ensure "skill" tool is in availableTools

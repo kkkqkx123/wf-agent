@@ -22,7 +22,6 @@ import type { NodeTemplateRegistry } from "../../../core/registry/node-template-
 import type { TriggerTemplateRegistry } from "../../../core/registry/trigger-template-registry.js";
 import type { WorkflowGraphRegistry } from "../../../workflow/stores/workflow-graph-registry.js";
 import type { SkillRegistry } from "../../../core/registry/skill-registry.js";
-import type { SkillLoader } from "../../../core/utils/skill-loader.js";
 import type { AgentLoopRegistry } from "../../../agent/stores/agent-loop-registry.js";
 import type { AgentLoopCoordinator } from "../../../agent/execution/coordinators/agent-loop-coordinator.js";
 import type { MetricsRegistry } from "../../../core/metrics/metrics-registry.js";
@@ -150,13 +149,6 @@ export class APIDependencyManager {
    */
   getSkillRegistry(): SkillRegistry {
     return this.globalContext.container.get(Identifiers.SkillRegistry as ServiceIdentifier<SkillRegistry>);
-  }
-
-  /**
-   * Obtain the Skill Loader
-   */
-  getSkillLoader(): SkillLoader {
-    return this.globalContext.container.get(Identifiers.SkillLoader as ServiceIdentifier<SkillLoader>);
   }
 
   /**

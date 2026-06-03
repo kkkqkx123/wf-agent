@@ -1,25 +1,25 @@
 /**
- * PathResolver - 路径解析器
- * 提供简单的对象路径解析功能
- *
- * 支持的路径格式：
- * - 嵌套对象访问：如 "user.name"、"output.data.items"
- * - 数组索引访问：如 "items[0]"、"items[0].name"
- * - 组合访问：如 "output.data.items[0].name"
- *
- * 使用示例：
- * - resolvePath("user.name", obj) - 获取嵌套属性值
- * - resolvePath("items[0].name", obj) - 获取数组元素属性
- * - setPath("user.name", obj, "John") - 设置嵌套属性值
- * - pathExists("user.name", obj) - 检查路径是否存在
+ * PathResolver - Path Resolver
+ * Provides simple object path resolving functionality
+ * 
+ * Supported path formats:
+ * - Nested object access: e.g. "user.name", "output.data.items"
+ * - Array index access: "items[0]", "items[0].name".
+ * - Combined access: e.g. "output.data.items[0].name"
+ * 
+ * Usage example:
+ * - resolvePath("user.name", obj) - get nested attribute values
+ * - resolvePath("items[0].name", obj) - get the array element property
+ * - setPath("user.name", obj, "John") - sets the value of the nested attribute
+ * - pathExists("user.name", obj) - check if the path exists
  */
 
 import { validatePath } from "./security-validator.js";
 /**
- * 解析路径并获取值
- * @param path 路径字符串，支持嵌套访问和数组索引，如 "user.name"、"items[0].name"
- * @param root 根对象
- * @returns 路径对应的值，如果路径不存在则返回undefined
+ * Parse the path and get the value
+ * @param path Path string, supports nested access and array indexing, e.g. "user.name", "items[0].name"
+ * @param root Root object
+ * @returns the value of the path, or undefined if the path does not exist.
  */
 export function resolvePath(path: string, root: unknown): unknown {
   if (!path || !root) {
@@ -29,7 +29,7 @@ export function resolvePath(path: string, root: unknown): unknown {
   // Verify path security
   validatePath(path);
 
-  // 支持嵌套路径访问，如 "output.data.items[0].name"
+  // Support for nested path access, e.g. "output.data.items[0].name"
   const parts = path.split(".");
   let value: unknown = root;
 
@@ -38,7 +38,7 @@ export function resolvePath(path: string, root: unknown): unknown {
       return undefined;
     }
 
-    // 处理数组索引访问，如 items[0]
+    // Handles array index access, e.g. items[0].
     const arrayMatch = part.match(/(\w+)\[(\d+)\]/);
     if (arrayMatch && arrayMatch[1] && arrayMatch[2]) {
       const arrayName = arrayMatch[1];

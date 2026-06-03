@@ -1,63 +1,50 @@
 import { templateRegistry } from "../../../resources/predefined/template-registry.js";
-import type { SkillRegistry } from "../../registry/skill-registry.js";
-import type { SkillLoader } from "../../utils/skill-loader.js";
 import { sdkLogger as logger } from "../../../utils/logger.js";
+import { renderTemplate } from "../../utils/template-renderer/index.js";
 
 export interface SystemPromptConfig {
   systemPrompt?: string;
   systemPromptTemplateId?: string;
   systemPromptTemplateVariables?: Record<string, unknown>;
-}
-
-export function resolveSystemPrompt(config: SystemPromptConfig): string {
-  if (config.systemPromptTemplateId) {
-    const rendered = templateRegistry.render(
-      config.systemPromptTemplateId,
-      config.systemPromptTemplateVariables || {},
-    );
-
-    if (rendered !== null) {
-      return rendered;
-    }
-
-    logger.warn(
-      `System prompt template '${config.systemPromptTemplateId}' not found, falling back to direct systemPrompt or empty string`,
-      { templateId: config.systemPromptTemplateId },
-    );
-  }
-
-  if (config.systemPrompt) {
-    return config.systemPrompt;
-  }
-
-  return "";
+  systemPromptFragments?: string[];
+  systemPromptFragmentVariables?: Map<string, Record<string, unknown>>;
 }
 
 /**
- * Inject skill metadata into a resolved system prompt.
+ * Resolve system prompt using template registry and variable rendering.
  *
- * - If prompt contains {SKILLS_METADATA}, replace with metadata
- * - If skills exist and no placeholder, append metadata at the end
- * - If no skills configured or metadata is empty, remove placeholder if present
+ * The new design uses an explicit ID-list approach for fragment composition.
+ * Fragment IDs are passed as `systemPromptFragments` and composed by the caller
+ * (e.g., Composer.renderSystemPrompt), rather than using inline fragment markers.
+ *
+ * @param config System prompt configuration
+ * @returns Resolved system prompt string
  */
-export function injectSkillMetadata(
-  systemPrompt: string,
-  registry: SkillRegistry,
-  loader: SkillLoader,
-): string {
-  const metadataPrompt = loader.generateMetadataPrompt();
+export function resolveSystemPrompt(config: SystemPromptConfig): string {
+  let prompt: string;
 
-  if (!metadataPrompt) {
-    return systemPrompt.replace("{SKILLS_METADATA}", "");
+  // Phase 1: Resolve from template registry
+  if (config.systemPromptTemplateId) {
+    const template = templateRegistry.get(config.systemPromptTemplateId);
+    if (template) {
+      prompt = template.content;
+    } else {
+      logger.warn(
+        `System prompt template '${config.systemPromptTemplateId}' not found, falling back to direct systemPrompt or empty string`,
+        { templateId: config.systemPromptTemplateId },
+      );
+      prompt = config.systemPrompt || "";
+    }
+  } else if (config.systemPrompt) {
+    prompt = config.systemPrompt;
+  } else {
+    return "";
   }
 
-  if (systemPrompt.includes("{SKILLS_METADATA}")) {
-    return systemPrompt.replace("{SKILLS_METADATA}", metadataPrompt);
+  // Phase 2: Render variables
+  if (config.systemPromptTemplateVariables) {
+    prompt = renderTemplate(prompt, config.systemPromptTemplateVariables);
   }
 
-  if (registry.getEnabledSkills().length === 0) {
-    return systemPrompt;
-  }
-
-  return `${systemPrompt}\n\n${metadataPrompt}`;
+  return prompt;
 }

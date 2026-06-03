@@ -16,13 +16,15 @@ const output = getOutput();
 /**
  * Format Skill metadata
  */
-function formatSkillMetadata(skill: SkillMetadata, verbose?: boolean): string {
+function formatSkillMetadata(skill: SkillMetadata, verbose?: boolean, enabled?: boolean): string {
   const lines: string[] = [];
 
   lines.push(`\n${"─".repeat(60)}`);
   lines.push(`  Name: ${skill.name}`);
   lines.push(`  Description: ${skill.description}`);
-  lines.push(`  Status: ${skill.enabled ? "enabled" : "disabled"}`);
+  if (enabled !== undefined) {
+    lines.push(`  Status: ${enabled ? "enabled" : "disabled"}`);
+  }
 
   if (verbose) {
     if (skill.version) {
@@ -129,8 +131,10 @@ export function createSkillCommands(): Command {
           if (options.verbose) {
             output.newLine();
             output.subsection("Detailed list.");
+            const enabledSkills = await adapter.getEnabledSkills();
+            const enabledNames = new Set(enabledSkills.map(s => s.name));
             for (const skill of skills) {
-              output.output(formatSkillMetadata(skill, true));
+              output.output(formatSkillMetadata(skill, true, enabledNames.has(skill.name)));
             }
           }
         } catch (error) {
@@ -162,7 +166,9 @@ export function createSkillCommands(): Command {
           return;
         }
 
-        output.output(formatSkillMetadata(skill, options.verbose));
+        const enabledSkills = await adapter.getEnabledSkills();
+        const isEnabled = enabledSkills.some(s => s.name === name);
+        output.output(formatSkillMetadata(skill, options.verbose, isEnabled));
 
         if (options.content) {
           output.newLine();

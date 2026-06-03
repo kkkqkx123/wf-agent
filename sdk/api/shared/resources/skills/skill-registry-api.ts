@@ -1,9 +1,9 @@
 /**
  * SkillRegistryAPI - Skill Resource Management API
- * Encapsulates SkillRegistry and SkillLoader, providing functions for skill registration, querying, and loading.
+ * Encapsulates SkillRegistry, providing functions for skill registration, querying, and loading.
  *
  * Design Patterns:
- * - Inherits from GenericResourceAPI to provide unified CRUD (Create, Read, Update, Delete) operations.
+ * - Inherits from GenericResourceAPI to provide unified read-only operations.
  * - Implements support for a progressive disclosure API layer.
  */
 
@@ -50,7 +50,7 @@ export interface SkillLoadOptions {
  * SkillRegistryAPI - Skill Resource Management API
  *
  * Provides Skill CRUD operations and progressive disclosure support:
- * - Level 1: generateMetadataPrompt() - metadata prompt
+ * - Level 1: generateMetadataPrompt() / injectSkillMetadata() - metadata prompt
  * - Level 2: loadContent() - on-demand content loading
  * - Level 3: loadResources() - nested resource loading
  */
@@ -73,7 +73,7 @@ export class SkillRegistryAPI extends ReadonlyResourceAPI<SkillMetadata, string,
    */
   protected async getResource(name: string): Promise<SkillMetadata | null> {
     try {
-      const skill = this.getSkillRegistry().getSkill(name);
+      const skill = this.getRegistry().getSkill(name);
       return skill ? skill.metadata : null;
     } catch (error) {
       if (error instanceof NotFoundError) {
@@ -88,7 +88,7 @@ export class SkillRegistryAPI extends ReadonlyResourceAPI<SkillMetadata, string,
    * @returns Array of Skill metadata
    */
   protected async getAllResources(): Promise<SkillMetadata[]> {
-    return this.getSkillRegistry().getAllSkills();
+    return this.getRegistry().getAllSkills();
   }
 
   /**
@@ -172,7 +172,17 @@ export class SkillRegistryAPI extends ReadonlyResourceAPI<SkillMetadata, string,
    * @returns Metadata prompt string
    */
   generateMetadataPrompt(): string {
-    return this.getSkillLoader().generateMetadataPrompt();
+    return this.getRegistry().generateMetadataPrompt();
+  }
+
+  /**
+   * Inject skill metadata into a system prompt.
+   *
+   * @param systemPrompt Original system prompt
+   * @returns System prompt with skill metadata injected
+   */
+  injectSkillMetadata(systemPrompt: string): string {
+    return this.getRegistry().injectSkillMetadata(systemPrompt);
   }
 
   /**
@@ -188,7 +198,7 @@ export class SkillRegistryAPI extends ReadonlyResourceAPI<SkillMetadata, string,
     const startTime = now();
 
     try {
-      const result = await this.getSkillLoader().loadContent(name, options?.context);
+      const result = await this.getRegistry().loadContent(name, options?.context);
 
       if (!result.success || !result.content) {
         const error =
@@ -224,7 +234,7 @@ export class SkillRegistryAPI extends ReadonlyResourceAPI<SkillMetadata, string,
     const startTime = now();
 
     try {
-      const resources = await this.getSkillLoader().loadResources(
+      const resources = await this.getRegistry().loadResources(
         name,
         resourceType,
         options?.context,
@@ -236,16 +246,16 @@ export class SkillRegistryAPI extends ReadonlyResourceAPI<SkillMetadata, string,
   }
 
   /**
-   * ```python
-   * def convertSkill(name: str) -> str:
-   *     return f"Convert {name} to prompt word format"
-   * ```
+   * Convert skill to prompt format.
+   *
+   * @param name Skill name
+   * @returns Execution result
    */
   async toPrompt(name: string): Promise<ExecutionResult<string>> {
     const startTime = now();
 
     try {
-      const prompt = await this.getSkillLoader().toPrompt(name);
+      const prompt = await this.getRegistry().toPrompt(name);
       return success(prompt, diffTimestamp(startTime, now()));
     } catch (error) {
       return this.handleError(error, "TO_PROMPT", startTime);
@@ -262,7 +272,7 @@ export class SkillRegistryAPI extends ReadonlyResourceAPI<SkillMetadata, string,
     const startTime = now();
 
     try {
-      const results = this.getSkillRegistry().matchSkills(query);
+      const results = this.getRegistry().matchSkills(query);
       return success(results, diffTimestamp(startTime, now()));
     } catch (error) {
       return this.handleError(error, "MATCH_SKILLS", startTime);
@@ -283,7 +293,7 @@ export class SkillRegistryAPI extends ReadonlyResourceAPI<SkillMetadata, string,
     const startTime = now();
 
     try {
-      const resources = await this.getSkillRegistry().listSkillResources(name, resourceType);
+      const resources = await this.getRegistry().listSkillResources(name, resourceType);
       return success(resources, diffTimestamp(startTime, now()));
     } catch (error) {
       return this.handleError(error, "LIST_RESOURCES", startTime);
@@ -299,7 +309,7 @@ export class SkillRegistryAPI extends ReadonlyResourceAPI<SkillMetadata, string,
     const startTime = now();
 
     try {
-      await this.getSkillRegistry().reload();
+      await this.getRegistry().reload();
       return success(undefined, diffTimestamp(startTime, now()));
     } catch (error) {
       return this.handleError(error, "RELOAD", startTime);
@@ -316,7 +326,7 @@ export class SkillRegistryAPI extends ReadonlyResourceAPI<SkillMetadata, string,
     const startTime = now();
 
     try {
-      this.getSkillRegistry().enableSkill(name);
+      this.getRegistry().enableSkill(name);
       return success(undefined, diffTimestamp(startTime, now()));
     } catch (error) {
       return this.handleError(error, "ENABLE_SKILL", startTime);
@@ -333,7 +343,7 @@ export class SkillRegistryAPI extends ReadonlyResourceAPI<SkillMetadata, string,
     const startTime = now();
 
     try {
-      this.getSkillRegistry().disableSkill(name);
+      this.getRegistry().disableSkill(name);
       return success(undefined, diffTimestamp(startTime, now()));
     } catch (error) {
       return this.handleError(error, "DISABLE_SKILL", startTime);
@@ -346,7 +356,7 @@ export class SkillRegistryAPI extends ReadonlyResourceAPI<SkillMetadata, string,
    * @returns Array of enabled Skill metadata
    */
   getEnabledSkills(): SkillMetadata[] {
-    return this.getSkillRegistry().getEnabledSkills();
+    return this.getRegistry().getEnabledSkills();
   }
 
   /**
@@ -355,7 +365,7 @@ export class SkillRegistryAPI extends ReadonlyResourceAPI<SkillMetadata, string,
    * @returns Array of disabled Skill metadata
    */
   getDisabledSkills(): SkillMetadata[] {
-    return this.getSkillRegistry().getDisabledSkills();
+    return this.getRegistry().getDisabledSkills();
   }
 
   /**
@@ -365,15 +375,12 @@ export class SkillRegistryAPI extends ReadonlyResourceAPI<SkillMetadata, string,
    */
   clearCache(name?: string): void {
     if (name) {
-      this.getSkillLoader().clearCache(name);
-      // Also clear SkillRegistry's cached content for this skill
-      const skill = this.getSkillRegistry().getSkill(name);
+      const skill = this.getRegistry().getSkill(name);
       if (skill) {
         skill.content = undefined;
       }
     } else {
-      this.getSkillLoader().clearCache();
-      this.getSkillRegistry().clearCache();
+      this.getRegistry().clearCache();
     }
   }
 
@@ -384,23 +391,23 @@ export class SkillRegistryAPI extends ReadonlyResourceAPI<SkillMetadata, string,
    * @returns Skill object or null
    */
   async getFullSkill(name: string): Promise<Skill | null> {
-    return this.getSkillRegistry().getSkill(name) || null;
+    return this.getRegistry().getSkill(name) || null;
   }
 
   /**
    * Scan and load skills from directory
    * This is a convenience method that encapsulates direct registry access
-   * 
+   *
    * @param skillsDir Directory path to scan
    * @returns Execution result
    */
   async scanSkills(skillsDir: string): Promise<ExecutionResult<void>> {
     try {
-      const registry = this.getSkillRegistry();
+      const registry = this.getRegistry();
       await registry.scanSkills(skillsDir);
       return success(undefined, 0);
     } catch (error) {
-      const sdkError = error instanceof Error 
+      const sdkError = error instanceof Error
         ? new SDKError(
             error.message,
             "error",
@@ -422,14 +429,7 @@ export class SkillRegistryAPI extends ReadonlyResourceAPI<SkillMetadata, string,
   /**
    * Get an instance of SkillRegistry
    */
-  private getSkillRegistry() {
+  private getRegistry() {
     return this.dependencies.getSkillRegistry();
-  }
-
-  /**
-   * Get a SkillLoader instance
-   */
-  private getSkillLoader() {
-    return this.dependencies.getSkillLoader();
   }
 }

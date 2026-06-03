@@ -13,6 +13,7 @@ import {
 } from "./utils/parser.js";
 import { applyBlock } from "./utils/apply.js";
 import type { ApplyDiffConfig } from "./utils/types.js";
+import { resolveFilePath } from "@wf-agent/sdk/utils";
 
 /**
  * Create the `apply_diff` tool execution function
@@ -39,7 +40,7 @@ export function createApplyDiffHandler(config: ApplyDiffConfig = {}) {
         };
       }
 
-      const filePath = resolvePath(path, config.workspaceDir);
+      const filePath = resolveFilePath(path, config.workspaceDir);
       const workspaceDir = config.workspaceDir ?? process.cwd();
 
       // Initialize protect controller if enabled
@@ -139,15 +140,4 @@ export function createApplyDiffHandler(config: ApplyDiffConfig = {}) {
       };
     }
   };
-}
-
-/**
- * Resolve file path (support relative paths)
- */
-function resolvePath(path: string, workspaceDir?: string): string {
-  if (path.startsWith("/") || path.match(/^[A-Za-z]:\\/)) {
-    return path;
-  }
-  const baseDir = workspaceDir ?? process.cwd();
-  return `${baseDir}/${path}`.replace(/\\/g, "/");
 }

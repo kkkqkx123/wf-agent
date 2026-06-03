@@ -8,17 +8,7 @@ import type { ToolOutput } from "@wf-agent/types";
 import type { EditFileConfig } from "../../../types.js";
 import { ProtectController, SHIELD_SYMBOL } from "@wf-agent/sdk/services";
 import { normalizeUnicode } from "../../../utils/matcher.js";
-
-/**
- * Parse paths (relative paths are supported)
- */
-function resolvePath(filePath: string, workspaceDir?: string): string {
-  if (filePath.startsWith("/") || filePath.match(/^[A-Za-z]:\\/)) {
-    return filePath;
-  }
-  const baseDir = workspaceDir ?? process.cwd();
-  return `${baseDir}/${filePath}`.replace(/\\/g, "/");
-}
+import { resolveFilePath } from "@wf-agent/sdk/utils";
 
 /**
  * Create the `edit` tool execution function
@@ -33,7 +23,7 @@ export function createEditHandler(config: EditFileConfig = {}) {
         mode?: "safe" | "batch";
       };
 
-      const filePath = resolvePath(file_path, config.workspaceDir);
+      const filePath = resolveFilePath(file_path, config.workspaceDir);
       const workspaceDir = config.workspaceDir ?? process.cwd();
 
       // Initialize protect controller if enabled

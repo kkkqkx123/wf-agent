@@ -8,17 +8,7 @@ import path from "path";
 import type { ToolOutput } from "@wf-agent/types";
 import type { ReadFileConfig } from "../../../types.js";
 import { IgnoreController, MAX_FILE_RESULTS } from "@wf-agent/sdk/services";
-
-/**
- * Parse paths (relative paths are supported)
- */
-function resolvePath(filePath: string, workspaceDir?: string): string {
-  if (filePath.startsWith("/") || filePath.match(/^[A-Za-z]:\\/)) {
-    return filePath;
-  }
-  const baseDir = workspaceDir ?? process.cwd();
-  return `${baseDir}/${filePath}`.replace(/\\/g, "/");
-}
+import { resolveFilePath } from "@wf-agent/sdk/utils";
 
 /**
  * Check if a path is a special directory (root or home)
@@ -177,7 +167,7 @@ export function createListFilesHandler(config: ReadFileConfig = {}) {
   return async (params: Record<string, unknown>): Promise<ToolOutput> => {
     try {
       const { path: targetPath, recursive } = params as { path: string; recursive?: boolean };
-      const dirPath = resolvePath(targetPath, config.workspaceDir);
+      const dirPath = resolveFilePath(targetPath, config.workspaceDir);
 
       // Check for special directories
       if (isSpecialDirectory(dirPath)) {

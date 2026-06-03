@@ -7,17 +7,7 @@ import { dirname } from "path";
 import type { ToolOutput } from "@wf-agent/types";
 import type { WriteFileConfig } from "../../../types.js";
 import { ProtectController, SHIELD_SYMBOL } from "@wf-agent/sdk/services";
-
-/**
- * Parse paths (relative paths are supported)
- */
-function resolvePath(filePath: string, workspaceDir?: string): string {
-  if (filePath.startsWith("/") || filePath.match(/^[A-Za-z]:\\/)) {
-    return filePath;
-  }
-  const baseDir = workspaceDir ?? process.cwd();
-  return `${baseDir}/${filePath}`.replace(/\\/g, "/");
-}
+import { resolveFilePath } from "@wf-agent/sdk/utils";
 
 /**
  * Create the `write_file` tool execution function
@@ -26,7 +16,7 @@ export function createWriteFileHandler(config: WriteFileConfig = {}) {
   return async (params: Record<string, unknown>): Promise<ToolOutput> => {
     try {
       const { path: filePath, content } = params as { path: string; content: string };
-      const absolutePath = resolvePath(filePath, config.workspaceDir);
+      const absolutePath = resolveFilePath(filePath, config.workspaceDir);
       const workspaceDir = config.workspaceDir ?? process.cwd();
 
       // Initialize protect controller if enabled

@@ -7,17 +7,7 @@ import { existsSync } from "fs";
 import type { ToolOutput } from "@wf-agent/types";
 import type { ReadFileConfig } from "../../../types.js";
 import { SearchService, IgnoreController } from "@wf-agent/sdk/services";
-
-/**
- * Parse paths (relative paths are supported)
- */
-function resolvePath(path: string, workspaceDir?: string): string {
-  if (path.startsWith("/") || path.match(/^[A-Za-z]:\\/)) {
-    return path;
-  }
-  const baseDir = workspaceDir ?? process.cwd();
-  return `${baseDir}/${path}`.replace(/\\/g, "/");
-}
+import { resolveFilePath } from "@wf-agent/sdk/utils";
 
 /**
  * Create the `grep` tool execution function
@@ -32,7 +22,7 @@ export function createGrepHandler(config: ReadFileConfig = {}) {
       };
 
       const workspaceDir = config.workspaceDir ?? process.cwd();
-      const dirPath = resolvePath(path, workspaceDir);
+      const dirPath = resolveFilePath(path, workspaceDir);
 
       if (!existsSync(dirPath)) {
         return {

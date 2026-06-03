@@ -12,17 +12,7 @@ import { applyChunksToContent } from "./utils/apply.js";
 import type { ApplyPatchFileResult, ApplyPatchResult, ApplyPatchSummary } from "./utils/types.js";
 import { PatchErrors, PatchToolError, ToolErrorCode } from "@wf-agent/types";
 import { ProtectController, SHIELD_SYMBOL } from "@wf-agent/sdk/services";
-
-/**
- * Resolve a relative path to an absolute path
- */
-function resolvePath(path: string, workspaceDir?: string): string {
-  if (path.startsWith("/") || path.match(/^[A-Za-z]:\\/)) {
-    return path;
-  }
-  const baseDir = workspaceDir ?? process.cwd();
-  return `${baseDir}/${path}`.replace(/\\/g, "/");
-}
+import { resolveFilePath } from "@wf-agent/sdk/utils";
 
 /**
  * Check if a path is a file (not a directory)
@@ -64,7 +54,7 @@ export function createApplyPatchHandler(config: ReadFileConfig = {}) {
 
       // Process each hunk
       for (const hunk of hunks) {
-        const filePath = resolvePath(hunk.path, config.workspaceDir);
+        const filePath = resolveFilePath(hunk.path, config.workspaceDir);
 
         try {
           switch (hunk.type) {
@@ -223,7 +213,7 @@ export function createApplyPatchHandler(config: ReadFileConfig = {}) {
 
               // Handle move/rename if specified
               if (hunk.movePath) {
-                const newFilePath = resolvePath(hunk.movePath, config.workspaceDir);
+                const newFilePath = resolveFilePath(hunk.movePath, config.workspaceDir);
 
                 // Check if destination is write-protected
                 if (protectController?.isWriteProtected(newFilePath)) {

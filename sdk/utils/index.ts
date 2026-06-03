@@ -69,3 +69,10 @@ export * from "./tool-utils.js";
 
 // Misc Utilities (file processing, binary detection, etc.)
 export * from "./misc/index.js";
+
+// File Utilities (path resolution, file size formatting, text file detection)
+export {
+  resolveFilePath,
+  formatFileSize,
+  isLikelyTextFile,
+} from "./file-utils.js";

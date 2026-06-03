@@ -8,63 +8,8 @@ import * as path from "path";
 import type { ToolOutput } from "@wf-agent/types";
 import type { ReadFileConfig } from "../../../types.js";
 import { IgnoreController, ProtectController } from "@wf-agent/sdk/services";
-
-/**
- * Format file size to human-readable format
- */
-function formatFileSize(bytes: number): string {
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
-}
-
-/**
- * Parse paths (relative paths are supported)
- */
-function resolvePath(filePath: string, workspaceDir?: string): string {
-  if (filePath.startsWith("/") || filePath.match(/^[A-Za-z]:\\/)) {
-    return filePath;
-  }
-  const baseDir = workspaceDir ?? process.cwd();
-  return `${baseDir}/${filePath}`.replace(/\\/g, "/");
-}
-
-/**
- * Check if a file is likely a plain text file based on extension
- * Returns true for common text/code file extensions
- */
-function isLikelyTextFile(filePath: string): boolean {
-  const ext = path.extname(filePath).toLowerCase();
-  
-  // Common text and code file extensions
-  const textExtensions = new Set([
-    // Plain text
-    '.txt', '.md', '.markdown', '.rst', '.text',
-    // Code files
-    '.js', '.ts', '.jsx', '.tsx', '.py', '.java', '.cpp', '.c', '.h', '.hpp',
-    '.cs', '.go', '.rs', '.rb', '.php', '.swift', '.kt', '.scala',
-    // Web files
-    '.html', '.htm', '.css', '.scss', '.sass', '.less',
-    // Config files
-    '.json', '.yaml', '.yml', '.toml', '.xml', '.ini', '.cfg', '.conf',
-    // Shell scripts
-    '.sh', '.bash', '.zsh', '.fish', '.ps1', '.bat', '.cmd',
-    // Data files
-    '.csv', '.tsv', '.sql',
-    // Other text formats
-    '.log', '.env', '.gitignore', '.dockerignore',
-    '.vue', '.svelte', '.astro',
-  ]);
-  
-  // Files without extension are often text files (scripts, configs)
-  if (!ext) {
-    return true;
-  }
-  
-  return textExtensions.has(ext);
-}
+import { resolveFilePath, formatFileSize, isLikelyTextFile } from "@wf-agent/sdk/utils";
+import { formatLineNumbers } from "@wf-agent/sdk/utils";
 
 /**
  * Create the `read_file` tool execution function
@@ -91,7 +36,7 @@ export function createReadFileHandler(config: ReadFileConfig = {}) {
         };
       }
 
-      const absolutePath = resolvePath(filePath, config.workspaceDir);
+      const absolutePath = resolveFilePath(filePath, config.workspaceDir);
       const workspaceDir = config.workspaceDir ?? process.cwd();
 
       // Initialize controllers if enabled
@@ -180,10 +125,7 @@ If this is actually a text file with an unusual extension, you can try reading i
       let selectedLines = lines.slice(start, end);
 
       // Format with line numbers (convert back to 1-indexed for display)
-      const formattedLines = selectedLines.map(
-        (line, index) => `${(start + index + 1).toString().padStart(6, " ")}|${line}`
-      );
-      let numberedContent = formattedLines.join("\n");
+      let numberedContent = formatLineNumbers(selectedLines, start + 1);
 
       // Apply character limit if specified or use default
       const charLimit = max_chars ?? DEFAULT_CHAR_LIMIT;

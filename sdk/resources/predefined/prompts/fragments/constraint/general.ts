@@ -8,7 +8,7 @@ import type { SystemPromptFragment } from "@wf-agent/types";
  * Important Notes for the General Assistant Fragment
  */
 export const GENERAL_CONSTRAINTS_FRAGMENT: SystemPromptFragment = {
-  id: "sdk.fragments.constraint.general",
+  id: "fragments.constraint.general",
   category: "constraint",
   description: "Important Notes for General Assistants",
   content: `## Important Notes
@@ -23,7 +23,7 @@ export const GENERAL_CONSTRAINTS_FRAGMENT: SystemPromptFragment = {
  * Fragment of a General Assistant Interaction Method
  */
 export const GENERAL_INTERACTION_FRAGMENT: SystemPromptFragment = {
-  id: "sdk.fragments.constraint.general-interaction",
+  id: "fragments.constraint.general-interaction",
   category: "constraint",
   description: "Generalized Assistant Interaction Methods",
   content: `## Interaction Methods

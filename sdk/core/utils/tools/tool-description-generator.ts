@@ -191,8 +191,7 @@ export function generateToolListDescription(
     case "table":
       // Table format: One tool description per row
       if (options?.includeHeader) {
-        const header =
-          "| Tool Name | Tool ID | Description |\n|-----------|---------|-------------|";
+        const header = "| Tool ID | Description |\n|-|-|";
         return `${header}\n${descriptions.join("\n")}`;
       }
       return descriptions.join("\n");

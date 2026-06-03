@@ -17,7 +17,7 @@ import {
  * Initialize fragment registry
  */
 function ensureInitialized(): void {
-  if (!fragmentRegistry.has("sdk.fragments.role.coder")) {
+  if (!fragmentRegistry.has("fragments.role.coder")) {
     initializeFragmentRegistry();
   }
 }

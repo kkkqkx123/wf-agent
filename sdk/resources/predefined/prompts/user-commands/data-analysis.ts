@@ -1,18 +1,14 @@
 /**
- * Data Analysis Command Template
- * Used to define user commands for data analysis
+ * Data Analysis Task Instruction Fragment
+ * Injected as a system prompt fragment for data analysis tasks.
  */
 
-import type { PromptTemplate } from "@wf-agent/types";
+import type { SystemPromptFragment } from "@wf-agent/types";
 
-/**
- * Data Analysis Instruction Template
- */
-export const DATA_ANALYSIS_TEMPLATE: PromptTemplate = {
-  id: "user_commands.data_analysis",
-  name: "Data Analysis Command",
-  description: "Data analysis command",
-  category: "user-command",
+export const DATA_ANALYSIS_FRAGMENT: SystemPromptFragment = {
+  id: "fragments.task-instruction.data-analysis",
+  category: "task-instruction",
+  description: "Data analysis task instructions",
   content: `Please analyze the following data:
 
 ## Analysis goal

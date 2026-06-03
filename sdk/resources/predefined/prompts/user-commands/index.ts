@@ -1,6 +1,6 @@
 /**
- * Unified export of user instruction templates
+ * Task instruction fragments export
  */
 
-export { CODE_REVIEW_TEMPLATE } from "./code-review.js";
-export { DATA_ANALYSIS_TEMPLATE } from "./data-analysis.js";
+export { CODE_REVIEW_FRAGMENT } from "./code-review.js";
+export { DATA_ANALYSIS_FRAGMENT } from "./data-analysis.js";

@@ -14,24 +14,20 @@ import {
 import type { Tool } from "@wf-agent/types";
 
 // Mock templates and tools
-vi.mock("../../../resources/predefined/prompt-templates/tool-description-renderer.js", async importOriginal => {
-  const actual = await importOriginal<typeof import("../../../resources/predefined/prompt-templates/tool-description-renderer.js")>();
-  return {
-    ...actual,
-    renderToolDescription: vi.fn(data => {
-      return `${data.id}: ${data.description}\n\nParameters:\n  None`;
-    }),
-    renderToolDescriptionSingleLine: vi.fn(data => {
-      return `${data.id}: ${data.description}`;
-    }),
-    renderToolDescriptionListItem: vi.fn(data => {
-      return `- ${data.id} (${data.id}): ${data.description}`;
-    }),
-    renderToolDescriptionTableRow: vi.fn(data => {
-      return `| ${data.id} | ${data.id} | ${data.description} |`;
-    }),
-  };
-});
+vi.mock("../../../resources/predefined/prompt-templates/tool-description-renderer.js", () => ({
+  renderToolDescription: vi.fn(data => {
+    return `${data.id}: ${data.description}\n\nParameters:\n  None`;
+  }),
+  renderToolDescriptionSingleLine: vi.fn(data => {
+    return `${data.id}: ${data.description}`;
+  }),
+  renderToolDescriptionListItem: vi.fn(data => {
+    return `- ${data.id} (${data.id}): ${data.description}`;
+  }),
+  renderToolDescriptionTableRow: vi.fn(data => {
+    return `| ${data.id} | ${data.id} | ${data.description} |`;
+  }),
+}));
 
 // Mock tool description registry
 vi.mock("../tool-description-registry.js", () => ({
@@ -90,7 +86,7 @@ describe("ToolDescriptionGenerator", () => {
     it("A tool description that should generate a table format.", () => {
       const description = generateToolDescription(mockTool1, "table");
 
-      expect(description).toBe("| calculator | calculator | Performs basic calculations |");
+      expect(description).toBe("| calculator | Performs basic calculations |");
     });
 
     it("A tool description that should be generated in single-line format.", () => {
@@ -102,7 +98,7 @@ describe("ToolDescriptionGenerator", () => {
     it("A tool description that should be generated in list format.", () => {
       const description = generateToolDescription(mockTool1, "list");
 
-      expect(description).toBe("- calculator (calculator): Performs basic calculations");
+      expect(description).toBe("- calculator: Performs basic calculations");
     });
 
     it("Tools that are not described should be handled accordingly.", () => {
@@ -131,9 +127,9 @@ describe("ToolDescriptionGenerator", () => {
       const tools = [mockTool1, mockTool2, mockTool3];
       const description = generateToolListDescription(tools, "table");
 
-      expect(description).toContain("| calculator | calculator | Performs basic calculations |");
-      expect(description).toContain("| weather | weather | Gets weather information |");
-      expect(description).toContain("| email | email | Sends emails |");
+      expect(description).toContain("| calculator | Performs basic calculations |");
+      expect(description).toContain("| weather | Gets weather information |");
+      expect(description).toContain("| email | Sends emails |");
       expect(description.split("\n")).toHaveLength(3);
     });
 
@@ -143,9 +139,9 @@ describe("ToolDescriptionGenerator", () => {
         includeHeader: true,
       });
 
-      expect(description).toContain("| Tool Name | Tool ID | Description |");
-      expect(description).toContain("|-----------|---------|-------------|");
-      expect(description).toContain("| calculator | calculator | Performs basic calculations |");
+      expect(description).toContain("| Tool ID | Description |");
+      expect(description).toContain("|---------|-------------|");
+      expect(description).toContain("| calculator | Performs basic calculations |");
     });
 
     it("A list of tool descriptions that should be generated in single-line format (default line breaker).", () => {
@@ -176,9 +172,7 @@ describe("ToolDescriptionGenerator", () => {
 
       const lines = description.split("\n");
       expect(lines).toHaveLength(3);
-      expect(lines[0]).toBe("- calculator (calculator): Performs basic calculations");
-      expect(lines[1]).toBe("- weather (weather): Gets weather information");
-      expect(lines[2]).toBe("- email (email): Sends emails");
+      expect(description).toContain("- calculator: Performs basic calculations");
     });
 
     it("The empty tool array should be handled accordingly.", () => {
@@ -204,8 +198,8 @@ describe("ToolDescriptionGenerator", () => {
 
       const lines = description.split("\n");
       expect(lines).toHaveLength(2);
-      expect(lines[0]).toBe("- calculator (calculator): Performs basic calculations");
-      expect(lines[1]).toBe("- weather (weather): Gets weather information");
+      expect(lines[0]).toBe("- calculator: Performs basic calculations");
+      expect(lines[1]).toBe("- weather: Gets weather information");
     });
   });
 
@@ -213,7 +207,7 @@ describe("ToolDescriptionGenerator", () => {
     it("Table row format should be generated.", () => {
       const row = generateToolTableRow(mockTool1);
 
-      expect(row).toBe("| calculator | calculator | Performs basic calculations |");
+      expect(row).toBe("| calculator | Performs basic calculations |");
     });
 
     it("Tools that are not described should be addressed.", () => {
@@ -231,7 +225,6 @@ describe("ToolDescriptionGenerator", () => {
       const row = generateToolTableRow(mockTool1);
 
       expect(row).toContain("calculator");
-      expect(row).toContain("calculator");
       expect(row).toContain("Performs basic calculations");
     });
   });
@@ -242,10 +235,10 @@ describe("ToolDescriptionGenerator", () => {
 
       const lines = table.split("\n");
       expect(lines).toHaveLength(4);
-      expect(lines[0]).toBe("| Tool Name | Tool ID | Description |");
-      expect(lines[1]).toBe("|-----------|---------|-------------|");
-      expect(lines[2]).toBe("| calculator | calculator | Performs basic calculations |");
-      expect(lines[3]).toBe("| weather | weather | Gets weather information |");
+      expect(lines[0]).toBe("| Tool ID | Description |");
+      expect(lines[1]).toBe("|---------|-------------|");
+      expect(lines[2]).toBe("| calculator | Performs basic calculations |");
+      expect(lines[3]).toBe("| weather | Gets weather information |");
     });
 
     it("The empty tool array should be handled accordingly.", () => {
@@ -259,9 +252,9 @@ describe("ToolDescriptionGenerator", () => {
 
       const lines = table.split("\n");
       expect(lines).toHaveLength(3);
-      expect(lines[0]).toBe("| Tool Name | Tool ID | Description |");
-      expect(lines[1]).toBe("|-----------|---------|-------------|");
-      expect(lines[2]).toBe("| calculator | calculator | Performs basic calculations |");
+      expect(lines[0]).toBe("| Tool ID | Description |");
+      expect(lines[1]).toBe("|---------|-------------|");
+      expect(lines[2]).toBe("| calculator | Performs basic calculations |");
     });
 
     it("Multiple tools should be processed.", () => {
@@ -269,8 +262,8 @@ describe("ToolDescriptionGenerator", () => {
 
       const lines = table.split("\n");
       expect(lines).toHaveLength(5);
-      expect(lines[0]).toBe("| Tool Name | Tool ID | Description |");
-      expect(lines[1]).toBe("|-----------|---------|-------------|");
+      expect(lines[0]).toBe("| Tool ID | Description |");
+      expect(lines[1]).toBe("|---------|-------------|");
       expect(lines[2]).toContain("calculator");
       expect(lines[3]).toContain("weather");
       expect(lines[4]).toContain("email");
@@ -320,7 +313,7 @@ describe("ToolDescriptionGenerator", () => {
 
       const description = generateToolDescription(toolWithEmptyId, "list");
 
-      expect(description).toContain("()");
+      expect(description).toContain(": Performs basic calculations");
     });
   });
 });

@@ -60,13 +60,15 @@ export interface SystemPromptBuildOptions {
   additionalFragments?: string[];
   /** Fragment IDs to exclude */
   excludeFragments?: string[];
+  /** Variable values for task-instruction fragments (fragmentId → variables map) */
+  fragmentVariables?: Map<string, Record<string, unknown>>;
 }
 
 /**
  * Ensure fragment registry is initialized
  */
 function ensureFragmentRegistryInitialized(): void {
-  if (!fragmentRegistry.has("sdk.fragments.role.assistant")) {
+  if (!fragmentRegistry.has("fragments.role.assistant")) {
     initializeFragmentRegistry();
   }
 }
@@ -86,6 +88,7 @@ export function buildSystemPrompt(options: SystemPromptBuildOptions): string {
     toolFormat = "detailed",
     additionalFragments = [],
     excludeFragments = [],
+    fragmentVariables,
   } = options;
 
   // Get base fragment IDs
@@ -100,7 +103,7 @@ export function buildSystemPrompt(options: SystemPromptBuildOptions): string {
   let toolListDescription: string | undefined;
   if (tools && tools.length > 0) {
     // Add tool usage fragment
-    fragments.push("sdk.fragments.tool-usage.xml-summary");
+    fragments.push("fragments.tool-usage.xml-summary");
 
     // Generate tool availability section
     toolListDescription = generateToolAvailabilitySection(tools, toolFormat);
@@ -111,6 +114,7 @@ export function buildSystemPrompt(options: SystemPromptBuildOptions): string {
     fragmentIds: fragments,
     toolListDescription,
     separator: "\n\n",
+    fragmentVariables,
   });
 }
 
@@ -159,8 +163,7 @@ export function buildCoderSystemPromptWithTools(
 export function buildMinimalSystemPrompt(type: SystemPromptType = "assistant"): string {
   ensureFragmentRegistryInitialized();
 
-  const roleFragmentId =
-    type === "coder" ? "sdk.fragments.role.coder" : "sdk.fragments.role.assistant";
+  const roleFragmentId = type === "coder" ? "fragments.role.coder" : "fragments.role.assistant";
 
   return buildCompleteSystemPrompt({
     fragmentIds: [roleFragmentId],

@@ -17,7 +17,7 @@ import {
  * Initialize segment registry
  */
 function ensureInitialized(): void {
-  if (!fragmentRegistry.has("sdk.fragments.role.assistant")) {
+  if (!fragmentRegistry.has("fragments.role.assistant")) {
     initializeFragmentRegistry();
   }
 }

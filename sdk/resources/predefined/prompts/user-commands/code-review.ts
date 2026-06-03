@@ -1,18 +1,14 @@
 /**
- * Code Review Instruction Template
- * Used to define user instructions for code reviews
+ * Code Review Task Instruction Fragment
+ * Injected as a system prompt fragment for code review tasks.
  */
 
-import type { PromptTemplate } from "@wf-agent/types";
+import type { SystemPromptFragment } from "@wf-agent/types";
 
-/**
- * Code Review Instruction Template
- */
-export const CODE_REVIEW_TEMPLATE: PromptTemplate = {
-  id: "user_commands.code_review",
-  name: "Code Review Command",
-  description: "Code review instructions",
-  category: "user-command",
+export const CODE_REVIEW_FRAGMENT: SystemPromptFragment = {
+  id: "fragments.task-instruction.code-review",
+  category: "task-instruction",
+  description: "Code review task instructions",
   content: `Please review the following code:
 
 ## Review points:

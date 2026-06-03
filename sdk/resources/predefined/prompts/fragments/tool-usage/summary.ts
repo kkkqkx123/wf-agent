@@ -8,7 +8,7 @@ import type { SystemPromptFragment } from "@wf-agent/types";
  * XML Format Tool Call Summary Fragment
  */
 export const TOOL_USAGE_XML_SUMMARY_FRAGMENT: SystemPromptFragment = {
-  id: "sdk.fragments.tool-usage.xml-summary",
+  id: "fragments.tool-usage.xml-summary",
   category: "tool-usage",
   description: "Summary of the XML Format Tool Invocation Specification",
   content: `## Tool Usage
@@ -35,7 +35,7 @@ When you need to use a tool, you must format your response as follows:
  * JSON Format Tool Call Summary Fragment
  */
 export const TOOL_USAGE_JSON_SUMMARY_FRAGMENT: SystemPromptFragment = {
-  id: "sdk.fragments.tool-usage.json-summary",
+  id: "fragments.tool-usage.json-summary",
   category: "tool-usage",
   description: "Summary of JSON Format Tool Invocation Specification",
   content: `## Tool Usage

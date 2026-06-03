@@ -23,11 +23,20 @@ vi.mock("../../../utils/template-renderer/index.js", () => ({
 
 vi.mock("../../../resources/predefined/prompt-templates/tool-parameters-templates.js", () => ({
   TOOL_PARAMETERS_SCHEMA_TEMPLATE: {
+    id: "tool-parameters-schema",
+    name: "Tool Parameters Schema",
+    description: "Tool parameters with schema and description list",
+    category: "tools",
     content:
       "Tool: {{toolName}} ({{toolId}})\nDescription: {{toolDescription}}\nSchema: {{parametersSchema}}\nParameters:\n{{parametersDescription}}",
   },
-  PARAMETER_DESCRIPTION_LINE_TEMPLATE:
-    "- {{paramName}} ({{paramType}}): {{paramDescription}} {{required}}",
+  PARAMETER_DESCRIPTION_LINE_TEMPLATE: {
+    id: "parameter-description-line",
+    name: "Parameter Description Line",
+    description: "Single parameter description line",
+    category: "tools",
+    content: "- {{paramName}} ({{paramType}}): {{paramDescription}} {{required}}",
+  },
 }));
 
 describe("ToolParametersDescriber", () => {
@@ -66,8 +75,8 @@ describe("ToolParametersDescriber", () => {
       expect(description).toContain("Tool: calculator");
       expect(description).toContain("calculator");
       expect(description).toContain("Performs basic calculations");
-      expect(description).toContain("Schema:");
-      expect(description).toContain("Parameters:");
+      expect(description).toContain("Parameter schema:");
+      expect(description).toContain("Parameter description:");
     });
 
     it("The JSON Schema that should contain the parameters", () => {

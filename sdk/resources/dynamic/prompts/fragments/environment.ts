@@ -138,4 +138,4 @@ function getUserLanguage(): string {
 /**
  * Environment Information Fragment ID
  */
-export const ENVIRONMENT_FRAGMENT_ID = "sdk.fragments.context.environment";
+export const ENVIRONMENT_FRAGMENT_ID = "fragments.context.environment";

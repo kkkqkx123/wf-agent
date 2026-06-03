@@ -8,7 +8,7 @@ import type { SystemPromptFragment } from "@wf-agent/types";
  * Important Notes for Programming Assistants Segment
  */
 export const CODING_CONSTRAINTS_FRAGMENT: SystemPromptFragment = {
-  id: "sdk.fragments.constraint.coding",
+  id: "fragments.constraint.coding",
   category: "constraint",
   description: "Programming Assistant Important Notes",
   content: `## Important Notes
@@ -23,7 +23,7 @@ export const CODING_CONSTRAINTS_FRAGMENT: SystemPromptFragment = {
  * Code Security Rules Segment
  */
 export const CODE_SAFETY_FRAGMENT: SystemPromptFragment = {
-  id: "sdk.fragments.constraint.code-safety",
+  id: "fragments.constraint.code-safety",
   category: "constraint",
   description: "Code Security Rules",
   content: `## Code Safety

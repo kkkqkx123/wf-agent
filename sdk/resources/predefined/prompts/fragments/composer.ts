@@ -23,6 +23,8 @@ export interface CompleteSystemPromptConfig {
   toolListDescription?: string;
   /** Separator */
   separator?: string;
+  /** Variable values for task-instruction fragments (fragmentId → variables map) */
+  fragmentVariables?: Map<string, Record<string, unknown>>;
 }
 
 /**
@@ -31,14 +33,23 @@ export interface CompleteSystemPromptConfig {
  * @param config Combination configuration
  * @returns The combined system prompt word
  */
-export function composeSystemPrompt(config: FragmentCompositionConfig): string {
+export function composeSystemPrompt(
+  config: FragmentCompositionConfig,
+  fragmentVariables?: Map<string, Record<string, unknown>>,
+): string {
   const separator = config.separator ?? "\n\n";
   const contents: string[] = [];
 
   for (const fragmentId of config.fragmentIds) {
     const fragment = fragmentRegistry.get(fragmentId);
     if (fragment) {
-      contents.push(fragment.content);
+      // Use render() for fragments with variables to support substitution
+      if (fragment.variables && fragment.variables.length > 0) {
+        const variables = fragmentVariables?.get(fragmentId);
+        contents.push(fragmentRegistry.render(fragmentId, variables) ?? fragment.content);
+      } else {
+        contents.push(fragment.content);
+      }
     } else {
       logger.warn(`Fragment '${fragmentId}' not found`);
     }
@@ -54,10 +65,10 @@ export function composeSystemPrompt(config: FragmentCompositionConfig): string {
  * @returns System prompts
  */
 export function buildCompleteSystemPrompt(config: CompleteSystemPromptConfig): string {
-  const basePrompt = composeSystemPrompt({
-    fragmentIds: config.fragmentIds,
-    separator: config.separator,
-  });
+  const basePrompt = composeSystemPrompt(
+    { fragmentIds: config.fragmentIds, separator: config.separator },
+    config.fragmentVariables,
+  );
 
   // If there are any instructions for the dynamic tool, add them after the tool-usage section.
   if (config.toolListDescription) {
@@ -81,23 +92,23 @@ export function composeFragments(fragmentIds: string[]): string {
  * Predefined assistant system prompt phrase combinations
  */
 export const ASSISTANT_SYSTEM_PROMPT_FRAGMENTS = [
-  "sdk.fragments.role.assistant",
-  "sdk.fragments.capability.general",
-  "sdk.fragments.capability.general-principles",
-  "sdk.fragments.constraint.general-interaction",
-  "sdk.fragments.constraint.general",
+  "fragments.role.assistant",
+  "fragments.capability.general",
+  "fragments.capability.general-principles",
+  "fragments.constraint.general-interaction",
+  "fragments.constraint.general",
 ];
 
 /**
  * Predefined phrases for programmer assistant system prompts
  */
 export const CODER_SYSTEM_PROMPT_FRAGMENTS = [
-  "sdk.fragments.role.coder",
-  "sdk.fragments.capability.coding",
-  "sdk.fragments.capability.coding-principles",
-  "sdk.fragments.capability.coding-interaction",
-  "sdk.fragments.constraint.coding",
-  "sdk.fragments.constraint.code-safety",
+  "fragments.role.coder",
+  "fragments.capability.coding",
+  "fragments.capability.coding-principles",
+  "fragments.capability.coding-interaction",
+  "fragments.constraint.coding",
+  "fragments.constraint.code-safety",
 ];
 
 /**
@@ -110,7 +121,7 @@ export function buildAssistantSystemPrompt(toolListDescription?: string): string
   const fragments = [...ASSISTANT_SYSTEM_PROMPT_FRAGMENTS];
 
   if (toolListDescription) {
-    fragments.push("sdk.fragments.tool-usage.xml-summary");
+    fragments.push("fragments.tool-usage.xml-summary");
   }
 
   return buildCompleteSystemPrompt({
@@ -129,7 +140,7 @@ export function buildCoderSystemPrompt(toolListDescription?: string): string {
   const fragments = [...CODER_SYSTEM_PROMPT_FRAGMENTS];
 
   if (toolListDescription) {
-    fragments.push("sdk.fragments.tool-usage.xml-summary");
+    fragments.push("fragments.tool-usage.xml-summary");
   }
 
   return buildCompleteSystemPrompt({

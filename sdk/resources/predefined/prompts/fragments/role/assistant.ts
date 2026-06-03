@@ -8,7 +8,7 @@ import type { SystemPromptFragment } from "@wf-agent/types";
  * General Assistant Role Segment
  */
 export const ASSISTANT_ROLE_FRAGMENT: SystemPromptFragment = {
-  id: "sdk.fragments.role.assistant",
+  id: "fragments.role.assistant",
   category: "role",
   description: "Generic Assistant Role Definition",
   content: `## Role
@@ -20,7 +20,7 @@ You are an intelligent assistant, ready to help with various tasks.`,
  * Programmer Assistant Role Segment
  */
 export const CODER_ROLE_FRAGMENT: SystemPromptFragment = {
-  id: "sdk.fragments.role.coder",
+  id: "fragments.role.coder",
   category: "role",
   description: "Programmer's Assistant Role Definition",
   content: `## Role
@@ -32,7 +32,7 @@ You are a professional programmer assistant, skilled in coding, debugging, and o
  * Data Analysis Assistant Role Segment
  */
 export const ANALYST_ROLE_FRAGMENT: SystemPromptFragment = {
-  id: "sdk.fragments.role.analyst",
+  id: "fragments.role.analyst",
   category: "role",
   description: "Data Analytics Assistant Role Definition",
   content: `## Role

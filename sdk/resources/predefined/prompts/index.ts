@@ -12,7 +12,6 @@ import {
   buildAssistantSystemPromptWithTools,
   buildCoderSystemPromptWithTools,
 } from "./system/index.js";
-import { CODE_REVIEW_TEMPLATE, DATA_ANALYSIS_TEMPLATE } from "./user-commands/index.js";
 import { initializeFragmentRegistry } from "./fragments/registry.js";
 
 // System prompt word template (based on fragment combination)
@@ -26,12 +25,12 @@ export * from "./fragments/index.js";
 
 /**
  * List of all predefined prompt word templates
+ *
+ * Note: User-command templates have been migrated to SystemPromptFragment
+ * (task-instruction category) and are registered via FragmentRegistry.
+ * See fragments/registry.ts for details.
  */
-export const ALL_PREDEFINED_PROMPT_TEMPLATES: PromptTemplate[] = [
-  // User instructions
-  CODE_REVIEW_TEMPLATE,
-  DATA_ANALYSIS_TEMPLATE,
-];
+export const ALL_PREDEFINED_PROMPT_TEMPLATES: PromptTemplate[] = [];
 
 /**
  * Register all predefined prompt word templates to the registry.

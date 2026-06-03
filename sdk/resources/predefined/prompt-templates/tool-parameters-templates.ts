@@ -5,9 +5,8 @@ export const TOOL_PARAMETERS_SCHEMA_TEMPLATE: PromptTemplate = {
   name: "Tool Parameters Schema",
   description: "Tool parameters with schema and description list",
   category: "tools",
-  content: `Tool name: {{toolName}}
-Tool ID: {{toolId}}
-Tool description: {{toolDescription}}
+  content: `Tool: {{toolName}} ({{toolId}})
+Description: {{toolDescription}}
 
 Parameter schema:
 \`\`\`json

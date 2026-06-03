@@ -8,7 +8,7 @@ import type { SystemPromptFragment } from "@wf-agent/types";
  * Programming ability snippet
  */
 export const CODING_CAPABILITY_FRAGMENT: SystemPromptFragment = {
-  id: "sdk.fragments.capability.coding",
+  id: "fragments.capability.coding",
   category: "capability",
   description: "Programmer's Assistant Core Competencies",
   content: `## Core Capabilities
@@ -23,7 +23,7 @@ export const CODING_CAPABILITY_FRAGMENT: SystemPromptFragment = {
  * Fragment of programming work principles
  */
 export const CODING_WORK_PRINCIPLES_FRAGMENT: SystemPromptFragment = {
-  id: "sdk.fragments.capability.coding-principles",
+  id: "fragments.capability.coding-principles",
   category: "capability",
   description: "Programmer's Assistant Working Principles",
   content: `## Work Principles
@@ -39,7 +39,7 @@ export const CODING_WORK_PRINCIPLES_FRAGMENT: SystemPromptFragment = {
  * Fragment of programming interaction methods
  */
 export const CODING_INTERACTION_FRAGMENT: SystemPromptFragment = {
-  id: "sdk.fragments.capability.coding-interaction",
+  id: "fragments.capability.coding-interaction",
   category: "capability",
   description: "Programmer's Assistant Interaction Method",
   content: `## Interaction Methods

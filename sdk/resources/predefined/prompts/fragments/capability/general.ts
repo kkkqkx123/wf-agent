@@ -8,7 +8,7 @@ import type { SystemPromptFragment } from "@wf-agent/types";
  * General Assistant Capability Segment
  */
 export const GENERAL_CAPABILITY_FRAGMENT: SystemPromptFragment = {
-  id: "sdk.fragments.capability.general",
+  id: "fragments.capability.general",
   category: "capability",
   description: "General Assistant Core Competencies",
   content: `## Core Capabilities
@@ -23,7 +23,7 @@ export const GENERAL_CAPABILITY_FRAGMENT: SystemPromptFragment = {
  * General Assistant Working Principles Segment
  */
 export const GENERAL_WORK_PRINCIPLES_FRAGMENT: SystemPromptFragment = {
-  id: "sdk.fragments.capability.general-principles",
+  id: "fragments.capability.general-principles",
   category: "capability",
   description: "Principles of work of the General Assistant",
   content: `## Work Principles

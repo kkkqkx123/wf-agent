@@ -24,6 +24,14 @@ export interface SkillMetadata {
   description: string;
 
   /**
+   * When to use (optional)
+   * - Additional trigger phrases or context descriptions
+   * - Helps Claude decide when to invoke this Skill
+   * - Appended to description for matching
+   */
+  whenToUse?: string;
+
+  /**
    * Skill version number (optional)
    */
   version?: string;

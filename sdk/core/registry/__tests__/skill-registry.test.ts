@@ -1,18 +1,19 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { SkillRegistry } from '../skill-registry.js';
+import type { SkillFileLoader } from '../../../services/skill-loader/types.js';
 
-vi.mock('fs/promises', () => ({
-  default: {
-    readdir: vi.fn(),
-    readFile: vi.fn(),
-    access: vi.fn(),
-  },
-  readdir: vi.fn(),
-  readFile: vi.fn(),
-  access: vi.fn(),
-}));
-
-import * as fs from 'fs/promises';
+function createMockLoader(): SkillFileLoader {
+  return {
+    readDirectory: vi.fn().mockResolvedValue([]),
+    listFiles: vi.fn().mockResolvedValue([]),
+    exists: vi.fn().mockResolvedValue(false),
+    readTextFile: vi.fn().mockResolvedValue(''),
+    readBinaryFile: vi.fn().mockResolvedValue(Buffer.from('')),
+    resolve: vi.fn((...s: string[]) => s.join('/')),
+    join: vi.fn((...s: string[]) => s.join('/')),
+    basename: vi.fn((p: string) => p.split('/').pop() || p),
+  };
+}
 
 describe('SkillRegistry', () => {
   let registry: SkillRegistry;
@@ -25,7 +26,7 @@ describe('SkillRegistry', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    registry = new SkillRegistry(mockSkillConfig);
+    registry = new SkillRegistry(mockSkillConfig, createMockLoader());
   });
 
   describe('constructor', () => {
@@ -34,7 +35,7 @@ describe('SkillRegistry', () => {
     });
 
     it('should apply default config values', () => {
-      const r = new SkillRegistry({ paths: ['/test'] });
+      const r = new SkillRegistry({ paths: ['/test'] }, createMockLoader());
       expect((r as any).config.autoScan).toBe(true);
       expect((r as any).config.cacheEnabled).toBe(true);
       expect((r as any).config.cacheTTL).toBe(300000);
@@ -95,6 +96,16 @@ describe('SkillRegistry', () => {
       );
       expect(result.name).toBe('my-skill');
       expect(result.description).toBe('test');
+    });
+
+    it('should parse when_to_use field', () => {
+      const r = registry as any;
+      const result = r.parseYamlFrontmatter(
+        'name: my-skill\ndescription: A test skill\nwhen_to_use: Use this when reviewing PRs or checking code quality',
+      );
+      expect(result.name).toBe('my-skill');
+      expect(result.description).toBe('A test skill');
+      expect(result.when_to_use).toBe('Use this when reviewing PRs or checking code quality');
     });
   });
 

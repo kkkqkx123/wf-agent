@@ -3,7 +3,7 @@
  *
  * Responsible for skill discovery, parsing, management, content loading, resource loading,
  * metadata prompt generation, permission validation, and event emission.
- * 
+ *
  * Skills are a cross-cutting concern shared by agents and workflows.
  * This registry is the single source of truth for all skill operations.
  *
@@ -11,10 +11,12 @@
  * - Level 1: Metadata prompt (generateMetadataPrompt / injectSkillMetadata)
  * - Level 2: Load full content on demand (loadContent / toPrompt)
  * - Level 3: Load nested resources (loadResources)
+ *
+ * File I/O operations are delegated to SkillFileLoader to keep this class
+ * focused on business logic and easily testable.
  */
 
-import * as fs from "fs/promises";
-import * as path from "path";
+import type { SkillFileLoader } from "../../services/skill-loader/types.js";
 import type {
   Skill,
   SkillMetadata,
@@ -56,6 +58,7 @@ export class SkillRegistry {
 
   constructor(
     config: SkillConfig,
+    private fileLoader: SkillFileLoader,
     private eventManager?: EventRegistry,
   ) {
     this.config = {
@@ -85,25 +88,21 @@ export class SkillRegistry {
    * @param skillsPath Path to the Skill directory
    */
   async scanSkills(skillsPath: string): Promise<void> {
-    const absolutePath = path.resolve(skillsPath);
+    const absolutePath = this.fileLoader.resolve(skillsPath);
 
     try {
-      const entries = await fs.readdir(absolutePath, { withFileTypes: true });
+      const entries = await this.fileLoader.readDirectory(absolutePath);
 
       for (const entry of entries) {
-        if (!entry.isDirectory()) {
+        if (!entry.isDirectory) {
           continue;
         }
 
-        const skillDir = path.join(absolutePath, entry.name);
-        const skillMdPath = path.join(skillDir, "SKILL.md");
+        const skillDir = this.fileLoader.join(absolutePath, entry.name);
+        const skillMdPath = this.fileLoader.join(skillDir, "SKILL.md");
 
-        try {
-          await fs.access(skillMdPath);
+        if (await this.fileLoader.exists(skillMdPath)) {
           await this.loadSkill(skillDir);
-        } catch {
-          // The SKILL.md file is not in the directory; skip it.
-          continue;
         }
       }
     } catch (error) {
@@ -121,14 +120,14 @@ export class SkillRegistry {
    * @throws SkillParseError If parsing fails
    */
   private async loadSkill(skillDir: string): Promise<void> {
-    const skillMdPath = path.join(skillDir, "SKILL.md");
+    const skillMdPath = this.fileLoader.join(skillDir, "SKILL.md");
 
     try {
-      const content = await fs.readFile(skillMdPath, "utf-8");
+      const content = await this.fileLoader.readTextFile(skillMdPath);
       const metadata = this.parseSkillMd(content, skillDir);
 
       // Verify that the directory name matches the name field.
-      const dirName = path.basename(skillDir);
+      const dirName = this.fileLoader.basename(skillDir);
       if (metadata.name !== dirName) {
         throw new SkillValidationErrorClass(
           metadata.name,
@@ -142,9 +141,8 @@ export class SkillRegistry {
 
       for (const resourceType of resourceTypes) {
         try {
-          const resourceDir = path.join(skillDir, resourceType);
-          const entries = await fs.readdir(resourceDir, { withFileTypes: true });
-          const files = entries.filter(entry => entry.isFile()).map(entry => entry.name);
+          const resourceDir = this.fileLoader.join(skillDir, resourceType);
+          const files = await this.fileLoader.listFiles(resourceDir);
 
           if (files.length > 0) {
             (resources as Record<string, Record<string, undefined>>)[resourceType] = {};
@@ -218,6 +216,7 @@ export class SkillRegistry {
       return {
         name: metadata["name"] as string,
         description: metadata["description"] as string,
+        whenToUse: metadata["when_to_use"] as string | undefined,
         version: metadata["version"] as string | undefined,
         license: metadata["license"] as string | undefined,
         allowedTools: metadata["allowedTools"] as string[] | undefined,
@@ -576,8 +575,8 @@ export class SkillRegistry {
     }
 
     // Read the file
-    const skillMdPath = path.join(skill.path, "SKILL.md");
-    const content = await fs.readFile(skillMdPath, "utf-8");
+    const skillMdPath = this.fileLoader.join(skill.path, "SKILL.md");
+    const content = await this.fileLoader.readTextFile(skillMdPath);
 
     // Remove the YAML frontmatter.
     const bodyMatch = content.match(/^---\n[\s\S]*?\n---\n([\s\S]*)/);
@@ -620,11 +619,11 @@ export class SkillRegistry {
     }
 
     // Read the file
-    const fullPath = path.join(skill.path, resourceType, resourcePath);
+    const fullPath = this.fileLoader.join(skill.path, resourceType, resourcePath);
     const content =
       resourceType === "assets"
-        ? await fs.readFile(fullPath)
-        : await fs.readFile(fullPath, "utf-8");
+        ? await this.fileLoader.readBinaryFile(fullPath)
+        : await this.fileLoader.readTextFile(fullPath);
 
     // Update the cache
     if (this.config.cacheEnabled) {
@@ -652,11 +651,10 @@ export class SkillRegistry {
       throw new Error(`Skill '${name}' not found`);
     }
 
-    const resourceDir = path.join(skill.path, resourceType);
+    const resourceDir = this.fileLoader.join(skill.path, resourceType);
 
     try {
-      const entries = await fs.readdir(resourceDir, { withFileTypes: true });
-      return entries.filter(entry => entry.isFile()).map(entry => entry.name);
+      return this.fileLoader.listFiles(resourceDir);
     } catch {
       return [];
     }
@@ -942,11 +940,7 @@ export class SkillRegistry {
    * @param availableTools List of tools available at runtime (for permission verification)
    * @returns Complete loading context
    */
-  buildContext(
-    skill: Skill,
-    agentContext?: unknown,
-    availableTools?: string[],
-  ): SkillLoadContext {
+  buildContext(skill: Skill, agentContext?: unknown, availableTools?: string[]): SkillLoadContext {
     return {
       skill,
       agentContext,
@@ -1039,10 +1033,7 @@ export class SkillRegistry {
    * @param variables Key-value pairs for substitution
    * @returns Content with variables substituted
    */
-  private substituteVariables(
-    content: string,
-    variables: Record<string, unknown>,
-  ): string {
+  private substituteVariables(content: string, variables: Record<string, unknown>): string {
     let result = content;
 
     for (const [key, value] of Object.entries(variables)) {

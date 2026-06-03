@@ -69,6 +69,7 @@ import { WorkflowExecutionPool } from "../../workflow/execution/workflow-executi
 import { LLMExecutor, ToolCallExecutor } from "../executors/index.js";
 import { ToolApprovalCoordinator } from "../coordinators/tool-approval-coordinator.js";
 import { SkillRegistry } from "../registry/skill-registry.js";
+import { HostSkillLoader } from "../../services/skill-loader/host-skill-loader.js";
 import { emit } from "../../workflow/execution/utils/index.js";
 import { CheckpointCoordinator } from "../../workflow/checkpoint/checkpoint-coordinator.js";
 import {
@@ -303,7 +304,8 @@ export function configureContainerBindings(
         cacheTTL: 300000,
       };
       const eventManager = c.get(Identifiers.EventRegistry) as EventRegistry;
-      return new SkillRegistry(config, eventManager);
+      const fileLoader = new HostSkillLoader();
+      return new SkillRegistry(config, fileLoader, eventManager);
     })
     .inSingletonScope();
 

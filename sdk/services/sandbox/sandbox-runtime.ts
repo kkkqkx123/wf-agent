@@ -82,7 +82,6 @@ export class SandboxRuntime {
       const sandboxVfs = new SandboxVFS({
         enabled: true,
         workspaceRoot,
-        dbPath: vfsConfig.dbPath,
         pathPolicy: vfsConfig.pathPolicy,
       });
       this.vfsInstances.set(workspaceRoot, sandboxVfs);

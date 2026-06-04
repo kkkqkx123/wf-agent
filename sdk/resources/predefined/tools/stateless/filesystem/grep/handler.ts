@@ -2,12 +2,11 @@
  * The logic executed by the grep tool
  */
 
-import { stat } from "fs/promises";
-import { existsSync } from "fs";
 import type { ToolOutput } from "@wf-agent/types";
 import type { ReadFileConfig } from "../../../types.js";
 import { SearchService, IgnoreController } from "@wf-agent/sdk/services";
 import { resolveFilePath } from "@wf-agent/sdk/utils";
+import { HostFSAdapter } from "../../../utils/host-fs-adapter.js";
 
 /**
  * Create the `grep` tool execution function
@@ -24,16 +23,17 @@ export function createGrepHandler(config: ReadFileConfig = {}) {
       const workspaceDir = config.workspaceDir ?? process.cwd();
       const dirPath = resolveFilePath(path, workspaceDir);
 
-      if (!existsSync(dirPath)) {
+      // Check directory existence and type via VFS
+      const vfs = config.vfs ?? new HostFSAdapter();
+      const dirStat = await vfs.stat(dirPath);
+      if (!dirStat) {
         return {
           success: false,
           content: "",
           error: `Directory not found: ${path}`,
         };
       }
-
-      const dirStat = await stat(dirPath);
-      if (!dirStat.isDirectory()) {
+      if (dirStat.type !== "directory") {
         return {
           success: false,
           content: "",

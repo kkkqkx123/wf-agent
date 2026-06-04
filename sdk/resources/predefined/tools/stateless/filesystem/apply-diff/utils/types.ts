@@ -36,4 +36,12 @@ export interface ApplyDiffConfig {
   enableProtect?: boolean;
   /** Model ID (for HTML entity unescaping) */
   modelId?: string;
+  /**
+   * VFS file I/O provider for write guard.
+   * When set, write operations (writeFile, remove, rename) route through
+   * VFS (WriteGuardVFS) for path policy enforcement. Read operations always
+   * use HostFSAdapter (direct host filesystem) regardless of this setting.
+   * When not set, a HostFSAdapter is used for all operations.
+   */
+  vfs?: import("../../../../types.js").VFSFileIO;
 }

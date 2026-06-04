@@ -2,8 +2,6 @@
  * The logic executed by the apply_patch tool
  */
 
-import { readFile, writeFile, mkdir, unlink } from "fs/promises";
-import { existsSync, statSync } from "fs";
 import { dirname } from "path";
 import type { ToolOutput } from "@wf-agent/types";
 import type { ReadFileConfig } from "../../../types.js";
@@ -13,14 +11,15 @@ import type { ApplyPatchFileResult, ApplyPatchResult, ApplyPatchSummary } from "
 import { PatchErrors, PatchToolError, ToolErrorCode } from "@wf-agent/types";
 import { ProtectController, SHIELD_SYMBOL } from "@wf-agent/sdk/services";
 import { resolveFilePath } from "@wf-agent/sdk/utils";
+import { HostFSAdapter } from "../../../utils/host-fs-adapter.js";
 
 /**
- * Check if a path is a file (not a directory)
+ * Check if a path is a file (not a directory) via VFS
  */
-function isFile(filePath: string): boolean {
+async function isFileOnVFS(filePath: string, vfs: import("../../../types.js").VFSFileIO): Promise<boolean> {
   try {
-    const stats = statSync(filePath);
-    return stats.isFile();
+    const entry = await vfs.stat(filePath);
+    return entry !== null && entry.type === "file";
   } catch {
     return false;
   }
@@ -42,7 +41,8 @@ export function createApplyPatchHandler(config: ReadFileConfig = {}) {
         };
       }
 
-      // Initialize protect controller if enabled
+      // Initialize VFS and protect controller
+      const vfs = config.vfs ?? new HostFSAdapter();
       const workspaceDir = config.workspaceDir ?? process.cwd();
       const protectController = config.enableProtect
         ? new ProtectController({ cwd: workspaceDir })
@@ -72,7 +72,7 @@ export function createApplyPatchHandler(config: ReadFileConfig = {}) {
               }
 
               // Check if file already exists
-              if (existsSync(filePath)) {
+              if (await vfs.exists(filePath)) {
                 results.push({
                   path: hunk.path,
                   operation: "add",
@@ -85,18 +85,16 @@ export function createApplyPatchHandler(config: ReadFileConfig = {}) {
 
               // Create parent directory if needed
               const parentDir = dirname(filePath);
-              if (!existsSync(parentDir)) {
-                try {
-                  await mkdir(parentDir, { recursive: true });
-                } catch (error) {
-                  const err = error instanceof Error ? error : new Error(String(error));
-                  throw PatchErrors.parentDirCreateFailed(filePath, err);
-                }
+              try {
+                await vfs.mkdir(parentDir);
+              } catch (error) {
+                const err = error instanceof Error ? error : new Error(String(error));
+                throw PatchErrors.parentDirCreateFailed(filePath, err);
               }
 
               // Write the file
               try {
-                await writeFile(filePath, hunk.contents, "utf-8");
+                await vfs.writeFile(filePath, Buffer.from(hunk.contents, "utf-8"));
               } catch (error) {
                 const err = error instanceof Error ? error : new Error(String(error));
                 throw PatchErrors.writeFailed(filePath, err);
@@ -124,7 +122,7 @@ export function createApplyPatchHandler(config: ReadFileConfig = {}) {
               }
 
               // Check if file exists
-              if (!existsSync(filePath)) {
+              if (!(await vfs.exists(filePath))) {
                 results.push({
                   path: hunk.path,
                   operation: "delete",
@@ -136,7 +134,7 @@ export function createApplyPatchHandler(config: ReadFileConfig = {}) {
               }
 
               // Check if it's a file (not a directory)
-              if (!isFile(filePath)) {
+              if (!(await isFileOnVFS(filePath, vfs))) {
                 results.push({
                   path: hunk.path,
                   operation: "delete",
@@ -149,7 +147,7 @@ export function createApplyPatchHandler(config: ReadFileConfig = {}) {
 
               // Delete the file
               try {
-                await unlink(filePath);
+                await vfs.remove(filePath);
               } catch (error) {
                 const err = error instanceof Error ? error : new Error(String(error));
                 throw PatchErrors.deleteFailed(filePath, err);
@@ -177,7 +175,7 @@ export function createApplyPatchHandler(config: ReadFileConfig = {}) {
               }
 
               // Check if file exists
-              if (!existsSync(filePath)) {
+              if (!(await vfs.exists(filePath))) {
                 results.push({
                   path: hunk.path,
                   operation: "update",
@@ -189,7 +187,7 @@ export function createApplyPatchHandler(config: ReadFileConfig = {}) {
               }
 
               // Check if it's a file (not a directory)
-              if (!isFile(filePath)) {
+              if (!(await isFileOnVFS(filePath, vfs))) {
                 results.push({
                   path: hunk.path,
                   operation: "update",
@@ -201,12 +199,16 @@ export function createApplyPatchHandler(config: ReadFileConfig = {}) {
               }
 
               // Read the original content
-              let originalContent: string;
+              let originalBuf: Buffer | null;
               try {
-                originalContent = await readFile(filePath, "utf-8");
+                originalBuf = await vfs.readFile(filePath);
               } catch {
                 throw PatchErrors.fileNotFound(filePath);
               }
+              if (!originalBuf) {
+                throw PatchErrors.fileNotFound(filePath);
+              }
+              const originalContent = originalBuf.toString("utf-8");
 
               // Apply the chunks
               const newContent = applyChunksToContent(originalContent, filePath, hunk.chunks);
@@ -228,35 +230,26 @@ export function createApplyPatchHandler(config: ReadFileConfig = {}) {
                 }
 
                 // Check if destination already exists
-                if (existsSync(newFilePath)) {
+                if (await vfs.exists(newFilePath)) {
                   throw PatchErrors.destinationExists(newFilePath);
                 }
 
                 // Create parent directory for new path if needed
                 const newParentDir = dirname(newFilePath);
-                if (!existsSync(newParentDir)) {
-                  try {
-                    await mkdir(newParentDir, { recursive: true });
-                  } catch (error) {
-                    const err = error instanceof Error ? error : new Error(String(error));
-                    throw PatchErrors.parentDirCreateFailed(newFilePath, err);
-                  }
+                try {
+                  await vfs.mkdir(newParentDir);
+                } catch (error) {
+                  const err = error instanceof Error ? error : new Error(String(error));
+                  throw PatchErrors.parentDirCreateFailed(newFilePath, err);
                 }
 
-                // Write to new location
+                // Use VFS rename for move operation
                 try {
-                  await writeFile(newFilePath, newContent, "utf-8");
+                  await vfs.writeFile(newFilePath, Buffer.from(newContent, "utf-8"));
+                  await vfs.remove(filePath);
                 } catch (error) {
                   const err = error instanceof Error ? error : new Error(String(error));
                   throw PatchErrors.writeFailed(newFilePath, err);
-                }
-
-                // Delete the old file
-                try {
-                  await unlink(filePath);
-                } catch (error) {
-                  const err = error instanceof Error ? error : new Error(String(error));
-                  throw PatchErrors.deleteFailed(filePath, err);
                 }
 
                 results.push({
@@ -269,7 +262,7 @@ export function createApplyPatchHandler(config: ReadFileConfig = {}) {
               } else {
                 // Write the updated content
                 try {
-                  await writeFile(filePath, newContent, "utf-8");
+                  await vfs.writeFile(filePath, Buffer.from(newContent, "utf-8"));
                 } catch (error) {
                   const err = error instanceof Error ? error : new Error(String(error));
                   throw PatchErrors.writeFailed(filePath, err);

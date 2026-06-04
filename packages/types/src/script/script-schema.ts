@@ -128,9 +128,7 @@ export const SandboxPolicySchema = z.object({
  */
 export const VFSConfigSchema = z.object({
   enabled: z.boolean(),
-  storage: z.enum(["memory", "sqlite"]),
   workspaceRoot: z.string(),
-  dbPath: z.string().optional(),
   pathPolicy: z
     .object({
       readable: z.array(z.string()).optional(),

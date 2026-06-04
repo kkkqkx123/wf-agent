@@ -3,8 +3,6 @@
  * Uses SEARCH/REPLACE format with multi-pass sequence matching
  */
 
-import { readFile, writeFile } from "fs/promises";
-import { existsSync } from "fs";
 import type { ToolOutput } from "@wf-agent/types";
 import { ProtectController, SHIELD_SYMBOL } from "@wf-agent/sdk/services";
 import {
@@ -14,6 +12,7 @@ import {
 import { applyBlock } from "./utils/apply.js";
 import type { ApplyDiffConfig } from "./utils/types.js";
 import { resolveFilePath } from "@wf-agent/sdk/utils";
+import { HostFSAdapter } from "../../../utils/host-fs-adapter.js";
 
 /**
  * Create the `apply_diff` tool execution function
@@ -43,7 +42,8 @@ export function createApplyDiffHandler(config: ApplyDiffConfig = {}) {
       const filePath = resolveFilePath(path, config.workspaceDir);
       const workspaceDir = config.workspaceDir ?? process.cwd();
 
-      // Initialize protect controller if enabled
+      // Initialize VFS and protect controller
+      const vfs = config.vfs ?? new HostFSAdapter();
       const protectController = config.enableProtect
         ? new ProtectController({ cwd: workspaceDir })
         : undefined;
@@ -57,7 +57,7 @@ export function createApplyDiffHandler(config: ApplyDiffConfig = {}) {
         };
       }
 
-      if (!existsSync(filePath)) {
+      if (!(await vfs.exists(filePath))) {
         return {
           success: false,
           content: "",
@@ -85,8 +85,16 @@ export function createApplyDiffHandler(config: ApplyDiffConfig = {}) {
         };
       }
 
-      // Read original content
-      const originalContent = await readFile(filePath, "utf-8");
+      // Read original content via VFS
+      const originalBuf = await vfs.readFile(filePath);
+      if (!originalBuf) {
+        return {
+          success: false,
+          content: "",
+          error: `File not found: ${path}. Use read_file to verify the file exists.`,
+        };
+      }
+      const originalContent = originalBuf.toString("utf-8");
       let resultLines = originalContent.split(/\r?\n/);
       let delta = 0;
       let appliedCount = 0;
@@ -118,10 +126,10 @@ export function createApplyDiffHandler(config: ApplyDiffConfig = {}) {
         };
       }
 
-      // Write the file
+      // Write via VFS
       const lineEnding = originalContent.includes("\r\n") ? "\r\n" : "\n";
       const finalContent = resultLines.join(lineEnding);
-      await writeFile(filePath, finalContent, "utf-8");
+      await vfs.writeFile(filePath, Buffer.from(finalContent, "utf-8"));
 
       const partialHint =
         failedBlocks.length > 0

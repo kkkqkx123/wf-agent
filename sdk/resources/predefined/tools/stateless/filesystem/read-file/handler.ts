@@ -2,8 +2,6 @@
  * The logic executed by the read_file tool
  */
 
-import { readFile, stat } from "fs/promises";
-import { existsSync } from "fs";
 import * as path from "path";
 import type { ToolOutput } from "@wf-agent/types";
 import type { ReadFileConfig } from "../../../types.js";
@@ -11,6 +9,7 @@ import { IgnoreController, ProtectController } from "@wf-agent/sdk/services";
 import { resolveFilePath, formatFileSize, isLikelyTextFile } from "@wf-agent/sdk/utils";
 import { readWithSlice, readWithIndentation } from "@wf-agent/sdk/utils";
 import type { SliceReadOptions, IndentationOptions } from "@wf-agent/sdk/utils";
+import { HostFSAdapter } from "../../../utils/host-fs-adapter.js";
 
 /**
  * Create the `read_file` tool execution function
@@ -79,28 +78,12 @@ export function createReadFileHandler(config: ReadFileConfig = {}) {
       }
 
       // Check if file exists (via VFS or Host FS)
-      const vfs = config.vfs;
+      const vfs = config.vfs ?? new HostFSAdapter();
       const vfsPath = absolutePath.replace(/\\/g, "/");
-      let fileExists: boolean;
-      let fileSize: number;
-      let isDirectory: boolean;
-
-      if (vfs) {
-        const vfsStat = await vfs.stat(vfsPath);
-        fileExists = vfsStat !== null;
-        fileSize = vfsStat?.size ?? 0;
-        isDirectory = vfsStat?.type === "directory";
-      } else {
-        fileExists = existsSync(absolutePath);
-        if (fileExists) {
-          const s = await stat(absolutePath);
-          isDirectory = s.isDirectory();
-          fileSize = s.size;
-        } else {
-          isDirectory = false;
-          fileSize = 0;
-        }
-      }
+      const vfsStat = await vfs.stat(vfsPath);
+      const fileExists = vfsStat !== null;
+      const fileSize = vfsStat?.size ?? 0;
+      const isDirectory = vfsStat?.type === "directory";
 
       if (!fileExists) {
         return {
@@ -147,13 +130,8 @@ If this is actually a text file with an unusual extension, you can try reading i
       }
 
       // Read the contents of the file as buffer first for graceful UTF-8 handling
-      let buffer: Buffer;
-      if (config.vfs) {
-        const vfsBuf = await config.vfs.readFile(vfsPath);
-        buffer = vfsBuf ? Buffer.from(vfsBuf) : Buffer.from("");
-      } else {
-        buffer = await readFile(absolutePath);
-      }
+      const vfsBuf = await vfs.readFile(vfsPath);
+      const buffer = vfsBuf ? Buffer.from(vfsBuf) : Buffer.from("");
       const content = buffer.toString("utf-8");
       const lines = content.split("\n");
       const totalLines = lines.length;

@@ -68,6 +68,12 @@ export interface PredefinedToolsOptions {
 
 /**
  * File reading tool configuration
+ *
+ * Read operations always go directly to the host filesystem via HostFSAdapter.
+ * The vfs field here is retained for symmetry in the config interface; when
+ * a value is provided, it is used for the write guard (WriteGuardVFS) in cases
+ * where the read tool handler also supports write operations (e.g., apply-patch,
+ * apply-diff). Pure reads ignore the vfs field entirely.
  */
 export interface ReadFileConfig {
   /** Working directory */
@@ -85,8 +91,8 @@ export interface ReadFileConfig {
   /** Model ID for conditional processing (e.g., HTML entity unescaping) */
   modelId?: string;
   /**
-   * VFS file I/O provider.
-   * When set, read operations check VFS first, falling back to Host FS.
+   * VFS file I/O provider for write guard (apply-patch, apply-diff).
+   * Pure reads (read_file, list_files, grep) always use HostFSAdapter directly.
    */
   vfs?: VFSFileIO;
 }
@@ -94,10 +100,25 @@ export interface ReadFileConfig {
 /**
  * Minimal VFS file I/O interface for file editing tools.
  *
- * When a VFS instance is provided, file editing tools route operations
- * through VFS instead of directly accessing the host filesystem.
- * This ensures consistency between tool-driven edits and sandbox script
- * file operations, especially when VFS sync-to-host mode is enabled.
+ * All tools use this interface instead of calling fs/promises directly,
+ * providing a single integration point for VFS without tool-level branching.
+ *
+ * Read-write separation:
+ *   Read operations (readFile, stat, exists, readdir) go to the host
+ *   filesystem directly via HostFSAdapter — there is no middle layer.
+ *
+ *   Write operations (writeFile, mkdir, remove, rename) are routed through
+ *   the sandbox VFS (e.g., SandboxVFS) for path policy enforcement when
+ *   sandbox mode is enabled. When no sandbox is configured, writes also
+ *   go to the host filesystem directly.
+ *
+ * When a WriteGuardVFS is provided via config.vfs, the split is automatic:
+ * reads bypass VFS, writes pass through policy checks.
+ *
+ * Usage:
+ *   const vfs = config.vfs ?? new HostFSAdapter(); // in tool handlers
+ *   await vfs.readFile(path);  // direct FS
+ *   await vfs.writeFile(path); // policy-guarded when sandbox enabled
  */
 export interface VFSFileIO {
   readFile(path: string): Promise<Buffer | null>;
@@ -106,6 +127,10 @@ export interface VFSFileIO {
   exists(path: string): Promise<boolean>;
   mkdir(path: string): Promise<void>;
   remove(path: string): Promise<void>;
+  /** Rename/move a file from oldPath to newPath */
+  rename(oldPath: string, newPath: string): Promise<void>;
+  /** Read directory contents, returns entry names */
+  readdir(path: string): Promise<string[]>;
 }
 
 /**
@@ -117,9 +142,11 @@ export interface WriteFileConfig {
   /** Enable write protection */
   enableProtect?: boolean;
   /**
-   * VFS file I/O provider.
-   * When set, all write operations route through VFS instead of direct Host FS.
-   * This is the key integration point for Plan A: "VFS as unified middle layer".
+   * VFS file I/O provider for write operations.
+   * When set, writeFile is routed through VFS (WriteGuardVFS) for path
+   * policy enforcement. Read operations always use HostFSAdapter directly.
+   *
+   * @see WriteGuardVFS
    */
   vfs?: VFSFileIO;
 }
@@ -133,8 +160,11 @@ export interface EditFileConfig {
   /** Enable write protection */
   enableProtect?: boolean;
   /**
-   * VFS file I/O provider.
-   * When set, all read/write operations route through VFS.
+   * VFS file I/O provider for write operations.
+   * When set, writeFile and rename are routed through VFS (WriteGuardVFS)
+   * for path policy enforcement. Read operations always use HostFSAdapter.
+   *
+   * @see WriteGuardVFS
    */
   vfs?: VFSFileIO;
 }

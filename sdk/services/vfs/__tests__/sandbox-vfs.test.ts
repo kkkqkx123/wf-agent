@@ -1,21 +1,29 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { SandboxVFS } from "../sandbox-vfs.js";
 import type { VFSConfig } from "@wf-agent/types";
 
-function createVFSConfig(overrides?: Partial<VFSConfig>): VFSConfig {
+function createVFSConfig(workspaceRoot: string, overrides?: Partial<VFSConfig>): VFSConfig {
   return {
     enabled: true,
-    storage: "sqlite",
-    workspaceRoot: "/test/workspace",
+    workspaceRoot,
     ...overrides,
   };
 }
 
 describe("SandboxVFS", () => {
   let vfs: SandboxVFS;
+  let workspaceRoot: string;
 
   beforeEach(() => {
-    vfs = new SandboxVFS(createVFSConfig());
+    workspaceRoot = mkdtempSync(join(tmpdir(), "sandbox-vfs-test-"));
+    vfs = new SandboxVFS(createVFSConfig(workspaceRoot));
+  });
+
+  afterEach(() => {
+    rmSync(workspaceRoot, { recursive: true, force: true });
   });
 
   describe("file operations", () => {

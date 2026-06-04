@@ -2,13 +2,12 @@
  * The logic executed by the list_files tool
  */
 
-import { readdir, stat } from "fs/promises";
-import { existsSync } from "fs";
 import path from "path";
 import type { ToolOutput } from "@wf-agent/types";
-import type { ReadFileConfig } from "../../../types.js";
+import type { ReadFileConfig, VFSFileIO } from "../../../types.js";
 import { IgnoreController, MAX_FILE_RESULTS } from "@wf-agent/sdk/services";
 import { resolveFilePath } from "@wf-agent/sdk/utils";
+import { HostFSAdapter } from "../../../utils/host-fs-adapter.js";
 
 /**
  * Check if a path is a special directory (root or home)
@@ -43,6 +42,7 @@ interface FileEntry {
 async function listFilesRecursive(
   dirPath: string,
   basePath: string,
+  vfs: VFSFileIO,
   ignoreController?: IgnoreController,
   resultCount: { count: number } = { count: 0 },
 ): Promise<FileEntry[]> {
@@ -53,31 +53,29 @@ async function listFilesRecursive(
     return entries;
   }
 
-  const items = await readdir(dirPath, { withFileTypes: true });
+  const names = (await vfs.readdir(dirPath)) ?? [];
 
-  for (const item of items) {
+  for (const name of names) {
     // Check limit before processing each item
     if (resultCount.count >= MAX_FILE_RESULTS) {
       break;
     }
 
-    const itemPath = `${dirPath}/${item.name}`;
-    const relativePath = basePath === "." ? item.name : `${basePath}/${item.name}`;
+    const itemPath = `${dirPath}/${name}`;
+    const relativePath = basePath === "." ? name : `${basePath}/${name}`;
 
-    // Skip symbolic links to prevent circular traversal
-    if (item.isSymbolicLink()) {
-      continue;
-    }
+    const entryStat = await vfs.stat(itemPath);
+    if (!entryStat) continue;
 
-    if (item.isDirectory()) {
+    if (entryStat.type === "directory") {
       // Check if directory should be included
       const shouldInclude = ignoreController
-        ? ignoreController.shouldIncludeDirectory(item.name, itemPath)
+        ? ignoreController.shouldIncludeDirectory(name, itemPath)
         : true;
 
       if (shouldInclude) {
         entries.push({
-          name: item.name,
+          name,
           type: "directory",
           path: relativePath,
         });
@@ -87,18 +85,19 @@ async function listFilesRecursive(
         const subEntries = await listFilesRecursive(
           itemPath,
           relativePath,
+          vfs,
           ignoreController,
           resultCount,
         );
         entries.push(...subEntries);
       }
-    } else if (item.isFile()) {
+    } else if (entryStat.type === "file") {
       // Check if file should be included
       const shouldInclude = ignoreController ? ignoreController.validateAccess(itemPath) : true;
 
       if (shouldInclude) {
         entries.push({
-          name: item.name,
+          name,
           type: "file",
           path: relativePath,
         });
@@ -116,40 +115,39 @@ async function listFilesRecursive(
 async function listFilesFlat(
   dirPath: string,
   basePath: string,
+  vfs: VFSFileIO,
   ignoreController?: IgnoreController,
 ): Promise<FileEntry[]> {
   const entries: FileEntry[] = [];
-  const items = await readdir(dirPath, { withFileTypes: true });
+  const names = (await vfs.readdir(dirPath)) ?? [];
 
-  for (const item of items) {
-    const relativePath = basePath === "." ? item.name : `${basePath}/${item.name}`;
-    const itemPath = `${dirPath}/${item.name}`;
+  for (const name of names) {
+    const relativePath = basePath === "." ? name : `${basePath}/${name}`;
+    const itemPath = `${dirPath}/${name}`;
 
-    // Skip symbolic links
-    if (item.isSymbolicLink()) {
-      continue;
-    }
+    const entryStat = await vfs.stat(itemPath);
+    if (!entryStat) continue;
 
-    if (item.isDirectory()) {
+    if (entryStat.type === "directory") {
       // Check if directory should be included
       const shouldInclude = ignoreController
-        ? ignoreController.shouldIncludeDirectory(item.name, itemPath)
+        ? ignoreController.shouldIncludeDirectory(name, itemPath)
         : true;
 
       if (shouldInclude) {
         entries.push({
-          name: item.name,
+          name,
           type: "directory",
           path: relativePath,
         });
       }
-    } else if (item.isFile()) {
+    } else if (entryStat.type === "file") {
       // Check if file should be included
       const shouldInclude = ignoreController ? ignoreController.validateAccess(itemPath) : true;
 
       if (shouldInclude) {
         entries.push({
-          name: item.name,
+          name,
           type: "file",
           path: relativePath,
         });
@@ -178,16 +176,17 @@ export function createListFilesHandler(config: ReadFileConfig = {}) {
         };
       }
 
-      if (!existsSync(dirPath)) {
+      // Check directory existence and type via VFS
+      const vfs = config.vfs ?? new HostFSAdapter();
+      const dirStat = await vfs.stat(dirPath);
+      if (!dirStat) {
         return {
           success: false,
           content: "",
           error: `Directory not found: ${targetPath}`,
         };
       }
-
-      const dirStat = await stat(dirPath);
-      if (!dirStat.isDirectory()) {
+      if (dirStat.type !== "directory") {
         return {
           success: false,
           content: "",
@@ -209,8 +208,8 @@ export function createListFilesHandler(config: ReadFileConfig = {}) {
       // List files
       const resultCount = { count: 0 };
       const entries = recursive
-        ? await listFilesRecursive(dirPath, targetPath, ignoreController, resultCount)
-        : await listFilesFlat(dirPath, targetPath, ignoreController);
+        ? await listFilesRecursive(dirPath, targetPath, vfs, ignoreController, resultCount)
+        : await listFilesFlat(dirPath, targetPath, vfs, ignoreController);
 
       // Sort entries: directories first, then files, alphabetically within each group
       entries.sort((a, b) => {

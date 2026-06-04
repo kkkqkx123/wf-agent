@@ -5,9 +5,13 @@
  * Internal implementations (DeltaStore, WorkspaceSource, PathMapper, MountTable)
  * are not exported — they are consumed internally by SandboxVFS.
  *
- * Layer classification:
- *   - SandboxVFS: Top-level sandbox VFS with delta-over-base layering
- *   - types:      Core interfaces (VFSOperations, DeltaFileSystem, Snapshotable, VFSEntry)
+ * Architecture: VFS as policy enforcement proxy, not a storage layer.
+ * SandboxVFS executes operations directly on the host filesystem after
+ * policy checking. See SandboxVFS doc comment for details.
+ *
+ * Exports:
+ *   - SandboxVFS: Policy-enforcing VFS proxy backed by host filesystem
+ *   - types:      Core interfaces (VFSOperations, DeltaFileSystem, VFSEntry)
  */
 
 export type {

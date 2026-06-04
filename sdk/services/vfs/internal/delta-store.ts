@@ -1,8 +1,14 @@
 /**
- * DeltaStore — SQLite-backed writable delta layer for sandbox VFS
+ * DeltaStore — SQLite-backed file state store for checkpoint/history recording
  *
- * All file writes are persisted in SQLite immediately.
- * Snapshot/checkpoint integration is managed at the SandboxVFS level.
+ * DeltaStore is a standalone storage layer for recording file changes.
+ * It is NOT part of the VFS data path — SandboxVFS no longer uses delta
+ * internally. Instead, DeltaStore serves as a recording layer for
+ * checkpoint integration: it can snapshot file state before/after operations
+ * and restore on rollback.
+ *
+ * This separation ensures that VFS (policy enforcement) and checkpoint
+ * (history recording) are orthogonal concerns that can evolve independently.
  *
  * Schema:
  *   vfs_files:  path TEXT PRIMARY KEY, data BLOB, mode INT, created_at INT, modified_at INT

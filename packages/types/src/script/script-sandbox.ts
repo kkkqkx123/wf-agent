@@ -242,28 +242,22 @@ export interface VFSMountConfig {
 }
 
 export interface VFSConfig {
-  /** Enable VFS overlay */
+  /** Enable VFS policy enforcement */
   enabled: boolean;
-  /** Storage backend (defaults to sqlite) */
-  storage?: "memory" | "sqlite";
-  /** Workspace root path */
+  /** Workspace root path — operations outside this path are checked against pathPolicy */
   workspaceRoot: string;
-  /** SQLite database path (sqlite mode only, defaults to :memory:) */
-  dbPath?: string;
-  /** Path access policy */
+  /**
+   * Path access policy — restricts which files/directories can be read or written.
+   * If not set, only paths under workspaceRoot are allowed.
+   */
   pathPolicy?: {
+    /** Paths allowed for read access (defaults to [workspaceRoot]) */
     readable?: string[];
+    /** Paths allowed for write access (defaults to [workspaceRoot]) */
     writable?: string[];
   };
   /** Additional bind mounts for path translation */
   mounts?: VFSMountConfig[];
-  /**
-   * When enabled, all VFS writes are synced to the host filesystem.
-   * This makes VFS a transparent unified layer: file editing tools,
-   * sandbox scripts, and checkpoint all see the same file state.
-   * Default: false (VFS is sandbox-only, writes stay in SQLite delta)
-   */
-  syncToHostFS?: boolean;
 }
 
 /**

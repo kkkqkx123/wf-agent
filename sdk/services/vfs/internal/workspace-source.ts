@@ -1,15 +1,17 @@
 /**
- * WorkspaceSource — Read-only workspace file access with path policy
+ * WorkspaceSource — Host filesystem access with path policy enforcement
  *
  * Architecture reference: docs/infra/sandbox/strategies/vfs-overlay.md
  *
- * Provides read-only access to the host workspace filesystem, restricted by
- * a path whitelist (pathPolicy). Only paths matching the readable
- * whitelist can be accessed.
+ * Provides read-write access to the host workspace filesystem, restricted by
+ * path policies (readable/writable whitelists). All operations are executed
+ * directly on the host filesystem after policy checking — there is no
+ * intermediate storage layer.
  *
- * Implements VFSOperations — write operations throw ReadOnlyError.
- * This is intentionally read-only because WorkspaceSource serves as the base
- * layer under SandboxVFS; all writes go to the delta layer above.
+ * Unlike the original VFS design that used WorkspaceSource as a read-only
+ * base layer under a writable delta, this implementation performs all
+ * operations directly on the host FS. This guarantees that tools, external
+ * processes, and shell commands always see consistent file state.
  */
 
 import * as fs from "node:fs";
@@ -17,16 +19,9 @@ import * as fsPromise from "node:fs/promises";
 import * as path from "node:path";
 import type { VFSEntry, VFSOperations } from "../types.js";
 
-/** Error thrown when a write operation is attempted on WorkspaceSource. */
-export class ReadOnlyError extends Error {
-  constructor(operation: string, p: string) {
-    super(`WorkspaceSource is read-only: cannot ${operation} '${p}'`);
-    this.name = "ReadOnlyError";
-  }
-}
-
 export interface PathPolicy {
   readable?: string[];
+  writable?: string[];
 }
 
 export class WorkspaceSource implements VFSOperations {
@@ -35,7 +30,10 @@ export class WorkspaceSource implements VFSOperations {
 
   constructor(workspaceRoot: string, pathPolicy?: PathPolicy) {
     this.workspaceRoot = path.resolve(workspaceRoot);
-    this.pathPolicy = pathPolicy ?? { readable: [this.workspaceRoot] };
+    this.pathPolicy = pathPolicy ?? {
+      readable: [this.workspaceRoot],
+      writable: [this.workspaceRoot],
+    };
   }
 
   /** Get the workspace root path. */
@@ -48,7 +46,7 @@ export class WorkspaceSource implements VFSOperations {
   // =========================================================================
 
   async stat(hostPath: string): Promise<VFSEntry | null> {
-    if (!this.isAllowed(hostPath)) return null;
+    if (!this.isReadAllowed(hostPath)) return null;
 
     try {
       const stats = await fsPromise.stat(hostPath);
@@ -59,7 +57,7 @@ export class WorkspaceSource implements VFSOperations {
   }
 
   async readFile(hostPath: string): Promise<Buffer | null> {
-    if (!this.isAllowed(hostPath)) return null;
+    if (!this.isReadAllowed(hostPath)) return null;
 
     try {
       return await fsPromise.readFile(hostPath);
@@ -69,7 +67,7 @@ export class WorkspaceSource implements VFSOperations {
   }
 
   async readdir(hostPath: string): Promise<VFSEntry[]> {
-    if (!this.isAllowed(hostPath)) return [];
+    if (!this.isReadAllowed(hostPath)) return [];
 
     try {
       const entries = await fsPromise.readdir(hostPath, { withFileTypes: true });
@@ -77,7 +75,7 @@ export class WorkspaceSource implements VFSOperations {
 
       for (const entry of entries) {
         const fullPath = path.join(hostPath, entry.name);
-        if (!this.isAllowed(fullPath)) continue;
+        if (!this.isReadAllowed(fullPath)) continue;
 
         try {
           const stats = await fsPromise.stat(fullPath);
@@ -94,7 +92,7 @@ export class WorkspaceSource implements VFSOperations {
   }
 
   async exists(hostPath: string): Promise<boolean> {
-    if (!this.isAllowed(hostPath)) return false;
+    if (!this.isReadAllowed(hostPath)) return false;
 
     try {
       await fsPromise.access(hostPath, fs.constants.F_OK);
@@ -105,27 +103,53 @@ export class WorkspaceSource implements VFSOperations {
   }
 
   // =========================================================================
-  // Write operations — intentionally disabled (read-only base layer)
+  // Write operations — directly on host filesystem with policy check
   // =========================================================================
 
-  async writeFile(p: string, _data: Buffer): Promise<void> {
-    throw new ReadOnlyError("writeFile", p);
+  async writeFile(p: string, data: Buffer): Promise<void> {
+    const hostPath = path.resolve(p);
+    if (!this.isWriteAllowed(hostPath)) {
+      throw new Error(`Write denied: ${p} is not in the writable paths`);
+    }
+    await fsPromise.mkdir(path.dirname(hostPath), { recursive: true });
+    await fsPromise.writeFile(hostPath, data);
   }
 
   async remove(p: string): Promise<void> {
-    throw new ReadOnlyError("remove", p);
+    const hostPath = path.resolve(p);
+    if (!this.isWriteAllowed(hostPath)) {
+      throw new Error(`Remove denied: ${p} is not in the writable paths`);
+    }
+    await fsPromise.rm(hostPath, { recursive: true, force: true });
   }
 
-  async rename(_oldPath: string, _newPath: string): Promise<void> {
-    throw new ReadOnlyError("rename", `${_oldPath} -> ${_newPath}`);
+  async rename(oldPath: string, newPath: string): Promise<void> {
+    const hostOld = path.resolve(oldPath);
+    const hostNew = path.resolve(newPath);
+    if (!this.isWriteAllowed(hostOld)) {
+      throw new Error(`Rename denied: ${oldPath} is not in the writable paths`);
+    }
+    if (!this.isWriteAllowed(hostNew)) {
+      throw new Error(`Rename denied: ${newPath} is not in the writable paths`);
+    }
+    await fsPromise.mkdir(path.dirname(hostNew), { recursive: true });
+    await fsPromise.rename(hostOld, hostNew);
   }
 
   async mkdir(p: string): Promise<void> {
-    throw new ReadOnlyError("mkdir", p);
+    const hostPath = path.resolve(p);
+    if (!this.isWriteAllowed(hostPath)) {
+      throw new Error(`Mkdir denied: ${p} is not in the writable paths`);
+    }
+    await fsPromise.mkdir(hostPath, { recursive: true });
   }
 
   async rmdir(p: string): Promise<void> {
-    throw new ReadOnlyError("rmdir", p);
+    const hostPath = path.resolve(p);
+    if (!this.isWriteAllowed(hostPath)) {
+      throw new Error(`Rmdir denied: ${p} is not in the writable paths`);
+    }
+    await fsPromise.rmdir(hostPath);
   }
 
   // =========================================================================
@@ -133,13 +157,13 @@ export class WorkspaceSource implements VFSOperations {
   // =========================================================================
 
   /**
-   * Check if a path is allowed by the path policy.
+   * Check if a path is allowed by the path policy (for read operations).
    *
    * Allow if:
    *   - No readable paths are configured (allow all)
    *   - Path is within one of the readable prefixes
    */
-  isAllowed(hostPath: string): boolean {
+  isReadAllowed(hostPath: string): boolean {
     const resolved = path.resolve(hostPath);
 
     if (!this.pathPolicy.readable || this.pathPolicy.readable.length === 0) {
@@ -150,6 +174,29 @@ export class WorkspaceSource implements VFSOperations {
       const allowedPath = path.resolve(allowed);
       return resolved === allowedPath || resolved.startsWith(allowedPath + path.sep);
     });
+  }
+
+  /**
+   * Check if a path is allowed for write operations.
+   *
+   * Falls back to readable policy if writable is not configured.
+   */
+  isWriteAllowed(hostPath: string): boolean {
+    const resolved = path.resolve(hostPath);
+    const writable = this.pathPolicy.writable ?? this.pathPolicy.readable;
+
+    if (!writable || writable.length === 0) {
+      return true;
+    }
+
+    return writable.some(allowed => {
+      const allowedPath = path.resolve(allowed);
+      return resolved === allowedPath || resolved.startsWith(allowedPath + path.sep);
+    });
+  }
+
+  isAllowed(p: string): boolean {
+    return this.isReadAllowed(p);
   }
 
   translatePath(p: string): string {

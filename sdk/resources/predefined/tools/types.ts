@@ -72,8 +72,12 @@ export interface PredefinedToolsOptions {
 export interface ReadFileConfig {
   /** Working directory */
   workspaceDir?: string;
-  /** Maximum file size (in number of characters) */
+  /** Maximum file size (in bytes) */
   maxFileSize?: number;
+  /** Default character limit per read (default: 50000). Acts as a hard cap to prevent excessive output. */
+  maxChars?: number;
+  /** Default maximum lines per read (default: 2000) */
+  maxLines?: number;
   /** Enable ignore filtering */
   enableIgnore?: boolean;
   /** Enable write protection */

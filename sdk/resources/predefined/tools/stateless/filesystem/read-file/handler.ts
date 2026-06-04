@@ -9,23 +9,34 @@ import type { ToolOutput } from "@wf-agent/types";
 import type { ReadFileConfig } from "../../../types.js";
 import { IgnoreController, ProtectController } from "@wf-agent/sdk/services";
 import { resolveFilePath, formatFileSize, isLikelyTextFile } from "@wf-agent/sdk/utils";
-import { formatLineNumbers } from "@wf-agent/sdk/utils";
+import { readWithSlice, readWithIndentation } from "@wf-agent/sdk/utils";
+import type { SliceReadOptions, IndentationOptions } from "@wf-agent/sdk/utils";
 
 /**
  * Create the `read_file` tool execution function
  */
 export function createReadFileHandler(config: ReadFileConfig = {}) {
   const maxFileSize = config.maxFileSize ?? 500000;
-  const DEFAULT_CHAR_LIMIT = 50000; // Default character limit
+  const defaultCharLimit = config.maxChars ?? 50000;
+  const defaultLineLimit = config.maxLines ?? 2000;
 
   return async (params: Record<string, unknown>): Promise<ToolOutput> => {
     try {
       const {
         path: filePath,
+        mode,
         offset,
         limit,
         max_chars,
-      } = params as { path: string; offset?: number; limit?: number; max_chars?: number };
+        indentation: indentationRaw,
+      } = params as {
+        path: string;
+        mode?: string;
+        offset?: number;
+        limit?: number;
+        max_chars?: number;
+        indentation?: Record<string, unknown>;
+      };
 
       // Validate 1-indexed line number parameters
       if (offset !== undefined && offset < 1) {
@@ -118,64 +129,78 @@ If this is actually a text file with an unusual extension, you can try reading i
       const buffer = await readFile(absolutePath);
       const content = buffer.toString("utf-8");
       const lines = content.split("\n");
+      const totalLines = lines.length;
 
-      // Apply offsets and restrictions
-      const start = offset ? Math.max(0, offset - 1) : 0; // Convert 1-indexed to 0-indexed
-      const end = limit ? Math.min(lines.length, start + limit) : lines.length;
-      let selectedLines = lines.slice(start, end);
+      const charLimit = max_chars ?? defaultCharLimit;
 
-      // Format with line numbers (convert back to 1-indexed for display)
-      let numberedContent = formatLineNumbers(selectedLines, start + 1);
+      // Dispatch based on reading mode
+      const readingMode = mode || "slice";
+      let resultContent: string;
+      let wasTruncated = false;
+      let shownLines = 0;
+      let actualEnd = 0;
 
-      // Apply character limit if specified or use default
-      const charLimit = max_chars ?? DEFAULT_CHAR_LIMIT;
-      let wasCharTruncated = false;
-      
-      if (numberedContent.length > charLimit) {
-        // Truncate by characters, but try to end at a line boundary
-        const truncatedContent = numberedContent.substring(0, charLimit);
-        const lastNewLineIndex = truncatedContent.lastIndexOf("\n");
-        
-        if (lastNewLineIndex > 0) {
-          // End at complete line
-          numberedContent = truncatedContent.substring(0, lastNewLineIndex);
-          // Recalculate how many lines we actually included
-          const actualLines = numberedContent.split("\n").length;
-          selectedLines = selectedLines.slice(0, actualLines);
-        } else {
-          // No newline found in truncated content, just use it
-          numberedContent = truncatedContent;
+      if (readingMode === "indentation") {
+        // Indentation mode: semantic code block extraction
+        const indentation = indentationRaw || {};
+
+        // Validate anchor_line (must be 1-indexed)
+        const anchorLine = (indentation["anchor_line"] as number | undefined) ?? offset ?? 1;
+        if (anchorLine < 1) {
+          return {
+            success: false,
+            content: "",
+            error: `indentation.anchor_line must be a 1-indexed line number (got ${anchorLine}). Line numbers start at 1.`,
+          };
         }
-        
-        wasCharTruncated = true;
+
+        const indentationOptions: IndentationOptions = {
+          anchorLine,
+          maxLevels: indentation["max_levels"] as number | undefined,
+          includeSiblings: indentation["include_siblings"] as boolean | undefined,
+          includeHeader: indentation["include_header"] as boolean | undefined,
+          limit: limit ?? defaultLineLimit,
+          maxLines: indentation["max_lines"] as number | undefined,
+          maxChars: charLimit,
+        };
+
+        const result = readWithIndentation(content, indentationOptions);
+        resultContent = result.content;
+        wasTruncated = result.wasTruncated || result.wasCharTruncated || false;
+        shownLines = result.includedRanges.reduce(
+          (sum, [start, end]) => sum + (end - start + 1),
+          0,
+        );
+        const lastRange = result.includedRanges[result.includedRanges.length - 1];
+        actualEnd = lastRange ? lastRange[1] : anchorLine;
+      } else {
+        // Slice mode (default): simple offset/limit reading
+        const start0 = offset ? Math.max(0, offset - 1) : 0; // Convert 1-indexed to 0-indexed
+        const sliceOptions: SliceReadOptions = {
+          offset: start0,
+          limit: limit ?? defaultLineLimit,
+          maxChars: charLimit,
+        };
+
+        const result = readWithSlice(content, sliceOptions);
+        resultContent = result.content;
+        wasTruncated = result.wasTruncated || result.wasCharTruncated || false;
+        shownLines = result.returnedLines;
+        actualEnd = start0 + shownLines;
       }
 
-      // Add truncation notice if needed
-      let finalContent = numberedContent;
-      const totalLines = lines.length;
-      const shownLines = selectedLines.length;
-      const actualEnd = start + shownLines;
-      
-      if (wasCharTruncated || actualEnd < totalLines) {
+      // Build truncation notice if needed
+      let finalContent = resultContent;
+      if (wasTruncated || actualEnd < totalLines) {
         const nextOffset = actualEnd + 1;
-        const effectiveLimit = limit || 100;
-        
+        const effectiveLimit = limit || defaultLineLimit;
+
         let truncationMessage = "IMPORTANT: File content truncated.\n";
-        
-        if (wasCharTruncated) {
-          truncationMessage += `Status: Content truncated due to character limit (${charLimit} chars). Showing ${shownLines} of ${totalLines} total lines.\n`;
-          if (actualEnd < totalLines) {
-            truncationMessage += `To read more: Use the read_file tool with offset=${nextOffset} and limit=${effectiveLimit}.\n`;
-          } else {
-            truncationMessage += `To read remaining content: Use the read_file tool with offset=${nextOffset}.\n`;
-          }
-        } else {
-          truncationMessage += `Status: Showing lines ${start + 1}-${actualEnd} of ${totalLines} total lines.\n`;
-          truncationMessage += `To read more: Use the read_file tool with offset=${nextOffset} and limit=${effectiveLimit}.\n`;
-        }
-        
-        finalContent = `${truncationMessage}\n${numberedContent}`;
-      } else if (selectedLines.length === 0) {
+        truncationMessage += `Status: Showing lines ${actualEnd - shownLines + 1}-${actualEnd} of ${totalLines} total lines.\n`;
+        truncationMessage += `To read more: Use the read_file tool with offset=${nextOffset} and limit=${effectiveLimit}.\n`;
+
+        finalContent = `${truncationMessage}\n${resultContent}`;
+      } else if (!resultContent || resultContent.trim().length === 0) {
         finalContent = "Note: File is empty";
       }
 

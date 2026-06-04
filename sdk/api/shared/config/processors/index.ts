@@ -72,6 +72,13 @@ export {
   exportScriptFlow,
 } from "./script-flow.js";
 
+// Tools configuration processing function
+export {
+  validateReadFileConfig,
+  transformReadFileConfig,
+  exportReadFileConfig,
+} from "./tools/index.js";
+
 // Interactive Script configuration processing function
 export {
   validateInteractiveScript,

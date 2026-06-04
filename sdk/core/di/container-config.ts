@@ -1114,7 +1114,7 @@ export function configureContainerBindings(
 
   // ============================================================
   // File state snapshot wiring (deferred to CheckpointCoordinator)
-  // The CheckpointCoordinator integrates file state via DeltaStore
-  // at the workflow level, not via VFS bridge.
+  // File state checkpointing is handled by FileCheckpointManager
+  // in packages/common-utils/file-monitoring/.
   // ============================================================
 }

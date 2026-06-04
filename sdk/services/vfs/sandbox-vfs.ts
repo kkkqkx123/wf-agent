@@ -31,13 +31,13 @@
  *   4. Policy violations are caught before any filesystem mutation occurs.
  *
  * Historical note: Earlier versions of this class used a delta-over-base
- * layering (writable DeltaStore over read-only WorkspaceSource), with a
+ * layering (writable delta over read-only WorkspaceSource), with a
  * syncToHostFS flag to push delta writes to the host. This created dual-state
  * inconsistency between VFS consumers and external processes, and has been
  * replaced with the direct-to-host approach described above.
  *
- * Checkpoint/history recording (DeltaStore, Snapshotable) is a separate
- * concern that operates above the VFS layer, not within its data path.
+ * Checkpoint/history recording is a separate concern that operates above
+ * the VFS layer via the FileCheckpointManager in packages/common-utils.
  *
  * Tool integration:
  *   tools use WriteGuardVFS(writeIO: SandboxVFS) → VFSFileIO

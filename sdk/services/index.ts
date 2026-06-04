@@ -340,5 +340,4 @@ export {
   SandboxVFS,
   type VFSEntry,
   type VFSOperations,
-  type DeltaFileSystem,
 } from './vfs/index.js';

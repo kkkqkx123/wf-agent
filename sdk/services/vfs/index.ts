@@ -2,7 +2,7 @@
  * VFS Module — Public API
  *
  * Top-level VFS entry point for sandbox execution.
- * Internal implementations (DeltaStore, WorkspaceSource, PathMapper, MountTable)
+ * Internal implementations (WorkspaceSource, PathMapper, MountTable)
  * are not exported — they are consumed internally by SandboxVFS.
  *
  * Architecture: VFS as policy enforcement proxy, not a storage layer.
@@ -11,13 +11,12 @@
  *
  * Exports:
  *   - SandboxVFS: Policy-enforcing VFS proxy backed by host filesystem
- *   - types:      Core interfaces (VFSOperations, DeltaFileSystem, VFSEntry)
+ *   - types:      Core interfaces (VFSOperations, VFSEntry)
  */
 
 export type {
   VFSEntry,
   VFSOperations,
-  DeltaFileSystem,
   VFSConfig,
 } from "./types.js";
 

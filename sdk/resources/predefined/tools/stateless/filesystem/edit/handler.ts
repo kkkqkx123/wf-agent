@@ -2,7 +2,7 @@
  * The logic executed by the edit tool
  */
 
-import { readFile, writeFile } from "fs/promises";
+import { readFile as fsReadFile, writeFile as fsWriteFile } from "fs/promises";
 import { existsSync } from "fs";
 import type { ToolOutput } from "@wf-agent/types";
 import type { EditFileConfig } from "../../../types.js";
@@ -42,14 +42,6 @@ export function createEditHandler(config: EditFileConfig = {}) {
         };
       }
 
-      if (!existsSync(filePath)) {
-        return {
-          success: false,
-          content: "",
-          error: `File not found: ${file_path}`,
-        };
-      }
-
       if (old_string === undefined || old_string === null) {
         return {
           success: false,
@@ -66,7 +58,38 @@ export function createEditHandler(config: EditFileConfig = {}) {
         };
       }
 
-      const content = await readFile(filePath, "utf-8");
+      // Read file content (via VFS or Host FS)
+      let content: string;
+
+      if (config.vfs) {
+        const vfsPath = filePath.replace(/\\/g, "/");
+        const exists = await config.vfs.exists(vfsPath);
+        if (!exists) {
+          return {
+            success: false,
+            content: "",
+            error: `File not found: ${file_path}`,
+          };
+        }
+        const buf = await config.vfs.readFile(vfsPath);
+        if (!buf) {
+          return {
+            success: false,
+            content: "",
+            error: `File not found: ${file_path}`,
+          };
+        }
+        content = Buffer.from(buf).toString("utf-8");
+      } else {
+        if (!existsSync(filePath)) {
+          return {
+            success: false,
+            content: "",
+            error: `File not found: ${file_path}`,
+          };
+        }
+        content = await fsReadFile(filePath, "utf-8");
+      }
 
       // Determine if fuzzy matching is allowed
       // Fuzzy matching (Unicode normalization) is only allowed in safe mode
@@ -130,7 +153,12 @@ export function createEditHandler(config: EditFileConfig = {}) {
         replacementCount = 1;
       }
 
-      await writeFile(filePath, newContent, "utf-8");
+      if (config.vfs) {
+        const vfsPath = filePath.replace(/\\/g, "/");
+        await config.vfs.writeFile(vfsPath, Buffer.from(newContent, "utf-8"));
+      } else {
+        await fsWriteFile(filePath, newContent, "utf-8");
+      }
 
       const fuzzyWarning = usedFuzzyMatch
         ? "\n\n⚠️ Note: Used Unicode normalization to match the string (e.g., fancy quotes converted to ASCII)."

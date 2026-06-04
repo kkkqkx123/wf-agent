@@ -84,6 +84,28 @@ export interface ReadFileConfig {
   enableProtect?: boolean;
   /** Model ID for conditional processing (e.g., HTML entity unescaping) */
   modelId?: string;
+  /**
+   * VFS file I/O provider.
+   * When set, read operations check VFS first, falling back to Host FS.
+   */
+  vfs?: VFSFileIO;
+}
+
+/**
+ * Minimal VFS file I/O interface for file editing tools.
+ *
+ * When a VFS instance is provided, file editing tools route operations
+ * through VFS instead of directly accessing the host filesystem.
+ * This ensures consistency between tool-driven edits and sandbox script
+ * file operations, especially when VFS sync-to-host mode is enabled.
+ */
+export interface VFSFileIO {
+  readFile(path: string): Promise<Buffer | null>;
+  writeFile(path: string, data: Buffer): Promise<void>;
+  stat(path: string): Promise<{ name: string; type: "file" | "directory"; size: number } | null>;
+  exists(path: string): Promise<boolean>;
+  mkdir(path: string): Promise<void>;
+  remove(path: string): Promise<void>;
 }
 
 /**
@@ -94,6 +116,12 @@ export interface WriteFileConfig {
   workspaceDir?: string;
   /** Enable write protection */
   enableProtect?: boolean;
+  /**
+   * VFS file I/O provider.
+   * When set, all write operations route through VFS instead of direct Host FS.
+   * This is the key integration point for Plan A: "VFS as unified middle layer".
+   */
+  vfs?: VFSFileIO;
 }
 
 /**
@@ -104,6 +132,11 @@ export interface EditFileConfig {
   workspaceDir?: string;
   /** Enable write protection */
   enableProtect?: boolean;
+  /**
+   * VFS file I/O provider.
+   * When set, all read/write operations route through VFS.
+   */
+  vfs?: VFSFileIO;
 }
 
 /**

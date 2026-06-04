@@ -1,23 +1,35 @@
 /**
- * HostFS — Read-only base layer with path policy
+ * WorkspaceSource — Read-only workspace file access with path policy
  *
  * Architecture reference: docs/infra/sandbox/strategies/vfs-overlay.md
  *
- * Provides read-only access to the host filesystem, restricted by
+ * Provides read-only access to the host workspace filesystem, restricted by
  * a path whitelist (pathPolicy). Only paths matching the readable
  * whitelist can be accessed.
+ *
+ * Implements VFSOperations — write operations throw ReadOnlyError.
+ * This is intentionally read-only because WorkspaceSource serves as the base
+ * layer under SandboxVFS; all writes go to the delta layer above.
  */
 
 import * as fs from "node:fs";
 import * as fsPromise from "node:fs/promises";
 import * as path from "node:path";
-import type { VFSEntry, BaseFileSystem } from "../types.js";
+import type { VFSEntry, VFSOperations } from "../types.js";
+
+/** Error thrown when a write operation is attempted on WorkspaceSource. */
+export class ReadOnlyError extends Error {
+  constructor(operation: string, p: string) {
+    super(`WorkspaceSource is read-only: cannot ${operation} '${p}'`);
+    this.name = "ReadOnlyError";
+  }
+}
 
 export interface PathPolicy {
   readable?: string[];
 }
 
-export class HostFS implements BaseFileSystem {
+export class WorkspaceSource implements VFSOperations {
   private workspaceRoot: string;
   private pathPolicy: PathPolicy;
 
@@ -25,6 +37,15 @@ export class HostFS implements BaseFileSystem {
     this.workspaceRoot = path.resolve(workspaceRoot);
     this.pathPolicy = pathPolicy ?? { readable: [this.workspaceRoot] };
   }
+
+  /** Get the workspace root path. */
+  getWorkspaceRoot(): string {
+    return this.workspaceRoot;
+  }
+
+  // =========================================================================
+  // Read operations
+  // =========================================================================
 
   async stat(hostPath: string): Promise<VFSEntry | null> {
     if (!this.isAllowed(hostPath)) return null;
@@ -83,6 +104,34 @@ export class HostFS implements BaseFileSystem {
     }
   }
 
+  // =========================================================================
+  // Write operations — intentionally disabled (read-only base layer)
+  // =========================================================================
+
+  async writeFile(p: string, _data: Buffer): Promise<void> {
+    throw new ReadOnlyError("writeFile", p);
+  }
+
+  async remove(p: string): Promise<void> {
+    throw new ReadOnlyError("remove", p);
+  }
+
+  async rename(_oldPath: string, _newPath: string): Promise<void> {
+    throw new ReadOnlyError("rename", `${_oldPath} -> ${_newPath}`);
+  }
+
+  async mkdir(p: string): Promise<void> {
+    throw new ReadOnlyError("mkdir", p);
+  }
+
+  async rmdir(p: string): Promise<void> {
+    throw new ReadOnlyError("rmdir", p);
+  }
+
+  // =========================================================================
+  // Path operations
+  // =========================================================================
+
   /**
    * Check if a path is allowed by the path policy.
    *
@@ -97,11 +146,19 @@ export class HostFS implements BaseFileSystem {
       return true;
     }
 
-    return this.pathPolicy.readable.some((allowed) => {
+    return this.pathPolicy.readable.some(allowed => {
       const allowedPath = path.resolve(allowed);
       return resolved === allowedPath || resolved.startsWith(allowedPath + path.sep);
     });
   }
+
+  translatePath(p: string): string {
+    return path.resolve(p);
+  }
+
+  // =========================================================================
+  // Internal helpers
+  // =========================================================================
 
   private toVFSEntry(hostPath: string, stats: fs.Stats): VFSEntry {
     return {

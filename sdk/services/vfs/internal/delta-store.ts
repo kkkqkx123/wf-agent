@@ -1,25 +1,21 @@
 /**
- * SqliteDelta — SQLite-backed writable filesystem layer for sandbox VFS
+ * DeltaStore — SQLite-backed writable delta layer for sandbox VFS
  *
- * Replaces MemoryDelta with persistent storage:
- * - All file writes are persisted in SQLite immediately
- * - Snapshot/restore for checkpoint integration via snapshot table
- * - No in-memory state accumulation
+ * All file writes are persisted in SQLite immediately.
+ * Snapshot/checkpoint integration is managed at the SandboxVFS level.
  *
  * Schema:
  *   vfs_files:  path TEXT PRIMARY KEY, data BLOB, mode INT, created_at INT, modified_at INT
  *   vfs_dirs:   path TEXT PRIMARY KEY, mode INT, created_at INT, modified_at INT
- *   vfs_snapshots: id TEXT PRIMARY KEY, created_at INT
- *   vfs_snapshot_files: snapshot_id TEXT, path TEXT, data BLOB, mode INT, modified_at INT
- *                      PRIMARY KEY(snapshot_id, path)
+ *   vfs_symlinks: path TEXT PRIMARY KEY, target TEXT NOT NULL, created_at INT
  */
 
 import Database from "better-sqlite3";
-import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import type { VFSEntry, DeltaFileSystem } from "../types.js";
+import crypto from "node:crypto";
+import type { VFSEntry, DeltaFileSystem, Snapshotable } from "../types.js";
 
 interface FileRow {
   path: string;
@@ -37,23 +33,15 @@ interface DirRow {
   modified_at: number;
 }
 
-interface SnapshotFileRow {
-  snapshot_id: string;
-  path: string;
-  data: Buffer;
-  mode: number;
-  modified_at: number;
-}
-
-export interface SqliteDeltaConfig {
+export interface DeltaStoreConfig {
   dbPath: string;
   autoCreateDir?: boolean;
 }
 
-export class SqliteDelta implements DeltaFileSystem {
+export class DeltaStore implements DeltaFileSystem, Snapshotable {
   private db: Database.Database;
 
-  constructor(config: SqliteDeltaConfig) {
+  constructor(config: DeltaStoreConfig) {
     if (config.autoCreateDir !== false) {
       const dbDir = dirname(config.dbPath);
       if (!existsSync(dbDir)) {
@@ -87,6 +75,12 @@ export class SqliteDelta implements DeltaFileSystem {
         modified_at INTEGER NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS vfs_symlinks (
+        path TEXT PRIMARY KEY,
+        target TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+
       CREATE TABLE IF NOT EXISTS vfs_snapshots (
         id TEXT PRIMARY KEY,
         created_at INTEGER NOT NULL
@@ -95,14 +89,33 @@ export class SqliteDelta implements DeltaFileSystem {
       CREATE TABLE IF NOT EXISTS vfs_snapshot_files (
         snapshot_id TEXT NOT NULL,
         path TEXT NOT NULL,
-        data BLOB,
+        data BLOB NOT NULL,
         mode INTEGER NOT NULL DEFAULT 644,
+        size INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
         modified_at INTEGER NOT NULL,
-        is_deleted INTEGER NOT NULL DEFAULT 0,
-        PRIMARY KEY (snapshot_id, path)
+        PRIMARY KEY (snapshot_id, path),
+        FOREIGN KEY (snapshot_id) REFERENCES vfs_snapshots(id) ON DELETE CASCADE
       );
 
-      CREATE INDEX IF NOT EXISTS idx_snapshot_files_id ON vfs_snapshot_files(snapshot_id);
+      CREATE TABLE IF NOT EXISTS vfs_snapshot_dirs (
+        snapshot_id TEXT NOT NULL,
+        path TEXT NOT NULL,
+        mode INTEGER NOT NULL DEFAULT 755,
+        created_at INTEGER NOT NULL,
+        modified_at INTEGER NOT NULL,
+        PRIMARY KEY (snapshot_id, path),
+        FOREIGN KEY (snapshot_id) REFERENCES vfs_snapshots(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS vfs_snapshot_symlinks (
+        snapshot_id TEXT NOT NULL,
+        path TEXT NOT NULL,
+        target TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (snapshot_id, path),
+        FOREIGN KEY (snapshot_id) REFERENCES vfs_snapshots(id) ON DELETE CASCADE
+      );
     `);
   }
 
@@ -145,6 +158,22 @@ export class SqliteDelta implements DeltaFileSystem {
       };
     }
 
+    const symlink = this.db
+      .prepare("SELECT path, target, created_at FROM vfs_symlinks WHERE path = ?")
+      .get(normalized) as { path: string; target: string; created_at: number } | undefined;
+
+    if (symlink) {
+      return {
+        name: basename(symlink.path),
+        path: symlink.path,
+        type: "file",
+        size: 0,
+        mode: 0o777,
+        createdAt: symlink.created_at,
+        modifiedAt: symlink.created_at,
+      };
+    }
+
     return null;
   }
 
@@ -181,9 +210,11 @@ export class SqliteDelta implements DeltaFileSystem {
 
     this.db.transaction(() => {
       this.db.prepare("DELETE FROM vfs_files WHERE path = ?").run(normalized);
+      this.db.prepare("DELETE FROM vfs_symlinks WHERE path = ?").run(normalized);
 
       const prefix = `${normalized}/`;
       this.db.prepare("DELETE FROM vfs_files WHERE path LIKE ?").run(`${prefix}%`);
+      this.db.prepare("DELETE FROM vfs_symlinks WHERE path LIKE ?").run(`${prefix}%`);
 
       this.db.prepare("DELETE FROM vfs_dirs WHERE path = ?").run(normalized);
     })();
@@ -249,6 +280,35 @@ export class SqliteDelta implements DeltaFileSystem {
   }
 
   // =========================================================================
+  // Symbolic link operations
+  // =========================================================================
+
+  async symlink(target: string, path: string): Promise<void> {
+    const normalized = this.normalize(path);
+    const now = Date.now();
+
+    this.db
+      .prepare(
+        `INSERT INTO vfs_symlinks (path, target, created_at)
+         VALUES (?, ?, ?)
+         ON CONFLICT(path) DO UPDATE SET target = excluded.target, created_at = excluded.created_at`,
+      )
+      .run(normalized, target, now);
+
+    this.ensureParentDirSync(normalized);
+  }
+
+  async readlink(path: string): Promise<string | null> {
+    const normalized = this.normalize(path);
+
+    const row = this.db
+      .prepare("SELECT target FROM vfs_symlinks WHERE path = ?")
+      .get(normalized) as { target: string } | undefined;
+
+    return row?.target ?? null;
+  }
+
+  // =========================================================================
   // Directory operations
   // =========================================================================
 
@@ -297,6 +357,30 @@ export class SqliteDelta implements DeltaFileSystem {
       });
     }
 
+    const symlinks = this.db
+      .prepare(
+        `SELECT path, target, created_at FROM vfs_symlinks
+         WHERE path LIKE ? AND path != ?
+         AND instr(substr(path, ?), '/') = 0`,
+      )
+      .all(`${prefix}%`, normalized, prefix.length + 1) as {
+      path: string;
+      target: string;
+      created_at: number;
+    }[];
+
+    for (const symlink of symlinks) {
+      entries.push({
+        name: basename(symlink.path),
+        path: symlink.path,
+        type: "file",
+        size: 0,
+        mode: 0o777,
+        createdAt: symlink.created_at,
+        modifiedAt: symlink.created_at,
+      });
+    }
+
     return entries;
   }
 
@@ -326,134 +410,174 @@ export class SqliteDelta implements DeltaFileSystem {
     })();
   }
 
+  close(): void {
+    this.db.close();
+  }
+
   // =========================================================================
-  // Snapshot operations (for checkpoint integration)
+  // Snapshot API (Snapshotable)
   // =========================================================================
 
-  createSnapshot(): string {
-    const id = randomUUID();
+  async snapshot(): Promise<string> {
+    const snapshotId = crypto.randomUUID();
     const now = Date.now();
 
     this.db.transaction(() => {
-      this.db.prepare("INSERT INTO vfs_snapshots (id, created_at) VALUES (?, ?)").run(id, now);
-
+      // Register snapshot
       this.db
-        .prepare(
-          `INSERT INTO vfs_snapshot_files (snapshot_id, path, data, mode, modified_at, is_deleted)
-           SELECT ?, path, data, mode, modified_at, 0 FROM vfs_files`,
-        )
-        .run(id);
+        .prepare("INSERT INTO vfs_snapshots (id, created_at) VALUES (?, ?)")
+        .run(snapshotId, now);
 
-      this.db
-        .prepare(
-          `INSERT INTO vfs_snapshot_files (snapshot_id, path, data, mode, modified_at, is_deleted)
-           SELECT ?, path, NULL, 0, 0, 1 FROM vfs_dirs
-           WHERE path NOT IN (SELECT path FROM vfs_snapshot_files WHERE snapshot_id = ?)`,
-        )
-        .run(id, id);
+      // Snapshot all files
+      const files = this.db
+        .prepare("SELECT path, data, mode, size, created_at, modified_at FROM vfs_files")
+        .all() as FileRow[];
+
+      const insertFile = this.db.prepare(
+        `INSERT INTO vfs_snapshot_files (snapshot_id, path, data, mode, size, created_at, modified_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      );
+      for (const file of files) {
+        insertFile.run(
+          snapshotId,
+          file.path,
+          file.data,
+          file.mode,
+          file.size,
+          file.created_at,
+          file.modified_at,
+        );
+      }
+
+      // Snapshot all dirs
+      const dirs = this.db
+        .prepare("SELECT path, mode, created_at, modified_at FROM vfs_dirs")
+        .all() as DirRow[];
+
+      const insertDir = this.db.prepare(
+        `INSERT INTO vfs_snapshot_dirs (snapshot_id, path, mode, created_at, modified_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      );
+      for (const dir of dirs) {
+        insertDir.run(snapshotId, dir.path, dir.mode, dir.created_at, dir.modified_at);
+      }
+
+      // Snapshot all symlinks
+      const symlinks = this.db
+        .prepare("SELECT path, target, created_at FROM vfs_symlinks")
+        .all() as { path: string; target: string; created_at: number }[];
+
+      const insertSymlink = this.db.prepare(
+        `INSERT INTO vfs_snapshot_symlinks (snapshot_id, path, target, created_at)
+         VALUES (?, ?, ?, ?)`,
+      );
+      for (const symlink of symlinks) {
+        insertSymlink.run(snapshotId, symlink.path, symlink.target, symlink.created_at);
+      }
     })();
 
-    return id;
+    return snapshotId;
   }
 
-  restoreSnapshot(snapshotId: string): void {
+  async restore(snapshotId: string): Promise<void> {
     const snapshot = this.db
       .prepare("SELECT id FROM vfs_snapshots WHERE id = ?")
       .get(snapshotId) as { id: string } | undefined;
 
     if (!snapshot) {
-      throw new Error(`VFS snapshot not found: ${snapshotId}`);
+      throw new Error(`Snapshot not found: ${snapshotId}`);
     }
 
     this.db.transaction(() => {
+      // Clear current data
+      this.db.exec("DELETE FROM vfs_files");
+      this.db.exec("DELETE FROM vfs_dirs");
+      this.db.exec("DELETE FROM vfs_symlinks");
+
+      // Restore files from snapshot
       const files = this.db
         .prepare(
-          "SELECT path, data, mode, modified_at FROM vfs_snapshot_files WHERE snapshot_id = ? AND is_deleted = 0",
+          "SELECT path, data, mode, size, created_at, modified_at FROM vfs_snapshot_files WHERE snapshot_id = ?",
         )
-        .all(snapshotId) as SnapshotFileRow[];
+        .all(snapshotId) as FileRow[];
 
-      this.db.prepare("DELETE FROM vfs_files").run();
-      this.db.prepare("DELETE FROM vfs_dirs").run();
-
-      const now = Date.now();
       const insertFile = this.db.prepare(
-        `INSERT INTO vfs_files (path, data, mode, created_at, modified_at)
-         VALUES (?, ?, ?, ?, ?)`,
+        `INSERT INTO vfs_files (path, data, mode, size, created_at, modified_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
       );
+      for (const file of files) {
+        insertFile.run(file.path, file.data, file.mode, file.size, file.created_at, file.modified_at);
+      }
+
+      // Restore dirs from snapshot
+      const dirs = this.db
+        .prepare("SELECT path, mode, created_at, modified_at FROM vfs_snapshot_dirs WHERE snapshot_id = ?")
+        .all(snapshotId) as DirRow[];
 
       const insertDir = this.db.prepare(
         `INSERT INTO vfs_dirs (path, mode, created_at, modified_at)
          VALUES (?, ?, ?, ?)`,
       );
+      for (const dir of dirs) {
+        insertDir.run(dir.path, dir.mode, dir.created_at, dir.modified_at);
+      }
 
-      for (const file of files) {
-        if (file.data) {
-          insertFile.run(file.path, file.data, file.mode, now, file.modified_at);
-        } else {
-          insertDir.run(file.path, 755, now, file.modified_at);
-        }
+      // Restore symlinks from snapshot
+      const symlinks = this.db
+        .prepare("SELECT path, target, created_at FROM vfs_snapshot_symlinks WHERE snapshot_id = ?")
+        .all(snapshotId) as { path: string; target: string; created_at: number }[];
+
+      const insertSymlink = this.db.prepare(
+        `INSERT INTO vfs_symlinks (path, target, created_at)
+         VALUES (?, ?, ?)`,
+      );
+      for (const symlink of symlinks) {
+        insertSymlink.run(symlink.path, symlink.target, symlink.created_at);
       }
     })();
   }
 
-  deleteSnapshot(snapshotId: string): void {
-    this.db.transaction(() => {
-      this.db.prepare("DELETE FROM vfs_snapshot_files WHERE snapshot_id = ?").run(snapshotId);
-      this.db.prepare("DELETE FROM vfs_snapshots WHERE id = ?").run(snapshotId);
-    })();
+  async listSnapshots(): Promise<Array<{ id: string; createdAt: number }>> {
+    const rows = this.db
+      .prepare("SELECT id, created_at FROM vfs_snapshots ORDER BY created_at DESC")
+      .all() as { id: string; created_at: number }[];
+
+    return rows.map((row) => ({ id: row.id, createdAt: row.created_at }));
   }
 
-  listSnapshots(): string[] {
-    const rows = this.db.prepare("SELECT id FROM vfs_snapshots ORDER BY created_at ASC").all() as {
-      id: string;
-    }[];
-    return rows.map(r => r.id);
-  }
-
-  hasPendingChanges(): boolean {
-    const fileCount = (
-      this.db.prepare("SELECT COUNT(*) as count FROM vfs_files").get() as { count: number }
-    ).count;
-    const dirCount = (
-      this.db.prepare("SELECT COUNT(*) as count FROM vfs_dirs").get() as { count: number }
-    ).count;
-    return fileCount > 0 || dirCount > 0;
-  }
-
-  close(): void {
-    this.db.close();
+  async deleteSnapshot(snapshotId: string): Promise<void> {
+    const result = this.db.prepare("DELETE FROM vfs_snapshots WHERE id = ?").run(snapshotId);
+    if (result.changes === 0) {
+      throw new Error(`Snapshot not found: ${snapshotId}`);
+    }
   }
 
   // =========================================================================
   // Internal helpers
   // =========================================================================
 
-  private normalize(path: string): string {
-    const normalized = path.replace(/\\/g, "/").replace(/\/+/g, "/");
-
+  private normalize(p: string): string {
+    let normalized = p.replace(/\\/g, "/").replace(/\/+/g, "/");
     if (normalized.length > 1 && normalized.endsWith("/")) {
-      return normalized.slice(0, -1);
+      normalized = normalized.slice(0, -1);
     }
-
-    return normalized.startsWith("/") ? normalized : `/${normalized}`;
+    return normalized.startsWith("/") ? normalized : "/" + normalized;
   }
 
-  private ensureParentDirSync(vfsPath: string): void {
-    const parentDir = vfsPath.substring(0, vfsPath.lastIndexOf("/"));
-    if (!parentDir || parentDir === "") return;
+  /**
+   * Synchronously ensure the parent directory of a VFS path exists.
+   * This is called after write operations to maintain directory hierarchy.
+   */
+  private ensureParentDirSync(p: string): void {
+    const parent = dirname(p);
+    if (parent === "/" || parent === ".") return;
 
     const now = Date.now();
     this.db
       .prepare(
-        `INSERT INTO vfs_dirs (path, mode, created_at, modified_at)
-         VALUES (?, 755, ?, ?)
-         ON CONFLICT(path) DO NOTHING`,
+        `INSERT OR IGNORE INTO vfs_dirs (path, mode, created_at, modified_at)
+         VALUES (?, 755, ?, ?)`,
       )
-      .run(parentDir, now, now);
-
-    const grandParent = parentDir.substring(0, parentDir.lastIndexOf("/"));
-    if (grandParent && grandParent !== "") {
-      this.ensureParentDirSync(grandParent);
-    }
+      .run(parent, now, now);
   }
 }

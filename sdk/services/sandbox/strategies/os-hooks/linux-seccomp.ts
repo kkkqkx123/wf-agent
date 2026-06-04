@@ -11,7 +11,56 @@ import { getTerminalService, type TerminalService } from "../../../terminal/inde
 import { execSync } from "child_process";
 import { existsSync } from "fs";
 import { resolve } from "path";
-import { executePassthrough } from "./base.js";
+import { executePassthrough, recordAudit } from "./base.js";
+
+// Extended syscall categories for richer policy mapping
+const SYSCALL_CATEGORIES = {
+  fileIO: [
+    "read", "write", "open", "openat", "close", "lseek",
+    "pread64", "pwrite64", "readv", "writev", "sendfile",
+    "truncate", "ftruncate", "fallocate",
+  ],
+  fsMeta: [
+    "stat", "lstat", "fstat", "newfstatat", "statx",
+    "access", "faccessat", "getdents", "getdents64",
+    "readlink", "readlinkat", "name_to_handle_at",
+  ],
+  fsMod: [
+    "mkdir", "mkdirat", "rmdir", "unlink", "unlinkat",
+    "rename", "renameat", "renameat2", "symlink", "symlinkat",
+    "link", "linkat", "mknod", "mknodat",
+    "chmod", "fchmod", "chmodat", "chown", "fchown", "chownat",
+    "utimensat", "futimesat",
+  ],
+  process: [
+    "fork", "vfork", "clone", "clone3", "execve", "execveat",
+    "exit", "exit_group", "wait4", "waitid",
+    "getpid", "getppid", "gettid",
+  ],
+  memory: [
+    "mmap", "munmap", "mprotect", "brk", "sbrk",
+    "mlock", "munlock", "mlockall", "munlockall",
+  ],
+  network: [
+    "socket", "connect", "bind", "listen", "accept", "accept4",
+    "sendto", "recvfrom", "sendmsg", "recvmsg", "sendmmsg", "recvmmsg",
+    "shutdown", "getsockopt", "setsockopt", "getsockname", "getpeername",
+    "epoll_create", "epoll_ctl", "epoll_wait", "select", "poll", "ppoll",
+  ],
+  time: [
+    "nanosleep", "clock_gettime", "gettimeofday",
+    "time", "clock_nanosleep", "timer_create",
+  ],
+  sync: [
+    "futex", "futex_time64", "sync", "fsync", "fdatasync",
+    "msync", "sync_file_range",
+  ],
+  misc: [
+    "ioctl", "fcntl", "flock", "dup", "dup2", "dup3",
+    "pipe", "pipe2", "eventfd", "eventfd2", "signalfd",
+    "userfaultfd", "memfd_create", "inotify_init", "inotify_add_watch",
+  ],
+} as const;
 
 export class LinuxSeccompStrategy implements StrategyImplementation<ScriptExecutionResult> {
   id = "linux-seccomp";
@@ -47,12 +96,28 @@ export class LinuxSeccompStrategy implements StrategyImplementation<ScriptExecut
     // Try to use seccomp-loader binary for BPF filtering.
     const loaderPath = this.findSeccompLoader();
     if (!loaderPath) {
+      recordAudit({
+        timestamp: startTime,
+        strategyId: this.id,
+        command: options.command,
+        allowed: true,
+        reason: "seccomp-loader binary not found, falling back to passthrough",
+      });
       // Fall back to passthrough when seccomp-loader binary not found
       return executePassthrough(this.terminalService, options, startTime);
     }
 
     // Build seccomp arguments from policy
     const policyArgs = this.buildPolicyArgs(policy);
+
+    // Record audit of applied policy
+    recordAudit({
+      timestamp: startTime,
+      strategyId: this.id,
+      command: options.command,
+      allowed: true,
+      reason: `seccomp policy: deny=[${policyArgs.deny.join(",")}] allow=[${policyArgs.allow.join(",")}]`,
+    });
 
     // Construct the full command: seccomp-loader --allow ... --deny ... -- <user-command>
     const allowList = policyArgs.allow.length > 0
@@ -132,22 +197,33 @@ export class LinuxSeccompStrategy implements StrategyImplementation<ScriptExecut
   /**
    * Map SandboxPolicy to seccomp --allow / --deny syscall lists.
    *
+   * Uses SYSCALL_CATEGORIES for granular control based on policy fields:
+   * - filesystem.writeable vs readable: control fsMod syscalls
+   * - process.allowExec: control exec* syscalls
+   * - process.allowFork: control fork/clone syscalls
+   * - network.access: control network syscalls
+   *
    * Returns { allow: string[], deny: string[] } where each element
    * is a syscall name (e.g. "read", "write", "execve").
    */
   private buildPolicyArgs(policy: SandboxPolicy): { allow: string[]; deny: string[] } {
-    // Default allow-list: essential syscalls for basic program execution
-    const allow = new Set([
-      "read", "write", "open", "close", "stat", "lstat", "fstat",
-      "mmap", "munmap", "mprotect", "brk", "exit_group", "exit",
-      "lseek", "pread64", "pwrite64", "readv", "writev",
-      "getdents", "getdents64", "ioctl",
-      "futex", "nanosleep", "clock_gettime", "gettimeofday",
+    const allow = new Set<string>([
+      // Essential for any program to run
+      ...SYSCALL_CATEGORIES.fileIO,
+      ...SYSCALL_CATEGORIES.fsMeta,
+      ...SYSCALL_CATEGORIES.memory,
+      ...SYSCALL_CATEGORIES.time,
+      ...SYSCALL_CATEGORIES.sync,
+      ...SYSCALL_CATEGORIES.misc,
+
+      // Process basics (exit, getpid, wait)
+      "exit", "exit_group", "getpid", "getppid", "gettid",
+      "wait4", "waitid",
     ]);
 
     const deny = new Set<string>();
 
-    // Process policy: if exec/fork is denied, block the syscalls
+    // Process policy: deny exec/fork syscalls
     if (policy.process?.allowExec === false) {
       deny.add("execve");
       deny.add("execveat");
@@ -159,28 +235,28 @@ export class LinuxSeccompStrategy implements StrategyImplementation<ScriptExecut
       deny.add("clone3");
     }
 
-    // Network policy: if access is 'none', block network syscalls
+    // Network policy: deny all network syscalls
     if (policy.network?.access === "none") {
-      deny.add("socket");
-      deny.add("connect");
-      deny.add("bind");
-      deny.add("listen");
-      deny.add("accept");
-      deny.add("accept4");
-      deny.add("sendto");
-      deny.add("recvfrom");
-      deny.add("sendmsg");
-      deny.add("recvmsg");
+      for (const syscall of SYSCALL_CATEGORIES.network) {
+        deny.add(syscall);
+      }
     }
 
-    // File system policy: if resource limits exist, apply them
+    // Filesystem policy: restrict modify operations when no writable paths are configured
+    if (policy.filesystem?.allowedWritePaths?.length === 0) {
+      // Deny only modification syscalls, allow reads
+      for (const syscall of SYSCALL_CATEGORIES.fsMod) {
+        deny.add(syscall);
+      }
+    }
+
+    // Custom denylist via resource extensions
     if (policy.resource?.timeoutLimit) {
-      // timeoutLimit is handled at the resolver layer, but we can
-      // also enforce a syscall-level timeout via seccomp if needed.
+      // timeoutLimit is handled at the resolver layer
     }
 
     return {
-      allow: Array.from(allow),
+      allow: Array.from(allow).filter(s => !deny.has(s)),
       deny: Array.from(deny),
     };
   }

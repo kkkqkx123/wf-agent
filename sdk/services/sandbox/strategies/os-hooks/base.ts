@@ -9,6 +9,45 @@ import type { ScriptExecutionResult, StrategyExecuteOptions } from "@wf-agent/ty
 import type { TerminalService } from "../../../terminal/index.js";
 
 // =========================================================================
+// Audit Log
+// =========================================================================
+
+export interface AuditEntry {
+  timestamp: number;
+  strategyId: string;
+  command: string;
+  allowed: boolean;
+  reason: string;
+}
+
+const auditLog: AuditEntry[] = [];
+
+/**
+ * Record an audit entry for OS hook decision.
+ */
+export function recordAudit(entry: AuditEntry): void {
+  auditLog.push(entry);
+  // Keep only last 1000 entries to prevent unbounded memory growth
+  if (auditLog.length > 1000) {
+    auditLog.splice(0, auditLog.length - 1000);
+  }
+}
+
+/**
+ * Get audit log (read-only snapshot).
+ */
+export function getAuditLog(): readonly AuditEntry[] {
+  return auditLog.slice();
+}
+
+/**
+ * Clear audit log.
+ */
+export function clearAuditLog(): void {
+  auditLog.length = 0;
+}
+
+// =========================================================================
 // Shared fallback: passthrough execution via TerminalService
 // =========================================================================
 
@@ -20,7 +59,16 @@ export async function executePassthrough(
   terminalService: TerminalService,
   options: StrategyExecuteOptions,
   startTime: number,
+  auditReason = "passthrough (native OS hook unavailable)",
 ): Promise<ScriptExecutionResult> {
+  recordAudit({
+    timestamp: startTime,
+    strategyId: "os-hook-passthrough",
+    command: options.command,
+    allowed: true,
+    reason: auditReason,
+  });
+
   try {
     const result = await terminalService.executeOneOff(options.command, {
       cwd: options.cwd,

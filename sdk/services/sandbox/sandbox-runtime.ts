@@ -20,14 +20,14 @@ import type {
 import { DefaultStrategyResolver } from "./strategy-resolver.js";
 import { DEFAULT_SANDBOX_POLICY } from "./default-policy.js";
 
-import { OverlayVFS } from "../vfs/overlay-vfs.js";
+import { SandboxVFS } from "../vfs/sandbox-vfs.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "SandboxRuntime" });
 
 export interface SandboxRuntimeResult {
   strategy: StrategyImplementation<ScriptExecutionResult> | null;
-  vfs: OverlayVFS | null;
+  vfs: SandboxVFS | null;
   policy: SandboxPolicy;
 }
 
@@ -47,7 +47,7 @@ export function resetSandboxRuntime(): void {
 export class SandboxRuntime {
   private resolver: DefaultStrategyResolver;
   private globalConfig: SandboxGlobalConfig | null;
-  private vfsInstances = new Map<string, OverlayVFS>();
+  private vfsInstances = new Map<string, SandboxVFS>();
 
   constructor(globalConfig?: SandboxGlobalConfig) {
     this.resolver = new DefaultStrategyResolver();
@@ -74,19 +74,19 @@ export class SandboxRuntime {
 
     const mergedPolicy = this.mergePolicy(resolvedConfig);
     const strategy = this.resolveStrategy(language, resolvedConfig);
-    let vfs: OverlayVFS | null = null;
+    let vfs: SandboxVFS | null = null;
 
     const vfsConfig = this.resolveVFSConfig(resolvedConfig, language);
     if (vfsConfig?.enabled) {
       const workspaceRoot = vfsConfig.workspaceRoot || options.cwd || process.cwd();
-      const overlayVfs = new OverlayVFS({
+      const sandboxVfs = new SandboxVFS({
         enabled: true,
         workspaceRoot,
         dbPath: vfsConfig.dbPath,
         pathPolicy: vfsConfig.pathPolicy,
       });
-      this.vfsInstances.set(workspaceRoot, overlayVfs);
-      vfs = overlayVfs;
+      this.vfsInstances.set(workspaceRoot, sandboxVfs);
+      vfs = sandboxVfs;
 
       logger.debug("VFS initialized for sandbox execution", {
         workspaceRoot,

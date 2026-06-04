@@ -78,8 +78,31 @@ export function createReadFileHandler(config: ReadFileConfig = {}) {
         };
       }
 
-      // Check if file exists
-      if (!existsSync(absolutePath)) {
+      // Check if file exists (via VFS or Host FS)
+      const vfs = config.vfs;
+      const vfsPath = absolutePath.replace(/\\/g, "/");
+      let fileExists: boolean;
+      let fileSize: number;
+      let isDirectory: boolean;
+
+      if (vfs) {
+        const vfsStat = await vfs.stat(vfsPath);
+        fileExists = vfsStat !== null;
+        fileSize = vfsStat?.size ?? 0;
+        isDirectory = vfsStat?.type === "directory";
+      } else {
+        fileExists = existsSync(absolutePath);
+        if (fileExists) {
+          const s = await stat(absolutePath);
+          isDirectory = s.isDirectory();
+          fileSize = s.size;
+        } else {
+          isDirectory = false;
+          fileSize = 0;
+        }
+      }
+
+      if (!fileExists) {
         return {
           success: false,
           content: "",
@@ -87,9 +110,7 @@ export function createReadFileHandler(config: ReadFileConfig = {}) {
         };
       }
 
-      // Check if path is a directory
-      const stats = await stat(absolutePath);
-      if (stats.isDirectory()) {
+      if (isDirectory) {
         return {
           success: false,
           content: "",
@@ -98,11 +119,11 @@ export function createReadFileHandler(config: ReadFileConfig = {}) {
       }
 
       // Check file size against maxFileSize limit
-      if (stats.size > maxFileSize) {
+      if (fileSize > maxFileSize) {
         return {
           success: false,
           content: "",
-          error: `File too large: ${filePath} (${formatFileSize(stats.size)}). Maximum allowed size is ${formatFileSize(maxFileSize)}.`,
+          error: `File too large: ${filePath} (${formatFileSize(fileSize)}). Maximum allowed size is ${formatFileSize(maxFileSize)}.`,
         };
       }
 
@@ -126,7 +147,13 @@ If this is actually a text file with an unusual extension, you can try reading i
       }
 
       // Read the contents of the file as buffer first for graceful UTF-8 handling
-      const buffer = await readFile(absolutePath);
+      let buffer: Buffer;
+      if (config.vfs) {
+        const vfsBuf = await config.vfs.readFile(vfsPath);
+        buffer = vfsBuf ? Buffer.from(vfsBuf) : Buffer.from("");
+      } else {
+        buffer = await readFile(absolutePath);
+      }
       const content = buffer.toString("utf-8");
       const lines = content.split("\n");
       const totalLines = lines.length;

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { OverlayVFS } from "../overlay-vfs.js";
+import { SandboxVFS } from "../sandbox-vfs.js";
 import type { VFSConfig } from "@wf-agent/types";
 
 function createVFSConfig(overrides?: Partial<VFSConfig>): VFSConfig {
@@ -11,11 +11,11 @@ function createVFSConfig(overrides?: Partial<VFSConfig>): VFSConfig {
   };
 }
 
-describe("OverlayVFS", () => {
-  let vfs: OverlayVFS;
+describe("SandboxVFS", () => {
+  let vfs: SandboxVFS;
 
   beforeEach(() => {
-    vfs = new OverlayVFS(createVFSConfig());
+    vfs = new SandboxVFS(createVFSConfig());
   });
 
   describe("file operations", () => {

@@ -2,7 +2,7 @@
  * The `write_file` tool executes the following logic:
  */
 
-import { writeFile, mkdir } from "fs/promises";
+import { writeFile as fsWriteFile, mkdir } from "fs/promises";
 import { dirname } from "path";
 import type { ToolOutput } from "@wf-agent/types";
 import type { WriteFileConfig } from "../../../types.js";
@@ -35,12 +35,20 @@ export function createWriteFileHandler(config: WriteFileConfig = {}) {
         };
       }
 
-      // Create a parent directory
-      const dir = dirname(absolutePath);
-      await mkdir(dir, { recursive: true });
+      const data = Buffer.from(content, "utf-8");
 
-      // Write to the file
-      await writeFile(absolutePath, content, "utf-8");
+      if (config.vfs) {
+        // Route through VFS (Plan A: VFS as unified middle layer)
+        // VFS handles sync-to-host if configured internally
+        const vfsPath = absolutePath.replace(/\\/g, "/");
+        await config.vfs.mkdir(dirname(vfsPath).replace(/\\/g, "/"));
+        await config.vfs.writeFile(vfsPath, data);
+      } else {
+        // Fallback: direct Host FS (original behavior)
+        const dir = dirname(absolutePath);
+        await mkdir(dir, { recursive: true });
+        await fsWriteFile(absolutePath, data);
+      }
 
       return {
         success: true,

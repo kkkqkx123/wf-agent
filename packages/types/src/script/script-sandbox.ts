@@ -230,6 +230,17 @@ export interface StrategyResolver {
 // VFS Config
 // ============================================================================
 
+/**
+ * Mount configuration for VFS path translation.
+ * Enables mapping of sandbox virtual paths to different VFS backends.
+ */
+export interface VFSMountConfig {
+  /** Virtual path in the sandbox (e.g., "/agent") */
+  sandboxPath: string;
+  /** Host path to bind-mount (bind mount only) */
+  hostPath: string;
+}
+
 export interface VFSConfig {
   /** Enable VFS overlay */
   enabled: boolean;
@@ -244,6 +255,15 @@ export interface VFSConfig {
     readable?: string[];
     writable?: string[];
   };
+  /** Additional bind mounts for path translation */
+  mounts?: VFSMountConfig[];
+  /**
+   * When enabled, all VFS writes are synced to the host filesystem.
+   * This makes VFS a transparent unified layer: file editing tools,
+   * sandbox scripts, and checkpoint all see the same file state.
+   * Default: false (VFS is sandbox-only, writes stay in SQLite delta)
+   */
+  syncToHostFS?: boolean;
 }
 
 /**

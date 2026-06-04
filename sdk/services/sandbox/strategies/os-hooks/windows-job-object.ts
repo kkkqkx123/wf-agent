@@ -11,7 +11,7 @@ import type { SandboxPolicy, ScriptExecutionResult, StrategyExecuteOptions } fro
 import type { StrategyImplementation } from "../../types.js";
 import { getTerminalService, type TerminalService } from "../../../terminal/index.js";
 import { spawn } from "child_process";
-import { executePassthrough } from "./base.js";
+import { executePassthrough, recordAudit } from "./base.js";
 import { createContextualLogger } from "../../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "WindowsJobObjectStrategy" });
@@ -53,9 +53,24 @@ export class WindowsJobObjectStrategy implements StrategyImplementation<ScriptEx
     // If koffi is not installed (optional dep), fall back to passthrough.
     const binding = this.getKoffiBinding();
     if (!binding) {
+      recordAudit({
+        timestamp: startTime,
+        strategyId: this.id,
+        command: options.command,
+        allowed: true,
+        reason: "koffi binding unavailable, falling back to passthrough",
+      });
       logger.warn("koffi binding unavailable, falling back to passthrough (no OS-level isolation)");
       return executePassthrough(this.terminalService, options, startTime);
     }
+
+    recordAudit({
+      timestamp: startTime,
+      strategyId: this.id,
+      command: options.command,
+      allowed: true,
+      reason: "executing with Windows Job Object isolation",
+    });
 
     return this.executeWithJobObject(options, policy, binding, startTime);
   }

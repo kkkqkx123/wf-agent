@@ -337,11 +337,8 @@ export {
 // VFS Service
 // ============================================================================
 export {
-  OverlayVFS,
-  HostFS,
-  SqliteDelta,
+  SandboxVFS,
   type VFSEntry,
   type VFSOperations,
   type DeltaFileSystem,
-  type BaseFileSystem,
 } from './vfs/index.js';

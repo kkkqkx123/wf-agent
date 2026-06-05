@@ -11,5 +11,14 @@ export type { BuiltinToolCategory, BuiltinToolDefinition, BuiltinToolsOptions } 
 // Export workflow tools
 export * from "./workflow/index.js";
 
-// Export interaction tools
-export * from "./interaction/index.js";
+// Export ask-followup-question tool
+export * from "./ask-followup-question/index.js";
+
+// Export knowledge tools
+export * from "./knowledge/index.js";
+
+// Export integration tools
+export * from "./integration/index.js";
+
+// Export agent tools
+export * from "./agent/index.js";

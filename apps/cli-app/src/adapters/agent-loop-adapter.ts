@@ -22,6 +22,7 @@ import {
   LLMExecutor,
   ToolRegistry,
   SkillRegistry,
+  AgentProfileRegistry,
   ServiceIdentifiers,
 } from "@wf-agent/sdk/core";
 import type {
@@ -36,6 +37,7 @@ import type {
   SkillHandlerConfig,
   PredefinedToolsOptions,
   WorkflowHandlerConfig,
+  AgentHandlerConfig,
 } from "@wf-agent/sdk/resources";
 import { createPredefinedTools, createBuiltinTools } from "@wf-agent/sdk/resources";
 import { toSdkTool } from "@wf-agent/sdk/services";
@@ -369,6 +371,92 @@ export class AgentLoopAdapter extends BaseAdapter {
         },
       };
     } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Apply agent integration to the agent loop runtime config.
+   *
+   * Registers the call_agent builtin tool with an AgentHandlerConfig,
+   * pulling agent profile metadata from the AgentProfileRegistry in the
+   * DI container. This enables description injection so the LLM can
+   * discover available agent profiles.
+   *
+   * Safe to call even if no agent profiles are registered — the tool
+   * remains available with a default description.
+   *
+   * @param config The runtime config to apply agent integration to
+   */
+  applyAgentsToConfig(config: AgentLoopRuntimeConfig): void {
+    try {
+      // Check if call_agent tool is enabled
+      const hasCallAgent = config.availableTools?.tools?.includes("call_agent");
+      if (!hasCallAgent) {
+        this.output.infoLog("call_agent tool not enabled, skipping agent integration");
+        return;
+      }
+
+      // Build an AgentHandlerConfig (agent profiles can be added later via registry)
+      const agentHandlerConfig = this.buildAgentHandlerConfig();
+
+      if (agentHandlerConfig) {
+        // Create builtin tools with the agent config and register on the internal ToolRegistry
+        const builtinOptions = { agent: agentHandlerConfig };
+        const builtinTools = createBuiltinTools(builtinOptions);
+        for (const tool of builtinTools) {
+          this.toolRegistry.registerTool(tool, { skipIfExists: true });
+        }
+        this.output.infoLog(
+          `Registered ${builtinTools.length} builtin tools with agent support on agent loop ToolRegistry`,
+        );
+      }
+    } catch {
+      this.output.infoLog(
+        "Agent integration not configured, running without agent profile injection",
+      );
+    }
+  }
+
+  /**
+   * Build an AgentHandlerConfig from the AgentProfileRegistry in the DI container.
+   *
+   * The returned config provides the call_agent tool handler with access to:
+   * - getAvailableAgentProfiles() - list all profiles for description injection and validation
+   * - hasAgentProfile(id) - validate profile existence before execution
+   *
+   * @returns AgentHandlerConfig if AgentProfileRegistry is available, null otherwise
+   */
+  private buildAgentHandlerConfig(): AgentHandlerConfig | null {
+    try {
+      const globalContext = this.sdk.getGlobalContext();
+      const container = globalContext.container;
+      const registry = container.get<AgentProfileRegistry>(ServiceIdentifiers.AgentProfileRegistry);
+      if (!registry) {
+        this.output.infoLog(
+          "AgentProfileRegistry not found in DI container, agent profiles unavailable",
+        );
+        return null;
+      }
+      return {
+        loader: {
+          getAvailableAgentProfiles: () => {
+            return registry.list().map(p => ({
+              id: p.id,
+              name: p.name,
+              description: p.description,
+            }));
+          },
+          hasAgentProfile: (id: string): boolean => {
+            return registry.has(id);
+          },
+        },
+      };
+    } catch (error) {
+      this.output.infoLog(
+        "AgentProfileRegistry not available: " +
+          (error instanceof Error ? error.message : String(error)),
+      );
       return null;
     }
   }

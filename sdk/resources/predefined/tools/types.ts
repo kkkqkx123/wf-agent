@@ -7,7 +7,7 @@
 import type { ToolParameterSchema, ToolType } from "@wf-agent/types";
 import type { BuiltinToolsOptions } from "./builtin/types.js";
 import type { ShellPolicy, SandboxConfig } from "@wf-agent/types";
-import type { SkillHandlerConfig } from "./builtin/interaction/skill/index.js";
+import type { SkillHandlerConfig } from "./builtin/knowledge/skill/index.js";
 
 /**
  * Tool Classification

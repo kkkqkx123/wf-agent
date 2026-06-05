@@ -53,22 +53,23 @@ import {
   GREP_TOOL_DESCRIPTION,
 } from "./stateless/filesystem/grep/index.js";
 
-// Import interaction tools
+// Import knowledge tools (skill)
 import {
   skillSchema,
   createSkillHandler,
   SKILL_TOOL_DESCRIPTION,
-} from "./builtin/interaction/skill/index.js";
+} from "./builtin/knowledge/skill/index.js";
 import {
   updateTodoListSchema,
   createUpdateTodoListHandler,
   UPDATE_TODO_LIST_TOOL_DESCRIPTION,
-} from "./stateless/interaction/update-todo-list/index.js";
+} from "./stateless/utility/update-todo-list/index.js";
+// Import integration tools (use-mcp)
 import {
   useMcpSchema,
   createLazyUseMcpHandler,
   USE_MCP_TOOL_DESCRIPTION,
-} from "./builtin/interaction/use-mcp/index.js";
+} from "./builtin/integration/use-mcp/index.js";
 import { getMcpManager } from "../../../services/mcp/server-registry.js";
 
 // Importing a stateful tool

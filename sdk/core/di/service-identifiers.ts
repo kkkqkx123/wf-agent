@@ -50,6 +50,7 @@ import type { ExecutionHierarchyRegistry as ExecutionHierarchyRegistryType } fro
 import type { AgentLoopExecutor as AgentLoopExecutorType } from "../../agent/execution/executors/agent-loop-executor.js";
 import type { AgentLoopCoordinator as AgentLoopCoordinatorType } from "../../agent/execution/coordinators/agent-loop-coordinator.js";
 import type { SkillRegistry as SkillRegistryType } from "../registry/skill-registry.js";
+import type { AgentProfileRegistry as AgentProfileRegistryType } from "../registry/agent-profile-registry.js";
 import type { TimeoutRegistry as TimeoutRegistryType } from "../registry/timeout-registry.js";
 import type {
   CheckpointStorageAdapter as CheckpointStorageAdapterType,
@@ -359,6 +360,13 @@ export const AgentLoopCoordinator: ServiceIdentifier<AgentLoopCoordinatorType> =
  * Manages the discovery, parsing, and querying of Skills
  */
 export const SkillRegistry: ServiceIdentifier<SkillRegistryType> = Symbol("SkillRegistry");
+
+/**
+ * AgentProfileRegistry - Agent Profile Registry
+ * Manages the registration and discovery of agent profile metadata.
+ * Provides a single source of truth for available agent profiles.
+ */
+export const AgentProfileRegistry: ServiceIdentifier<AgentProfileRegistryType> = Symbol("AgentProfileRegistry");
 
 /**
  * TimeoutRegistry - Timeout Registry

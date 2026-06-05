@@ -27,12 +27,12 @@ export { GREP_TOOL_DESCRIPTION } from "./stateless/filesystem/grep/index.js";
 // Stateless - Shell tools
 export { RUN_SHELL_TOOL_DESCRIPTION } from "./stateless/shell/run-shell/index.js";
 
-// Stateless - Interaction tools
-// TODO: RUN_SLASH_COMMAND_TOOL_DESCRIPTION not implemented yet
-// export { RUN_SLASH_COMMAND_TOOL_DESCRIPTION } from "./stateless/interaction/run-slash-command/index.js";
-export { SKILL_TOOL_DESCRIPTION } from "./builtin/interaction/skill/index.js";
-export { UPDATE_TODO_LIST_TOOL_DESCRIPTION } from "./stateless/interaction/update-todo-list/index.js";
-export { USE_MCP_TOOL_DESCRIPTION } from "./builtin/interaction/use-mcp/index.js";
+// Knowledge tools
+export { SKILL_TOOL_DESCRIPTION } from "./builtin/knowledge/skill/index.js";
+// Utility tools
+export { UPDATE_TODO_LIST_TOOL_DESCRIPTION } from "./stateless/utility/update-todo-list/index.js";
+// Integration tools
+export { USE_MCP_TOOL_DESCRIPTION } from "./builtin/integration/use-mcp/index.js";
 
 // Stateful - Memory tools
 export {
@@ -62,10 +62,10 @@ import { LIST_FILES_TOOL_DESCRIPTION } from "./stateless/filesystem/list-files/i
 import { GREP_TOOL_DESCRIPTION } from "./stateless/filesystem/grep/index.js";
 import { RUN_SHELL_TOOL_DESCRIPTION } from "./stateless/shell/run-shell/index.js";
 // TODO: RUN_SLASH_COMMAND_TOOL_DESCRIPTION not implemented yet
-// import { RUN_SLASH_COMMAND_TOOL_DESCRIPTION } from "./stateless/interaction/run-slash-command/index.js";
-import { SKILL_TOOL_DESCRIPTION } from "./builtin/interaction/skill/index.js";
-import { UPDATE_TODO_LIST_TOOL_DESCRIPTION } from "./stateless/interaction/update-todo-list/index.js";
-import { USE_MCP_TOOL_DESCRIPTION } from "./builtin/interaction/use-mcp/index.js";
+// import { RUN_SLASH_COMMAND_TOOL_DESCRIPTION } from "./stateless/utility/run-slash-command/index.js";
+import { SKILL_TOOL_DESCRIPTION } from "./builtin/knowledge/skill/index.js";
+import { UPDATE_TODO_LIST_TOOL_DESCRIPTION } from "./stateless/utility/update-todo-list/index.js";
+import { USE_MCP_TOOL_DESCRIPTION } from "./builtin/integration/use-mcp/index.js";
 import {
   RECORD_NOTE_TOOL_DESCRIPTION,
   RECALL_NOTES_TOOL_DESCRIPTION,

@@ -32,15 +32,16 @@ import {
 import {
   callAgentSchema,
   CALL_AGENT_TOOL_DESCRIPTION,
+  generateCallAgentDescription,
   createCallAgentHandler,
 } from "./agent/index.js";
 
-// Import interaction tools
+// Import ask-followup-question tool
 import {
   askFollowupQuestionSchema,
   ASK_FOLLOWUP_QUESTION_TOOL_DESCRIPTION,
   createAskFollowupQuestionHandler,
-} from "./interaction/index.js";
+} from "./ask-followup-question/index.js";
 
 /**
  * Check if the tool is disabled
@@ -121,13 +122,18 @@ export function createBuiltinTools(options?: BuiltinToolsOptions): Tool[] {
 
   // call_agent
   if (!isDisabled("call_agent", options)) {
+    // Generate dynamic description when agent config is available
+    const agentDesc = options?.agent
+      ? generateCallAgentDescription(options.agent.loader.getAvailableAgentProfiles())
+      : CALL_AGENT_TOOL_DESCRIPTION;
+
     tools.push({
       id: "builtin_call_agent",
       type: "BUILTIN",
-      description: renderToolDescription(CALL_AGENT_TOOL_DESCRIPTION),
+      description: renderToolDescription(agentDesc),
       parameters: callAgentSchema,
       config: {
-        execute: createCallAgentHandler(),
+        execute: createCallAgentHandler(options?.agent),
       },
     });
   }

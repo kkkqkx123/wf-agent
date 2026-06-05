@@ -4,6 +4,7 @@
 
 import type { BuiltinToolExecutionContext } from "@wf-agent/types";
 import type { WorkflowHandlerConfig } from "./workflow/types.js";
+import type { AgentHandlerConfig } from "./agent/call-agent/index.js";
 
 /**
  * Builtin tool category
@@ -43,4 +44,6 @@ export interface BuiltinToolsOptions {
   blockList?: string[];
   /** Workflow tool configuration (for visibility control) */
   workflow?: WorkflowHandlerConfig;
+  /** Agent tool configuration (for agent profile discovery) */
+  agent?: AgentHandlerConfig;
 }

@@ -31,6 +31,7 @@ import { createEventCommands } from "./commands/event/index.js";
 import { createHumanRelayCommands } from "./commands/human-relay/index.js";
 import { createAgentCommands } from "./commands/agent/index.js";
 import { createSkillCommands } from "./commands/skill/index.js";
+import { createAgentProfileCommands } from "./commands/agent-profile/index.js";
 import { createMetricsCommands } from "./commands/metrics/index.js";
 import { CLIUserInteractionManager } from "./handlers/user-interaction/index.js";
 import { initializeContainer, getContainer } from "./services/container.js";
@@ -210,6 +211,9 @@ program.addCommand(createAgentCommands());
 
 // Add the Skill command group
 program.addCommand(createSkillCommands());
+
+// Add the Agent Profile command group
+program.addCommand(createAgentProfileCommands());
 
 // Add the Metrics command group
 program.addCommand(createMetricsCommands());

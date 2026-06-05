@@ -3,6 +3,7 @@
  */
 
 import type { ToolDescriptionData } from "@wf-agent/types";
+import type { AgentInfo } from "./handler.js";
 
 /**
  * Call agent tool description
@@ -41,8 +42,35 @@ export const CALL_AGENT_TOOL_DESCRIPTION: ToolDescriptionData = {
     },
   ],
   tips: [
-    "Use subagents to maintain focus and apply specialized knowledge",
-    "Provide clear and detailed prompts to the subagent for better results",
-    "Subagents run in their own context but share the parent's execution hierarchy",
+    "Delegate specialized sub-tasks to appropriate agent profiles",
+    "Provide a clear and detailed prompt to the subagent",
+    "The subagent has its own toolset and system prompt",
+    "Use this to parallelize complex workflows across multiple agents",
   ],
 };
+
+/**
+ * Generate a dynamic call_agent tool description with available agent profiles.
+ *
+ * Injects available agent profile IDs and descriptions so the LLM can
+ * discover which agents are available and what they do.
+ *
+ * @param agents - Available agent profiles to inject into the description
+ * @returns A new ToolDescriptionData with agent profile information in tips
+ */
+export function generateCallAgentDescription(agents: AgentInfo[]): ToolDescriptionData {
+  if (!agents || agents.length === 0) {
+    return CALL_AGENT_TOOL_DESCRIPTION;
+  }
+
+  const agentListLines = agents.map(
+    a => `  - ${a.id}: ${a.description || a.name}`,
+  );
+
+  const tip = `Available agent profiles:\n${agentListLines.join("\n")}`;
+
+  return {
+    ...CALL_AGENT_TOOL_DESCRIPTION,
+    tips: [tip, ...(CALL_AGENT_TOOL_DESCRIPTION.tips ?? [])],
+  };
+}

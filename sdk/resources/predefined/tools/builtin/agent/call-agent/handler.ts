@@ -14,6 +14,33 @@ import { loadAgentLoopConfig } from "@sdk/api/shared/config/utils/config-utils.j
 import type { ServiceFactory } from "@sdk/core/di/factory-types.js";
 import type { AgentLoopCoordinator } from "@sdk/agent/execution/coordinators/agent-loop-coordinator.js";
 
+/**
+ * Metadata for an available agent profile
+ */
+export interface AgentInfo {
+  id: string;
+  name: string;
+  description?: string;
+}
+
+/**
+ * Configuration for the call_agent tool handler
+ *
+ * Provides a loader interface that the call_agent tool uses to:
+ * - List available agent profiles (for LLM context and validation)
+ * - Check agent profile existence (for validation)
+ *
+ * Mirrors the SkillHandlerConfig / WorkflowHandlerConfig pattern.
+ */
+export interface AgentHandlerConfig {
+  loader: {
+    /** Get the list of all available agent profiles with their metadata. */
+    getAvailableAgentProfiles: () => AgentInfo[];
+    /** Check whether an agent profile with the given ID exists. */
+    hasAgentProfile: (id: string) => boolean;
+  };
+}
+
 export interface CallAgentParams {
   agentProfileId: string;
   prompt: string;
@@ -31,8 +58,12 @@ export interface CallAgentResult {
 
 /**
  * Create call agent handler
+ *
+ * @param config Optional AgentHandlerConfig for agent profile discovery and validation.
+ *   When provided, the handler can validate agentProfileId against the available list
+ *   and provide better error messages.
  */
-export function createCallAgentHandler() {
+export function createCallAgentHandler(config?: AgentHandlerConfig) {
   return async (
     params: Record<string, unknown>,
     context: BuiltinToolExecutionContext,
@@ -46,6 +77,31 @@ export function createCallAgentHandler() {
         field: "params",
         value: params,
       });
+    }
+
+    // Validate agentProfileId against available profiles if config is provided
+    if (config?.loader && !existsSync(agentProfileId)) {
+      const hasProfile = config.loader.hasAgentProfile(agentProfileId);
+      if (!hasProfile) {
+        const available = config.loader.getAvailableAgentProfiles();
+        const availableStr = available.length > 0
+          ? available.map(a => `  - ${a.id}: ${a.description || a.name}`).join("\n")
+          : "  (no agent profiles available)";
+        throw new RuntimeValidationError(
+          `Agent profile '${agentProfileId}' not found.\n\nAvailable agent profiles:\n${availableStr}\n\n` +
+          `Use the 'call_agent' tool with one of the available agent profile IDs listed above, ` +
+          `or provide a valid agent profile configuration file path.`,
+          {
+            operation: "call_agent",
+            field: "agentProfileId",
+            value: agentProfileId,
+            context: {
+              executionId: context.executionId,
+              availableAgentProfileIds: available.map(a => a.id),
+            },
+          },
+        );
+      }
     }
 
     const startTime = Date.now();

@@ -7,7 +7,6 @@ export { SkillRegistry } from "./skill-registry.js";
 export { TriggerTemplateRegistry } from "./trigger-template-registry.js";
 export { NodeTemplateRegistry } from "./node-template-registry.js";
 export { EventRegistry } from "./event-registry.js";
-export { ExecutionEventEmitter } from "./event-emitter.js";
 export {
   ExecutionHierarchyRegistry,
   type AnyExecutionEntity,

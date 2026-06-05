@@ -171,17 +171,39 @@ describe("EventRegistry", () => {
   });
 
   describe("getEventStatistics", () => {
-    it("should return undefined for non-tracked event type", () => {
+    it("should return stats for events emitted through registry", async () => {
+      await registry.emit({
+        type: "NODE_COMPLETED",
+        id: "e1",
+        timestamp: Date.now(),
+        executionId: "exec-1",
+      });
+
       const stats = registry.getEventStatistics("NODE_COMPLETED");
+      expect(stats).toBeDefined();
+      expect(stats!.count).toBe(1);
+      expect(stats!.byExecution.get("exec-1")).toBe(1);
+    });
+
+    it("should return undefined for non-tracked event type", () => {
+      const stats = registry.getEventStatistics("NON_EXISTENT");
       expect(stats).toBeUndefined();
     });
   });
 
   describe("getMetricsSummary", () => {
-    it("should return a metrics summary", () => {
+    it("should return a metrics summary with recorded data", async () => {
+      await registry.emit({
+        type: "NODE_COMPLETED",
+        id: "e1",
+        timestamp: Date.now(),
+        executionId: "exec-1",
+      });
+
       const summary = registry.getMetricsSummary();
       expect(summary).toBeDefined();
-      expect(summary).toHaveProperty("totalEvents");
+      expect(summary.totalEvents).toBe(1);
+      expect(summary.byEventType.has("NODE_COMPLETED")).toBe(true);
     });
   });
 });

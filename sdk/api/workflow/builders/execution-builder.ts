@@ -186,14 +186,15 @@ export class ExecutionBuilder {
 
     const workflowId = this.workflowId;
     const eventManager = this.dependencies.getEventManager();
-    let executionId: string | undefined;
 
     return create((observer: Observer<Event>) => {
       // Creating an AbortController for canceling execution
       this.abortController = new AbortController();
       const signal = this.abortController.signal;
 
-      // Subscribe to EventRegistry events and forward to Observable
+      // Subscribe to events across any execution of this workflow via global listener.
+      // Using onGlobal() avoids the chicken-and-egg problem where executionId is not
+      // known at subscription time — events are filtered by workflowId instead.
       const eventTypes: EventType[] = [
         "WORKFLOW_EXECUTION_STARTED",
         "WORKFLOW_EXECUTION_COMPLETED",
@@ -203,15 +204,13 @@ export class ExecutionBuilder {
       ];
 
       const unsubscribers: Array<() => void> = [];
-      
-      // Use new EventEmitter API
-      const emitter = eventManager.getEmitter(executionId || "unknown");
-      for (const eventType of eventTypes) {
-        const unsubscribe = emitter.on(eventType, (event: Event) => {
-          observer.next(event);
-        });
-        unsubscribers.push(unsubscribe);
-      }
+
+      const unsubscribeGlobal = eventManager.onGlobal((event) => {
+        if (eventTypes.includes(event.type as EventType) && event.workflowId === workflowId) {
+          observer.next(event as Event);
+        }
+      });
+      unsubscribers.push(unsubscribeGlobal);
 
       // Send start event immediately (will be replaced by EventRegistry event)
       observer.next({
@@ -230,9 +229,8 @@ export class ExecutionBuilder {
       // Listening to execution results
       executePromise.then(result => {
         if (result.isOk()) {
-          executionId = result.value.executionId;
           // Note: WORKFLOW_EXECUTION_COMPLETED event will be emitted by EventRegistry
-          // and forwarded via the subscription above
+          // and forwarded via the global listener above
           observer.complete();
         } else {
           if (signal.aborted) {

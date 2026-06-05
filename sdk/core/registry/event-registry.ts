@@ -1,12 +1,12 @@
 /**
  * EventRegistry - Event Registry
  * Manages events during workflow execution, provides event listening and dispatching mechanism
- * 
+ *
  * All event listeners must be execution-scoped:
  * - Register with executionId parameter (REQUIRED)
  * - Automatically cleaned up when execution ends
  * - Use case: Execution-specific business logic, UI updates
- * 
+ *
  * Note: Internal event mechanism has been removed, replaced with direct method calls
  *
  * This module only exports class definition, not instances
@@ -17,7 +17,11 @@ import type { BaseEvent, EventType, EventListener } from "@wf-agent/types";
 import { RuntimeValidationError } from "@wf-agent/types";
 import { getErrorOrNew } from "@wf-agent/common-utils";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
-import { EventMetricsCollector, type AggregatedEventStat, type EventMetricsSummary } from "../metrics/event-collector.js";
+import {
+  EventMetricsCollector,
+  type AggregatedEventStat,
+  type EventMetricsSummary,
+} from "../metrics/event-collector.js";
 import { ExecutionEventEmitter } from "./event-emitter.js";
 
 const logger = createContextualLogger({ operation: "EventRegistry" });
@@ -38,10 +42,10 @@ const logger = createContextualLogger({ operation: "EventRegistry" });
 class EventRegistry {
   // Per-execution ExecutionEventEmitter instances
   private emitters: Map<string, ExecutionEventEmitter> = new Map();
-  
+
   // Cross-execution metrics collector (new universal metrics system)
   private metricsCollector: EventMetricsCollector;
-  
+
   // Global event listeners (for cross-execution monitoring like EventResourceAPI)
   private globalListeners: Array<(event: BaseEvent) => void | Promise<void>> = [];
 
@@ -53,34 +57,34 @@ class EventRegistry {
   /**
    * Register a global event listener that receives all events across all executions
    * This is useful for monitoring, logging, or debugging purposes
-   * 
+   *
    * @param listener Global event listener function
    * @returns Unsubscribe function
-   * 
+   *
    * @example
    * ```typescript
    * // Listen to all events globally
    * const unsubscribe = eventRegistry.onGlobal((event) => {
    *   console.log('Event:', event.type, event.executionId);
    * });
-   * 
+   *
    * // Later, unsubscribe
    * unsubscribe();
    * ```
    */
   onGlobal(listener: (event: BaseEvent) => void | Promise<void>): () => void {
     this.globalListeners.push(listener);
-    
-    logger.debug('Global event listener registered', {
+
+    logger.debug("Global event listener registered", {
       totalGlobalListeners: this.globalListeners.length,
     });
-    
+
     // Return unsubscribe function
     return () => {
       const index = this.globalListeners.indexOf(listener);
       if (index !== -1) {
         this.globalListeners.splice(index, 1);
-        logger.debug('Global event listener removed', {
+        logger.debug("Global event listener removed", {
           remainingListeners: this.globalListeners.length,
         });
       }
@@ -89,23 +93,23 @@ class EventRegistry {
 
   /**
    * Get or create ExecutionEventEmitter for a specific execution
-   * 
+   *
    * This is the preferred API for event management. Each execution gets its own
    * isolated emitter, eliminating the need to pass executionId parameters.
-   * 
+   *
    * @param executionId Execution ID
    * @returns ExecutionEventEmitter instance for the execution
-   * 
+   *
    * @example
    * ```typescript
    * // Get emitter for an execution
    * const emitter = eventRegistry.getEmitter(executionId);
-   * 
+   *
    * // Register listener (no executionId parameter needed!)
    * emitter.on('NODE_COMPLETED', (event) => {
    *   console.log('Node completed:', event.nodeId);
    * });
-   * 
+   *
    * // Emit event
    * await emitter.emit({ type: 'NODE_COMPLETED', nodeId: 'node-1' });
    * ```
@@ -116,7 +120,7 @@ class EventRegistry {
     }
 
     if (!this.emitters.has(executionId)) {
-      logger.debug('Creating new ExecutionEventEmitter', { executionId });
+      logger.debug("Creating new ExecutionEventEmitter", { executionId });
       this.emitters.set(executionId, new ExecutionEventEmitter(executionId));
     }
 
@@ -146,7 +150,6 @@ class EventRegistry {
     });
   }
 
-
   /**
    * Wait for specific event to be emitted
    * @param eventType Event type
@@ -172,12 +175,17 @@ class EventRegistry {
    */
   async emit<T extends BaseEvent>(event: T): Promise<void> {
     if (!event.executionId) {
-      throw new RuntimeValidationError("Event must have executionId", { field: "event.executionId" });
+      throw new RuntimeValidationError("Event must have executionId", {
+        field: "event.executionId",
+      });
     }
-    
+
     const emitter = this.getEmitter(event.executionId);
     await emitter.emit(event);
-    
+
+    // Record event metrics for cross-execution aggregation
+    this.metricsCollector.recordEvent(event.type, event.executionId);
+
     // Notify global listeners after successful emission
     if (this.globalListeners.length > 0) {
       const errors: Error[] = [];
@@ -186,12 +194,12 @@ class EventRegistry {
           await listener(event);
         } catch (error) {
           errors.push(getErrorOrNew(error));
-          logger.error('Global listener execution failed', {
+          logger.error("Global listener execution failed", {
             error: getErrorOrNew(error).message,
           });
         }
       }
-      
+
       if (errors.length > 0) {
         logger.warn(`${errors.length} global listener(s) failed`, {
           totalErrors: errors.length,
@@ -199,7 +207,6 @@ class EventRegistry {
       }
     }
   }
-
 
   /**
    * Register one-time event listener
@@ -227,10 +234,10 @@ class EventRegistry {
   /**
    * Cleanup all listeners and metrics associated with a specific execution
    * Should be called when execution completes (success, failure, or cancellation)
-   * 
+   *
    * @param executionId Execution ID
    * @returns Number of listeners cleaned up
-   * 
+   *
    * @example
    * ```typescript
    * // In workflow lifecycle coordinator
@@ -243,7 +250,7 @@ class EventRegistry {
    */
   cleanupExecutionListeners(executionId: string): number {
     if (!executionId) {
-      logger.warn('cleanupExecutionListeners called with empty executionId');
+      logger.warn("cleanupExecutionListeners called with empty executionId");
       return 0;
     }
 
@@ -257,14 +264,14 @@ class EventRegistry {
       for (const count of listenerCounts.values()) {
         cleanedCount += count;
       }
-      
+
       // Remove all listeners from the emitter
       emitter.removeAllListeners();
-      
+
       // Remove the emitter instance
       this.emitters.delete(executionId);
-      
-      logger.debug('Cleaned up EventEmitter instance', {
+
+      logger.debug("Cleaned up EventEmitter instance", {
         executionId,
         listenerCount: cleanedCount,
       });
@@ -273,7 +280,7 @@ class EventRegistry {
     // Cleanup aggregated metrics for this execution
     this.metricsCollector.cleanupExecution(executionId);
 
-    logger.info('Cleaned up execution-scoped listeners', {
+    logger.info("Cleaned up execution-scoped listeners", {
       executionId,
       cleanedCount,
     });
@@ -281,16 +288,15 @@ class EventRegistry {
     return cleanedCount;
   }
 
-
   /**
    * Get statistics for execution-scoped listeners
    * Useful for debugging and monitoring listener lifecycle
-   * 
+   *
    * @returns Map of execution ID to listener count
    */
   getExecutionListenerStats(): Map<string, number> {
     const stats = new Map<string, number>();
-    
+
     for (const [executionId, emitter] of this.emitters.entries()) {
       const counts = emitter.getListenerCount();
       let total = 0;
@@ -299,22 +305,21 @@ class EventRegistry {
       }
       stats.set(executionId, total);
     }
-    
+
     return stats;
   }
-
 
   /**
    * Get metrics collector instance for cross-execution statistics
    * @returns EventMetricsCollector instance
-   * 
+   *
    * @example
    * ```typescript
    * // Get aggregated statistics
    * const collector = eventRegistry.getMetricsCollector();
    * const stats = collector.getStatistics('NODE_COMPLETED');
    * console.log(`Total nodes completed: ${stats?.count}`);
-   * 
+   *
    * // Subscribe to periodic summaries
    * collector.onReport((report) => {
    *   console.log('Total events:', report.summary.totalMetrics);

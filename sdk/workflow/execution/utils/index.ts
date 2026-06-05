@@ -44,12 +44,6 @@ export {
 // Event Trigger Utility Function (re-exported from core/utils/event)
 export {
   emit,
-  emitBatch,
-  emitBatchParallel,
-  emitIf,
-  emitDelayed,
-  emitWithRetry,
-  emitAndWaitForCallback,
 } from "../../../core/utils/event/event-emitter.js";
 
 // Event Waiting Tool Function

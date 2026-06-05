@@ -3,6 +3,7 @@
  */
 
 import type { BuiltinToolExecutionContext } from "@wf-agent/types";
+import type { WorkflowHandlerConfig } from "./workflow/types.js";
 
 /**
  * Builtin tool category
@@ -40,4 +41,6 @@ export interface BuiltinToolsOptions {
   allowList?: string[];
   /** Disable the specified tools (blocklist) */
   blockList?: string[];
+  /** Workflow tool configuration (for visibility control) */
+  workflow?: WorkflowHandlerConfig;
 }

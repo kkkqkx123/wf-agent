@@ -51,6 +51,11 @@ export interface DynamicContextConfig {
   includeSkills?: boolean;
 
   /**
+   * Includes Workflows
+   */
+  includeWorkflows?: boolean;
+
+  /**
    * Does it contain environmental information
    */
   includeEnvironmentInfo?: boolean;
@@ -81,6 +86,11 @@ export interface DynamicRuntimeContext {
    * Skills
    */
   skills?: SkillConfigItem[];
+
+  /**
+   * Workflows (untyped array for runtime flexibility)
+   */
+  workflows?: unknown[];
 
   /**
    * Workspace file tree (optional pre-generation)

@@ -6,6 +6,7 @@
 export {
   executeWorkflowSchema,
   EXECUTE_WORKFLOW_TOOL_DESCRIPTION,
+  generateExecuteWorkflowDescription,
   createExecuteWorkflowHandler,
 } from "./execute-workflow/index.js";
 
@@ -13,6 +14,7 @@ export {
 export {
   queryWorkflowStatusSchema,
   QUERY_WORKFLOW_STATUS_TOOL_DESCRIPTION,
+  generateQueryWorkflowStatusDescription,
   createQueryWorkflowStatusHandler,
 } from "./query-workflow-status/index.js";
 
@@ -20,5 +22,10 @@ export {
 export {
   cancelWorkflowSchema,
   CANCEL_WORKFLOW_TOOL_DESCRIPTION,
+  generateCancelWorkflowDescription,
   createCancelWorkflowHandler,
 } from "./cancel-workflow/index.js";
+
+// Workflow tool types
+export type { WorkflowInfo, WorkflowHandlerConfig } from "./types.js";
+export { formatAvailableWorkflows } from "./types.js";

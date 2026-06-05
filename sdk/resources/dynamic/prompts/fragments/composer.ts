@@ -11,6 +11,7 @@ import { generateTodoListContent } from "./todo-list.js";
 import { generateWorkspaceFilesContent } from "./workspace-files.js";
 import { generatePinnedFilesContent } from "./pinned-files.js";
 import { generateSkillsContent } from "./skills.js";
+import { generateWorkflowsContent } from "./workflows.js";
 
 /**
  * Generate the complete dynamic context content
@@ -64,6 +65,12 @@ export function generateDynamicContextContent(
     if (skillsContent) sections.push(skillsContent);
   }
 
+  // Workflows
+  if (config.includeWorkflows && runtime?.workflows) {
+    const workflowsContent = generateWorkflowsContent(runtime.workflows);
+    if (workflowsContent) sections.push(workflowsContent);
+  }
+
   return cleanupEmptyLines(sections.join("\n\n"));
 }
 
@@ -76,6 +83,7 @@ export function hasDynamicContent(config: DynamicContextConfig): boolean {
     config.includeTodoList === true ||
     config.includeWorkspaceFiles === true ||
     config.includePinnedFiles === true ||
-    config.includeSkills === true
+    config.includeSkills === true ||
+    config.includeWorkflows === true
   );
 }

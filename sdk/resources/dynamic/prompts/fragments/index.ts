@@ -23,6 +23,9 @@ export * from "./pinned-files.js";
 // Skills section
 export * from "./skills.js";
 
+// Workflows section
+export * from "./workflows.js";
+
 // Available tools section
 export * from "./available-tools.js";
 

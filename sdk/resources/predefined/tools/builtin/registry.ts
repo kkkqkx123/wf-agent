@@ -12,16 +12,19 @@ import type { BuiltinToolsOptions } from "./types.js";
 import {
   executeWorkflowSchema,
   EXECUTE_WORKFLOW_TOOL_DESCRIPTION,
+  generateExecuteWorkflowDescription,
   createExecuteWorkflowHandler,
 } from "./workflow/index.js";
 import {
   queryWorkflowStatusSchema,
   QUERY_WORKFLOW_STATUS_TOOL_DESCRIPTION,
+  generateQueryWorkflowStatusDescription,
   createQueryWorkflowStatusHandler,
 } from "./workflow/index.js";
 import {
   cancelWorkflowSchema,
   CANCEL_WORKFLOW_TOOL_DESCRIPTION,
+  generateCancelWorkflowDescription,
   createCancelWorkflowHandler,
 } from "./workflow/index.js";
 
@@ -66,23 +69,32 @@ export function createBuiltinTools(options?: BuiltinToolsOptions): Tool[] {
 
   // execute_workflow
   if (!isDisabled("execute_workflow", options)) {
+    // Generate dynamic description when workflow config is available
+    const workflowDesc = options?.workflow
+      ? generateExecuteWorkflowDescription(options.workflow.loader.getAvailableWorkflows())
+      : EXECUTE_WORKFLOW_TOOL_DESCRIPTION;
+
     tools.push({
       id: "builtin_execute_workflow",
       type: "BUILTIN",
-      description: renderToolDescription(EXECUTE_WORKFLOW_TOOL_DESCRIPTION),
+      description: renderToolDescription(workflowDesc),
       parameters: executeWorkflowSchema,
       config: {
-        execute: createExecuteWorkflowHandler(),
+        execute: createExecuteWorkflowHandler(options?.workflow),
       },
     });
   }
 
   // query_workflow_status
   if (!isDisabled("query_workflow_status", options)) {
+    const queryDesc = options?.workflow
+      ? generateQueryWorkflowStatusDescription(options.workflow.loader.getAvailableWorkflows())
+      : QUERY_WORKFLOW_STATUS_TOOL_DESCRIPTION;
+
     tools.push({
       id: "builtin_query_workflow_status",
       type: "BUILTIN",
-      description: renderToolDescription(QUERY_WORKFLOW_STATUS_TOOL_DESCRIPTION),
+      description: renderToolDescription(queryDesc),
       parameters: queryWorkflowStatusSchema,
       config: {
         execute: createQueryWorkflowStatusHandler(),
@@ -92,10 +104,14 @@ export function createBuiltinTools(options?: BuiltinToolsOptions): Tool[] {
 
   // cancel_workflow
   if (!isDisabled("cancel_workflow", options)) {
+    const cancelDesc = options?.workflow
+      ? generateCancelWorkflowDescription(options.workflow.loader.getAvailableWorkflows())
+      : CANCEL_WORKFLOW_TOOL_DESCRIPTION;
+
     tools.push({
       id: "builtin_cancel_workflow",
       type: "BUILTIN",
-      description: renderToolDescription(CANCEL_WORKFLOW_TOOL_DESCRIPTION),
+      description: renderToolDescription(cancelDesc),
       parameters: cancelWorkflowSchema,
       config: {
         execute: createCancelWorkflowHandler(),

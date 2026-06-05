@@ -10,6 +10,7 @@ import { StaticValidatorAPI, loadConfigContent, parseToml, parseJson, getData, i
 import type { ConfigurationValidationError } from "@wf-agent/types";
 import { CLINotFoundError } from "../types/cli-types.js";
 import { ToolRegistry, type ToolRegistryConfig } from "../tools/index.js";
+import type { SkillHandlerConfig } from "@wf-agent/sdk/resources";
 
 /**
  * Tool Adapter
@@ -255,13 +256,13 @@ export class ToolAdapter extends BaseAdapter {
    * Register all built-in tools
    * Register built-in tools to the SDK
    */
-  async registerBuiltinTools(): Promise<{
+  async registerBuiltinTools(skillConfig?: SkillHandlerConfig): Promise<{
     success: Tool[];
     failures: Array<{ toolId: string; error: string }>;
   }> {
     return this.executeWithErrorHandling(async () => {
       // Register all built-in tools to the registry
-      await this.toolRegistry.registerAll();
+      await this.toolRegistry.registerAll(skillConfig);
 
       const success: Tool[] = [];
       const failures: Array<{ toolId: string; error: string }> = [];

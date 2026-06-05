@@ -3,9 +3,11 @@
  */
 
 import type { ToolDescriptionData } from "@wf-agent/types";
+import type { WorkflowInfo } from "../types.js";
 
 /**
- * Cancel workflow tool description
+ * Base cancel workflow tool description (without dynamic workflow info).
+ * Use generateCancelWorkflowDescription() for a description with workflow metadata.
  */
 export const CANCEL_WORKFLOW_TOOL_DESCRIPTION: ToolDescriptionData = {
   id: "builtin_cancel_workflow",
@@ -26,3 +28,28 @@ export const CANCEL_WORKFLOW_TOOL_DESCRIPTION: ToolDescriptionData = {
     "The task must be in a running state to be cancelled",
   ],
 };
+
+/**
+ * Generate a dynamic cancel workflow description including available workflow metadata.
+ *
+ * @param workflows - Optional list of available workflows to include in the description
+ * @returns ToolDescriptionData with dynamic workflow information
+ */
+export function generateCancelWorkflowDescription(
+  workflows?: WorkflowInfo[],
+): ToolDescriptionData {
+  if (!workflows || workflows.length === 0) {
+    return CANCEL_WORKFLOW_TOOL_DESCRIPTION;
+  }
+
+  const workflowIds = workflows.map(w => w.id);
+  const idsWithQuotes = workflowIds.map(id => `'${id}'`).join(", ");
+
+  return {
+    ...CANCEL_WORKFLOW_TOOL_DESCRIPTION,
+    tips: [
+      ...(CANCEL_WORKFLOW_TOOL_DESCRIPTION.tips ?? []),
+      `Available workflow IDs: ${idsWithQuotes}`,
+    ],
+  };
+}

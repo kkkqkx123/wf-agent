@@ -78,6 +78,19 @@ export interface AvailableTools {
    * Constraint: requireApproval ⊆ available
    */
   requireApproval?: string[];
+
+  /**
+   * Workflow IDs that subworkflows in this workflow can call via execute_workflow tool.
+   * 
+   * Controls which subworkflows are visible and executable from within this workflow's
+   * agent/LLM nodes. Workflow metadata is injected into the LLM context.
+   * 
+   * When omitted or empty, no subworkflows are available.
+   * Set to ['*'] to allow all registered workflows.
+   * 
+   * @example ['data-transform', 'report-generator']
+   */
+  allowedWorkflows?: string[];
 }
 
 /**

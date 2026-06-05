@@ -56,6 +56,20 @@ export interface AgentToolConfig {
    * Use case: Dangerous operations like file writes, shell commands, etc.
    */
   requireApproval?: string[];
+
+  /**
+   * Workflow IDs that this agent is allowed to execute via execute_workflow tool.
+   * 
+   * When set, only these workflows are visible to the LLM and can be executed.
+   * Workflow metadata (id, description, input schema) is injected into system prompt
+   * so the LLM knows what workflows are available.
+   * 
+   * When omitted or empty, no workflows are available (execute_workflow will fail).
+   * Set to ['*'] to allow all workflows registered in the system.
+   * 
+   * @example ['data-analysis', 'report-generator']
+   */
+  allowedWorkflows?: string[];
 }
 
 /**

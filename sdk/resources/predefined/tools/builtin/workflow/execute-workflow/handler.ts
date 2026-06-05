@@ -18,15 +18,18 @@ import {
   ExecuteWorkflowParamsSchema,
   assertWorkflowContext,
 } from "@sdk/workflow/execution/types/workflow-tool.types.js";
+import type { WorkflowHandlerConfig } from "../types.js";
+import { formatAvailableWorkflows } from "../types.js";
 
 /**
  * Execute Workflow Tool Handler
  * 
- * @param params - ExecuteWorkflowParams containing workflowId, input, messageContexts, etc.
- * @param context - WorkflowToolExecutionContext with parentExecutionEntity and globalContext
- * @returns ExecuteWorkflowResult with execution status (COMPLETED or SUBMITTED)
+ * @param config - Optional WorkflowHandlerConfig for workflow visibility control.
+ *                 When provided, validates workflowId against available workflows.
+ *                 When not provided, allows any workflowId (backward compatible).
+ * @returns Handler function for execute_workflow tool
  */
-export function createExecuteWorkflowHandler() {
+export function createExecuteWorkflowHandler(config?: WorkflowHandlerConfig) {
   return async (
     params: unknown,
     context: BuiltinToolExecutionContext,
@@ -50,6 +53,24 @@ export function createExecuteWorkflowHandler() {
           hasParentExecution: !!context.parentExecutionEntity,
         },
       });
+    }
+
+    // Validate workflowId against available workflows (when config is provided)
+    if (config && !config.loader.hasWorkflow(workflowId)) {
+      const available = config.loader.getAvailableWorkflows();
+      throw new RuntimeValidationError(
+        `Workflow '${workflowId}' not found.\n\nAvailable workflows:\n${formatAvailableWorkflows(available)}\n\n` +
+        `Use the 'execute_workflow' tool with one of the available workflow IDs listed above.`,
+        {
+          operation: "execute_workflow",
+          field: "workflowId",
+          value: workflowId,
+          context: {
+            executionId: context.executionId,
+            availableWorkflowIds: available.map(w => w.id),
+          },
+        },
+      );
     }
 
     // Validate parent workflow execution entity BEFORE accessing DI container

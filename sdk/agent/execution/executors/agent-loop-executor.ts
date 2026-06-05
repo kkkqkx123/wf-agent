@@ -251,8 +251,6 @@ export class AgentLoopExecutor {
     if (this.eventManager) {
       try {
         const coreEvent = buildAgentHookTriggeredCoreEvent({
-          id: event.id,
-          timestamp: event.timestamp,
           agentLoopId: event.agentLoopId,
           agentLoopEntityId: event.agentLoopEntityId,
           hookType: event.hookType,

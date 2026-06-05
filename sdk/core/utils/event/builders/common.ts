@@ -19,12 +19,6 @@ import { SDKError } from "@wf-agent/types";
 /** Build parameters type (exclude type, timestamp, and id) */
 export type BuildParams<T extends BaseEvent> = Omit<T, "type" | "timestamp" | "id">;
 
-/** Build parameters type with optional workflowId and nodeId */
-export type BuildParamsWithOptionalContext<T extends BaseEvent> = BuildParams<T> & {
-  workflowId?: string;
-  nodeId?: string;
-};
-
 /** Error parameters type */
 export type ErrorParams<T extends BaseEvent & { error: unknown }> = Omit<
   BuildParams<T>,
@@ -45,16 +39,6 @@ export type ErrorParams<T extends BaseEvent & { error: unknown }> = Omit<
 export const createBuilder =
   <T extends BaseEvent>(type: T["type"]) =>
   (params: BuildParams<T>): T =>
-    ({ id: generateId(), type, timestamp: now(), ...params }) as T;
-
-/**
- * Create event builder with optional context (workflowId, nodeId)
- * @param type Event type
- * @returns Event builder function
- */
-export const createBuilderWithOptionalContext =
-  <T extends BaseEvent>(type: T["type"]) =>
-  (params: BuildParamsWithOptionalContext<T>): T =>
     ({ id: generateId(), type, timestamp: now(), ...params }) as T;
 
 /**

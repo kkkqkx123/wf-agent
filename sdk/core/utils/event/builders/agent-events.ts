@@ -20,8 +20,6 @@ import type {
   AgentIterationStartedEvent,
   AgentIterationCompletedEvent,
   AgentHookTriggeredCoreEvent,
-  AgentHookType,
-  Metadata,
 } from "@wf-agent/types";
 
 // =============================================================================
@@ -65,7 +63,8 @@ export const buildAgentFailedEvent = createBuilder<AgentFailedEvent>("AGENT_FAIL
 /**
  * Build AGENT_TURN_STARTED event
  */
-export const buildAgentTurnStartedEvent = createBuilder<AgentTurnStartedEvent>("AGENT_TURN_STARTED");
+export const buildAgentTurnStartedEvent =
+  createBuilder<AgentTurnStartedEvent>("AGENT_TURN_STARTED");
 
 /**
  * Build AGENT_TURN_COMPLETED event
@@ -96,8 +95,9 @@ export const buildAgentMessageCompletedEvent =
 /**
  * Build AGENT_TOOL_EXECUTION_STARTED event
  */
-export const buildAgentToolExecutionStartedEvent =
-  createBuilder<AgentToolExecutionStartedEvent>("AGENT_TOOL_EXECUTION_STARTED");
+export const buildAgentToolExecutionStartedEvent = createBuilder<AgentToolExecutionStartedEvent>(
+  "AGENT_TOOL_EXECUTION_STARTED",
+);
 
 /**
  * Build AGENT_TOOL_EXECUTION_COMPLETED event
@@ -118,8 +118,9 @@ export const buildAgentIterationStartedEvent =
 /**
  * Build AGENT_ITERATION_COMPLETED event
  */
-export const buildAgentIterationCompletedEvent =
-  createBuilder<AgentIterationCompletedEvent>("AGENT_ITERATION_COMPLETED");
+export const buildAgentIterationCompletedEvent = createBuilder<AgentIterationCompletedEvent>(
+  "AGENT_ITERATION_COMPLETED",
+);
 
 // =============================================================================
 // Agent Hook Events
@@ -129,91 +130,5 @@ export const buildAgentIterationCompletedEvent =
  * Build AGENT_HOOK_TRIGGERED core event (for EventRegistry)
  * Used to convert streaming events to core events
  */
-export const buildAgentHookTriggeredCoreEvent = (
-  params: {
-    id: string;
-    timestamp: number;
-    agentLoopId: string;
-    agentLoopEntityId: string;
-    hookType: AgentHookType;
-    eventName: string;
-    eventData: Record<string, unknown>;
-    iteration: number;
-    metadata?: Metadata;
-  },
-): AgentHookTriggeredCoreEvent => ({
-  id: params.id,
-  type: "AGENT_HOOK_TRIGGERED",
-  timestamp: params.timestamp,
-  agentLoopId: params.agentLoopId,
-  agentLoopEntityId: params.agentLoopEntityId,
-  hookType: params.hookType,
-  eventName: params.eventName,
-  eventData: params.eventData,
-  iteration: params.iteration,
-  metadata: params.metadata,
-});
-
-// =============================================================================
-// Agent Tool Management Events (NEW)
-// =============================================================================
-
-/**
- * Build agent tools added event
- */
-export function buildAgentToolsAddedEvent(params: {
-  agentLoopId: string;
-  agentLoopEntityId: string;
-  toolIds: string[];
-  addedCount: number;
-  iteration?: number;
-}): AgentHookTriggeredCoreEvent {
-  return {
-    id: crypto.randomUUID(),
-    type: "AGENT_HOOK_TRIGGERED",
-    timestamp: Date.now(),
-    agentLoopId: params.agentLoopId,
-    agentLoopEntityId: params.agentLoopEntityId,
-    hookType: "system" as AgentHookType,
-    eventName: "tools_added",
-    eventData: {
-      toolIds: params.toolIds,
-      addedCount: params.addedCount,
-      iteration: params.iteration,
-    },
-    iteration: params.iteration ?? 0,
-    metadata: {
-      component: "AgentLoopEntity",
-    },
-  };
-}
-
-/**
- * Build agent tools removed event
- */
-export function buildAgentToolsRemovedEvent(params: {
-  agentLoopId: string;
-  agentLoopEntityId: string;
-  toolIds: string[];
-  removedCount: number;
-  iteration?: number;
-}): AgentHookTriggeredCoreEvent {
-  return {
-    id: crypto.randomUUID(),
-    type: "AGENT_HOOK_TRIGGERED",
-    timestamp: Date.now(),
-    agentLoopId: params.agentLoopId,
-    agentLoopEntityId: params.agentLoopEntityId,
-    hookType: "system" as AgentHookType,
-    eventName: "tools_removed",
-    eventData: {
-      toolIds: params.toolIds,
-      removedCount: params.removedCount,
-      iteration: params.iteration,
-    },
-    iteration: params.iteration ?? 0,
-    metadata: {
-      component: "AgentLoopEntity",
-    },
-  };
-}
+export const buildAgentHookTriggeredCoreEvent =
+  createBuilder<AgentHookTriggeredCoreEvent>("AGENT_HOOK_TRIGGERED");

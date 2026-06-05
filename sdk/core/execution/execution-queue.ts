@@ -31,7 +31,7 @@ import { emit } from "../../workflow/execution/utils/index.js";
 import {
   buildTriggeredSubgraphCompletedEvent,
   buildTriggeredSubgraphFailedEvent,
-} from "../../workflow/execution/utils/event/index.js";
+} from "../utils/event/builders/index.js";
 
 /**
  * Queue task interface

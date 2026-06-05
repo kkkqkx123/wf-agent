@@ -3,8 +3,7 @@
  * Provides builders for user interaction and human relay events
  */
 
-import { now } from "@wf-agent/common-utils";
-import { createBuilder, type BuildParams } from "./common.js";
+import { createBuilder } from "./common.js";
 import type {
   HumanRelayRequestedEvent,
   HumanRelayRespondedEvent,
@@ -40,10 +39,8 @@ export const buildHumanRelayRespondedEvent =
 /**
  * Build human relay failed event
  */
-export const buildHumanRelayFailedEvent = (
-  params: BuildParams<HumanRelayFailedEvent>,
-): HumanRelayFailedEvent =>
-  ({ type: "HUMAN_RELAY_FAILED", timestamp: now(), ...params }) as HumanRelayFailedEvent;
+export const buildHumanRelayFailedEvent =
+  createBuilder<HumanRelayFailedEvent>("HUMAN_RELAY_FAILED");
 
 // =============================================================================
 // Progressive Tool Execution Events
@@ -52,35 +49,25 @@ export const buildHumanRelayFailedEvent = (
 /**
  * Build progressive tool execution start event
  */
-export const buildProgressiveToolExecutionStartEvent = createBuilder<ProgressiveToolExecutionStartEvent>(
-  "PROGRESSIVE_TOOL_EXECUTION_START",
-);
+export const buildProgressiveToolExecutionStartEvent =
+  createBuilder<ProgressiveToolExecutionStartEvent>("PROGRESSIVE_TOOL_EXECUTION_START");
 
 /**
  * Build progressive tool execution end event
  */
-export const buildProgressiveToolExecutionEndEvent = createBuilder<ProgressiveToolExecutionEndEvent>(
-  "PROGRESSIVE_TOOL_EXECUTION_END",
-);
+export const buildProgressiveToolExecutionEndEvent =
+  createBuilder<ProgressiveToolExecutionEndEvent>("PROGRESSIVE_TOOL_EXECUTION_END");
 
 /**
  * Build tool queue update event
  */
-export const buildToolQueueUpdateEvent = createBuilder<ToolQueueUpdateEvent>(
-  "TOOL_QUEUE_UPDATE",
-);
+export const buildToolQueueUpdateEvent = createBuilder<ToolQueueUpdateEvent>("TOOL_QUEUE_UPDATE");
 
 /**
  * Build tool approval annotated event
  */
-export const buildToolApprovalAnnotatedEvent = (
-  params: BuildParams<ToolApprovalAnnotatedEvent>,
-): ToolApprovalAnnotatedEvent =>
-  ({
-    type: "TOOL_APPROVAL_ANNOTATED",
-    timestamp: now(),
-    ...params,
-  }) as ToolApprovalAnnotatedEvent;
+export const buildToolApprovalAnnotatedEvent =
+  createBuilder<ToolApprovalAnnotatedEvent>("TOOL_APPROVAL_ANNOTATED");
 
 // =============================================================================
 // Tool Approval Events (Specific)
@@ -89,28 +76,20 @@ export const buildToolApprovalAnnotatedEvent = (
 /**
  * Build tool approval requested event
  */
-export const buildToolApprovalRequestedEvent = createBuilder<ToolApprovalRequestedEvent>(
-  "TOOL_APPROVAL_REQUESTED",
-);
+export const buildToolApprovalRequestedEvent =
+  createBuilder<ToolApprovalRequestedEvent>("TOOL_APPROVAL_REQUESTED");
 
 /**
  * Build tool approval responded event
  */
-export const buildToolApprovalRespondedEvent = createBuilder<ToolApprovalRespondedEvent>(
-  "TOOL_APPROVAL_RESPONDED",
-);
+export const buildToolApprovalRespondedEvent =
+  createBuilder<ToolApprovalRespondedEvent>("TOOL_APPROVAL_RESPONDED");
 
 /**
  * Build tool approval failed event
  */
-export const buildToolApprovalFailedEvent = (
-  params: BuildParams<ToolApprovalFailedEvent>,
-): ToolApprovalFailedEvent =>
-  ({
-    type: "TOOL_APPROVAL_FAILED",
-    timestamp: now(),
-    ...params,
-  }) as ToolApprovalFailedEvent;
+export const buildToolApprovalFailedEvent =
+  createBuilder<ToolApprovalFailedEvent>("TOOL_APPROVAL_FAILED");
 
 // =============================================================================
 // Follow-up Question Events (Specific)
@@ -133,11 +112,6 @@ export const buildFollowupQuestionRespondedEvent = createBuilder<FollowupQuestio
 /**
  * Build follow-up question failed event
  */
-export const buildFollowupQuestionFailedEvent = (
-  params: BuildParams<FollowupQuestionFailedEvent>,
-): FollowupQuestionFailedEvent =>
-  ({
-    type: "FOLLOWUP_QUESTION_FAILED",
-    timestamp: now(),
-    ...params,
-  }) as FollowupQuestionFailedEvent;
+export const buildFollowupQuestionFailedEvent = createBuilder<FollowupQuestionFailedEvent>(
+  "FOLLOWUP_QUESTION_FAILED",
+);

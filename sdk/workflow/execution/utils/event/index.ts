@@ -1,9 +1,12 @@
 /**
  * Event utility class module export
  * Provides utility functions related to events
+ *
+ * @remarks Builders are re-exported from core for convenience.
+ * New consumers should import builders directly from @sdk/core/utils/event/builders.
  */
 
-// Event construction tool function
+// Event construction tool function (re-exported from core)
 export {
   buildWorkflowExecutionStartedEvent,
   buildWorkflowExecutionCompletedEvent,
@@ -52,7 +55,7 @@ export {
   buildFollowupQuestionRequestedEvent,
 } from "../../../../core/utils/event/builders/index.js";
 
-// Event Trigger Tool Function
+// Event Trigger Tool Function (re-exported from core)
 export {
   emit,
 } from "../../../../core/utils/event/event-emitter.js";

@@ -3,7 +3,6 @@
  * Provides builders for tool call events
  */
 
-import { now, generateId } from "@wf-agent/common-utils";
 import { createBuilder, type BuildParams } from "./common.js";
 import type {
   ToolCallStartedEvent,
@@ -21,28 +20,29 @@ import type {
 /**
  * Build tool call started event
  */
-export const buildToolCallStartedEvent = (
-  params: BuildParams<ToolCallStartedEvent> & { workflowId?: string },
-): ToolCallStartedEvent =>
-  ({ type: "TOOL_CALL_STARTED", timestamp: now(), ...params }) as ToolCallStartedEvent;
+export const buildToolCallStartedEvent = createBuilder<ToolCallStartedEvent>("TOOL_CALL_STARTED");
 
 /**
  * Build tool call completed event
  */
-export const buildToolCallCompletedEvent = (
-  params: BuildParams<ToolCallCompletedEvent> & { workflowId?: string },
-): ToolCallCompletedEvent =>
-  ({ type: "TOOL_CALL_COMPLETED", timestamp: now(), ...params }) as ToolCallCompletedEvent;
+export const buildToolCallCompletedEvent =
+  createBuilder<ToolCallCompletedEvent>("TOOL_CALL_COMPLETED");
 
 /**
  * Build tool call failed event
+ * Note: Manually constructed because the caller passes error: Error which is
+ * converted to string. The createStringErrorBuilder behavior differs slightly
+ * (lacks "Unknown error" fallback), so we keep this manual.
  */
 export const buildToolCallFailedEvent = (
-  params: Omit<BuildParams<ToolCallFailedEvent>, "error"> & { error: Error; workflowId?: string },
+  params: Omit<BuildParams<ToolCallFailedEvent>, "error"> & {
+    error: Error;
+    workflowId?: string;
+  },
 ): ToolCallFailedEvent =>
   ({
     type: "TOOL_CALL_FAILED",
-    timestamp: now(),
+    timestamp: Date.now(),
     ...params,
     error: params.error.message || "Unknown error",
   }) as ToolCallFailedEvent;
@@ -50,21 +50,7 @@ export const buildToolCallFailedEvent = (
 /**
  * Build tool call blocked event (NEW - for failure protection)
  */
-export const buildToolCallBlockedEvent = (
-  params: Omit<BuildParams<ToolCallBlockedEvent>, "executionId"> & {
-    executionId: string;
-    failureCount: number;
-    lastError?: string;
-    remainingCooldown?: number;
-    reason?: string;
-    workflowId?: string;
-  },
-): ToolCallBlockedEvent => ({
-  id: generateId(),
-  type: "TOOL_CALL_BLOCKED",
-  timestamp: now(),
-  ...params,
-}) as ToolCallBlockedEvent;
+export const buildToolCallBlockedEvent = createBuilder<ToolCallBlockedEvent>("TOOL_CALL_BLOCKED");
 
 // =============================================================================
 // Tool Events
@@ -78,20 +64,5 @@ export const buildToolAddedEvent = createBuilder<ToolAddedEvent>("TOOL_ADDED");
 /**
  * Build tool visibility changed event
  */
-export const buildToolVisibilityChangedEvent = (
-  params: Omit<BuildParams<ToolVisibilityChangedEvent>, "timestamp"> & {
-    executionId: string;
-    scope: "EXECUTION" | "SUBGRAPH" | "LOOP";
-    scopeId: string;
-    changeType: "enter_scope" | "exit_scope" | "add_tools" | "remove_tools" | "refresh" | "init";
-    visibleToolIds: string[];
-    previousVisibleToolIds?: string[];
-    workflowId?: string;
-    nodeId?: string;
-  },
-): ToolVisibilityChangedEvent => ({
-  id: generateId(),
-  type: "TOOL_VISIBILITY_CHANGED",
-  timestamp: now(),
-  ...params,
-}) as ToolVisibilityChangedEvent;
+export const buildToolVisibilityChangedEvent =
+  createBuilder<ToolVisibilityChangedEvent>("TOOL_VISIBILITY_CHANGED");

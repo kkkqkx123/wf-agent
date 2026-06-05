@@ -4,7 +4,13 @@
  */
 
 import { now, generateId } from "@wf-agent/common-utils";
-import type { NodeCustomEvent, AgentHookTriggeredEvent, AgentHookType, Metadata } from "@wf-agent/types";
+import { createBuilder } from "./common.js";
+import type {
+  NodeCustomEvent,
+  AgentHookTriggeredEvent,
+  AgentHookType,
+  Metadata,
+} from "@wf-agent/types";
 
 // =============================================================================
 // Node Custom Event Builder
@@ -13,20 +19,7 @@ import type { NodeCustomEvent, AgentHookTriggeredEvent, AgentHookType, Metadata 
 /**
  * Build node custom event
  */
-export const buildNodeCustomEvent = (params: {
-  workflowId: string;
-  executionId: string;
-  nodeId: string;
-  nodeType: string;
-  eventName: string;
-  eventData: Record<string, unknown>;
-  metadata?: Metadata;
-}): NodeCustomEvent => ({
-  id: generateId(),
-  type: "NODE_CUSTOM_EVENT",
-  timestamp: now(),
-  ...params,
-});
+export const buildNodeCustomEvent = createBuilder<NodeCustomEvent>("NODE_CUSTOM_EVENT");
 
 // =============================================================================
 // Agent Hook Triggered Event Builder
@@ -34,6 +27,8 @@ export const buildNodeCustomEvent = (params: {
 
 /**
  * Build agent hook triggered event
+ *
+ * @remarks Manually constructed because "hook_triggered" is not part of EventType union.
  */
 export const buildAgentHookTriggeredEvent = (params: {
   agentLoopId: string;
@@ -43,7 +38,7 @@ export const buildAgentHookTriggeredEvent = (params: {
   eventData: Record<string, unknown>;
   iteration: number;
   parentContext?: {
-    parentType: 'WORKFLOW' | 'AGENT_LOOP';
+    parentType: "WORKFLOW" | "AGENT_LOOP";
     parentId: string;
     nodeId?: string;
     delegationPurpose?: string;
@@ -59,7 +54,6 @@ export const buildAgentHookTriggeredEvent = (params: {
   eventName: params.eventName,
   eventData: params.eventData,
   iteration: params.iteration,
-  // Unified parent context
   parentContext: params.parentContext,
   metadata: params.metadata,
 });

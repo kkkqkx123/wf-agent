@@ -79,7 +79,7 @@ import {
   buildToolCallStartedEvent,
   buildToolCallCompletedEvent,
   buildToolCallFailedEvent,
-} from "../../workflow/execution/utils/event/index.js";
+} from "../utils/event/builders/index.js";
 import { WorkflowStateTransitor } from "../../workflow/execution/coordinators/workflow-state-transitor.js";
 import { CheckpointState } from "../../workflow/checkpoint/checkpoint-state-manager.js";
 import { WorkflowExecutionBuilder } from "../../workflow/execution/factories/workflow-execution-builder.js";

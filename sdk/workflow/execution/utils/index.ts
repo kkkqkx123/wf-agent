@@ -3,7 +3,7 @@
  * Provides event-related utility functions
  */
 
-// Event Construction Tool Function
+// Event Construction Tool Function (from core)
 export {
   buildWorkflowExecutionStartedEvent,
   buildWorkflowExecutionCompletedEvent,
@@ -39,7 +39,7 @@ export {
   buildCheckpointDeletedEvent,
   buildToolApprovalRequestedEvent,
   buildFollowupQuestionRequestedEvent,
-} from "./event/index.js";
+} from "../../../core/utils/event/builders/index.js";
 
 // Event Trigger Utility Function (re-exported from core/utils/event)
 export {

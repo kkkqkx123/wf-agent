@@ -1,30 +1,33 @@
 /**
- * FileCheckpointManager
+ * FileCheckpointManager (Optimized)
  *
- * Manages workspace file state checkpoints independently of VFS.
- * Uses a scan-and-compare approach: at checkpoint time, scans the workspace,
- * computes file hashes, compares with previous snapshot, and stores deltas.
+ * Manages workspace file state checkpoints with incremental file watching.
  *
- * Design principles:
- * - Non-intrusive: no file I/O interception, no tool changes
- * - Snapshot-based: captures file state at checkpoint boundaries
- * - Incremental: hash comparison for delta detection
- * - Safe: non-fatal errors, file checkpoint failure does not block execution checkpoint
+ * Optimization features:
+ * - Chokidar-based file watching (optional) for O(K) instead of O(N) checkpoint
+ * - Hash baseline storage for minimal initial storage
+ * - Delta content storage for incremental checkpoints
+ * - Myers diff algorithm for file comparison
+ *
+ * Backward compatible with existing CheckpointCoordinator integration.
  */
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-import { createHash } from 'node:crypto';
-import { getGlobalLogger } from '../logger/global-logger.js';
-import type {
-  FileCheckpointMetadata,
-  FileChangeRecord,
-} from '@wf-agent/types';
+
+import * as fs from "fs";
+import * as fsp from "fs/promises";
+import * as path from "path";
+import { createHash } from "crypto";
+import { getGlobalLogger } from "../logger/global-logger.js";
+import type { FileCheckpointMetadata, FileChangeRecord } from "@wf-agent/types";
 import type {
   FileCheckpointStorageAdapter,
   FileCheckpointCreateResult,
   FileCheckpointRestoreResult,
   FileCheckpointManagerConfig,
-} from './file-checkpoint-types.js';
+} from "./file-checkpoint-types.js";
+import { FileWatcher } from "./file-watcher.js";
+import { HashBaselineStore, type HashBaseline } from "./hash-baseline-store.js";
+import { FileDeltaStore } from "./file-delta-store.js";
+import { DiffEngine, type DiffResult } from "./diff-engine.js";
 
 const logger = getGlobalLogger();
 
@@ -34,40 +37,295 @@ const DEFAULT_CONFIG: Partial<FileCheckpointManagerConfig> = {
   customIgnorePatterns: [],
 };
 
-const HARDCODED_IGNORE_PATTERNS = ['.git', 'node_modules'];
+const HARDCODED_IGNORE_PATTERNS = [".git", "node_modules"];
 
+/**
+ * Optimized FileCheckpointManager configuration
+ */
+export interface OptimizedFileCheckpointManagerConfig extends FileCheckpointManagerConfig {
+  /** Enable file watching for incremental change detection */
+  useFileWatcher?: boolean;
+  /** Enable hash baseline storage (reduces initial storage) */
+  useHashBaseline?: boolean;
+  /** Enable diff generation for changed files */
+  enableDiff?: boolean;
+}
+
+/**
+ * FileCheckpointManager with optional optimizations
+ *
+ * When optimizations are disabled, behaves identically to original implementation.
+ * When enabled, uses FileWatcher + HashBaseline + FileDelta for efficiency.
+ */
 export class FileCheckpointManager {
   private storage: FileCheckpointStorageAdapter;
-  private config: FileCheckpointManagerConfig;
+  private config: OptimizedFileCheckpointManagerConfig;
   private initialized = false;
 
-  constructor(
-    storage: FileCheckpointStorageAdapter,
-    config: FileCheckpointManagerConfig,
-  ) {
+  // Optimization components (optional)
+  private fileWatcher?: FileWatcher;
+  private hashBaselineStore?: HashBaselineStore;
+  private fileDeltaStore?: FileDeltaStore;
+  private diffEngine?: DiffEngine;
+
+  // Current baseline tracking (for hash baseline mode)
+  private currentBaseline?: HashBaseline;
+
+  constructor(storage: FileCheckpointStorageAdapter, config: OptimizedFileCheckpointManagerConfig) {
     this.storage = storage;
     this.config = { ...DEFAULT_CONFIG, ...config };
-  }
 
-  async initialize(): Promise<void> {
-    if (this.initialized) return;
-    await this.storage.initialize();
-    this.initialized = true;
-    logger.info('FileCheckpointManager initialized', { workspaceRoot: this.config.workspaceRoot });
-  }
-
-  async close(): Promise<void> {
-    if (!this.initialized) return;
-    await this.storage.close();
-    this.initialized = false;
-    logger.info('FileCheckpointManager closed');
-  }
-
-  async createCheckpoint(entityId: string): Promise<FileCheckpointCreateResult> {
-    if (!this.initialized) {
-      throw new Error('FileCheckpointManager not initialized');
+    // Initialize optimization components if enabled
+    if (this.config.useHashBaseline) {
+      this.hashBaselineStore = new HashBaselineStore({
+        workspaceRoot: this.config.workspaceRoot,
+      });
+      this.fileDeltaStore = new FileDeltaStore({
+        workspaceRoot: this.config.workspaceRoot,
+      });
     }
 
+    if (this.config.enableDiff) {
+      this.diffEngine = new DiffEngine();
+    }
+  }
+
+  /**
+   * Initialize the manager
+   *
+   * If useFileWatcher is enabled, starts watching the workspace.
+   */
+  async initialize(): Promise<void> {
+    if (this.initialized) return;
+
+    await this.storage.initialize();
+
+    // Start file watcher if enabled
+    if (this.config.useFileWatcher) {
+      const ignorePatterns = [
+        ...HARDCODED_IGNORE_PATTERNS,
+        ...(this.config.customIgnorePatterns ?? []),
+      ];
+
+      this.fileWatcher = new FileWatcher({
+        rootDir: this.config.workspaceRoot,
+        ignorePatterns,
+        debounceMs: 100,
+        ignoreInitial: true,
+      });
+
+      try {
+        await this.fileWatcher.start();
+        logger.info("FileWatcher started", {
+          workspaceRoot: this.config.workspaceRoot,
+        });
+      } catch (err) {
+        logger.warn("Failed to start FileWatcher, falling back to scan mode", {
+          err,
+        });
+        this.fileWatcher = undefined;
+      }
+    }
+
+    this.initialized = true;
+    logger.info("FileCheckpointManager initialized", {
+      workspaceRoot: this.config.workspaceRoot,
+      useFileWatcher: !!this.fileWatcher,
+      useHashBaseline: !!this.hashBaselineStore,
+    });
+  }
+
+  /**
+   * Close the manager
+   */
+  async close(): Promise<void> {
+    if (!this.initialized) return;
+
+    if (this.fileWatcher) {
+      await this.fileWatcher.stop();
+      this.fileWatcher = undefined;
+    }
+
+    await this.storage.close();
+    this.initialized = false;
+    logger.info("FileCheckpointManager closed");
+  }
+
+  /**
+   * Create a checkpoint
+   *
+   * If FileWatcher is active and has changes, only processes changed files.
+   * Otherwise, performs full workspace scan.
+   */
+  async createCheckpoint(entityId: string): Promise<FileCheckpointCreateResult> {
+    if (!this.initialized) {
+      throw new Error("FileCheckpointManager not initialized");
+    }
+
+    // Determine if we can use incremental mode
+    const useIncremental =
+      this.fileWatcher &&
+      this.fileWatcher.getIsReady() &&
+      this.fileWatcher.getChangedFiles().size > 0;
+
+    if (useIncremental && this.hashBaselineStore && this.currentBaseline) {
+      return this.createCheckpointIncremental(entityId);
+    }
+
+    // Fall back to full scan mode
+    return this.createCheckpointFullScan(entityId);
+  }
+
+  /**
+   * Create checkpoint using incremental changes from FileWatcher
+   */
+  private async createCheckpointIncremental(entityId: string): Promise<FileCheckpointCreateResult> {
+    const changedFiles = this.fileWatcher!.getChangedFiles();
+
+    logger.debug("Creating incremental checkpoint", {
+      entityId,
+      changedCount: changedFiles.size,
+    });
+
+    // Hash only changed files
+    const newHashMap = new Map<string, { hash: string; size: number; modifiedAt: number }>();
+    const deltaChanges: Array<{
+      path: string;
+      type: "added" | "modified" | "deleted";
+      oldHash?: string;
+      newHash?: string;
+      absolutePath?: string;
+    }> = [];
+
+    const oldHashMap = this.hashBaselineStore!.getHashMap(this.currentBaseline);
+
+    for (const [absolutePath, changeRecord] of changedFiles) {
+      const relativePath = path.relative(this.config.workspaceRoot, absolutePath);
+
+      if (changeRecord.type === "unlink") {
+        // File deleted
+        const oldHash = oldHashMap.get(relativePath);
+        if (oldHash) {
+          deltaChanges.push({
+            path: relativePath,
+            type: "deleted",
+            oldHash,
+          });
+        }
+      } else {
+        // File added or modified
+        try {
+          const stats = await fsp.stat(absolutePath);
+          const content = await fsp.readFile(absolutePath);
+          const hash = createHash("md5").update(content).digest("hex");
+
+          newHashMap.set(relativePath, {
+            hash,
+            size: stats.size,
+            modifiedAt: stats.mtimeMs,
+          });
+
+          const oldHash = oldHashMap.get(relativePath);
+          deltaChanges.push({
+            path: relativePath,
+            type: oldHash ? "modified" : "added",
+            oldHash,
+            newHash: hash,
+            absolutePath,
+          });
+        } catch (err) {
+          logger.warn("Failed to process changed file", {
+            err,
+            path: relativePath,
+          });
+        }
+      }
+    }
+
+    // Create delta checkpoint
+    const checkpointId = this.generateCheckpointId();
+    const timestamp = Date.now();
+
+    // Get base checkpoint ID from current baseline
+    const baseCheckpointId = this.currentBaseline?.id ?? checkpointId;
+
+    // Update baseline with new hashes
+    const updatedHashMap = new Map(oldHashMap);
+    for (const [path, data] of newHashMap) {
+      updatedHashMap.set(path, data.hash);
+    }
+    for (const change of deltaChanges) {
+      if (change.type === "deleted") {
+        updatedHashMap.delete(change.path);
+      }
+    }
+
+    // Create delta using FileDeltaStore
+    const delta = await this.fileDeltaStore!.createDelta(
+      checkpointId,
+      baseCheckpointId,
+      deltaChanges,
+      updatedHashMap.size,
+    );
+
+    // Update current baseline reference
+    this.currentBaseline = {
+      id: checkpointId,
+      type: "baseline",
+      files: Array.from(updatedHashMap.entries()).map(([relativePath, hash]) => ({
+        relativePath,
+        hash,
+        size: newHashMap.get(relativePath)?.size ?? 0,
+        modifiedAt: newHashMap.get(relativePath)?.modifiedAt ?? timestamp,
+      })),
+      totalFileCount: updatedHashMap.size,
+      createdAt: timestamp,
+      workspaceRoot: this.config.workspaceRoot,
+    };
+
+    // Reset file watcher
+    this.fileWatcher!.reset();
+
+    // Save to storage (convert delta to legacy format for backward compatibility)
+    const fileContents = new Map<string, Buffer>();
+    for (const change of delta.changes) {
+      if (change.content) {
+        fileContents.set(change.path, change.content);
+      }
+    }
+
+    const metadata: FileCheckpointMetadata = {
+      entityId,
+      timestamp,
+      type: "incremental",
+      baseCheckpointId,
+      changes: delta.changes.map(c => ({
+        path: c.path,
+        type: c.type,
+        hash: c.newHash ?? c.oldHash ?? "",
+      })),
+      fileCount: delta.totalFileCount,
+      fileHashSnapshot: Object.fromEntries(updatedHashMap),
+      emptyDirs: [],
+      totalSize: Array.from(fileContents.values()).reduce((sum, c) => sum + c.length, 0),
+      workspaceRoot: this.config.workspaceRoot,
+    };
+
+    await this.storage.save(checkpointId, metadata, fileContents);
+
+    logger.info("Incremental checkpoint created", {
+      checkpointId,
+      entityId,
+      changedFiles: deltaChanges.length,
+    });
+
+    return { id: checkpointId, metadata };
+  }
+
+  /**
+   * Create checkpoint using full workspace scan (original behavior)
+   */
+  private async createCheckpointFullScan(entityId: string): Promise<FileCheckpointCreateResult> {
     const { files, dirs } = await this.collectFiles(this.config.workspaceRoot);
     const fileHashes = await this.computeFileHashes(files);
     const emptyDirs = this.findEmptyDirs(dirs, files);
@@ -86,7 +344,7 @@ export class FileCheckpointManager {
     const metadata: FileCheckpointMetadata = {
       entityId,
       timestamp,
-      type: isFullBackup ? 'full' : 'incremental',
+      type: isFullBackup ? "full" : "incremental",
       baseCheckpointId: isFullBackup ? undefined : previous!.id,
       changes: isFullBackup ? undefined : changes,
       fileCount: files.length,
@@ -104,17 +362,23 @@ export class FileCheckpointManager {
           const content = await this.readFile(filePath);
           fileContents.set(filePath, content);
         } catch (err) {
-          logger.warn('Failed to read file for full backup, skipping', { err, filePath });
+          logger.warn("Failed to read file for full backup, skipping", {
+            err,
+            filePath,
+          });
         }
       }
     } else {
       for (const change of changes ?? []) {
-        if (change.type === 'added' || change.type === 'modified') {
+        if (change.type === "added" || change.type === "modified") {
           try {
             const content = await this.readFile(change.path);
             fileContents.set(change.path, content);
           } catch (err) {
-            logger.warn('Failed to read changed file, skipping', { err, path: change.path });
+            logger.warn("Failed to read changed file, skipping", {
+              err,
+              path: change.path,
+            });
           }
         }
       }
@@ -128,7 +392,20 @@ export class FileCheckpointManager {
 
     await this.storage.save(checkpointId, metadata, fileContents);
 
-    logger.info('File checkpoint created', {
+    // Update hash baseline if enabled
+    if (this.hashBaselineStore) {
+      this.currentBaseline = await this.hashBaselineStore.createBaselineFromHashMap(
+        checkpointId,
+        new Map(
+          Object.entries(fileHashes).map(([p, h]) => [
+            p,
+            { hash: h, size: 0, modifiedAt: timestamp },
+          ]),
+        ),
+      );
+    }
+
+    logger.info("File checkpoint created", {
       checkpointId,
       entityId,
       type: metadata.type,
@@ -140,9 +417,15 @@ export class FileCheckpointManager {
     return { id: checkpointId, metadata };
   }
 
-  async restoreCheckpoint(entityId: string, checkpointId: string): Promise<FileCheckpointRestoreResult> {
+  /**
+   * Restore checkpoint
+   */
+  async restoreCheckpoint(
+    entityId: string,
+    checkpointId: string,
+  ): Promise<FileCheckpointRestoreResult> {
     if (!this.initialized) {
-      throw new Error('FileCheckpointManager not initialized');
+      throw new Error("FileCheckpointManager not initialized");
     }
 
     const checkpoint = await this.storage.load(checkpointId);
@@ -162,9 +445,8 @@ export class FileCheckpointManager {
     for (const [relativePath, content] of targetFiles) {
       const absolutePath = path.resolve(this.config.workspaceRoot, relativePath);
 
-      if (!fs.existsSync(absolutePath)) {
-        filesToRestore.push({ relativePath, content });
-      } else {
+      try {
+        await fsp.access(absolutePath);
         const currentHash = await this.hashFile(absolutePath);
         const targetHash = this.hashContent(content);
 
@@ -173,6 +455,9 @@ export class FileCheckpointManager {
         } else {
           filesToRestore.push({ relativePath, content });
         }
+      } catch {
+        // File doesn't exist
+        filesToRestore.push({ relativePath, content });
       }
     }
 
@@ -184,37 +469,45 @@ export class FileCheckpointManager {
       }
     }
 
+    // Delete extra files
     for (const relativePath of filesToDelete) {
       try {
         const absolutePath = path.resolve(this.config.workspaceRoot, relativePath);
-        await fs.promises.unlink(absolutePath);
-        logger.debug('Deleted extra file during restore', { path: relativePath });
+        await fsp.unlink(absolutePath);
+        logger.debug("Deleted extra file during restore", { path: relativePath });
       } catch (err) {
-        logger.warn('Failed to delete extra file', { err, path: relativePath });
+        logger.warn("Failed to delete extra file", { err, path: relativePath });
       }
     }
 
+    // Restore files
     for (const { relativePath, content } of filesToRestore) {
       try {
         const absolutePath = path.resolve(this.config.workspaceRoot, relativePath);
-        await fs.promises.mkdir(path.dirname(absolutePath), { recursive: true });
-        await fs.promises.writeFile(absolutePath, content);
-        logger.debug('Restored file', { path: relativePath });
+        await fsp.mkdir(path.dirname(absolutePath), { recursive: true });
+        await fsp.writeFile(absolutePath, content);
+        logger.debug("Restored file", { path: relativePath });
       } catch (err) {
-        logger.warn('Failed to restore file', { err, path: relativePath });
+        logger.warn("Failed to restore file", { err, path: relativePath });
       }
     }
 
+    // Restore empty directories
     for (const emptyDir of checkpoint.metadata.emptyDirs) {
       try {
         const absolutePath = path.resolve(this.config.workspaceRoot, emptyDir);
-        await fs.promises.mkdir(absolutePath, { recursive: true });
+        await fsp.mkdir(absolutePath, { recursive: true });
       } catch (err) {
-        logger.warn('Failed to restore empty directory', { err, emptyDir });
+        logger.warn("Failed to restore empty directory", { err, emptyDir });
       }
     }
 
-    logger.info('File checkpoint restored', {
+    // Reset file watcher after restore
+    if (this.fileWatcher) {
+      this.fileWatcher.reset();
+    }
+
+    logger.info("File checkpoint restored", {
       checkpointId,
       entityId,
       restoredCount: filesToRestore.length,
@@ -229,9 +522,65 @@ export class FileCheckpointManager {
     };
   }
 
+  /**
+   * Get diff between two file versions
+   *
+   * Only available if enableDiff is true.
+   */
+  async getDiff(
+    _filePath: string,
+    oldContent: string,
+    newContent: string,
+  ): Promise<DiffResult | null> {
+    if (!this.diffEngine) {
+      logger.warn("Diff engine not enabled");
+      return null;
+    }
+
+    return this.diffEngine.diff(oldContent, newContent);
+  }
+
+  /**
+   * Get unified diff string
+   */
+  async getUnifiedDiff(filePath: string, oldContent: string, newContent: string): Promise<string> {
+    if (!this.diffEngine) {
+      return "";
+    }
+
+    return this.diffEngine.unifiedDiff(oldContent, newContent, filePath, filePath);
+  }
+
+  /**
+   * Get storage adapter
+   */
   getStorage(): FileCheckpointStorageAdapter {
     return this.storage;
   }
+
+  /**
+   * Get file watcher (if enabled)
+   */
+  getFileWatcher(): FileWatcher | undefined {
+    return this.fileWatcher;
+  }
+
+  /**
+   * Manually notify file change (for external events)
+   */
+  notifyFileChange(filePath: string, type: "add" | "change" | "unlink"): void {
+    if (this.fileWatcher) {
+      this.fileWatcher.addChangeRecord({
+        path: filePath,
+        type,
+        timestamp: Date.now(),
+      });
+    }
+  }
+
+  // ============================================================================
+  // Private helper methods (same as original implementation)
+  // ============================================================================
 
   private async collectFiles(rootDir: string): Promise<{ files: string[]; dirs: string[] }> {
     const files: string[] = [];
@@ -259,7 +608,7 @@ export class FileCheckpointManager {
   ): Promise<void> {
     let entries: fs.Dirent[];
     try {
-      entries = await fs.promises.readdir(currentDir, { withFileTypes: true });
+      entries = await fsp.readdir(currentDir, { withFileTypes: true });
     } catch {
       return;
     }
@@ -273,7 +622,13 @@ export class FileCheckpointManager {
 
       if (entry.isDirectory()) {
         allDirs.push(relativePath);
-        await this.scanDirectory(rootDir, path.resolve(currentDir, entry.name), ignorePatterns, files, allDirs);
+        await this.scanDirectory(
+          rootDir,
+          path.resolve(currentDir, entry.name),
+          ignorePatterns,
+          files,
+          allDirs,
+        );
       } else if (entry.isFile()) {
         files.push(relativePath);
       }
@@ -286,20 +641,25 @@ export class FileCheckpointManager {
     return patterns;
   }
 
-  private async collectGitignoreFiles(rootDir: string, currentDir: string, patterns: string[]): Promise<void> {
-    const gitignorePath = path.join(currentDir, '.gitignore');
+  private async collectGitignoreFiles(
+    rootDir: string,
+    currentDir: string,
+    patterns: string[],
+  ): Promise<void> {
+    const gitignorePath = path.join(currentDir, ".gitignore");
 
     try {
-      const content = await fs.promises.readFile(gitignorePath, 'utf-8');
+      const content = await fsp.readFile(gitignorePath, "utf-8");
       const relativePrefix = path.relative(rootDir, currentDir);
 
-      for (const line of content.split('\n')) {
+      for (const line of content.split("\n")) {
         const trimmed = line.trim();
-        if (!trimmed || trimmed.startsWith('#')) continue;
+        if (!trimmed || trimmed.startsWith("#")) continue;
 
-        const prefixed = relativePrefix === ''
-          ? trimmed
-          : path.posix.join(relativePrefix.replace(/\\/g, '/'), trimmed);
+        const prefixed =
+          relativePrefix === ""
+            ? trimmed
+            : path.posix.join(relativePrefix.replace(/\\/g, "/"), trimmed);
 
         patterns.push(prefixed);
       }
@@ -309,32 +669,35 @@ export class FileCheckpointManager {
 
     let entries: fs.Dirent[];
     try {
-      entries = await fs.promises.readdir(currentDir, { withFileTypes: true });
+      entries = await fsp.readdir(currentDir, { withFileTypes: true });
     } catch {
       return;
     }
 
     for (const entry of entries) {
-      if (entry.isDirectory() && entry.name !== '.git' && entry.name !== 'node_modules') {
+      if (entry.isDirectory() && entry.name !== ".git" && entry.name !== "node_modules") {
         await this.collectGitignoreFiles(rootDir, path.join(currentDir, entry.name), patterns);
       }
     }
   }
 
   private isIgnored(relativePath: string, entryName: string, patterns: string[]): boolean {
-    const normalizedPath = relativePath.replace(/\\/g, '/');
+    const normalizedPath = relativePath.replace(/\\/g, "/");
 
     for (const pattern of patterns) {
-      const normalizedPattern = pattern.replace(/\\/g, '/');
+      const normalizedPattern = pattern.replace(/\\/g, "/");
 
-      if (normalizedPattern.endsWith('/')) {
+      if (normalizedPattern.endsWith("/")) {
         const prefix = normalizedPattern.slice(0, -1);
         if (normalizedPath.startsWith(prefix) || normalizedPath === prefix) {
           return true;
         }
       }
 
-      if (normalizedPath === normalizedPattern || normalizedPath.startsWith(normalizedPattern + '/')) {
+      if (
+        normalizedPath === normalizedPattern ||
+        normalizedPath.startsWith(normalizedPattern + "/")
+      ) {
         return true;
       }
 
@@ -342,9 +705,9 @@ export class FileCheckpointManager {
         return true;
       }
 
-      if (normalizedPattern.includes('*')) {
+      if (normalizedPattern.includes("*")) {
         const regex = new RegExp(
-          '^' + normalizedPattern.replace(/\*/g, '[^/]*').replace(/\?/g, '[^/]') + '$',
+          "^" + normalizedPattern.replace(/\*/g, "[^/]*").replace(/\?/g, "[^/]") + "$",
         );
         if (regex.test(normalizedPath) || regex.test(entryName)) {
           return true;
@@ -356,11 +719,7 @@ export class FileCheckpointManager {
   }
 
   private shouldIgnore(relativePath: string): boolean {
-    return this.isIgnored(
-      relativePath,
-      path.basename(relativePath),
-      HARDCODED_IGNORE_PATTERNS,
-    );
+    return this.isIgnored(relativePath, path.basename(relativePath), HARDCODED_IGNORE_PATTERNS);
   }
 
   private async computeFileHashes(files: string[]): Promise<Record<string, string>> {
@@ -371,7 +730,7 @@ export class FileCheckpointManager {
         const absolutePath = path.resolve(this.config.workspaceRoot, filePath);
         result[filePath] = await this.hashFile(absolutePath);
       } catch (err) {
-        logger.warn('Failed to hash file, skipping', { err, filePath });
+        logger.warn("Failed to hash file, skipping", { err, filePath });
       }
     }
 
@@ -379,12 +738,12 @@ export class FileCheckpointManager {
   }
 
   private async hashFile(absolutePath: string): Promise<string> {
-    const content = await fs.promises.readFile(absolutePath);
+    const content = await fsp.readFile(absolutePath);
     return this.hashContent(content);
   }
 
   private hashContent(content: Buffer): string {
-    return createHash('md5').update(content).digest('hex');
+    return createHash("md5").update(content).digest("hex");
   }
 
   private computeChanges(
@@ -397,15 +756,15 @@ export class FileCheckpointManager {
       const oldHash = oldHashes[filePath];
 
       if (!oldHash) {
-        changes.push({ path: filePath, type: 'added', hash: newHash });
+        changes.push({ path: filePath, type: "added", hash: newHash });
       } else if (oldHash !== newHash) {
-        changes.push({ path: filePath, type: 'modified', hash: newHash });
+        changes.push({ path: filePath, type: "modified", hash: newHash });
       }
     }
 
     for (const [filePath, oldHash] of Object.entries(oldHashes)) {
       if (!(filePath in newHashes)) {
-        changes.push({ path: filePath, type: 'deleted', hash: oldHash });
+        changes.push({ path: filePath, type: "deleted", hash: oldHash });
       }
     }
 
@@ -417,7 +776,7 @@ export class FileCheckpointManager {
 
     for (const filePath of files) {
       let dir = path.dirname(filePath);
-      while (dir !== '.') {
+      while (dir !== ".") {
         fileParentDirs.add(dir);
         dir = path.dirname(dir);
       }
@@ -432,7 +791,7 @@ export class FileCheckpointManager {
 
     let length = 0;
     for (const cp of checkpoints) {
-      if (cp.metadata.type === 'incremental') {
+      if (cp.metadata.type === "incremental") {
         length++;
       }
     }
@@ -440,13 +799,14 @@ export class FileCheckpointManager {
     return length;
   }
 
-  private async resolveTargetFiles(
-    checkpointId: string,
-  ): Promise<Map<string, Buffer>> {
+  private async resolveTargetFiles(checkpointId: string): Promise<Map<string, Buffer>> {
     const targetFiles = new Map<string, Buffer>();
     const visited = new Set<string>();
 
-    const chain: Array<{ id: string; metadata: FileCheckpointMetadata }> = [];
+    const chain: Array<{
+      id: string;
+      metadata: FileCheckpointMetadata;
+    }> = [];
     let currentId: string | undefined = checkpointId;
 
     while (currentId && !visited.has(currentId)) {
@@ -462,13 +822,13 @@ export class FileCheckpointManager {
       const checkpoint = await this.storage.load(link.id);
       if (!checkpoint) continue;
 
-      if (link.metadata.type === 'full') {
+      if (link.metadata.type === "full") {
         for (const [relativePath, content] of checkpoint.files) {
           targetFiles.set(relativePath, content);
         }
       } else {
         for (const change of link.metadata.changes ?? []) {
-          if (change.type === 'deleted') {
+          if (change.type === "deleted") {
             targetFiles.delete(change.path);
           } else {
             const content = checkpoint.files.get(change.path);
@@ -485,7 +845,7 @@ export class FileCheckpointManager {
 
   private async readFile(relativePath: string): Promise<Buffer> {
     const absolutePath = path.resolve(this.config.workspaceRoot, relativePath);
-    return fs.promises.readFile(absolutePath);
+    return fsp.readFile(absolutePath);
   }
 
   private generateCheckpointId(): string {

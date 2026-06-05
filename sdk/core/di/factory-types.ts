@@ -5,6 +5,7 @@
  * that require runtime arguments (like executionId, workflowId, etc.)
  */
 
+import type { ExecutionDomainContext } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../workflow/entities/workflow-execution-entity.js";
 
 /**
@@ -64,11 +65,11 @@ export interface NodeExecutionCoordinatorFactory<T> {
 }
 
 /**
- * Factory for interruption state with execution ID and node ID
+ * Factory for interruption state with execution ID and domain-specific context
  * @template T The type of service to create
  */
 export interface InterruptionStateFactory<T> {
-  create(executionId: string, nodeId: string): T;
+  create(executionId: string, context?: ExecutionDomainContext): T;
 }
 
 /**

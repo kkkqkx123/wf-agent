@@ -176,6 +176,12 @@ export type EventType =
   | "AGENT_RESUMED"
   /** Agent failed */
   | "AGENT_FAILED"
+  /** Abstract execution pause (domain-agnostic, emitted by InterruptionState) */
+  | "EXECUTION_PAUSED"
+  /** Abstract execution cancel (domain-agnostic, emitted by InterruptionState) */
+  | "EXECUTION_CANCELLED"
+  /** Abstract execution resume (domain-agnostic, emitted by InterruptionState) */
+  | "EXECUTION_RESUMED"
   /** Progressive tool execution start (batch) */
   | "PROGRESSIVE_TOOL_EXECUTION_START"
   /** Progressive tool execution end (batch) */

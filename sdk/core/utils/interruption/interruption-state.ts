@@ -3,29 +3,29 @@
  * Provides unified management of interrupt status and operations
  *
  * Responsibilities:
- * - Manages interrupt status (PAUSE/STOP)
- * - Supplies the AbortSignal for deep interrupts
- * - Coordinates interrupt requests and recovery operations
+ * - Manages interrupt status (PAUSE/STOP) as primary coordination state
+ * - Supplies the AbortSignal for deep interrupt I/O cancellation
+ * - Emits interruption events via EventRegistry for cascade propagation
  *
  * Design Principles:
  * - Single Responsibility Principle: Responsible only for interrupt status management
  * - Encapsulation: Hides internal implementation details
  * - Execution Safety: Ensures atomicity of state changes
- * - Unified Use of AbortSignal as the primary interrupt mechanism
+ * - Event-driven coordination: interruption commands emit events for cascade and observability
+ * - AbortSignal for I/O only: the signal is scoped per execution phase (fresh after resume)
  * - Portability: Can be shared by both the Graph module and the Agent module
  */
 
-import { InterruptedException } from "../../types/interruption-types.js";
+import type { EventRegistry } from "../../registry/event-registry.js";
+import type { InterruptionType } from "../../types/interruption-types.js";
+import type { ExecutionDomainContext } from "@wf-agent/types";
+import {
+  InterruptionHistoryManager,
+  type InterruptionHistoryEntry,
+} from "./interruption-history-manager.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
-import { InterruptionPropagationProxy } from "./interruption-propagation-proxy.js";
-import { InterruptionHistoryManager, type InterruptionHistoryEntry } from "./interruption-history-manager.js";
 
 const logger = createContextualLogger({ component: "InterruptionState" });
-
-/**
- * Interrupt types
- */
-export type InterruptionType = "PAUSE" | "STOP" | null;
 
 /**
  * Interrupt exception information
@@ -37,8 +37,8 @@ export interface InterruptionInfo {
   message: string;
   /** Context ID (such as execution ID, session ID, etc.) */
   contextId?: string;
-  /** Node ID (optional) */
-  nodeId?: string;
+  /** Domain-specific execution context metadata */
+  context?: ExecutionDomainContext;
 }
 
 /**
@@ -47,47 +47,71 @@ export interface InterruptionInfo {
 export interface InterruptionStateConfig {
   /** Context ID (such as execution ID, session ID, etc.) */
   contextId: string;
-  /** Node ID (optional) */
-  nodeId?: string;
-  /** Custom Interrupt Exception Creation Function */
-  createInterruptionError?: (info: InterruptionInfo) => InterruptedException;
+  /** Domain-specific execution context metadata */
+  context?: ExecutionDomainContext;
+  /** EventRegistry for event emission and cascade propagation (optional, can be set later) */
+  eventRegistry?: EventRegistry;
+  /** Parent execution ID for cascade event subscription (optional, can be set later) */
+  parentExecutionId?: string;
 }
-
-/**
- * Maximum number of event listeners to prevent performance degradation
- */
-const MAX_EVENT_LISTENERS = 100;
 
 /**
  * Interruption State
  *
- * A general-purpose interrupt management component that supports shared use by both the Graph module and the Agent module.
+ * A general-purpose interrupt management component that supports shared use by both
+ * the Graph module and the Agent module.
+ *
+ * ## Architecture
+ *
+ * ```
+ * requestPause()
+ *   → this.interruptionType = "PAUSE"        // primary state
+ *   → abortController.abort(error)           // only for I/O cancellation
+ *   → eventRegistry.emit({ type: "EXECUTION_PAUSED", executionId })
+ * → Checkpoints: this.getInterruptionType() !== null  // direct state check
+ * → Children: subscribe to parent's emitter via EventRegistry
+ * ```
+ *
+ * The context field carries domain-specific metadata as a discriminated union
+ * (ExecutionDomainContext). Use the `domain` discriminant to narrow the type:
+ *   domain: "WORKFLOW_NODE" → { workflowId, nodeId, nodeExecutionId }
+ *   domain: "AGENT_LOOP"   → { agentExecutionId, iteration }
+ *   domain: "UNKNOWN"      → fallback with index signature
+ *
+ * This keeps InterruptionState portable while allowing each domain to attach
+ * its own strongly-typed semantics.
  */
 export class InterruptionState {
   private abortController: AbortController = new AbortController();
   private interruptionType: InterruptionType = null;
   private contextId: string;
-  private nodeId: string;
-  private createInterruptionError?: (info: InterruptionInfo) => InterruptedException;
-  
-  /** Event listeners for resume notifications */
-  private resumeListeners: Array<() => void> = [];
-  
-  /** Interruption propagation proxy (manages parent-child sync) */
-  private propagationProxy?: InterruptionPropagationProxy;
-  
-  /** Event listeners for interruption notifications (PAUSE/STOP/RESUME) */
+
+  /** Domain-specific execution context metadata */
+  private context: ExecutionDomainContext;
+
+  /** EventRegistry for emitting interruption events (cascade + observability) */
+  private eventRegistry?: EventRegistry;
+
+  /** Subscription to parent execution's emitter for cascade propagation */
+  private parentUnsubscribe?: () => void;
+  /** Internal listeners for interruption state changes (used by TimeoutManager, etc.) */
   private interruptionListeners: Array<(type: "PAUSE" | "STOP" | "RESUME") => void> = [];
-  
-  /** Concurrency control - prevents race conditions */
-  private isProcessing: boolean = false;
-  private pendingRequests: Array<() => void> = [];
-  
-  /** Pending children registration - solves async creation race condition */
-  private pendingChildren: Map<string, { childState?: InterruptionState; registeredAt: number }> = new Map();
-  
+  /** Internal listeners for resume events specifically */
+  private resumeListeners: Array<() => void> = [];
+
   /** Interruption history manager */
   private historyManager: InterruptionHistoryManager;
+
+  /** Dispose flag to prevent use after disposal */
+  private _disposed: boolean = false;
+
+  // ========== Interruption Event Type Constants ==========
+  // These abstract event names keep InterruptionState domain-agnostic.
+  // The EventRegistry maps them as-is; workflow-specific consumers emit
+  // their own rich events (WORKFLOW_EXECUTION_PAUSED etc.) separately.
+  private static readonly EVENT_PAUSED = "EXECUTION_PAUSED";
+  private static readonly EVENT_CANCELLED = "EXECUTION_CANCELLED";
+  private static readonly EVENT_RESUMED = "EXECUTION_RESUMED";
 
   /**
    * Constructor
@@ -95,525 +119,494 @@ export class InterruptionState {
    */
   constructor(config: InterruptionStateConfig & { historyMaxSize?: number }) {
     this.contextId = config.contextId;
-    this.nodeId = config.nodeId ?? "";
-    this.createInterruptionError = config.createInterruptionError;
+    this.context = config.context ?? { domain: "UNKNOWN" };
+    this.eventRegistry = config.eventRegistry;
     this.historyManager = new InterruptionHistoryManager(config.historyMaxSize ?? 1000);
+
+    // If parent execution ID is provided, subscribe to parent's interruption events
+    if (config.parentExecutionId && config.eventRegistry) {
+      this.connectToParent(config.parentExecutionId);
+    }
   }
 
+  // ========== Command Entry Points ==========
+
   /**
-   * Request to pause
+   * Request to pause execution
+   *
+   * Sets interruptionType, aborts current AbortController (for I/O cancellation),
+   * and emits interruption event via EventRegistry for cascade propagation.
    */
   requestPause(): void {
-    this.enqueueRequest(() => {
-      if (this.interruptionType === "PAUSE") {
-        return; // It is already in a paused state.
-      }
-
-      logger.info("Execution pause requested", { contextId: this.contextId, nodeId: this.nodeId });
-      this.interruptionType = "PAUSE";
-      const error = this.createError("Execution paused", "PAUSE");
-      this.abortController.abort(error);
-      
-      // Record to history
-      this.historyManager.record({
-        type: "PAUSE",
+    if (this._disposed) {
+      logger.warn("Cannot pause: InterruptionState already disposed", {
         contextId: this.contextId,
-        nodeId: this.nodeId || undefined,
-        triggeredBy: "user",
       });
-      
-      // Notify all listeners (including propagation proxy)
-      this.notifyInterruptionListeners("PAUSE");
-    });
+      return;
+    }
+    if (this.interruptionType === "PAUSE") {
+      return; // Already in a paused state
+    }
+
+    logger.info("Execution pause requested", { contextId: this.contextId, context: this.context });
+    this.interruptionType = "PAUSE";
+
+    // Create abort reason with interruptionType so checkExecutionInterruption can extract PAUSE type
+    const pauseReason = new Error("Execution paused") as Error & {
+      interruptionType: string;
+      executionId: string;
+    };
+    pauseReason.interruptionType = "PAUSE";
+    pauseReason.executionId = this.contextId;
+    this.abortController.abort(pauseReason);
+
+    // Record to history
+    this.recordToHistory("PAUSE", "user");
+
+    // Emit event for cascade propagation and observability
+    this.emitInterruptionEvent("PAUSE");
+
+    // Notify internal listeners
+    this.notifyInterruptionListeners("PAUSE");
   }
 
   /**
-   * Request to stop
+   * Request to stop execution
+   *
+   * Sets interruptionType to STOP, aborts AbortController, and emits event.
+   * If already PAUSE, upgrades to STOP.
    */
   requestStop(): void {
-    this.enqueueRequest(() => {
-      if (this.interruptionType === "STOP") {
-        return; // It is already in a stopped state.
-      }
+    if (this._disposed) {
+      logger.warn("Cannot stop: InterruptionState already disposed", { contextId: this.contextId });
+      return;
+    }
+    if (this.interruptionType === "STOP") {
+      return; // Already in a stopped state
+    }
 
-      // If already PAUSE, upgrade to STOP
-      if (this.interruptionType === "PAUSE") {
-        logger.info("Upgrading PAUSE to STOP", {
-          contextId: this.contextId,
-          nodeId: this.nodeId,
-        });
-      }
-
-      logger.info("Execution stop requested", { contextId: this.contextId, nodeId: this.nodeId });
-      this.interruptionType = "STOP";
-      const error = this.createError("Execution stopped", "STOP");
-      this.abortController.abort(error);
-      
-      // Record to history
-      this.historyManager.record({
-        type: "STOP",
+    if (this.interruptionType === "PAUSE") {
+      logger.info("Upgrading PAUSE to STOP", {
         contextId: this.contextId,
-        nodeId: this.nodeId || undefined,
-        triggeredBy: "user",
+        context: this.context,
       });
-      
-      // Notify all listeners (including propagation proxy)
-      this.notifyInterruptionListeners("STOP");
-    });
+    }
+
+    logger.info("Execution stop requested", { contextId: this.contextId, context: this.context });
+    this.interruptionType = "STOP";
+
+    // Create abort reason with interruptionType so checkExecutionInterruption can extract STOP type
+    const stopReason = new Error("Execution stopped") as Error & {
+      interruptionType: string;
+      executionId: string;
+    };
+    stopReason.interruptionType = "STOP";
+    stopReason.executionId = this.contextId;
+    this.abortController.abort(stopReason);
+
+    // Record to history
+    this.recordToHistory("STOP", "user");
+
+    // Emit event for cascade propagation and observability
+    this.emitInterruptionEvent("STOP");
+
+    // Notify internal listeners
+    this.notifyInterruptionListeners("STOP");
   }
 
   /**
    * Resume execution
-   * 
-   * This method resets the interruption state and creates a new AbortController.
-   * All registered resume listeners will be notified to refresh their signal references.
-   * 
-   * IMPORTANT: External code should NOT cache AbortSignal references across pause/resume cycles.
-   * Always call getAbortSignal() after resume() to obtain the current signal.
-   * 
-   * NOTE: Resume now automatically propagates to all children via event propagation,
-   * consistent with PAUSE/STOP behavior. This ensures state consistency across the entire
-   * execution hierarchy.
-   * 
-   * LISTENER BEHAVIOR:
-   * - All resume listeners are called once and then cleared to prevent memory leaks
-   * - If you need persistent listening, re-register after each resume using the unsubscribe pattern:
-   *   ```typescript
-   *   let unsubscribe = interruptionState.onResumed(() => {
-   *     // Handle resume
-   *     // Re-register for next resume
-   *     unsubscribe = interruptionState.onResumed(/* ... *\/);
-   *   });
-   *   ```
+   *
+   * Resets interruptionType to null and creates a fresh AbortController
+   * for the next execution phase. Emits resume event for cascade propagation.
+   *
+   * The new AbortController is scoped to the current execution phase only.
+   * External consumers should call getAbortSignal() after resume to get the fresh signal.
    */
   resume(): void {
-    this.enqueueRequest(() => {
-      logger.info("Execution resumed", { contextId: this.contextId, nodeId: this.nodeId });
-      
-      // Calculate pause duration before resetting state
-      const pauseDuration = this.historyManager.getPauseDuration(this.contextId);
-      
-      this.interruptionType = null;
-      
-      // Create a new AbortController for fresh state
-      this.abortController = new AbortController();
-      
-      // Record to history
-      this.historyManager.record({
-        type: "RESUME",
+    if (this._disposed) {
+      logger.warn("Cannot resume: InterruptionState already disposed", {
         contextId: this.contextId,
-        nodeId: this.nodeId || undefined,
-        triggeredBy: "user",
-        duration: pauseDuration ?? undefined,
       });
-      
-      // Notify all listeners to refresh their signal references
-      // This prevents stale signal references from causing issues
-      const listeners = [...this.resumeListeners];
-      this.resumeListeners = []; // Clear listeners to prevent memory leaks
-      listeners.forEach(listener => {
-        try {
-          listener();
-        } catch (error) {
-          logger.warn("Error in resume listener", { 
-            contextId: this.contextId, 
-            error: error instanceof Error ? error.message : String(error) 
-          });
-        }
-      });
-      
-      // Auto-propagate resume to children (consistent with pause/stop)
-      this.notifyInterruptionListeners("RESUME");
-      
-      // Help GC by removing references to old controller
-      // Note: The old controller's signal may still be referenced externally,
-      // but we've done our part to notify listeners
-    });
+      return;
+    }
+
+    logger.info("Execution resumed", { contextId: this.contextId, context: this.context });
+
+    const pauseDuration = this.historyManager.getPauseDuration(this.contextId);
+
+    this.interruptionType = null;
+
+    // Create a new AbortController for fresh I/O cancellation
+    this.abortController = new AbortController();
+
+    // Record to history
+    this.recordToHistory("RESUME", "user", pauseDuration ?? undefined);
+
+    // Emit event for cascade propagation and observability
+    this.emitInterruptionEvent("RESUME");
+
+    // Notify internal listeners
+    this.notifyInterruptionListeners("RESUME");
   }
-  
+
+  // ========== EventRegistry Integration ==========
+
   /**
-   * Register a callback to be invoked when resume() is called
-   * 
-   * This allows external code to refresh their AbortSignal references
-   * without polling or caching stale signals.
-   * 
-   * @param callback Function to call on resume
-   * @returns Unsubscribe function
-   * 
-   * @example
-   * ```typescript
-   * const unsubscribe = interruptionState.onResumed(() => {
-   *   // Refresh signal reference
-   *   const freshSignal = interruptionState.getAbortSignal();
-   *   // Re-subscribe to events, update references, etc.
-   * });
-   * 
-   * // Later, when no longer needed
-   * unsubscribe();
-   * ```
+   * Set EventRegistry for event emission (can be called after construction)
    */
-  onResumed(callback: () => void): () => void {
-    if (this.resumeListeners.length >= MAX_EVENT_LISTENERS) {
-      logger.warn("Too many resume listeners registered", {
-        count: this.resumeListeners.length,
-        limit: MAX_EVENT_LISTENERS,
-        contextId: this.contextId,
+  setEventRegistry(registry: EventRegistry): void {
+    this.eventRegistry = registry;
+  }
+
+  /**
+   * Subscribe to parent execution's interruption events for cascade propagation.
+   * When parent emits PAUSE/STOP/RESUME events, this state will react accordingly.
+   *
+   * @param parentExecutionId The execution ID of the parent
+   */
+  connectToParent(parentExecutionId: string): void {
+    if (!this.eventRegistry) {
+      logger.warn("Cannot connect to parent: EventRegistry not set", {
+        childContextId: this.contextId,
+        parentExecutionId,
+      });
+      return;
+    }
+
+    // Cleanup previous subscription if any
+    this.parentUnsubscribe?.();
+
+    try {
+      const parentEmitter = this.eventRegistry.getEmitter(parentExecutionId);
+
+      // Subscribe to parent's interruption events
+      this.parentUnsubscribe = parentEmitter.on(InterruptionState.EVENT_PAUSED, () => {
+        this.requestPause();
+      });
+
+      // Also subscribe to STOP (CANCELLED) events
+      this.parentUnsubscribe = combineUnsubscribe(
+        this.parentUnsubscribe,
+        parentEmitter.on(InterruptionState.EVENT_CANCELLED, () => {
+          this.requestStop();
+        }),
+      );
+
+      // Also subscribe to RESUME events
+      this.parentUnsubscribe = combineUnsubscribe(
+        this.parentUnsubscribe,
+        parentEmitter.on(InterruptionState.EVENT_RESUMED, () => {
+          this.resume();
+        }),
+      );
+
+      logger.debug("Child interruption state connected to parent", {
+        childContextId: this.contextId,
+        parentExecutionId,
+      });
+    } catch (error) {
+      logger.warn("Failed to connect to parent emitter for cascade", {
+        childContextId: this.contextId,
+        parentExecutionId,
+        error: error instanceof Error ? error.message : String(error),
       });
     }
-    
-    this.resumeListeners.push(callback);
-    
-    // Return unsubscribe function
+  }
+
+  /**
+   * Disconnect from parent (cleanup on child disposal)
+   */
+  disconnectFromParent(): void {
+    this.parentUnsubscribe?.();
+    this.parentUnsubscribe = undefined;
+  }
+
+  // ========== Internal Listeners ==========
+
+  /**
+   * Register a callback for interruption state changes (PAUSE/STOP/RESUME).
+   * Used by internal consumers like TimeoutManager.
+   *
+   * @returns Unsubscribe function
+   */
+  onInterrupted(callback: (type: "PAUSE" | "STOP" | "RESUME") => void): () => void {
+    this.interruptionListeners.push(callback);
     return () => {
-      const index = this.resumeListeners.indexOf(callback);
-      if (index !== -1) {
-        this.resumeListeners.splice(index, 1);
+      const idx = this.interruptionListeners.indexOf(callback);
+      if (idx >= 0) {
+        this.interruptionListeners.splice(idx, 1);
       }
     };
   }
 
   /**
-   * Get the interrupt type
+   * Register a callback specifically for resume events.
+   * Used by TimeoutManager to refresh timeouts on resume.
+   *
+   * @returns Unsubscribe function
+   */
+  onResumed(callback: () => void): () => void {
+    this.resumeListeners.push(callback);
+    return () => {
+      const idx = this.resumeListeners.indexOf(callback);
+      if (idx >= 0) {
+        this.resumeListeners.splice(idx, 1);
+      }
+    };
+  }
+
+  /** Notify all internal interruption listeners */
+  private notifyInterruptionListeners(type: "PAUSE" | "STOP" | "RESUME"): void {
+    for (const listener of this.interruptionListeners) {
+      try {
+        listener(type);
+      } catch (error) {
+        logger.warn("Interruption listener error", {
+          contextId: this.contextId,
+          type,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    if (type === "RESUME") {
+      for (const listener of this.resumeListeners) {
+        try {
+          listener();
+        } catch (error) {
+          logger.warn("Resume listener error", {
+            contextId: this.contextId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+    }
+  }
+
+  // ========== State Query ==========
+
+  /**
+   * Get the interrupt type (primary coordination check mechanism)
+   *
+   * This is the main way to check for interruptions. Returns:
+   * - "PAUSE": execution should pause
+   * - "STOP": execution should stop
+   * - null: execution should continue
    */
   getInterruptionType(): InterruptionType {
     return this.interruptionType;
   }
 
   /**
-   * Get the AbortSignal
-   * 
-   * IMPORTANT: Do NOT cache this signal across pause/resume cycles.
-   * After calling resume(), you MUST call this method again to get the fresh signal.
-   * 
-   * For better safety, consider using onResumed() to automatically refresh your signal reference:
-   * ```typescript
-   * let signal = interruptionState.getAbortSignal();
-   * const unsubscribe = interruptionState.onResumed(() => {
-   *   signal = interruptionState.getAbortSignal(); // Auto-refresh
-   * });
-   * ```
-   * 
-   * @returns The current AbortSignal
+   * Get the AbortSignal for I/O cancellation
+   *
+   * Used ONLY for passing to native I/O APIs (fetch, streams, etc.).
+   * Do NOT use this for coordination checks - use getInterruptionType() instead.
+   * The signal is scoped per execution phase; after resume(), a new signal is created.
    */
   getAbortSignal(): AbortSignal {
     return this.abortController.signal;
   }
 
   /**
-   * Check if it has been aborted.
+   * Check if execution is aborted (interrupted).
+   * Equivalent to `getInterruptionType() !== null`.
    */
   isAborted(): boolean {
-    return this.abortController.signal.aborted;
+    return this.interruptionType !== null;
   }
 
   /**
-   * Check whether it should be paused.
+   * Check if execution should pause
    */
   shouldPause(): boolean {
     return this.interruptionType === "PAUSE";
   }
 
   /**
-   * Check whether it should be stopped.
+   * Check if execution should stop
    */
   shouldStop(): boolean {
     return this.interruptionType === "STOP";
   }
 
   /**
-   * Get the reason for the termination.
+   * Get the abort reason (for I/O error propagation)
    */
   getAbortReason(): Error | undefined {
     return this.abortController.signal.reason as Error | undefined;
   }
 
   /**
-   * Update the current node ID
+   * Update the domain-specific context (replace entirely)
+   *
+   * Unlike the previous merge behavior, this replaces the entire context object
+   * to maintain the integrity of the discriminated union type (domain + fields).
+   *
+   * @param ctx New execution domain context. Use `{ domain: "UNKNOWN" }` to clear.
    */
-  updateNodeId(nodeId: string): void {
-    this.nodeId = nodeId;
+  updateContext(ctx: ExecutionDomainContext): void {
+    this.context = ctx;
   }
 
   /**
-   * Get the context ID
+   * Get the context ID (execution ID)
    */
   getContextId(): string {
     return this.contextId;
   }
 
   /**
-   * Get the node ID
+   * Get the domain-specific execution context metadata
    */
-  getNodeId(): string {
-    return this.nodeId;
+  getContext(): ExecutionDomainContext {
+    return this.context;
   }
-  
+
+  // ========== History ==========
+
   /**
-   * Register a child interruption state for cascade propagation
-   * 
-   * @param childState Child's interruption state
-   * @example
-   * ```typescript
-   * parentInterruptionState.registerChild(childInterruptionState);
-   * ```
+   * Get interruption history
    */
-  registerChild(childState: InterruptionState): void {
-    if (!this.propagationProxy) {
-      this.propagationProxy = new InterruptionPropagationProxy();
-      // Attach to self (this is the parent)
-      this.propagationProxy.attachToParent(this);
-    }
-    this.propagationProxy.registerChild(childState);
-    
-    logger.debug("Child interruption state registered", {
-      parentContextId: this.contextId,
-      childContextId: childState.getContextId(),
-    });
-  }
-  
-  /**
-   * Pre-register a child before async creation to prevent race conditions
-   * 
-   * This method creates a placeholder registration that will be confirmed later.
-   * If an interruption occurs during child creation, it will be applied when confirmed.
-   * 
-   * @param childId Unique identifier for the child (e.g., execution ID)
-   * @returns Function to confirm or cancel the registration
-   * @example
-   * ```typescript
-   * // Before async creation
-   * const confirm = parentState.preRegisterChild(childExecutionId);
-   * 
-   * // Async creation
-   * const childAgent = await createAgentLoop(...);
-   * 
-   * // After creation - confirm registration
-   * confirm(childAgent.getInterruptionState());
-   * ```
-   */
-  preRegisterChild(childId: string): (childState?: InterruptionState) => void {
-    // Record pending registration
-    this.pendingChildren.set(childId, {
-      childState: undefined,
-      registeredAt: Date.now(),
-    });
-    
-    logger.debug("Child pre-registered (pending confirmation)", {
-      parentContextId: this.contextId,
-      childId,
-    });
-    
-    // Return confirmation function
-    return (childState?: InterruptionState) => {
-      this.confirmChildRegistration(childId, childState);
-    };
-  }
-  
-  /**
-   * Confirm a pre-registered child
-   * 
-   * @param childId Child identifier
-   * @param childState Actual child interruption state (optional)
-   */
-  private confirmChildRegistration(childId: string, childState?: InterruptionState): void {
-    const pending = this.pendingChildren.get(childId);
-    if (!pending) {
-      logger.warn("Confirmation for non-existent pending child", { childId });
-      return;
-    }
-    
-    // Update pending entry with actual state
-    pending.childState = childState;
-    
-    // If we have an actual child state, register it normally
-    if (childState) {
-      this.registerChild(childState);
-      logger.info("Child registration confirmed", {
-        parentContextId: this.contextId,
-        childId,
-        childContextId: childState.getContextId(),
-      });
-    } else {
-      // No child state provided - remove from pending
-      logger.debug("Child registration cancelled (no state provided)", { childId });
-    }
-    
-    // Clean up pending entry after a delay to allow for interruption checks
-    setTimeout(() => {
-      this.pendingChildren.delete(childId);
-    }, 1000);
-  }
-  
-  /**
-   * Check if there are any pending child registrations
-   */
-  hasPendingChildren(): boolean {
-    return this.pendingChildren.size > 0;
-  }
-  
-  /**
-   * Get count of pending children
-   */
-  getPendingChildrenCount(): number {
-    return this.pendingChildren.size;
-  }
-  
-  /**
-   * Unregister a child interruption state (cleanup)
-   */
-  unregisterChild(childState: InterruptionState): void {
-    this.propagationProxy?.unregisterChild(childState);
-  }
-  
-  /**
-   * Subscribe to interruption events
-   * 
-   * @param callback Called when pause/stop/resume is requested
-   * @returns Unsubscribe function
-   * @example
-   * ```typescript
-   * const unsubscribe = interruptionState.onInterrupted((type) => {
-   *   console.log(`Interrupted: ${type}`);
-   * });
-   * ```
-   */
-  onInterrupted(callback: (type: "PAUSE" | "STOP" | "RESUME") => void): () => void {
-    if (this.interruptionListeners.length >= MAX_EVENT_LISTENERS) {
-      logger.warn("Too many interruption listeners registered", {
-        count: this.interruptionListeners.length,
-        limit: MAX_EVENT_LISTENERS,
-        contextId: this.contextId,
-      });
-    }
-    
-    this.interruptionListeners.push(callback);
-    
-    return () => {
-      const index = this.interruptionListeners.indexOf(callback);
-      if (index !== -1) {
-        this.interruptionListeners.splice(index, 1);
-      }
-    };
-  }
-  
-  /**
-   * Notify all interruption listeners
-   */
-  private notifyInterruptionListeners(type: "PAUSE" | "STOP" | "RESUME"): void {
-    const listeners = [...this.interruptionListeners];
-    listeners.forEach(listener => {
-      try {
-        listener(type);
-      } catch (error) {
-        logger.warn("Error in interruption listener", { 
-          contextId: this.contextId,
-          error: error instanceof Error ? error.message : String(error) 
-        });
-      }
-    });
+  getHistory(
+    filter?: import("./interruption-history-manager.js").HistoryFilter,
+  ): InterruptionHistoryEntry[] {
+    return this.historyManager.getHistory(filter);
   }
 
   /**
-   * Cleanup resources (prevent memory leaks)
-   */
-  dispose(): void {
-    // Abort the controller to release any pending operations
-    if (!this.abortController.signal.aborted) {
-      this.abortController.abort(new Error('InterruptionState disposed'));
-    }
-    
-    this.propagationProxy?.dispose();
-    this.interruptionListeners = [];
-    this.resumeListeners = [];
-    this.pendingRequests = []; // Clear pending requests
-    this.pendingChildren.clear(); // Clear pending children
-    this.isProcessing = false;
-    
-    // Help GC by nullifying the controller reference
-    (this as any).abortController = null;
-    
-    logger.debug("InterruptionState disposed", {
-      contextId: this.contextId,
-    });
-  }
-  
-  /**
-   * Get interruption history
-   * 
-   * @param filter Optional filter options
-   * @returns Filtered history entries
-   */
-  getHistory(filter?: import("./interruption-history-manager.js").HistoryFilter): InterruptionHistoryEntry[] {
-    return this.historyManager.getHistory(filter);
-  }
-  
-  /**
    * Get interruption statistics
-   * 
-   * @returns Statistics object
    */
   getStatistics() {
     return this.historyManager.getStatistics();
   }
-  
+
+  // ========== Lifecycle ==========
+
   /**
-   * Enqueue request for sequential processing (prevents race conditions)
+   * Cleanup resources (prevent memory leaks)
+   *
+   * Unlike abort, dispose does NOT trigger the AbortSignal, preventing
+   * spurious interruption detection in downstream listeners.
    */
-  private enqueueRequest(request: () => void): void {
-    if (this.isProcessing) {
-      // Queue the request for later processing
-      this.pendingRequests.push(request);
+  dispose(): void {
+    if (this._disposed) {
       return;
     }
-    
-    this.isProcessing = true;
-    try {
-      request();
-    } finally {
-      this.isProcessing = false;
-      // Process any pending requests
-      this.processPendingRequests();
-    }
-  }
-  
-  /**
-   * Process pending requests sequentially
-   */
-  private processPendingRequests(): void {
-    while (this.pendingRequests.length > 0) {
-      const request = this.pendingRequests.shift();
-      if (request) {
-        this.isProcessing = true;
-        try {
-          request();
-        } finally {
-          this.isProcessing = false;
-        }
-      }
-    }
-  }
-  
-  /**
-   * Create an interrupt error
-   */
-  private createError(message: string, type: "PAUSE" | "STOP"): InterruptedException {
-    const info: InterruptionInfo = {
-      type,
-      message,
+    this._disposed = true;
+
+    // Clear internal listeners to prevent stale references
+    this.interruptionListeners = [];
+    this.resumeListeners = [];
+
+    // Disconnect from parent first
+    this.disconnectFromParent();
+
+    // Clear references to help GC
+    (this as any).abortController = null;
+    this.eventRegistry = undefined;
+
+    logger.debug("InterruptionState disposed", {
       contextId: this.contextId,
-      nodeId: this.nodeId,
-    };
-
-    if (this.createInterruptionError) {
-      return this.createInterruptionError(info);
-    }
-
-    // Default: throw a generic interruption exception.
-    // Callers should provide createInterruptionError callback for module-specific exceptions.
-    // Use InterruptionInfo as the context to avoid duplication
-    return new InterruptedException(message, type, {
-      contextId: info.contextId,
-      nodeId: info.nodeId,
     });
   }
+
+  /**
+   * Check if this InterruptionState has been disposed
+   */
+  isDisposed(): boolean {
+    return this._disposed;
+  }
+
+  // ========== Private ==========
+
+  /**
+   * Record an interruption event to history, extracting domain-specific fields
+   * from the typed ExecutionDomainContext using discriminated union narrowing.
+   */
+  private recordToHistory(
+    type: "PAUSE" | "STOP" | "RESUME",
+    triggeredBy: "user" | "system" | "timeout" | "error",
+    duration?: number,
+  ): void {
+    const entry: Omit<InterruptionHistoryEntry, "id" | "timestamp"> = {
+      type,
+      contextId: this.contextId,
+      triggeredBy,
+      duration,
+    };
+
+    // Extract domain-specific fields from the typed context
+    switch (this.context.domain) {
+      case "WORKFLOW_NODE":
+        entry.nodeId = this.context.nodeId;
+        break;
+      case "AGENT_LOOP":
+        entry.iteration = this.context.iteration;
+        break;
+      case "UNKNOWN":
+        break;
+    }
+
+    this.historyManager.record(entry);
+  }
+
+  /**
+   * Emit interruption event via EventRegistry for cascade propagation.
+   *
+   * Children subscribe to the parent execution's emitter and react to these events.
+   * This replaces the old InterruptionPropagationProxy mechanism.
+   */
+  private emitInterruptionEvent(command: "PAUSE" | "STOP" | "RESUME"): void {
+    if (!this.eventRegistry) {
+      return; // No EventRegistry, no event emission
+    }
+
+    let eventType: string;
+    let reason: string | undefined;
+    switch (command) {
+      case "PAUSE":
+        eventType = InterruptionState.EVENT_PAUSED;
+        reason = "Execution paused";
+        break;
+      case "STOP":
+        eventType = InterruptionState.EVENT_CANCELLED;
+        reason = "Execution stopped";
+        break;
+      case "RESUME":
+        eventType = InterruptionState.EVENT_RESUMED;
+        reason = undefined;
+        break;
+    }
+
+    const emitter = this.eventRegistry.getEmitter(this.contextId);
+
+    try {
+      emitter.emit({
+        type: eventType,
+        executionId: this.contextId,
+        id: `evt_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        timestamp: Date.now(),
+        context: { ...this.context },
+        reason,
+      } as any);
+    } catch (error) {
+      logger.warn("Failed to emit interruption event", {
+        contextId: this.contextId,
+        command,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+}
+
+/**
+ * Combine multiple unsubscribe functions into one
+ */
+function combineUnsubscribe(...unsubFns: Array<() => void | undefined>): () => void {
+  const fns = unsubFns.filter((fn): fn is () => void => typeof fn === "function");
+  return () => {
+    fns.forEach(fn => fn());
+  };
 }

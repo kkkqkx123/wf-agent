@@ -785,14 +785,14 @@ export class WorkflowExecutionBuilder {
       inheritsInterruption: shouldInheritInterruption,
     });
     
-    // Step 4: Setup interruption cascade propagation (NEW)
+    // Step 4: Setup interruption cascade propagation via EventRegistry
     if (shouldInheritInterruption) {
-      const parentInterruptionState = parent.getInterruptionState();
       const childInterruptionState = child.getInterruptionState();
       
-      if (parentInterruptionState && childInterruptionState) {
-        // Register child with parent's interruption state
-        parentInterruptionState.registerChild(childInterruptionState);
+      if (childInterruptionState) {
+        // Set EventRegistry for event emission and connect to parent for cascade
+        childInterruptionState.setEventRegistry(this.getEventManager());
+        childInterruptionState.connectToParent(parent.id);
         
         logger.info("Interruption cascade established", {
           parentExecutionId: parent.id,

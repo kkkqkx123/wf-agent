@@ -9,7 +9,6 @@ import type { ID } from "@wf-agent/types";
 import type { AgentLoopRuntimeConfig, AgentLoopResult } from "@wf-agent/types";
 import { getAvailableTools } from "@wf-agent/types";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
-import type { WorkflowExecutionRegistry } from "../../../workflow/stores/workflow-execution-registry.js";
 import { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import { AgentLoopStatus } from "@wf-agent/types";
 import { AgentLoopFactory, type AgentLoopEntityOptions } from "../../execution/factories/index.js";
@@ -88,7 +87,11 @@ export class AgentLoopCoordinator {
     const interruptionManagerFactory = this.globalContext.container.get(Identifiers.InterruptionState);
     const interruptionManager = (
       interruptionManagerFactory as unknown as InterruptionStateFactory<InterruptionState>
-    ).create(entity.id, ''); // Agent loops don't have nodeId concept
+    ).create(entity.id, {
+      domain: "AGENT_LOOP",
+      agentExecutionId: entity.id,
+      iteration: entity.state.currentIteration,
+    });
     
     // Set the interruption state on the entity so getAbortSignal() returns the same signal
     entity.setInterruptionState(interruptionManager);
@@ -97,24 +100,18 @@ export class AgentLoopCoordinator {
       agentLoopId: entity.id,
     });
     
-    // Setup interruption cascade propagation from parent workflow (if exists)
+    // Setup interruption cascade propagation from parent workflow (via EventRegistry)
     if (options.parentExecutionId) {
       try {
-        const executionRegistry = this.globalContext.container.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry;
-        if (executionRegistry) {
-          const parentEntity = executionRegistry.get(options.parentExecutionId);
-          if (parentEntity) {
-            const parentInterruptionState = parentEntity.getInterruptionState();
-            if (parentInterruptionState && interruptionManager) {
-              // Register child with parent's interruption state
-              parentInterruptionState.registerChild(interruptionManager);
-              
-              logger.info("Interruption cascade established for AgentLoop", {
-                parentExecutionId: options.parentExecutionId,
-                agentLoopId: entity.id,
-              });
-            }
-          }
+        const eventRegistry = this.globalContext.eventRegistry;
+        if (eventRegistry && interruptionManager) {
+          interruptionManager.setEventRegistry(eventRegistry);
+          interruptionManager.connectToParent(options.parentExecutionId);
+          
+          logger.info("Interruption cascade established for AgentLoop", {
+            parentExecutionId: options.parentExecutionId,
+            agentLoopId: entity.id,
+          });
         }
       } catch (error) {
         // Log error but don't throw - interruption setup failure should not prevent creation

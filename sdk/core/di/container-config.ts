@@ -52,6 +52,7 @@ import { WorkflowExecutionRegistry } from "../../workflow/stores/workflow-execut
 import { LLMWrapper } from "../llm/wrapper.js";
 
 // Business Layer Services
+import type { ExecutionDomainContext } from "@wf-agent/types";
 import { EventRegistry } from "../registry/event-registry.js";
 import { ToolRegistry } from "../registry/tool-registry.js";
 import { ScriptRegistry } from "../registry/script-registry.js";
@@ -574,13 +575,13 @@ export function configureContainerBindings(
     .inSingletonScope();
 
   // InterruptionState - Interruption Manager Factory
-  // InterruptionState requires executionId and nodeId, and uses the factory pattern to create instances.
+  // InterruptionState requires executionId and optional domain context, using the factory pattern.
   container
     .bind(Identifiers.InterruptionState)
     .toDynamicValue((): InterruptionStateFactory<InterruptionState> => {
       const factory: InterruptionStateFactory<InterruptionState> = {
-        create: (executionId: string, nodeId: string) =>
-          new InterruptionState({ contextId: executionId, nodeId }),
+        create: (executionId: string, context?: ExecutionDomainContext) =>
+          new InterruptionState({ contextId: executionId, context }),
       };
       return factory;
     })
@@ -664,7 +665,12 @@ export function configureContainerBindings(
             ).create(executionId),
             interruptionManager: (
               interruptionManagerFactory as unknown as InterruptionStateFactory<InterruptionState>
-            ).create(executionId, nodeId),
+            ).create(executionId, {
+              domain: "WORKFLOW_NODE",
+              workflowId: executionEntity.getWorkflowId(),
+              nodeId,
+              nodeExecutionId: executionId,
+            }),
             navigator,
             toolService: c.get(Identifiers.ToolRegistry) as ToolRegistry,
             permissionManager: c.get(
@@ -800,7 +806,12 @@ export function configureContainerBindings(
           // Create InterruptionState and set it on the entity
           const interruptionManager = (
             interruptionManagerFactory as unknown as InterruptionStateFactory<InterruptionState>
-          ).create(executionId, nodeId);
+          ).create(executionId, {
+            domain: "WORKFLOW_NODE",
+            workflowId: executionEntity.getWorkflowId(),
+            nodeId,
+            nodeExecutionId: executionId,
+          });
 
           // Set the interruption state on the entity so getAbortSignal() returns the same signal
           executionEntity.setInterruptionState(interruptionManager);

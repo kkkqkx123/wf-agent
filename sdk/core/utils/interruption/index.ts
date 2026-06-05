@@ -31,17 +31,18 @@ export {
 // Interruption state management
 export {
   InterruptionState,
-  type InterruptionType,
   type InterruptionInfo,
   type InterruptionStateConfig,
 } from "./interruption-state.js";
 
-// Interruption propagation proxy
-export {
-  InterruptionPropagationProxy,
-  type PropagationResult,
-  InterruptionPropagationError,
-} from "./interruption-propagation-proxy.js";
+// Re-export InterruptionType from canonical location in core/types
+export type { InterruptionType } from "../../types/interruption-types.js";
+
+// NOTE: InterruptionPropagationProxy has been removed.
+// Cascade propagation is now handled via EventRegistry:
+//   childInterruptionState.setEventRegistry(eventRegistry);
+//   childInterruptionState.connectToParent(parentExecutionId);
+// See docs/architecture/interruption-event-driven.md for migration guide.
 
 // NOTE: InterruptionTimeoutManager has been removed.
 // Use TimeoutManager from sdk/core/state-managers/timeout-manager.js instead.

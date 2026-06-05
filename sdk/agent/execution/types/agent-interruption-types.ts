@@ -6,7 +6,7 @@
  */
 
 import { InterruptedException } from "../../../core/types/interruption-types.js";
-import type { InterruptionType } from "../../../core/utils/interruption/interruption-state.js";
+import type { InterruptionType } from "../../../core/types/interruption-types.js";
 
 /**
  * Agent Execution Interrupt Exception

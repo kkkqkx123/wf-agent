@@ -13,6 +13,7 @@ import { MemoryAgentLoopStorage } from "@wf-agent/storage";
 import { MockLLMService } from "../../__shared/mock-llm-service.js";
 import * as Identifiers from "@/core/di/service-identifiers.js";
 import { InterruptionState } from "@/core/utils/interruption/interruption-state.js";
+import type { ExecutionDomainContext } from "@wf-agent/types";
 
 // =============================================================================
 // Constants
@@ -51,7 +52,7 @@ function createMockEventManager(): any {
 
 function createMockGlobalContext(): any {
   const interruptionStateFactory = {
-    create: (executionId: string, _nodeId: string) => new InterruptionState({ contextId: executionId, nodeId: _nodeId }),
+    create: (executionId: string, context?: ExecutionDomainContext) => new InterruptionState({ contextId: executionId, context }),
   };
   return {
     container: {

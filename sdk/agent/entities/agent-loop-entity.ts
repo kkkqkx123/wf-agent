@@ -358,28 +358,63 @@ export class AgentLoopEntity implements Abortable {
 
   /**
    * Check if you should pause
+   *
+   * Checks both AgentLoopState (via entity.interrupt()) and InterruptionState
+   * (via external requestPause()) to handle both interruption paths.
    */
   shouldPause(): boolean {
-    return this.state.shouldPause();
+    if (this.state.shouldPause()) {
+      return true;
+    }
+    if (this.interruptionState?.shouldPause()) {
+      return true;
+    }
+    return false;
   }
 
   /**
    * Check if you should stop
+   *
+   * Checks both AgentLoopState and InterruptionState to handle both interruption paths.
    */
   shouldStop(): boolean {
-    return this.state.shouldStop();
+    if (this.state.shouldStop()) {
+      return true;
+    }
+    if (this.interruptionState?.shouldStop()) {
+      return true;
+    }
+    return false;
   }
 
   /**
    * Interrupt execution
+   *
+   * Updates both AgentLoopState (for backward-compatible shouldPause/shouldStop checks)
+   * and InterruptionState (for cascade propagation, AbortSignal, and event emission).
+   *
+   * When InterruptionState is available, the cascade flow is:
+   *   interrupt("PAUSE") → interruptState.requestPause()
+   *     → sets interruptionType, aborts signal, emits EVENT_PAUSED via EventRegistry
+   *     → child executions with connectToParent() auto-receive the pause
+   *
    * @param type Interrupt type (PAUSE or STOP)
    */
   interrupt(type: "PAUSE" | "STOP"): void {
     this.state.interrupt(type);
-    
-    // Create proper abort reason with agent context (iteration)
-    const abortReason = createAgentInterruptionAbortReason(type, this.id, this.state.currentIteration);
-    this.abortController?.abort(abortReason);
+
+    if (this.interruptionState) {
+      // Delegate to InterruptionState for signal abort, event emission, and child cascade
+      if (type === "PAUSE") {
+        this.interruptionState.requestPause();
+      } else {
+        this.interruptionState.requestStop();
+      }
+    } else {
+      // Fallback: abort own controller if no InterruptionState is configured
+      const abortReason = createAgentInterruptionAbortReason(type, this.id, this.state.currentIteration);
+      this.abortController?.abort(abortReason);
+    }
   }
 
   /**

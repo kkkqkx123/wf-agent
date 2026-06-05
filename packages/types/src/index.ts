@@ -71,3 +71,6 @@ export * from "./prompt-template.js";
 export * from "./tool-description.js";
 export * from "./fragment.js";
 export * from "./prompt-template-schema.js";
+
+// Interruption Domain Execution Contexts
+export * from "./interruption/index.js";

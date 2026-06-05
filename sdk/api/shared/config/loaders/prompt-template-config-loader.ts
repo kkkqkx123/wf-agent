@@ -1,5 +1,5 @@
 /**
- * PromptTemplateLoader - A prompt template configuration loader responsible for loading and merging prompt template configurations
+ * PromptTemplateConfigLoader - A prompt template configuration loader responsible for loading and merging prompt template configurations
  *
  * Features:
  * - Supports parsing of configuration files in TOML and JSON formats

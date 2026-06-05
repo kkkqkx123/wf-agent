@@ -18,7 +18,7 @@ export {
   loadPromptTemplateConfig,
   mergePromptTemplateConfig,
   loadAndMergePromptTemplate,
-} from "./prompt-template-loader.js";
+} from "./prompt-template-config-loader.js";
 
 // Metrics configuration loader
 export {

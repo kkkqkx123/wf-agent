@@ -91,3 +91,15 @@ export {
   mergeFileCheckpointConfig,
   toFileCheckpointManagerConfig,
 } from "./file-checkpoint.js";
+
+// Checkpoint Config (base class for multi-level checkpoint config resolution)
+export {
+  CheckpointConfigResolver,
+  shouldCreateCheckpoint,
+  getCheckpointDescription,
+} from "./checkpoint-config.js";
+
+export type {
+  ConfigLayer,
+  ConfigResolverOptions,
+} from "./checkpoint-config.js";

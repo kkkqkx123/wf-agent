@@ -15,7 +15,7 @@ import type {
   CheckpointConfigSource,
   GraphCheckpointTriggerType,
 } from "@wf-agent/types";
-import { CheckpointConfigResolver } from "../../../core/checkpoint/utils/checkpoint-config-resolver.js";
+import { CheckpointConfigResolver } from "../../../api/shared/config/processors/checkpoint-config.js";
 
 /**
  * Workflow Checkpoint Configuration Parser

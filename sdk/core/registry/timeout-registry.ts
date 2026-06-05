@@ -13,8 +13,8 @@ import type {
 import type {
   TimeoutRegistryConfig,
   ResolvedTimeoutRegistryConfig,
-} from "../types/timeout-config.js";
-import { DEFAULT_TIMEOUT_REGISTRY_CONFIG } from "../types/timeout-config.js";
+} from "@wf-agent/types";
+import { DEFAULT_TIMEOUT_REGISTRY_CONFIG } from "@wf-agent/types";
 import { isValidTimeoutTag, getTagCategory } from "../types/timeout-tags.js";
 import type { TimeoutMetricsCollector } from "../metrics/timeout-collector.js";
 import type { EventRegistry } from "./event-registry.js";

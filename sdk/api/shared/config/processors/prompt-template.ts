@@ -12,7 +12,7 @@ import { ok, err } from "@wf-agent/common-utils";
 import type { PromptTemplate } from "@wf-agent/types";
 import type { PromptTemplateConfigFile } from "../types.js";
 import { PromptTemplateSchema } from "@wf-agent/types";
-import { loadPromptTemplateConfig, mergePromptTemplateConfig } from "../loaders/prompt-template-loader.js";
+import { loadPromptTemplateConfig, mergePromptTemplateConfig } from "../loaders/prompt-template-config-loader.js";
 import { stringifyJson } from "../parsers/json-parser.js";
 
 /**

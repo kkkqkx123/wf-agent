@@ -1,5 +1,5 @@
 /**
- * Configuration Parser Functions
+ * Configuration Parse Functions
  * Provides a purely functional configuration parsing interface
  *
  * Design Principles:

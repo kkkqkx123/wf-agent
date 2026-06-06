@@ -7,6 +7,7 @@
 
 import { Command } from "commander";
 import { getOutput } from "../../utils/output.js";
+import { getRouter } from "../../utils/output-router.js";
 import { getFormatter } from "../../utils/formatter.js";
 import { formatWorkflowExecution, formatWorkflowExecutionList } from "../../utils/cli-formatters.js";
 import type { CommandOptions } from "../../types/cli-types.js";
@@ -17,6 +18,7 @@ import { CLIValidationError } from "../../types/cli-types.js";
 import { getContainer } from "../../services/container.js";
 
 const output = getOutput();
+const router = getRouter();
 
 /**
  * Get ExecutionService from container
@@ -89,8 +91,11 @@ export function createWorkflowExecutionCommands(): Command {
 
           // Display result based on mode
           if (mode === 'blocking') {
-            // Blocking mode: Show final result
-            output.output(formatWorkflowExecution(result.result as any, { verbose: options.verbose }));
+            router.render(result.result, {
+              type: "detail",
+              entity: "execution",
+              format: () => formatWorkflowExecution(result.result as any, { verbose: options.verbose }),
+            });
           } else if (mode === 'background') {
             // Background mode: Show background execution info
             output.newLine();
@@ -155,7 +160,10 @@ export function createWorkflowExecutionCommands(): Command {
     .action(async executionId => {
       try {
         await getExecutionService().stopExecution(executionId);
-        output.info(`Execution cancelled: ${executionId}`);
+        router.render(null, {
+          type: "action",
+          message: `Execution cancelled: ${executionId}`,
+        });
       } catch (error) {
         handleError(error, {
           operation: "cancelExecution",
@@ -252,7 +260,12 @@ export function createWorkflowExecutionCommands(): Command {
         const adapter = getWorkflowExecutionAdapter();
         const executions = await adapter.listWorkflowExecutions();
 
-        output.output(formatWorkflowExecutionList(executions, { table: options.table }));
+        router.render(executions, {
+          type: "list",
+          entity: "execution",
+          format: () => formatWorkflowExecutionList(executions, { table: options.table }),
+          metadata: { total: executions.length },
+        });
       } catch (error) {
         handleError(error, {
           operation: "listWorkflowExecutions",
@@ -270,7 +283,11 @@ export function createWorkflowExecutionCommands(): Command {
         const adapter = getWorkflowExecutionAdapter();
         const execution = await adapter.getWorkflowExecution(executionId);
 
-        output.output(formatWorkflowExecution(execution, { verbose: options.verbose }));
+        router.render(execution, {
+          type: "detail",
+          entity: "execution",
+          format: () => formatWorkflowExecution(execution, { verbose: options.verbose }),
+        });
       } catch (error) {
         handleError(error, {
           operation: "getWorkflowExecution",

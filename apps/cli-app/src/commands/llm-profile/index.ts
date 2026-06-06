@@ -5,12 +5,14 @@
 import { Command } from "commander";
 import { LLMProfileAdapter } from "../../adapters/llm-profile-adapter.js";
 import { getOutput } from "../../utils/output.js";
+import { getRouter } from "../../utils/output-router.js";
 import { formatLLMProfile, formatLLMProfileList } from "../../utils/cli-formatters.js";
 import type { CommandOptions } from "../../types/cli-types.js";
 import { handleError } from "../../utils/error-handler.js";
 import { CLIValidationError } from "../../types/cli-types.js";
 
 const output = getOutput();
+const router = getRouter();
 
 /**
  * Create LLM Profile Command Group
@@ -32,7 +34,11 @@ export function createLLMProfileCommands(): Command {
         const adapter = new LLMProfileAdapter();
         const profile = await adapter.registerFromFile(file);
 
-        output.output(formatLLMProfile(profile, { verbose: options.verbose }));
+        router.render(profile, {
+          type: "detail",
+          entity: "llm-profile",
+          format: () => formatLLMProfile(profile, { verbose: options.verbose }),
+        });
       } catch (error) {
         handleError(error, {
           operation: "registerLLMProfile",
@@ -98,7 +104,12 @@ export function createLLMProfileCommands(): Command {
         const adapter = new LLMProfileAdapter();
         const profiles = await adapter.listProfiles();
 
-        output.output(formatLLMProfileList(profiles, { table: options.table }));
+        router.render(profiles, {
+          type: "list",
+          entity: "llm-profile",
+          format: () => formatLLMProfileList(profiles, { table: options.table }),
+          metadata: { total: profiles.length },
+        });
       } catch (error) {
         handleError(error, {
           operation: "listLLMProfiles",
@@ -116,7 +127,11 @@ export function createLLMProfileCommands(): Command {
         const adapter = new LLMProfileAdapter();
         const profile = await adapter.getProfile(id);
 
-        output.output(formatLLMProfile(profile, { verbose: options.verbose }));
+        router.render(profile, {
+          type: "detail",
+          entity: "llm-profile",
+          format: () => formatLLMProfile(profile, { verbose: options.verbose }),
+        });
       } catch (error) {
         handleError(error, {
           operation: "getLLMProfile",
@@ -187,7 +202,11 @@ export function createLLMProfileCommands(): Command {
           if (options.retryDelay) updates['retryDelay'] = parseInt(options['retryDelay'], 10);
 
           const profile = await adapter.updateProfile(id, updates);
-          output.output(formatLLMProfile(profile, { verbose: options.verbose }));
+          router.render(profile, {
+            type: "detail",
+            entity: "llm-profile",
+            format: () => formatLLMProfile(profile, { verbose: options.verbose }),
+          });
         } catch (error) {
           handleError(error, {
             operation: "updateLLMProfile",
@@ -258,7 +277,11 @@ export function createLLMProfileCommands(): Command {
         const profile = await adapter.getDefaultProfile();
 
         if (profile) {
-          output.output(formatLLMProfile(profile, { verbose: options.verbose }));
+          router.render(profile, {
+            type: "detail",
+            entity: "llm-profile",
+            format: () => formatLLMProfile(profile, { verbose: options.verbose }),
+          });
         } else {
           output.output("No default LLM Profile is set.");
         }

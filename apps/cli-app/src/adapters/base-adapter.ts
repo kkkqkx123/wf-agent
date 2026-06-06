@@ -7,7 +7,7 @@ import type { SDKInstance } from "@wf-agent/sdk/api";
 import { getOutput, type CLIOutput } from "../utils/output.js";
 import type { ErrorContext } from "../utils/error-handler.js";
 import { CLIError } from "../types/cli-types.js";
-import { isHeadlessMode } from "../utils/exit-manager.js";
+import { isHeadless } from "../utils/mode-detector.js";
 import { getSDKInstance } from "../index.js";
 
 /**
@@ -30,21 +30,7 @@ export class BaseAdapter {
    * Check if running in headless mode
    */
   protected isHeadlessMode(): boolean {
-    return isHeadlessMode();
-  }
-
-  /**
-   * Output result based on current mode
-   */
-  protected outputResult<T>(data: T, options?: { message?: string; success?: boolean }): void {
-    this.output.result(data, options);
-  }
-
-  /**
-   * Output error result based on current mode
-   */
-  protected outputError(error: Error | string, code?: string): void {
-    this.output.errorResult(error, code);
+    return isHeadless();
   }
 
   /**

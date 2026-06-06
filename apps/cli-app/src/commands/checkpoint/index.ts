@@ -5,11 +5,13 @@
 import { Command } from "commander";
 import { WorkflowExecutionCheckpointAdapter } from "../../adapters/workflow-execution-checkpoint-adapter.js";
 import { getOutput } from "../../utils/output.js";
+import { getRouter } from "../../utils/output-router.js";
 import { formatCheckpoint, formatCheckpointList } from "../../utils/cli-formatters.js";
 import { handleError } from "../../utils/error-handler.js";
 import type { CommandOptions } from "../../types/cli-types.js";
 
 const output = getOutput();
+const router = getRouter();
 
 /**
  * Create Checkpoint Command Group
@@ -30,7 +32,11 @@ export function createCheckpointCommands(): Command {
         const adapter = new WorkflowExecutionCheckpointAdapter();
         const checkpoint = await adapter.createCheckpoint(executionId, options.name);
 
-        output.output(formatCheckpoint(checkpoint, { verbose: options.verbose }));
+        router.render(checkpoint, {
+          type: "detail",
+          entity: "checkpoint",
+          format: () => formatCheckpoint(checkpoint, { verbose: options.verbose }),
+        });
       } catch (error) {
         handleError(error, {
           operation: "create-checkpoint",
@@ -68,7 +74,12 @@ export function createCheckpointCommands(): Command {
         const adapter = new WorkflowExecutionCheckpointAdapter();
         const checkpoints = await adapter.listCheckpoints();
 
-        output.output(formatCheckpointList(checkpoints, { table: options.table }));
+        router.render(checkpoints, {
+          type: "list",
+          entity: "checkpoint",
+          format: () => formatCheckpointList(checkpoints, { table: options.table }),
+          metadata: { total: checkpoints.length },
+        });
       } catch (error) {
         handleError(error, {
           operation: "list-checkpoints",
@@ -86,7 +97,11 @@ export function createCheckpointCommands(): Command {
         const adapter = new WorkflowExecutionCheckpointAdapter();
         const checkpoint = await adapter.getCheckpoint(checkpointId);
 
-        output.output(formatCheckpoint(checkpoint, { verbose: options.verbose }));
+        router.render(checkpoint, {
+          type: "detail",
+          entity: "checkpoint",
+          format: () => formatCheckpoint(checkpoint, { verbose: options.verbose }),
+        });
       } catch (error) {
         handleError(error, {
           operation: "show-checkpoint",

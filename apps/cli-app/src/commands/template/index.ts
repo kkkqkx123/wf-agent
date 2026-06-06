@@ -5,11 +5,13 @@
 import { Command } from "commander";
 import { TemplateAdapter } from "../../adapters/template-adapter.js";
 import { getOutput } from "../../utils/output.js";
+import { getRouter } from "../../utils/output-router.js";
 import { formatWorkflow, formatWorkflowList } from "../../utils/cli-formatters.js";
 import type { CommandOptions } from "../../types/cli-types.js";
 import { handleError } from "../../utils/error-handler.js";
 
 const output = getOutput();
+const router = getRouter();
 
 /**
  * Create Template Command Group
@@ -29,7 +31,11 @@ export function createTemplateCommands(): Command {
         const adapter = new TemplateAdapter();
         const template = await adapter.registerNodeTemplateFromFile(file);
 
-        output.output(formatWorkflow(template, { verbose: options.verbose }));
+        router.render(template, {
+          type: "detail",
+          entity: "node-template",
+          format: () => formatWorkflow(template, { verbose: options.verbose }),
+        });
       } catch (error) {
         handleError(error, {
           operation: "registerNodeTemplateFromFile",
@@ -94,7 +100,11 @@ export function createTemplateCommands(): Command {
         const adapter = new TemplateAdapter();
         const template = await adapter.registerTriggerTemplateFromFile(file);
 
-        output.output(formatWorkflow(template, { verbose: options.verbose }));
+        router.render(template, {
+          type: "detail",
+          entity: "trigger-template",
+          format: () => formatWorkflow(template, { verbose: options.verbose }),
+        });
       } catch (error) {
         handleError(error, {
           operation: "registerTriggerTemplateFromFile",
@@ -158,7 +168,12 @@ export function createTemplateCommands(): Command {
         const adapter = new TemplateAdapter();
         const templates = await adapter.listNodeTemplates();
 
-        output.output(formatWorkflowList(templates, { table: options.table }));
+        router.render(templates, {
+          type: "list",
+          entity: "node-template",
+          format: () => formatWorkflowList(templates, { table: options.table }),
+          metadata: { total: templates.length },
+        });
       } catch (error) {
         handleError(error, {
           operation: "listNodeTemplates",
@@ -177,7 +192,12 @@ export function createTemplateCommands(): Command {
         const adapter = new TemplateAdapter();
         const templates = await adapter.listTriggerTemplates();
 
-        output.output(formatWorkflowList(templates, { table: options.table }));
+        router.render(templates, {
+          type: "list",
+          entity: "trigger-template",
+          format: () => formatWorkflowList(templates, { table: options.table }),
+          metadata: { total: templates.length },
+        });
       } catch (error) {
         handleError(error, {
           operation: "listTriggerTemplates",
@@ -195,7 +215,11 @@ export function createTemplateCommands(): Command {
         const adapter = new TemplateAdapter();
         const template = await adapter.getNodeTemplate(id);
 
-        output.output(formatWorkflow(template, { verbose: options.verbose }));
+        router.render(template, {
+          type: "detail",
+          entity: "node-template",
+          format: () => formatWorkflow(template, { verbose: options.verbose }),
+        });
       } catch (error) {
         handleError(error, {
           operation: "getNodeTemplate",
@@ -214,7 +238,11 @@ export function createTemplateCommands(): Command {
         const adapter = new TemplateAdapter();
         const template = await adapter.getTriggerTemplate(id);
 
-        output.output(formatWorkflow(template, { verbose: options.verbose }));
+        router.render(template, {
+          type: "detail",
+          entity: "trigger-template",
+          format: () => formatWorkflow(template, { verbose: options.verbose }),
+        });
       } catch (error) {
         handleError(error, {
           operation: "getTriggerTemplate",

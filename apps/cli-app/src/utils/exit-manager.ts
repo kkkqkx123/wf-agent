@@ -1,13 +1,9 @@
 /**
  * Exit Manager
  * Ensure safe exit in headless mode
- *
- * Mode detection is now centralized in ModeDetector.
- * These functions are re-exports from ModeDetector for backward compatibility.
  */
 
 import { getOutput } from "./output.js";
-import { isHeadless, isProgrammatic, getMode } from "./mode-detector.js";
 
 /**
  * Exit Manager
@@ -71,28 +67,4 @@ export class ExitManager {
   static get isExiting(): boolean {
     return ExitManager.isShuttingDown;
   }
-}
-
-/**
- * Check if running in headless mode
- * @deprecated Use `isHeadless()` from mode-detector.js instead
- */
-export function isHeadlessMode(): boolean {
-  return isHeadless();
-}
-
-/**
- * Check if running in programmatic mode
- * @deprecated Use `isProgrammatic()` from mode-detector.js instead
- */
-export function isProgrammaticMode(): boolean {
-  return isProgrammatic();
-}
-
-/**
- * Detect execution mode
- * @deprecated Use `getMode().mode` from mode-detector.js instead
- */
-export function detectExecutionMode(): "interactive" | "headless" | "programmatic" {
-  return getMode().mode;
 }

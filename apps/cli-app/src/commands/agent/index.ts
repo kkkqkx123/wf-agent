@@ -6,6 +6,7 @@ import { Command } from "commander";
 import { AgentLoopAdapter } from "../../adapters/agent-loop-adapter.js";
 import { AgentLoopCheckpointAdapter } from "../../adapters/agent-loop-checkpoint-adapter.js";
 import { getOutput } from "../../utils/output.js";
+import { getRouter } from "../../utils/output-router.js";
 import { getFormatter } from "../../utils/formatter.js";
 import { formatAgentLoop, formatAgentLoopList } from "../../utils/cli-formatters.js";
 import type { CommandOptions } from "../../types/cli-types.js";
@@ -16,6 +17,7 @@ import { loadAgentLoopConfig, transformToAgentLoopConfig } from "@wf-agent/sdk/a
 import { existsSync } from "fs";
 
 const output = getOutput();
+const router = getRouter();
 
 /**
  * Create Agent Loop Command Group
@@ -139,11 +141,19 @@ export function createAgentCommands(): Command {
             );
 
             output.newLine();
-            output.output(formatAgentLoop(result, { verbose: options.verbose }));
+            router.render(result, {
+              type: "detail",
+              entity: "agent-loop",
+              format: () => formatAgentLoop(result, { verbose: options.verbose }),
+            });
           } else {
             // Sync execution
             const result = await adapter.executeAgentLoop(config, { initialMessages });
-            output.output(formatAgentLoop(result, { verbose: options.verbose }));
+            router.render(result, {
+              type: "detail",
+              entity: "agent-loop",
+              format: () => formatAgentLoop(result, { verbose: options.verbose }),
+            });
           }
         } catch (error) {
           handleError(error, {
@@ -247,7 +257,11 @@ export function createAgentCommands(): Command {
         const adapter = new AgentLoopAdapter();
         const result = await adapter.resumeAgentLoop(id);
 
-        output.output(formatAgentLoop(result));
+        router.render(result, {
+          type: "detail",
+          entity: "agent-loop",
+          format: () => formatAgentLoop(result),
+        });
       } catch (error) {
         handleError(error, {
           operation: "resumeAgentLoop",
@@ -327,7 +341,11 @@ export function createAgentCommands(): Command {
           success: true,
           iterations: agentLoopInfo.currentIteration,
         };
-        output.output(formatAgentLoop(agentLoopWithMetadata, { verbose: options.verbose }));
+        router.render(agentLoopWithMetadata, {
+          type: "detail",
+          entity: "agent-loop",
+          format: () => formatAgentLoop(agentLoopWithMetadata, { verbose: options.verbose }),
+        });
       } catch (error) {
         handleError(error, {
           operation: "getAgentLoop",
@@ -356,7 +374,12 @@ export function createAgentCommands(): Command {
           agentLoops = adapter.listAgentLoops();
         }
 
-        output.output(formatAgentLoopList(agentLoops as never, { table: options.table }));
+        router.render(agentLoops as never, {
+          type: "list",
+          entity: "agent-loop",
+          format: () => formatAgentLoopList(agentLoops as never, { table: options.table }),
+          metadata: { total: (agentLoops as never[]).length },
+        });
       } catch (error) {
         handleError(error, {
           operation: "listAgentLoops",

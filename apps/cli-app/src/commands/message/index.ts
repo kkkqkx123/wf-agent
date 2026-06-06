@@ -5,6 +5,7 @@
 import { Command } from "commander";
 import { MessageAdapter } from "../../adapters/message-adapter.js";
 import { getOutput } from "../../utils/output.js";
+import { getRouter } from "../../utils/output-router.js";
 import { getFormatter } from "../../utils/formatter.js";
 import { formatMessage, formatMessageList } from "../../utils/cli-formatters.js";
 import type { CommandOptions } from "../../types/cli-types.js";
@@ -12,6 +13,7 @@ import { handleError } from "../../utils/error-handler.js";
 import type { BaseEvent } from "@wf-agent/types";
 
 const output = getOutput();
+const router = getRouter();
 
 /**
  * Create message command group
@@ -45,7 +47,12 @@ export function createMessageCommands(): Command {
 
           const messages = await adapter.listMessages(filter);
 
-          output.output(formatMessageList(messages, { table: options.table }));
+          router.render(messages, {
+            type: "list",
+            entity: "message",
+            format: () => formatMessageList(messages, { table: options.table }),
+            metadata: { total: messages.length },
+          });
         } catch (error) {
           handleError(error, {
             operation: "listMessages",
@@ -67,7 +74,11 @@ export function createMessageCommands(): Command {
         const adapter = new MessageAdapter();
         const message = await adapter.getMessage(id);
 
-        output.output(formatMessage(message, { verbose: options.verbose }));
+        router.render(message, {
+          type: "detail",
+          entity: "message",
+          format: () => formatMessage(message, { verbose: options.verbose }),
+        });
       } catch (error) {
         handleError(error, {
           operation: "getMessage",
@@ -87,7 +98,12 @@ export function createMessageCommands(): Command {
         const adapter = new MessageAdapter();
         const messages = await adapter.listMessagesByExecution(executionId);
 
-        output.output(formatMessageList(messages, { table: options.table }));
+        router.render(messages, {
+          type: "list",
+          entity: "message",
+          format: () => formatMessageList(messages, { table: options.table }),
+          metadata: { total: messages.length },
+        });
       } catch (error) {
         handleError(error, {
           operation: "listMessagesByExecution",
@@ -179,10 +195,10 @@ export function createMessageCommands(): Command {
           },
         };
         await adapter.dispatchEvent(event as unknown as BaseEvent);
-        output.newLine();
-        output.output(
-          `Context compression request sent to execution ${executionId} (strategy: ${options['strategy']})`,
-        );
+        router.render(null, {
+          type: "action",
+          message: `Context compression request sent to execution ${executionId} (strategy: ${options['strategy']})`,
+        });
         output.output(
           `Note: You need to configure the corresponding trigger in the workflow (trigger event: CONTEXT_COMPRESSION_REQUESTED) to execute.`,
         );

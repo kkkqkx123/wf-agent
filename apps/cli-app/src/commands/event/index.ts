@@ -5,6 +5,7 @@
 import { Command } from "commander";
 import { EventAdapter } from "../../adapters/event-adapter.js";
 import { getOutput } from "../../utils/output.js";
+import { getRouter } from "../../utils/output-router.js";
 import { getFormatter } from "../../utils/formatter.js";
 import { formatEvent, formatEventList } from "../../utils/cli-formatters.js";
 import type { CommandOptions } from "../../types/cli-types.js";
@@ -12,6 +13,7 @@ import { handleError } from "../../utils/error-handler.js";
 import { CLIValidationError } from "../../types/cli-types.js";
 
 const output = getOutput();
+const router = getRouter();
 
 /**
  * Create Event Command Group
@@ -48,7 +50,12 @@ export function createEventCommands(): Command {
 
           const events = await adapter.listEvents(filter);
 
-          output.output(formatEventList(events, { table: options.table }));
+          router.render(events, {
+            type: "list",
+            entity: "event",
+            format: () => formatEventList(events, { table: options.table }),
+            metadata: { total: events.length },
+          });
         } catch (error) {
           handleError(error, {
             operation: "listEvents",
@@ -75,7 +82,11 @@ export function createEventCommands(): Command {
         const adapter = new EventAdapter();
         const event = await adapter.getEvent(id);
 
-        output.output(formatEvent(event, { verbose: options.verbose }));
+        router.render(event, {
+          type: "detail",
+          entity: "event",
+          format: () => formatEvent(event, { verbose: options.verbose }),
+        });
       } catch (error) {
         handleError(error, {
           operation: "getEvent",

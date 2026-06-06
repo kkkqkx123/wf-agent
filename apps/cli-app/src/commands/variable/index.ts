@@ -5,12 +5,14 @@
 import { Command } from "commander";
 import { VariableAdapter } from "../../adapters/variable-adapter.js";
 import { getOutput } from "../../utils/output.js";
+import { getRouter } from "../../utils/output-router.js";
 import { formatVariable, formatVariableList } from "../../utils/cli-formatters.js";
 import type { CommandOptions } from "../../types/cli-types.js";
 import { handleError } from "../../utils/error-handler.js";
 import { CLIValidationError } from "../../types/cli-types.js";
 
 const output = getOutput();
+const router = getRouter();
 
 /**
  * Create Variable Command Group
@@ -28,8 +30,14 @@ export function createVariableCommands(): Command {
       try {
         const adapter = new VariableAdapter();
         const variables = await adapter.listVariables(executionId);
+        const variableEntries = Object.entries(variables);
 
-        output.output(formatVariableList(variables, { table: options.table }));
+        router.render(variables, {
+          type: "list",
+          entity: "variable",
+          format: () => formatVariableList(variables, { table: options.table }),
+          metadata: { total: variableEntries.length },
+        });
       } catch (error) {
         handleError(error, {
           operation: "listVariables",
@@ -48,7 +56,11 @@ export function createVariableCommands(): Command {
         const adapter = new VariableAdapter();
         const value = await adapter.getVariable(executionId, variableName);
 
-        output.output(formatVariable(variableName, value, { verbose: options.verbose }));
+        router.render(value, {
+          type: "detail",
+          entity: "variable",
+          format: () => formatVariable(variableName, value, { verbose: options.verbose }),
+        });
       } catch (error) {
         handleError(error, {
           operation: "getVariable",

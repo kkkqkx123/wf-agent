@@ -29,7 +29,6 @@ export type ErrorCodeType = (typeof ErrorCode)[keyof typeof ErrorCode];
 export interface CommandOptions {
   verbose?: boolean;
   debug?: boolean;
-  output?: "json" | "table" | "plain";
   table?: boolean;
   params?: string;
 }

@@ -8,10 +8,12 @@
 import { Command } from "commander";
 import { initializeOutput, getOutput } from "./utils/output.js";
 import { initializeFormatter } from "./utils/formatter.js";
+import { initializeRouter } from "./utils/output-router.js";
 import { initLogger, initSDKLogger } from "./utils/logger.js";
 import { loadConfigWithEnvOverride } from "./config/index.js";
 import { createSDK } from "@wf-agent/sdk/api";
-import { ExitManager, isHeadlessMode, detectExecutionMode } from "./utils/exit-manager.js";
+import { ExitManager } from "./utils/exit-manager.js";
+import { isHeadless, getMode } from "./utils/mode-detector.js";
 import {
   initializeStorageManager,
   closeStorageManager,
@@ -85,7 +87,10 @@ program
     // 3. Initialize the formatter
     initializeFormatter(output.colorEnabled);
 
-    // 4. Initialize the log (CLI + SDK)
+    // 4. Initialize the output router (handles json/text/silent mode routing)
+    initializeRouter();
+
+    // 5. Initialize the log (CLI + SDK)
     initLogger({
       verbose: options.verbose,
       debug: options.debug,
@@ -223,7 +228,7 @@ program.hook("postAction", async thisCommand => {
   }
 
   // In headless mode, safely exit after the command execution is complete.
-  if (isHeadlessMode()) {
+  if (isHeadless()) {
     await ExitManager.exit(0);
   }
 });
@@ -233,7 +238,7 @@ program.parse(process.argv);
 
 // Check if TUI mode is requested
 const hasTuiFlag = process.argv.includes("--tui") || process.argv.includes("-t");
-const executionMode = detectExecutionMode();
+const executionMode = getMode().mode;
 
 // Display help information if no command is provided.
 if (!process.argv.slice(2).length) {
@@ -243,7 +248,7 @@ if (!process.argv.slice(2).length) {
   } else {
     program.outputHelp();
     // In headless mode, exit immediately if no commands are executed.
-    if (isHeadlessMode()) {
+    if (isHeadless()) {
       setTimeout(() => {
         ExitManager.exit(0);
       }, 100);
@@ -258,16 +263,16 @@ async function startTUI() {
   try {
     const output = getOutput();
     output.infoLog("Starting TUI mode...");
-    
+
     // Dynamically import TUI module
     const { CLIAppTUI } = await import("./tui/index.js");
     const app = new CLIAppTUI();
-    
+
     // Setup cleanup handlers for TUI mode
     // Note: GracefulShutdownManager is already registered by SDK, but we need additional TUI-specific cleanup
     const cleanupAndExit = async () => {
       output.infoLog("Cleaning up resources...");
-      
+
       try {
         // Destroy SDK (triggers onDestroy hook which closes storage manager)
         if (sdkInstance) {
@@ -280,7 +285,9 @@ async function startTUI() {
           const container = getContainer();
           await container.cleanup();
         } catch (error) {
-          output.warnLog(`Container cleanup warning: ${error instanceof Error ? error.message : String(error)}`);
+          output.warnLog(
+            `Container cleanup warning: ${error instanceof Error ? error.message : String(error)}`,
+          );
         }
 
         output.infoLog("Resource cleanup is complete.");
@@ -298,21 +305,21 @@ async function startTUI() {
     };
 
     // Register cleanup handler for process exit events
-    process.on('exit', () => {
+    process.on("exit", () => {
       // Synchronous cleanup only (async operations won't complete)
       output.infoLog("Process exiting...");
     });
-    
-    process.on('SIGINT', async () => {
+
+    process.on("SIGINT", async () => {
       output.infoLog("Received SIGINT, cleaning up...");
       await cleanupAndExit();
     });
-    
-    process.on('SIGTERM', async () => {
+
+    process.on("SIGTERM", async () => {
       output.infoLog("Received SIGTERM, cleaning up...");
       await cleanupAndExit();
     });
-    
+
     // Start the TUI application
     app.start();
   } catch (error) {
@@ -341,7 +348,9 @@ const shutdown = async () => {
       const container = getContainer();
       await container.cleanup();
     } catch (error) {
-      output.warnLog(`Container cleanup warning: ${error instanceof Error ? error.message : String(error)}`);
+      output.warnLog(
+        `Container cleanup warning: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
 
     output.infoLog("Resource cleanup is complete.");

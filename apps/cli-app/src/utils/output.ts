@@ -6,8 +6,6 @@
 import type { Writable } from "stream";
 import * as fs from "fs";
 import * as path from "path";
-import { getFormatter } from "./formatter.js";
-import { isJsonMode } from "./mode-detector.js";
 
 // ============================================
 // Types
@@ -315,55 +313,6 @@ export class CLIOutput {
    */
   structuredOutput(data: unknown): void {
     this._stdout.write(JSON.stringify(data) + "\n");
-  }
-
-  /**
-   * Output result (auto-select format based on mode)
-   */
-  result(data: unknown, options?: { message?: string; success?: boolean }): void {
-    const { message, success = true } = options || {};
-
-    const jsonOutput = isJsonMode();
-
-    if (jsonOutput) {
-      this.structuredOutput({
-        success,
-        data,
-        message,
-        timestamp: new Date().toISOString(),
-      });
-    } else {
-      if (success) {
-        this.success(message || "Operation completed");
-      } else {
-        this.fail(message || "Operation failed");
-      }
-      if (data) {
-        this.output(getFormatter().json(data));
-      }
-    }
-  }
-
-  /**
-   * Output error result (auto-select format based on mode)
-   */
-  errorResult(error: Error | string, code?: string): void {
-    const errorMessage = error instanceof Error ? error.message : error;
-
-    const jsonOutput = isJsonMode();
-
-    if (jsonOutput) {
-      this.structuredOutput({
-        success: false,
-        error: {
-          message: errorMessage,
-          code,
-          timestamp: new Date().toISOString(),
-        },
-      });
-    } else {
-      this.fail(errorMessage);
-    }
   }
 
   // ============================================

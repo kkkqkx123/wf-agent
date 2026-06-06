@@ -5,12 +5,14 @@
 import { Command } from "commander";
 import { WorkflowAdapter } from "../../adapters/workflow-adapter.js";
 import { getOutput } from "../../utils/output.js";
+import { getRouter } from "../../utils/output-router.js";
 import { getFormatter } from "../../utils/formatter.js";
 import { formatWorkflow } from "../../utils/cli-formatters.js";
 import { handleError } from "../../utils/error-handler.js";
 import type { CommandOptions } from "../../types/cli-types.js";
 
 const output = getOutput();
+const router = getRouter();
 
 /**
  * Create Workflow Command Group
@@ -34,8 +36,12 @@ export function createWorkflowCommands(): Command {
         const adapter = new WorkflowAdapter();
         const workflow = await adapter.registerFromFile(file, parameters);
 
-        output.output(`Workflow registered successfully: ${workflow.id}`);
-        output.output(formatWorkflow(workflow, { verbose: options.verbose }));
+        router.render(workflow, {
+          type: "detail",
+          entity: "workflow",
+          format: () => formatWorkflow(workflow, { verbose: options.verbose }),
+          message: `Workflow registered successfully: ${workflow.id}`,
+        });
       } catch (error) {
         handleError(error, {
           operation: "register-workflow",
@@ -110,28 +116,38 @@ export function createWorkflowCommands(): Command {
         const workflows = await adapter.listWorkflows();
 
         if (workflows.length === 0) {
-          output.output("No workflow found.");
+          router.render(workflows, {
+            type: "list",
+            entity: "workflow",
+            format: () => "No workflow found.",
+          });
           return;
         }
 
-        if (options.table) {
-          const headers = ["ID", "Name", "Status", "Creation time"];
-          const rows = workflows.map(w => [
-            w.id?.substring(0, 8) || "N/A",
-            w.name || "Unnamed",
-            w.status || "unknown",
-            w.createdAt || "N/A",
-          ]);
-          output.output(getFormatter().table(headers, rows));
-        } else {
-          workflows.forEach(w => {
-            if (options.verbose) {
-              output.output(getFormatter().json(w));
-            } else {
-              output.output(formatWorkflow(w));
+        router.render(workflows, {
+          type: "list",
+          entity: "workflow",
+          format: () => {
+            if (options.table) {
+              const headers = ["ID", "Name", "Status", "Creation time"];
+              const rows = workflows.map(w => [
+                w.id?.substring(0, 8) || "N/A",
+                w.name || "Unnamed",
+                w.status || "unknown",
+                w.createdAt || "N/A",
+              ]);
+              return getFormatter().table(headers, rows);
             }
-          });
-        }
+            return workflows
+              .map(w =>
+                options.verbose
+                  ? getFormatter().json(w)
+                  : formatWorkflow(w),
+              )
+              .join("\n");
+          },
+          metadata: { total: workflows.length },
+        });
       } catch (error) {
         handleError(error, {
           operation: "list-workflows",
@@ -149,11 +165,16 @@ export function createWorkflowCommands(): Command {
         const adapter = new WorkflowAdapter();
         const workflow = await adapter.getWorkflow(id);
 
-        if (options.verbose) {
-          output.output(getFormatter().json(workflow));
-        } else {
-          output.output(formatWorkflow(workflow));
-        }
+        router.render(workflow, {
+          type: "detail",
+          entity: "workflow",
+          format: () => {
+            if (options.verbose) {
+              return getFormatter().json(workflow);
+            }
+            return formatWorkflow(workflow);
+          },
+        });
       } catch (error) {
         handleError(error, {
           operation: "show-workflow",

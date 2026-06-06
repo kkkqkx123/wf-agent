@@ -64,15 +64,27 @@ export function combineAbortSignals(signals: (AbortSignal | undefined)[]): Abort
     }
   }
   
-  // Listen to all signals
+  // Listen to all signals and track listeners for cleanup
+  const abortListeners: Array<[AbortSignal, () => void]> = [];
+
   for (const signal of validSignals) {
-    signal.addEventListener('abort', () => {
+    const handler = () => {
       if (!controller.signal.aborted) {
         controller.abort(signal.reason);
       }
-    }, { once: true });
+    };
+    signal.addEventListener('abort', handler, { once: true });
+    abortListeners.push([signal, handler]);
   }
-  
+
+  // Cleanup: when the combined signal itself is aborted (e.g. by caller),
+  // remove all listeners from input signals to prevent memory leaks.
+  controller.signal.addEventListener('abort', () => {
+    for (const [signal, handler] of abortListeners) {
+      signal.removeEventListener('abort', handler);
+    }
+  }, { once: true });
+
   return controller.signal;
 }
 

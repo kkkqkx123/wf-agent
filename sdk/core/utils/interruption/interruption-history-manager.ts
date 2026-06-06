@@ -136,8 +136,14 @@ export class InterruptionHistoryManager {
       result = result.filter(e => e.timestamp <= filter.before!);
     }
 
-    // Sort by timestamp descending (newest first)
-    result.sort((a, b) => b.timestamp - a.timestamp);
+    // Sort by timestamp descending (newest first).
+    // Use insertion-order index as tiebreaker so entries recorded within the same
+    // millisecond are deterministically ordered (later insertion = newer).
+    result.sort((a, b) => {
+      const tsDiff = b.timestamp - a.timestamp;
+      if (tsDiff !== 0) return tsDiff;
+      return b.id.localeCompare(a.id);
+    });
 
     // Apply limit
     if (filter?.limit && filter.limit > 0) {
@@ -160,33 +166,28 @@ export class InterruptionHistoryManager {
 
   /**
    * Get pause duration for a context
-   * 
-   * Calculates the time between the most recent PAUSE and RESUME events.
-   * 
+   *
+   * Calculates the time between the most recent PAUSE and its matching RESUME.
+   * Iterates chronologically (oldest-first) to correctly pair PAUSE → RESUME
+   * in their causal order, avoiding mismatches from newest-first traversal.
+   *
    * @param contextId Context ID
    * @returns Pause duration in milliseconds, or null if not available
    */
   getPauseDuration(contextId: string): number | null {
     const entries = this.getHistory({ contextId });
-    
-    let lastPause: InterruptionHistoryEntry | undefined;
-    let lastResume: InterruptionHistoryEntry | undefined;
 
-    // Find the most recent PAUSE and RESUME
-    for (const entry of entries) {
-      if (entry.type === "PAUSE" && !lastPause) {
-        lastPause = entry;
-      } else if (entry.type === "RESUME" && !lastResume) {
-        lastResume = entry;
-      }
-      
-      if (lastPause && lastResume) {
-        break;
-      }
-    }
+    // Iterate chronologically (oldest first = reverse of newest-first order)
+    // so we correctly pair each RESUME with its preceding PAUSE.
+    let lastPauseTimestamp: number | null = null;
 
-    if (lastPause && lastResume) {
-      return lastResume.timestamp - lastPause.timestamp;
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const entry = entries[i];
+      if (entry.type === "PAUSE") {
+        lastPauseTimestamp = entry.timestamp;
+      } else if (entry.type === "RESUME" && lastPauseTimestamp !== null) {
+        return entry.timestamp - lastPauseTimestamp;
+      }
     }
 
     return null;

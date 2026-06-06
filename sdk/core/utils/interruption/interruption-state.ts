@@ -231,6 +231,14 @@ export class InterruptionState {
       return;
     }
 
+    if (this.interruptionType !== "PAUSE") {
+      logger.warn("Cannot resume: not in a paused state", {
+        contextId: this.contextId,
+        currentState: this.interruptionType,
+      });
+      return;
+    }
+
     logger.info("Execution resumed", { contextId: this.contextId, context: this.context });
 
     const pauseDuration = this.historyManager.getPauseDuration(this.contextId);
@@ -503,8 +511,9 @@ export class InterruptionState {
     // Disconnect from parent first
     this.disconnectFromParent();
 
-    // Clear references to help GC
-    (this as any).abortController = null;
+    // Keep aboctController alive to maintain type safety for getAbortSignal() / getAbortReason().
+    // After dispose these methods remain callable (returning a harmless unused signal)
+    // rather than throwing on null — callers should check isDisposed() first.
     this.eventRegistry = undefined;
 
     logger.debug("InterruptionState disposed", {

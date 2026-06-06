@@ -72,13 +72,24 @@ export function createTemplateCommands(): Command {
           });
 
           // Display the results
-          output.output(`Success: ${result.success.length} node templates registered`);
-          if (result.failures.length > 0) {
-            output.output(`Failed: ${result.failures.length} node templates`);
-            result.failures.forEach(failure => {
-              output.output(`  - ${failure.filePath}: ${failure.error}`);
-            });
-          }
+          const successCount = result.success.length;
+          const failureCount = result.failures.length;
+          router.render(result, {
+            type: "action",
+            entity: "node-template",
+            message: `Success: ${successCount} node templates registered${failureCount > 0 ? `, Failed: ${failureCount}` : ""}`,
+            metadata: { successCount, failureCount },
+            format: () => {
+              let text = `Success: ${successCount} node templates registered\n`;
+              if (failureCount > 0) {
+                text += `Failed: ${failureCount} node templates\n`;
+                result.failures.forEach(failure => {
+                  text += `  - ${failure.filePath}: ${failure.error}\n`;
+                });
+              }
+              return text;
+            },
+          });
         } catch (error) {
           handleError(error, {
             operation: "registerNodeTemplatesFromDirectory",
@@ -141,13 +152,24 @@ export function createTemplateCommands(): Command {
           });
 
           // Display the results
-          output.output(`Success: ${result.success.length} trigger templates registered`);
-          if (result.failures.length > 0) {
-            output.output(`Failed: ${result.failures.length} trigger templates`);
-            result.failures.forEach(failure => {
-              output.output(`  - ${failure.filePath}: ${failure.error}`);
-            });
-          }
+          const successCount2 = result.success.length;
+          const failureCount2 = result.failures.length;
+          router.render(result, {
+            type: "action",
+            entity: "trigger-template",
+            message: `Success: ${successCount2} trigger templates registered${failureCount2 > 0 ? `, Failed: ${failureCount2}` : ""}`,
+            metadata: { successCount: successCount2, failureCount: failureCount2 },
+            format: () => {
+              let text = `Success: ${successCount2} trigger templates registered\n`;
+              if (failureCount2 > 0) {
+                text += `Failed: ${failureCount2} trigger templates\n`;
+                result.failures.forEach(failure => {
+                  text += `  - ${failure.filePath}: ${failure.error}\n`;
+                });
+              }
+              return text;
+            },
+          });
         } catch (error) {
           handleError(error, {
             operation: "registerTriggerTemplatesFromDirectory",

@@ -6,7 +6,13 @@
  */
 
 import type { Component } from "../core/tui.js";
-import type { AgentIterationData } from "@wf-agent/types";
+
+// Local type for agent iteration data (simplified, avoiding legacy component-message types)
+interface AgentIterationData {
+  iteration: number;
+  toolCallCount: number;
+  duration?: number;
+}
 
 interface IterationInfo {
   number: number;

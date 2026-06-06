@@ -6,6 +6,7 @@
 import { Command } from "commander";
 import { SkillAdapter } from "../../adapters/skill-adapter.js";
 import { getOutput } from "../../utils/output.js";
+import { getRouter } from "../../utils/output-router.js";
 import { getFormatter } from "../../utils/formatter.js";
 import type { CommandOptions } from "../../types/cli-types.js";
 import { handleError } from "../../utils/error-handler.js";
@@ -13,6 +14,7 @@ import { CLIValidationError } from "../../types/cli-types.js";
 import type { SkillMatchResult, SkillMetadata, SkillResourceType } from "@wf-agent/types";
 
 const output = getOutput();
+const router = getRouter();
 
 /**
  * Format Skill metadata
@@ -127,17 +129,28 @@ export function createSkillCommands(): Command {
           const filter = options.name ? { name: options.name } : undefined;
           const skills = await adapter.listSkills(filter);
 
-          output.output(formatSkillList(skills, { table: options.table }));
-
+          // Pre-resolve verbose data outside the sync format callback
+          let enabledNames: Set<string> | undefined;
           if (options.verbose) {
-            output.newLine();
-            output.output(getFormatter().subsection("Detailed list."));
             const enabledSkills = await adapter.getEnabledSkills();
-            const enabledNames = new Set(enabledSkills.map(s => s.name));
-            for (const skill of skills) {
-              output.output(formatSkillMetadata(skill, true, enabledNames.has(skill.name)));
-            }
+            enabledNames = new Set(enabledSkills.map(s => s.name));
           }
+
+          router.render(skills, {
+            type: "list",
+            entity: "skill",
+            format: () => {
+              let text = formatSkillList(skills, { table: options.table }) + "\n";
+              if (options.verbose && enabledNames) {
+                text += getFormatter().subsection("Detailed list.") + "\n";
+                for (const skill of skills) {
+                  text += formatSkillMetadata(skill, true, enabledNames.has(skill.name)) + "\n";
+                }
+              }
+              return text;
+            },
+            metadata: { total: skills.length },
+          });
         } catch (error) {
           handleError(error, {
             operation: "listSkills",
@@ -356,15 +369,21 @@ export function createSkillCommands(): Command {
         const enabled = await adapter.getEnabledSkills();
         const disabled = await adapter.getDisabledSkills();
 
-        output.newLine();
-        output.output(getFormatter().subsection("Enabled Skills"));
-        output.output(formatSkillList(enabled, { table: options.table }));
-
-        if (disabled.length > 0) {
-          output.newLine();
-          output.output(getFormatter().subsection("Disabled Skills"));
-          output.output(formatSkillList(disabled, { table: options.table }));
-        }
+        router.render({ enabled, disabled }, {
+          type: "list",
+          entity: "skill",
+          format: () => {
+            let text = "\n";
+            text += getFormatter().subsection("Enabled Skills") + "\n";
+            text += formatSkillList(enabled, { table: options.table }) + "\n";
+            if (disabled.length > 0) {
+              text += "\n" + getFormatter().subsection("Disabled Skills") + "\n";
+              text += formatSkillList(disabled, { table: options.table }) + "\n";
+            }
+            return text;
+          },
+          metadata: { enabled: enabled.length, disabled: disabled.length },
+        });
       } catch (error) {
         handleError(error, {
           operation: "listSkillStatus",

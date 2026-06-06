@@ -98,30 +98,40 @@ export function createWorkflowExecutionCommands(): Command {
             });
           } else if (mode === 'background') {
             // Background mode: Show background execution info
-            output.newLine();
-            output.info("The workflow execution has been started in the background.");
-            output.output(getFormatter().keyValue("Execution ID", result.executionId));
-            output.output(getFormatter().keyValue("Process ID", String(result.pid)));
-            output.output(getFormatter().keyValue("Log file", result.logFile || `logs/workflow-${result.executionId}.log`));
-            output.output(getFormatter().keyValue("Startup time", result.startTime.toISOString()));
-            output.newLine();
-            output.info(
-              `Use 'modular-agent execution status ${result.executionId}' to check execution status`,
-            );
+            router.render(result, {
+              type: "detail",
+              entity: "execution",
+              format: () => {
+                let text = "\nThe workflow execution has been started in the background.\n";
+                text += getFormatter().keyValue("Execution ID", result.executionId) + "\n";
+                text += getFormatter().keyValue("Process ID", String(result.pid)) + "\n";
+                text += getFormatter().keyValue("Log file", result.logFile || `logs/workflow-${result.executionId}.log`) + "\n";
+                text += getFormatter().keyValue("Startup time", result.startTime.toISOString()) + "\n";
+                text += `\nUse 'modular-agent execution status ${result.executionId}' to check execution status\n`;
+                return text;
+              },
+              message: `Workflow execution started in background: ${result.executionId}`,
+              metadata: { executionId: result.executionId, pid: result.pid, mode: 'background' },
+            });
           } else {
             // Detached mode: Show terminal info
-            output.newLine();
-            output.info("The workflow execution has been started in a separate terminal.");
-            output.output(getFormatter().keyValue("Execution ID", result.executionId));
-            if (result.terminalId) {
-              output.output(getFormatter().keyValue("Terminal ID", result.terminalId));
-            }
-            output.output(getFormatter().keyValue("Process ID", String(result.pid)));
-            output.output(getFormatter().keyValue("Startup time", result.startTime.toISOString()));
-            output.newLine();
-            output.info(
-              `Use 'modular-agent execution status ${result.executionId}' to check execution status`,
-            );
+            router.render(result, {
+              type: "detail",
+              entity: "execution",
+              format: () => {
+                let text = "\nThe workflow execution has been started in a separate terminal.\n";
+                text += getFormatter().keyValue("Execution ID", result.executionId) + "\n";
+                if (result.terminalId) {
+                  text += getFormatter().keyValue("Terminal ID", result.terminalId) + "\n";
+                }
+                text += getFormatter().keyValue("Process ID", String(result.pid)) + "\n";
+                text += getFormatter().keyValue("Startup time", result.startTime.toISOString()) + "\n";
+                text += `\nUse 'modular-agent execution status ${result.executionId}' to check execution status\n`;
+                return text;
+              },
+              message: `Workflow execution started in detached terminal: ${result.executionId}`,
+              metadata: { executionId: result.executionId, pid: result.pid, terminalId: result.terminalId, mode: 'detached' },
+            });
           }
         } catch (error) {
           handleError(error, {
@@ -139,12 +149,20 @@ export function createWorkflowExecutionCommands(): Command {
     .action(async executionId => {
       try {
         const status = await getExecutionService().monitorExecution(executionId);
-        output.newLine();
-        output.output(getFormatter().subsection("Execution Status:"));
-        output.output(getFormatter().keyValue("Execution ID", status.executionId));
-        output.output(getFormatter().keyValue("Status", status.status));
-        output.output(getFormatter().keyValue("Progress", `${status.progress || 'N/A'}%`));
-        output.output(getFormatter().keyValue("Last update", status.lastUpdate.toISOString()));
+        router.render(status, {
+          type: "detail",
+          entity: "execution",
+          format: () => {
+            let text = "\n";
+            text += getFormatter().subsection("Execution Status:") + "\n";
+            text += getFormatter().keyValue("Execution ID", status.executionId) + "\n";
+            text += getFormatter().keyValue("Status", status.status) + "\n";
+            text += getFormatter().keyValue("Progress", `${status.progress || 'N/A'}%`) + "\n";
+            text += getFormatter().keyValue("Last update", status.lastUpdate.toISOString()) + "\n";
+            return text;
+          },
+          metadata: { executionId: executionId },
+        });
       } catch (error) {
         handleError(error, {
           operation: "getExecutionStatus",
@@ -179,19 +197,29 @@ export function createWorkflowExecutionCommands(): Command {
     .action(() => {
       const terminals = getTerminalManager().getActiveTerminals();
       if (terminals.length === 0) {
-        output.newLine();
-        output.output("There are no active terminals currently.");
+        router.render([], {
+          type: "list",
+          entity: "terminal",
+          format: () => "There are no active terminals currently.",
+        });
         return;
       }
 
-      output.newLine();
-      output.output(getFormatter().subsection("Active Terminal:"));
-      terminals.forEach((terminal: any, index: number) => {
-        output.output(`  ${index + 1}. ID: ${terminal.id}`);
-        output.output(`     PID: ${terminal.pid}`);
-        output.output(`     Status: ${terminal.status}`);
-        output.output(`     Created at: ${terminal.createdAt.toISOString()}`);
-        output.newLine();
+      router.render(terminals, {
+        type: "list",
+        entity: "terminal",
+        format: () => {
+          let text = "\n";
+          text += getFormatter().subsection("Active Terminal:") + "\n";
+          terminals.forEach((terminal: any, index: number) => {
+            text += `  ${index + 1}. ID: ${terminal.id}\n`;
+            text += `     PID: ${terminal.pid}\n`;
+            text += `     Status: ${terminal.status}\n`;
+            text += `     Created at: ${terminal.createdAt.toISOString()}\n\n`;
+          });
+          return text;
+        },
+        metadata: { count: terminals.length },
       });
     });
 
@@ -205,6 +233,16 @@ export function createWorkflowExecutionCommands(): Command {
 
         const adapter = getWorkflowExecutionAdapter();
         await adapter.pauseWorkflowExecution(executionId);
+
+        router.render(
+          { executionId },
+          {
+            type: "action",
+            entity: "execution",
+            message: `Execution paused: ${executionId}`,
+            format: () => `Workflow execution paused: ${executionId}`,
+          },
+        );
       } catch (error) {
         handleError(error, {
           operation: "pauseWorkflowExecution",
@@ -223,6 +261,16 @@ export function createWorkflowExecutionCommands(): Command {
 
         const adapter = getWorkflowExecutionAdapter();
         await adapter.resumeWorkflowExecution(executionId);
+
+        router.render(
+          { executionId },
+          {
+            type: "action",
+            entity: "execution",
+            message: `Execution resumed: ${executionId}`,
+            format: () => `Workflow execution resumed: ${executionId}`,
+          },
+        );
       } catch (error) {
         handleError(error, {
           operation: "resumeWorkflowExecution",
@@ -241,6 +289,16 @@ export function createWorkflowExecutionCommands(): Command {
 
         const adapter = getWorkflowExecutionAdapter();
         await adapter.stopWorkflowExecution(executionId);
+
+        router.render(
+          { executionId },
+          {
+            type: "action",
+            entity: "execution",
+            message: `Execution stopped: ${executionId}`,
+            format: () => `Workflow execution stopped: ${executionId}`,
+          },
+        );
       } catch (error) {
         handleError(error, {
           operation: "stopWorkflowExecution",

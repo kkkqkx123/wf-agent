@@ -5,11 +5,13 @@
 import { Command } from "commander";
 import { TriggerAdapter } from "../../adapters/trigger-adapter.js";
 import { getOutput } from "../../utils/output.js";
+import { getRouter } from "../../utils/output-router.js";
 import { formatTrigger, formatTriggerList } from "../../utils/cli-formatters.js";
 import { handleError } from "../../utils/error-handler.js";
 import type { CommandOptions } from "../../types/cli-types.js";
 
 const output = getOutput();
+const router = getRouter();
 
 /**
  * Create Trigger Command Group
@@ -28,7 +30,12 @@ export function createTriggerCommands(): Command {
         const adapter = new TriggerAdapter();
         const triggers = await adapter.listTriggers();
 
-        output.output(formatTriggerList(triggers, { table: options.table }));
+        router.render(triggers, {
+          type: "list",
+          entity: "trigger",
+          format: () => formatTriggerList(triggers, { table: options.table }),
+          metadata: { total: triggers.length },
+        });
       } catch (error) {
         handleError(error, {
           operation: "list-triggers",
@@ -102,7 +109,12 @@ export function createTriggerCommands(): Command {
         const adapter = new TriggerAdapter();
         const triggers = await adapter.listTriggersByWorkflowExecution(executionId);
 
-        output.output(formatTriggerList(triggers, { table: options.table }));
+        router.render(triggers, {
+          type: "list",
+          entity: "trigger",
+          format: () => formatTriggerList(triggers, { table: options.table }),
+          metadata: { total: triggers.length },
+        });
       } catch (error) {
         handleError(error, {
           operation: "list-triggers-by-execution",

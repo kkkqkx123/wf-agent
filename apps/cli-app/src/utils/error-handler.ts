@@ -4,6 +4,8 @@
  */
 
 import { getOutput } from "./output.js";
+import { getRouter } from "./output-router.js";
+import { ExitManager } from "./exit-manager.js";
 import { getFormatter } from "./formatter.js";
 import { CLIValidationError as ValidationError } from "../types/cli-types.js";
 import type { CLIError, CLIAPIError, CLIFileOperationError } from "../types/cli-types.js";
@@ -69,7 +71,7 @@ export class CLIErrorHandler {
   handleError(error: unknown, context: ErrorContext = {}): never {
     const formattedError = this.formatError(error, context);
     this.displayError(formattedError, context);
-    process.exit(formattedError.exitCode);
+    return ExitManager.exitSync(formattedError.exitCode);
   }
 
   /**
@@ -135,16 +137,16 @@ export class CLIErrorHandler {
    * @param context Error context
    */
   private displayError(formattedError: FormattedError, context: ErrorContext): void {
-    // Use output.error() to output error to stderr
-    output.error(formattedError.message);
+    // Use router for mode-aware error output (text/json/silent)
+    getRouter().error({ message: formattedError.message, code: formattedError.type });
 
-    // Display the error type
+    // Display the error type (verbose text mode only)
     if (this.verbose) {
       output.error(`Error type: ${formattedError.type}`);
       output.error(`Severity: ${formattedError.severity}`);
     }
 
-    // Display suggestions
+    // Display suggestions (text mode only)
     if (formattedError.suggestions && formattedError.suggestions.length > 0) {
       output.newLine();
       output.output(getFormatter().subsection("Suggestion:"));
@@ -153,7 +155,7 @@ export class CLIErrorHandler {
       });
     }
 
-    // Display the stack trace (debug mode).
+    // Display the stack trace (debug mode, text only)
     if (this.debug && this.getErrorObject(context)) {
       const error = this.getErrorObject(context);
       if (error instanceof Error && error.stack) {
@@ -163,7 +165,7 @@ export class CLIErrorHandler {
       }
     }
 
-    // Display context information (detailed mode)
+    // Display context information (verbose text mode only)
     if (this.verbose && Object.keys(context).length > 0) {
       output.newLine();
       output.output(getFormatter().subsection("Context Information:"));

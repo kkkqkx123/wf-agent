@@ -5,6 +5,7 @@
 import { Command } from "commander";
 import { ToolAdapter } from "../../adapters/tool-adapter.js";
 import { getOutput } from "../../utils/output.js";
+import { getRouter } from "../../utils/output-router.js";
 import { getFormatter } from "../../utils/formatter.js";
 import { formatTool, formatToolList } from "../../utils/cli-formatters.js";
 import type { CommandOptions } from "../../types/cli-types.js";
@@ -12,6 +13,7 @@ import { handleError } from "../../utils/error-handler.js";
 import { CLIValidationError } from "../../types/cli-types.js";
 
 const output = getOutput();
+const router = getRouter();
 
 /**
  * Create Tool Command Group
@@ -68,15 +70,24 @@ export function createToolCommands(): Command {
           });
 
           // Display the results
-          output.newLine();
-          output.info(`Success: ${result.success.length} tools registered`);
-          if (result.failures.length > 0) {
-            output.newLine();
-            output.fail(`Failed: ${result.failures.length} tools`);
-            result.failures.forEach(failure => {
-              output.output(`  - ${failure.filePath}: ${failure.error}`);
-            });
-          }
+          const successCount = result.success.length;
+          const failureCount = result.failures.length;
+          router.render(result, {
+            type: "action",
+            entity: "tool",
+            message: `Success: ${successCount} tools registered${failureCount > 0 ? `, Failed: ${failureCount}` : ""}`,
+            metadata: { successCount, failureCount },
+            format: () => {
+              let text = `Success: ${successCount} tools registered\n`;
+              if (failureCount > 0) {
+                text += `Failed: ${failureCount} tools\n`;
+                result.failures.forEach(failure => {
+                  text += `  - ${failure.filePath}: ${failure.error}\n`;
+                });
+              }
+              return text;
+            },
+          });
         } catch (error) {
           handleError(error, {
             operation: "registerToolsBatch",
@@ -97,7 +108,12 @@ export function createToolCommands(): Command {
         const adapter = new ToolAdapter();
         const tools = await adapter.listTools();
 
-        output.output(formatToolList(tools, { table: options.table }));
+        router.render(tools, {
+          type: "list",
+          entity: "tool",
+          format: () => formatToolList(tools, { table: options.table }),
+          metadata: { total: tools.length },
+        });
       } catch (error) {
         handleError(error, {
           operation: "listTools",

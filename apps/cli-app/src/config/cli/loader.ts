@@ -8,6 +8,7 @@ import { loadConfigContent, parseJson, parseToml } from "@wf-agent/sdk/api";
 import type { CLIConfig } from "./types.js";
 import { CLIConfigSchema } from "./schema.js";
 import { DEFAULT_CONFIG } from "./defaults.js";
+import { ExecutionModeEnvVars } from "../../types/execution-mode.js";
 import { getOutput } from "../../utils/output.js";
 
 const output = getOutput();
@@ -89,6 +90,16 @@ export async function loadConfigWithEnvOverride(configPath?: string): Promise<CL
   // Apply STORAGE_DIR override for test isolation
   if (process.env["STORAGE_DIR"] && config.storage?.json) {
     config.storage.json = { ...config.storage.json, baseDir: process.env["STORAGE_DIR"] };
+  }
+
+  // Bridge config.outputFormat to mode detection system
+  // Env var takes priority over config; config value is used as fallback
+  const envFormat = process.env[ExecutionModeEnvVars.OUTPUT_FORMAT];
+  if (envFormat === "json" || envFormat === "silent") {
+    config.outputFormat = envFormat as CLIConfig["outputFormat"];
+  } else if (config.outputFormat === "json" && !envFormat) {
+    // Set the env var so the mode detector picks it up
+    process.env[ExecutionModeEnvVars.OUTPUT_FORMAT] = "json";
   }
 
   return config;

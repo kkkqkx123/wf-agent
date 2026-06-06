@@ -12,7 +12,7 @@
  * each command calls CLIOutput.output() directly.
  */
 
-import { getOutput, type CLIOutput } from "./output.js";
+import { getOutput } from "./output.js";
 import { isJsonMode, isSilentMode } from "./mode-detector.js";
 import { CLIError } from "../types/cli-types.js";
 
@@ -48,12 +48,6 @@ export interface ErrorDescriptor {
 // ============================================
 
 export class OutputRouter {
-  private output: CLIOutput;
-
-  constructor(output?: CLIOutput) {
-    this.output = output ?? getOutput();
-  }
-
   /**
    * Render structured data to output, automatically selecting
    * the appropriate mode (json / text / silent).
@@ -68,7 +62,7 @@ export class OutputRouter {
     if (isSilentMode()) return;
 
     if (isJsonMode()) {
-      this.output.structuredOutput({
+      getOutput().structuredOutput({
         success: true,
         type: descriptor.type,
         entity: descriptor.entity,
@@ -82,13 +76,13 @@ export class OutputRouter {
 
     // Text mode
     if (descriptor.type === "action") {
-      this.output.success(descriptor.message ?? "Operation completed");
+      getOutput().success(descriptor.message ?? "Operation completed");
       return;
     }
 
     if (descriptor.format) {
       try {
-        this.output.output(descriptor.format());
+        getOutput().output(descriptor.format());
       } catch (cause) {
         const ctx = `format callback failed for ${descriptor.type}${descriptor.entity ? ` (${descriptor.entity})` : ""}`;
         const message = cause instanceof Error ? `${ctx}: ${cause.message}` : ctx;
@@ -108,7 +102,7 @@ export class OutputRouter {
       } else {
         output = String(data);
       }
-      this.output.output(output);
+      getOutput().output(output);
     }
   }
 
@@ -119,13 +113,13 @@ export class OutputRouter {
     if (isSilentMode()) return;
 
     if (isJsonMode()) {
-      this.output.structuredOutput({
+      getOutput().structuredOutput({
         success: false,
         error: { message: err.message, code: err.code },
         timestamp: new Date().toISOString(),
       });
     } else {
-      this.output.fail(err.message);
+      getOutput().fail(err.message);
     }
   }
 }

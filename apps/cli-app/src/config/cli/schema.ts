@@ -31,7 +31,6 @@ export const CLIConfigSchema = z.object({
   storage: StorageConfigSchema.optional(),
   output: OutputConfigSchema.optional(),
   presets: PresetsConfigSchema.optional(),
-  customRoutingRules: z.array(z.any()).optional(),
 }) satisfies z.ZodType<CLIConfig>;
 
 /**

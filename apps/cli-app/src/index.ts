@@ -6,14 +6,13 @@
  */
 
 import { Command } from "commander";
-import { initializeOutput, getOutput } from "./utils/output.js";
+import { getOutput } from "./utils/output.js";
 import { initializeFormatter } from "./utils/formatter.js";
-import { initializeRouter } from "./utils/output-router.js";
 import { initLogger, initSDKLogger } from "./utils/logger.js";
 import { loadConfigWithEnvOverride } from "./config/index.js";
 import { createSDK } from "@wf-agent/sdk/api";
 import { ExitManager } from "./utils/exit-manager.js";
-import { isHeadless, getMode } from "./utils/mode-detector.js";
+import { isHeadless, getMode, getOutputFormat } from "./utils/mode-detector.js";
 import {
   initializeStorageManager,
   closeStorageManager,
@@ -52,6 +51,7 @@ program
   .option("-d, --debug", "Enable debug mode")
   .option("-l, --log-file <path>", "Specify the path to the log file.")
   .option("-c, --config <path>", "Specify the path to the configuration file.")
+  .option("-t, --tui", "Start the TUI (interactive terminal UI) mode.")
   .hook("preAction", async thisCommand => {
     // Initialize the output system before executing any command.
     const options = thisCommand.opts() as {
@@ -72,8 +72,11 @@ program
     // 1. Load the global configuration with environment variable overrides
     const config = await loadConfigWithEnvOverride(options.config);
 
-    // 2. Initialize the output system (for unified management of stdout/stderr/log)
-    const output = initializeOutput({
+    // 2. Initialize/reconfigure the output system in-place
+    //    (command files captured getOutput() at module load; reconfigure
+    //     ensures their references stay valid with proper settings)
+    const output = getOutput();
+    output.reconfigure({
       logFile: options.logFile,
       verbose: options.verbose,
       debug: options.debug,
@@ -87,8 +90,8 @@ program
     // 3. Initialize the formatter
     initializeFormatter(output.colorEnabled);
 
-    // 4. Initialize the output router (handles json/text/silent mode routing)
-    initializeRouter();
+    // 4. Initialize the output router is already captured by commands;
+    //    no need to recreate — it dynamically resolves getOutput() internally.
 
     // 5. Initialize the log (CLI + SDK)
     initLogger({
@@ -236,15 +239,31 @@ program.hook("postAction", async thisCommand => {
 // Parse command-line arguments
 program.parse(process.argv);
 
-// Check if TUI mode is requested
-const hasTuiFlag = process.argv.includes("--tui") || process.argv.includes("-t");
+// Check if TUI mode is requested (using commander's parsed options)
+const cliOpts = program.opts();
+const hasTuiFlag = cliOpts["tui"] ?? false;
 const executionMode = getMode().mode;
+const outputFormat = getOutputFormat();
+
+// Determine if TUI mode should be started
+const shouldStartTUI =
+  (hasTuiFlag || executionMode === "interactive") && !process.argv.slice(2).length;
 
 // Display help information if no command is provided.
 if (!process.argv.slice(2).length) {
-  // If TUI mode is requested or in interactive mode, start TUI
-  if (hasTuiFlag || executionMode === "interactive") {
-    startTUI();
+  if (shouldStartTUI) {
+    // TUI mode requires a TTY and text output format
+    if (outputFormat !== "text") {
+      getOutput().warn(
+        `TUI mode requires text output format (current: ${outputFormat}). Falling back to help.`,
+      );
+      program.outputHelp();
+    } else if (!process.stdout.isTTY) {
+      getOutput().warn("TUI mode requires a TTY terminal. Falling back to help.");
+      program.outputHelp();
+    } else {
+      startTUI();
+    }
   } else {
     program.outputHelp();
     // In headless mode, exit immediately if no commands are executed.

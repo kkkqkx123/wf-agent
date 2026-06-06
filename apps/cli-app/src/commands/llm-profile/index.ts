@@ -75,15 +75,24 @@ export function createLLMProfileCommands(): Command {
           });
 
           // Display the results
-          output.newLine();
-          output.info(`Success: ${result.success.length} profiles registered`);
-          if (result.failures.length > 0) {
-            output.newLine();
-            output.fail(`Failed: ${result.failures.length} profiles`);
-            result.failures.forEach(failure => {
-              output.output(`  - ${failure.filePath}: ${failure.error}`);
-            });
-          }
+          const successCount = result.success.length;
+          const failureCount = result.failures.length;
+          router.render(result, {
+            type: "action",
+            entity: "llm-profile",
+            message: `Success: ${successCount} profiles registered${failureCount > 0 ? `, Failed: ${failureCount}` : ""}`,
+            metadata: { successCount, failureCount },
+            format: () => {
+              let text = `Success: ${successCount} profiles registered\n`;
+              if (failureCount > 0) {
+                text += `Failed: ${failureCount} profiles\n`;
+                result.failures.forEach(failure => {
+                  text += `  - ${failure.filePath}: ${failure.error}\n`;
+                });
+              }
+              return text;
+            },
+          });
         } catch (error) {
           handleError(error, {
             operation: "registerLLMProfilesBatch",

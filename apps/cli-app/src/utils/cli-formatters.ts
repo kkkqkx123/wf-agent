@@ -20,7 +20,6 @@ import type {
   Skill,
   AgentLoopResult,
   BaseEvent,
-  BaseComponentMessage,
 } from "@wf-agent/types";
 
 // Get global formatter instance
@@ -532,55 +531,4 @@ export function formatSkillList(skills: SkillWithMetadata[], options?: { table?:
   }
 
   return skills.map(s => formatSkill(s)).join("\n");
-}
-
-// ============================================
-// Component Message Formatters
-// ============================================
-
-export function formatComponentMessage(
-  message: BaseComponentMessage,
-  options?: { verbose?: boolean },
-): string {
-  const formatter = getGlobalFormatter();
-  if (options?.verbose) {
-    return formatter.json(message);
-  }
-
-  const category = message.category || "N/A";
-  const type = message.type || "N/A";
-  const level = message.level || "info";
-  const entityId = message.entity?.id || "N/A";
-  const timestamp = new Date(message.timestamp).toLocaleTimeString();
-  const levelLabel = level === "error" || level === "critical" ? "!" : level === "warn" ? "?" : " ";
-
-  return `[${levelLabel}] [${timestamp}] [${category}] ${type} (${entityId})`;
-}
-
-export function formatComponentMessageList(
-  messages: BaseComponentMessage[],
-  options?: { table?: boolean; verbose?: boolean },
-): string {
-  const formatter = getGlobalFormatter();
-  if (messages.length === 0) {
-    return "No messages found.";
-  }
-
-  if (options?.verbose) {
-    return messages.map(m => formatter.json(m)).join("\n---\n");
-  }
-
-  if (options?.table) {
-    const headers = ["Level", "Time", "Category", "Type", "Entity"];
-    const rows = messages.map(m => [
-      m.level || "info",
-      new Date(m.timestamp).toLocaleTimeString(),
-      m.category || "N/A",
-      m.type || "N/A",
-      m.entity?.id?.substring(0, 16) || "N/A",
-    ]);
-    return formatter.table(headers, rows);
-  }
-
-  return messages.map(m => formatComponentMessage(m)).join("\n");
 }

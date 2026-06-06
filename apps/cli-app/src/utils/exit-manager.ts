@@ -62,6 +62,14 @@ export class ExitManager {
   }
 
   /**
+   * Synchronous exit (for error handlers that must return `never`)
+   */
+  static exitSync(code: number): never {
+    ExitManager.isShuttingDown = true;
+    process.exit(code);
+  }
+
+  /**
    * Check if currently shutting down
    */
   static get isExiting(): boolean {

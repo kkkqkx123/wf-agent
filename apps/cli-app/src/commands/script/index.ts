@@ -5,6 +5,7 @@
 import { Command } from "commander";
 import { ScriptAdapter } from "../../adapters/script-adapter.js";
 import { getOutput } from "../../utils/output.js";
+import { getRouter } from "../../utils/output-router.js";
 import { getFormatter } from "../../utils/formatter.js";
 import { formatScript, formatScriptList } from "../../utils/cli-formatters.js";
 import type { CommandOptions } from "../../types/cli-types.js";
@@ -12,6 +13,7 @@ import { handleError } from "../../utils/error-handler.js";
 import { CLIValidationError } from "../../types/cli-types.js";
 
 const output = getOutput();
+const router = getRouter();
 
 /**
  * Create Script Command Group
@@ -68,13 +70,24 @@ export function createScriptCommands(): Command {
           });
 
           // Show results
-          output.output(`Success: ${result.success.length} scripts registered`);
-          if (result.failures.length > 0) {
-            output.output(`Failed: ${result.failures.length} scripts`);
-            result.failures.forEach(failure => {
-              output.output(`  - ${failure.filePath}: ${failure.error}`);
-            });
-          }
+          const successCount = result.success.length;
+          const failureCount = result.failures.length;
+          router.render(result, {
+            type: "action",
+            entity: "script",
+            message: `Success: ${successCount} scripts registered${failureCount > 0 ? `, Failed: ${failureCount}` : ""}`,
+            metadata: { successCount, failureCount },
+            format: () => {
+              let text = `Success: ${successCount} scripts registered\n`;
+              if (failureCount > 0) {
+                text += `Failed: ${failureCount} scripts\n`;
+                result.failures.forEach(failure => {
+                  text += `  - ${failure.filePath}: ${failure.error}\n`;
+                });
+              }
+              return text;
+            },
+          });
         } catch (error) {
           handleError(error, {
             operation: "registerScriptsBatch",
@@ -95,7 +108,12 @@ export function createScriptCommands(): Command {
         const adapter = new ScriptAdapter();
         const scripts = await adapter.listScripts();
 
-        output.output(formatScriptList(scripts, { table: options.table }));
+        router.render(scripts, {
+          type: "list",
+          entity: "script",
+          format: () => formatScriptList(scripts, { table: options.table }),
+          metadata: { total: scripts.length },
+        });
       } catch (error) {
         handleError(error, {
           operation: "listScripts",

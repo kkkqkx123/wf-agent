@@ -53,5 +53,4 @@ export const DEFAULT_CONFIG: CLIConfig = {
       enabled: true,
     },
   },
-  customRoutingRules: [],
 };

@@ -49,13 +49,15 @@ function detectMode(): ExecutionMode {
 
 /**
  * Detect output format from environment
+ * @param mode Pre-detected execution mode (to avoid redundant detection)
  */
-function detectOutputFormat(): OutputFormat {
+function detectOutputFormat(mode?: ExecutionMode): OutputFormat {
   const format = process.env[ENV.OUTPUT_FORMAT] as OutputFormat | undefined;
   if (format === "json" || format === "silent") return format;
 
   // Headless mode defaults to json output
-  if (detectMode() === "headless") return "json";
+  const currentMode = mode ?? detectMode();
+  if (currentMode === "headless") return "json";
 
   return "text";
 }
@@ -95,7 +97,7 @@ export function getMode(): ModeDetectionResult {
   const mode = detectMode();
   const result: ModeDetectionResult = {
     mode,
-    outputFormat: detectOutputFormat(),
+    outputFormat: detectOutputFormat(mode),
     colorEnabled: detectColorEnabled(),
     isHeadless: mode === "headless",
     isProgrammatic: mode === "programmatic",
@@ -105,6 +107,13 @@ export function getMode(): ModeDetectionResult {
   cachedResult = result;
   cacheValid = true;
   return result;
+}
+
+/**
+ * Get the current output format
+ */
+export function getOutputFormat(): OutputFormat {
+  return getMode().outputFormat;
 }
 
 /**

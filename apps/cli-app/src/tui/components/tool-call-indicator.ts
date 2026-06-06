@@ -6,7 +6,19 @@
  */
 
 import type { Component } from "../core/tui.js";
-import type { AgentToolCallData, AgentToolEndData } from "@wf-agent/types";
+
+// Local types for tool call data (simplified, avoiding legacy component-message types)
+interface AgentToolCallData {
+  toolCallId: string;
+  toolName: string;
+  arguments?: Record<string, unknown>;
+}
+
+interface AgentToolEndData {
+  toolCallId: string;
+  success: boolean;
+  duration?: number;
+}
 
 interface ToolCallInfo {
   id: string;

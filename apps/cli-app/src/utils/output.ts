@@ -46,12 +46,13 @@ export interface OutputConfig {
 export class CLIOutput {
   private readonly _stdout: Writable;
   private readonly _stderr: Writable;
-  private readonly _logStream: fs.WriteStream | null;
-  private readonly _colorEnabled: boolean;
-  private readonly _verbose: boolean;
-  private readonly _debug: boolean;
-  private readonly _logFile: string;
-  private readonly _config: OutputConfig;
+  private _logStream: fs.WriteStream | null;
+  private _colorEnabled: boolean;
+  private _verbose: boolean;
+  private _debug: boolean;
+  private _logFile: string;
+  private _config: OutputConfig;
+  private _closed: boolean = false;
 
   constructor(config: OutputConfig = {}) {
     this._config = config;
@@ -64,6 +65,46 @@ export class CLIOutput {
     // Initialize the log file
     this._logFile = config.logFile || this._getDefaultLogPath();
     this._logStream = fs.createWriteStream(this._logFile, { flags: "a" });
+  }
+
+  /**
+   * Reconfigure the output manager in-place.
+   * Ensures that module-level captures (e.g. in command files) remain valid
+   * after preAction configures the instance with proper settings.
+   */
+  reconfigure(config: OutputConfig): void {
+    this._config = { ...this._config, ...config };
+    if (config.color !== undefined) {
+      this._colorEnabled = config.color;
+    }
+    if (config.verbose !== undefined) {
+      this._verbose = config.verbose;
+    }
+    if (config.debug !== undefined) {
+      this._debug = config.debug;
+    }
+
+    // If log file path changed, close old stream and open new one
+    const newLogFile = config.logFile || this._getDefaultLogPath();
+    if (newLogFile !== this._logFile) {
+      if (this._logStream && !this._closed) {
+        this._logStream.end();
+      }
+      this._logFile = newLogFile;
+      this._logStream = fs.createWriteStream(this._logFile, { flags: "a" });
+    }
+  }
+
+  /**
+   * Replace the log file stream (used by the logger system to install its rotating stream).
+   * This ensures only one stream writes to the log file, avoiding dual-write conflicts.
+   * The old stream (if any) is ended gracefully.
+   */
+  setLogStream(stream: fs.WriteStream | null): void {
+    if (this._logStream && this._logStream !== stream && !this._closed) {
+      this._logStream.end();
+    }
+    this._logStream = stream;
   }
 
   // ============================================
@@ -240,6 +281,9 @@ export class CLIOutput {
    * Flush and close all streams
    */
   async close(): Promise<void> {
+    if (this._closed) return;
+    this._closed = true;
+
     return new Promise(resolve => {
       if (this._logStream) {
         this._logStream.end(() => resolve());
@@ -369,9 +413,9 @@ export function getOutput(): CLIOutput {
 /**
  * Reset global output manager
  */
-export function resetOutput(): void {
+export async function resetOutput(): Promise<void> {
   if (globalOutput) {
-    globalOutput.close().catch(() => {});
+    await globalOutput.close();
     globalOutput = null;
   }
 }

@@ -85,16 +85,32 @@ export function createWorkflowCommands(): Command {
           });
 
           // Display the results
-          output.output(`Batch registration completed.`);
-          output.output(`Success: ${result.success.length} instances`);
-          if (result.failures.length > 0) {
-            output.output(`Failed: ${result.failures.length} times`);
-            result.failures.forEach(failure => {
-              output.output(`  - ${failure.filePath}: ${failure.error}`);
-            });
-          } else {
-            output.output(`Failed: 0 times`);
-          }
+          const successCount = result.success.length;
+          const failureCount = result.failures.length;
+          const batchMessage =
+            failureCount > 0
+              ? `Batch registration completed. Success: ${successCount}, Failed: ${failureCount}`
+              : `Batch registration completed. Success: ${successCount}`;
+
+          router.render(result, {
+            type: "action",
+            entity: "workflow",
+            message: batchMessage,
+            metadata: { successCount, failureCount },
+            format: () => {
+              let text = `Batch registration completed.\n`;
+              text += `Success: ${successCount} instances\n`;
+              if (failureCount > 0) {
+                text += `Failed: ${failureCount} times\n`;
+                result.failures.forEach(failure => {
+                  text += `  - ${failure.filePath}: ${failure.error}\n`;
+                });
+              } else {
+                text += `Failed: 0 times\n`;
+              }
+              return text;
+            },
+          });
         } catch (error) {
           handleError(error, {
             operation: "register-workflow-batch",
@@ -191,14 +207,31 @@ export function createWorkflowCommands(): Command {
     .action(async (id, options: { force?: boolean }) => {
       try {
         if (!options.force) {
-          output.warnLog(`About to delete workflow: ${id}`);
-          // In practical applications, interactive confirmation can be added here.
+          router.render(
+            { id },
+            {
+              type: "action",
+              entity: "workflow",
+              message: `Use --force to delete workflow: ${id}`,
+              format: () => `Use the --force option to delete workflow: ${id}`,
+            },
+          );
           output.infoLog("Use the --force option to skip the confirmation.");
           return;
         }
 
         const adapter = new WorkflowAdapter();
         await adapter.deleteWorkflow(id);
+
+        router.render(
+          { id },
+          {
+            type: "action",
+            entity: "workflow",
+            message: `Workflow deleted: ${id}`,
+            format: () => `Workflow deleted successfully: ${id}`,
+          },
+        );
       } catch (error) {
         handleError(error, {
           operation: "delete-workflow",

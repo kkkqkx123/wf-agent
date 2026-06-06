@@ -9,11 +9,12 @@ import { DashboardScreen } from "./screens/dashboard-screen.js";
 import { WorkflowScreen } from "./screens/workflow-screen.js";
 import { AgentScreen } from "./screens/agent-screen.js";
 import { MessageBus } from "@wf-agent/sdk/api";
-import { HumanRelayService, DisplayOutputService } from "../services/io/index.js";
-import { TUIHumanRelayHandler } from "./handlers/tui-human-relay-handler.js";
-import { FunctionalFileHandler, DisplayFileHandler, TUIOutputHandler } from "../handlers/index.js";
+import { DisplayOutputService } from "../services/io/index.js";
+import { DisplayFileHandler, TUIOutputHandler } from "../handlers/index.js";
 import { CLI_ROUTING_RULES } from "../config/routing-rules.js";
 import { createContextualLogger } from "@wf-agent/sdk/utils";
+
+import type { BaseComponentMessage } from "@wf-agent/types";
 
 export class CLIAppTUI {
   private tui: TUI;
@@ -25,11 +26,12 @@ export class CLIAppTUI {
   
   // Message bus and file IO services
   private messageBus: MessageBus;
-  private humanRelayService: HumanRelayService;
   private displayOutputService: DisplayOutputService;
-  private humanRelayHandler: TUIHumanRelayHandler;
   private tuiOutputHandler: TUIOutputHandler;
   private logger = createContextualLogger({ component: "CLIAppTUI" });
+
+  // Central message dispatcher subscription
+  private messageSubscription?: ReturnType<MessageBus["subscribe"]>;
 
   constructor() {
     this.terminal = new ProcessTerminal();
@@ -44,11 +46,7 @@ export class CLIAppTUI {
     });
 
     // Initialize file IO services
-    this.humanRelayService = new HumanRelayService({ baseDir: ".wf-agent/function" });
     this.displayOutputService = new DisplayOutputService({ baseDir: ".wf-agent/display" });
-
-    // Initialize human relay handler with services
-    this.humanRelayHandler = new TUIHumanRelayHandler(this.tui, this.humanRelayService);
 
     // Initialize TUI output handler
     this.tuiOutputHandler = new TUIOutputHandler();
@@ -64,20 +62,20 @@ export class CLIAppTUI {
    * Initialize all available screens
    */
   private initializeScreens() {
-    // Register dashboard screen - pass messageBus for TUI-targeted message subscription
-    const dashboardScreen = new DashboardScreen(this.messageBus, (screenId) => {
+    // Register dashboard screen
+    const dashboardScreen = new DashboardScreen((screenId) => {
       this.showScreen(screenId);
     });
     this.screens.set("dashboard", dashboardScreen);
 
-    // Register workflow screen - pass messageBus for node execution events
-    const workflowScreen = new WorkflowScreen(this.messageBus, () => {
+    // Register workflow screen
+    const workflowScreen = new WorkflowScreen(() => {
       this.showScreen("dashboard");
     });
     this.screens.set("workflow", workflowScreen);
 
-    // Register agent screen - pass messageBus for agent lifecycle events
-    const agentScreen = new AgentScreen(this.messageBus, () => {
+    // Register agent screen
+    const agentScreen = new AgentScreen(() => {
       this.showScreen("dashboard");
     });
     this.screens.set("agent", agentScreen);
@@ -89,19 +87,26 @@ export class CLIAppTUI {
   }
   
   /**
-   * Initialize message handlers
+   * Initialize message handlers and central message dispatcher.
+   * 
+   * The central dispatcher forwards all messages to the active screen's
+   * onMessage() method, replacing direct MessageBus subscriptions in screens.
+   * TUI-targeted routing via TUIOutputHandler is also registered here.
    */
   private initializeMessageHandlers() {
-    // TUI message handling: screens can subscribe directly to MessageBus
-    // (existing pattern) or use TUIOutputHandler for TUI-targeted messages.
-    // The TUIOutputHandler bridges routing rules and screen display.
+    // Register TUI output handler (used by routing rules)
     this.messageBus.registerHandler(this.tuiOutputHandler);
-
-    // Register functional file handler
-    this.messageBus.registerHandler(new FunctionalFileHandler(this.humanRelayService));
   
     // Register display file handler
     this.messageBus.registerHandler(new DisplayFileHandler(this.displayOutputService));
+
+    // Central dispatcher: forward all messages to the active screen
+    this.messageSubscription = this.messageBus.subscribe({}, (message: BaseComponentMessage) => {
+      const screen = this.screens.get(this.currentScreenId);
+      if (screen?.onMessage) {
+        screen.onMessage(message);
+      }
+    });
   }
 
   /**
@@ -148,6 +153,11 @@ export class CLIAppTUI {
     const currentScreen = this.screens.get(this.currentScreenId);
     if (currentScreen?.destroy) {
       currentScreen.destroy();
+    }
+
+    // Cleanup central message subscription
+    if (this.messageSubscription && typeof this.messageSubscription === "object" && "unsubscribe" in this.messageSubscription) {
+      (this.messageSubscription as { unsubscribe: () => void }).unsubscribe();
     }
 
     // Flush and close all message handlers
@@ -246,23 +256,9 @@ export class CLIAppTUI {
   }
 
   /**
-   * Get human relay service
-   */
-  public getHumanRelayService(): HumanRelayService {
-    return this.humanRelayService;
-  }
-
-  /**
    * Get display output service
    */
   public getDisplayOutputService(): DisplayOutputService {
     return this.displayOutputService;
-  }
-
-  /**
-   * Get human relay handler
-   */
-  public getHumanRelayHandler(): TUIHumanRelayHandler {
-    return this.humanRelayHandler;
   }
 }

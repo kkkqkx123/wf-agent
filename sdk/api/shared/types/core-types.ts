@@ -43,16 +43,6 @@ export interface McpConfig {
 }
 
 /**
- * Human Relay Configuration
- */
-export interface HumanRelayConfig {
-  /** Default timeout for human relay requests (in milliseconds) */
-  defaultTimeout?: number;
-  /** Human Relay handler instance */
-  handler?: unknown; // Will be typed as HumanRelayHandler when imported
-}
-
-/**
  * Logging Configuration
  */
 export interface LoggingConfig {
@@ -186,8 +176,6 @@ export interface SDKOptions {
   hooks?: SDKLifecycleHooks;
   /** MCP configuration */
   mcp?: McpConfig;
-  /** Human Relay configuration */
-  humanRelay?: HumanRelayConfig;
   /** Skill registry configuration */
   skills?: SkillConfig;
   /** Event system configuration */

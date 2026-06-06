@@ -19,7 +19,6 @@ import { LLMProfileRegistryAPI } from "../resources/llm/llm-profile-registry-api
 import { NodeRegistryAPI } from "../../workflow/resources/templates/node-template-registry-api.js";
 import { TriggerTemplateRegistryAPI } from "../../workflow/resources/templates/trigger-template-registry-api.js";
 import { UserInteractionResourceAPI } from "../../workflow/resources/user-interaction/user-interaction-resource-api.js";
-import { HumanRelayResourceAPI } from "../../workflow/resources/human-relay/human-relay-resource-api.js";
 import { EventResourceAPI } from "../resources/events/event-resource-api.js";
 import { TriggerResourceAPI } from "../../workflow/resources/triggers/trigger-resource-api.js";
 import { VariableResourceAPI } from "../../workflow/resources/variables/variable-resource-api.js";
@@ -53,8 +52,6 @@ export interface AllAPIs {
   triggerTemplates: TriggerTemplateRegistryAPI;
   /** User Interaction API */
   userInteractions: UserInteractionResourceAPI;
-  /** Human Relay API */
-  humanRelay: HumanRelayResourceAPI;
   /** Event API */
   events: EventResourceAPI;
   /** Trigger API */
@@ -200,14 +197,6 @@ export class APIFactory {
   }
 
   /**
-   * Create the Human Relay API
-   * @returns HumanRelayResourceAPI instance
-   */
-  public createHumanRelayAPI(): HumanRelayResourceAPI {
-    return this.createAPI("humanRelay", HumanRelayResourceAPI);
-  }
-
-  /**
    * Create an event API
    * @returns EventResourceAPI instance
    */
@@ -309,7 +298,6 @@ export class APIFactory {
       nodeTemplates: this.createNodeTemplateAPI(),
       triggerTemplates: this.createTriggerTemplateAPI(),
       userInteractions: this.createUserInteractionAPI(),
-      humanRelay: this.createHumanRelayAPI(),
       events: this.createEventAPI(),
       triggers: this.createTriggerAPI(),
       variables: this.createVariableAPI(),

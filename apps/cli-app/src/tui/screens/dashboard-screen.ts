@@ -6,32 +6,19 @@ import { Box, Container, Text, SelectList } from "../core/index.js";
 import type { Screen } from "./screen.js";
 import { MessageCategory, AgentMessageType, WorkflowExecutionMessageType } from "@wf-agent/types";
 import type { BaseComponentMessage } from "@wf-agent/types";
-import type { MessageBus, MessageSubscription } from "@wf-agent/sdk/api";
 
 export class DashboardScreen implements Screen {
   private container: Container;
   private menuList!: SelectList;
   private statusPanel!: Box;
-  private messageBus: MessageBus;
   private onNavigate?: (screenId: string) => void;
-  private messageSubscription?: MessageSubscription;
   private activeAgents: number = 0;
   private runningThreads: number = 0;
 
-  private messageHandler = (message: BaseComponentMessage): void => {
-    if (message.category === MessageCategory.AGENT) {
-      this.handleAgentMessage(message);
-    } else if (message.category === MessageCategory.WORKFLOW_EXECUTION) {
-      this.handleWorkflowMessage(message);
-    }
-  };
-
-  constructor(messageBus: MessageBus, onNavigate?: (screenId: string) => void) {
-    this.messageBus = messageBus;
+  constructor(onNavigate?: (screenId: string) => void) {
     this.onNavigate = onNavigate;
     this.container = new Container();
     this.setupLayout();
-    this.setupLiveUpdates();
   }
 
   private setupLayout() {
@@ -94,45 +81,25 @@ export class DashboardScreen implements Screen {
   }
 
   /**
-   * Setup live status updates via MessageBus subscriptions
+   * Screen message handler - called by TUI dispatcher.
+   * Tracks active agents and running threads for dashboard status.
    */
-  private setupLiveUpdates() {
-    this.messageSubscription = this.messageBus.subscribe(
-      {
-        categories: [MessageCategory.AGENT, MessageCategory.WORKFLOW_EXECUTION],
-        types: [
-          AgentMessageType.AGENT_START,
-          AgentMessageType.AGENT_END,
-          WorkflowExecutionMessageType.EXECUTION_START,
-          WorkflowExecutionMessageType.EXECUTION_END,
-        ],
-      },
-      this.messageHandler,
-    );
-  }
-
-  /**
-   * Handle agent lifecycle messages
-   */
-  private handleAgentMessage(message: BaseComponentMessage) {
-    if (message.type === AgentMessageType.AGENT_START) {
-      this.activeAgents++;
-    } else if (message.type === AgentMessageType.AGENT_END) {
-      this.activeAgents--;
+  onMessage(message: BaseComponentMessage): void {
+    if (message.category === MessageCategory.AGENT) {
+      if (message.type === AgentMessageType.AGENT_START) {
+        this.activeAgents++;
+      } else if (message.type === AgentMessageType.AGENT_END) {
+        this.activeAgents--;
+      }
+      this.updateStatusPanel();
+    } else if (message.category === MessageCategory.WORKFLOW_EXECUTION) {
+      if (message.type === WorkflowExecutionMessageType.EXECUTION_START) {
+        this.runningThreads++;
+      } else if (message.type === WorkflowExecutionMessageType.EXECUTION_END) {
+        this.runningThreads--;
+      }
+      this.updateStatusPanel();
     }
-    this.updateStatusPanel();
-  }
-
-  /**
-   * Handle workflow execution messages
-   */
-  private handleWorkflowMessage(message: BaseComponentMessage) {
-    if (message.type === WorkflowExecutionMessageType.EXECUTION_START) {
-      this.runningThreads++;
-    } else if (message.type === WorkflowExecutionMessageType.EXECUTION_END) {
-      this.runningThreads--;
-    }
-    this.updateStatusPanel();
   }
 
   /**
@@ -159,6 +126,6 @@ export class DashboardScreen implements Screen {
   }
 
   destroy(): void {
-    this.messageSubscription?.unsubscribe();
+    // No-op: subscriptions are managed by the TUI app
   }
 }

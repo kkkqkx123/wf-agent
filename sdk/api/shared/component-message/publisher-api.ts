@@ -16,7 +16,6 @@ import {
   AgentMessageType,
   SubgraphMessageType,
   ToolMessageType,
-  HumanRelayMessageType,
   SystemMessageType,
   CheckpointMessageType,
   EventMessageType,
@@ -104,24 +103,6 @@ export class MessagePublisher {
   ): void {
     this.bus.publish({
       category: MsgCategory.TOOL,
-      type,
-      level,
-      entity,
-      data,
-    });
-  }
-
-  /**
-   * Publish a Human Relay message
-   */
-  publishHumanRelay(
-    type: HumanRelayMessageType,
-    entity: EntityIdentity,
-    data: unknown,
-    level: MessageLevel = "info",
-  ): void {
-    this.bus.publish({
-      category: MsgCategory.HUMAN_RELAY,
       type,
       level,
       entity,

@@ -17,8 +17,8 @@ import type {
 import type {
   TimeoutManagerConfig,
   ResolvedTimeoutManagerConfig,
-} from "@wf-agent/types";
-import { DEFAULT_TIMEOUT_MANAGER_CONFIG } from "@wf-agent/types";
+} from "../types/timeout-manager-config.js";
+import { DEFAULT_TIMEOUT_MANAGER_CONFIG } from "../types/timeout-manager-config.js";
 import { isValidTimeoutTag } from "../types/timeout-tags.js";
 import type { EventRegistry } from "../registry/event-registry.js";
 import type { BaseEvent } from "@wf-agent/types";

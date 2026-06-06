@@ -20,7 +20,7 @@ import {
   MemoryAgentLoopStorage,
 } from "@wf-agent/storage";
 import {
-  MockHumanRelayHandler,
+  MockLLMClient,
   createMockLLMOptions,
   setupMockContextProvider,
 } from "../__shared/mock-llm.js";
@@ -37,15 +37,15 @@ const MOCK_PROFILE_ID = "mock-llm-pause-resume";
 
 interface AgentLoopTestContext {
   sdk: SDKInstance;
-  mockHandler: MockHumanRelayHandler;
+  mockClient: MockLLMClient;
   agentLoopStorage: MemoryAgentLoopStorage;
 }
 
 async function createAgentLoopTestContext(): Promise<AgentLoopTestContext> {
-  const mockHandler = new MockHumanRelayHandler({
+  const mockClient = new MockLLMClient({
     defaultResponse: "Mock pause/resume E2E response.",
     simulateDelay: 10,
-  });
+  }, MOCK_PROFILE_ID);
 
   const agentLoopStorage = new MemoryAgentLoopStorage();
   await agentLoopStorage.initialize();
@@ -65,13 +65,13 @@ async function createAgentLoopTestContext(): Promise<AgentLoopTestContext> {
       predefinedPrompts: { enabled: false },
     },
     mcp: { enabled: false },
-    ...createMockLLMOptions(mockHandler, MOCK_PROFILE_ID),
+    ...createMockLLMOptions(MOCK_PROFILE_ID),
   });
 
   await sdk.waitForReady();
-  setupMockContextProvider(sdk, MOCK_PROFILE_ID);
+  setupMockContextProvider(sdk, mockClient, MOCK_PROFILE_ID);
 
-  return { sdk, mockHandler, agentLoopStorage };
+  return { sdk, mockClient, agentLoopStorage };
 }
 
 async function destroyAgentLoopTestContext(ctx: AgentLoopTestContext): Promise<void> {
@@ -106,7 +106,7 @@ describe("Agent Loop Pause/Resume E2E", () => {
   });
 
   beforeEach(() => {
-    ctx.mockHandler.clearRequests();
+    ctx.mockClient.clearRequests();
   });
 
   describe("Pause/Resume (AG-E2E-03)", () => {
@@ -117,7 +117,7 @@ describe("Agent Loop Pause/Resume E2E", () => {
       const result = await coordinator.execute(config);
 
       expect(result.success).toBe(true);
-      expect(ctx.mockHandler.getRequestCount()).toBeGreaterThanOrEqual(1);
+      expect(ctx.mockClient.getRequestCount()).toBeGreaterThanOrEqual(1);
     });
 
     it("should execute agent loop with multiple iterations", async () => {

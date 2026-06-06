@@ -28,8 +28,8 @@ import { registerAllPredefinedContent } from "../../../resources/predefined/regi
 import { registerPredefinedPromptTemplates } from "../../../resources/predefined/prompts/index.js";
 import { initializeTomlParser } from "../config/parsers/toml-parser.js";
 import { createRotatingFileStream, createConsoleStream, createMultistream } from "@wf-agent/common-utils";
-import type { HumanRelayHandler, LLMProfile } from "@wf-agent/types";
 import { SDKError as SDKErrorClass } from "@wf-agent/types";
+import type { LLMProfile } from "@wf-agent/types";
 import type { LogStream, LogLevel } from "@wf-agent/common-utils";
 import { WorkflowBuilder } from "../../workflow/builders/workflow-builder.js";
 import { NodeBuilder } from "../../workflow/builders/node-builder.js";
@@ -294,18 +294,6 @@ export class SDKInstance {
         });
       } catch (error) {
         logger.error(`Failed to configure MCP: ${getErrorMessage(error)}`);
-      }
-    }
-
-    // Configure Human Relay handler if provided
-    if (this.config?.humanRelay?.handler) {
-      try {
-        const humanRelayAPI = this.apiFactory.createHumanRelayAPI();
-        // Type assertion is safe here because the handler is provided by the user and validated at runtime
-        humanRelayAPI.registerHandler(this.config.humanRelay.handler as HumanRelayHandler);
-        logger.info("Human Relay handler registered");
-      } catch (error) {
-        logger.error(`Failed to register Human Relay handler: ${getErrorMessage(error)}`);
       }
     }
 
@@ -633,14 +621,6 @@ export class SDKInstance {
   }
 
   /**
-   * Get the HumanRelay API
-   */
-  get humanRelay() {
-    this.ensureReady();
-    return this.apiFactory.createHumanRelayAPI();
-  }
-
-  /**
    * Get the event API
    */
   get events() {
@@ -937,7 +917,6 @@ export class SDKInstance {
       { name: "triggerTemplates", task: () => this.triggerTemplates.clear() },
       { name: "profiles", task: () => this.profiles.clear() },
       { name: "userInteractions", task: () => this.userInteractions.clear() },
-      { name: "humanRelay", task: () => this.humanRelay.clear() },
       { name: "events", task: () => this.events.dispose() },
       { name: "agentLoops", task: () => this.cleanupAgentLoops() },
     ];

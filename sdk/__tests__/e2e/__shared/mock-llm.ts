@@ -1,7 +1,7 @@
 /**
  * Mock LLM utilities for E2E testing.
  *
- * Provides a HumanRelay-based mock LLM client that returns predefined responses
+ * Provides a MockLLMClient that returns predefined responses
  * without making real API calls. This is critical for E2E tests that involve
  * LLM nodes or Agent Loop execution.
  *
@@ -12,11 +12,11 @@
  * - Error throwing (for error handling tests)
  */
 
-import type { LLMProfile, HumanRelayHandler, HumanRelayRequest, HumanRelayResponse, LLMToolCall } from "@wf-agent/types";
+import type { LLMProfile, LLMClient, LLMRequest, LLMResult, LLMToolCall } from "@wf-agent/types";
 import type { SDKInstance } from "@/api/index.js";
 
 /**
- * Configuration for the Mock HumanRelay handler
+ * Configuration for the Mock LLM Client
  */
 export interface MockLLMConfig {
   /** The response content to return for any LLM request (used if no responseSequence) */
@@ -60,21 +60,26 @@ export interface MockResponseEntry {
 }
 
 /**
- * Mock HumanRelayHandler.
+ * MockLLMClient.
  *
- * Implements HumanRelayHandler to return a canned response instead of
- * requiring actual human input. This serves as a mock LLM for E2E tests.
+ * Implements LLMClient to return canned responses instead of
+ * making real API calls. This serves as a mock LLM for E2E tests.
+ *
+ * Usage:
+ *   const mock = new MockLLMClient({ defaultResponse: "Hello world" });
+ *   const result = await mock.generate({ messages: [...], profileId: "mock-profile" });
  */
-export class MockHumanRelayHandler implements HumanRelayHandler {
+export class MockLLMClient implements LLMClient {
   private config: Required<Omit<MockLLMConfig, 'responseSequence' | 'throwOnRequest' | 'throwErrorMessage'>> & {
     responseSequence: MockResponseEntry[];
     throwOnRequest: number;
     throwErrorMessage: string;
   };
-  private requests: HumanRelayRequest[] = [];
+  private requests: LLMRequest[] = [];
   private callCount = 0;
+  public readonly profileId: string;
 
-  constructor(config: MockLLMConfig = {}) {
+  constructor(config: MockLLMConfig = {}, profileId: string = "mock-llm-profile") {
     this.config = {
       defaultResponse: config.defaultResponse ?? "Mock LLM response for E2E testing",
       simulateDelay: config.simulateDelay ?? 10,
@@ -83,9 +88,13 @@ export class MockHumanRelayHandler implements HumanRelayHandler {
       throwOnRequest: config.throwOnRequest ?? -1,
       throwErrorMessage: config.throwErrorMessage ?? "Mock LLM error for E2E testing",
     };
+    this.profileId = profileId;
   }
 
-  async handle(request: HumanRelayRequest): Promise<HumanRelayResponse> {
+  /**
+   * Non-streaming generation: returns a canned response.
+   */
+  async generate(request: LLMRequest): Promise<LLMResult> {
     this.callCount++;
 
     if (this.config.recordRequests) {
@@ -122,15 +131,29 @@ export class MockHumanRelayHandler implements HumanRelayHandler {
     }
 
     return {
-      requestId: request.requestId,
+      id: `mock-result-${this.callCount}`,
+      model: "mock-model-v1",
       content,
-      timestamp: Date.now(),
+      message: {
+        role: "assistant",
+        content,
+        toolCalls: toolCalls as any,
+      },
       toolCalls: toolCalls as any,
+      finishReason: "stop",
+      duration: delay,
     };
   }
 
+  /**
+   * Streaming generation: yields a single chunk with the canned response.
+   */
+  async *generateStream(request: LLMRequest): AsyncIterable<LLMResult> {
+    yield await this.generate(request);
+  }
+
   /** Get all recorded requests */
-  getRequests(): HumanRelayRequest[] {
+  getRequests(): LLMRequest[] {
     return [...this.requests];
   }
 
@@ -145,7 +168,7 @@ export class MockHumanRelayHandler implements HumanRelayHandler {
     return this.requests.length;
   }
 
-  /** Get the total call count (resets with clearRequests) */
+  /** Get the total call count */
   getCallCount(): number {
     return this.callCount;
   }
@@ -183,22 +206,20 @@ export class MockHumanRelayHandler implements HumanRelayHandler {
  * Returns an object that can be spread into createSDK() options.
  *
  * Sets up:
- * - humanRelay handler pointing to the MockHumanRelayHandler
- * - An LLM profile with HUMAN_RELAY provider
+ * - An LLM profile with a standard provider (e.g. OPENAI_CHAT)
+ * - The MockLLMClient is registered directly on the ClientFactory at test setup time
  *
- * @param handler - The MockHumanRelayHandler instance
+ * Note: Unlike the old HumanRelay approach, the mock client registration
+ * happens at the factory level via registerMockClient(), not via SDK options.
+ * Use setupMockContextProvider() after SDK creation to register the mock client.
+ *
  * @param profileId - Profile ID (default: "mock-llm-profile")
  * @returns Partial SDKOptions with mock LLM configuration
  */
 export function createMockLLMOptions(
-  handler: MockHumanRelayHandler,
   profileId: string = "mock-llm-profile",
 ): Record<string, unknown> {
   return {
-    humanRelay: {
-      handler,
-      defaultTimeout: 5000,
-    },
     profiles: {
       defaultProfileId: profileId,
       profiles: [createMockLLMProfile(profileId)],
@@ -208,7 +229,7 @@ export function createMockLLMOptions(
 
 /**
  * Create a mock LLM profile for E2E tests.
- * Uses HUMAN_RELAY provider so that it goes through the mock handler.
+ * Uses OPENAI_CHAT provider (the mock client will intercept via ClientFactory).
  *
  * @param profileId - Unique profile ID (default: "mock-llm-profile")
  * @returns LLMProfile config ready to be passed to SDKOptions.profiles
@@ -217,7 +238,7 @@ export function createMockLLMProfile(profileId: string = "mock-llm-profile"): LL
   return {
     id: profileId,
     name: "Mock LLM Profile",
-    provider: "HUMAN_RELAY",
+    provider: "OPENAI_CHAT",
     model: "mock-model-v1",
     apiKey: "mock-api-key",
     parameters: {
@@ -231,21 +252,25 @@ export function createMockLLMProfile(profileId: string = "mock-llm-profile"): LL
  * Configure the mock LLM environment on an SDK instance.
  * Must be called after SDK bootstrap.
  *
- * Registers the mock profile directly on the LLMWrapper's ProfileManager
- * (bypassing LLMProfileRegistryAPI which has its own disconnected ProfileManager)
+ * Registers the MockLLMClient on the ClientFactory so that
+ * any LLM request using the mock profile returns canned responses.
  *
  * @param sdk - The SDK instance
+ * @param mockClient - The MockLLMClient instance
  * @param profileId - Profile ID (must match createMockLLMOptions)
  */
 export function setupMockContextProvider(
   sdk: SDKInstance,
+  mockClient: MockLLMClient,
   profileId: string = "mock-llm-profile",
 ): void {
   const deps = sdk.getFactory().getDependencies();
   const llmWrapper = deps.getLLMWrapper();
 
+  // Register the mock client on the ClientFactory
+  llmWrapper.registerMockClient(profileId, mockClient);
+
   // Register profile directly on LLMWrapper's ProfileManager
-  // (LLMProfileRegistryAPI creates its own disconnected ProfileManager)
   const profile = createMockLLMProfile(profileId);
   llmWrapper.registerProfile(profile);
   llmWrapper.setDefaultProfile(profileId);

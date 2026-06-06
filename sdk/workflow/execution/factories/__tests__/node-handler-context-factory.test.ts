@@ -4,7 +4,6 @@ import { ExecutionError } from '@wf-agent/types';
 import type { RuntimeNode } from '@wf-agent/types';
 import type { WorkflowExecutionEntity } from '../../../entities/workflow-execution-entity.js';
 import type { UserInteractionHandler } from '@wf-agent/types';
-import type { HumanRelayHandler } from '@wf-agent/types';
 import type { ConversationSession } from '../../../../core/messaging/conversation-session.js';
 import type { EventRegistry } from '../../../../core/registry/event-registry.js';
 import type { ToolRegistry } from '../../../../core/registry/tool-registry.js';
@@ -78,10 +77,6 @@ const createMockConversationSession = (): ConversationSession => ({
 
 const createMockUserInteractionHandler = (): UserInteractionHandler => ({
   handleInteraction: () => Promise.resolve({}),
-} as any);
-
-const createMockHumanRelayHandler = (): HumanRelayHandler => ({
-  handleRelay: () => Promise.resolve({}),
 } as any);
 
 const createMockToolRegistry = (): ToolRegistry => ({
@@ -171,7 +166,6 @@ describe('NodeHandlerContextFactory', () => {
       llmWrapper: createMockLLMWrapper(),
       conversationManager: createMockConversationSession(),
       userInteractionHandler: createMockUserInteractionHandler(),
-      humanRelayHandler: createMockHumanRelayHandler(),
       toolService: createMockToolRegistry(),
       agentLoopExecutorFactory: createMockAgentLoopExecutorFactory(),
       workflowExecutionRegistry: createMockWorkflowExecutionRegistry(),

@@ -183,11 +183,6 @@ export {
   type UserInteractionConfig,
   type UserInteractionFilter,
 } from "./workflow/resources/user-interaction/user-interaction-resource-api.js";
-export {
-  HumanRelayResourceAPI,
-  type HumanRelayConfig,
-  type HumanRelayFilter,
-} from "./workflow/resources/human-relay/human-relay-resource-api.js";
 
 // ============================================================================
 // Workflow - Command class (with side-effect operations)

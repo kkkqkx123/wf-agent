@@ -5,13 +5,6 @@
  */
 
 export {
-  HumanRelayService,
-  type HumanRelayPaths,
-  type HumanRelayWatchOptions,
-  type HumanRelayServiceOptions,
-} from "./human-relay-service.js";
-
-export {
   DisplayOutputService,
   type DisplaySection,
   type SessionMetadata,

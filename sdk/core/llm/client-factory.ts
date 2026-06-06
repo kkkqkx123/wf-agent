@@ -5,13 +5,12 @@
  * Clients are created using the factory pattern, and client instances are cached to improve performance.
  */
 
-import type { LLMClient, LLMProfile, HumanRelayHandler } from "@wf-agent/types";
+import type { LLMClient, LLMProfile } from "@wf-agent/types";
 import { OpenAIChatClient } from "./clients/openai-chat.js";
 import { OpenAIResponseClient } from "./clients/openai-response.js";
 import { AnthropicClient } from "./clients/anthropic.js";
 import { GeminiNativeClient } from "./clients/gemini-native.js";
 import { GeminiOpenAIClient } from "./clients/gemini-openai.js";
-import { HumanRelayClient } from "./clients/human-relay-client.js";
 import { ConfigurationError } from "@wf-agent/types";
 
 /**
@@ -19,28 +18,7 @@ import { ConfigurationError } from "@wf-agent/types";
  */
 export class ClientFactory {
   private clientCache: Map<string, LLMClient> = new Map();
-  private humanRelayHandler?: HumanRelayHandler;
-
-  /**
-   * Set HumanRelayHandler
-   * @param handler Human Relay handler
-   */
-  setHumanRelayHandler(handler: HumanRelayHandler): void {
-    this.humanRelayHandler = handler;
-    // Clear cached HumanRelayClient to use new handler
-    this.clearClientCacheByProvider("HUMAN_RELAY");
-  }
-
-  /**
-   * Clear client cache by provider
-   */
-  private clearClientCacheByProvider(provider: string): void {
-    for (const [key] of this.clientCache.entries()) {
-      if (key.includes(provider)) {
-        this.clientCache.delete(key);
-      }
-    }
-  }
+  private mockClients: Map<string, LLMClient> = new Map();
 
   /**
    * Create an LLM client
@@ -57,6 +35,13 @@ export class ClientFactory {
       return cachedClient;
     }
 
+    // Check mock clients first (for testing)
+    const mockClient = this.mockClients.get(profile.id);
+    if (mockClient) {
+      this.clientCache.set(cacheKey, mockClient);
+      return mockClient;
+    }
+
     // Create a new client.
     const client = this.createClientByProvider(profile);
 
@@ -64,6 +49,13 @@ export class ClientFactory {
     this.clientCache.set(cacheKey, client);
 
     return client;
+  }
+
+  /**
+   * Generate a cache key for a profile.
+   */
+  private getCacheKey(profile: LLMProfile): string {
+    return `${profile.id}::${profile.model}`;
   }
 
   /**
@@ -86,19 +78,6 @@ export class ClientFactory {
       case "GEMINI_OPENAI":
         return new GeminiOpenAIClient(profile);
 
-      case "HUMAN_RELAY":
-        if (!this.humanRelayHandler) {
-          throw new ConfigurationError(
-            "HumanRelayHandler not registered. Please call setHumanRelayHandler() first.",
-            "provider",
-            { provider: profile.provider },
-          );
-        }
-        return new HumanRelayClient(profile, {
-          handler: this.humanRelayHandler,
-          defaultTimeout: (profile.parameters?.["timeout"] as number) || 300000,
-        });
-
       default:
         throw new ConfigurationError(`Unsupported LLM provider: ${profile.provider}`, "provider", {
           provider: profile.provider,
@@ -109,7 +88,6 @@ export class ClientFactory {
             "ANTHROPIC",
             "GEMINI_NATIVE",
             "GEMINI_OPENAI",
-            "HUMAN_RELAY",
           ],
         });
     }
@@ -131,19 +109,29 @@ export class ClientFactory {
   }
 
   /**
-   * Clear the client cache
+   * Register a mock client for testing.
+   * When a profile with the given ID creates a client, the mock client will be used instead.
+   * 
+   * @param profileId The profile ID to associate with the mock client
+   * @param client The mock LLM client instance
    */
-  clearCache(): void {
-    this.clientCache.clear();
+  registerMockClient(profileId: string, client: LLMClient): void {
+    this.mockClients.set(profileId, client);
   }
 
   /**
-   * Clear the client cache for the specified Profile
-   *
-   * @param profileId Profile ID
+   * Clear all registered mock clients
+   */
+  clearMockClients(): void {
+    this.mockClients.clear();
+  }
+
+  /**
+   * Clear the cache for a specific profile
+   * @param profileId Profile ID to clear from cache
    */
   clearClientCache(profileId: string): void {
-    for (const key of this.clientCache.keys()) {
+    for (const [key] of this.clientCache.entries()) {
       if (key.startsWith(profileId)) {
         this.clientCache.delete(key);
       }
@@ -151,9 +139,9 @@ export class ClientFactory {
   }
 
   /**
-   * Get cache key
+   * Clear the client cache
    */
-  private getCacheKey(profile: LLMProfile): string {
-    return `${profile.id}:${profile.provider}:${profile.model}`;
+  clearCache(): void {
+    this.clientCache.clear();
   }
 }

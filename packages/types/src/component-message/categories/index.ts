@@ -43,8 +43,6 @@ export {
   type AgentToolEndData,
   type AgentToolResultData,
   type AgentToolErrorData,
-  type AgentHumanRelayRequestData,
-  type AgentHumanRelayResponseData,
   type AgentCheckpointData,
   type AgentMessageAddData,
 } from "./agent.js";
@@ -57,15 +55,6 @@ export {
   type ToolResultData,
   type ToolErrorData,
 } from "./tool.js";
-
-// Human Relay messages
-export {
-  HumanRelayMessageType,
-  type HumanRelayRequestData,
-  type HumanRelayResponseData,
-  type HumanRelayTimeoutData,
-  type HumanRelayCancelData,
-} from "./human-relay.js";
 
 // Subgraph messages
 export {

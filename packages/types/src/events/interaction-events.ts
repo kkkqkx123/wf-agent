@@ -7,43 +7,6 @@ import type { BaseEvent } from "./base.js";
 import type { PendingToolCallInfo } from "../interaction/index.js";
 import type { ToolExecutionResult } from "../tool/execution.js";
 
-/**
- * HumanRelay requested event type
- */
-export interface HumanRelayRequestedEvent extends BaseEvent {
-  type: "HUMAN_RELAY_REQUESTED";
-  /** Request ID */
-  requestId: ID;
-  /** Prompt message */
-  prompt: string;
-  /** Message count */
-  messageCount: number;
-  /** Timeout in milliseconds */
-  timeout: number;
-}
-
-/**
- * HumanRelay Response Event Type
- */
-export interface HumanRelayRespondedEvent extends BaseEvent {
-  type: "HUMAN_RELAY_RESPONDED";
-  /** Request ID */
-  requestId: ID;
-  /** Manual input of content */
-  content: string;
-}
-
-/**
- * HumanRelay Failure Event Type
- */
-export interface HumanRelayFailedEvent extends BaseEvent {
-  type: "HUMAN_RELAY_FAILED";
-  /** Request ID */
-  requestId: ID;
-  /** Reasons for failure */
-  reason: string;
-}
-
 // =============================================================================
 // Progressive Tool Execution Events
 // =============================================================================

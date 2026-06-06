@@ -22,7 +22,6 @@ import type {
   Event,
   CheckpointConfig,
   UserInteractionHandler,
-  HumanRelayHandler,
 } from "@wf-agent/types";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import type { ConversationSession } from "../../../core/messaging/conversation-session.js";
@@ -102,8 +101,6 @@ export interface NodeExecutionCoordinatorConfig {
   // Processor context factory configuration
   /** User Interaction Processor (optional) */
   userInteractionHandler?: UserInteractionHandler;
-  /** Manual Relay Processor (optional) */
-  humanRelayHandler?: HumanRelayHandler;
   /** Tool Services (Optional) */
   toolService?: ToolRegistry;
   /** Agent Loop Executor Factory (optional) */
@@ -178,7 +175,6 @@ export class NodeExecutionCoordinator {
       llmWrapper: config.llmWrapper,
       conversationManager: config.conversationManager,
       userInteractionHandler: config.userInteractionHandler,
-      humanRelayHandler: config.humanRelayHandler,
       toolService: config.toolService,
       agentLoopExecutorFactory: config.agentLoopExecutorFactory,
       workflowExecutionRegistry: config.workflowExecutionRegistry,

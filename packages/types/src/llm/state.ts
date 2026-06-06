@@ -15,6 +15,4 @@ export type LLMProvider =
   /** Gemini Native API */
   | "GEMINI_NATIVE"
   /** Gemini OpenAI Compatible API */
-  | "GEMINI_OPENAI"
-  /** artificial relay */
-  | "HUMAN_RELAY";
+  | "GEMINI_OPENAI";

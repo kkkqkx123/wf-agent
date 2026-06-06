@@ -31,40 +31,6 @@ export const CLI_ROUTING_RULES: RoutingRule[] = [
     priority: 100,
   },
 
-  // Rule 2: Agent Human Relay request -> TUI + FILE_FUNCTIONAL + FILE_DISPLAY
-  {
-    name: "agent-human-relay-request",
-    match: {
-      types: [AgentMessageType.HUMAN_RELAY_REQUEST],
-    },
-    decision: {
-      targets: [OutputTarget.TUI, OutputTarget.FILE_DISPLAY],
-      aggregateToParent: true,
-      aggregateLevel: "summary",
-      notifyParent: true,
-    },
-    priority: 100,
-  },
-
-  // Rule 3: Agent Human Relay response/timeout/cancel -> TUI + FILE_DISPLAY
-  {
-    name: "agent-human-relay-status",
-    match: {
-      types: [
-        AgentMessageType.HUMAN_RELAY_RESPONSE,
-        AgentMessageType.HUMAN_RELAY_TIMEOUT,
-        AgentMessageType.HUMAN_RELAY_CANCEL,
-      ],
-    },
-    decision: {
-      targets: [OutputTarget.TUI, OutputTarget.FILE_DISPLAY],
-      aggregateToParent: true,
-      aggregateLevel: "summary",
-      notifyParent: true,
-    },
-    priority: 100,
-  },
-
   // Rule 4: Agent tool call start/end -> TUI (summary)
   {
     name: "agent-tool-call",

@@ -23,14 +23,6 @@ import type {
   BaseComponentMessage,
 } from "@wf-agent/types";
 
-// HumanRelayConfig is defined in SDK, using inline type definition to avoid import issues
-type HumanRelayConfig = {
-  name?: string;
-  id?: string;
-  enabled?: boolean;
-  description?: string;
-};
-
 // Get global formatter instance
 function getGlobalFormatter(): Formatter {
   return getFormatter();
@@ -445,40 +437,6 @@ export function formatEventList(events: BaseEvent[], options?: { table?: boolean
   }
 
   return events.map(e => formatEvent(e)).join("\n");
-}
-
-// ============================================
-// Human Relay Formatters
-// ============================================
-
-export function formatHumanRelay(config: HumanRelayConfig, options?: { verbose?: boolean }): string {
-  const formatter = getGlobalFormatter();
-  if (options?.verbose) {
-    return formatter.json(config);
-  }
-
-  const enabled = config.enabled ? "Enabled" : "Disabled";
-  return `${config.name || "unnamed"} (${config.id || "N/A"}) - ${enabled}`;
-}
-
-export function formatHumanRelayList(configs: HumanRelayConfig[], options?: { table?: boolean }): string {
-  const formatter = getGlobalFormatter();
-  if (configs.length === 0) {
-    return "No Human Relay configuration found.";
-  }
-
-  if (options?.table) {
-    const headers = ["ID", "Name", "Status", "Description"];
-    const rows = configs.map(c => [
-      c.id?.substring(0, 8) || "N/A",
-      c.name || "unnamed",
-      c.enabled ? "Enabled" : "Disabled",
-      c.description || "-",
-    ]);
-    return formatter.table(headers, rows);
-  }
-
-  return configs.map(c => formatHumanRelay(c)).join("\n");
 }
 
 // ============================================

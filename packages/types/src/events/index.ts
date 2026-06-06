@@ -104,9 +104,6 @@ import type {
 } from "./subgraph-events.js";
 
 import type {
-  HumanRelayRequestedEvent,
-  HumanRelayRespondedEvent,
-  HumanRelayFailedEvent,
   ProgressiveToolExecutionStartEvent,
   ProgressiveToolExecutionEndEvent,
   ToolQueueUpdateEvent,
@@ -211,9 +208,6 @@ export type Event =
   | TriggeredSubgraphCompletedEvent
   | TriggeredSubgraphFailedEvent
   | VariableChangedEvent
-  | HumanRelayRequestedEvent
-  | HumanRelayRespondedEvent
-  | HumanRelayFailedEvent
   | LLMStreamAbortedEvent
   | LLMStreamErrorEvent
   | ContextCompressionRequestedEvent

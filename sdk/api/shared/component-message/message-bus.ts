@@ -370,18 +370,16 @@ export class MessageBus {
    */
   private findHandler(
     target: OutputTarget,
-    message: BaseComponentMessage,
+    _message: BaseComponentMessage,
   ): OutputHandler | undefined {
     for (const handler of this.handlers.values()) {
-      if (handler.target === target && handler.supports(message)) {
+      if (handler.target === target) {
         return handler;
       }
     }
 
     logger.warn("No handler found for target", {
       target,
-      messageType: message.type,
-      messageCategory: message.category,
       availableHandlers: Array.from(this.handlers.keys()),
     });
     return undefined;

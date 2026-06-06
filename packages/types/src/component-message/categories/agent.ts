@@ -28,11 +28,6 @@ export const AgentMessageType = {
   TOOL_CALL_END: "agent.tool.call_end",
   TOOL_RESULT: "agent.tool.result",
   TOOL_ERROR: "agent.tool.error",
-  // Human Relay
-  HUMAN_RELAY_REQUEST: "agent.human_relay.request",
-  HUMAN_RELAY_RESPONSE: "agent.human_relay.response",
-  HUMAN_RELAY_TIMEOUT: "agent.human_relay.timeout",
-  HUMAN_RELAY_CANCEL: "agent.human_relay.cancel",
   // Checkpoint
   CHECKPOINT_CREATE: "agent.checkpoint.create",
   CHECKPOINT_RESTORE: "agent.checkpoint.restore",
@@ -255,53 +250,6 @@ export interface AgentToolErrorData {
 
   /** Error code */
   code?: string;
-}
-
-/**
- * Agent Human Relay Request Data
- */
-export interface AgentHumanRelayRequestData {
-  /** Request ID */
-  requestId: string;
-
-  /** Full prompt for human */
-  prompt: string;
-
-  /** Conversation context */
-  context: {
-    /** Recent messages */
-    messages: Array<{
-      role: "user" | "assistant" | "system";
-      content: string;
-      timestamp: number;
-    }>;
-
-    /** Additional metadata */
-    metadata?: Record<string, unknown>;
-  };
-
-  /** Timeout in milliseconds */
-  timeout: number;
-
-  /** Output file path (for CLI) */
-  outputFile?: string;
-
-  /** Input file path (for CLI) */
-  inputFile?: string;
-}
-
-/**
- * Agent Human Relay Response Data
- */
-export interface AgentHumanRelayResponseData {
-  /** Request ID */
-  requestId: string;
-
-  /** Human response content */
-  content: string;
-
-  /** Response time in milliseconds */
-  responseTime: number;
 }
 
 /**

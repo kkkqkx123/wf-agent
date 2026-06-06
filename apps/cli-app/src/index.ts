@@ -28,7 +28,6 @@ import { createTriggerCommands } from "./commands/trigger/index.js";
 import { createMessageCommands } from "./commands/message/index.js";
 import { createVariableCommands } from "./commands/variable/index.js";
 import { createEventCommands } from "./commands/event/index.js";
-import { createHumanRelayCommands } from "./commands/human-relay/index.js";
 import { createAgentCommands } from "./commands/agent/index.js";
 import { createSkillCommands } from "./commands/skill/index.js";
 import { createAgentProfileCommands } from "./commands/agent-profile/index.js";
@@ -203,9 +202,6 @@ program.addCommand(createVariableCommands());
 // Add event command group
 program.addCommand(createEventCommands());
 
-// Add the Human Relay command group
-program.addCommand(createHumanRelayCommands());
-
 // Add the Agent Loop command group
 program.addCommand(createAgentCommands());
 
@@ -268,12 +264,6 @@ async function startTUI() {
     const { CLIAppTUI } = await import("./tui/index.js");
     const app = new CLIAppTUI();
     
-    // Register TUI Human Relay Handler with SDK
-    const humanRelayHandler = app.getHumanRelayHandler();
-    if (sdkInstance) {
-      sdkInstance.humanRelay.registerHandler(humanRelayHandler);
-    }
-    
     // Setup cleanup handlers for TUI mode
     // Note: GracefulShutdownManager is already registered by SDK, but we need additional TUI-specific cleanup
     const cleanupAndExit = async () => {
@@ -281,7 +271,6 @@ async function startTUI() {
       
       try {
         // Close file IO services
-        await app.getHumanRelayService().dispose();
         await app.getDisplayOutputService().dispose();
         
         // Destroy SDK (triggers onDestroy hook which closes storage manager)

@@ -12,7 +12,6 @@
 import type { RuntimeNode } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
 import type { UserInteractionHandler } from "@wf-agent/types";
-import type { HumanRelayHandler } from "@wf-agent/types";
 import type { ConversationSession } from "../../../core/messaging/conversation-session.js";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import type { ToolRegistry } from "../../../core/registry/tool-registry.js";
@@ -40,8 +39,6 @@ export interface NodeHandlerContextFactoryConfig {
   conversationManager: ConversationSession;
   /** User Interaction Handler (optional) */
   userInteractionHandler?: UserInteractionHandler;
-  /** Manual Relay Processor (optional) */
-  humanRelayHandler?: HumanRelayHandler;
   /** Tool Services (Optional) */
   toolService?: ToolRegistry;
   /** Agent Loop Executor Factory (optional) */
@@ -156,7 +153,7 @@ export class NodeHandlerContextFactory {
    * Create LLM node context
    * @param node Node definition (for error reporting)
    * @param executionEntity WorkflowExecution entity (for error reporting)
-   * @returns Context with llmCoordinator, llmWrapper, eventManager, conversationManager, and optional humanRelayHandler
+   * @returns Context with llmCoordinator, llmWrapper, eventManager, conversationManager
    * @throws ExecutionError When required dependencies are not provided
    */
   private createLLMContext(node: RuntimeNode, executionEntity: WorkflowExecutionEntity): Record<string, unknown> {
@@ -173,7 +170,6 @@ export class NodeHandlerContextFactory {
       llmWrapper: this.config.llmWrapper,
       eventManager: this.config.eventManager,
       conversationManager: this.config.conversationManager,
-      humanRelayHandler: this.config.humanRelayHandler,
     };
   }
 

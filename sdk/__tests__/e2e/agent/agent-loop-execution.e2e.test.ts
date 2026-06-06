@@ -4,7 +4,7 @@
  * Phase 2: Verifies Agent Loop execution lifecycle and basic behavior.
  * Covers AG-E2E-01, AG-E2E-02, AG-E2E-06, AG-E2E-08.
  *
- * Uses MockHumanRelayHandler to simulate LLM responses without real API calls.
+ * Uses MockLLMClient to simulate LLM responses without real API calls.
  * Supports multi-iteration flows via response sequences with tool calls,
  * lifecycle state transitions, tool execution integration, and error handling.
  */
@@ -21,7 +21,7 @@ import {
   MemoryAgentLoopStorage,
 } from "@wf-agent/storage";
 import {
-  MockHumanRelayHandler,
+  MockLLMClient,
   createMockLLMOptions,
   setupMockContextProvider,
 } from "../__shared/mock-llm.js";
@@ -67,14 +67,14 @@ const mockEchoTool: Tool = {
 
 interface AgentLoopTestContext {
   sdk: SDKInstance;
-  mockHandler: MockHumanRelayHandler;
+  mockClient: MockLLMClient;
 }
 
 async function createAgentLoopTestContext(): Promise<AgentLoopTestContext> {
-  const mockHandler = new MockHumanRelayHandler({
+  const mockClient = new MockLLMClient({
     defaultResponse: "This is a mock LLM response for E2E testing.",
     simulateDelay: 5,
-  });
+  }, MOCK_PROFILE_ID);
 
   const agentLoopStorage = new MemoryAgentLoopStorage();
   await agentLoopStorage.initialize();
@@ -94,17 +94,17 @@ async function createAgentLoopTestContext(): Promise<AgentLoopTestContext> {
       predefinedPrompts: { enabled: false },
     },
     mcp: { enabled: false },
-    ...createMockLLMOptions(mockHandler, MOCK_PROFILE_ID),
+    ...createMockLLMOptions(MOCK_PROFILE_ID),
   });
 
   await sdk.waitForReady();
-  setupMockContextProvider(sdk, MOCK_PROFILE_ID);
+  setupMockContextProvider(sdk, mockClient, MOCK_PROFILE_ID);
 
   // Register mock tool for tool execution tests
   const toolRegistry = sdk.getFactory().getDependencies().getToolService();
   toolRegistry.registerTool(mockEchoTool);
 
-  return { sdk, mockHandler };
+  return { sdk, mockClient };
 }
 
 async function destroyAgentLoopTestContext(ctx: AgentLoopTestContext): Promise<void> {
@@ -147,7 +147,7 @@ describe("Agent Loop Execution E2E", () => {
   });
 
   beforeEach(() => {
-    ctx.mockHandler.clearRequests();
+    ctx.mockClient.clearRequests();
   });
 
   describe("Basic Execution (AG-E2E-01)", () => {
@@ -158,7 +158,7 @@ describe("Agent Loop Execution E2E", () => {
       const result = await coordinator.execute(config);
 
       expect(result.success).toBe(true);
-      expect(ctx.mockHandler.getRequestCount()).toBeGreaterThanOrEqual(1);
+      expect(ctx.mockClient.getRequestCount()).toBeGreaterThanOrEqual(1);
     });
   });
 
@@ -175,7 +175,7 @@ describe("Agent Loop Execution E2E", () => {
       // Configure mock to return 2 responses:
       // 1st: response with a tool call → triggers tool execution → continues loop
       // 2nd: plain text → completes the loop
-      ctx.mockHandler.setResponseSequence([
+      ctx.mockClient.setResponseSequence([
         {
           content: "Let me use the echo tool to help you.",
           toolCalls: [
@@ -255,7 +255,7 @@ describe("Agent Loop Execution E2E", () => {
       });
 
       // Configure mock to return a tool call response
-      ctx.mockHandler.setResponseSequence([
+      ctx.mockClient.setResponseSequence([
         {
           content: "Let me call the echo tool for you.",
           toolCalls: [
@@ -289,7 +289,7 @@ describe("Agent Loop Execution E2E", () => {
       const config = createBasicAgentConfig({ maxIterations: 1 });
 
       // Configure mock to throw on first request
-      ctx.mockHandler.setThrowOnRequest(1, "Simulated LLM error for error handling test");
+      ctx.mockClient.setThrowOnRequest(1, "Simulated LLM error for error handling test");
 
       const result = await coordinator.execute(config);
 

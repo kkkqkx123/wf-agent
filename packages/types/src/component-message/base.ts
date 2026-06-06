@@ -23,7 +23,6 @@ export const MessageCategory = {
   WORKFLOW_EXECUTION: "workflow_execution",
   AGENT: "agent",
   TOOL: "tool",
-  HUMAN_RELAY: "human_relay",
   SUBGRAPH: "subgraph",
   CHECKPOINT: "checkpoint",
   EVENT: "event",

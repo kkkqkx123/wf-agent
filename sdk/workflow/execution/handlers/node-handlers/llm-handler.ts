@@ -17,15 +17,12 @@ import type {
   TransformContextFn,
 } from "@wf-agent/types";
 import type { WorkflowExecution, LLMMessage } from "@wf-agent/types";
-import type { HumanRelayHandler } from "@wf-agent/types";
-import { ExecutionError, RuntimeValidationError } from "@wf-agent/types";
+import { RuntimeValidationError } from "@wf-agent/types";
 import { now, diffTimestamp, getErrorOrNew } from "@wf-agent/common-utils";
 import { LLMExecutionCoordinator } from "../../coordinators/llm-execution-coordinator.js";
 import { LLMWrapper } from "../../../../core/llm/wrapper.js";
-import { executeHumanRelay } from "../human-relay-handler.js";
 import type { EventRegistry } from "../../../../core/registry/event-registry.js";
 import type { ConversationSession } from "../../../../core/messaging/conversation-session.js";
-import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 
 /**
  * LLM node execution results
@@ -59,8 +56,6 @@ export interface LLMHandlerContext {
   eventManager: EventRegistry;
   /** Dialogue Manager */
   conversationManager: ConversationSession;
-  /** HumanRelay processor (optional) */
-  humanRelayHandler?: unknown;
   /** Transform context function (for dynamic context injection, message compression, etc.) */
   transformContext?: TransformContextFn;
 }
@@ -133,19 +128,7 @@ export async function llmHandler(
       stream: false,
     };
 
-    // 4. Check if it is a HumanRelay provider.
-    const profile = context.llmWrapper.getProfile(executionData.profileId || "DEFAULT");
-    if (profile?.provider === "HUMAN_RELAY") {
-      return await executeHumanRelayLLMNode(
-        workflowExecution,
-        node,
-        executionData,
-        context,
-        startTime,
-      );
-    }
-
-    // 5. Call LLMExecutionCoordinator
+    // 4. Call LLMExecutionCoordinator
     const result = await context.llmCoordinator.executeLLM(
       {
         executionId: workflowExecution.id,
@@ -208,59 +191,6 @@ export async function llmHandler(
     return {
       status: "FAILED",
       error: getErrorOrNew(error),
-      executionTime: diffTimestamp(startTime, endTime),
-    };
-  }
-}
-
-/**
- * Execute the HumanRelay LLM node
- */
-async function executeHumanRelayLLMNode(
-  workflowExecution: WorkflowExecution,
-  node: RuntimeNode,
-  requestData: { prompt?: string; parameters?: { timeout?: number } },
-  context: LLMHandlerContext,
-  startTime: number,
-): Promise<LLMExecutionResult> {
-  if (!context.humanRelayHandler) {
-    throw new ExecutionError("HumanRelayHandler is not provided", node.id);
-  }
-
-  try {
-    // Get the current conversation message
-    const messages = context.conversationManager.getMessages() as unknown[];
-
-    // Call the executeHumanRelay function.
-    const result = await executeHumanRelay(
-      messages as LLMMessage[],
-      requestData.prompt || "Please provide your input:",
-      requestData.parameters?.timeout || 300000,
-      {
-        workflowExecutionEntity: workflowExecution,
-        conversationManager: context.conversationManager,
-      } as unknown as WorkflowExecutionEntity, // Simplify the processing; in reality, the complete WorkflowExecutionContext should be passed in.
-      context.eventManager,
-      context.humanRelayHandler as HumanRelayHandler,
-      node.id,
-    );
-
-    const endTime = now();
-
-    // HumanRelay executed successfully, and the results have been returned.
-    return {
-      status: "COMPLETED",
-      content:
-        typeof result.message.content === "string"
-          ? result.message.content
-          : JSON.stringify(result.message.content),
-      executionTime: diffTimestamp(startTime, endTime),
-    };
-  } catch (error) {
-    const endTime = now();
-    return {
-      status: "FAILED",
-      error: error instanceof Error ? error : new Error(String(error)),
       executionTime: diffTimestamp(startTime, endTime),
     };
   }

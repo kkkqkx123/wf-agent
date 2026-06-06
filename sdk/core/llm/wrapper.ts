@@ -5,7 +5,7 @@
  * Handles request execution and response time statistics
  */
 
-import type { LLMRequest, LLMResult, LLMProfile, HumanRelayHandler } from "@wf-agent/types";
+import type { LLMClient, LLMRequest, LLMResult, LLMProfile } from "@wf-agent/types";
 import { ProfileManager } from "./profile-manager.js";
 import { ClientFactory, MessageStream } from "./index.js";
 import {
@@ -49,14 +49,6 @@ export class LLMWrapper {
    */
   setEventManager(eventManager: EventRegistry): void {
     this.eventManager = eventManager;
-  }
-
-  /**
-   * Set Human Relay Handler
-   * @param handler Human Relay handler
-   */
-  setHumanRelayHandler(handler: HumanRelayHandler): void {
-    this.clientFactory.setHumanRelayHandler(handler);
   }
 
   /**
@@ -352,5 +344,16 @@ export class LLMWrapper {
         error: errorMessage,
       }),
     );
+  }
+
+  /**
+   * Register a mock LLM client for testing purposes.
+   * Delegates to ClientFactory.registerMockClient.
+   *
+   * @param profileId The profile ID to associate with the mock client
+   * @param client The mock LLM client instance
+   */
+  registerMockClient(profileId: string, client: LLMClient): void {
+    this.clientFactory.registerMockClient(profileId, client);
   }
 }

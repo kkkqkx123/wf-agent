@@ -17,7 +17,6 @@ export const LLMProviderSchema: z.ZodType<LLMProvider> = z.enum([
   "ANTHROPIC",
   "GEMINI_NATIVE",
   "GEMINI_OPENAI",
-  "HUMAN_RELAY",
 ]);
 
 /**

@@ -1,13 +1,10 @@
 /**
  * Interaction Event Builders
- * Provides builders for user interaction and human relay events
+ * Provides builders for user interaction events
  */
 
 import { createBuilder } from "./common.js";
 import type {
-  HumanRelayRequestedEvent,
-  HumanRelayRespondedEvent,
-  HumanRelayFailedEvent,
   ProgressiveToolExecutionStartEvent,
   ProgressiveToolExecutionEndEvent,
   ToolQueueUpdateEvent,
@@ -19,28 +16,6 @@ import type {
   FollowupQuestionRespondedEvent,
   FollowupQuestionFailedEvent,
 } from "@wf-agent/types";
-
-// =============================================================================
-// Human Relay Events
-// =============================================================================
-
-/**
- * Build human relay requested event
- */
-export const buildHumanRelayRequestedEvent =
-  createBuilder<HumanRelayRequestedEvent>("HUMAN_RELAY_REQUESTED");
-
-/**
- * Build human relay responded event
- */
-export const buildHumanRelayRespondedEvent =
-  createBuilder<HumanRelayRespondedEvent>("HUMAN_RELAY_RESPONDED");
-
-/**
- * Build human relay failed event
- */
-export const buildHumanRelayFailedEvent =
-  createBuilder<HumanRelayFailedEvent>("HUMAN_RELAY_FAILED");
 
 // =============================================================================
 // Progressive Tool Execution Events

@@ -15,15 +15,10 @@ import type {
   AgentLLMStreamData,
   AgentToolCallData,
   AgentToolEndData,
-  HumanRelayRequestData,
-  HumanRelayResponseData,
-  HumanRelayTimeoutData,
-  HumanRelayCancelData,
   CheckpointCreateData,
   CheckpointRestoreData,
   BaseComponentMessage,
 } from "@wf-agent/types";
-import type { MessageBus, MessageSubscription } from "@wf-agent/sdk/api";
 import { IterationPanel } from "../components/iteration-panel.js";
 import { ToolCallIndicator } from "../components/tool-call-indicator.js";
 
@@ -40,24 +35,14 @@ export class AgentScreen implements Screen {
   private iterationPanel: IterationPanel;
   private toolCallPanel: ToolCallIndicator;
   private messageInput!: Input;
-  private messageBus: MessageBus;
   private currentAgentId?: string;
   private isRunning: boolean = false;
   private logEntries: LogEntry[] = [];
   private onBack?: () => void;
-  private messageSubscription?: MessageSubscription;
   private streamingBuffer: string = "";
   private lastRenderTime: number = 0;
 
-  private messageHandler = (message: BaseComponentMessage): void => {
-    if (message.category !== MessageCategory.AGENT) return;
-    if (this.currentAgentId && message.entity?.id && message.entity.id !== this.currentAgentId)
-      return;
-    this.handleAgentMessage(message);
-  };
-
-  constructor(messageBus: MessageBus, onBack?: () => void) {
-    this.messageBus = messageBus;
+  constructor(onBack?: () => void) {
     this.onBack = onBack;
     this.container = new Container();
     this.statusPanel = new Box();
@@ -66,24 +51,15 @@ export class AgentScreen implements Screen {
     this.toolCallPanel = new ToolCallIndicator({ maxDisplayCalls: 5, showArguments: false });
 
     this.setupLayout();
-    this.setupMessageSubscriptions();
   }
 
   /**
-   * Setup message subscriptions for real-time agent event updates
-   * Subscribes to MessageBus with AGENT category filter
+   * Screen message handler - called by TUI dispatcher for AGENT-category messages.
    */
-  private setupMessageSubscriptions() {
-    this.messageSubscription = this.messageBus.subscribe(
-      { categories: [MessageCategory.AGENT] },
-      this.messageHandler,
-    );
-  }
-
-  /**
-   * Unified agent message handler (for entity-filtered subscriptions)
-   */
-  private handleAgentMessage(message: BaseComponentMessage) {
+  onMessage(message: BaseComponentMessage): void {
+    if (message.category !== MessageCategory.AGENT) return;
+    if (this.currentAgentId && message.entity?.id && message.entity.id !== this.currentAgentId)
+      return;
     switch (message.type) {
       case AgentMessageType.AGENT_START:
         this.handleAgentLifecycleMessage(message);
@@ -104,12 +80,6 @@ export class AgentScreen implements Screen {
       case AgentMessageType.TOOL_CALL_START:
       case AgentMessageType.TOOL_CALL_END:
         this.handleToolMessage(message);
-        break;
-      case AgentMessageType.HUMAN_RELAY_REQUEST:
-      case AgentMessageType.HUMAN_RELAY_RESPONSE:
-      case AgentMessageType.HUMAN_RELAY_TIMEOUT:
-      case AgentMessageType.HUMAN_RELAY_CANCEL:
-        this.handleHumanRelayMessage(message);
         break;
       case AgentMessageType.CHECKPOINT_CREATE:
       case AgentMessageType.CHECKPOINT_RESTORE:
@@ -213,37 +183,6 @@ export class AgentScreen implements Screen {
       this.toolCallPanel.handleToolCallEnd(data);
       const success = data.success ? "✓" : "✗";
       this.appendLog(`${success} Tool ${data.toolName} completed (${data.duration}ms)`, "tool");
-    }
-  }
-
-  /**
-   * Handle human relay messages
-   */
-  private handleHumanRelayMessage(message: BaseComponentMessage) {
-    switch (message.type) {
-      case AgentMessageType.HUMAN_RELAY_REQUEST: {
-        const data = message.data as HumanRelayRequestData;
-        this.appendLog(
-          `Human relay requested: ${data.requestId} (timeout: ${data.timeout}ms)`,
-          "system",
-        );
-        break;
-      }
-      case AgentMessageType.HUMAN_RELAY_RESPONSE: {
-        const data = message.data as HumanRelayResponseData;
-        this.appendLog(`Human relay response received (${data.source})`, "system");
-        break;
-      }
-      case AgentMessageType.HUMAN_RELAY_TIMEOUT: {
-        const data = message.data as HumanRelayTimeoutData;
-        this.appendLog(`Human relay timed out after ${data.timeout}ms`, "system");
-        break;
-      }
-      case AgentMessageType.HUMAN_RELAY_CANCEL: {
-        const data = message.data as HumanRelayCancelData;
-        this.appendLog(`Human relay cancelled: ${data.reason}`, "system");
-        break;
-      }
     }
   }
 
@@ -453,8 +392,6 @@ export class AgentScreen implements Screen {
   }
 
   destroy(): void {
-    this.messageSubscription?.unsubscribe();
-
     // Cleanup running agent if needed
     if (this.isRunning) {
       this.isRunning = false;

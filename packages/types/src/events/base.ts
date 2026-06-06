@@ -112,12 +112,6 @@ export type EventType =
   | "FOLLOWUP_QUESTION_RESPONDED"
   /** Follow-up Question Failed */
   | "FOLLOWUP_QUESTION_FAILED"
-  /** HumanRelay request */
-  | "HUMAN_RELAY_REQUESTED"
-  /** HumanRelay Response */
-  | "HUMAN_RELAY_RESPONDED"
-  /** HumanRelay Failed */
-  | "HUMAN_RELAY_FAILED"
   /** LLM Flow Abort */
   | "LLM_STREAM_ABORTED"
   /** LLM Streaming Error */

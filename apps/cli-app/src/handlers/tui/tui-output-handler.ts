@@ -29,10 +29,6 @@ export class TUIOutputHandler implements OutputHandler {
     this.maxBufferSize = maxBufferSize;
   }
 
-  supports(_message: BaseComponentMessage): boolean {
-    return true;
-  }
-
   handle(message: BaseComponentMessage): void {
     this.messageBuffer.push(message);
     if (this.messageBuffer.length > this.maxBufferSize) {

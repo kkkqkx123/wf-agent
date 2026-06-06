@@ -10,7 +10,6 @@
  */
 export const OutputTarget = {
   TUI: "tui",
-  FILE_FUNCTIONAL: "file_functional",
   FILE_DISPLAY: "file_display",
   EVENT_BUS: "event_bus",
   NONE: "none",
@@ -58,13 +57,6 @@ export interface OutputHandler {
 
   /** Handler name (for registration and debugging) */
   readonly name: string;
-
-  /**
-   * Check if this handler supports the given message
-   * @param message The message to check
-   * @returns true if this handler can process the message
-   */
-  supports(message: BaseComponentMessage): boolean;
 
   /**
    * Handle the message

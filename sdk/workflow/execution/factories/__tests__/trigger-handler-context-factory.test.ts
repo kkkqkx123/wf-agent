@@ -69,7 +69,6 @@ const createMockGlobalContext = (): any => ({
   toolCallExecutor: undefined,
   conversationSession: undefined,
   userInteractionHandler: undefined,
-  humanRelayHandler: undefined,
   interruptionDetector: undefined,
   checkpointStateManager: undefined,
   workflowGraphRegistry: undefined,

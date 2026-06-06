@@ -1,8 +1,7 @@
 /**
  * Timeout Configuration Types
  *
- * Re-export from @wf-agent/types for backward compatibility.
- * The canonical location for these types is packages/types/src/config/timeout-manager.ts
+ * Configuration interfaces for TimeoutManager and TimeoutRegistry.
  */
 
 export {
@@ -12,4 +11,4 @@ export {
   type ResolvedTimeoutRegistryConfig,
   DEFAULT_TIMEOUT_MANAGER_CONFIG,
   DEFAULT_TIMEOUT_REGISTRY_CONFIG,
-} from "@wf-agent/types";
+} from "./timeout-manager-config.js";

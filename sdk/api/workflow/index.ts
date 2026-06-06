@@ -57,12 +57,6 @@ export {
   type UserInteractionFilter,
 } from "./resources/user-interaction/user-interaction-resource-api.js";
 
-export {
-  HumanRelayResourceAPI,
-  type HumanRelayConfig,
-  type HumanRelayFilter,
-} from "./resources/human-relay/human-relay-resource-api.js";
-
 // Operations - Execution
 export {
   ExecuteWorkflowCommand,

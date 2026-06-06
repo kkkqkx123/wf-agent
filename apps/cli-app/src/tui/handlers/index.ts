@@ -1,5 +1,4 @@
 /**
  * TUI Handlers Index
+ * Currently no handlers are exported.
  */
-
-export { TUIHumanRelayHandler } from "./tui-human-relay-handler.js";

@@ -31,12 +31,14 @@ function getGlobalFormatter(): Formatter {
 // Type alias for workflow summary objects (includes metadata like name, status, createdAt)
 // Also supports template types for unified formatting
 type WorkflowSummary = (
-  | WorkflowExecution 
+  | WorkflowExecution
   | WorkflowExecutionResult
   | NodeTemplate
   | TriggerTemplate
   | NodeTemplateSummary
   | TriggerTemplateSummary
+  // Generic workflow-like objects from adapters (which may have broader type constraints)
+  | ({ id?: string; type?: string; status?: string } & Record<string, unknown>)
 ) & {
   name?: string;
   status?: string;
@@ -106,9 +108,9 @@ export function formatWorkflowExecutionList(
     const headers = ["Execution ID", "Workflow ID", "Status", "Creation time"];
     const rows = executions.map(e => {
       const id = 'id' in e ? e.id : (e as WorkflowExecutionResult).executionId;
-      const workflowId = 'workflowId' in e ? e.workflowId : undefined;
+      const workflowId = 'workflowId' in e ? String(e.workflowId ?? "") : undefined;
       return [
-        id?.substring(0, 8) || "N/A",
+        String(id ?? "").substring(0, 8) || "N/A",
         workflowId?.substring(0, 8) || "N/A",
         e.status || "unknown",
         String(e.createdAt || "N/A"),

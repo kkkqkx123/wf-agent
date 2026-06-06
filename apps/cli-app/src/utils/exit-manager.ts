@@ -1,9 +1,13 @@
 /**
  * Exit Manager
  * Ensure safe exit in headless mode
+ *
+ * Mode detection is now centralized in ModeDetector.
+ * These functions are re-exports from ModeDetector for backward compatibility.
  */
 
 import { getOutput } from "./output.js";
+import { isHeadless, isProgrammatic, getMode } from "./mode-detector.js";
 
 /**
  * Exit Manager
@@ -71,35 +75,24 @@ export class ExitManager {
 
 /**
  * Check if running in headless mode
+ * @deprecated Use `isHeadless()` from mode-detector.js instead
  */
 export function isHeadlessMode(): boolean {
-  return (
-    process.env["CLI_MODE"] === "headless" ||
-    process.env["HEADLESS"] === "true" ||
-    process.env["TEST_MODE"] === "true"
-  );
+  return isHeadless();
 }
 
 /**
  * Check if running in programmatic mode
+ * @deprecated Use `isProgrammatic()` from mode-detector.js instead
  */
 export function isProgrammaticMode(): boolean {
-  return process.env["CLI_MODE"] === "programmatic";
+  return isProgrammatic();
 }
 
 /**
  * Detect execution mode
+ * @deprecated Use `getMode().mode` from mode-detector.js instead
  */
 export function detectExecutionMode(): "interactive" | "headless" | "programmatic" {
-  if (process.env["CLI_MODE"] === "programmatic") {
-    return "programmatic";
-  }
-  if (
-    process.env["CLI_MODE"] === "headless" ||
-    process.env["HEADLESS"] === "true" ||
-    process.env["TEST_MODE"] === "true"
-  ) {
-    return "headless";
-  }
-  return "interactive";
+  return getMode().mode;
 }

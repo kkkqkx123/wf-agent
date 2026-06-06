@@ -9,6 +9,7 @@ import type { SDKInstance } from "@wf-agent/sdk/api";
 import { TerminalManager } from "../services/terminal/terminal-manager.js";
 import { ExecutionService } from "../services/execution/execution-service.js";
 import { WorkflowExecutionAdapter } from "../adapters/workflow-execution-adapter.js";
+import type { CLIUserInteractionManager } from "../handlers/user-interaction/index.js";
 
 /**
  * CLI Dependency Container
@@ -19,12 +20,27 @@ export class CLIDependencyContainer {
   private terminalManager: TerminalManager;
   private executionService: ExecutionService;
   private workflowExecutionAdapter: WorkflowExecutionAdapter;
+  private interactionHandler: CLIUserInteractionManager | null = null;
 
   constructor(sdk: SDKInstance) {
     this.sdk = sdk;
     this.terminalManager = new TerminalManager();
     this.executionService = new ExecutionService(this.sdk, this.terminalManager);
     this.workflowExecutionAdapter = new WorkflowExecutionAdapter();
+  }
+
+  /**
+   * Register the user interaction handler for lifecycle management
+   */
+  registerInteractionHandler(handler: CLIUserInteractionManager): void {
+    this.interactionHandler = handler;
+  }
+
+  /**
+   * Get the registered interaction handler
+   */
+  getInteractionHandler(): CLIUserInteractionManager | null {
+    return this.interactionHandler;
   }
 
   /**
@@ -60,6 +76,9 @@ export class CLIDependencyContainer {
    */
   async cleanup(): Promise<void> {
     await this.executionService.cleanup();
+    if (this.interactionHandler) {
+      this.interactionHandler.cleanup();
+    }
   }
 }
 

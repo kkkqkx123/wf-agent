@@ -5,6 +5,7 @@
 import { Command } from "commander";
 import { ToolAdapter } from "../../adapters/tool-adapter.js";
 import { getOutput } from "../../utils/output.js";
+import { getFormatter } from "../../utils/formatter.js";
 import { formatTool, formatToolList } from "../../utils/cli-formatters.js";
 import type { CommandOptions } from "../../types/cli-types.js";
 import { handleError } from "../../utils/error-handler.js";
@@ -266,7 +267,7 @@ export function createToolCommands(): Command {
           const result = await adapter.executeTool(id, parameters, toolOptions);
 
           if (options.verbose) {
-            output.json(result);
+            output.output(getFormatter().json(result));
           } else {
             output.info("The tool executed successfully.");
             const resultTyped = result as { result?: unknown };

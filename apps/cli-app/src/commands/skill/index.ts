@@ -6,6 +6,7 @@
 import { Command } from "commander";
 import { SkillAdapter } from "../../adapters/skill-adapter.js";
 import { getOutput } from "../../utils/output.js";
+import { getFormatter } from "../../utils/formatter.js";
 import type { CommandOptions } from "../../types/cli-types.js";
 import { handleError } from "../../utils/error-handler.js";
 import { CLIValidationError } from "../../types/cli-types.js";
@@ -130,7 +131,7 @@ export function createSkillCommands(): Command {
 
           if (options.verbose) {
             output.newLine();
-            output.subsection("Detailed list.");
+            output.output(getFormatter().subsection("Detailed list."));
             const enabledSkills = await adapter.getEnabledSkills();
             const enabledNames = new Set(enabledSkills.map(s => s.name));
             for (const skill of skills) {
@@ -172,7 +173,7 @@ export function createSkillCommands(): Command {
 
         if (options.content) {
           output.newLine();
-          output.subsection("Full Content.");
+          output.output(getFormatter().subsection("Full Content."));
           output.output("─".repeat(60));
           const content = await adapter.loadContent(name);
           output.output(content);
@@ -247,7 +248,7 @@ export function createSkillCommands(): Command {
         }
 
         output.newLine();
-        output.subsection(`Resources (${resourceType}) for ${name}:`);
+        output.output(getFormatter().subsection(`Resources (${resourceType}) for ${name}:`));
         output.output("─".repeat(40));
 
         for (const resource of resources) {
@@ -356,12 +357,12 @@ export function createSkillCommands(): Command {
         const disabled = await adapter.getDisabledSkills();
 
         output.newLine();
-        output.subsection("Enabled Skills");
+        output.output(getFormatter().subsection("Enabled Skills"));
         output.output(formatSkillList(enabled, { table: options.table }));
 
         if (disabled.length > 0) {
           output.newLine();
-          output.subsection("Disabled Skills");
+          output.output(getFormatter().subsection("Disabled Skills"));
           output.output(formatSkillList(disabled, { table: options.table }));
         }
       } catch (error) {
@@ -403,7 +404,7 @@ export function createSkillCommands(): Command {
 
         output.newLine();
         output.info("Skill directory initialized");
-        output.keyValue("Directory", directory);
+        output.output(getFormatter().keyValue("Directory", directory));
       } catch (error) {
         handleError(error, {
           operation: "initializeSkillDirectory",

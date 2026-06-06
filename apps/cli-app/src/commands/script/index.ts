@@ -5,6 +5,7 @@
 import { Command } from "commander";
 import { ScriptAdapter } from "../../adapters/script-adapter.js";
 import { getOutput } from "../../utils/output.js";
+import { getFormatter } from "../../utils/formatter.js";
 import { formatScript, formatScriptList } from "../../utils/cli-formatters.js";
 import type { CommandOptions } from "../../types/cli-types.js";
 import { handleError } from "../../utils/error-handler.js";
@@ -266,7 +267,7 @@ export function createScriptCommands(): Command {
           const result = await adapter.executeScript(name, scriptOptions);
 
           if (options.verbose) {
-            output.json(result);
+            output.output(getFormatter().json(result));
           } else {
             output.info("Script executed successfully");
             const resultTyped = result as { output?: unknown };

@@ -6,6 +6,7 @@ import { Command } from "commander";
 import { AgentLoopAdapter } from "../../adapters/agent-loop-adapter.js";
 import { AgentLoopCheckpointAdapter } from "../../adapters/agent-loop-checkpoint-adapter.js";
 import { getOutput } from "../../utils/output.js";
+import { getFormatter } from "../../utils/formatter.js";
 import { formatAgentLoop, formatAgentLoopList } from "../../utils/cli-formatters.js";
 import type { CommandOptions } from "../../types/cli-types.js";
 import type { AgentLoopRuntimeConfig, AgentLoopCheckpoint, Message, LLMMessage } from "@wf-agent/types";
@@ -205,7 +206,7 @@ export function createAgentCommands(): Command {
 
           output.newLine();
           output.info("Agent Loop started.");
-          output.keyValue("  ID", id);
+          output.output(getFormatter().keyValue("  ID", id));
           output.newLine();
           output.info(`Agent Loop ID: ${id}`);
         } catch (error) {
@@ -291,9 +292,9 @@ export function createAgentCommands(): Command {
         }
 
         output.newLine();
-        output.subsection("Agent Loop Status.");
-        output.keyValue("  ID", id);
-        output.keyValue("  Status", status);
+        output.output(getFormatter().subsection("Agent Loop Status."));
+        output.output(getFormatter().keyValue("  ID", id));
+        output.output(getFormatter().keyValue("  Status", status));
       } catch (error) {
         handleError(error, {
           operation: "getAgentLoopStatus",
@@ -469,7 +470,7 @@ export function createAgentCommands(): Command {
 
         output.newLine();
         output.info("Agent Loop has been cloned.");
-        output.keyValue("New ID", result.id);
+        output.output(getFormatter().keyValue("New ID", result.id));
       } catch (error) {
         handleError(error, {
           operation: "cloneAgentLoop",
@@ -507,7 +508,7 @@ export function createAgentCommands(): Command {
         const messages = await adapter.getAgentLoopMessages(id);
 
         if (options.verbose) {
-          output.json(messages);
+          output.output(getFormatter().json(messages));
         } else {
           messages.forEach((msg: Message, index: number) => {
             const role = msg.role || "unknown";

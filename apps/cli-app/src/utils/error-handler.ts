@@ -4,6 +4,7 @@
  */
 
 import { getOutput } from "./output.js";
+import { getFormatter } from "./formatter.js";
 import { CLIValidationError as ValidationError } from "../types/cli-types.js";
 import type { CLIError, CLIAPIError, CLIFileOperationError } from "../types/cli-types.js";
 
@@ -146,7 +147,7 @@ export class CLIErrorHandler {
     // Display suggestions
     if (formattedError.suggestions && formattedError.suggestions.length > 0) {
       output.newLine();
-      output.subsection("Suggestion:");
+      output.output(getFormatter().subsection("Suggestion:"));
       formattedError.suggestions.forEach((suggestion, index) => {
         output.output(`  ${index + 1}. ${suggestion}`);
       });
@@ -157,7 +158,7 @@ export class CLIErrorHandler {
       const error = this.getErrorObject(context);
       if (error instanceof Error && error.stack) {
         output.newLine();
-        output.subsection("Stack trace:");
+        output.output(getFormatter().subsection("Stack trace:"));
         output.output(error.stack);
       }
     }
@@ -165,9 +166,9 @@ export class CLIErrorHandler {
     // Display context information (detailed mode)
     if (this.verbose && Object.keys(context).length > 0) {
       output.newLine();
-      output.subsection("Context Information:");
+      output.output(getFormatter().subsection("Context Information:"));
       Object.entries(context).forEach(([key, value]) => {
-        output.keyValue(`  ${key}`, String(value));
+        output.output(getFormatter().keyValue(`  ${key}`, String(value)));
       });
     }
   }

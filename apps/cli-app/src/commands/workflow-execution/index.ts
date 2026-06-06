@@ -7,6 +7,7 @@
 
 import { Command } from "commander";
 import { getOutput } from "../../utils/output.js";
+import { getFormatter } from "../../utils/formatter.js";
 import { formatWorkflowExecution, formatWorkflowExecutionList } from "../../utils/cli-formatters.js";
 import type { CommandOptions } from "../../types/cli-types.js";
 import { handleError } from "../../utils/error-handler.js";
@@ -94,10 +95,10 @@ export function createWorkflowExecutionCommands(): Command {
             // Background mode: Show background execution info
             output.newLine();
             output.info("The workflow execution has been started in the background.");
-            output.keyValue("Execution ID", result.executionId);
-            output.keyValue("Process ID", String(result.pid));
-            output.keyValue("Log file", result.logFile || `logs/workflow-${result.executionId}.log`);
-            output.keyValue("Startup time", result.startTime.toISOString());
+            output.output(getFormatter().keyValue("Execution ID", result.executionId));
+            output.output(getFormatter().keyValue("Process ID", String(result.pid)));
+            output.output(getFormatter().keyValue("Log file", result.logFile || `logs/workflow-${result.executionId}.log`));
+            output.output(getFormatter().keyValue("Startup time", result.startTime.toISOString()));
             output.newLine();
             output.info(
               `Use 'modular-agent execution status ${result.executionId}' to check execution status`,
@@ -106,12 +107,12 @@ export function createWorkflowExecutionCommands(): Command {
             // Detached mode: Show terminal info
             output.newLine();
             output.info("The workflow execution has been started in a separate terminal.");
-            output.keyValue("Execution ID", result.executionId);
+            output.output(getFormatter().keyValue("Execution ID", result.executionId));
             if (result.terminalId) {
-              output.keyValue("Terminal ID", result.terminalId);
+              output.output(getFormatter().keyValue("Terminal ID", result.terminalId));
             }
-            output.keyValue("Process ID", String(result.pid));
-            output.keyValue("Startup time", result.startTime.toISOString());
+            output.output(getFormatter().keyValue("Process ID", String(result.pid)));
+            output.output(getFormatter().keyValue("Startup time", result.startTime.toISOString()));
             output.newLine();
             output.info(
               `Use 'modular-agent execution status ${result.executionId}' to check execution status`,
@@ -134,11 +135,11 @@ export function createWorkflowExecutionCommands(): Command {
       try {
         const status = await getExecutionService().monitorExecution(executionId);
         output.newLine();
-        output.subsection("Execution Status:");
-        output.keyValue("Execution ID", status.executionId);
-        output.keyValue("Status", status.status);
-        output.keyValue("Progress", `${status.progress || 'N/A'}%`);
-        output.keyValue("Last update", status.lastUpdate.toISOString());
+        output.output(getFormatter().subsection("Execution Status:"));
+        output.output(getFormatter().keyValue("Execution ID", status.executionId));
+        output.output(getFormatter().keyValue("Status", status.status));
+        output.output(getFormatter().keyValue("Progress", `${status.progress || 'N/A'}%`));
+        output.output(getFormatter().keyValue("Last update", status.lastUpdate.toISOString()));
       } catch (error) {
         handleError(error, {
           operation: "getExecutionStatus",
@@ -176,7 +177,7 @@ export function createWorkflowExecutionCommands(): Command {
       }
 
       output.newLine();
-      output.subsection("Active Terminal:");
+      output.output(getFormatter().subsection("Active Terminal:"));
       terminals.forEach((terminal: any, index: number) => {
         output.output(`  ${index + 1}. ID: ${terminal.id}`);
         output.output(`     PID: ${terminal.pid}`);

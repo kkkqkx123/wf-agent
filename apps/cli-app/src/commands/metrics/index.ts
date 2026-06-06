@@ -5,6 +5,7 @@
 import { Command } from "commander";
 import { MetricsAdapter } from "../../adapters/metrics-adapter.js";
 import { getOutput } from "../../utils/output.js";
+import { getFormatter } from "../../utils/formatter.js";
 import { handleError } from "../../utils/error-handler.js";
 
 const output = getOutput();
@@ -32,7 +33,7 @@ export function createMetricsCommands(): Command {
         });
 
         if (options.json) {
-          output.json(metrics);
+          output.output(getFormatter().json(metrics));
         } else {
           output.output("=== Workflow Execution Metrics ===");
           output.output(`Total Executions: ${metrics.totalExecutions}`);
@@ -72,7 +73,7 @@ export function createMetricsCommands(): Command {
         });
 
         if (options.json) {
-          output.json(metrics);
+          output.output(getFormatter().json(metrics));
         } else {
           output.output("=== Node Template Usage Metrics ===");
           output.output(`Total Templates: ${metrics.length}`);
@@ -109,7 +110,7 @@ export function createMetricsCommands(): Command {
         });
 
         if (options.json) {
-          output.json(metrics);
+          output.output(getFormatter().json(metrics));
         } else {
           output.output("=== Agent Loop Metrics ===");
           output.output(`Total Executions: ${metrics.totalExecutions}`);
@@ -143,7 +144,7 @@ export function createMetricsCommands(): Command {
         const report = await adapter.getComprehensiveReport();
 
         if (options.json) {
-          output.json(report);
+          output.output(getFormatter().json(report));
         } else {
           output.output("=== Comprehensive Metrics Report ===");
           output.output(`Generated at: ${new Date(report.timestamp).toISOString()}`);

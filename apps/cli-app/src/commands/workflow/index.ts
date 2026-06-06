@@ -5,6 +5,7 @@
 import { Command } from "commander";
 import { WorkflowAdapter } from "../../adapters/workflow-adapter.js";
 import { getOutput } from "../../utils/output.js";
+import { getFormatter } from "../../utils/formatter.js";
 import { formatWorkflow } from "../../utils/cli-formatters.js";
 import { handleError } from "../../utils/error-handler.js";
 import type { CommandOptions } from "../../types/cli-types.js";
@@ -121,13 +122,13 @@ export function createWorkflowCommands(): Command {
             w.status || "unknown",
             w.createdAt || "N/A",
           ]);
-          output.table(headers, rows);
+          output.output(getFormatter().table(headers, rows));
         } else {
           workflows.forEach(w => {
             if (options.verbose) {
-              output.json(w);
+              output.output(getFormatter().json(w));
             } else {
-              output.output(output.workflow(w));
+              output.output(formatWorkflow(w));
             }
           });
         }
@@ -149,9 +150,9 @@ export function createWorkflowCommands(): Command {
         const workflow = await adapter.getWorkflow(id);
 
         if (options.verbose) {
-          output.json(workflow);
+          output.output(getFormatter().json(workflow));
         } else {
-          output.output(output.workflow(workflow));
+          output.output(formatWorkflow(workflow));
         }
       } catch (error) {
         handleError(error, {

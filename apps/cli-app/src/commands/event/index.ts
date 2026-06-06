@@ -5,6 +5,7 @@
 import { Command } from "commander";
 import { EventAdapter } from "../../adapters/event-adapter.js";
 import { getOutput } from "../../utils/output.js";
+import { getFormatter } from "../../utils/formatter.js";
 import { formatEvent, formatEventList } from "../../utils/cli-formatters.js";
 import type { CommandOptions } from "../../types/cli-types.js";
 import { handleError } from "../../utils/error-handler.js";
@@ -101,8 +102,8 @@ export function createEventCommands(): Command {
         const stats = await adapter.getEventStats(filter);
 
         output.newLine();
-        output.subsection("Event Statistics:");
-        output.keyValue("Total", String(stats.total));
+        output.output(getFormatter().subsection("Event Statistics:"));
+        output.output(getFormatter().keyValue("Total", String(stats.total)));
         output.newLine();
         output.output("By type:");
         Object.entries(stats.byType).forEach(([type, count]) => {

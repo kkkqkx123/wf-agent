@@ -6,7 +6,8 @@
 import type { Writable } from "stream";
 import * as fs from "fs";
 import * as path from "path";
-import { Formatter, getFormatter } from "./formatter.js";
+import { getFormatter } from "./formatter.js";
+import { isJsonMode } from "./mode-detector.js";
 
 // ============================================
 // Types
@@ -233,92 +234,6 @@ export class CLIOutput {
     return this._debug;
   }
 
-  /** Get the formatter */
-  get formatter(): Formatter {
-    return getFormatter();
-  }
-
-  // ============================================
-  // Formatting Output Method (Compatible with Old APIs)
-  // ============================================
-
-  /**
-   * Output JSON data
-   */
-  json(data: unknown): void {
-    this.output(getFormatter().json(data));
-  }
-
-  /**
-   * Output table
-   */
-  table(headers: string[], rows: string[][]): void {
-    this.output(getFormatter().table(headers, rows));
-  }
-
-  /**
-   * Output bullet list
-   */
-  bulletList(items: string[]): void {
-    this.output(getFormatter().bulletList(items));
-  }
-
-  /**
-   * Output numbered list
-   */
-  numberedList(items: string[]): void {
-    this.output(getFormatter().numberedList(items));
-  }
-
-  /**
-   * Output section title
-   */
-  section(title: string): void {
-    this.output(getFormatter().section(title));
-  }
-
-  /**
-   * Output subsection title
-   */
-  subsection(title: string): void {
-    this.output(getFormatter().subsection(title));
-  }
-
-  /**
-   * Output key-value pair
-   */
-  keyValue(key: string, value: string): void {
-    this.output(getFormatter().keyValue(key, value));
-  }
-
-  /**
-   * Output multiple key-value pairs
-   */
-  keyValuePairs(pairs: Record<string, string>): void {
-    this.output(getFormatter().keyValuePairs(pairs));
-  }
-
-  /**
-   * Format workflow
-   */
-  workflow(workflow: { id?: string; name?: string; status?: string }): string {
-    return getFormatter().workflow(workflow);
-  }
-
-  /**
-   * Format workflow execution
-   */
-  workflowExecution(execution: { id?: string; workflowId?: string; status?: string }): string {
-    return getFormatter().workflowExecution(execution);
-  }
-
-  /**
-   * Format status
-   */
-  status(status: string): string {
-    return getFormatter().status(status);
-  }
-
   // ============================================
   // Lifecycle
   // ============================================
@@ -408,12 +323,9 @@ export class CLIOutput {
   result(data: unknown, options?: { message?: string; success?: boolean }): void {
     const { message, success = true } = options || {};
 
-    const isJsonMode =
-      process.env["CLI_OUTPUT_FORMAT"] === "json" ||
-      process.env["CLI_MODE"] === "headless" ||
-      process.env["HEADLESS"] === "true";
+    const jsonOutput = isJsonMode();
 
-    if (isJsonMode) {
+    if (jsonOutput) {
       this.structuredOutput({
         success,
         data,
@@ -427,7 +339,7 @@ export class CLIOutput {
         this.fail(message || "Operation failed");
       }
       if (data) {
-        this.json(data);
+        this.output(getFormatter().json(data));
       }
     }
   }
@@ -438,12 +350,9 @@ export class CLIOutput {
   errorResult(error: Error | string, code?: string): void {
     const errorMessage = error instanceof Error ? error.message : error;
 
-    const isJsonMode =
-      process.env["CLI_OUTPUT_FORMAT"] === "json" ||
-      process.env["CLI_MODE"] === "headless" ||
-      process.env["HEADLESS"] === "true";
+    const jsonOutput = isJsonMode();
 
-    if (isJsonMode) {
+    if (jsonOutput) {
       this.structuredOutput({
         success: false,
         error: {

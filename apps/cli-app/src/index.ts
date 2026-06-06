@@ -161,12 +161,11 @@ program
     // The eventAPI has access to the event manager internally
     // We'll use a different approach: pass the SDK instance and let handler access events
     interactionHandler.initialize(sdkInstance);
-    
-    // Store handler reference for cleanup
-    (global as any).__cliInteractionHandler = interactionHandler;
 
-    // 9. Initialize dependency container
-    initializeContainer(sdkInstance);
+    // 9. Register interaction handler in container for lifecycle management
+    const container = initializeContainer(sdkInstance);
+    // Store the interaction handler reference in container for proper cleanup
+    container.registerInteractionHandler(interactionHandler);
   });
 
 // Add workflow command groups

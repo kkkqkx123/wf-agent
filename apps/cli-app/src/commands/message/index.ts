@@ -5,6 +5,7 @@
 import { Command } from "commander";
 import { MessageAdapter } from "../../adapters/message-adapter.js";
 import { getOutput } from "../../utils/output.js";
+import { getFormatter } from "../../utils/formatter.js";
 import { formatMessage, formatMessageList } from "../../utils/cli-formatters.js";
 import type { CommandOptions } from "../../types/cli-types.js";
 import { handleError } from "../../utils/error-handler.js";
@@ -105,8 +106,8 @@ export function createMessageCommands(): Command {
         const stats = await adapter.getMessageStats(executionId);
 
         output.newLine();
-        output.subsection(`Message Statistics for Execution ${executionId}:`);
-        output.keyValue("Total", String(stats.total));
+        output.output(getFormatter().subsection(`Message Statistics for Execution ${executionId}:`));
+        output.output(getFormatter().keyValue("Total", String(stats.total)));
         output.newLine();
         output.output("By role:");
         Object.entries(stats.byRole).forEach(([role, count]) => {
@@ -135,8 +136,8 @@ export function createMessageCommands(): Command {
         const stats = await adapter.getGlobalMessageStats();
 
         output.newLine();
-        output.subsection("Global Message Statistics:");
-        output.keyValue("Total Messages", String(stats.total));
+        output.output(getFormatter().subsection("Global Message Statistics:"));
+        output.output(getFormatter().keyValue("Total Messages", String(stats.total)));
         output.newLine();
         output.output("By execution:");
         Object.entries(stats.byExecution).forEach(([execId, count]) => {

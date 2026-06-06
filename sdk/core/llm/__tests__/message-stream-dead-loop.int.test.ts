@@ -47,8 +47,8 @@ describe('MessageStream with Dead Loop Detection', () => {
         enableDeadLoopDetection: true,
       });
 
-      stream.on('reasoningText', (data: any) => {
-        reasoningEvents.push({ delta: data.delta, snapshot: data.snapshot });
+      stream.on('reasoningText', (delta: string, snapshot: string) => {
+        reasoningEvents.push({ delta, snapshot });
       });
 
       stream.pushReasoning('First part ');
@@ -118,8 +118,8 @@ describe('MessageStream with Dead Loop Detection', () => {
         enableDeadLoopDetection: false,
       });
 
-      stream.on('reasoningText', (data: any) => {
-        reasoningEvents.push({ delta: data.delta });
+      stream.on('reasoningText', (delta: string) => {
+        reasoningEvents.push({ delta });
       });
 
       stream.pushReasoning('Some reasoning');

@@ -68,6 +68,10 @@ class MockClientFactory {
     return client;
   }
 
+  registerMockClient(profileId: string, client: LLMClient): void {
+    this.clientCache.set(profileId, client);
+  }
+
   clearCache(): void {
     this.clientCache.clear();
   }
@@ -533,6 +537,20 @@ describe("LLMWrapper", () => {
         expect(result.error).toBeInstanceOf(LLMError);
         expect(result.error.message).toContain("OPENAI_CHAT API error: String error");
       }
+    });
+  });
+
+  describe("registerMockClient", () => {
+    it("should delegate to ClientFactory.registerMockClient", () => {
+      const mockLlMClient: LLMClient = {
+        generate: vi.fn(),
+        generateStream: vi.fn(),
+      };
+      const registerSpy = vi.spyOn(mockClientFactory, "registerMockClient");
+
+      wrapper.registerMockClient("test-profile", mockLlMClient);
+
+      expect(registerSpy).toHaveBeenCalledWith("test-profile", mockLlMClient);
     });
   });
 });

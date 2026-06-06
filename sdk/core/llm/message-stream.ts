@@ -22,7 +22,11 @@ import {
 } from "@wf-agent/types";
 import { getErrorOrNew } from "@wf-agent/common-utils";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
-import { DeadLoopDetector, DeadLoopDetectionResult, DeadLoopDetectorConfig } from "./dead-loop-detector.js";
+import {
+  DeadLoopDetector,
+  DeadLoopDetectionResult,
+  DeadLoopDetectorConfig,
+} from "./dead-loop-detector.js";
 
 const logger = createContextualLogger({ component: "MessageStream" });
 
@@ -80,7 +84,7 @@ export class MessageStream implements AsyncIterable<InternalStreamEvent> {
   private catchingPromiseCreated: boolean;
   private pushQueue: InternalStreamEvent[];
   private readQueue: Array<(event: InternalStreamEvent) => void>;
-  
+
   // Dead loop detection fields
   private reasoningMessage: string = "";
   private deadLoopDetector?: DeadLoopDetector;
@@ -101,7 +105,7 @@ export class MessageStream implements AsyncIterable<InternalStreamEvent> {
     this.catchingPromiseCreated = false;
     this.pushQueue = [];
     this.readQueue = [];
-    
+
     // Initialize dead loop detector if enabled
     if (options?.enableDeadLoopDetection !== false) {
       this.deadLoopDetector = new DeadLoopDetector(options?.deadLoopConfig);
@@ -120,10 +124,10 @@ export class MessageStream implements AsyncIterable<InternalStreamEvent> {
 
   /**
    * Set external AbortSignal to link with internal controller
-   * 
+   *
    * This allows the MessageStream to be aborted by external signals,
    * such as those from InterruptionState or parent execution contexts.
-   * 
+   *
    * @param signal External AbortSignal to monitor
    */
   setAbortSignal(signal: AbortSignal): void {
@@ -317,37 +321,37 @@ export class MessageStream implements AsyncIterable<InternalStreamEvent> {
     }
 
     this.reasoningMessage += delta;
-    
+
     // Check for dead loop if detector is enabled
     if (this.deadLoopDetector) {
       try {
         const detectionResult = this.deadLoopDetector.detect(this.reasoningMessage);
         if (detectionResult.detected) {
-          logger.warn('Dead loop detected in reasoning content', {
+          logger.warn("Dead loop detected in reasoning content", {
             type: detectionResult.type,
             details: detectionResult.details,
             reasoningLength: this.reasoningMessage.length,
             requestId: this.requestId,
           });
-          
+
           // Trigger callback if provided
           if (this.onDeadLoopDetected) {
             this.onDeadLoopDetected(detectionResult);
           }
-          
+
           // Automatically abort the stream
           this.abort();
           return;
         }
       } catch (error) {
-        logger.error('Dead loop detector error, skipping detection', { 
+        logger.error("Dead loop detector error, skipping detection", {
           error: getErrorOrNew(error),
           requestId: this.requestId,
         });
         // Continue normal flow without interrupting
       }
     }
-    
+
     // Emit reasoning text event
     this.emit("reasoningText", {
       type: "reasoningText",
@@ -465,98 +469,105 @@ export class MessageStream implements AsyncIterable<InternalStreamEvent> {
     }
 
     const eventListeners = this.listeners.get(event);
-    if (!eventListeners || eventListeners.length === 0) {
-      return;
-    }
 
-    // Filter one-time listeners
-    const persistentListeners: FlaggedEventListener<unknown>[] = [];
-    for (const listener of eventListeners) {
-      try {
-        // Expand parameters based on the event type.
-        switch (event) {
-          case "connect": {
-            (listener.listener as () => void)();
-            break;
+    // Fire listeners if any exist
+    if (eventListeners && eventListeners.length > 0) {
+      // Filter one-time listeners
+      const persistentListeners: FlaggedEventListener<unknown>[] = [];
+      for (const listener of eventListeners) {
+        try {
+          // Expand parameters based on the event type.
+          switch (event) {
+            case "connect": {
+              (listener.listener as () => void)();
+              break;
+            }
+            case "streamEvent": {
+              const streamEventData = data as MessageStreamStreamEvent;
+              (
+                listener.listener as (
+                  event: { type: string; data: unknown },
+                  snapshot: LLMMessage,
+                ) => void
+              )(streamEventData.event, streamEventData.snapshot);
+              break;
+            }
+            case "text": {
+              const textData = data as MessageStreamTextEvent;
+              (listener.listener as (delta: string, snapshot: string) => void)(
+                textData.delta,
+                textData.snapshot,
+              );
+              break;
+            }
+            case "inputJson": {
+              const inputJsonData = data as MessageStreamInputJsonEvent;
+              (
+                listener.listener as (
+                  partialJson: string,
+                  parsedSnapshot: unknown,
+                  snapshot: LLMMessage,
+                ) => void
+              )(inputJsonData.partialJson, inputJsonData.parsedSnapshot, inputJsonData.snapshot);
+              break;
+            }
+            case "message": {
+              const messageData = data as MessageStreamMessageEvent;
+              (listener.listener as (message: LLMMessage) => void)(messageData.message);
+              break;
+            }
+            case "finalMessage": {
+              const finalMessageData = data as MessageStreamFinalMessageEvent;
+              (listener.listener as (message: LLMMessage) => void)(finalMessageData.message);
+              break;
+            }
+            case "reasoningText": {
+              const reasoningData = data as MessageStreamReasoningTextEvent;
+              (listener.listener as (delta: string, snapshot: string) => void)(
+                reasoningData.delta,
+                reasoningData.snapshot,
+              );
+              break;
+            }
+            case "error": {
+              const errorData = data as MessageStreamErrorEvent;
+              (listener.listener as (error: Error) => void)(errorData.error);
+              break;
+            }
+            case "abort": {
+              const abortData = data as MessageStreamAbortEvent;
+              (listener.listener as (reason?: string) => void)(abortData.reason);
+              break;
+            }
+            case "end": {
+              (listener.listener as () => void)();
+              break;
+            }
+            default:
+              listener.listener(data);
           }
-          case "streamEvent": {
-            const streamEventData = data as MessageStreamStreamEvent;
-            (
-              listener.listener as (
-                event: { type: string; data: unknown },
-                snapshot: LLMMessage,
-              ) => void
-            )(streamEventData.event, streamEventData.snapshot);
-            break;
-          }
-          case "text": {
-            const textData = data as MessageStreamTextEvent;
-            (listener.listener as (delta: string, snapshot: string) => void)(
-              textData.delta,
-              textData.snapshot,
-            );
-            break;
-          }
-          case "inputJson": {
-            const inputJsonData = data as MessageStreamInputJsonEvent;
-            (
-              listener.listener as (
-                partialJson: string,
-                parsedSnapshot: unknown,
-                snapshot: LLMMessage,
-              ) => void
-            )(inputJsonData.partialJson, inputJsonData.parsedSnapshot, inputJsonData.snapshot);
-            break;
-          }
-          case "message": {
-            const messageData = data as MessageStreamMessageEvent;
-            (listener.listener as (message: LLMMessage) => void)(messageData.message);
-            break;
-          }
-          case "finalMessage": {
-            const finalMessageData = data as MessageStreamFinalMessageEvent;
-            (listener.listener as (message: LLMMessage) => void)(finalMessageData.message);
-            break;
-          }
-          case "error": {
-            const errorData = data as MessageStreamErrorEvent;
-            (listener.listener as (error: Error) => void)(errorData.error);
-            break;
-          }
-          case "abort": {
-            const abortData = data as MessageStreamAbortEvent;
-            (listener.listener as (reason?: string) => void)(abortData.reason);
-            break;
-          }
-          case "end": {
-            (listener.listener as () => void)();
-            break;
-          }
-          default:
-            listener.listener(data);
-        }
 
-        if (!listener.once) {
-          persistentListeners.push(listener);
+          if (!listener.once) {
+            persistentListeners.push(listener);
+          }
+        } catch (error) {
+          // The exception thrown by a listener does not affect other listeners.
+          logger.error(`Error in event listener for ${event}`, {
+            event,
+            error: getErrorOrNew(error),
+          });
         }
-      } catch (error) {
-        // The exception thrown by a listener does not affect other listeners.
-        logger.error(`Error in event listener for ${event}`, {
-          event,
-          error: getErrorOrNew(error),
-        });
       }
+      this.listeners.set(event, persistentListeners);
     }
-    this.listeners.set(event, persistentListeners);
 
     // Handle the abort event
     if (event === "abort") {
       this.aborted = true;
-      if (!this.catchingPromiseCreated && eventListeners.length === 0) {
-        // Trigger an unhandled Promise error.
-        setTimeout(() => {
-          throw new ExecutionError("Stream aborted without error handler");
-        }, 0);
+      if (!this.catchingPromiseCreated && (!eventListeners || eventListeners.length === 0)) {
+        logger.warn("Stream aborted without error handler via done()", {
+          requestId: this.requestId,
+        });
       }
       this.endPromiseReject(new Error("Stream aborted"));
       this.emit("end", {} as MessageStreamEndEvent);
@@ -566,11 +577,8 @@ export class MessageStream implements AsyncIterable<InternalStreamEvent> {
     // Handle error events
     if (event === "error") {
       this.errored = true;
-      if (!this.catchingPromiseCreated && eventListeners.length === 0) {
-        // Trigger an unhandled Promise error.
-        setTimeout(() => {
-          throw (data as MessageStreamErrorEvent).error;
-        }, 0);
+      if (!this.catchingPromiseCreated && (!eventListeners || eventListeners.length === 0)) {
+        logger.warn("Stream error without error handler via done()", { requestId: this.requestId });
       }
       this.endPromiseReject((data as MessageStreamErrorEvent).error);
       this.emit("end", {} as MessageStreamEndEvent);
@@ -840,10 +848,10 @@ export class MessageStream implements AsyncIterable<InternalStreamEvent> {
    */
   [Symbol.asyncIterator](): AsyncIterator<InternalStreamEvent> {
     // Add an event listener
-    this.on("streamEvent", (event: MessageStreamStreamEvent) => {
+    this.on("streamEvent", ((event: { type: string; data: unknown }) => {
       const internalEvent: InternalStreamEvent = {
-        type: event.event.type,
-        data: event.event.data,
+        type: event.type,
+        data: event.data,
       };
       if (this.readQueue.length > 0) {
         const reader = this.readQueue.shift()!;
@@ -851,7 +859,7 @@ export class MessageStream implements AsyncIterable<InternalStreamEvent> {
       } else {
         this.pushQueue.push(internalEvent);
       }
-    });
+    }) as any);
 
     this.once("end", () => {
       while (this.readQueue.length > 0) {
@@ -977,16 +985,16 @@ export class MessageStream implements AsyncIterable<InternalStreamEvent> {
   cleanup(): void {
     // Clear all event listeners
     this.listeners.clear();
-    
+
     // Clear queues
     this.pushQueue = [];
     this.readQueue = [];
-    
+
     // Abort if not already ended
     if (!this.ended && !this.aborted) {
       this.abort();
     }
-    
-    logger.debug('MessageStream cleaned up');
+
+    logger.debug("MessageStream cleaned up");
   }
 }

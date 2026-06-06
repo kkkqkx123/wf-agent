@@ -3,7 +3,6 @@
  */
 
 import type { Component } from "../core/tui.js";
-import type { BaseComponentMessage } from "@wf-agent/types";
 
 /**
  * Interface that all screens must implement
@@ -23,12 +22,6 @@ export interface Screen {
    * Called when screen becomes inactive
    */
   onDeactivate?(): void;
-
-  /**
-   * Called when a component message is routed to this screen.
-   * Screens should implement this instead of subscribing to MessageBus directly.
-   */
-  onMessage?(message: BaseComponentMessage): void;
 
   /**
    * Handle keyboard input at screen level

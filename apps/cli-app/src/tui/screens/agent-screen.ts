@@ -7,18 +7,6 @@ import { Box, Container, Text, Input } from "../core/index.js";
 import type { Screen } from "./screen.js";
 import type { Component } from "../core/tui.js";
 import type { AgentLoopRuntimeConfig } from "@wf-agent/types";
-import { MessageCategory, AgentMessageType } from "@wf-agent/types";
-import type {
-  AgentStartData,
-  AgentEndData,
-  AgentIterationData,
-  AgentLLMStreamData,
-  AgentToolCallData,
-  AgentToolEndData,
-  CheckpointCreateData,
-  CheckpointRestoreData,
-  BaseComponentMessage,
-} from "@wf-agent/types";
 import { IterationPanel } from "../components/iteration-panel.js";
 import { ToolCallIndicator } from "../components/tool-call-indicator.js";
 
@@ -39,8 +27,6 @@ export class AgentScreen implements Screen {
   private isRunning: boolean = false;
   private logEntries: LogEntry[] = [];
   private onBack?: () => void;
-  private streamingBuffer: string = "";
-  private lastRenderTime: number = 0;
 
   constructor(onBack?: () => void) {
     this.onBack = onBack;
@@ -51,157 +37,6 @@ export class AgentScreen implements Screen {
     this.toolCallPanel = new ToolCallIndicator({ maxDisplayCalls: 5, showArguments: false });
 
     this.setupLayout();
-  }
-
-  /**
-   * Screen message handler - called by TUI dispatcher for AGENT-category messages.
-   */
-  onMessage(message: BaseComponentMessage): void {
-    if (message.category !== MessageCategory.AGENT) return;
-    if (this.currentAgentId && message.entity?.id && message.entity.id !== this.currentAgentId)
-      return;
-    switch (message.type) {
-      case AgentMessageType.AGENT_START:
-        this.handleAgentLifecycleMessage(message);
-        break;
-      case AgentMessageType.AGENT_END:
-      case AgentMessageType.AGENT_PAUSE:
-      case AgentMessageType.AGENT_RESUME:
-      case AgentMessageType.AGENT_CANCEL:
-        this.handleAgentLifecycleMessage(message);
-        break;
-      case AgentMessageType.ITERATION_START:
-      case AgentMessageType.ITERATION_END:
-        this.handleIterationMessage(message);
-        break;
-      case AgentMessageType.LLM_STREAM:
-        this.handleLLMStreamMessage(message);
-        break;
-      case AgentMessageType.TOOL_CALL_START:
-      case AgentMessageType.TOOL_CALL_END:
-        this.handleToolMessage(message);
-        break;
-      case AgentMessageType.CHECKPOINT_CREATE:
-      case AgentMessageType.CHECKPOINT_RESTORE:
-        this.handleCheckpointMessage(message);
-        break;
-    }
-  }
-
-  /**
-   * Handle agent lifecycle messages
-   */
-  private handleAgentLifecycleMessage(message: BaseComponentMessage) {
-    switch (message.type) {
-      case AgentMessageType.AGENT_START:
-        {
-          const startData = message.data as AgentStartData;
-          this.currentAgentId = startData.loopId;
-          this.isRunning = true;
-          this.updateStatus("running");
-          this.appendLog(`Agent started: ${startData.agentId}`, "system");
-        }
-        break;
-
-      case AgentMessageType.AGENT_END:
-        {
-          const endData = message.data as AgentEndData;
-          this.isRunning = false;
-          this.updateStatus(endData.status === "completed" ? "completed" : "error");
-          this.appendLog(
-            `Agent ended: ${endData.status} (${endData.totalIterations} iterations, ${endData.duration}ms)`,
-            "system",
-          );
-        }
-        break;
-
-      case AgentMessageType.AGENT_PAUSE:
-        this.updateStatus("paused");
-        this.appendLog("Agent paused", "system");
-        break;
-
-      case AgentMessageType.AGENT_RESUME:
-        this.updateStatus("running");
-        this.appendLog("Agent resumed", "system");
-        break;
-
-      case AgentMessageType.AGENT_CANCEL:
-        this.isRunning = false;
-        this.updateStatus("idle");
-        this.appendLog("Agent cancelled", "system");
-        break;
-    }
-  }
-
-  /**
-   * Handle iteration messages
-   */
-  private handleIterationMessage(message: BaseComponentMessage) {
-    const data = message.data as AgentIterationData;
-
-    if (message.type === AgentMessageType.ITERATION_START) {
-      this.iterationPanel.updateIteration(data);
-      this.appendLog(`Iteration ${data.iteration} started`, "system");
-    } else if (message.type === AgentMessageType.ITERATION_END) {
-      this.iterationPanel.completeIteration(data.iteration, data.duration);
-      this.appendLog(
-        `Iteration ${data.iteration} completed${data.duration ? ` (${data.duration}ms)` : ""}`,
-        "system",
-      );
-    }
-  }
-
-  /**
-   * Handle LLM stream messages with optimized streaming performance
-   */
-  private handleLLMStreamMessage(message: BaseComponentMessage) {
-    const data = message.data as AgentLLMStreamData;
-    if (data.chunk) {
-      // Buffer streaming chunks for performance
-      this.streamingBuffer += data.chunk;
-
-      const now = Date.now();
-      // Render every 100ms or when buffer is large enough
-      if (now - this.lastRenderTime > 100 || this.streamingBuffer.length > 200) {
-        this.appendLog(this.streamingBuffer, "assistant", { stream: true });
-        this.streamingBuffer = "";
-        this.lastRenderTime = now;
-      }
-    }
-  }
-
-  /**
-   * Handle tool execution messages
-   */
-  private handleToolMessage(message: BaseComponentMessage) {
-    if (message.type === AgentMessageType.TOOL_CALL_START) {
-      const data = message.data as AgentToolCallData;
-      this.toolCallPanel.handleToolCallStart(data);
-      this.appendLog(`Calling tool: ${data.toolName}`, "tool");
-    } else if (message.type === AgentMessageType.TOOL_CALL_END) {
-      const data = message.data as AgentToolEndData;
-      this.toolCallPanel.handleToolCallEnd(data);
-      const success = data.success ? "✓" : "✗";
-      this.appendLog(`${success} Tool ${data.toolName} completed (${data.duration}ms)`, "tool");
-    }
-  }
-
-  /**
-   * Handle checkpoint messages
-   */
-  private handleCheckpointMessage(message: BaseComponentMessage) {
-    switch (message.type) {
-      case AgentMessageType.CHECKPOINT_CREATE: {
-        const data = message.data as CheckpointCreateData;
-        this.appendLog(`Checkpoint created: ${data.checkpointId} (${data.entityType})`, "system");
-        break;
-      }
-      case AgentMessageType.CHECKPOINT_RESTORE: {
-        const data = message.data as CheckpointRestoreData;
-        this.appendLog(`Checkpoint restored: ${data.checkpointId} (${data.entityType})`, "system");
-        break;
-      }
-    }
   }
 
   private setupLayout() {
@@ -329,17 +164,13 @@ export class AgentScreen implements Screen {
     }
 
     // Generate agent ID
-    this.currentAgentId = `agent-${Date.now()}-${Math.random().toString(36).substring(7)}`;
-
-    // No need to re-subscribe; messageHandler dynamically checks currentAgentId
+    this.currentAgentId = `agent-${Date.now()}-${Math.random().toString(7)}`;
 
     this.isRunning = true;
     this.updateStatus("running");
     this.appendLog(`Starting agent loop (${this.currentAgentId})...`, "system");
 
-    // Note: Agent execution is handled by SDK via message bus
-    // This screen subscribes to messages and displays updates in real-time
-    // The actual agent loop should be started by publishing an AGENT_START message
+    // Agent loop execution should be triggered externally via SDK adapter
   }
 
   private async sendMessage(text: string) {
@@ -354,7 +185,6 @@ export class AgentScreen implements Screen {
     this.messageInput.setValue("");
 
     // In a real implementation, this would send the message to the running agent
-    // For now, just log it
     this.appendLog("Message sent (integration pending)", "system");
   }
 

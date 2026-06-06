@@ -59,9 +59,6 @@ export * from "./skill.js";
 // Registry Options Type
 export * from "./registry-options.js";
 
-// Component Message System
-export * from "./component-message/index.js";
-
 // Configuration Types
 export * from "./config/index.js";
 

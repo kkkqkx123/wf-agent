@@ -1,12 +1,7 @@
 /**
  * IO Services Index
- * 
- * Exports all IO-related services for CLI-App.
+ *
+ * DisplayOutputService has been removed as it was part of the unused
+ * MessageBus-based output pipeline. No code ever published messages
+ * that triggered the DisplayFileHandler to call this service.
  */
-
-export {
-  DisplayOutputService,
-  type DisplaySection,
-  type SessionMetadata,
-  type DisplayOutputServiceOptions,
-} from "./display-output-service.js";

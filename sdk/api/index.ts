@@ -366,27 +366,6 @@ export type { CommandError } from "./shared/types/command-error.js";
 export { Observable, create, type Observer } from "./shared/utils/observable.js";
 
 // ============================================================================
-// Shared - Component Message
-// ============================================================================
-export {
-  MessageBus,
-  type MessageFilter,
-  type MessageHandler,
-  type MessageSubscription,
-} from "./shared/component-message/message-bus.js";
-
-export {
-  MessagePublisher,
-  createMessagePublisher,
-} from "./shared/component-message/publisher-api.js";
-
-export {
-  matchesRoutingRule,
-  findMatchingRule,
-  sortRulesByPriority,
-} from "./shared/component-message/routing-utils.js";
-
-// ============================================================================
 // Shared - Configuration Parsing Utilities
 // ============================================================================
 export {

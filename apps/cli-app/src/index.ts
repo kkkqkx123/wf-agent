@@ -270,9 +270,6 @@ async function startTUI() {
       output.infoLog("Cleaning up resources...");
       
       try {
-        // Close file IO services
-        await app.getDisplayOutputService().dispose();
-        
         // Destroy SDK (triggers onDestroy hook which closes storage manager)
         if (sdkInstance) {
           await sdkInstance.destroy();

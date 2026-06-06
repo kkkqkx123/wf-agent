@@ -6,8 +6,6 @@
 import { Box, Container, Text, SelectList } from "../core/index.js";
 import type { Screen } from "./screen.js";
 import { WorkflowAdapter } from "../../adapters/workflow-adapter.js";
-import { MessageCategory, WorkflowExecutionMessageType } from "@wf-agent/types";
-import type { BaseComponentMessage, WorkflowExecutionNodeData } from "@wf-agent/types";
 import { createContextualLogger } from "@wf-agent/sdk/utils";
 
 export class WorkflowScreen implements Screen {
@@ -16,7 +14,6 @@ export class WorkflowScreen implements Screen {
   private detailPanel: Box;
   private logPanel: Box;
   private adapter: WorkflowAdapter;
-  private currentWorkflowId?: string;
   private onBack?: () => void;
   private logger = createContextualLogger({ component: "WorkflowScreen" });
 
@@ -53,7 +50,7 @@ export class WorkflowScreen implements Screen {
     splitContainer.addChild(listBox);
     splitContainer.addChild(detailBox);
 
-    // Execution log panel (separate from detail panel to avoid log loss on CRUD operations)
+    // Execution log panel
     const logBox = new Box();
     logBox.addChild(new Text("Execution Log:", 1, 0));
     logBox.addChild(this.logPanel);
@@ -61,65 +58,6 @@ export class WorkflowScreen implements Screen {
     this.container.addChild(toolbar);
     this.container.addChild(splitContainer);
     this.container.addChild(logBox);
-  }
-
-  /**
-   * Screen message handler - called by TUI dispatcher for WORKFLOW_EXECUTION messages.
-   */
-  onMessage(message: BaseComponentMessage): void {
-    if (message.category !== MessageCategory.WORKFLOW_EXECUTION) return;
-
-    const nodeTypes: string[] = [
-      WorkflowExecutionMessageType.NODE_START,
-      WorkflowExecutionMessageType.NODE_END,
-      WorkflowExecutionMessageType.NODE_ERROR,
-      WorkflowExecutionMessageType.NODE_SKIP,
-    ] as string[];
-
-    if (nodeTypes.includes(message.type as string)) {
-      this.handleNodeMessage(message);
-    } else if (
-      message.type === WorkflowExecutionMessageType.EXECUTION_START ||
-      message.type === WorkflowExecutionMessageType.EXECUTION_END
-    ) {
-      this.handleWorkflowMessage(message);
-    }
-  }
-
-  /**
-   * Handle node execution messages
-   */
-  private handleNodeMessage(message: BaseComponentMessage) {
-    const data = message.data as WorkflowExecutionNodeData;
-
-    switch (message.type) {
-      case WorkflowExecutionMessageType.NODE_START:
-        this.appendLog(`Node started: ${data.nodeId} (${data.nodeType})`, "system");
-        break;
-
-      case WorkflowExecutionMessageType.NODE_END:
-        this.appendLog(`Node completed: ${data.nodeId} (${data.duration}ms)`, "system");
-        break;
-
-      case WorkflowExecutionMessageType.NODE_ERROR:
-        this.appendLog(`Node error: ${data.nodeId} - ${data.error}`, "error");
-        break;
-
-      case WorkflowExecutionMessageType.NODE_SKIP:
-        this.appendLog(`Node skipped: ${data.nodeId}`, "system");
-        break;
-    }
-  }
-
-  /**
-   * Handle workflow lifecycle messages
-   */
-  private handleWorkflowMessage(message: BaseComponentMessage) {
-    if (message.type === WorkflowExecutionMessageType.EXECUTION_START) {
-      this.appendLog("Workflow execution started", "system");
-    } else if (message.type === WorkflowExecutionMessageType.EXECUTION_END) {
-      this.appendLog("Workflow execution ended", "system");
-    }
   }
 
   /**
@@ -139,60 +77,36 @@ export class WorkflowScreen implements Screen {
       const items = workflows.map(w => ({
         value: w.id,
         label: w.name,
-        description: `${w.version || "v1.0"} | ${w.status}`,
+        description: w.description || "",
       }));
-
       this.workflowList.setItems(items);
 
-      // Set up selection handler
-      this.workflowList.onSelect = async item => {
-        await this.showWorkflowDetail(item.value);
-      };
+      // Auto-select first workflow
+      if (items.length > 0) {
+        this.selectWorkflow(items[0]!.value);
+      }
     } catch (error) {
-      this.logger.error(
-        "Failed to load workflows",
-        {},
-        {
-          error: error instanceof Error ? error.message : String(error),
-        },
-      );
+      this.logger.error("Failed to load workflows", {}, undefined, error as Error);
+      this.appendLog("Failed to load workflows", "error");
     }
   }
 
-  private async showWorkflowDetail(id: string) {
+  private async selectWorkflow(workflowId: string) {
+    this.detailPanel.clear();
+
     try {
-      this.currentWorkflowId = id;
-      const workflow = await this.adapter.getWorkflow(id);
-
-      // Clear and update detail panel
-      this.detailPanel.clear();
-
-      // Format workflow details as plain text (no Markdown)
-      const details = [
-        `ID: ${workflow.id}`,
-        `Name: ${workflow.name}`,
-        `Version: ${workflow.version || "1.0"}`,
-        `Description: ${workflow.description || "N/A"}`,
-        "",
-        "Nodes:",
-        ...(workflow.nodes || []).map(n => `  - ${n.id} (${n.type})`),
-        "",
-        `Created: ${workflow.createdAt || "N/A"}`,
-        `Updated: ${workflow.updatedAt || "N/A"}`,
-      ];
-
-      details.forEach(line => {
-        this.detailPanel.addChild(new Text(line, 1, 0));
-      });
+      const workflow = await this.adapter.getWorkflow(workflowId);
+      if (workflow) {
+        this.detailPanel.addChild(new Text(`Name: ${workflow.name}`));
+        this.detailPanel.addChild(new Text(`Description: ${workflow.description || "N/A"}`));
+        this.detailPanel.addChild(new Text(`Version: ${workflow.version || "1.0"}`));
+        this.detailPanel.addChild(
+          new Text(`Created: ${new Date(workflow.createdAt).toLocaleDateString()}`),
+        );
+      }
     } catch (error) {
-      this.detailPanel.clear();
-      this.detailPanel.addChild(
-        new Text(
-          `Error loading workflow: ${error instanceof Error ? error.message : String(error)}`,
-          1,
-          0,
-        ),
-      );
+      this.logger.error("Failed to load workflow details", {}, undefined, error as Error);
+      this.detailPanel.addChild(new Text("Failed to load workflow details"));
     }
   }
 
@@ -201,7 +115,6 @@ export class WorkflowScreen implements Screen {
   }
 
   handleInput(data: string): boolean {
-    // Handle toolbar shortcuts
     if (data === "b" || data === "B") {
       this.onBack?.();
       return true;
@@ -212,19 +125,6 @@ export class WorkflowScreen implements Screen {
       return true;
     }
 
-    if (data === "n" || data === "N") {
-      // TODO: Implement new workflow dialog
-      this.logger.info("New workflow - to be implemented");
-      return true;
-    }
-
-    if (data === "d" || (data === "D" && this.currentWorkflowId)) {
-      // TODO: Implement delete with confirmation
-      this.logger.info("Delete workflow - to be implemented");
-      return true;
-    }
-
-    // Delegate to workflow list
     if (this.workflowList.handleInput) {
       this.workflowList.handleInput(data);
       return true;
@@ -234,6 +134,6 @@ export class WorkflowScreen implements Screen {
   }
 
   destroy(): void {
-    // No-op: subscriptions are managed by the TUI app
+    // Cleanup
   }
 }

@@ -58,7 +58,7 @@ import {
   skillSchema,
   createSkillHandler,
   SKILL_TOOL_DESCRIPTION,
-} from "./builtin/knowledge/skill/index.js";
+} from "./builtin/skill/index.js";
 import {
   updateTodoListSchema,
   createUpdateTodoListHandler,
@@ -69,7 +69,7 @@ import {
   useMcpSchema,
   createLazyUseMcpHandler,
   USE_MCP_TOOL_DESCRIPTION,
-} from "./builtin/integration/use-mcp/index.js";
+} from "./builtin/use-mcp/index.js";
 import { getMcpManager } from "../../../services/mcp/server-registry.js";
 
 // Importing a stateful tool

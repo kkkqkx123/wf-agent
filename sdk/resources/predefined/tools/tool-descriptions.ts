@@ -28,11 +28,11 @@ export { GREP_TOOL_DESCRIPTION } from "./stateless/filesystem/grep/index.js";
 export { RUN_SHELL_TOOL_DESCRIPTION } from "./stateless/shell/run-shell/index.js";
 
 // Knowledge tools
-export { SKILL_TOOL_DESCRIPTION } from "./builtin/knowledge/skill/index.js";
+export { SKILL_TOOL_DESCRIPTION } from "./builtin/skill/index.js";
 // Utility tools
 export { UPDATE_TODO_LIST_TOOL_DESCRIPTION } from "./stateless/utility/update-todo-list/index.js";
 // Integration tools
-export { USE_MCP_TOOL_DESCRIPTION } from "./builtin/integration/use-mcp/index.js";
+export { USE_MCP_TOOL_DESCRIPTION } from "./builtin/use-mcp/index.js";
 
 // Stateful - Memory tools
 export {
@@ -63,9 +63,9 @@ import { GREP_TOOL_DESCRIPTION } from "./stateless/filesystem/grep/index.js";
 import { RUN_SHELL_TOOL_DESCRIPTION } from "./stateless/shell/run-shell/index.js";
 // TODO: RUN_SLASH_COMMAND_TOOL_DESCRIPTION not implemented yet
 // import { RUN_SLASH_COMMAND_TOOL_DESCRIPTION } from "./stateless/utility/run-slash-command/index.js";
-import { SKILL_TOOL_DESCRIPTION } from "./builtin/knowledge/skill/index.js";
+import { SKILL_TOOL_DESCRIPTION } from "./builtin/skill/index.js";
 import { UPDATE_TODO_LIST_TOOL_DESCRIPTION } from "./stateless/utility/update-todo-list/index.js";
-import { USE_MCP_TOOL_DESCRIPTION } from "./builtin/integration/use-mcp/index.js";
+import { USE_MCP_TOOL_DESCRIPTION } from "./builtin/use-mcp/index.js";
 import {
   RECORD_NOTE_TOOL_DESCRIPTION,
   RECALL_NOTES_TOOL_DESCRIPTION,

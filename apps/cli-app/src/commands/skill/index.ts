@@ -11,7 +11,7 @@ import { getFormatter } from "../../utils/formatter.js";
 import type { CommandOptions } from "../../types/cli-types.js";
 import { handleError } from "../../utils/error-handler.js";
 import { CLIValidationError } from "../../types/cli-types.js";
-import type { SkillMatchResult, SkillMetadata, SkillResourceType } from "@wf-agent/types";
+import type { SkillMetadata, SkillResourceType } from "@wf-agent/types";
 
 const output = getOutput();
 const router = getRouter();
@@ -82,26 +82,6 @@ function formatSkillList(skills: SkillMetadata[], options?: { table?: boolean })
     if (skill.version) {
       lines.push(`    (v${skill.version})`);
     }
-    lines.push("");
-  }
-
-  return lines.join("\n");
-}
-
-/**
- * Format match results
- */
-function formatMatchResults(results: SkillMatchResult[]): string {
-  if (results.length === 0) {
-    return "No matching Skill found";
-  }
-
-  const lines: string[] = [`Found ${results.length} matching skills:`];
-
-  for (const result of results) {
-    lines.push(`  • ${result.skill.name} (Score: ${result.score.toFixed(2)})`);
-    lines.push(`    ${result.skill.description}`);
-    lines.push(`    Match reason: ${result.reason}`);
     lines.push("");
   }
 
@@ -227,13 +207,18 @@ export function createSkillCommands(): Command {
   // Search Skill commands
   skillCmd
     .command("search <query>")
-    .description("Search Skills by description")
+    .description("Search Skills by name")
     .action(async query => {
       try {
         const adapter = new SkillAdapter();
-        const results = await adapter.matchSkills(query);
+        const skills = await adapter.listSkills({ name: query });
 
-        output.output(formatMatchResults(results));
+        if (skills.length === 0) {
+          output.output(`No skills found matching '${query}'`);
+          return;
+        }
+
+        output.output(formatSkillList(skills));
       } catch (error) {
         handleError(error, {
           operation: "matchSkills",

@@ -11,7 +11,6 @@ import type {
   SkillResourceType,
   Skill,
   SkillConfig,
-  SkillMatchResult,
   SkillLoadContext,
   SkillLoadResult,
 } from "../../../src/index.js";
@@ -237,66 +236,7 @@ const relativePathConfig: SkillConfig = {
 expectType<SkillConfig>(relativePathConfig);
 
 // ============================================================================
-// Test 5: Skill Match Result Type
-// ============================================================================
-
-/**
- * Test SkillMatchResult interface
- */
-const matchResult: SkillMatchResult = {
-  skill: {
-    name: "matched-skill",
-    description: "A matched skill",
-  },
-  score: 0.95,
-  reason: "High relevance to query",
-};
-
-expectType<SkillMatchResult>(matchResult);
-expectType<SkillMetadata>(matchResult.skill);
-expectType<number>(matchResult.score);
-expectType<string>(matchResult.reason);
-
-/**
- * Test SkillMatchResult with different scores
- */
-const lowScoreMatch: SkillMatchResult = {
-  skill: {
-    name: "low-match",
-    description: "Low matching skill",
-  },
-  score: 0.3,
-  reason: "Partial keyword match",
-};
-
-const perfectMatch: SkillMatchResult = {
-  skill: {
-    name: "perfect-match",
-    description: "Perfect matching skill",
-  },
-  score: 1.0,
-  reason: "Exact name match",
-};
-
-expectType<SkillMatchResult>(lowScoreMatch);
-expectType<SkillMatchResult>(perfectMatch);
-
-/**
- * Test score range validation (documentation)
- * Score should be between 0 and 1
- */
-const validScores: number[] = [0.0, 0.25, 0.5, 0.75, 1.0];
-for (const score of validScores) {
-  const result: SkillMatchResult = {
-    skill: { name: "test", description: "test" },
-    score,
-    reason: "Test",
-  };
-  expectType<SkillMatchResult>(result);
-}
-
-// ============================================================================
-// Test 6: Skill Load Context Type
+// Test 5: Skill Load Context Type
 // ============================================================================
 
 /**
@@ -461,7 +401,6 @@ interface SkillManager {
   config: SkillConfig;
   discoverSkills(): Promise<Skill[]>;
   loadSkill(skill: Skill, context?: SkillLoadContext): Promise<SkillLoadResult>;
-  matchSkills(query: string): SkillMatchResult[];
 }
 
 const mockSkillManager: SkillManager = {
@@ -483,15 +422,6 @@ const mockSkillManager: SkillManager = {
       content: skill.content,
       loadTime: 100,
     };
-  },
-  matchSkills(_query) {
-    return [
-      {
-        skill: { name: "matched", description: "Matched skill" },
-        score: 0.8,
-        reason: "Keyword match",
-      },
-    ];
   },
 };
 
@@ -561,18 +491,6 @@ expectAssignable<Skill>({
  */
 expectAssignable<SkillConfig>({
   paths: ["/skills"],
-});
-
-/**
- * Test that SkillMatchResult is assignable
- */
-expectAssignable<SkillMatchResult>({
-  skill: {
-    name: "test",
-    description: "Test",
-  },
-  score: 0.5,
-  reason: "Test match",
 });
 
 /**

@@ -47,7 +47,6 @@ describe("SkillAdapter", () => {
       loadContent: vi.fn(),
       loadResources: vi.fn(),
       search: vi.fn(),
-      matchSkills: vi.fn(),
       toPrompt: vi.fn(),
       listResources: vi.fn(),
     };
@@ -202,29 +201,6 @@ describe("SkillAdapter", () => {
       await expect(adapter.loadResources("skill-123", "references")).rejects.toThrow(
         "Skill resource not found: skill-123, references",
       );
-    });
-  });
-
-  describe("matchSkills", () => {
-    it("should match skills by query", async () => {
-      const mockResults = [
-        { skillId: "skill-1", score: 0.95 },
-        { skillId: "skill-2", score: 0.85 },
-      ];
-      mockSkillsApi.matchSkills.mockResolvedValue(success(mockResults, 40));
-
-      const result = await adapter.matchSkills("test query");
-
-      expect(mockSkillsApi.matchSkills).toHaveBeenCalledWith("test query");
-      expect(result).toHaveLength(2);
-      expect(result[0]).toHaveProperty("skillId", "skill-1");
-    });
-
-    it("should handle match failure", async () => {
-      const mockError = new Error("Match failed");
-      mockSkillsApi.matchSkills.mockResolvedValue(failure(mockError as any, 0));
-
-      await expect(adapter.matchSkills("test")).rejects.toThrow("Match failed");
     });
   });
 });

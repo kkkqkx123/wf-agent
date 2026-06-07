@@ -9,7 +9,7 @@
  */
 
 import { BaseAdapter } from "./base-adapter.js";
-import type { SkillMetadata, SkillMatchResult, SkillResourceType } from "@wf-agent/types";
+import type { SkillMetadata, SkillResourceType } from "@wf-agent/types";
 import { CLINotFoundError } from "../types/cli-types.js";
 import { getData, isFailure, getError } from "@wf-agent/sdk/api";
 
@@ -154,24 +154,6 @@ export class SkillAdapter extends BaseAdapter {
   generateMetadataPrompt(): string {
     const api = this.sdk.skills;
     return api.generateMetadataPrompt();
-  }
-
-  /**
-   * Match Skills by description
-   * @param query Query string
-   * @returns Match results
-   */
-  async matchSkills(query: string): Promise<SkillMatchResult[]> {
-    return this.executeWithErrorHandling(async () => {
-      const api = this.sdk.skills;
-      const result = await api.matchSkills(query);
-      
-      if (isFailure(result)) {
-        throw getError(result);
-      }
-      
-      return getData(result) as SkillMatchResult[];
-    }, "Match Skills");
   }
 
   /**

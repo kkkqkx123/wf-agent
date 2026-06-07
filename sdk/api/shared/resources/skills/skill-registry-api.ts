@@ -12,7 +12,7 @@ import {
   validateStringLength,
 } from "../../validation/validation-strategy.js";
 
-import type { SkillMetadata, SkillMatchResult, SkillResourceType, Skill } from "@wf-agent/types";
+import type { SkillMetadata, SkillResourceType, Skill } from "@wf-agent/types";
 import { NotFoundError, ExecutionError, SDKError } from "@wf-agent/types";
 import { ReadonlyResourceAPI } from "../generic-resource-api.js";
 import type { APIDependencyManager } from "../../core/sdk-dependencies.js";
@@ -259,23 +259,6 @@ export class SkillRegistryAPI extends ReadonlyResourceAPI<SkillMetadata, string,
       return success(prompt, diffTimestamp(startTime, now()));
     } catch (error) {
       return this.handleError(error, "TO_PROMPT", startTime);
-    }
-  }
-
-  /**
-   * Match Skills based on the description
-   *
-   * @param query The query string
-   * @returns An array of matching results
-   */
-  async matchSkills(query: string): Promise<ExecutionResult<SkillMatchResult[]>> {
-    const startTime = now();
-
-    try {
-      const results = this.getRegistry().matchSkills(query);
-      return success(results, diffTimestamp(startTime, now()));
-    } catch (error) {
-      return this.handleError(error, "MATCH_SKILLS", startTime);
     }
   }
 

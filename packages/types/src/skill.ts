@@ -137,28 +137,6 @@ export interface SkillConfig {
 }
 
 /**
- * Skill Match Results
- */
-export interface SkillMatchResult {
-  /**
-   * Matching Skill Metadata
-   */
-  skill: SkillMetadata;
-
-  /**
-   * Match Score
-   * - Range: 0-1
-   * - Higher indicates a better match
-   */
-  score: number;
-
-  /**
-   * Reason for matching
-   */
-  reason: string;
-}
-
-/**
  * Skill loading context
  */
 export interface SkillLoadContext {

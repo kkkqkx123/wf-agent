@@ -64,10 +64,6 @@ export interface SkillConfig {
   paths?: string[];
   /** Whether to automatically scan skill directories */
   autoScan?: boolean;
-  /** Enable caching for skills */
-  cacheEnabled?: boolean;
-  /** Cache TTL in milliseconds */
-  cacheTTL?: number;
 }
 
 /**

@@ -3,8 +3,6 @@
  * 
  * Tests for Skill type definitions following Claude Code Skill specification.
  * These types define the structure for skill metadata, resources, and configuration.
- * 
- * Priority: 🟢 LOW (Stage 3)
  */
 
 import { expectType, expectAssignable } from "tsd";
@@ -214,14 +212,10 @@ expectType<string[]>(basicSkillConfig.paths);
 const fullSkillConfig: SkillConfig = {
   paths: ["/skills/global", "/skills/local"],
   autoScan: true,
-  cacheEnabled: true,
-  cacheTTL: 300000, // 5 minutes
 };
 
 expectType<SkillConfig>(fullSkillConfig);
 expectType<boolean | undefined>(fullSkillConfig.autoScan);
-expectType<boolean | undefined>(fullSkillConfig.cacheEnabled);
-expectType<number | undefined>(fullSkillConfig.cacheTTL);
 
 /**
  * Test SkillConfig with single path
@@ -483,14 +477,14 @@ const mockSkillManager: SkillManager = {
       },
     ];
   },
-  async loadSkill(skill, context) {
+  async loadSkill(skill, _context) {
     return {
       success: true,
       content: skill.content,
       loadTime: 100,
     };
   },
-  matchSkills(query) {
+  matchSkills(_query) {
     return [
       {
         skill: { name: "matched", description: "Matched skill" },

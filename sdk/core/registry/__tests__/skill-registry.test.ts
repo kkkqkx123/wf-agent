@@ -20,8 +20,6 @@ describe('SkillRegistry', () => {
   const mockSkillConfig = {
     paths: ['/mock/skills'],
     autoScan: false,
-    cacheEnabled: true,
-    cacheTTL: 300000,
   };
 
   beforeEach(() => {
@@ -37,8 +35,8 @@ describe('SkillRegistry', () => {
     it('should apply default config values', () => {
       const r = new SkillRegistry({ paths: ['/test'] }, createMockLoader());
       expect((r as any).config.autoScan).toBe(true);
-      expect((r as any).config.cacheEnabled).toBe(true);
-      expect((r as any).config.cacheTTL).toBe(300000);
+      expect((r as any).constructor.CACHE_ENABLED).toBe(true);
+      expect((r as any).constructor.CACHE_TTL).toBe(300000);
     });
   });
 

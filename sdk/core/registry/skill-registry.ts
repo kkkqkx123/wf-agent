@@ -56,6 +56,10 @@ export class SkillRegistry {
   private resourceCache: Map<string, { content: string | Buffer; timestamp: number }> = new Map();
   private cacheClearHandlers: Array<() => void> = [];
 
+  /** Internal cache control — not user-configurable */
+  private static readonly CACHE_ENABLED = true;
+  private static readonly CACHE_TTL = 300000; // 5 minutes
+
   constructor(
     config: SkillConfig,
     private fileLoader: SkillFileLoader,
@@ -63,8 +67,6 @@ export class SkillRegistry {
   ) {
     this.config = {
       autoScan: true,
-      cacheEnabled: true,
-      cacheTTL: 300000, // 5 minutes
       ...config,
     };
   }
@@ -567,9 +569,9 @@ export class SkillRegistry {
     }
 
     // Check the cache.
-    if (this.config.cacheEnabled && skill.content) {
+    if (SkillRegistry.CACHE_ENABLED && skill.content) {
       const cached = this.contentCache.get(name);
-      if (cached && Date.now() - cached.timestamp < (this.config.cacheTTL || 300000)) {
+      if (cached && Date.now() - cached.timestamp < SkillRegistry.CACHE_TTL) {
         return cached.content;
       }
     }
@@ -583,7 +585,7 @@ export class SkillRegistry {
     const body = bodyMatch && bodyMatch[1] ? bodyMatch[1].trim() : content;
 
     // Update the cache
-    if (this.config.cacheEnabled) {
+    if (SkillRegistry.CACHE_ENABLED) {
       skill.content = body;
       this.contentCache.set(name, { content: body, timestamp: Date.now() });
     }
@@ -611,9 +613,9 @@ export class SkillRegistry {
     const cacheKey = `${name}:${resourceType}:${resourcePath}`;
 
     // Check the cache
-    if (this.config.cacheEnabled) {
+    if (SkillRegistry.CACHE_ENABLED) {
       const cached = this.resourceCache.get(cacheKey);
-      if (cached && Date.now() - cached.timestamp < (this.config.cacheTTL || 300000)) {
+      if (cached && Date.now() - cached.timestamp < SkillRegistry.CACHE_TTL) {
         return cached.content;
       }
     }
@@ -626,7 +628,7 @@ export class SkillRegistry {
         : await this.fileLoader.readTextFile(fullPath);
 
     // Update the cache
-    if (this.config.cacheEnabled) {
+    if (SkillRegistry.CACHE_ENABLED) {
       this.resourceCache.set(cacheKey, {
         content: content as string | Buffer,
         timestamp: Date.now(),
@@ -814,7 +816,7 @@ export class SkillRegistry {
       }
 
       // Check the cache for base content (without variable substitution)
-      const cachedEntry = this.config.cacheEnabled ? this.contentCache.get(skillName) : undefined;
+      const cachedEntry = SkillRegistry.CACHE_ENABLED ? this.contentCache.get(skillName) : undefined;
       let baseContent: string | null = cachedEntry?.content ?? null;
 
       if (baseContent === null) {

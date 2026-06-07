@@ -99,7 +99,7 @@ export {
   loadServerConfigs,
   createDefaultMcpSettings,
   mergeServerConfigs,
-} from "./mcp-connection.js";
+} from "../../../../services/mcp/mcp-connection-processor.js";
 
 // Checkpoint Config (base class for multi-level checkpoint config resolution)
 export {

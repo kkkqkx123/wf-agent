@@ -208,16 +208,8 @@ export {
   type McpEventType,
   type McpEventHandler,
   // Config
-  DEFAULT_MCP_SETTINGS_FILE,
-  PROJECT_MCP_FILE,
-  loadMcpSettings,
   loadServerConfigs,
-  fileExists as mcpFileExists,
-  getGlobalMcpSettingsPath,
-  getProjectMcpPath,
   createDefaultMcpSettings,
-  writeMcpSettings,
-  ensureMcpSettingsFile,
   mergeServerConfigs,
   // Transport
   type IMcpTransport,

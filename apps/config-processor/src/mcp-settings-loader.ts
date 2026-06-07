@@ -1,17 +1,16 @@
 /**
- * MCP Configuration Loader
+ * MCP Settings Loader
  *
- * File I/O operations for MCP server configuration management.
- * All pure processing/validation logic lives in processors/mcp-connection.ts.
+ * File I/O operations for MCP server configuration settings.
+ * Lives in the application layer — the SDK only provides pure processing
+ * functions (createDefaultMcpSettings, loadServerConfigs, mergeServerConfigs).
  */
 
 import * as fs from "fs/promises";
 import * as path from "path";
 import type { McpSettings } from "@wf-agent/types";
-import {
-  createDefaultMcpSettings,
-} from "../processors/mcp-connection.js";
-import { validateMcpSettings } from "../../../../core/validation/mcp-validator.js";
+import { McpSettingsSchema } from "@wf-agent/types";
+import { createDefaultMcpSettings } from "@wf-agent/sdk/services";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -77,7 +76,15 @@ export async function loadMcpSettings(filePath: string): Promise<McpSettings> {
     );
   }
 
-  return validateMcpSettings(config);
+  const result = McpSettingsSchema.safeParse(config);
+  if (!result.success) {
+    const errorMessages = result.error.issues
+      .map((err) => `${err.path.join(".")}: ${err.message}`)
+      .join("\n");
+    throw new Error(`Invalid MCP settings: ${errorMessages}`);
+  }
+
+  return result.data;
 }
 
 /**

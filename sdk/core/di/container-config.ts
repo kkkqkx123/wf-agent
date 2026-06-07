@@ -304,8 +304,6 @@ export function configureContainerBindings(
       const config = {
         paths: [],
         autoScan: true,
-        cacheEnabled: true,
-        cacheTTL: 300000,
       };
       const eventManager = c.get(Identifiers.EventRegistry) as EventRegistry;
       const fileLoader = new HostSkillLoader();

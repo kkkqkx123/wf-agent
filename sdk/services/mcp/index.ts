@@ -29,16 +29,8 @@ export type {
 
 // Config
 export {
-  DEFAULT_MCP_SETTINGS_FILE,
-  PROJECT_MCP_FILE,
-  loadMcpSettings,
   loadServerConfigs,
-  fileExists,
-  getGlobalMcpSettingsPath,
-  getProjectMcpPath,
   createDefaultMcpSettings,
-  writeMcpSettings,
-  ensureMcpSettingsFile,
   mergeServerConfigs,
 } from "./config/index.js";
 

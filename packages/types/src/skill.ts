@@ -134,18 +134,6 @@ export interface SkillConfig {
    * - Default: true
    */
   autoScan?: boolean;
-
-  /**
-   * Enable or disable caching
-   * - Default: true
-   */
-  cacheEnabled?: boolean;
-
-  /**
-   * Cache expiration time (milliseconds)
-   * - Default: 300000 (5 minutes)
-   */
-  cacheTTL?: number;
 }
 
 /**

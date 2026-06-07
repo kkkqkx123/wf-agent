@@ -31,3 +31,30 @@ export {
   loadTimeoutConfig,
   loadFileCheckpointConfig,
 } from "./loader-orchestrator.js";
+
+// MCP settings file I/O
+export {
+  DEFAULT_MCP_SETTINGS_FILE,
+  PROJECT_MCP_FILE,
+  fileExists,
+  getGlobalMcpSettingsPath,
+  getProjectMcpPath,
+  loadMcpSettings,
+  writeMcpSettings,
+  ensureMcpSettingsFile,
+} from "./mcp-settings-loader.js";
+
+// Skill settings file I/O (follows same global/project pattern as MCP)
+export {
+  DEFAULT_SKILL_SETTINGS_FILE,
+  PROJECT_SKILL_FILE,
+  fileExists as skillFileExists,
+  createDefaultSkillConfig,
+  getGlobalSkillSettingsPath,
+  getProjectSkillPath,
+  loadSkillConfig,
+  writeSkillConfig,
+  ensureSkillConfigFile,
+  mergeSkillConfigs,
+  loadAndMergeSkillConfig,
+} from "./skill-settings-loader.js";

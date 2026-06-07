@@ -51,6 +51,25 @@ export function getConfigFormatFromPath(filePath: string): ConfigFormat {
 }
 
 /**
+ * Safely load configuration file content and detect format.
+ * Returns null if the file does not exist, throws on other errors.
+ * @param filePath Configuration file path
+ * @returns Object containing file content and detected format, or null if file not found
+ */
+export async function tryLoadConfigFile(
+  filePath: string,
+): Promise<{ content: string; format: ConfigFormat } | null> {
+  try {
+    return await loadConfigFile(filePath);
+  } catch (error) {
+    if ((error as Error).message?.startsWith("Configuration file not found")) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+/**
  * Load configuration file content and detect format
  * Convenience function that combines readConfigFile and getConfigFormatFromPath
  * @param filePath Configuration file path

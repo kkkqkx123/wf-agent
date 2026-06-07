@@ -92,6 +92,20 @@ export {
   toFileCheckpointManagerConfig,
 } from "./file-checkpoint.js";
 
+// MCP connection configuration processing function
+export {
+  ServerConfigSchema,
+  McpSettingsSchema,
+  validateServerConfig,
+  validateMcpSettings,
+  isStdioConfig,
+  isSseConfig,
+  isStreamableHttpConfig,
+  loadServerConfigs,
+  createDefaultMcpSettings,
+  mergeServerConfigs,
+} from "./mcp-connection.js";
+
 // Checkpoint Config (base class for multi-level checkpoint config resolution)
 export {
   CheckpointConfigResolver,

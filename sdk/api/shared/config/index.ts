@@ -53,6 +53,8 @@ export {
   readConfigFile,
   getConfigFormatFromPath,
   loadConfigFile,
+  tryLoadConfigFile,
+  createConfigFileLoader,
   // Backward compatibility aliases
   getConfigFormatFromPath as detectConfigFormat,
   loadConfigFile as loadConfigContent,
@@ -156,15 +158,17 @@ export {
   isStdioConfig,
   isSseConfig,
   isStreamableHttpConfig,
+  loadServerConfigs,
+  createDefaultMcpSettings,
+  mergeServerConfigs,
+} from "./processors/index.js";
+export {
   DEFAULT_MCP_SETTINGS_FILE,
   PROJECT_MCP_FILE,
   loadMcpSettings,
-  loadServerConfigs,
   fileExists,
   getGlobalMcpSettingsPath,
   getProjectMcpPath,
-  createDefaultMcpSettings,
   writeMcpSettings,
   ensureMcpSettingsFile,
-  mergeServerConfigs,
-} from "./mcp/index.js";
+} from "./loaders/index.js";

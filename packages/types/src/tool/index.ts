@@ -47,6 +47,9 @@ export * from "./file-permission.js";
 // Export MCP Approval Types
 export * from "./mcp-approval.js";
 
+// Export MCP Connection Types
+export * from "./mcp-connection.js";
+
 // Export Zod Schemas for Tool Validation
 export {
   ToolPropertySchema,
@@ -82,7 +85,7 @@ export {
   FilePermissionSettingsSchema,
   McpToolConfigSchema,
   McpResourceConfigSchema,
-  McpServerConfigSchema,
+  McpApprovalServerConfigSchema,
   McpApprovalSettingsSchema,
   CategoriesSettingsSchema,
   isToolApprovalOptions,

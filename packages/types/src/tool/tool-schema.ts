@@ -344,9 +344,9 @@ export const McpResourceConfigSchema = z.object({
 });
 
 /**
- * MCP Server Config Schema
+ * MCP Approval Server Config Schema
  */
-export const McpServerConfigSchema = z.object({
+export const McpApprovalServerConfigSchema = z.object({
   name: z.string(),
   description: z.string().optional(),
   tools: z.array(McpToolConfigSchema).optional(),
@@ -359,7 +359,7 @@ export const McpServerConfigSchema = z.object({
  * MCP Approval Settings Schema
  */
 export const McpApprovalSettingsSchema = z.object({
-  servers: z.array(McpServerConfigSchema),
+  servers: z.array(McpApprovalServerConfigSchema),
   defaultServerBehavior: z.enum(["always_ask", "always_deny"]).optional(),
 });
 

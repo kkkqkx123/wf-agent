@@ -39,10 +39,10 @@ export interface McpResourceConfig {
 export type McpDefaultBehavior = "always_approve" | "always_ask" | "always_deny";
 
 /**
- * MCP Server Configuration
- * Defines settings for a specific MCP server
+ * MCP Approval Server Configuration
+ * Defines settings for a specific MCP server's approval behavior
  */
-export interface McpServerConfig {
+export interface McpApprovalServerConfig {
   /** Server name */
   name: string;
   /** Server description */
@@ -63,7 +63,7 @@ export interface McpServerConfig {
  */
 export interface McpApprovalSettings {
   /** Server configurations */
-  servers: McpServerConfig[];
+  servers: McpApprovalServerConfig[];
   /** Global default behavior for unknown servers */
   defaultServerBehavior?: "always_ask" | "always_deny";
 }

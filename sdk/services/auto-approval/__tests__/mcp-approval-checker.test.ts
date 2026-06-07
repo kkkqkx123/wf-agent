@@ -12,7 +12,7 @@ import {
 } from "../mcp-approval-checker.js";
 import type {
   McpApprovalSettings,
-  McpServerConfig,
+  McpApprovalServerConfig,
   McpToolCallRequest,
   McpResourceReadRequest,
   McpListRequest,
@@ -48,7 +48,7 @@ function makeListRequest(overrides?: Partial<McpListRequest>): McpListRequest {
   };
 }
 
-function makeSettings(servers: McpServerConfig[] = []): McpApprovalSettings {
+function makeSettings(servers: McpApprovalServerConfig[] = []): McpApprovalSettings {
   return { servers, defaultServerBehavior: "always_ask" };
 }
 

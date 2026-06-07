@@ -5,7 +5,7 @@
 
 import type {
   McpApprovalSettings,
-  McpServerConfig,
+  McpApprovalServerConfig,
   McpRequest,
   McpToolCallRequest,
   McpResourceReadRequest,
@@ -64,7 +64,7 @@ export function checkMcpApproval(params: {
  * @returns Approval decision
  */
 function checkMcpToolApproval(
-  serverConfig: McpServerConfig,
+  serverConfig: McpApprovalServerConfig,
   request: McpToolCallRequest,
 ): McpApprovalDecision {
   // 1. Find tool configuration
@@ -103,7 +103,7 @@ function checkMcpToolApproval(
  * @returns Approval decision
  */
 function checkMcpResourceApproval(
-  serverConfig: McpServerConfig,
+  serverConfig: McpApprovalServerConfig,
   request: McpResourceReadRequest,
 ): McpApprovalDecision {
   // 1. Find matching resource configuration

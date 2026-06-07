@@ -12,11 +12,7 @@
 
 import type { FileCheckpointConfig } from "@wf-agent/types";
 import { mergeFileCheckpointConfig } from "../processors/file-checkpoint.js";
-import { parseToml } from "../parsers/toml-parser.js";
-import { parseJson } from "../parsers/json-parser.js";
-import { createContextualLogger } from "../../../../utils/contextual-logger.js";
-
-const logger = createContextualLogger({ component: "FileCheckpointConfigLoader" });
+import { createConfigFileLoader } from "./config-loader-factory.js";
 
 /**
  * Load file checkpoint configuration from TOML or JSON file
@@ -25,44 +21,7 @@ const logger = createContextualLogger({ component: "FileCheckpointConfigLoader" 
  * @param resolvedWorkspaceRoot - Resolved workspace root path
  * @returns Merged file checkpoint configuration
  */
-export async function loadFileCheckpointConfigFromFile(
-  filePath: string,
-  resolvedWorkspaceRoot?: string,
-): Promise<Required<FileCheckpointConfig>> {
-  try {
-    const fs = await import("fs/promises");
-    const pathModule = await import("path");
-
-    const resolvedPath = pathModule.resolve(filePath);
-
-    try {
-      await fs.access(resolvedPath);
-    } catch {
-      logger.warn("File checkpoint config file not found, using defaults", {
-        filePath: resolvedPath,
-      });
-      return mergeFileCheckpointConfig({}, resolvedWorkspaceRoot);
-    }
-
-    const content = await fs.readFile(resolvedPath, "utf-8");
-    const ext = pathModule.extname(resolvedPath).toLowerCase();
-
-    let parsed: unknown;
-    if (ext === ".toml") {
-      parsed = parseToml(content);
-    } else if (ext === ".json") {
-      parsed = parseJson(content);
-    } else {
-      throw new Error(`Unsupported config file format: ${ext}`);
-    }
-
-    logger.info("Loaded file checkpoint config from file", { filePath: resolvedPath });
-    return mergeFileCheckpointConfig(parsed as Partial<FileCheckpointConfig>, resolvedWorkspaceRoot);
-  } catch (error) {
-    logger.warn("Failed to load file checkpoint config from file, using defaults", {
-      filePath,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return mergeFileCheckpointConfig({}, resolvedWorkspaceRoot);
-  }
-}
+export const loadFileCheckpointConfigFromFile = createConfigFileLoader<Required<FileCheckpointConfig>>(
+  mergeFileCheckpointConfig,
+  "FileCheckpointConfigLoader",
+);

@@ -11,6 +11,21 @@ import { validateWorkflowTrigger } from "../../../../core/validation/trigger-val
 import { ok, err } from "@wf-agent/common-utils";
 import type { TriggerTemplate } from "@wf-agent/types";
 import { substituteParameters } from "../utils/config-utils.js";
+import { ConfigFormat } from "../types.js";
+import { parseToml } from "../parsers/toml-parser.js";
+import { parseJson } from "../parsers/json-parser.js";
+
+/**
+ * Parse trigger-template configuration from raw content.
+ *
+ * @param content - Raw file content (TOML or JSON string).
+ * @param format - Expected format.
+ * @returns The parsed TriggerTemplate.
+ */
+export function parseTriggerTemplate(content: string, format: ConfigFormat): TriggerTemplate {
+  const raw: unknown = format === "toml" ? parseToml(content) : parseJson(content);
+  return raw as TriggerTemplate;
+}
 
 /**
  * Verify TriggerTemplate configuration

@@ -183,6 +183,7 @@ export class InterruptionHistoryManager {
 
     for (let i = entries.length - 1; i >= 0; i--) {
       const entry = entries[i];
+      if (!entry) continue;
       if (entry.type === "PAUSE") {
         lastPauseTimestamp = entry.timestamp;
       } else if (entry.type === "RESUME" && lastPauseTimestamp !== null) {

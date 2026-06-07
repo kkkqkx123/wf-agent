@@ -25,6 +25,7 @@
  */
 
 import { Container, type IContainer } from "@wf-agent/common-utils";
+import * as fs from "fs/promises";
 import type {
   CheckpointStorageAdapter,
   WorkflowStorageAdapter,
@@ -112,10 +113,11 @@ import { MetricsRegistry } from "../metrics/metrics-registry.js";
 import type { MetricsConfig, TimeoutConfig, CheckpointMetadata } from "@wf-agent/types";
 import type { SDKOptions } from "../../api/shared/types/core-types.js";
 import {
-  loadMetricsConfigFromFile,
+  parseJson,
+  parseToml,
+  getConfigFormatFromPath,
   mergeMetricsWithDefaults,
   getMetricsEnvironmentDefaults,
-  loadTimeoutConfigFromFile,
   mergeTimeoutWithDefaults,
   getTimeoutEnvironmentDefaults,
 } from "../../api/shared/config/index.js";
@@ -1030,10 +1032,13 @@ export function configureContainerBindings(
       // Priority 2: Config file
       const configPaths = ["./configs/metrics.toml", "./configs/metrics.json"];
 
-      for (const path of configPaths) {
+      for (const filePath of configPaths) {
         try {
-          const config = await loadMetricsConfigFromFile(path);
-          logger.info("Loaded metrics config from file", { path });
+          const content = await fs.readFile(filePath, "utf-8");
+          const format = getConfigFormatFromPath(filePath);
+          const parsed: unknown =
+            format === "toml" ? parseToml(content) : parseJson(content);
+          const config = mergeMetricsWithDefaults(parsed as Partial<MetricsConfig>);
           return config;
         } catch {
           // Try next path
@@ -1088,10 +1093,14 @@ export function configureContainerBindings(
       // Priority 2: Config file
       const configPaths = ["./configs/timeout.toml", "./configs/timeout.json"];
 
-      for (const path of configPaths) {
+      for (const filePath of configPaths) {
         try {
-          const config = await loadTimeoutConfigFromFile(path);
-          logger.info("Loaded timeout config from file", { path });
+          const content = await fs.readFile(filePath, "utf-8");
+          const format = getConfigFormatFromPath(filePath);
+          const parsed: unknown =
+            format === "toml" ? parseToml(content) : parseJson(content);
+          const config = mergeTimeoutWithDefaults(parsed as Partial<TimeoutConfig>);
+          logger.info("Loaded timeout config from file", { path: filePath });
           return config;
         } catch {
           // Try next path

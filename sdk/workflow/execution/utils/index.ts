@@ -61,13 +61,8 @@ export {
   waitForNodeFailed,
 } from "./event/event-waiter.js";
 
-// General condition waiting function (re-exported from core/utils/event)
-export {
-  WAIT_FOREVER,
-  waitForCondition,
-  waitForAllConditions,
-  waitForAnyCondition,
-} from "../../../core/utils/event/condition-waiter.js";
+// General condition waiting function (re-exported from event-waiter)
+export { WAIT_FOREVER } from "./event/event-waiter.js";
 
 // Workflow Operation Tool
 export {

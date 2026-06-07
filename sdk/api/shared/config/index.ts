@@ -5,8 +5,7 @@
  * Design principles:
  * - Stateless design, all functions are pure functions.
  * - Configuration validation uses the validator in sdk/core/validation.
- * - This module is only responsible for parsing and transforming configuration content.
- * - This module is only responsible for parsing and converting configuration contents.
+ * - This module is only responsible for parsing and converting configuration content.
  * - No direct operation of the registry, configuration registration is the responsibility of the application layer.
  * - Supports multiple configuration types: workflows, node templates, trigger templates, scripts, LLM Profiles.
  */
@@ -35,30 +34,14 @@ export {
   ParsedLLMProfileConfig,
   ParsedPromptTemplateConfig,
   ParsedAgentLoopConfig,
-  IConfigParser,
   IConfigTransformer,
 } from "./types.js";
-
-// analyzer
-export { ConfigParser } from "./config-parser.js";
 
 // Configuration Tool Functions (re-exported from utils for backward compatibility)
 export { loadAgentLoopConfig } from "./utils/config-utils.js";
 
 // Parameter Substitution Utility
 export { substituteParameters } from "./utils/config-utils.js";
-
-// Configuration File Loader (File I/O operations) - from loaders/
-export {
-  readConfigFile,
-  getConfigFormatFromPath,
-  loadConfigFile,
-  tryLoadConfigFile,
-  createConfigFileLoader,
-  // Backward compatibility aliases
-  getConfigFormatFromPath as detectConfigFormat,
-  loadConfigFile as loadConfigContent,
-} from "./loaders/index.js";
 
 // JSON Parsing Functions - from parsers/
 export { parseJson, stringifyJson, validateJsonSyntax } from "./parsers/index.js";
@@ -71,49 +54,44 @@ export {
   validateTomlSyntax,
 } from "./parsers/index.js";
 
+// Format detection utility (pure string operation)
+export { getConfigFormatFromPath } from "./parsers/index.js";
+
 // resolver - from utils/
 export { ConfigTransformer } from "./utils/index.js";
-
-// Configure parsing functions (recommended)
-export {
-  parseWorkflow,
-  validateWorkflowByContent,
-  parseWorkflowConfig,
-  parseBatchWorkflows,
-  parseNodeTemplate,
-  parseBatchNodeTemplates,
-  parseTriggerTemplate,
-  parseBatchTriggerTemplates,
-  parseScript,
-  parseBatchScripts,
-  parseLLMProfile,
-  parseBatchLLMProfiles,
-} from "./parse-functions.js";
 
 // Configuration handler export (pure function)
 export {
   // Workflow
+  parseWorkflow,
   validateWorkflow,
   transformWorkflow,
   exportWorkflow,
   // NodeTemplate
+  parseNodeTemplate,
   validateNodeTemplate,
   transformNodeTemplate,
   exportNodeTemplate,
   // Script
+  parseScript,
   validateScript,
   transformScript,
   exportScript,
   // TriggerTemplate
+  parseTriggerTemplate,
   validateTriggerTemplate,
   transformTriggerTemplate,
   exportTriggerTemplate,
   // LLM Profile
+  parseLLMProfile,
   validateLLMProfile,
   transformLLMProfile,
   exportLLMProfile,
   // PromptTemplate
+  parsePromptTemplateConfig,
   validatePromptTemplate,
+  mergePromptTemplateConfig,
+  loadAndMergePromptTemplate,
   transformPromptTemplate,
   exportPromptTemplate,
   // Agent Loop
@@ -129,22 +107,6 @@ export {
   mergeFileCheckpointConfig,
   toFileCheckpointManagerConfig,
 } from "./processors/index.js";
-
-// Cue word template loader export - from loaders/
-export {
-  loadPromptTemplateConfig,
-  mergePromptTemplateConfig,
-  loadAndMergePromptTemplate,
-} from "./loaders/prompt-template-config-loader.js";
-
-// Metrics configuration loader export (with file I/O) - from loaders/
-export { loadMetricsConfigFromFile } from "./loaders/metrics-config-loader.js";
-
-// Timeout configuration loader export (with file I/O) - from loaders/
-export { loadTimeoutConfigFromFile } from "./loaders/timeout-config-loader.js";
-
-// File checkpoint configuration loader
-export { loadFileCheckpointConfigFromFile } from "./loaders/file-checkpoint-config-loader.js";
 
 // MCP Configuration — consolidated under api/shared/config as the single config entry point
 export {

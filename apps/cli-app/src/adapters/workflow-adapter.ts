@@ -6,7 +6,8 @@
 import { BaseAdapter } from "./base-adapter.js";
 import { resolve, join, extname } from "path";
 import { CLINotFoundError } from "../types/cli-types.js";
-import { getData, isFailure, getError, loadConfigContent, parseWorkflow } from "@wf-agent/sdk/api";
+import { getData, isFailure, getError, parseWorkflow } from "@wf-agent/sdk/api";
+import { loadConfigFile } from "@wf-agent/config-processor";
 import type { WorkflowTemplate } from "@wf-agent/types";
 
 /**
@@ -27,7 +28,7 @@ export class WorkflowAdapter extends BaseAdapter {
     return this.executeWithErrorHandling(async () => {
       // Use SDK to load the configuration.
       const fullPath = resolve(process.cwd(), filePath);
-      const { content, format } = await loadConfigContent(fullPath);
+      const { content, format } = await loadConfigFile(fullPath);
       const workflow = await parseWorkflow(content, format, parameters);
 
       // Using an instance of the inherited SDK
@@ -91,7 +92,7 @@ export class WorkflowAdapter extends BaseAdapter {
       const api = this.sdk.workflows;
       for (const file of files) {
         try {
-          const { content, format } = await loadConfigContent(file);
+          const { content, format } = await loadConfigFile(file);
           const workflow = await parseWorkflow(content, format, options.parameters);
           const createResult = await api.create(workflow);
           // Check if the operation was successful

@@ -11,6 +11,21 @@ import { CodeConfigValidator } from "../../../../workflow/validation/script-conf
 import { ok, err } from "@wf-agent/common-utils";
 import type { Script } from "@wf-agent/types";
 import { substituteParameters } from "../utils/config-utils.js";
+import { ConfigFormat } from "../types.js";
+import { parseToml } from "../parsers/toml-parser.js";
+import { parseJson } from "../parsers/json-parser.js";
+
+/**
+ * Parse script configuration from raw content.
+ *
+ * @param content - Raw file content (TOML or JSON string).
+ * @param format - Expected format.
+ * @returns The parsed Script.
+ */
+export function parseScript(content: string, format: ConfigFormat): Script {
+  const raw: unknown = format === "toml" ? parseToml(content) : parseJson(content);
+  return raw as Script;
+}
 
 /**
  * Verify Script Configuration

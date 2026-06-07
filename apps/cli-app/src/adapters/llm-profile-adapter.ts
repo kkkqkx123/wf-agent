@@ -6,7 +6,8 @@
 import { BaseAdapter } from "./base-adapter.js";
 import { resolve, join, extname } from "path";
 import type { LLMProfile } from "@wf-agent/types";
-import { loadConfigContent, parseLLMProfile, getData, isFailure, getError } from "@wf-agent/sdk/api";
+import { parseLLMProfile, getData, isFailure, getError } from "@wf-agent/sdk/api";
+import { loadConfigFile } from "@wf-agent/config-processor";
 import { CLINotFoundError } from "../types/cli-types.js";
 
 /**
@@ -26,7 +27,7 @@ export class LLMProfileAdapter extends BaseAdapter {
     return this.executeWithErrorHandling(async () => {
       // Use SDK to load the configuration.
       const fullPath = resolve(process.cwd(), filePath);
-      const { content, format } = await loadConfigContent(fullPath);
+      const { content, format } = await loadConfigFile(fullPath);
       const profile = parseLLMProfile(content, format);
 
       // Using an instance of the inherited SDK
@@ -82,7 +83,7 @@ export class LLMProfileAdapter extends BaseAdapter {
       const api = this.sdk.profiles;
       for (const file of files) {
         try {
-          const { content, format } = await loadConfigContent(file);
+          const { content, format } = await loadConfigFile(file);
           const profile = parseLLMProfile(content, format);
           await api.create(profile);
           success.push(profile);
@@ -182,7 +183,7 @@ export class LLMProfileAdapter extends BaseAdapter {
   async validateProfile(filePath: string): Promise<{ valid: boolean; errors: string[] }> {
     return this.executeWithErrorHandling(async () => {
       const fullPath = resolve(process.cwd(), filePath);
-      const { content, format } = await loadConfigContent(fullPath);
+      const { content, format } = await loadConfigFile(fullPath);
       const profile = parseLLMProfile(content, format);
 
       const api = this.sdk.profiles;

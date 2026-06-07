@@ -11,6 +11,21 @@ import { validateNodeTemplateConfig } from "../../../../workflow/validation/node
 import { ok } from "@wf-agent/common-utils";
 import type { NodeTemplate } from "@wf-agent/types";
 import { substituteParameters } from "../utils/config-utils.js";
+import { ConfigFormat } from "../types.js";
+import { parseToml } from "../parsers/toml-parser.js";
+import { parseJson } from "../parsers/json-parser.js";
+
+/**
+ * Parse node-template configuration from raw content.
+ *
+ * @param content - Raw file content (TOML or JSON string).
+ * @param format - Expected format.
+ * @returns The parsed NodeTemplate.
+ */
+export function parseNodeTemplate(content: string, format: ConfigFormat): NodeTemplate {
+  const raw: unknown = format === "toml" ? parseToml(content) : parseJson(content);
+  return raw as NodeTemplate;
+}
 
 /**
  * Verify NodeTemplate configuration

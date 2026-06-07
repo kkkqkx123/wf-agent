@@ -17,20 +17,14 @@
 
 import type { EventRegistry } from "../../../../core/registry/event-registry.js";
 import { EventType } from "@wf-agent/types";
-import {
-  WAIT_FOREVER,
-  waitForCondition,
-  waitForAllConditions,
-  waitForAnyCondition,
-} from "../../../../core/utils/event/condition-waiter.js";
 import { executeWithSharedTimeout } from "../../../../core/utils/timeout/timeout-utils.js";
 import { mergeTimeoutWithDefaults } from "../../../../api/shared/config/index.js";
 
 // Default timeout values for event waiting functions
 const DEFAULT_TIMEOUT_CONFIG = mergeTimeoutWithDefaults({});
 
-// Reexport the generic conditional waiter
-export { WAIT_FOREVER, waitForCondition, waitForAllConditions, waitForAnyCondition };
+/** Sentinel value meaning "wait forever" / no timeout. */
+export const WAIT_FOREVER = -1;
 
 /**
  * Wait for the workflow execution pause event

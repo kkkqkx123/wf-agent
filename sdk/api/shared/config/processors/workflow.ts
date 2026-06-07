@@ -11,6 +11,38 @@ import { validateWorkflowConfig } from "../../../../workflow/validation/workflow
 import { ConfigTransformer } from "../utils/config-transformer.js";
 import type { WorkflowTemplate } from "@wf-agent/types";
 import { ok } from "@wf-agent/common-utils";
+import { ConfigFormat } from "../types.js";
+import { parseToml } from "../parsers/toml-parser.js";
+import { parseJson } from "../parsers/json-parser.js";
+
+/**
+ * Parse workflow configuration from raw content.
+ * Combines parse + validate + transform into a single step.
+ *
+ * @param content - Raw file content (TOML or JSON string).
+ * @param format - Expected format.
+ * @param parameters - Optional runtime parameters.
+ * @returns The fully resolved WorkflowTemplate.
+ */
+export async function parseWorkflow(
+  content: string,
+  format: ConfigFormat,
+  parameters?: Record<string, unknown>,
+): Promise<WorkflowTemplate> {
+  const raw: unknown = format === "toml" ? parseToml(content) : parseJson(content);
+  const config: ParsedConfig<"workflow"> = {
+    configType: "workflow",
+    format,
+    config: raw as WorkflowTemplate,
+    rawContent: content,
+  };
+  const validated = validateWorkflow(config);
+  if (validated.isErr()) {
+    const msgs = validated.error.map(e => e.message).join("\n");
+    throw new Error(`Workflow config validation failed:\n${msgs}`);
+  }
+  return transformWorkflow(validated.value, parameters);
+}
 
 /**
  * Verify Workflow configuration

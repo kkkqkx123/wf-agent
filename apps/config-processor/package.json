@@ -1,0 +1,22 @@
+{
+  "name": "@wf-agent/config-processor",
+  "version": "1.0.0",
+  "description": "File I/O orchestration for SDK configuration loading — reads config files, delegates to SDK parsers & processors",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "clean": "rimraf dist",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@wf-agent/common-utils": "workspace:*",
+    "@wf-agent/sdk": "workspace:*",
+    "@wf-agent/types": "workspace:*"
+  },
+  "devDependencies": {
+    "rimraf": "^6.0.1"
+  }
+}

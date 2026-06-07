@@ -4,17 +4,18 @@
  */
 
 // Workflow processing function
-export { validateWorkflow, transformWorkflow, exportWorkflow } from "./workflow.js";
+export { validateWorkflow, transformWorkflow, exportWorkflow, parseWorkflow } from "./workflow.js";
 
 // NodeTemplate processing function
 export {
   validateNodeTemplate,
   transformNodeTemplate,
   exportNodeTemplate,
+  parseNodeTemplate,
 } from "./node-template.js";
 
 // Script processing function
-export { validateScript, transformScript, exportScript } from "./script.js";
+export { validateScript, transformScript, exportScript, parseScript } from "./script.js";
 
 // Executor processing function
 export {
@@ -28,14 +29,18 @@ export {
   validateTriggerTemplate,
   transformTriggerTemplate,
   exportTriggerTemplate,
+  parseTriggerTemplate,
 } from "./trigger-template.js";
 
 // LLM Profile processing function
-export { validateLLMProfile, transformLLMProfile, exportLLMProfile } from "./llm-profile.js";
+export { validateLLMProfile, transformLLMProfile, exportLLMProfile, parseLLMProfile } from "./llm-profile.js";
 
 // PromptTemplate processing function
 export {
+  parsePromptTemplateConfig,
   validatePromptTemplate,
+  mergePromptTemplateConfig,
+  loadAndMergePromptTemplate,
   transformPromptTemplate,
   exportPromptTemplate,
 } from "./prompt-template.js";

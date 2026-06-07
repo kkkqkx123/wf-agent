@@ -21,7 +21,7 @@ import type { WorkflowTrigger } from "@wf-agent/types";
 import type { TriggerReference } from "@wf-agent/types";
 import { NodeTemplateNotFoundError } from "@wf-agent/types";
 import { generateId } from "../../../utils/id-utils.js";
-import { ConfigParser, ConfigFormat, getConfigFormatFromPath } from "../../shared/config/index.js";
+import { parseWorkflow, ConfigFormat, getConfigFormatFromPath } from "../../shared/config/index.js";
 import * as fs from "fs/promises";
 import { NodeBuilder } from "./node-builder.js";
 import { BaseBuilder } from "../../shared/base-builder.js";
@@ -521,8 +521,7 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
     format: ConfigFormat = "toml",
     parameters?: Record<string, unknown>,
   ): Promise<WorkflowBuilder> {
-    const parser = new ConfigParser();
-    const workflowDef = await parser.parseAndTransform(configFile, format, parameters);
+    const workflowDef = await parseWorkflow(configFile, format, parameters);
 
     const builder = new WorkflowBuilder(globalContext, workflowDef.id);
     // Populate the internal state of the builder
@@ -558,12 +557,10 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
     filePath: string,
     parameters?: Record<string, unknown>,
   ): Promise<WorkflowBuilder> {
-    const parser = new ConfigParser();
-
     // The application layer is responsible for file reading
     const content = await fs.readFile(filePath, "utf-8");
     const format = getConfigFormatFromPath(filePath);
-    const workflowDef = await parser.parseAndTransform(content, format, parameters);
+    const workflowDef = await parseWorkflow(content, format, parameters);
 
     const builder = new WorkflowBuilder(globalContext, workflowDef.id);
     // Populate the internal state of the builder

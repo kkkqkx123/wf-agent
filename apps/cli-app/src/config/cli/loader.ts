@@ -4,7 +4,8 @@
  * Uses SDK's parsing capabilities for TOML and JSON.
  */
 
-import { loadConfigContent, parseJson, parseToml } from "@wf-agent/sdk/api";
+import { loadConfigFile } from "@wf-agent/config-processor";
+import { parseJson, parseToml } from "@wf-agent/sdk/api";
 import type { CLIConfig } from "./types.js";
 import { CLIConfigSchema } from "./schema.js";
 import { DEFAULT_CONFIG } from "./defaults.js";
@@ -39,7 +40,7 @@ export async function loadConfig(configPath?: string): Promise<CLIConfig> {
 
   try {
     // Use SDK's loadConfigContent
-    const { content, format } = await loadConfigContent(targetPath);
+    const { content, format } = await loadConfigFile(targetPath);
 
     // Parse the content using SDK parsers
     const rawConfig = parseConfigContent(content, format);

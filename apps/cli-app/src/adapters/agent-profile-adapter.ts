@@ -7,7 +7,9 @@ import { BaseAdapter } from "./base-adapter.js";
 import { resolve } from "path";
 import type { AgentProfileMeta } from "@wf-agent/sdk/core";
 import { AgentProfileRegistry, ServiceIdentifiers } from "@wf-agent/sdk/core";
-import { loadConfigContent, parseAndValidateAgentLoopConfig } from "@wf-agent/sdk/api";
+import { loadConfigFile } from "@wf-agent/config-processor";
+import { parseJson, parseToml } from "@wf-agent/sdk/api";
+import { AgentLoopDefinitionSchema } from "@wf-agent/types";
 import { CLINotFoundError } from "../types/cli-types.js";
 
 /**
@@ -35,11 +37,15 @@ export class AgentProfileAdapter extends BaseAdapter {
   async registerFromFile(filePath: string): Promise<AgentProfileMeta> {
     return this.executeWithErrorHandling(async () => {
       const fullPath = resolve(process.cwd(), filePath);
-      const { content, format } = await loadConfigContent(fullPath);
-      const parsed = parseAndValidateAgentLoopConfig(content, format);
-
-      // Extract metadata from the parsed config
-      const config = parsed.config;
+      const { content, format } = await loadConfigFile(fullPath);
+      const raw: unknown =
+        format === "toml" ? parseToml(content) : parseJson(content);
+      const result = AgentLoopDefinitionSchema.safeParse(raw);
+      if (!result.success) {
+        const errors = result.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("\n");
+        throw new Error(`Agent loop config validation failed:\n${errors}`);
+      }
+      const config = result.data;
       const meta: AgentProfileMeta = {
         id: config.id,
         name: config.name || config.id,

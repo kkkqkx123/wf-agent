@@ -73,7 +73,4 @@ export {
   waitForAnyWorkflowExecutionCompletion,
   waitForNodeCompleted,
   waitForNodeFailed,
-  waitForCondition,
-  waitForAllConditions,
-  waitForAnyCondition,
 } from "./event-waiter.js";

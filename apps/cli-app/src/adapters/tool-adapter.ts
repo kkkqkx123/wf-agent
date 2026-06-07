@@ -6,7 +6,8 @@
 import { BaseAdapter } from "./base-adapter.js";
 import { resolve, join, extname } from "path";
 import type { Tool, ToolExecutionOptions } from "@wf-agent/types";
-import { StaticValidatorAPI, loadConfigContent, parseToml, parseJson, getData, isFailure, getError } from "@wf-agent/sdk/api";
+import { StaticValidatorAPI, parseToml, parseJson, getData, isFailure, getError } from "@wf-agent/sdk/api";
+import { loadConfigFile } from "@wf-agent/config-processor";
 import type { ConfigurationValidationError } from "@wf-agent/types";
 import { CLINotFoundError } from "../types/cli-types.js";
 import { ToolRegistry, type ToolRegistryConfig } from "../tools/index.js";
@@ -32,7 +33,7 @@ export class ToolAdapter extends BaseAdapter {
     return this.executeWithErrorHandling(async () => {
       // Loading Configuration with SDK
       const fullPath = resolve(process.cwd(), filePath);
-      const { content, format } = await loadConfigContent(fullPath);
+      const { content, format } = await loadConfigFile(fullPath);
       const tool = (format === "toml" ? parseToml(content) : parseJson(content)) as unknown as Tool;
 
       // Using inherited sdk instances
@@ -88,7 +89,7 @@ export class ToolAdapter extends BaseAdapter {
       const api = this.sdk.tools;
       for (const file of files) {
         try {
-          const { content, format } = await loadConfigContent(file);
+          const { content, format } = await loadConfigFile(file);
           const tool = (format === "toml"
             ? parseToml(content)
             : parseJson(content)) as unknown as Tool;
@@ -190,7 +191,7 @@ export class ToolAdapter extends BaseAdapter {
   async validateTool(filePath: string): Promise<{ valid: boolean; errors: string[] }> {
     return this.executeWithErrorHandling(async () => {
       const fullPath = resolve(process.cwd(), filePath);
-      const { content, format } = await loadConfigContent(fullPath);
+      const { content, format } = await loadConfigFile(fullPath);
       const tool = (format === "toml" ? parseToml(content) : parseJson(content)) as unknown as Tool;
 
       // Validating Tool Configurations with StaticValidatorAPI

@@ -6,7 +6,8 @@
 import { BaseAdapter } from "./base-adapter.js";
 import { resolve, join, extname } from "path";
 import { CLINotFoundError } from "../types/cli-types.js";
-import { loadConfigContent, parseNodeTemplate, parseTriggerTemplate, getData, isFailure, getError } from "@wf-agent/sdk/api";
+import { parseNodeTemplate, parseTriggerTemplate, getData, isFailure, getError } from "@wf-agent/sdk/api";
+import { loadConfigFile } from "@wf-agent/config-processor";
 import type { NodeTemplate, TriggerTemplate, NodeTemplateSummary, TriggerTemplateSummary } from "@wf-agent/types";
 
 /**
@@ -26,7 +27,7 @@ export class TemplateAdapter extends BaseAdapter {
     return this.executeWithErrorHandling(async () => {
       // Use SDK to load the configuration.
       const fullPath = resolve(process.cwd(), filePath);
-      const { content, format } = await loadConfigContent(fullPath);
+      const { content, format } = await loadConfigFile(fullPath);
       const template = parseNodeTemplate(content, format);
 
       const api = this.sdk.nodeTemplates;
@@ -82,7 +83,7 @@ export class TemplateAdapter extends BaseAdapter {
       const api = this.sdk.nodeTemplates;
       for (const file of files) {
         try {
-          const { content, format } = await loadConfigContent(file);
+          const { content, format } = await loadConfigFile(file);
           const template = parseNodeTemplate(content, format);
           await api.create(template);
           success.push(template);
@@ -111,7 +112,7 @@ export class TemplateAdapter extends BaseAdapter {
     return this.executeWithErrorHandling(async () => {
       // Use SDK to load the configuration.
       const fullPath = resolve(process.cwd(), filePath);
-      const { content, format } = await loadConfigContent(fullPath);
+      const { content, format } = await loadConfigFile(fullPath);
       const template = parseTriggerTemplate(content, format);
 
       const api = this.sdk.triggerTemplates;
@@ -167,7 +168,7 @@ export class TemplateAdapter extends BaseAdapter {
       const api = this.sdk.triggerTemplates;
       for (const file of files) {
         try {
-          const { content, format } = await loadConfigContent(file);
+          const { content, format } = await loadConfigFile(file);
           const template = parseTriggerTemplate(content, format);
           await api.create(template);
           success.push(template);

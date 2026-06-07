@@ -11,6 +11,21 @@ import { ok, err } from "@wf-agent/common-utils";
 import type { LLMProfile } from "@wf-agent/types";
 import { LLMProfileSchema } from "@wf-agent/types";
 import { substituteParameters } from "../utils/config-utils.js";
+import { ConfigFormat } from "../types.js";
+import { parseToml } from "../parsers/toml-parser.js";
+import { parseJson } from "../parsers/json-parser.js";
+
+/**
+ * Parse LLM profile configuration from raw content.
+ *
+ * @param content - Raw file content (TOML or JSON string).
+ * @param format - Expected format.
+ * @returns The parsed LLMProfile.
+ */
+export function parseLLMProfile(content: string, format: ConfigFormat): LLMProfile {
+  const raw: unknown = format === "toml" ? parseToml(content) : parseJson(content);
+  return raw as LLMProfile;
+}
 
 /**
  * Verify LLM Profile configuration

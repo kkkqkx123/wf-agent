@@ -3,12 +3,11 @@
  * 
  * Provides utility functions for configuration processing.
  * Focus on parameter substitution and transformation logic.
- * 
- * Note: File I/O operations have been moved to config-file-loader.ts
  */
 
+import * as fs from "fs/promises";
 import type { ParsedAgentLoopConfig, AgentLoopConfigFile } from "../types.js";
-import { loadConfigFile } from "../loaders/config-file-loader.js";
+import { getConfigFormatFromPath } from "../parsers/format-detector.js";
 import { parseJson } from "../parsers/json-parser.js";
 import { parseToml } from "../parsers/toml-parser.js";
 import { validateAgentLoopConfig } from "../../../../agent/validation/agent-loop-validator.js";
@@ -20,7 +19,8 @@ import { validateAgentLoopConfig } from "../../../../agent/validation/agent-loop
  * @throws {Error} Throws an error if file cannot be read, parsed, or validated
  */
 export async function loadAgentLoopConfig(filePath: string): Promise<ParsedAgentLoopConfig> {
-  const { content, format } = await loadConfigFile(filePath);
+  const content = await fs.readFile(filePath, "utf-8");
+  const format = getConfigFormatFromPath(filePath);
 
   // Parse the content
   let rawConfig: unknown;

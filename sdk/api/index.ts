@@ -367,17 +367,27 @@ export { Observable, create, type Observer } from "./shared/utils/observable.js"
 // Shared - Configuration Parsing Utilities
 // ============================================================================
 export {
+  // Configuration types & utilities
+  ConfigFormat,
+  getConfigFormatFromPath,
   initializeTomlParser,
   parseToml,
   parseJson,
+  // Parse functions (pure data processing, no file I/O)
   parseWorkflow,
   parseNodeTemplate,
   parseTriggerTemplate,
   parseScript,
   parseLLMProfile,
+  // Transforms & merges
   transformToAgentLoopConfig,
-  loadConfigContent,
   loadAgentLoopConfig,
+  // Processors (pure: merge / validate / export)
+  mergeMetricsWithDefaults,
+  getMetricsEnvironmentDefaults,
+  mergeTimeoutWithDefaults,
+  getTimeoutEnvironmentDefaults,
+  mergeFileCheckpointConfig,
 } from "./shared/config/index.js";
 
 // ============================================================================

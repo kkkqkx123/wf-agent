@@ -71,12 +71,12 @@ export class TokenUsageTracker {
   }
 
   /**
-   * 更新 API 返回的 Token 使用统计
-   *
-   * 保存当前请求的 usage，但不立即累加到总使用量
-   * 需要调用 finalizeCurrentRequest() 来完成累加
-   *
-   * @param usage Token 使用数据
+   * Update Token usage statistics returned by the API
+   * 
+   * Saves the usage of the current request, but does not immediately add it to the total.
+   * You need to call finalizeCurrentRequest() to complete the accumulation.
+   * 
+   * @param usage Token usage data
    */
   updateApiUsage(usage: LLMUsage): void {
     // Save the usage of the current request.
@@ -89,18 +89,18 @@ export class TokenUsageTracker {
   }
 
   /**
-   * 累积流式响应的 Token 使用统计
-   *
-   * 参考 Anthropic SDK 的 #accumulateMessage() 方法：
-   * - 在流式传输期间持续更新 token 统计
-   * - message_delta 事件提供增量更新
-   *
-   * 修复说明：
-   * - 不再在流式传输期间更新 cumulativeUsage
-   * - 只更新 currentRequestUsage，避免统计错误
-   * - 在 finalizeCurrentRequest() 中统一累加到 cumulativeUsage
-   *
-   * @param usage Token 使用数据（增量）
+   * Token usage statistics for cumulative streaming responses
+   * 
+   * See the #accumulateMessage() method of the Anthropic SDK:
+   * - Continuously update token statistics during streaming
+   * - The message_delta event provides incremental updates.
+   * 
+   * Fix Description:
+   * - No longer update cumulativeUsage during streaming.
+   * - Only update currentRequestUsage to avoid stats errors
+   * - Uniformly accumulate to cumulativeUsage in finalizeCurrentRequest()
+   * 
+   * @param usage Token usage data (incremental)
    */
   accumulateStreamUsage(usage: LLMUsage): void {
     if (!this.currentRequestUsage) {
@@ -121,7 +121,7 @@ export class TokenUsageTracker {
 
     // Note: CumulativeUsage is no longer updated during streaming
     // Avoid overwriting previous cumulative statistics
-    // 累积操作将在 finalizeCurrentRequest() 中统一处理
+    // Cumulative operations will be handled uniformly in finalizeCurrentRequest()
   }
 
   /**

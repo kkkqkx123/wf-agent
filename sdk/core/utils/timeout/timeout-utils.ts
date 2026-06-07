@@ -195,11 +195,10 @@ export async function withTimeout<T>(
     message?: string;
   }
 ): Promise<T> {
-  let timedOut = false;
+  let timerId: NodeJS.Timeout;
 
   const timeoutPromise = new Promise<never>((_, reject) => {
-    setTimeout(async () => {
-      timedOut = true;
+    timerId = setTimeout(async () => {
       if (options?.onTimeout) {
         await options.onTimeout();
       }
@@ -209,11 +208,8 @@ export async function withTimeout<T>(
 
   try {
     return await Promise.race([fn(), timeoutPromise]);
-  } catch (error) {
-    if (timedOut) {
-      throw error;
-    }
-    throw error;
+  } finally {
+    clearTimeout(timerId!);
   }
 }
 
@@ -293,15 +289,12 @@ export async function executeWithSharedTimeout<T>(
     message?: string;
   }
 ): Promise<Map<string, T>> {
-  const controller = new AbortController();
   const results = new Map<string, T>();
-  let timedOut = false;
+  let timerId: NodeJS.Timeout;
 
   // Set up shared timeout
   const timeoutPromise = new Promise<never>((_, reject) => {
-    setTimeout(async () => {
-      timedOut = true;
-      controller.abort();
+    timerId = setTimeout(async () => {
       if (options?.onTimeout) {
         await options.onTimeout();
       }
@@ -311,23 +304,14 @@ export async function executeWithSharedTimeout<T>(
 
   // Execute all operations concurrently
   const operationPromises = Object.entries(operations).map(async ([name, fn]) => {
-    try {
-      const result = await fn();
-      results.set(name, result);
-    } catch (error) {
-      if (!controller.signal.aborted) {
-        throw error;
-      }
-    }
+    const result = await fn();
+    results.set(name, result);
   });
 
   try {
     await Promise.race([Promise.all(operationPromises), timeoutPromise]);
     return results;
-  } catch (error) {
-    if (timedOut) {
-      throw error;
-    }
-    throw error;
+  } finally {
+    clearTimeout(timerId!);
   }
 }

@@ -89,4 +89,9 @@ export {
   McpApprovalSettingsSchema,
   CategoriesSettingsSchema,
   isToolApprovalOptions,
+  McpServerConfigSchema,
+  McpSettingsSchema,
+  isMcpStdioConfig,
+  isMcpSseConfig,
+  isMcpStreamableHttpConfig,
 } from "./tool-schema.js";

@@ -400,3 +400,98 @@ export const isToolApprovalOptions = (
 ): config is z.infer<typeof ToolApprovalOptionsSchema> => {
   return ToolApprovalOptionsSchema.safeParse(config).success;
 };
+
+// ============================================================================
+// MCP Connection Config Schemas
+// ============================================================================
+
+const McpBaseConfigSchema = z.object({
+  disabled: z.boolean().optional(),
+  timeout: z.number().min(1).max(3600).optional().default(60),
+  alwaysAllow: z.array(z.string()).default([]),
+  watchPaths: z.array(z.string()).optional(),
+  disabledTools: z.array(z.string()).default([]),
+});
+
+const McpStdioConfigSchema = McpBaseConfigSchema.extend({
+  type: z.enum(["stdio"]).optional(),
+  command: z.string().min(1, "Command cannot be empty"),
+  args: z.array(z.string()).optional(),
+  cwd: z.string().optional(),
+  env: z.record(z.string(), z.string()).optional(),
+}).transform((data) => ({
+  ...data,
+  type: "stdio" as const,
+}));
+
+const McpSseConfigSchema = McpBaseConfigSchema.extend({
+  type: z.enum(["sse"]).optional(),
+  url: z.string().url("URL must be a valid URL format"),
+  headers: z.record(z.string(), z.string()).optional(),
+})
+  .refine(
+    (data) => data.type !== undefined,
+    {
+      message:
+        "Configuration with 'url' must explicitly specify 'type' as 'sse' or 'streamable-http'",
+    },
+  )
+  .transform((data) => ({
+    ...data,
+    type: "sse" as const,
+  }));
+
+const McpStreamableHttpConfigSchema = McpBaseConfigSchema.extend({
+  type: z.enum(["streamable-http"]).optional(),
+  url: z.string().url("URL must be a valid URL format"),
+  headers: z.record(z.string(), z.string()).optional(),
+})
+  .refine(
+    (data) => data.type !== undefined,
+    {
+      message:
+        "Configuration with 'url' must explicitly specify 'type' as 'sse' or 'streamable-http'",
+    },
+  )
+  .transform((data) => ({
+    ...data,
+    type: "streamable-http" as const,
+  }));
+
+/**
+ * MCP Server configuration schema (union of all transport types)
+ */
+export const McpServerConfigSchema = z.union([
+  McpStdioConfigSchema,
+  McpSseConfigSchema,
+  McpStreamableHttpConfigSchema,
+]);
+
+/**
+ * MCP Settings schema for the entire MCP settings object
+ */
+export const McpSettingsSchema = z.object({
+  mcpServers: z.record(z.string(), McpServerConfigSchema),
+});
+
+// ---------------------------------------------------------------------------
+// Type guards
+// ---------------------------------------------------------------------------
+
+export const isMcpStdioConfig = (
+  config: unknown,
+): config is z.infer<typeof McpStdioConfigSchema> => {
+  return McpStdioConfigSchema.safeParse(config).success;
+};
+
+export const isMcpSseConfig = (
+  config: unknown,
+): config is z.infer<typeof McpSseConfigSchema> => {
+  return McpSseConfigSchema.safeParse(config).success;
+};
+
+export const isMcpStreamableHttpConfig = (
+  config: unknown,
+): config is z.infer<typeof McpStreamableHttpConfigSchema> => {
+  return McpStreamableHttpConfigSchema.safeParse(config).success;
+};

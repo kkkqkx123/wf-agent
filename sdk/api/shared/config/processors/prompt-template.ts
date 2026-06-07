@@ -5,15 +5,13 @@
  */
 
 import type { ParsedConfig } from "../types.js";
-import { ConfigFormat } from "../types.js";
 import type { Result } from "@wf-agent/types";
-import { ValidationError, ConfigurationError, ConfigurationValidationError } from "@wf-agent/types";
+import { ValidationError, ConfigurationValidationError } from "@wf-agent/types";
 import { ok, err } from "@wf-agent/common-utils";
 import type { PromptTemplate } from "@wf-agent/types";
 import type { PromptTemplateConfigFile } from "../types.js";
 import { PromptTemplateSchema } from "@wf-agent/types";
-import { loadPromptTemplateConfig, mergePromptTemplateConfig } from "../loaders/prompt-template-config-loader.js";
-import { stringifyJson } from "../parsers/json-parser.js";
+import { mergePromptTemplateConfig } from "../loaders/prompt-template-config-loader.js";
 
 /**
  * Verify PromptTemplate configuration
@@ -58,55 +56,10 @@ export function transformPromptTemplate(
 
 /**
  * Export PromptTemplate configuration
+ * Returns typed data ready for serialization.
  * @param template PromptTemplate object
- * @param format Configuration format
- * @returns String containing the configuration file content
+ * @returns The prompt template data ready for export
  */
-export function exportPromptTemplate(template: PromptTemplate, format: ConfigFormat): string {
-  switch (format) {
-    case "json":
-      return stringifyJson(template, true);
-    case "toml":
-      throw new ConfigurationError(
-        "TOML format does not support export, please use JSON format",
-        format,
-        {
-          suggestion: "Use JSON instead",
-        },
-      );
-    default:
-      throw new ConfigurationError(`Unsupported configuration format: ${format}`, format);
-  }
-}
-
-/**
- * Load and convert the PromptTemplate configuration
- * A convenient method to complete loading, verification, and conversion in one step
- * @param content: The content of the configuration file
- * @param format: The format of the configuration
- * @param defaultTemplate: The default template
- * @returns: The merged PromptTemplate
- */
-export function loadAndTransformPromptTemplate(
-  content: string,
-  format: ConfigFormat,
-  defaultTemplate: PromptTemplate,
-): PromptTemplate {
-  // Loading configuration
-  const appConfig = loadPromptTemplateConfig(content, format);
-
-  // Verify the configuration.
-  const validationResult = validatePromptTemplate({
-    configType: "prompt_template",
-    format,
-    config: appConfig,
-    rawContent: content,
-  });
-  if (validationResult.isErr()) {
-    const errorMessages = validationResult.error.map((err: ValidationError) => err.message).join("\n");
-    throw new Error(`Prompt template configuration validation failed:\n${errorMessages}`);
-  }
-
-  // Merge configurations
-  return mergePromptTemplateConfig(defaultTemplate, appConfig);
+export function exportPromptTemplate(template: PromptTemplate): PromptTemplate {
+  return template;
 }

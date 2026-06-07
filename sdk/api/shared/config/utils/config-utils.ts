@@ -7,9 +7,11 @@
  * Note: File I/O operations have been moved to config-file-loader.ts
  */
 
-import { parseAndValidateAgentLoopConfig } from "../processors/agent-loop.js";
-import type { ParsedAgentLoopConfig } from "../types.js";
+import type { ParsedAgentLoopConfig, AgentLoopConfigFile } from "../types.js";
 import { loadConfigFile } from "../loaders/config-file-loader.js";
+import { parseJson } from "../parsers/json-parser.js";
+import { parseToml } from "../parsers/toml-parser.js";
+import { validateAgentLoopConfig } from "../../../../agent/validation/agent-loop-validator.js";
 
 /**
  * Load and parse Agent Loop configuration from file
@@ -19,7 +21,33 @@ import { loadConfigFile } from "../loaders/config-file-loader.js";
  */
 export async function loadAgentLoopConfig(filePath: string): Promise<ParsedAgentLoopConfig> {
   const { content, format } = await loadConfigFile(filePath);
-  return parseAndValidateAgentLoopConfig(content, format);
+
+  // Parse the content
+  let rawConfig: unknown;
+  try {
+    rawConfig = format === "toml" ? parseToml(content) : parseJson(content);
+  } catch (error) {
+    throw new Error(
+      `Configuration parsing failed (${format}): ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    );
+  }
+
+  const parsed: ParsedAgentLoopConfig = {
+    configType: "agent_loop",
+    format,
+    config: rawConfig as AgentLoopConfigFile,
+    rawContent: content,
+  };
+
+  // Validate the configuration
+  const result = validateAgentLoopConfig(parsed.config);
+  if (result.isErr()) {
+    const errorMessages = result.error.map((e) => e.message).join("\n");
+    throw new Error(`Agent Loop validation failed:\n${errorMessages}`);
+  }
+
+  return parsed;
 }
 
 /**

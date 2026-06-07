@@ -11,13 +11,11 @@
  */
 
 import type { ParsedConfig } from "../types.js";
-import { ConfigFormat } from "../types.js";
 import type { Result } from "@wf-agent/types";
-import { ValidationError, ConfigurationError } from "@wf-agent/types";
+import { ValidationError } from "@wf-agent/types";
 import { ScriptExecutorConfigSchema } from "@wf-agent/types";
 import { ok, err } from "@wf-agent/common-utils";
 import type { ScriptExecutorConfig } from "@wf-agent/types";
-import { stringifyJson } from "../parsers/json-parser.js";
 
 /**
  * Validate executor configuration.
@@ -65,29 +63,14 @@ export function transformExecutorConfig(
 }
 
 /**
- * Export executor configuration to string.
+ * Export executor configuration.
+ * Returns typed data ready for serialization.
  *
  * @param config ScriptExecutorConfig object
- * @param format Configuration format (only JSON supported for executor config)
- * @returns String containing the configuration file content
+ * @returns The executor config data ready for export
  */
 export function exportExecutorConfig(
   config: ScriptExecutorConfig,
-  format: ConfigFormat,
-): string {
-  switch (format) {
-    case "json":
-      return stringifyJson(config, true);
-    case "toml":
-      throw new ConfigurationError(
-        "TOML format does not support executor config export; please use JSON format.",
-        format,
-        { suggestion: "Use JSON instead." },
-      );
-    default:
-      throw new ConfigurationError(
-        `Unsupported configuration format: ${format}`,
-        format,
-      );
-  }
+): ScriptExecutorConfig {
+  return config;
 }

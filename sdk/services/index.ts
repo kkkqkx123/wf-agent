@@ -208,13 +208,6 @@ export {
   type McpEventType,
   type McpEventHandler,
   // Config
-  ServerConfigSchema,
-  McpSettingsSchema,
-  validateServerConfig,
-  validateMcpSettings,
-  isStdioConfig,
-  isSseConfig,
-  isStreamableHttpConfig,
   DEFAULT_MCP_SETTINGS_FILE,
   PROJECT_MCP_FILE,
   loadMcpSettings,

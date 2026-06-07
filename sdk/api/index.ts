@@ -375,7 +375,6 @@ export {
   parseTriggerTemplate,
   parseScript,
   parseLLMProfile,
-  parseAndValidateAgentLoopConfig,
   transformToAgentLoopConfig,
   loadConfigContent,
   loadAgentLoopConfig,

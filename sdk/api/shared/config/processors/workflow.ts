@@ -5,14 +5,11 @@
  */
 
 import type { ParsedConfig } from "../types.js";
-import { ConfigFormat } from "../types.js";
 import type { Result } from "@wf-agent/types";
 import { ValidationError } from "@wf-agent/types";
 import { validateWorkflowConfig } from "../../../../workflow/validation/workflow-config-validation.js";
 import { ConfigTransformer } from "../utils/config-transformer.js";
 import type { WorkflowTemplate } from "@wf-agent/types";
-import { stringifyJson } from "../parsers/json-parser.js";
-import { ConfigurationError } from "@wf-agent/types";
 import { ok } from "@wf-agent/common-utils";
 
 /**
@@ -51,23 +48,10 @@ export function transformWorkflow(
 
 /**
  * Export Workflow configuration
+ * Returns typed data ready for serialization.
  * @param workflowDef WorkflowTemplate object
- * @param format Configuration format
- * @returns String containing the configuration file content
+ * @returns The workflow data ready for export
  */
-export function exportWorkflow(workflowDef: WorkflowTemplate, format: ConfigFormat): string {
-  switch (format) {
-    case "json":
-      return stringifyJson(workflowDef, true);
-    case "toml":
-      throw new ConfigurationError(
-        "TOML format does not support export, please use JSON format",
-        format,
-        {
-          suggestion: "Replace JSON with JSON",
-        },
-      );
-    default:
-      throw new ConfigurationError(`Unsupported configuration format: ${format}`, format);
-  }
+export function exportWorkflow(workflowDef: WorkflowTemplate): WorkflowTemplate {
+  return workflowDef;
 }

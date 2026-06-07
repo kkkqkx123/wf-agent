@@ -16,3 +16,6 @@ export * from "./tool-runtime-validator.js";
 
 // Export tool function
 export * from "./utils.js";
+
+// Export MCP validator
+export * from "./mcp-validator.js";

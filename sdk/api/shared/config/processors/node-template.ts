@@ -5,13 +5,11 @@
  */
 
 import type { ParsedConfig } from "../types.js";
-import { ConfigFormat } from "../types.js";
 import type { Result } from "@wf-agent/types";
-import { ValidationError, ConfigurationError } from "@wf-agent/types";
+import { ValidationError } from "@wf-agent/types";
 import { validateNodeTemplateConfig } from "../../../../workflow/validation/node-template-validation.js";
 import { ok } from "@wf-agent/common-utils";
 import type { NodeTemplate } from "@wf-agent/types";
-import { stringifyJson } from "../parsers/json-parser.js";
 import { substituteParameters } from "../utils/config-utils.js";
 
 /**
@@ -55,23 +53,10 @@ export function transformNodeTemplate(
 
 /**
  * Export NodeTemplate configuration
+ * Returns typed data ready for serialization.
  * @param template NodeTemplate object
- * @param format configuration format
- * @returns string containing the configuration file content
+ * @returns The node template data ready for export
  */
-export function exportNodeTemplate(template: NodeTemplate, format: ConfigFormat): string {
-  switch (format) {
-    case "json":
-      return stringifyJson(template, true);
-    case "toml":
-      throw new ConfigurationError(
-        "TOML format does not support export, please use JSON format",
-        format,
-        {
-          suggestion: "Use json instead of",
-        },
-      );
-    default:
-      throw new ConfigurationError(`Unsupported configuration format: ${format}`, format);
-  }
+export function exportNodeTemplate(template: NodeTemplate): NodeTemplate {
+  return template;
 }

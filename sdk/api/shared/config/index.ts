@@ -116,10 +116,7 @@ export {
   validatePromptTemplate,
   transformPromptTemplate,
   exportPromptTemplate,
-  loadAndTransformPromptTemplate,
   // Agent Loop
-  parseAgentLoopConfig,
-  parseAndValidateAgentLoopConfig,
   transformToAgentLoopConfig,
   exportAgentLoopConfig,
   // Metrics
@@ -151,13 +148,6 @@ export { loadFileCheckpointConfigFromFile } from "./loaders/file-checkpoint-conf
 
 // MCP Configuration — consolidated under api/shared/config as the single config entry point
 export {
-  ServerConfigSchema,
-  McpSettingsSchema,
-  validateServerConfig,
-  validateMcpSettings,
-  isStdioConfig,
-  isSseConfig,
-  isStreamableHttpConfig,
   loadServerConfigs,
   createDefaultMcpSettings,
   mergeServerConfigs,

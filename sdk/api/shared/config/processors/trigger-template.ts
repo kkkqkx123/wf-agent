@@ -5,13 +5,11 @@
  */
 
 import type { ParsedConfig } from "../types.js";
-import { ConfigFormat } from "../types.js";
 import type { Result } from "@wf-agent/types";
-import { ValidationError, ConfigurationError } from "@wf-agent/types";
+import { ValidationError } from "@wf-agent/types";
 import { validateWorkflowTrigger } from "../../../../core/validation/trigger-validator.js";
 import { ok, err } from "@wf-agent/common-utils";
 import type { TriggerTemplate } from "@wf-agent/types";
-import { stringifyJson } from "../parsers/json-parser.js";
 import { substituteParameters } from "../utils/config-utils.js";
 
 /**
@@ -68,23 +66,10 @@ export function transformTriggerTemplate(
 
 /**
  * Export TriggerTemplate configuration
+ * Returns typed data ready for serialization.
  * @param template: TriggerTemplate object
- * @param format: Configuration format
- * @returns: String containing the configuration file content
+ * @returns The trigger template data ready for export
  */
-export function exportTriggerTemplate(template: TriggerTemplate, format: ConfigFormat): string {
-  switch (format) {
-    case "json":
-      return stringifyJson(template, true);
-    case "toml":
-      throw new ConfigurationError(
-        "TOML format does not support export, please use JSON format",
-        format,
-        {
-          suggestion: "Use json instead of",
-        },
-      );
-    default:
-      throw new ConfigurationError(`Unsupported configuration format: ${format}`, format);
-  }
+export function exportTriggerTemplate(template: TriggerTemplate): TriggerTemplate {
+  return template;
 }

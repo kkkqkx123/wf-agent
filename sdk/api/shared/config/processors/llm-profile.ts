@@ -5,13 +5,11 @@
  */
 
 import type { ParsedConfig } from "../types.js";
-import { ConfigFormat } from "../types.js";
 import type { Result } from "@wf-agent/types";
-import { ValidationError, ConfigurationError, ConfigurationValidationError } from "@wf-agent/types";
+import { ValidationError, ConfigurationValidationError } from "@wf-agent/types";
 import { ok, err } from "@wf-agent/common-utils";
 import type { LLMProfile } from "@wf-agent/types";
 import { LLMProfileSchema } from "@wf-agent/types";
-import { stringifyJson } from "../parsers/json-parser.js";
 import { substituteParameters } from "../utils/config-utils.js";
 
 /**
@@ -64,23 +62,10 @@ export function transformLLMProfile(
 
 /**
  * Export LLM Profile configuration
+ * Returns typed data ready for serialization.
  * @param profile LLMProfile object
- * @param format configuration format
- * @returns string containing the configuration file content
+ * @returns The LLM profile data ready for export
  */
-export function exportLLMProfile(profile: LLMProfile, format: ConfigFormat): string {
-  switch (format) {
-    case "json":
-      return stringifyJson(profile, true);
-    case "toml":
-      throw new ConfigurationError(
-        "The TOML format does not support export; please use the JSON format.",
-        format,
-        {
-          suggestion: "Use JSON instead.",
-        },
-      );
-    default:
-      throw new ConfigurationError(`Unsupported configuration format: ${format}`, format);
-  }
+export function exportLLMProfile(profile: LLMProfile): LLMProfile {
+  return profile;
 }

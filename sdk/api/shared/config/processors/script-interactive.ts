@@ -5,12 +5,10 @@
  */
 
 import type { ParsedConfig } from "../types.js";
-import { ConfigFormat } from "../types.js";
 import type { Result } from "@wf-agent/types";
-import { ValidationError, ConfigurationError } from "@wf-agent/types";
+import { ValidationError } from "@wf-agent/types";
 import { ok, err } from "@wf-agent/common-utils";
 import type { InteractiveScriptConfig } from "@wf-agent/types";
-import { stringifyJson } from "../parsers/json-parser.js";
 import { substituteParameters } from "../utils/config-utils.js";
 
 /**
@@ -92,23 +90,10 @@ export function transformInteractiveScript(
 
 /**
  * Export InteractiveScriptConfig
+ * Returns typed data ready for serialization.
  * @param config InteractiveScriptConfig object
- * @param format Configuration format
- * @returns String containing the configuration file content
+ * @returns The interactive script config ready for export
  */
-export function exportInteractiveScript(config: InteractiveScriptConfig, format: ConfigFormat): string {
-  switch (format) {
-    case "json":
-      return stringifyJson(config, true);
-    case "toml":
-      throw new ConfigurationError(
-        "The TOML format does not support export; please use the JSON format.",
-        format,
-        {
-          suggestion: "Use JSON instead.",
-        },
-      );
-    default:
-      throw new ConfigurationError(`Unsupported configuration format: ${format}`, format);
-  }
+export function exportInteractiveScript(config: InteractiveScriptConfig): InteractiveScriptConfig {
+  return config;
 }

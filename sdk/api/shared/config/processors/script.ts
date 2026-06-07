@@ -5,13 +5,11 @@
  */
 
 import type { ParsedConfig } from "../types.js";
-import { ConfigFormat } from "../types.js";
 import type { Result } from "@wf-agent/types";
-import { ValidationError, ConfigurationError } from "@wf-agent/types";
+import { ValidationError } from "@wf-agent/types";
 import { CodeConfigValidator } from "../../../../workflow/validation/script-config-validator.js";
 import { ok, err } from "@wf-agent/common-utils";
 import type { Script } from "@wf-agent/types";
-import { stringifyJson } from "../parsers/json-parser.js";
 import { substituteParameters } from "../utils/config-utils.js";
 
 /**
@@ -59,23 +57,10 @@ export function transformScript(
 
 /**
  * Export Script Configuration
+ * Returns typed data ready for serialization.
  * @param script Script object
- * @param format Configuration format
- * @returns String containing the configuration file content
+ * @returns The script data ready for export
  */
-export function exportScript(script: Script, format: ConfigFormat): string {
-  switch (format) {
-    case "json":
-      return stringifyJson(script, true);
-    case "toml":
-      throw new ConfigurationError(
-        "The TOML format does not support export; please use the JSON format.",
-        format,
-        {
-          suggestion: "Use JSON instead.",
-        },
-      );
-    default:
-      throw new ConfigurationError(`Unsupported configuration format: ${format}`, format);
-  }
+export function exportScript(script: Script): Script {
+  return script;
 }

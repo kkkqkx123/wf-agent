@@ -9,9 +9,9 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import type { McpSettings } from "@wf-agent/types";
 import {
-  validateMcpSettings,
   createDefaultMcpSettings,
 } from "../processors/mcp-connection.js";
+import { validateMcpSettings } from "../../../../core/validation/mcp-validator.js";
 
 // ---------------------------------------------------------------------------
 // Constants

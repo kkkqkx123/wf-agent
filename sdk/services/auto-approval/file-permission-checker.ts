@@ -60,7 +60,7 @@ function findMatchingRule(
   const normalizedPath = filePath.replace(/\\/g, "/");
 
   for (const rule of rules) {
-    if (minimatch(normalizedPath, rule.pattern, { nocase: true })) {
+    if (minimatch(normalizedPath, rule.pattern, { dot: true, nocase: true })) {
       return rule;
     }
   }
@@ -77,7 +77,7 @@ function findMatchingRule(
  */
 export function matchesPattern(filePath: string, pattern: string): boolean {
   const normalizedPath = filePath.replace(/\\/g, "/");
-  return minimatch(normalizedPath, pattern, { nocase: true });
+  return minimatch(normalizedPath, pattern, { dot: true, nocase: true });
 }
 
 /**

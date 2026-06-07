@@ -5,9 +5,9 @@
 
 import * as fs from "fs/promises";
 import * as path from "path";
-import type { McpSettings, McpServerConfig } from "../types.js";
+import type { McpSettings, McpServerConfig } from "../../../../services/mcp/types.js";
 import { validateMcpSettings, validateServerConfig } from "./schema.js";
-import { createContextualLogger } from "../../../utils/contextual-logger.js";
+import { createContextualLogger } from "../../../../utils/contextual-logger.js";
 import { getErrorOrNew } from "@wf-agent/common-utils";
 
 const logger = createContextualLogger({ component: "MCPConfigLoader" });

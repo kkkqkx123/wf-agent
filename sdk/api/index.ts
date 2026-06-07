@@ -22,8 +22,6 @@ export {
   validationFailure,
 } from "./shared/types/command.js";
 
-export { CommandExecutor } from "./shared/common/command-executor.js";
-
 // Query pattern core
 export {
   Query,

@@ -12,14 +12,14 @@ export {
   type CheckAutoApprovalParams,
 } from "./auto-approval-checker.js";
 
-// Command safety
+// Command safety (re-exported from shared module for convenience)
 export {
   containsDangerousSubstitution,
   findLongestPrefixMatch,
   getCommandDecision,
   getSingleCommandDecision,
   type CommandDecision,
-} from "./command-safety-checker.js";
+} from "../command-safety/command-safety-checker.js";
 
 // File permission
 export {

@@ -5,7 +5,7 @@
  * on chain operators (&&, ||, ;, |).
  *
  * Shared by:
- *   - auto-approval/command-safety-checker.ts — pre-execution approval decisions
+ *   - command-safety-checker.ts — pre-execution approval decisions
  *   - sandbox/strategies/shell-static-analyzer.ts — runtime sandbox analysis
  *
  * Without chain parsing, commands like `git checkout main && rm -rf /` would

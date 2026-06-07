@@ -1,13 +1,9 @@
 /**
  * Command Safety Checker
  * Detects dangerous command patterns and implements longest prefix match for allowlist/denylist
- *
- * IMPORTANT: Command chain parsing (parseCommandChain) is shared with the sandbox module
- * via @wf-services/command-safety. Any changes to chain parsing logic must be made in
- * `command-safety/command-chain-parser.ts` to keep both layers in sync.
  */
 
-import { parseCommandChain } from "../command-safety/command-chain-parser.js";
+import { parseCommandChain } from "./command-chain-parser.js";
 
 /**
  * Detect dangerous parameter substitutions that could lead to command execution.
@@ -96,8 +92,8 @@ export function findLongestPrefixMatch(command: string, prefixes: string[]): str
     const lowerPrefix = prefix.toLowerCase();
     // Handle wildcard "*" - it matches any command
     if (lowerPrefix === "*" || trimmedCommand.startsWith(lowerPrefix)) {
-      if (!longestMatch || lowerPrefix.length > longestMatch.length) {
-        longestMatch = lowerPrefix;
+      if (!longestMatch || lowerPrefix.length > longestMatch.toLowerCase().length) {
+        longestMatch = prefix;
       }
     }
   }
@@ -233,6 +229,3 @@ export function getSingleCommandDecision(
   // Both have matches - allowlist must be longer to auto-approve
   return longestAllowedMatch.length > longestDeniedMatch.length ? "auto_approve" : "auto_deny";
 }
-
-// NOTE: parseCommandChain is imported from ../command-safety/command-chain-parser.js
-// Shared between auto-approval and sandbox modules. Keep chain parsing logic in sync.

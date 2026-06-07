@@ -12,7 +12,7 @@ import type {
 } from "@wf-agent/types";
 import { SECURITY_PRESETS } from "../../resources/predefined/tools/risk-classification.js";
 import { checkFilePermission } from "./file-permission-checker.js";
-import { getCommandDecision } from "./command-safety-checker.js";
+import { getCommandDecision } from "../command-safety/command-safety-checker.js";
 import { checkMcpApproval } from "./mcp-approval-checker.js";
 
 /**

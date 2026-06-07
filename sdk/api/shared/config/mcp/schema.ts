@@ -4,7 +4,7 @@
  */
 
 import { z } from "zod";
-import type { McpServerConfig } from "../types.js";
+import type { McpServerConfig } from "../../../../services/mcp/types.js";
 
 // Error messages for better user feedback
 const TYPE_ERROR_MSG = "Server type must be 'stdio', 'sse', or 'streamable-http'";

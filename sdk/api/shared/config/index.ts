@@ -146,3 +146,25 @@ export { loadTimeoutConfigFromFile } from "./loaders/timeout-config-loader.js";
 
 // File checkpoint configuration loader
 export { loadFileCheckpointConfigFromFile } from "./loaders/file-checkpoint-config-loader.js";
+
+// MCP Configuration — consolidated under api/shared/config as the single config entry point
+export {
+  ServerConfigSchema,
+  McpSettingsSchema,
+  validateServerConfig,
+  validateMcpSettings,
+  isStdioConfig,
+  isSseConfig,
+  isStreamableHttpConfig,
+  DEFAULT_MCP_SETTINGS_FILE,
+  PROJECT_MCP_FILE,
+  loadMcpSettings,
+  loadServerConfigs,
+  fileExists,
+  getGlobalMcpSettingsPath,
+  getProjectMcpPath,
+  createDefaultMcpSettings,
+  writeMcpSettings,
+  ensureMcpSettingsFile,
+  mergeServerConfigs,
+} from "./mcp/index.js";

@@ -1,8 +1,7 @@
 /**
  * MCP Configuration Module
- *
- * Re-exports from api/shared/config/mcp — the canonical location for all config.
- * This file exists for backward compatibility within the services layer.
+ * Moved from services/mcp/config to api/shared/config/mcp as part of
+ * consolidating all configuration under api/shared/config.
  */
 
 export {
@@ -13,6 +12,9 @@ export {
   isStdioConfig,
   isSseConfig,
   isStreamableHttpConfig,
+} from "./schema.js";
+
+export {
   DEFAULT_MCP_SETTINGS_FILE,
   PROJECT_MCP_FILE,
   loadMcpSettings,
@@ -24,4 +26,4 @@ export {
   writeMcpSettings,
   ensureMcpSettingsFile,
   mergeServerConfigs,
-} from "../../../api/shared/config/mcp/index.js";
+} from "./loader.js";

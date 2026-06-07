@@ -69,10 +69,6 @@ export {
 export {
   checkAutoApproval,
   extractContextFromParameters,
-  containsDangerousSubstitution,
-  findLongestPrefixMatch,
-  getCommandDecision,
-  getSingleCommandDecision,
   checkFilePermission,
   matchesPattern,
   getEffectivePermission,
@@ -86,14 +82,18 @@ export {
   type AutoApprovalDecision,
   type AutoApprovalContext,
   type CheckAutoApprovalParams,
-  type CommandDecision,
 } from './auto-approval/index.js';
 
 // ============================================================================
 // Command Safety — Shared Utilities
 // ============================================================================
 export {
+  containsDangerousSubstitution,
+  findLongestPrefixMatch,
+  getCommandDecision,
+  getSingleCommandDecision,
   parseCommandChain,
+  type CommandDecision,
 } from './command-safety/index.js';
 
 // ============================================================================

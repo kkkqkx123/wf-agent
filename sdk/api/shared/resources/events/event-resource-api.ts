@@ -15,7 +15,6 @@ import { ReadonlyResourceAPI } from "../generic-resource-api.js";
 import type { Event, EventType, Timestamp, BaseEvent } from "@wf-agent/types";
 import { DispatchEventCommand } from "../../operations/events/dispatch-event-command.js";
 import type { APIDependencyManager } from "../../core/sdk-dependencies.js";
-import { CommandExecutor } from "../../common/command-executor.js";
 import { createContextualLogger } from "../../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "EventResourceAPI" });
@@ -146,7 +145,6 @@ export interface ExecutionTimelineSummary {
  */
 export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFilter> {
   private dependencies: APIDependencyManager;
-  private executor: CommandExecutor;
   
   // Event storage
   private eventHistory: Event[] = [];
@@ -159,7 +157,6 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
   ) {
     super();
     this.dependencies = dependencies;
-    this.executor = new CommandExecutor();
     this.maxHistorySize = config?.maxHistorySize ?? 1000;
     
     // Auto-subscribe if enabled
@@ -363,7 +360,16 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
    */
   async dispatch(event: Event): Promise<void> {
     const command = new DispatchEventCommand({ event }, this.dependencies);
-    await this.executor.execute(command);
+    const validation = command.validate();
+    if (!validation.valid) {
+      throw new Error(
+        `Failed to dispatch event: ${validation.errors.join(", ")}`,
+      );
+    }
+    const result = await command.execute();
+    if (result.result.isErr()) {
+      throw result.result.error;
+    }
   }
 
   /**

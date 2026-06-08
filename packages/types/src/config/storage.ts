@@ -36,6 +36,14 @@ export interface SqliteStorageConfig {
   readonly: boolean;
   fileMustExist: boolean;
   timeout: number;
+  /** Auto-vacuum mode: NONE (default), FULL, or INCREMENTAL */
+  autoVacuum?: 'NONE' | 'FULL' | 'INCREMENTAL';
+  /** Journal size limit in bytes (default: 64MB, prevents unbounded WAL growth) */
+  journalSizeLimit?: number;
+  /** Page size in bytes (default: 4096, must be set before table creation, requires VACUUM to change) */
+  pageSize?: number;
+  /** Periodic maintenance interval in ms (default: 0 = disabled) */
+  maintenanceIntervalMs?: number;
 }
 
 /**

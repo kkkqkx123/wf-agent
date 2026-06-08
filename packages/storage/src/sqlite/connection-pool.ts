@@ -5,6 +5,7 @@
 
 import Database from "better-sqlite3";
 import { createModuleLogger } from "../logger.js";
+import { configurePragmas } from "./sqlite-pragma.js";
 
 const logger = createModuleLogger("sqlite-pool");
 
@@ -100,7 +101,7 @@ export class SqliteConnectionPool {
     db.pragma(`busy_timeout = ${this.config.busyTimeout}`);
     logger.debug("Set busy timeout", { dbPath, timeout: this.config.busyTimeout });
 
-    // Configure connection
+    // Configure WAL mode (optional, with fallback to DELETE)
     if (this.config.enableWAL) {
       db.pragma("journal_mode = WAL");
       logger.debug("Enabled WAL mode", { dbPath });
@@ -109,10 +110,18 @@ export class SqliteConnectionPool {
       logger.debug("Disabled WAL mode (using DELETE)", { dbPath });
     }
 
-    // Common optimizations
-    db.pragma("foreign_keys = ON");
-    db.pragma("cache_size = -64000"); // 64MB cache
-    db.pragma("temp_store = MEMORY");
+    // Apply shared PRAGMA configuration (auto_vacuum, journal_size_limit, cache, etc.)
+    configurePragmas(db, {
+      enableWAL: false, // already set above
+      autoVacuum: 'INCREMENTAL',
+      journalSizeLimit: 64 * 1024 * 1024,
+      busyTimeout: this.config.busyTimeout,
+      cacheSize: -64000,
+      tempStore: 'MEMORY',
+      foreignKeys: true,
+      synchronous: 'NORMAL',
+      walAutocheckpoint: 1000,
+    });
 
     const managedConn: ManagedConnection = {
       db,

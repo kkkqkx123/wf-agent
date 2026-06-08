@@ -7,6 +7,7 @@ import Database, { SqliteError } from "better-sqlite3";
 import { StorageError, StorageInitializationError } from "../types/storage-errors.js";
 import { StorageAdapterBase } from "../types/adapter/storage-adapter-base.js";
 import { createModuleLogger } from "../logger.js";
+import { configurePragmas, type PragmaConfig } from "./sqlite-pragma.js";
 import {
   SqliteConnectionPool,
   getGlobalConnectionPool,
@@ -37,6 +38,15 @@ export interface BaseSqliteStorageConfig {
   verifyIntegrity?: boolean;
   /** Verify integrity every Nth load operation (default: 100, only used when verifyIntegrity is true) */
   integrityCheckFrequency?: number;
+  /** Auto-vacuum mode: NONE (default), FULL, or INCREMENTAL */
+  autoVacuum?: 'NONE' | 'FULL' | 'INCREMENTAL';
+  /** Journal size limit in bytes (default: 64MB, prevents unbounded WAL growth) */
+  journalSizeLimit?: number;
+  /** Page size in bytes (default: 4096, must be set before table creation, requires VACUUM to change) */
+  pageSize?: number;
+  /** Periodic maintenance interval in ms (default: 0 = disabled).
+   *  When enabled, checks fragmentation ratio at interval and runs optimize() if > 20%. */
+  maintenanceIntervalMs?: number;
 }
 
 /**
@@ -59,6 +69,7 @@ export abstract class BaseSqliteStorage<TMetadataType, TListOptions = Record<str
   protected loadCounter: number = 0; // Counter for integrity check frequency
   private statementCache: Map<string, Database.Statement> = new Map();
   private readonly MAX_CACHE_SIZE = 100;
+  private maintenanceTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(protected readonly config: BaseSqliteStorageConfig) {
     super();
@@ -110,11 +121,18 @@ export abstract class BaseSqliteStorage<TMetadataType, TListOptions = Record<str
         this.db = new Database(this.config.dbPath, options);
         this.usingPool = false;
 
-        // Enable WAL mode to improve concurrency performance
-        this.db.pragma("journal_mode = WAL");
-        this.db.pragma("wal_autocheckpoint = 1000");
-        this.db.pragma("synchronous = NORMAL");
-        this.db.pragma("foreign_keys = ON");
+        // Apply standard PRAGMA configuration
+        configurePragmas(this.db, {
+          autoVacuum: this.config.autoVacuum,
+          journalSizeLimit: this.config.journalSizeLimit,
+          synchronous: 'NORMAL',
+          walAutocheckpoint: 1000,
+        } as PragmaConfig);
+
+        // Page size: must be set before any tables are created (not covered by configurePragmas)
+        if (this.config.pageSize) {
+          this.db.pragma(`page_size = ${this.config.pageSize}`);
+        }
 
         logger.debug("Created dedicated SQLite connection", { dbPath: this.config.dbPath });
       }
@@ -125,6 +143,11 @@ export abstract class BaseSqliteStorage<TMetadataType, TListOptions = Record<str
       // Create or migrate schema (skip in read-only mode)
       if (!this.config.readonly) {
         await this.initializeSchema();
+      }
+
+      // Start periodic maintenance if enabled (non-readonly, non-pooled connections)
+      if (!this.config.readonly && this.config.maintenanceIntervalMs && this.config.maintenanceIntervalMs > 0) {
+        this.startMaintenanceTimer(this.config.maintenanceIntervalMs);
       }
 
       logger.info("SQLite storage initialized", {
@@ -454,11 +477,99 @@ export abstract class BaseSqliteStorage<TMetadataType, TListOptions = Record<str
     }
   }
 
+  // ── Free space management & monitoring ─────────────────────────────────
+
+  /**
+   * Get current freelist count (number of free/reclaimable pages)
+   * High values indicate wasted space that can be reclaimed via VACUUM or incremental_vacuum
+   */
+  getFreelistCount(): number {
+    const db = this.getDb();
+    const row = db.prepare('PRAGMA freelist_count').get() as { freelist_count: number } | undefined;
+    return row?.freelist_count ?? 0;
+  }
+
+  /**
+   * Get total page count (including freelist pages)
+   */
+  getPageCount(): number {
+    const db = this.getDb();
+    const row = db.prepare('PRAGMA page_count').get() as { page_count: number } | undefined;
+    return row?.page_count ?? 1;
+  }
+
+  /**
+   * Get fragmentation ratio (freelist / total pages)
+   * A ratio > 0.2 (20%) suggests it's time to run VACUUM or incremental_vacuum
+   */
+  getFragmentationRatio(): number {
+    const pageCount = this.getPageCount();
+    if (pageCount <= 0) return 0;
+    return this.getFreelistCount() / pageCount;
+  }
+
+  /**
+   * Incrementally reclaim free pages (requires auto_vacuum=INCREMENTAL)
+   * Less invasive than full VACUUM — can be called during low-load periods
+   * @param pages Number of pages to reclaim (default: all free pages)
+   */
+  incrementalVacuum(pages?: number): void {
+    const db = this.getDb();
+    if (pages !== undefined && pages > 0) {
+      db.pragma(`incremental_vacuum(${pages})`);
+    } else {
+      db.pragma('incremental_vacuum');
+    }
+    logger.debug("Incremental vacuum completed", {
+      table: this.getTableName(),
+      pages: pages ?? 'all',
+    });
+  }
+
+  /**
+   * Start periodic maintenance timer
+   * Monitors fragmentation ratio and runs optimize() when threshold exceeded
+   */
+  private startMaintenanceTimer(intervalMs: number): void {
+    if (this.maintenanceTimer) {
+      clearInterval(this.maintenanceTimer);
+    }
+
+    this.maintenanceTimer = setInterval(async () => {
+      try {
+        const ratio = this.getFragmentationRatio();
+        if (ratio > 0.2) {
+          logger.info('High fragmentation detected, running optimize', {
+            table: this.getTableName(),
+            fragmentationRatio: ratio,
+          });
+          await this.optimize();
+        }
+      } catch (error) {
+        logger.warn('Periodic maintenance task failed', {
+          table: this.getTableName(),
+          error: (error as Error).message,
+        });
+      }
+    }, intervalMs);
+
+    logger.debug('Periodic maintenance timer started', {
+      table: this.getTableName(),
+      intervalMs,
+    });
+  }
+
   /**
    * Close the storage connection
    * If using connection pool, releases the connection instead of closing it
    */
   async close(): Promise<void> {
+    // Clear maintenance timer
+    if (this.maintenanceTimer) {
+      clearInterval(this.maintenanceTimer);
+      this.maintenanceTimer = null;
+    }
+
     if (this.db) {
       try {
         // Clear statement cache before closing

@@ -120,6 +120,10 @@ export class StorageManager {
     readonly?: boolean;
     fileMustExist?: boolean;
     timeout?: number;
+    autoVacuum?: 'NONE' | 'FULL' | 'INCREMENTAL';
+    journalSizeLimit?: number;
+    pageSize?: number;
+    maintenanceIntervalMs?: number;
   }): Promise<void> {
     const dbPath = config?.dbPath ?? "./storage/cli-app.db";
     const enableWAL = config?.enableWAL ?? true;
@@ -134,6 +138,10 @@ export class StorageManager {
       readonly,
       fileMustExist,
       timeout,
+      autoVacuum: config?.autoVacuum,
+      journalSizeLimit: config?.journalSizeLimit,
+      pageSize: config?.pageSize,
+      maintenanceIntervalMs: config?.maintenanceIntervalMs,
     };
 
     this.workflowStorage = new SqliteWorkflowStorage(baseConfig);

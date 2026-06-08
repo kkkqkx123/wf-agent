@@ -33,6 +33,8 @@ export const DEFAULT_CONFIG: CLIConfig = {
       readonly: false,
       fileMustExist: false,
       timeout: 5000,
+      autoVacuum: 'INCREMENTAL',
+      journalSizeLimit: 67108864,
     },
   },
   output: {

@@ -12,6 +12,7 @@
 import Database from 'better-sqlite3';
 import { join } from 'path';
 import { createModuleLogger } from '../logger.js';
+import { configurePragmas } from './sqlite-pragma.js';
 import type { MetricsStorageAdapter, MetricDataPoint, MetricsQuery } from '../types/adapter/metrics-storage-adapter.js';
 
 const logger = createModuleLogger('sqlite-metrics-storage');
@@ -53,12 +54,13 @@ export class SqliteMetricsStorage implements MetricsStorageAdapter {
       // Initialize SQLite database
       this.db = new Database(this.dbPath);
       
-      // Configure database
-      if (this.enableWAL) {
-        this.db.pragma('journal_mode = WAL');
-      }
-      this.db.pragma('foreign_keys = ON');
-      this.db.pragma('busy_timeout = 5000');
+      // Configure database using shared PRAGMA utility
+      configurePragmas(this.db, {
+        enableWAL: this.enableWAL,
+        autoVacuum: 'INCREMENTAL',
+        journalSizeLimit: 64 * 1024 * 1024,
+        busyTimeout: 5000,
+      });
 
       // Create tables and indexes
       this.createSchema();

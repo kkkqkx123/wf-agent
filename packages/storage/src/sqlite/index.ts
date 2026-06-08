@@ -3,6 +3,7 @@
  */
 
 export { BaseSqliteStorage, type BaseSqliteStorageConfig } from "./base-sqlite-storage.js";
+export { configurePragmas, type PragmaConfig } from "./sqlite-pragma.js";
 export { SqliteCheckpointStorage } from "./sqlite-checkpoint-storage.js";
 export { SqliteWorkflowStorage } from "./sqlite-workflow-storage.js";
 export { SqliteWorkflowExecutionStorage } from "./sqlite-workflow-execution-storage.js";

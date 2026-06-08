@@ -10,6 +10,7 @@
  */
 import Database from 'better-sqlite3';
 import { createModuleLogger } from '../logger.js';
+import { configurePragmas } from './sqlite-pragma.js';
 import type { FileCheckpointMetadata, FileCheckpointListOptions } from '@wf-agent/types';
 import type { FileCheckpointStorageAdapter } from '../types/adapter/file-checkpoint-adapter.js';
 
@@ -46,9 +47,12 @@ export class SqliteFileCheckpointStore implements FileCheckpointStorageAdapter {
 
     this.db = new Database(this.config.dbPath);
 
-    if (this.config.enableWAL !== false) {
-      this.db.pragma('journal_mode = WAL');
-    }
+    // Apply standard PRAGMA configuration
+    configurePragmas(this.db, {
+      enableWAL: this.config.enableWAL !== false,
+      autoVacuum: 'INCREMENTAL',
+      journalSizeLimit: 64 * 1024 * 1024,
+    });
 
     this.createSchema();
     this.initialized = true;

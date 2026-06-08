@@ -7,6 +7,8 @@
 import type { WorkflowRegistry } from "@sdk/workflow/stores/workflow-registry.js";
 import { createContextualLogger } from "@sdk/utils/contextual-logger.js";
 import { createPredefinedWorkflows } from "./registry.js";
+import { LLM_SUMMARY_WORKFLOW_ID } from "./llm-summary.js";
+import type { PredefinedWorkflowsOptions } from "./types.js";
 
 const logger = createContextualLogger({ component: "PredefinedWorkflows" });
 
@@ -20,20 +22,7 @@ const logger = createContextualLogger({ component: "PredefinedWorkflows" });
  */
 export function registerPredefinedWorkflows(
   registry: WorkflowRegistry,
-  options?: {
-    /** Enable only the specified workflows (allowlist). */
-    allowList?: string[];
-    /** Disable the specified workflow (blocklist it). */
-    blockList?: string[];
-    /** Workflow-specific configuration */
-    config?: {
-      contextCompression?: {
-        compressionPrompt?: string;
-        timeout?: number;
-        maxTriggers?: number;
-      };
-    };
-  },
+  options?: PredefinedWorkflowsOptions,
   skipIfExists: boolean = true,
 ): {
   success: string[];
@@ -94,7 +83,7 @@ export function unregisterPredefinedWorkflows(
   const failures: Array<{ workflowId: string; error: string }> = [];
 
   // If no workflow ID is specified, retrieve all predefined workflow IDs.
-  const predefinedWorkflowIds = workflowIds || ["context_compression_workflow"];
+  const predefinedWorkflowIds = workflowIds || [LLM_SUMMARY_WORKFLOW_ID];
 
   for (const workflowId of predefinedWorkflowIds) {
     try {

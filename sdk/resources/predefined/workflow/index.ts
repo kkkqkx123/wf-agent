@@ -18,4 +18,4 @@ export {
 } from "./registration.js";
 
 // Export individual workflow definitions
-export * from "./context-compression.js";
+export * from "./llm-summary.js";

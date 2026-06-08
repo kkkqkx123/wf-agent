@@ -1,24 +1,21 @@
-# GPT-4o-mini — Fast & Cheap
+# GPT-5.4-mini — Fast
 #
 # Use for high-volume, low-complexity tasks: classification, extraction,
 # simple Q&A, or as a cost-effective fallback model.
 
-id = "gpt-4o-mini"
-name = "GPT-4o-mini Fast"
+id = "gpt-5.4-mini"
+name = "GPT-5.4-mini"
 provider = "OPENAI_CHAT"
-model = "gpt-4o-mini"
+model = "gpt-5.4-mini"
 apiKey = "${OPENAI_API_KEY}"
 baseUrl = "https://api.openai.com/v1"
 timeout = 30000
 maxRetries = 2
-retryDelay = 500
+retryDelay = 5000
 
 [parameters]
-temperature = 0.3
-maxTokens = 2048
-topP = 0.9
-frequencyPenalty = 0.0
-presencePenalty = 0.0
+reasoningEffort = "max"
+maxTokens = 12800
 
 [metadata]
-tags = ["openai", "gpt-4o-mini", "fast", "cheap", "high-volume"]
+tags = ["openai", "gpt-4o-mini", "fast", "cheap"]

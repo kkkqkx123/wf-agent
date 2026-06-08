@@ -6,7 +6,7 @@
 
 import type { TriggerTemplate } from "@wf-agent/types";
 import { now } from "@wf-agent/common-utils";
-import { CONTEXT_COMPRESSION_WORKFLOW_ID } from "../workflow/context-compression.js";
+import { LLM_SUMMARY_WORKFLOW_ID } from "../workflow/llm-summary.js";
 
 /**
  * Context Compression Trigger Template Name
@@ -19,6 +19,8 @@ export const CONTEXT_COMPRESSION_TRIGGER_NAME = "context_compression_trigger";
 export interface ContextCompressionConfig {
   /** Custom compression hint words */
   compressionPrompt?: string;
+  /** Which triggered workflow to execute (defaults to llm_summary_workflow) */
+  triggeredWorkflowId?: string;
   /** Timeout duration (in milliseconds), default is 60000 */
   timeout?: number;
   /** Maximum number of triggers (0 indicates no limit); the default value is 0. */
@@ -28,7 +30,9 @@ export interface ContextCompressionConfig {
 /**
  * Create a predefined context compression trigger template
  */
-export function createContextCompressionTriggerTemplate(): TriggerTemplate {
+export function createContextCompressionTriggerTemplate(
+  triggeredWorkflowIdOverride?: string,
+): TriggerTemplate {
   return {
     name: CONTEXT_COMPRESSION_TRIGGER_NAME,
     description:
@@ -39,7 +43,7 @@ export function createContextCompressionTriggerTemplate(): TriggerTemplate {
     action: {
       type: "execute_triggered_subworkflow",
       parameters: {
-        triggeredWorkflowId: CONTEXT_COMPRESSION_WORKFLOW_ID,
+        triggeredWorkflowId: triggeredWorkflowIdOverride ?? LLM_SUMMARY_WORKFLOW_ID,
         waitForCompletion: true,
         timeout: 60000,
         recordHistory: false,
@@ -62,7 +66,7 @@ export function createContextCompressionTriggerTemplate(): TriggerTemplate {
 export function createCustomContextCompressionTrigger(
   config: ContextCompressionConfig = {},
 ): TriggerTemplate {
-  const template = createContextCompressionTriggerTemplate();
+  const template = createContextCompressionTriggerTemplate(config.triggeredWorkflowId);
 
   if (config.timeout !== undefined) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -72,11 +76,6 @@ export function createCustomContextCompressionTrigger(
   if (config.maxTriggers !== undefined) {
     template.maxTriggers = config.maxTriggers;
   }
-
-  const metadata = template.metadata || {};
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (metadata as any)["customConfig"] = config;
-  template.metadata = metadata;
 
   template.updatedAt = now();
   return template;

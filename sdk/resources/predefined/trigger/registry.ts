@@ -42,8 +42,8 @@ export function createPredefinedTriggers(
 
   // context_compression_trigger
   if (!isDisabled(CONTEXT_COMPRESSION_TRIGGER_NAME, options)) {
-    const template = config?.contextCompression
-      ? createCustomContextCompressionTrigger(config.contextCompression)
+    const template = config?.llmSummary
+      ? createCustomContextCompressionTrigger(config.llmSummary)
       : createContextCompressionTriggerTemplate();
     triggers.push(template);
   }

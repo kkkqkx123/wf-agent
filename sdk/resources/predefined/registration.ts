@@ -18,19 +18,18 @@
 import type { TriggerTemplateRegistry } from "@sdk/core/registry/trigger-template-registry.js";
 import type { WorkflowRegistry } from "@sdk/workflow/stores/workflow-registry.js";
 import type { ToolRegistry } from "@sdk/core/registry/tool-registry.js";
+import type { PresetsConfig } from "@wf-agent/types";
 import { createContextualLogger } from "@sdk/utils/contextual-logger.js";
 
 // Import from submodules
 import {
   registerPredefinedTriggers,
   unregisterPredefinedTriggers,
-  type PredefinedTriggersOptions,
 } from "./trigger/index.js";
 
 import {
   registerPredefinedWorkflows,
   unregisterPredefinedWorkflows,
-  type PredefinedWorkflowsOptions,
 } from "./workflow/index.js";
 
 import { registerPredefinedTools, unregisterPredefinedTools } from "./tools/registration.js";
@@ -38,28 +37,9 @@ import { registerPredefinedTools, unregisterPredefinedTools } from "./tools/regi
 const logger = createContextualLogger({ component: "PredefinedRegistration" });
 
 /**
- * Register all predefined content
- *
- * @param triggerRegistry Trigger template registry
- * @param workflowRegistry Workflow registry
- * @param toolService Tool service
- * @param options Registration options
- * @returns Registration results
+ * Result type for registerAllPredefinedContent
  */
-export function registerAllPredefinedContent(
-  triggerRegistry: TriggerTemplateRegistry,
-  workflowRegistry: WorkflowRegistry,
-  toolService: ToolRegistry,
-  options?: {
-    triggers?: PredefinedTriggersOptions & { enabled?: boolean };
-    workflows?: PredefinedWorkflowsOptions & { enabled?: boolean };
-    tools?: {
-      enabled?: boolean;
-      config?: Parameters<typeof registerPredefinedTools>[1];
-    };
-    skipIfExists?: boolean;
-  },
-): {
+export interface PredefinedRegistrationResult {
   triggers: {
     success: string[];
     failures: Array<{ triggerName: string; error: string }>;
@@ -72,29 +52,55 @@ export function registerAllPredefinedContent(
     success: string[];
     failures: Array<{ toolId: string; error: string }>;
   };
-} {
-  const skipIfExists = options?.skipIfExists ?? true;
-  const results = {
-    triggers: {
-      success: [] as string[],
-      failures: [] as Array<{ triggerName: string; error: string }>,
-    },
-    workflows: {
-      success: [] as string[],
-      failures: [] as Array<{ workflowId: string; error: string }>,
-    },
-    tools: {
-      success: [] as string[],
-      failures: [] as Array<{ toolId: string; error: string }>,
-    },
+}
+
+/**
+ * Map context compression preset config to internal llmSummary config.
+ */
+function mapLlmSummaryConfig(
+  cc?: { prompt?: string; timeout?: number; maxTriggers?: number },
+): { compressionPrompt?: string; timeout?: number; maxTriggers?: number } | undefined {
+  if (!cc) return undefined;
+  return {
+    compressionPrompt: cc.prompt,
+    timeout: cc.timeout,
+    maxTriggers: cc.maxTriggers,
+  };
+}
+
+/**
+ * Register all predefined content
+ *
+ * Accepts raw PresetsConfig and internally maps to sub-module configurations.
+ * sdk-instance should not need to know internal key names.
+ *
+ * @param triggerRegistry Trigger template registry
+ * @param workflowRegistry Workflow registry
+ * @param toolService Tool service
+ * @param presets Raw presets configuration (optional)
+ * @param skipIfExists Whether to skip registration if already exists
+ * @returns Registration results
+ */
+export function registerAllPredefinedContent(
+  triggerRegistry: TriggerTemplateRegistry,
+  workflowRegistry: WorkflowRegistry,
+  toolService: ToolRegistry,
+  presets?: PresetsConfig,
+  skipIfExists: boolean = true,
+): PredefinedRegistrationResult {
+  const results: PredefinedRegistrationResult = {
+    triggers: { success: [], failures: [] },
+    workflows: { success: [], failures: [] },
+    tools: { success: [], failures: [] },
   };
 
-  // Register predefined triggers
-  if (options?.triggers?.enabled !== false) {
+  // Register predefined triggers (context compression)
+  if (presets?.contextCompression?.enabled !== false) {
     try {
+      const llmConfig = mapLlmSummaryConfig(presets?.contextCompression);
       results.triggers = registerPredefinedTriggers(
         triggerRegistry,
-        options?.triggers,
+        llmConfig ? { config: { llmSummary: llmConfig } } : undefined,
         skipIfExists,
       );
       logger.info("Predefined triggers registered");
@@ -103,12 +109,13 @@ export function registerAllPredefinedContent(
     }
   }
 
-  // Register predefined workflows
-  if (options?.workflows?.enabled !== false) {
+  // Register predefined workflows (context compression)
+  if (presets?.contextCompression?.enabled !== false) {
     try {
+      const llmConfig = mapLlmSummaryConfig(presets?.contextCompression);
       results.workflows = registerPredefinedWorkflows(
         workflowRegistry,
-        options?.workflows,
+        llmConfig ? { config: { llmSummary: llmConfig } } : undefined,
         skipIfExists,
       );
       logger.info("Predefined workflows registered");
@@ -117,10 +124,18 @@ export function registerAllPredefinedContent(
     }
   }
 
-  // Register predefined tools (delegated to the tools module)
-  if (options?.tools?.enabled !== false) {
+  // Register predefined tools
+  if (presets?.predefinedTools?.enabled !== false) {
     try {
-      results.tools = registerPredefinedTools(toolService, options?.tools?.config, skipIfExists);
+      results.tools = registerPredefinedTools(
+        toolService,
+        {
+          allowList: presets?.predefinedTools?.allowList,
+          blockList: presets?.predefinedTools?.blockList,
+          config: presets?.predefinedTools?.config,
+        },
+        skipIfExists,
+      );
       logger.info("Predefined tools registered");
     } catch (error) {
       logger.error("Failed to register predefined tools", { error });
@@ -142,20 +157,7 @@ export function unregisterAllPredefinedContent(
     workflowIds?: string[];
     toolIds?: string[];
   },
-): {
-  triggers: {
-    success: string[];
-    failures: Array<{ triggerName: string; error: string }>;
-  };
-  workflows: {
-    success: string[];
-    failures: Array<{ workflowId: string; error: string }>;
-  };
-  tools: {
-    success: string[];
-    failures: Array<{ toolId: string; error: string }>;
-  };
-} {
+): PredefinedRegistrationResult {
   const results = {
     triggers: {
       success: [] as string[],

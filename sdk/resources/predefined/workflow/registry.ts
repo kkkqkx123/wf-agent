@@ -7,10 +7,10 @@
 import type { WorkflowTemplate } from "@wf-agent/types";
 import type { PredefinedWorkflowsOptions } from "./types.js";
 import {
-  createContextCompressionWorkflow,
-  createCustomContextCompressionWorkflow,
-  CONTEXT_COMPRESSION_WORKFLOW_ID,
-} from "./context-compression.js";
+  createLlmSummaryWorkflow,
+  createCustomLlmSummaryWorkflow,
+  LLM_SUMMARY_WORKFLOW_ID,
+} from "./llm-summary.js";
 
 /**
  * Check if the workflow is disabled.
@@ -40,11 +40,11 @@ export function createPredefinedWorkflows(
   const workflows: WorkflowTemplate[] = [];
   const config = options?.config;
 
-  // context_compression_workflow
-  if (!isDisabled(CONTEXT_COMPRESSION_WORKFLOW_ID, options)) {
-    const workflow = config?.contextCompression
-      ? createCustomContextCompressionWorkflow(config.contextCompression)
-      : createContextCompressionWorkflow();
+  // llm_summary_workflow
+  if (!isDisabled(LLM_SUMMARY_WORKFLOW_ID, options)) {
+    const workflow = config?.llmSummary
+      ? createCustomLlmSummaryWorkflow(config.llmSummary)
+      : createLlmSummaryWorkflow();
     workflows.push(workflow);
   }
 

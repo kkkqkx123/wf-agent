@@ -411,35 +411,15 @@ export class SDKInstance {
     const presets = this.config?.presets;
 
     // Register all predefined content (triggers, workflows, tools)
+    // registerAllPredefinedContent internally maps PresetsConfig to sub-module configurations.
     if (presets) {
       try {
         registerAllPredefinedContent(
           this.globalContext.triggerTemplateRegistry,
           this.globalContext.workflowRegistry,
           this.globalContext.toolRegistry,
-          {
-            triggers: {
-              enabled: presets?.contextCompression?.enabled !== false,
-              config: {
-                contextCompression: presets?.contextCompression,
-              },
-            },
-            workflows: {
-              enabled: presets?.contextCompression?.enabled !== false,
-              config: {
-                contextCompression: presets?.contextCompression,
-              },
-            },
-            tools: {
-              enabled: presets?.predefinedTools?.enabled !== false,
-              config: {
-                allowList: presets?.predefinedTools?.allowList,
-                blockList: presets?.predefinedTools?.blockList,
-                config: presets?.predefinedTools?.config,
-              },
-            },
-            skipIfExists: true,
-          },
+          presets,
+          true,
         );
 
         logger.info("Predefined content registered successfully");

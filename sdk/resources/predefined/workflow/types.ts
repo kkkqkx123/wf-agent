@@ -14,7 +14,7 @@ export interface PredefinedWorkflowsOptions {
   blockList?: string[];
   /** Workflow-specific configuration */
   config?: {
-    contextCompression?: {
+    llmSummary?: {
       compressionPrompt?: string;
       timeout?: number;
       maxTriggers?: number;

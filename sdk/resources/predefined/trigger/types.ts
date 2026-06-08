@@ -14,8 +14,9 @@ export interface PredefinedTriggersOptions {
   blockList?: string[];
   /** Trigger-specific configuration */
   config?: {
-    contextCompression?: {
+    llmSummary?: {
       compressionPrompt?: string;
+      triggeredWorkflowId?: string;
       timeout?: number;
       maxTriggers?: number;
     };

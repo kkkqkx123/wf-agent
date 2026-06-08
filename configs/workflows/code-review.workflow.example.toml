@@ -10,8 +10,6 @@ name = "Code Review Pipeline"
 type = "STANDALONE"
 description = "Automated code review workflow that analyzes PR diffs and generates review comments"
 version = "1.0.0"
-createdAt = "2026-06-01T00:00:00Z"
-updatedAt = "2026-06-01T00:00:00Z"
 
 # --- Variables — declare required workflow inputs ---
 [[variables]]

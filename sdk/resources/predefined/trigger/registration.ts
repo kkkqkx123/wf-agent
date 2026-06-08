@@ -7,6 +7,7 @@
 import type { TriggerTemplateRegistry } from "@sdk/core/registry/trigger-template-registry.js";
 import { createContextualLogger } from "@sdk/utils/contextual-logger.js";
 import { createPredefinedTriggers } from "./registry.js";
+import type { PredefinedTriggersOptions } from "./types.js";
 
 const logger = createContextualLogger({ component: "PredefinedTriggers" });
 
@@ -20,20 +21,7 @@ const logger = createContextualLogger({ component: "PredefinedTriggers" });
  */
 export function registerPredefinedTriggers(
   registry: TriggerTemplateRegistry,
-  options?: {
-    /** Enable only the specified triggers (allowlist). */
-    allowList?: string[];
-    /** Disable the specified trigger (blocklist it). */
-    blockList?: string[];
-    /** Trigger-specific configuration */
-    config?: {
-      contextCompression?: {
-        compressionPrompt?: string;
-        timeout?: number;
-        maxTriggers?: number;
-      };
-    };
-  },
+  options?: PredefinedTriggersOptions,
   skipIfExists: boolean = true,
 ): {
   success: string[];

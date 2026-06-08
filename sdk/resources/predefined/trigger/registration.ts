@@ -44,7 +44,7 @@ export function registerPredefinedTriggers(
         }
 
         // Register the trigger.
-        registry.register(trigger, { skipIfExists });
+        registry.register(trigger);
         success.push(trigger.name);
         logger.info(`Registered predefined trigger: ${trigger.name}`);
       } catch (error) {

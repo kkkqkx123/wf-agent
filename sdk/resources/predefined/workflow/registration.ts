@@ -45,7 +45,7 @@ export function registerPredefinedWorkflows(
         }
 
         // Register the workflow.
-        registry.register(workflow, { skipIfExists });
+        registry.register(workflow);
         success.push(workflow.id);
         logger.info(`Registered predefined workflow: ${workflow.id}`);
       } catch (error) {

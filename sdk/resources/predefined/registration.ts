@@ -94,22 +94,19 @@ export function registerAllPredefinedContent(
     tools: { success: [], failures: [] },
   };
 
-  // Register predefined triggers (context compression)
-  if (presets?.contextCompression?.enabled !== false) {
-    try {
-      const llmConfig = mapLlmSummaryConfig(presets?.contextCompression);
-      results.triggers = registerPredefinedTriggers(
-        triggerRegistry,
-        llmConfig ? { config: { llmSummary: llmConfig } } : undefined,
-        skipIfExists,
-      );
-      logger.info("Predefined triggers registered");
-    } catch (error) {
-      logger.error("Failed to register predefined triggers", { error });
-    }
-  }
+  // Track successfully registered items for rollback on failure.
+  const rollbackState: { workflows: string[]; triggers: string[] } = {
+    workflows: [],
+    triggers: [],
+  };
 
-  // Register predefined workflows (context compression)
+  // ====================================================================
+  // Registration order: workflows → triggers → tools
+  // Workflows must be registered first because triggers (e.g.
+  // execute_triggered_subworkflow) reference workflow IDs.
+  // ====================================================================
+
+  // 1. Register predefined workflows (context compression)
   if (presets?.contextCompression?.enabled !== false) {
     try {
       const llmConfig = mapLlmSummaryConfig(presets?.contextCompression);
@@ -118,13 +115,30 @@ export function registerAllPredefinedContent(
         llmConfig ? { config: { llmSummary: llmConfig } } : undefined,
         skipIfExists,
       );
+      rollbackState.workflows = results.workflows.success;
       logger.info("Predefined workflows registered");
     } catch (error) {
       logger.error("Failed to register predefined workflows", { error });
     }
   }
 
-  // Register predefined tools
+  // 2. Register predefined triggers (context compression)
+  if (presets?.contextCompression?.enabled !== false) {
+    try {
+      const llmConfig = mapLlmSummaryConfig(presets?.contextCompression);
+      results.triggers = registerPredefinedTriggers(
+        triggerRegistry,
+        llmConfig ? { config: { llmSummary: llmConfig } } : undefined,
+        skipIfExists,
+      );
+      rollbackState.triggers = results.triggers.success;
+      logger.info("Predefined triggers registered");
+    } catch (error) {
+      logger.error("Failed to register predefined triggers", { error });
+    }
+  }
+
+  // 3. Register predefined tools
   if (presets?.predefinedTools?.enabled !== false) {
     try {
       results.tools = registerPredefinedTools(
@@ -139,6 +153,24 @@ export function registerAllPredefinedContent(
       logger.info("Predefined tools registered");
     } catch (error) {
       logger.error("Failed to register predefined tools", { error });
+      // Rollback: undo previously registered workflows and triggers
+      // to avoid leaving the system in a partially-registered state.
+      rollbackState.workflows.forEach((id) => {
+        try {
+          workflowRegistry.unregister(id, { force: true });
+          logger.warn(`Rolled back workflow: ${id}`);
+        } catch (rollbackError) {
+          logger.error(`Failed to rollback workflow: ${id}`, { error: rollbackError });
+        }
+      });
+      rollbackState.triggers.forEach((name) => {
+        try {
+          triggerRegistry.unregister(name);
+          logger.warn(`Rolled back trigger: ${name}`);
+        } catch (rollbackError) {
+          logger.error(`Failed to rollback trigger: ${name}`, { error: rollbackError });
+        }
+      });
     }
   }
 

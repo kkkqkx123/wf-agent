@@ -410,8 +410,27 @@ export class SDKInstance {
 
     const presets = this.config?.presets;
 
-    // Register all predefined content (triggers, workflows, tools)
-    // registerAllPredefinedContent internally maps PresetsConfig to sub-module configurations.
+    // ====================================================================
+    // Order: storage → predefined → mark ready
+    // 1. Storage: load persisted workflows first (they take priority)
+    // 2. Predefined: register built-in content, skip if already in storage
+    // 3. Mark bootstrapped as complete
+    // ====================================================================
+
+    // 1. Initialize workflow registry from storage if adapter is provided
+    // Runs BEFORE predefined registration so that persisted workflows take
+    // priority over predefined defaults.
+    if (this.config?.workflowStorageAdapter) {
+      try {
+        await this.globalContext.workflowRegistry.initializeFromStorage();
+        logger.info("Workflow registry initialized from storage");
+      } catch (error) {
+        logger.error(`Failed to initialize workflow registry from storage: ${getErrorMessage(error)}`);
+        // Don't fail bootstrap - allow SDK to work with empty registry
+      }
+    }
+
+    // 2. Register all predefined content (skips if already in storage)
     if (presets) {
       try {
         registerAllPredefinedContent(
@@ -438,19 +457,8 @@ export class SDKInstance {
       }
     }
 
-    // Mark as bootstrapped
+    // 3. Mark as bootstrapped
     this.isBootstrapped = true;
-
-    // Initialize workflow registry from storage if adapter is provided
-    if (this.config?.workflowStorageAdapter) {
-      try {
-        await this.globalContext.workflowRegistry.initializeFromStorage();
-        logger.info("Workflow registry initialized from storage");
-      } catch (error) {
-        logger.error(`Failed to initialize workflow registry from storage: ${getErrorMessage(error)}`);
-        // Don't fail bootstrap - allow SDK to work with empty registry
-      }
-    }
 
     // Initialize Graceful Shutdown Manager if enabled
     const gracefulShutdownConfig = this.config?.gracefulShutdown;

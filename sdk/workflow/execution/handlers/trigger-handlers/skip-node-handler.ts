@@ -4,7 +4,7 @@ import { RuntimeValidationError, WorkflowExecutionNotFoundError } from "@wf-agen
 import type { WorkflowExecutionRegistry } from "../../../stores/workflow-execution-registry.js";
 import type { EventRegistry } from "../../../../core/registry/event-registry.js";
 import { now, diffTimestamp } from "@wf-agent/common-utils";
-import { buildNodeCompletedEvent } from "../../utils/event/index.js";
+import { buildNodeCompletedEvent } from "../../../../core/utils/event/builders/index.js";
 import { createSuccessResult, createFailureResult } from "./trigger-handler-utils.js";
 
 export async function skipNodeHandler(

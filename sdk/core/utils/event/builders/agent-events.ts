@@ -3,6 +3,7 @@
  * Provides builders for agent lifecycle events
  */
 
+import { now, generateId } from "@wf-agent/common-utils";
 import { createBuilder } from "./common.js";
 import type {
   AgentStartedEvent,
@@ -20,6 +21,9 @@ import type {
   AgentIterationStartedEvent,
   AgentIterationCompletedEvent,
   AgentHookTriggeredCoreEvent,
+  AgentHookTriggeredEvent,
+  AgentHookType,
+  Metadata,
 } from "@wf-agent/types";
 
 // =============================================================================
@@ -132,3 +136,37 @@ export const buildAgentIterationCompletedEvent = createBuilder<AgentIterationCom
  */
 export const buildAgentHookTriggeredCoreEvent =
   createBuilder<AgentHookTriggeredCoreEvent>("AGENT_HOOK_TRIGGERED");
+
+/**
+ * Build agent hook triggered event
+ *
+ * Manually constructed because "hook_triggered" is a custom event type
+ * not part of the standard EventType union.
+ */
+export const buildAgentHookTriggeredEvent = (params: {
+  agentLoopId: string;
+  agentLoopEntityId: string;
+  hookType: AgentHookType;
+  eventName: string;
+  eventData: Record<string, unknown>;
+  iteration: number;
+  parentContext?: {
+    parentType: "WORKFLOW" | "AGENT_LOOP";
+    parentId: string;
+    nodeId?: string;
+    delegationPurpose?: string;
+  };
+  metadata?: Metadata;
+}): AgentHookTriggeredEvent => ({
+  id: generateId(),
+  type: "hook_triggered",
+  timestamp: now(),
+  agentLoopId: params.agentLoopId,
+  agentLoopEntityId: params.agentLoopEntityId,
+  hookType: params.hookType,
+  eventName: params.eventName,
+  eventData: params.eventData,
+  iteration: params.iteration,
+  parentContext: params.parentContext,
+  metadata: params.metadata,
+});

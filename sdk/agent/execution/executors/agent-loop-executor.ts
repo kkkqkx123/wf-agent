@@ -34,7 +34,7 @@ import { LLMExecutor } from "../../../core/executors/llm-executor.js";
 import { ToolCallExecutor } from "../../../core/executors/tool-call-executor.js";
 import type { CheckpointDependencies as WorkflowCheckpointDependencies } from "../../../workflow/checkpoint/checkpoint-coordinator.js";
 import * as Identifiers from "../../../core/di/service-identifiers.js";
-import { emit } from "../../../core/utils/event/event-emitter.js";
+import { emit } from "../../../core/utils/event/emit-event.js";
 import { AgentExecutionCoordinator, type AgentLoopStreamEvent } from "../coordinators/agent-execution-coordinator.js";
 import { AgentIterationCoordinator } from "../coordinators/agent-iteration-coordinator.js";
 import { LLMExecutionCoordinator as CoreLLMExecutionCoordinator } from "../../../core/coordinators/llm-execution-coordinator.js";
@@ -135,38 +135,14 @@ export class AgentLoopExecutor {
    * @returns Execution result
    */
   async execute(entity: AgentLoopEntity): Promise<AgentLoopResult> {
-    const agentLoopId = entity.id;
-    const config = entity.config;
-    const maxIterations = config.maxIterations ?? 10;
-
-    logger.info("Agent Loop execution started", {
-      agentLoopId,
-      maxIterations,
-      toolsCount: getAvailableTools(config.availableTools).length,
-      profileId: config.profileId || "DEFAULT",
-      initialMessageCount: entity.conversationManager.getMessageCount(),
-    });
-
-    // Get all available tools from config (no dynamic merging)
-    const toolIds = getAvailableTools(config.availableTools);
-
-    logger.debug("Tool configuration", {
-      totalCount: toolIds.length,
-    });
-
-    // Pass tool IDs directly (no filtering needed - AgentToolConfig already defines the exact tool set)
-    const toolSchemas = prepareToolSchemas(toolIds, this.toolService);
-
-    if (toolSchemas) {
-      logger.debug("Tool schemas prepared", { agentLoopId, toolsCount: toolSchemas.length });
-    }
+    const { toolSchemas, maxIterations, profileId } = this.prepareExecution(entity, "sync");
 
     const coordinator = this.createCoordinator();
     return coordinator.execute(
       entity,
       entity.conversationManager,
       toolSchemas,
-      config.profileId || "DEFAULT",
+      profileId,
       maxIterations,
     );
   }
@@ -178,35 +154,48 @@ export class AgentLoopExecutor {
    * @returns Stream event generator
    */
   async *executeStream(entity: AgentLoopEntity): AsyncGenerator<AgentLoopStreamEvent> {
-    const config = entity.config;
-    const maxIterations = config.maxIterations ?? 10;
-
-    logger.info("Agent Loop stream execution started", {
-      agentLoopId: entity.id,
-      maxIterations,
-      toolsCount: getAvailableTools(config.availableTools).length,
-      profileId: config.profileId || "DEFAULT",
-      initialMessageCount: entity.conversationManager.getMessageCount(),
-    });
-
-    // Get effective tools from config (no dynamic merging needed - handled by entity)
-    const toolIds = getAvailableTools(config.availableTools);
-
-    logger.debug("Tool configuration", {
-      totalCount: toolIds.length,
-    });
-
-    // Pass tool IDs directly (no filtering needed - AgentToolConfig already defines the exact tool set)
-    const toolSchemas = prepareToolSchemas(toolIds, this.toolService);
+    const { toolSchemas, maxIterations, profileId } = this.prepareExecution(entity, "stream");
 
     const coordinator = this.createCoordinator();
     yield* coordinator.executeStream(
       entity,
       entity.conversationManager,
       toolSchemas,
-      config.profileId || "DEFAULT",
+      profileId,
       maxIterations,
     );
+  }
+
+  /**
+   * Shared preparation logic for both sync and stream execution.
+   * Extracts configuration, determines defaults, prepares tool schemas,
+   * and logs execution metadata.
+   */
+  private prepareExecution(
+    entity: AgentLoopEntity,
+    mode: "sync" | "stream",
+  ): { toolSchemas: ReturnType<typeof prepareToolSchemas>; maxIterations: number; profileId: string } {
+    const config = entity.config;
+    const maxIterations = config.maxIterations ?? 10;
+    const profileId = config.profileId || "DEFAULT";
+
+    logger.info(`Agent Loop ${mode} execution started`, {
+      agentLoopId: entity.id,
+      maxIterations,
+      toolsCount: getAvailableTools(config.availableTools).length,
+      profileId,
+      initialMessageCount: entity.conversationManager.getMessageCount(),
+    });
+
+    const toolIds = getAvailableTools(config.availableTools);
+    logger.debug("Tool configuration", { totalCount: toolIds.length });
+
+    const toolSchemas = prepareToolSchemas(toolIds, this.toolService);
+    if (toolSchemas) {
+      logger.debug("Tool schemas prepared", { agentLoopId: entity.id, toolsCount: toolSchemas.length });
+    }
+
+    return { toolSchemas, maxIterations, profileId };
   }
 
   /**
@@ -221,6 +210,8 @@ export class AgentLoopExecutor {
     });
 
     // Create CoreLLMExecutionCoordinator for unified LLM execution with transformContext support
+    // Note: llmWrapper is a private property of LLMExecutor; we access it via `as any`
+    // as a temporary workaround until LLMExecutor exposes it as a public getter.
     const coreCoordinator = new CoreLLMExecutionCoordinator(
       this.llmExecutor,
       this.toolCallExecutor,

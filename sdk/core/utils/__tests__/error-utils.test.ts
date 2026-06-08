@@ -33,7 +33,7 @@ vi.mock("../event/builders/index.js", () => ({
 }));
 
 // Mock event emitter — must export 'emit' to match what error-utils.ts imports
-vi.mock("../event/event-emitter.js", () => ({
+vi.mock("../event/emit-event.js", () => ({
   emit: mockEmit,
 }));
 

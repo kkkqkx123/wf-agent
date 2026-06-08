@@ -12,7 +12,7 @@ import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import type { BaseEvent } from "@wf-agent/types";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import { buildWorkflowExecutionCancelledEvent } from "../../../core/utils/event/builders/workflow-execution-events.js";
-import { emit } from "../../../core/utils/event/event-emitter.js";
+import { emit } from "../../../core/utils/event/emit-event.js";
 import { TimeoutRegistry } from "../../../core/registry/timeout-registry.js";
 import type { TimeoutHandle } from "../../../core/types/timeout.js";
 

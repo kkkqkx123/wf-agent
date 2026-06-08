@@ -73,7 +73,7 @@ import { ToolApprovalCoordinator } from "../coordinators/tool-approval-coordinat
 import { SkillRegistry } from "../registry/skill-registry.js";
 import { AgentProfileRegistry } from "../registry/agent-profile-registry.js";
 import { HostSkillLoader } from "../../services/skill-loader/host-skill-loader.js";
-import { emit } from "../../workflow/execution/utils/index.js";
+import { emit } from "../utils/event/emit-event.js";
 import { CheckpointCoordinator } from "../../workflow/checkpoint/checkpoint-coordinator.js";
 import {
   buildMessageAddedEvent,

@@ -27,7 +27,7 @@ import type { WorkflowExecutionResult } from "@wf-agent/types";
 import { now, diffTimestamp, getErrorOrNew } from "@wf-agent/common-utils";
 import { SDKError } from "@wf-agent/types";
 import { logError, emitErrorEvent } from "../utils/error-utils.js";
-import { emit } from "../../workflow/execution/utils/index.js";
+import { emit } from "../utils/event/emit-event.js";
 import {
   buildTriggeredSubgraphCompletedEvent,
   buildTriggeredSubgraphFailedEvent,

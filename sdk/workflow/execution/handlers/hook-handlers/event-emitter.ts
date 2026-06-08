@@ -6,9 +6,8 @@
 
 import type { HookExecutionContext } from "./hook-handler.js";
 import type { NodeCustomEvent } from "@wf-agent/types";
-import { EventSystemError } from "@wf-agent/types";
-import { getErrorOrNew } from "@wf-agent/common-utils";
 import { buildNodeCustomEvent } from "../../../../core/utils/event/builders/custom-events.js";
+import { emitHookEventSafe } from "../../../../core/utils/event/emit-hook-event.js";
 
 /**
  * Emit Hook custom event
@@ -37,16 +36,11 @@ export async function emitHookEvent(
     metadata: node.metadata,
   });
 
-  try {
-    await emitEvent(event);
-  } catch (error) {
-    throw new EventSystemError(
-      `Failed to emit custom event "${eventName}" for node "${node.id}"`,
-      "emit",
-      "NODE_CUSTOM_EVENT",
-      node.id,
-      undefined,
-      { eventName, nodeId: node.id, originalError: getErrorOrNew(error) },
-    );
-  }
+  await emitHookEventSafe(
+    event,
+    emitEvent,
+    `Failed to emit custom event "${eventName}" for node "${node.id}"`,
+    { operation: "emit", eventType: "NODE_CUSTOM_EVENT", nodeId: node.id },
+    { eventName, nodeId: node.id },
+  );
 }

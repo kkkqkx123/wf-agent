@@ -20,7 +20,7 @@
 import { now, getErrorOrNew } from "@wf-agent/common-utils";
 import { SDKError } from "@wf-agent/types";
 import type { EventRegistry } from "../../core/registry/event-registry.js";
-import { emit } from "../../core/utils/event/event-emitter.js";
+import { emit } from "../../core/utils/event/emit-event.js";
 import {
   buildPromiseCallbackRegisteredEvent,
   buildPromiseCallbackResolvedEvent,

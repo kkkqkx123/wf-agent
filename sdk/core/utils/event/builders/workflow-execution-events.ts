@@ -3,7 +3,6 @@
  * Provides builders for workflow execution lifecycle events
  */
 
-import { now, generateId } from "@wf-agent/common-utils";
 import type { WorkflowExecutionResult } from "@wf-agent/types";
 import type {
   WorkflowExecutionStartedEvent,
@@ -26,6 +25,17 @@ import { createBuilder, createErrorBuilder } from "./common.js";
 import type { WorkflowExecutionEntity } from "../../../../workflow/entities/workflow-execution-entity.js";
 
 // =============================================================================
+// Internal builder instances using standard createBuilder
+// =============================================================================
+
+const _buildStarted = createBuilder<WorkflowExecutionStartedEvent>("WORKFLOW_EXECUTION_STARTED");
+const _buildCompleted = createBuilder<WorkflowExecutionCompletedEvent>("WORKFLOW_EXECUTION_COMPLETED");
+const _buildPaused = createBuilder<WorkflowExecutionPausedEvent>("WORKFLOW_EXECUTION_PAUSED");
+const _buildResumed = createBuilder<WorkflowExecutionResumedEvent>("WORKFLOW_EXECUTION_RESUMED");
+const _buildCancelled = createBuilder<WorkflowExecutionCancelledEvent>("WORKFLOW_EXECUTION_CANCELLED");
+const _buildStateChanged = createBuilder<WorkflowExecutionStateChangedEvent>("WORKFLOW_EXECUTION_STATE_CHANGED");
+
+// =============================================================================
 // Workflow Execution Lifecycle Events (built from WorkflowExecutionEntity)
 // =============================================================================
 
@@ -34,14 +44,12 @@ import type { WorkflowExecutionEntity } from "../../../../workflow/entities/work
  */
 export const buildWorkflowExecutionStartedEvent = (
   workflowExecutionEntity: WorkflowExecutionEntity,
-): WorkflowExecutionStartedEvent => ({
-  id: generateId(),
-  type: "WORKFLOW_EXECUTION_STARTED",
-  timestamp: now(),
-  workflowId: workflowExecutionEntity.getWorkflowId(),
-  executionId: workflowExecutionEntity.id,
-  input: workflowExecutionEntity.getInput(),
-});
+): WorkflowExecutionStartedEvent =>
+  _buildStarted({
+    workflowId: workflowExecutionEntity.getWorkflowId(),
+    executionId: workflowExecutionEntity.id,
+    input: workflowExecutionEntity.getInput(),
+  });
 
 /**
  * Build workflow execution completed event
@@ -49,15 +57,13 @@ export const buildWorkflowExecutionStartedEvent = (
 export const buildWorkflowExecutionCompletedEvent = (
   workflowExecutionEntity: WorkflowExecutionEntity,
   result: WorkflowExecutionResult,
-): WorkflowExecutionCompletedEvent => ({
-  id: generateId(),
-  type: "WORKFLOW_EXECUTION_COMPLETED",
-  timestamp: now(),
-  workflowId: workflowExecutionEntity.getWorkflowId(),
-  executionId: workflowExecutionEntity.id,
-  output: result.output,
-  executionTime: result.executionTime,
-});
+): WorkflowExecutionCompletedEvent =>
+  _buildCompleted({
+    workflowId: workflowExecutionEntity.getWorkflowId(),
+    executionId: workflowExecutionEntity.id,
+    output: result.output,
+    executionTime: result.executionTime,
+  });
 
 /**
  * Build workflow execution failed event
@@ -79,32 +85,28 @@ export const buildWorkflowExecutionPausedEvent = (
     checkpointCreated?: boolean;
     checkpointId?: string;
   },
-): WorkflowExecutionPausedEvent => ({
-  id: generateId(),
-  type: "WORKFLOW_EXECUTION_PAUSED",
-  timestamp: now(),
-  workflowId: workflowExecutionEntity.getWorkflowId(),
-  executionId: workflowExecutionEntity.id,
-  reason: context?.nodeId ? `Paused at node: ${context.nodeId}` : undefined,
-  nodeId: context?.nodeId,
-  completedNodes: context?.completedNodes,
-  pendingToolsCancelled: context?.pendingToolsCancelled,
-  checkpointCreated: context?.checkpointCreated,
-  checkpointId: context?.checkpointId,
-});
+): WorkflowExecutionPausedEvent =>
+  _buildPaused({
+    workflowId: workflowExecutionEntity.getWorkflowId(),
+    executionId: workflowExecutionEntity.id,
+    reason: context?.nodeId ? `Paused at node: ${context.nodeId}` : undefined,
+    nodeId: context?.nodeId,
+    completedNodes: context?.completedNodes,
+    pendingToolsCancelled: context?.pendingToolsCancelled,
+    checkpointCreated: context?.checkpointCreated,
+    checkpointId: context?.checkpointId,
+  });
 
 /**
  * Build workflow execution resumed event
  */
 export const buildWorkflowExecutionResumedEvent = (
   workflowExecutionEntity: WorkflowExecutionEntity,
-): WorkflowExecutionResumedEvent => ({
-  id: generateId(),
-  type: "WORKFLOW_EXECUTION_RESUMED",
-  timestamp: now(),
-  workflowId: workflowExecutionEntity.getWorkflowId(),
-  executionId: workflowExecutionEntity.id,
-});
+): WorkflowExecutionResumedEvent =>
+  _buildResumed({
+    workflowId: workflowExecutionEntity.getWorkflowId(),
+    executionId: workflowExecutionEntity.id,
+  });
 
 /**
  * Build workflow execution cancelled event
@@ -122,21 +124,19 @@ export const buildWorkflowExecutionCancelledEvent = (
     pauseDuration?: number;
     maxPauseDuration?: number;
   },
-): WorkflowExecutionCancelledEvent => ({
-  id: generateId(),
-  type: "WORKFLOW_EXECUTION_CANCELLED",
-  timestamp: now(),
-  workflowId: workflowExecutionEntity.getWorkflowId(),
-  executionId: workflowExecutionEntity.id,
-  reason: context?.nodeId ? `${reason || "Cancelled"} at node: ${context.nodeId}` : reason,
-  nodeId: context?.nodeId,
-  completedNodes: context?.completedNodes,
-  pendingToolsCancelled: context?.pendingToolsCancelled,
-  checkpointCreated: context?.checkpointCreated,
-  checkpointId: context?.checkpointId,
-  pauseDuration: context?.pauseDuration,
-  maxPauseDuration: context?.maxPauseDuration,
-});
+): WorkflowExecutionCancelledEvent =>
+  _buildCancelled({
+    workflowId: workflowExecutionEntity.getWorkflowId(),
+    executionId: workflowExecutionEntity.id,
+    reason: context?.nodeId ? `${reason || "Cancelled"} at node: ${context.nodeId}` : reason,
+    nodeId: context?.nodeId,
+    completedNodes: context?.completedNodes,
+    pendingToolsCancelled: context?.pendingToolsCancelled,
+    checkpointCreated: context?.checkpointCreated,
+    checkpointId: context?.checkpointId,
+    pauseDuration: context?.pauseDuration,
+    maxPauseDuration: context?.maxPauseDuration,
+  });
 
 /**
  * Build workflow execution state changed event
@@ -145,15 +145,13 @@ export const buildWorkflowExecutionStateChangedEvent = (
   workflowExecutionEntity: WorkflowExecutionEntity,
   previousStatus: string,
   newStatus: string,
-): WorkflowExecutionStateChangedEvent => ({
-  id: generateId(),
-  type: "WORKFLOW_EXECUTION_STATE_CHANGED",
-  timestamp: now(),
-  workflowId: workflowExecutionEntity.getWorkflowId(),
-  executionId: workflowExecutionEntity.id,
-  previousStatus,
-  newStatus,
-});
+): WorkflowExecutionStateChangedEvent =>
+  _buildStateChanged({
+    workflowId: workflowExecutionEntity.getWorkflowId(),
+    executionId: workflowExecutionEntity.id,
+    previousStatus,
+    newStatus,
+  });
 
 // =============================================================================
 // Fork/Join/Copy Events

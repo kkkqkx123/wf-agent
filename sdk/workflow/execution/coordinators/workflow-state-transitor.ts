@@ -31,8 +31,8 @@ import {
   buildWorkflowExecutionCompletedEvent,
   buildWorkflowExecutionFailedEvent,
   buildWorkflowExecutionCancelledEvent,
-} from "../utils/event/index.js";
-import { emit } from "../../../core/utils/event/event-emitter.js";
+} from "../../../core/utils/event/builders/index.js";
+import { emit } from "../../../core/utils/event/emit-event.js";
 import { getErrorOrNew } from "@wf-agent/common-utils";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import type { GlobalContext } from "../../../core/global-context.js";

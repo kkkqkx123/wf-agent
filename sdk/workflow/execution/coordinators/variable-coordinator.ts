@@ -21,8 +21,8 @@ import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import { getErrorOrNew } from "@wf-agent/common-utils";
 import { RuntimeValidationError } from "@wf-agent/types";
 import { VariableManager } from "../../state-managers/variable-manager.js";
-import { emit } from "../../../core/utils/event/event-emitter.js";
-import { buildVariableChangedEvent } from "../utils/event/index.js";
+import { emit } from "../../../core/utils/event/emit-event.js";
+import { buildVariableChangedEvent } from "../../../core/utils/event/builders/index.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "VariableCoordinator" });

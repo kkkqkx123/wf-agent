@@ -20,7 +20,7 @@ import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import { SDKError as SDKErrorClass } from "@wf-agent/types";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import { handleError } from "../../../core/utils/error-utils.js";
-import { emit } from "../../../core/utils/event/event-emitter.js";
+import { emit } from "../../../core/utils/event/emit-event.js";
 import { generateId, now } from "@wf-agent/common-utils";
 import type { AgentPausedEvent, AgentCancelledEvent } from "@wf-agent/types";
 import type { ExecutionInterruptionCheckResult } from "../../../core/utils/interruption/index.js";

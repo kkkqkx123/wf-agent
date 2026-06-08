@@ -41,7 +41,7 @@ import { SDKError } from "@wf-agent/types";
 import { executeHook } from "../handlers/hook-handlers/hook-handler.js";
 import { handleErrorWithContext } from "../../../core/utils/error-utils.js";
 import { now, diffTimestamp, getErrorOrNew } from "@wf-agent/common-utils";
-import { emit } from "../../../core/utils/event/event-emitter.js";
+import { emit } from "../../../core/utils/event/emit-event.js";
 import { getNodeHandler } from "../handlers/node-handlers/index.js";
 import type { CheckpointDependencies } from "../../checkpoint/checkpoint-coordinator.js";
 import { CheckpointCoordinator } from "../../checkpoint/checkpoint-coordinator.js";
@@ -55,7 +55,7 @@ import {
   buildNodeStartedEvent,
   buildNodeCompletedEvent,
   buildNodeFailedEvent,
-} from "../utils/event/index.js";
+} from "../../../core/utils/event/builders/index.js";
 import type { InterruptionDetector } from "../interruption-detector.js";
 import { executeWithInterruptionHandling } from "../../../core/utils/interruption/index.js";
 import {

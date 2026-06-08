@@ -21,7 +21,7 @@ import type { AgentLoopResult } from "@wf-agent/types";
 import type { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import { AgentLoopStatus } from "@wf-agent/types";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
-import { emit } from "../../../core/utils/event/event-emitter.js";
+import { emit } from "../../../core/utils/event/emit-event.js";
 import {
   buildAgentStartedEvent,
   buildAgentCompletedEvent,

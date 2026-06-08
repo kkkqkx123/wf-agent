@@ -19,13 +19,13 @@ import { createForkBranchResult } from "../../types/subworkflow-result.types.js"
 import type { ForkHandlerContext } from "../../types/fork.types.js";
 import { createContextualLogger } from "../../../../utils/contextual-logger.js";
 import { now, diffTimestamp, getErrorOrNew } from "@wf-agent/common-utils";
-import { emit } from "../../../../core/utils/event/event-emitter.js";
+import { emit } from "../../../../core/utils/event/emit-event.js";
 import {
   buildForkStartedEvent,
   buildForkBranchStartedEvent,
   buildForkBranchCompletedEvent,
   buildForkCompletedEvent,
-} from "../../utils/event/index.js";
+} from "../../../../core/utils/event/builders/index.js";
 import * as Identifiers from "../../../../core/di/service-identifiers.js";
 import { cleanupChildExecution } from "../../utils/child-execution-cleanup.js";
 

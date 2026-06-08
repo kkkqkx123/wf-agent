@@ -136,6 +136,7 @@ export class ToolExecutionCoordinator {
       // Auto-executed tools correspond to the first N tools in the batch
       if (i < toolCalls.length && autoResult) {
         const originalToolCall = toolCalls[i]!;
+        entity.state.recordToolCallStart(originalToolCall.id, originalToolCall.name, originalToolCall.arguments);
         await this.executeSingleApprovedTool(
           entity,
           conversationManager,
@@ -174,6 +175,7 @@ export class ToolExecutionCoordinator {
           retryCount: 0,
         };
 
+        entity.state.recordToolCallStart(confirmedToolCall.id, confirmedToolCall.name, confirmedToolCall.arguments);
         await this.executeSingleApprovedTool(
           entity,
           conversationManager,

@@ -30,7 +30,7 @@ import type { WorkflowInterruptionCheckResult } from "../utils/workflow-interrup
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import {
   buildToolApprovalRequestedEvent,
-} from "../utils/event/index.js";
+} from "../../../core/utils/event/builders/index.js";
 import {
   LLMContextFactory,
   type LLMContextFactoryConfig,

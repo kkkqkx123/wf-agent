@@ -6,9 +6,8 @@
 
 import type { AgentLoopEntity } from "../../../entities/agent-loop-entity.js";
 import type { AgentHookTriggeredEvent, AgentHookType } from "@wf-agent/types";
-import { EventSystemError } from "@wf-agent/types";
-import { getErrorOrNew } from "@wf-agent/common-utils";
 import { buildAgentHookTriggeredEvent } from "../../../../core/utils/event/builders/index.js";
+import { emitHookEventSafe } from "../../../../core/utils/event/emit-hook-event.js";
 
 /**
  * Agent Hook Event Data
@@ -55,28 +54,29 @@ export async function emitAgentHookEvent(
     eventData: eventData ?? {},
     iteration: entity.state.currentIteration,
     // Unified parent context
-    parentContext: parentContext ? {
-      parentType: parentContext.parentType,
-      parentId: parentContext.parentId,
-      ...(parentContext.parentType === 'WORKFLOW' && { nodeId: parentContext.nodeId }),
-      ...(parentContext.parentType === 'AGENT_LOOP' && { delegationPurpose: parentContext.delegationPurpose }),
-    } : undefined,
+    parentContext: parentContext
+      ? {
+          parentType: parentContext.parentType,
+          parentId: parentContext.parentId,
+          ...(parentContext.parentType === "WORKFLOW" && {
+            nodeId: parentContext.nodeId,
+          }),
+          ...(parentContext.parentType === "AGENT_LOOP" && {
+            delegationPurpose: parentContext.delegationPurpose,
+          }),
+        }
+      : undefined,
     metadata: {
       profileId: entity.config.profileId,
       toolCallCount: entity.state.toolCallCount,
     },
   });
 
-  try {
-    await emitEvent(event);
-  } catch (error) {
-    throw new EventSystemError(
-      `Failed to emit agent hook event "${eventName}" for agent loop "${entity.id}"`,
-      "emit",
-      "HOOK_TRIGGERED",
-      entity.nodeId,
-      undefined,
-      { eventName, hookType, agentLoopId: entity.id, originalError: getErrorOrNew(error) },
-    );
-  }
+  await emitHookEventSafe(
+    event,
+    emitEvent,
+    `Failed to emit agent hook event "${eventName}" for agent loop "${entity.id}"`,
+    { operation: "emit", eventType: "HOOK_TRIGGERED", nodeId: entity.nodeId },
+    { eventName, hookType, agentLoopId: entity.id },
+  );
 }

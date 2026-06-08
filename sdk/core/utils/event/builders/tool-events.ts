@@ -3,7 +3,7 @@
  * Provides builders for tool call events
  */
 
-import { createBuilder, type BuildParams } from "./common.js";
+import { createBuilder, createStringErrorBuilder } from "./common.js";
 import type {
   ToolCallStartedEvent,
   ToolCallCompletedEvent,
@@ -30,22 +30,9 @@ export const buildToolCallCompletedEvent =
 
 /**
  * Build tool call failed event
- * Note: Manually constructed because the caller passes error: Error which is
- * converted to string. The createStringErrorBuilder behavior differs slightly
- * (lacks "Unknown error" fallback), so we keep this manual.
+ * Converts Error to string with "Unknown error" fallback
  */
-export const buildToolCallFailedEvent = (
-  params: Omit<BuildParams<ToolCallFailedEvent>, "error"> & {
-    error: Error;
-    workflowId?: string;
-  },
-): ToolCallFailedEvent =>
-  ({
-    type: "TOOL_CALL_FAILED",
-    timestamp: Date.now(),
-    ...params,
-    error: params.error.message || "Unknown error",
-  }) as ToolCallFailedEvent;
+export const buildToolCallFailedEvent = createStringErrorBuilder<ToolCallFailedEvent>("TOOL_CALL_FAILED");
 
 /**
  * Build tool call blocked event (NEW - for failure protection)

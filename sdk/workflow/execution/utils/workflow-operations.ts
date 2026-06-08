@@ -19,8 +19,8 @@ import {
   buildWorkflowExecutionJoinConditionMetEvent,
   buildWorkflowExecutionCopyStartedEvent,
   buildWorkflowExecutionCopyCompletedEvent,
-} from "./event/index.js";
-import { emit } from "../../../core/utils/event/event-emitter.js";
+} from "../../../core/utils/event/builders/index.js";
+import { emit } from "../../../core/utils/event/emit-event.js";
 import {
   waitForMultipleWorkflowExecutionsCompleted,
   waitForAnyWorkflowExecutionCompleted,

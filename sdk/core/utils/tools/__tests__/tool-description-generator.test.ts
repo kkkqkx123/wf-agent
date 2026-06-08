@@ -140,7 +140,7 @@ describe("ToolDescriptionGenerator", () => {
       });
 
       expect(description).toContain("| Tool ID | Description |");
-      expect(description).toContain("|---------|-------------|");
+      expect(description).toContain("|-|-|");
       expect(description).toContain("| calculator | Performs basic calculations |");
     });
 
@@ -236,7 +236,7 @@ describe("ToolDescriptionGenerator", () => {
       const lines = table.split("\n");
       expect(lines).toHaveLength(4);
       expect(lines[0]).toBe("| Tool ID | Description |");
-      expect(lines[1]).toBe("|---------|-------------|");
+      expect(lines[1]).toBe("|-|-|");
       expect(lines[2]).toBe("| calculator | Performs basic calculations |");
       expect(lines[3]).toBe("| weather | Gets weather information |");
     });
@@ -253,7 +253,7 @@ describe("ToolDescriptionGenerator", () => {
       const lines = table.split("\n");
       expect(lines).toHaveLength(3);
       expect(lines[0]).toBe("| Tool ID | Description |");
-      expect(lines[1]).toBe("|---------|-------------|");
+      expect(lines[1]).toBe("|-|-|");
       expect(lines[2]).toBe("| calculator | Performs basic calculations |");
     });
 
@@ -263,7 +263,7 @@ describe("ToolDescriptionGenerator", () => {
       const lines = table.split("\n");
       expect(lines).toHaveLength(5);
       expect(lines[0]).toBe("| Tool ID | Description |");
-      expect(lines[1]).toBe("|---------|-------------|");
+      expect(lines[1]).toBe("|-|-|");
       expect(lines[2]).toContain("calculator");
       expect(lines[3]).toContain("weather");
       expect(lines[4]).toContain("email");

@@ -36,12 +36,12 @@ import {
   type TaskSubmissionResult,
   type ResolvedDataSource,
 } from "../types/triggered-subworkflow.types.js";
-import { emit } from "../../../core/utils/event/event-emitter.js";
+import { emit } from "../../../core/utils/event/emit-event.js";
 import {
   buildTriggeredSubgraphStartedEvent,
   buildTriggeredSubgraphCompletedEvent,
   buildTriggeredSubgraphFailedEvent,
-} from "../utils/event/index.js";
+} from "../../../core/utils/event/builders/index.js";
 import { RuntimeValidationError, SDKError } from "@wf-agent/types";
 import { logError, emitErrorEvent } from "../../../core/utils/error-utils.js";
 import { cleanupChildExecution } from "../utils/child-execution-cleanup.js";

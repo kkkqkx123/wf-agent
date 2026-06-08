@@ -27,13 +27,13 @@ import { RuntimeValidationError } from "@wf-agent/types";
 import { now, getErrorOrNew } from "@wf-agent/common-utils";
 import * as Identifiers from "../../../../core/di/service-identifiers.js";
 import { createContextualLogger } from "../../../../utils/contextual-logger.js";
-import { emit } from "../../../../core/utils/event/event-emitter.js";
+import { emit } from "../../../../core/utils/event/emit-event.js";
 import {
   buildWorkflowExecutionJoinStartedEvent,
   buildWorkflowExecutionJoinConditionMetEvent,
   buildWorkflowExecutionJoinCompletedEvent,
   buildWorkflowExecutionJoinFailedEvent,
-} from "../../utils/event/index.js";
+} from "../../../../core/utils/event/builders/index.js";
 
 const logger = createContextualLogger({ component: "join-handler" });
 

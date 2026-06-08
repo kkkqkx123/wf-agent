@@ -1,5 +1,5 @@
 /**
- * EventEmitter - An event-triggering utility function
+ * EmitEvent - An event-triggering utility function
  * Provides a unified method for triggering events, including error handling
  *
  * Design principles:

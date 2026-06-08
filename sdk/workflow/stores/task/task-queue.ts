@@ -26,11 +26,11 @@ import {
 } from "../../execution/types/triggered-subworkflow.types.js";
 import type { QueueStats } from "../../../core/types/index.js";
 import { now, diffTimestamp, getErrorOrNew } from "@wf-agent/common-utils";
-import { emit } from "../../../core/utils/event/event-emitter.js";
+import { emit } from "../../../core/utils/event/emit-event.js";
 import {
   buildTriggeredSubgraphCompletedEvent,
   buildTriggeredSubgraphFailedEvent,
-} from "../../execution/utils/event/index.js";
+} from "../../../core/utils/event/builders/index.js";
 import { SDKError } from "@wf-agent/types";
 import { logError, emitErrorEvent } from "../../../core/utils/error-utils.js";
 

@@ -20,7 +20,7 @@ import { TokenUsageTracker } from "../utils/token/token-usage-tracker.js";
 import type { EventRegistry } from "../registry/event-registry.js";
 import type { StateManager } from "../types/state-manager.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
-import { emit } from "../utils/event/event-emitter.js";
+import { emit } from "../utils/event/emit-event.js";
 import { now } from "@wf-agent/common-utils";
 import {
   buildTokenLimitExceededEvent,

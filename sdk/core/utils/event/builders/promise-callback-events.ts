@@ -3,10 +3,7 @@
  * Provides builder functions for promise callback lifecycle events
  */
 
-import { now, generateId } from "@wf-agent/common-utils";
-import {
-  createBuilder,
-} from "./common.js";
+import { createBuilder } from "./common.js";
 import type {
   PromiseCallbackRegisteredEvent,
   PromiseCallbackResolvedEvent,
@@ -15,6 +12,13 @@ import type {
   PromiseCallbackCleanedUpEvent,
 } from "@wf-agent/types";
 import type { BuildParams } from "./common.js";
+
+// =============================================================================
+// Internal builder instances
+// =============================================================================
+
+const _buildRejected = createBuilder<PromiseCallbackRejectedEvent>("PROMISE_CALLBACK_REJECTED");
+const _buildFailed = createBuilder<PromiseCallbackFailedEvent>("PROMISE_CALLBACK_FAILED");
 
 /**
  * Build PROMISE_CALLBACK_REGISTERED event
@@ -33,26 +37,22 @@ export const buildPromiseCallbackResolvedEvent =
  */
 export const buildPromiseCallbackRejectedEvent = (
   params: Omit<BuildParams<PromiseCallbackRejectedEvent>, "errorMessage"> & { error?: Error },
-): PromiseCallbackRejectedEvent => ({
-  id: generateId(),
-  type: "PROMISE_CALLBACK_REJECTED",
-  timestamp: now(),
-  ...params,
-  errorMessage: params.error?.message,
-});
+): PromiseCallbackRejectedEvent =>
+  _buildRejected({
+    executionId: params.executionId,
+    errorMessage: params.error?.message,
+  });
 
 /**
  * Build PROMISE_CALLBACK_FAILED event with Error transformation to string
  */
 export const buildPromiseCallbackFailedEvent = (
   params: Omit<BuildParams<PromiseCallbackFailedEvent>, "error"> & { error?: Error },
-): PromiseCallbackFailedEvent => ({
-  id: generateId(),
-  type: "PROMISE_CALLBACK_FAILED",
-  timestamp: now(),
-  ...params,
-  error: params.error?.message,
-});
+): PromiseCallbackFailedEvent =>
+  _buildFailed({
+    executionId: params.executionId,
+    error: params.error?.message,
+  });
 
 /**
  * Build PROMISE_CALLBACK_CLEANED_UP event

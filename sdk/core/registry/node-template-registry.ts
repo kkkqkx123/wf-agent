@@ -15,12 +15,24 @@ import {
 } from "@wf-agent/types";
 import { validateNodeByType } from "../../workflow/validation/node-validation/index.js";
 import { getErrorMessage, now } from "@wf-agent/common-utils";
+import type { NodeTemplateStorageAdapter } from "@wf-agent/storage";
+import {
+  persistNodeTemplate,
+  removeNodeTemplate,
+} from "./utils/node-template-storage-utils.js";
+import { createContextualLogger } from "../../utils/contextual-logger.js";
+
+const logger = createContextualLogger({ component: "NodeTemplateRegistry" });
 
 /**
  * Node Registry Class
  */
 class NodeTemplateRegistry {
   private templates: Map<string, NodeTemplate> = new Map();
+
+  constructor(
+    private readonly storageAdapter: NodeTemplateStorageAdapter | null = null,
+  ) {}
 
   /**
    * Register Node Template
@@ -53,6 +65,98 @@ class NodeTemplateRegistry {
   registerBatch(templates: NodeTemplate[]): void {
     for (const template of templates) {
       this.register(template);
+    }
+  }
+
+  /**
+   * Register Node Template with storage persistence (write-through).
+   * @param template - Node template to register
+   * @throws ConfigurationValidationError If the template is invalid or already exists
+   */
+  async registerNodeTemplate(template: NodeTemplate): Promise<void> {
+    this.validateTemplate(template);
+
+    if (this.templates.has(template.name)) {
+      throw new ConfigurationValidationError(
+        `Node template with name '${template.name}' already exists`,
+        {
+          configType: "node",
+          configPath: "template.name",
+        },
+      );
+    }
+
+    // Persist to storage first (write-through: DB is source of truth)
+    if (this.storageAdapter) {
+      await persistNodeTemplate(template, this.storageAdapter);
+    }
+
+    this.templates.set(template.name, template);
+  }
+
+  /**
+   * Update Node Template with storage persistence (write-through).
+   * @param name Name of the node template
+   * @param updates Updates to be applied
+   * @throws NodeTemplateNotFoundError If the node template does not exist
+   * @throws ValidationError If the updated configuration is invalid
+   */
+  async updateNodeTemplate(name: string, updates: Partial<NodeTemplate>): Promise<void> {
+    const template = this.templates.get(name);
+    if (!template) {
+      throw new NodeTemplateNotFoundError(`Node template '${name}' not found`, name);
+    }
+
+    const updatedTemplate: NodeTemplate = {
+      ...template,
+      ...updates,
+      name: template.name, // Name cannot be changed
+      updatedAt: now(),
+    };
+
+    this.validateTemplate(updatedTemplate);
+
+    // Persist to storage first (write-through)
+    if (this.storageAdapter) {
+      await persistNodeTemplate(updatedTemplate, this.storageAdapter);
+    }
+
+    this.templates.set(name, updatedTemplate);
+  }
+
+  /**
+   * Unregister Node Template with storage persistence (write-through).
+   * @param name Name of the node template
+   * @throws NodeTemplateNotFoundError If the node template does not exist
+   */
+  async unregisterNodeTemplate(name: string): Promise<void> {
+    if (!this.templates.has(name)) {
+      throw new NodeTemplateNotFoundError(`Node template '${name}' not found`, name);
+    }
+
+    // Remove from storage first (write-through)
+    if (this.storageAdapter) {
+      await removeNodeTemplate(name, this.storageAdapter);
+    }
+
+    this.templates.delete(name);
+  }
+
+  /**
+   * Batch unregister node templates with storage persistence.
+   * @param names Array of node template names
+   */
+  async unregisterNodeTemplateBatch(names: string[]): Promise<void> {
+    for (const name of names) {
+      try {
+        await this.unregisterNodeTemplate(name);
+      } catch (error) {
+        // Continue with others if one fails
+        logger.error("Failed to unregister node template", {
+          name,
+          error: getErrorMessage(error),
+        });
+      }
     }
   }
 

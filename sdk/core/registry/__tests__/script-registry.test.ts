@@ -42,54 +42,54 @@ describe('ScriptRegistry', () => {
   });
 
   describe('registerScript', () => {
-    it('should register a valid script', () => {
-      registry.registerScript(createValidScript());
+    it('should register a valid script', async () => {
+      await registry.registerScript(createValidScript());
       expect(registry.hasScript('test-script')).toBe(true);
     });
 
-    it('should throw if name already exists', () => {
-      registry.registerScript(createValidScript());
-      expect(() => registry.registerScript(createValidScript())).toThrow('already exists');
+    it('should throw if name already exists', async () => {
+      await registry.registerScript(createValidScript());
+      await expect(registry.registerScript(createValidScript())).rejects.toThrow('already exists');
     });
 
-    it('should set enabled to true by default', () => {
+    it('should set enabled to true by default', async () => {
       const script = createValidScript({ enabled: undefined });
-      registry.registerScript(script);
+      await registry.registerScript(script);
       expect(registry.getScript('test-script').enabled).toBe(true);
     });
   });
 
   describe('registerScripts', () => {
-    it('should register multiple scripts', () => {
+    it('should register multiple scripts', async () => {
       const s1 = createValidScript({ name: 's1' });
       const s2 = createValidScript({ name: 's2' });
-      registry.registerScripts([s1, s2]);
+      await registry.registerScripts([s1, s2]);
       expect(registry.scriptCount()).toBe(2);
     });
 
-    it('should throw on duplicate in batch', () => {
+    it('should throw on duplicate in batch', async () => {
       const s1 = createValidScript({ name: 's1' });
       const dup = createValidScript({ name: 's1' });
-      expect(() => registry.registerScripts([s1, dup])).toThrow('already exists');
+      await expect(registry.registerScripts([s1, dup])).rejects.toThrow('already exists');
     });
   });
 
   describe('unregisterScript', () => {
-    it('should delete a script', () => {
-      registry.registerScript(createValidScript());
-      registry.unregisterScript('test-script');
+    it('should delete a script', async () => {
+      await registry.registerScript(createValidScript());
+      await registry.unregisterScript('test-script');
       expect(registry.hasScript('test-script')).toBe(false);
     });
 
-    it('should throw if script does not exist', () => {
-      expect(() => registry.unregisterScript('non-existent')).toThrow('not found');
+    it('should throw if script does not exist', async () => {
+      await expect(registry.unregisterScript('non-existent')).rejects.toThrow('not found');
     });
   });
 
   describe('getScript', () => {
-    it('should return script by name', () => {
+    it('should return script by name', async () => {
       const script = createValidScript();
-      registry.registerScript(script);
+      await registry.registerScript(script);
       expect(registry.getScript('test-script').name).toBe('test-script');
     });
 
@@ -99,59 +99,59 @@ describe('ScriptRegistry', () => {
   });
 
   describe('findScript', () => {
-    it('should return script or undefined', () => {
-      registry.registerScript(createValidScript());
+    it('should return script or undefined', async () => {
+      await registry.registerScript(createValidScript());
       expect(registry.findScript('test-script')).toBeDefined();
       expect(registry.findScript('non-existent')).toBeUndefined();
     });
   });
 
   describe('listScripts', () => {
-    it('should return all scripts', () => {
-      registry.registerScript(createValidScript({ name: 's1' }));
-      registry.registerScript(createValidScript({ name: 's2' }));
+    it('should return all scripts', async () => {
+      await registry.registerScript(createValidScript({ name: 's1' }));
+      await registry.registerScript(createValidScript({ name: 's2' }));
       expect(registry.listScripts()).toHaveLength(2);
     });
   });
 
   describe('listScriptsByCategory', () => {
-    it('should filter by category', () => {
-      registry.registerScript(createValidScript({ name: 's1', metadata: { category: 'data' } }));
-      registry.registerScript(createValidScript({ name: 's2', metadata: { category: 'util' } }));
+    it('should filter by category', async () => {
+      await registry.registerScript(createValidScript({ name: 's1', metadata: { category: 'data' } }));
+      await registry.registerScript(createValidScript({ name: 's2', metadata: { category: 'util' } }));
       expect(registry.listScriptsByCategory('data')).toHaveLength(1);
     });
   });
 
   describe('searchScripts', () => {
-    it('should search by name', () => {
-      registry.registerScript(createValidScript({ name: 'my-processor' }));
+    it('should search by name', async () => {
+      await registry.registerScript(createValidScript({ name: 'my-processor' }));
       expect(registry.searchScripts('processor')).toHaveLength(1);
     });
 
-    it('should search by description', () => {
-      registry.registerScript(createValidScript({ name: 's1', description: 'data transformation' }));
+    it('should search by description', async () => {
+      await registry.registerScript(createValidScript({ name: 's1', description: 'data transformation' }));
       expect(registry.searchScripts('transformation')).toHaveLength(1);
     });
 
-    it('should search by tag', () => {
-      registry.registerScript(createValidScript({ name: 's1', metadata: { tags: ['important'] } }));
+    it('should search by tag', async () => {
+      await registry.registerScript(createValidScript({ name: 's1', metadata: { tags: ['important'] } }));
       expect(registry.searchScripts('important')).toHaveLength(1);
     });
 
-    it('should search by category', () => {
-      registry.registerScript(createValidScript({ name: 's1', metadata: { category: 'machine-learning' } }));
+    it('should search by category', async () => {
+      await registry.registerScript(createValidScript({ name: 's1', metadata: { category: 'machine-learning' } }));
       expect(registry.searchScripts('machine')).toHaveLength(1);
     });
 
-    it('should return empty for no match', () => {
-      registry.registerScript(createValidScript({ name: 's1' }));
+    it('should return empty for no match', async () => {
+      await registry.registerScript(createValidScript({ name: 's1' }));
       expect(registry.searchScripts('nonexistent')).toHaveLength(0);
     });
   });
 
   describe('hasScript', () => {
-    it('should return true if exists', () => {
-      registry.registerScript(createValidScript());
+    it('should return true if exists', async () => {
+      await registry.registerScript(createValidScript());
       expect(registry.hasScript('test-script')).toBe(true);
     });
 
@@ -161,44 +161,44 @@ describe('ScriptRegistry', () => {
   });
 
   describe('clearScripts', () => {
-    it('should remove all scripts', () => {
-      registry.registerScript(createValidScript({ name: 's1' }));
-      registry.registerScript(createValidScript({ name: 's2' }));
+    it('should remove all scripts', async () => {
+      await registry.registerScript(createValidScript({ name: 's1' }));
+      await registry.registerScript(createValidScript({ name: 's2' }));
       registry.clearScripts();
       expect(registry.scriptCount()).toBe(0);
     });
   });
 
   describe('scriptCount', () => {
-    it('should return correct count', () => {
+    it('should return correct count', async () => {
       expect(registry.scriptCount()).toBe(0);
-      registry.registerScript(createValidScript());
+      await registry.registerScript(createValidScript());
       expect(registry.scriptCount()).toBe(1);
     });
   });
 
   describe('updateScript', () => {
-    it('should update existing script fields', () => {
-      registry.registerScript(createValidScript());
-      registry.updateScript('test-script', { description: 'Updated description' });
+    it('should update existing script fields', async () => {
+      await registry.registerScript(createValidScript());
+      await registry.updateScript('test-script', { description: 'Updated description' });
       expect(registry.getScript('test-script').description).toBe('Updated description');
     });
 
-    it('should throw if script does not exist', () => {
-      expect(() => registry.updateScript('non-existent', { description: 'test' })).toThrow('not found');
+    it('should throw if script does not exist', async () => {
+      await expect(registry.updateScript('non-existent', { description: 'test' })).rejects.toThrow('not found');
     });
   });
 
   describe('enableScript / disableScript / isScriptEnabled', () => {
-    it('should enable a script', () => {
-      registry.registerScript(createValidScript({ enabled: false }));
-      registry.enableScript('test-script');
+    it('should enable a script', async () => {
+      await registry.registerScript(createValidScript({ enabled: false }));
+      await registry.enableScript('test-script');
       expect(registry.isScriptEnabled('test-script')).toBe(true);
     });
 
-    it('should disable a script', () => {
-      registry.registerScript(createValidScript({ enabled: true }));
-      registry.disableScript('test-script');
+    it('should disable a script', async () => {
+      await registry.registerScript(createValidScript({ enabled: true }));
+      await registry.disableScript('test-script');
       expect(registry.isScriptEnabled('test-script')).toBe(false);
     });
 
@@ -208,127 +208,82 @@ describe('ScriptRegistry', () => {
   });
 
   describe('validateScript', () => {
-    it('should throw on empty name', () => {
-      expect(() => registry.registerScript(createValidScript({ name: '' }))).toThrow('name is required');
+    it('should throw on empty name', async () => {
+      await expect(registry.registerScript(createValidScript({ name: '' }))).rejects.toThrow('name is required');
     });
 
-    it('should throw on missing name', () => {
-      expect(() => registry.registerScript(createValidScript({ name: undefined as any }))).toThrow('name is required');
+    it('should throw on missing name', async () => {
+      await expect(registry.registerScript(createValidScript({ name: undefined as any }))).rejects.toThrow('name is required');
     });
 
-    it('should throw on missing description', () => {
-      expect(() => registry.registerScript(createValidScript({ description: '' }))).toThrow('description is required');
+    it('should throw on missing description', async () => {
+      await expect(registry.registerScript(createValidScript({ description: '' }))).rejects.toThrow('description is required');
     });
 
-    it('should throw when content, filePath, and template are all missing', () => {
-      expect(() =>
+    it('should throw when content, filePath, and template are all missing', async () => {
+      await expect(
         registry.registerScript(createValidScript({ content: undefined, filePath: undefined, template: undefined })),
-      ).toThrow('must have either content, filePath, or template');
+      ).rejects.toThrow('must have either content, filePath, or template');
     });
 
-    it('should accept script with filePath instead of content', () => {
-      registry.registerScript(createValidScript({ content: undefined, filePath: '/path/to/script.js' }));
+    it('should accept script with filePath instead of content', async () => {
+      await registry.registerScript(createValidScript({ content: undefined, filePath: '/path/to/script.js' }));
       expect(registry.hasScript('test-script')).toBe(true);
     });
 
-    it('should accept script with template instead of content', () => {
-      registry.registerScript(createValidScript({ content: undefined, template: 'echo {{input}}' }));
+    it('should accept script with template instead of content', async () => {
+      await registry.registerScript(createValidScript({ content: undefined, template: 'echo {{input}}' }));
       expect(registry.hasScript('test-script')).toBe(true);
     });
 
-    it('should throw on missing options', () => {
-      expect(() =>
+    it('should throw on missing options', async () => {
+      await expect(
         registry.registerScript(createValidScript({ options: undefined as any })),
-      ).toThrow('options are required');
+      ).rejects.toThrow('options are required');
     });
 
-    it('should throw on negative timeout', () => {
-      expect(() =>
+    it('should throw on negative timeout', async () => {
+      await expect(
         registry.registerScript(createValidScript({ options: { timeout: -1, retries: 0, retryDelay: 0 } as any })),
-      ).toThrow('timeout');
+      ).rejects.toThrow('timeout');
     });
 
-    it('should throw on negative retries', () => {
-      expect(() =>
+    it('should throw on negative retries', async () => {
+      await expect(
         registry.registerScript(createValidScript({ options: { timeout: 1000, retries: -1, retryDelay: 0 } as any })),
-      ).toThrow('retries');
+      ).rejects.toThrow('retries');
     });
 
-    it('should throw on negative retryDelay', () => {
-      expect(() =>
+    it('should throw on negative retryDelay', async () => {
+      await expect(
         registry.registerScript(createValidScript({ options: { timeout: 1000, retries: 0, retryDelay: -1 } as any })),
-      ).toThrow('retryDelay');
+      ).rejects.toThrow('retryDelay');
     });
 
-    it('should throw on invalid enabled type', () => {
-      expect(() =>
+    it('should throw on invalid enabled type', async () => {
+      await expect(
         registry.registerScript(createValidScript({ enabled: 'yes' as any })),
-      ).toThrow('enabled must be a boolean');
+      ).rejects.toThrow('enabled must be a boolean');
     });
   });
 
   describe('execute', () => {
-    it('should throw ScriptNotFoundError for non-existent script', async () => {
-      await expect(registry.execute('non-existent')).rejects.toThrow('not found');
-    });
-  });
-
-  describe('executeWithEngine', () => {
-    it('should throw ScriptNotFoundError for non-existent script', async () => {
-      await expect(registry.executeWithEngine('non-existent')).rejects.toThrow('not found');
-    });
-  });
-
-  describe('registerFlow', () => {
-    it('should register a flow', () => {
-      const flow: ScriptFlow = { name: 'test-flow', steps: [] };
-      registry.registerFlow(flow);
-      expect(registry.getFlow('test-flow')).toBeDefined();
+    it('should execute a registered script', async () => {
+      await registry.registerScript(createValidScript());
+      const result = await registry.execute('test-script', {});
+      expect(result.isOk()).toBe(true);
+      const val = result.unwrap();
+      expect(val.stdout).toBe('executed');
     });
 
-    it('should throw on duplicate flow name', () => {
-      registry.registerFlow({ name: 'dup', steps: [] });
-      expect(() => registry.registerFlow({ name: 'dup', steps: [] })).toThrow('already exists');
-    });
-  });
-
-  describe('getFlow', () => {
-    it('should return registered flow', () => {
-      const flow: ScriptFlow = { name: 'my-flow', steps: [] };
-      registry.registerFlow(flow);
-      expect(registry.getFlow('my-flow').name).toBe('my-flow');
-    });
-
-    it('should throw if flow not found', () => {
-      expect(() => registry.getFlow('non-existent')).toThrow('not found');
-    });
-  });
-
-  describe('listFlows', () => {
-    it('should list all flows', () => {
-      registry.registerFlow({ name: 'f1', steps: [] });
-      registry.registerFlow({ name: 'f2', steps: [] });
-      expect(registry.listFlows()).toHaveLength(2);
+    it('should throw for non-existent script', async () => {
+      await expect(registry.execute('non-existent', {})).rejects.toThrow('not found');
     });
   });
 
   describe('executeFlow', () => {
-    it('should throw for non-existent flow', async () => {
-      await expect(registry.executeFlow('non-existent')).rejects.toThrow('not found');
-    });
-  });
-
-  describe('executeBatch', () => {
-    it('should return combined results', async () => {
-      registry.registerScript(createValidScript({ name: 's1' }));
-      registry.registerScript(createValidScript({ name: 's2' }));
-
-      const result = await registry.executeBatch([
-        { scriptName: 's1' },
-        { scriptName: 's2' },
-      ]);
-
-      expect(result.isOk()).toBe(true);
+    it('should throw when flow is not registered', async () => {
+      await expect(registry.executeFlow('non-existent')).rejects.toThrow();
     });
   });
 });

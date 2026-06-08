@@ -20,7 +20,7 @@ import {
   ScriptNotFoundError,
   ConfigurationValidationError,
 } from "@wf-agent/types";
-import { all, ok, err, getErrorMessage } from "@wf-agent/common-utils";
+import { all, ok, err } from "@wf-agent/common-utils";
 import type { Result } from "@wf-agent/types";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 import type { ScriptStorageAdapter } from "@wf-agent/storage";
@@ -51,11 +51,12 @@ class ScriptRegistry {
   }
 
   /**
-   * Registration Script
+   * Register script (memory-only, no persistence).
+   * Used for predefined content registration during bootstrap.
    * @param script Script definition
    * @throws ValidationError If the script definition is invalid or the name already exists
    */
-  registerScript(script: Script): void {
+  register(script: Script): void {
     // Verify script definitions
     this.validateScript(script);
 
@@ -76,26 +77,50 @@ class ScriptRegistry {
 
     // Registration script
     this.scripts.set(script.name, scriptWithDefaults);
-    logger.info("Script registered", { scriptName: script.name });
+    logger.info("Script registered (memory-only)", { scriptName: script.name });
+  }
 
-    // Persist to storage (async, non-blocking)
-    if (this.storageAdapter) {
-      persistScript(scriptWithDefaults, this.storageAdapter).catch(error => {
-        logger.error("Failed to persist script during registration", {
-          scriptName: script.name,
-          error: getErrorMessage(error),
-        });
+  /**
+   * Register Script with storage persistence (write-through).
+   * @param script Script definition
+   * @throws ValidationError If the script definition is invalid or the name already exists
+   */
+  async registerScript(script: Script): Promise<void> {
+    // Verify script definitions
+    this.validateScript(script);
+
+    // Set default values
+    const scriptWithDefaults: Script = {
+      ...script,
+      enabled: script.enabled !== undefined ? script.enabled : true,
+    };
+
+    // Check if the script name already exists.
+    if (this.scripts.has(script.name)) {
+      logger.warn("Script already exists", { scriptName: script.name });
+      throw new ConfigurationValidationError(`Script with name '${script.name}' already exists`, {
+        configType: "script",
+        field: "name",
       });
     }
+
+    // Persist to storage first (write-through: DB is source of truth)
+    if (this.storageAdapter) {
+      await persistScript(scriptWithDefaults, this.storageAdapter);
+    }
+
+    // Registration script
+    this.scripts.set(script.name, scriptWithDefaults);
+    logger.info("Script registered", { scriptName: script.name });
   }
 
   /**
    * Batch registration script
    * @param scripts: An array of script definitions
    */
-  registerScripts(scripts: Script[]): void {
+  async registerScripts(scripts: Script[]): Promise<void> {
     for (const script of scripts) {
-      this.registerScript(script);
+      await this.registerScript(script);
     }
   }
 
@@ -104,23 +129,19 @@ class ScriptRegistry {
    * @param scriptName The name of the script
    * @throws NotFoundError If the script does not exist
    */
-  unregisterScript(scriptName: string): void {
+  async unregisterScript(scriptName: string): Promise<void> {
     if (!this.scripts.has(scriptName)) {
       logger.warn("Attempted to unregister non-existent script", { scriptName });
       throw new ScriptNotFoundError(`Script '${scriptName}' not found`, scriptName);
     }
+
+    // Remove from storage first (write-through: DB is source of truth)
+    if (this.storageAdapter) {
+      await removeScript(scriptName, this.storageAdapter);
+    }
+
     this.scripts.delete(scriptName);
     logger.info("Script unregistered", { scriptName });
-
-    // Remove from storage (async, non-blocking)
-    if (this.storageAdapter) {
-      removeScript(scriptName, this.storageAdapter).catch(error => {
-        logger.error("Failed to remove script from storage", {
-          scriptName,
-          error: getErrorMessage(error),
-        });
-      });
-    }
   }
 
   /**
@@ -212,7 +233,7 @@ class ScriptRegistry {
    * @param updates Update content
    * @throws NotFoundError If the script does not exist
    */
-  updateScript(scriptName: string, updates: Partial<Script>): void {
+  async updateScript(scriptName: string, updates: Partial<Script>): Promise<void> {
     const script = this.getScript(scriptName);
 
     const updatedScript = {
@@ -223,17 +244,13 @@ class ScriptRegistry {
     };
 
     this.validateScript(updatedScript);
-    this.scripts.set(scriptName, updatedScript);
 
-    // Persist to storage (async, non-blocking)
+    // Persist to storage first (write-through: DB is source of truth)
     if (this.storageAdapter) {
-      persistScript(updatedScript, this.storageAdapter).catch(error => {
-        logger.error("Failed to persist script update", {
-          scriptName,
-          error: getErrorMessage(error),
-        });
-      });
+      await persistScript(updatedScript, this.storageAdapter);
     }
+
+    this.scripts.set(scriptName, updatedScript);
   }
 
   /**
@@ -241,8 +258,8 @@ class ScriptRegistry {
    * @param scriptName The name of the script
    * @throws NotFoundError If the script does not exist
    */
-  enableScript(scriptName: string): void {
-    this.updateScript(scriptName, { enabled: true });
+  async enableScript(scriptName: string): Promise<void> {
+    await this.updateScript(scriptName, { enabled: true });
   }
 
   /**
@@ -250,8 +267,8 @@ class ScriptRegistry {
    * @param scriptName The name of the script
    * @throws NotFoundError If the script does not exist
    */
-  disableScript(scriptName: string): void {
-    this.updateScript(scriptName, { enabled: false });
+  async disableScript(scriptName: string): Promise<void> {
+    await this.updateScript(scriptName, { enabled: false });
   }
 
   /**

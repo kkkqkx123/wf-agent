@@ -12,12 +12,21 @@ import {
   HookTemplateNotFoundError,
 } from "@wf-agent/types";
 import { getErrorMessage, now } from "@wf-agent/common-utils";
+import type { HookTemplateStorageAdapter } from "@wf-agent/storage";
+import {
+  persistHookTemplate,
+  removeHookTemplate,
+} from "./utils/hook-template-storage-utils.js";
 
 /**
  * HookTemplate Registry Class
  */
 class HookTemplateRegistry {
   private templates: Map<string, HookTemplate> = new Map();
+
+  constructor(
+    private readonly storageAdapter: HookTemplateStorageAdapter | null = null,
+  ) {}
 
   /**
    * Register a hook template.
@@ -48,6 +57,80 @@ class HookTemplateRegistry {
     for (const template of templates) {
       this.register(template);
     }
+  }
+
+  /**
+   * Register Hook Template with storage persistence (write-through).
+   * @param template - Hook template to register
+   * @throws ConfigurationValidationError If the template is invalid or already exists
+   */
+  async registerHookTemplate(template: HookTemplate): Promise<void> {
+    this.validateTemplate(template);
+
+    if (this.templates.has(template.name)) {
+      throw new ConfigurationValidationError(
+        `Hook template with name '${template.name}' already exists`,
+        {
+          configType: "hook_template",
+          configPath: "template.name",
+        },
+      );
+    }
+
+    // Persist to storage first (write-through)
+    if (this.storageAdapter) {
+      await persistHookTemplate(template, this.storageAdapter);
+    }
+
+    this.templates.set(template.name, template);
+  }
+
+  /**
+   * Update Hook Template with storage persistence (write-through).
+   * @param name - Name of the hook template
+   * @param updates - Updates to apply
+   * @throws HookTemplateNotFoundError If the hook template does not exist
+   * @throws ValidationError If the updated configuration is invalid
+   */
+  async updateHookTemplate(name: string, updates: Partial<HookTemplate>): Promise<void> {
+    const template = this.templates.get(name);
+    if (!template) {
+      throw new HookTemplateNotFoundError(`Hook template '${name}' not found`, name);
+    }
+
+    const updatedTemplate: HookTemplate = {
+      ...template,
+      ...updates,
+      name: template.name, // Name cannot be changed
+      updatedAt: now(),
+    };
+
+    this.validateTemplate(updatedTemplate);
+
+    // Persist to storage first (write-through)
+    if (this.storageAdapter) {
+      await persistHookTemplate(updatedTemplate, this.storageAdapter);
+    }
+
+    this.templates.set(name, updatedTemplate);
+  }
+
+  /**
+   * Unregister Hook Template with storage persistence (write-through).
+   * @param name - Name of the hook template
+   * @throws HookTemplateNotFoundError If the hook template does not exist
+   */
+  async unregisterHookTemplate(name: string): Promise<void> {
+    if (!this.templates.has(name)) {
+      throw new HookTemplateNotFoundError(`Hook template '${name}' not found`, name);
+    }
+
+    // Remove from storage first (write-through)
+    if (this.storageAdapter) {
+      await removeHookTemplate(name, this.storageAdapter);
+    }
+
+    this.templates.delete(name);
   }
 
   /**

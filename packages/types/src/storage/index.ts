@@ -12,3 +12,6 @@ export * from "./file-checkpoint.js";
 export * from "./trigger-storage.js";
 export * from "./tool-storage.js";
 export * from "./script-storage.js";
+export * from "./node-template-storage.js";
+export * from "./hook-template-storage.js";
+export * from "./agent-profile-storage.js";

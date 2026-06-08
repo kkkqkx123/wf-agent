@@ -198,18 +198,13 @@ export class WorkflowRegistry {
       );
     }
 
-    // Save the workflow definition to memory cache.
-    this.workflows.set(workflow.id, workflow);
-
-    // Persist to storage (async, non-blocking)
+    // Persist to storage first (write-through: DB is source of truth)
     if (this.storageAdapter) {
-      persistWorkflow(workflow, this.storageAdapter).catch(error => {
-        logger.error("Failed to persist workflow during registration", {
-          workflowId: workflow.id,
-          error: getErrorMessage(error),
-        });
-      });
+      await persistWorkflow(workflow, this.storageAdapter);
     }
+
+    // Save the workflow definition to memory cache after successful persistence.
+    this.workflows.set(workflow.id, workflow);
 
     // Preprocess workflow asynchronously (delegated to preprocessWorkflow)
     try {
@@ -271,7 +266,7 @@ export class WorkflowRegistry {
    * @throws NotFoundError If the workflow does not exist
    * @throws ValidationError If the updated configuration is invalid
    */
-  update(workflowId: string, updates: Partial<WorkflowTemplate>, options?: UpdateOptions): void {
+  async update(workflowId: string, updates: Partial<WorkflowTemplate>, options?: UpdateOptions): Promise<void> {
     const workflow = this.workflows.get(workflowId);
     if (!workflow) {
       if (options?.createIfNotExists && updates.id === workflowId) {
@@ -306,27 +301,22 @@ export class WorkflowRegistry {
       );
     }
 
-    // Update the workflow in memory
-    this.workflows.set(workflowId, updatedWorkflow);
-
-    // Persist to storage (async, non-blocking)
+    // Persist to storage first (write-through: DB is source of truth)
     if (this.storageAdapter) {
-      persistWorkflow(updatedWorkflow, this.storageAdapter).catch(error => {
-        logger.error("Failed to persist workflow update", {
-          workflowId,
-          error: getErrorMessage(error),
-        });
-      });
+      await persistWorkflow(updatedWorkflow, this.storageAdapter);
     }
+
+    // Update the workflow in memory after successful persistence.
+    this.workflows.set(workflowId, updatedWorkflow);
   }
 
   /**
    * Register or update the workflow definition (update if it exists, create if it doesn't).
    * @param workflow The workflow definition
    */
-  upsert(workflow: WorkflowTemplate): void {
+  async upsert(workflow: WorkflowTemplate): Promise<void> {
     if (this.workflows.has(workflow.id)) {
-      this.update(workflow.id, workflow);
+      await this.update(workflow.id, workflow);
     } else {
       this.register(workflow);
     }
@@ -434,7 +424,9 @@ export class WorkflowRegistry {
             try {
               const workflow = await loadWorkflow(id, this.storageAdapter);
               if (workflow) {
+                // Populate both the local result and the memory cache for consistency
                 allWorkflows.set(id, workflow);
+                this.workflows.set(id, workflow);
               }
             } catch (loadError) {
               logger.error("Failed to load workflow from storage during list", {
@@ -604,17 +596,12 @@ export class WorkflowRegistry {
       }
     }
 
-    this.workflows.delete(workflowId);
-
-    // Remove from storage (async, non-blocking)
+    // Remove from storage first (write-through: DB is source of truth)
     if (this.storageAdapter) {
-      removeWorkflow(workflowId, this.storageAdapter).catch(error => {
-        logger.error("Failed to remove workflow from storage during unregister", {
-          workflowId,
-          error: getErrorMessage(error),
-        });
-      });
+      await removeWorkflow(workflowId, this.storageAdapter);
     }
+
+    this.workflows.delete(workflowId);
 
     // Clean up reference relationships (delegated to WorkflowRelationshipRegistry)
     this.relationshipRegistry!.cleanupWorkflowReferences(workflowId);

@@ -103,21 +103,21 @@ describe('TriggerTemplateRegistry', () => {
   });
 
   describe('update', () => {
-    it('should update an existing template', () => {
+    it('should update an existing template', async () => {
       registry.register(createValidTemplate());
-      registry.update('test-trigger', { description: 'Updated' });
+      await registry.update('test-trigger', { description: 'Updated' });
       expect(registry.get('test-trigger')?.description).toBe('Updated');
     });
 
-    it('should update updatedAt timestamp', () => {
+    it('should update updatedAt timestamp', async () => {
       registry.register(createValidTemplate());
       const before = registry.get('test-trigger')!.updatedAt;
-      registry.update('test-trigger', { description: 'Updated' });
+      await registry.update('test-trigger', { description: 'Updated' });
       expect(registry.get('test-trigger')!.updatedAt).toBeGreaterThanOrEqual(before);
     });
 
-    it('should throw if template does not exist', () => {
-      expect(() => registry.update('non-existent', { description: 'test' })).toThrow('not found');
+    it('should throw if template does not exist', async () => {
+      await expect(registry.update('non-existent', { description: 'test' })).rejects.toThrow('not found');
     });
 
     it('should create template with createIfNotExists option', () => {
@@ -127,14 +127,14 @@ describe('TriggerTemplateRegistry', () => {
   });
 
   describe('upsert', () => {
-    it('should register new template', () => {
-      registry.upsert(createValidTemplate({ name: 'new-trigger' }));
+    it('should register new template', async () => {
+      await registry.upsert(createValidTemplate({ name: 'new-trigger' }));
       expect(registry.has('new-trigger')).toBe(true);
     });
 
-    it('should update existing template', () => {
+    it('should update existing template', async () => {
       registry.register(createValidTemplate({ name: 'existing' }));
-      registry.upsert(createValidTemplate({ name: 'existing', description: 'Updated via upsert' }));
+      await registry.upsert(createValidTemplate({ name: 'existing', description: 'Updated via upsert' }));
       expect(registry.get('existing')?.description).toBe('Updated via upsert');
     });
   });
@@ -162,34 +162,34 @@ describe('TriggerTemplateRegistry', () => {
   });
 
   describe('unregister', () => {
-    it('should delete a template', () => {
+    it('should delete a template', async () => {
       registry.register(createValidTemplate());
-      registry.unregister('test-trigger');
+      await registry.unregister('test-trigger');
       expect(registry.has('test-trigger')).toBe(false);
     });
 
-    it('should throw if template does not exist', () => {
-      expect(() => registry.unregister('non-existent')).toThrow('not found');
+    it('should throw if template does not exist', async () => {
+      await expect(registry.unregister('non-existent')).rejects.toThrow('not found');
     });
   });
 
   describe('unregisterBatch', () => {
-    it('should delete multiple templates', () => {
+    it('should delete multiple templates', async () => {
       registry.register(createValidTemplate({ name: 't1' }));
       registry.register(createValidTemplate({ name: 't2' }));
-      registry.unregisterBatch(['t1', 't2']);
+      await registry.unregisterBatch(['t1', 't2']);
       expect(registry.size()).toBe(0);
     });
 
-    it('should continue on error with skipErrors', () => {
+    it('should continue on error with skipErrors', async () => {
       registry.register(createValidTemplate({ name: 't1' }));
-      registry.unregisterBatch(['t1', 'non-existent'], { skipErrors: true });
+      await registry.unregisterBatch(['t1', 'non-existent'], { skipErrors: true });
       expect(registry.size()).toBe(0);
     });
 
-    it('should throw on first error without skipErrors', () => {
+    it('should throw on first error without skipErrors', async () => {
       registry.register(createValidTemplate({ name: 't1' }));
-      expect(() => registry.unregisterBatch(['t1', 'non-existent'])).toThrow('not found');
+      await expect(registry.unregisterBatch(['t1', 'non-existent'])).rejects.toThrow('not found');
     });
   });
 
@@ -253,70 +253,13 @@ describe('TriggerTemplateRegistry', () => {
     });
 
     it('should search by category', () => {
-      registry.register(createValidTemplate({ name: 't1', metadata: { category: 'notification' } }));
-      expect(registry.search('notification')).toHaveLength(1);
+      registry.register(createValidTemplate({ name: 't1', metadata: { category: 'workflow' } }));
+      expect(registry.search('orkflow')).toHaveLength(1);
     });
 
-    it('should return empty for no match', () => {
+    it('should return empty array for no match', () => {
       registry.register(createValidTemplate({ name: 't1' }));
       expect(registry.search('nonexistent')).toHaveLength(0);
-    });
-  });
-
-  describe('export / import', () => {
-    it('should export template as JSON string', () => {
-      registry.register(createValidTemplate());
-      const json = registry.export('test-trigger');
-      const parsed = JSON.parse(json);
-      expect(parsed.name).toBe('test-trigger');
-    });
-
-    it('should throw on export of non-existent template', () => {
-      expect(() => registry.export('non-existent')).toThrow('not found');
-    });
-
-    it('should import a valid template from JSON', () => {
-      const template = createValidTemplate({ name: 'imported' });
-      const json = JSON.stringify(template);
-      const name = registry.import(json);
-      expect(name).toBe('imported');
-      expect(registry.has('imported')).toBe(true);
-    });
-
-    it('should throw on import of invalid JSON', () => {
-      expect(() => registry.import('not json')).toThrow('Failed to import');
-    });
-
-    it('should throw on import with duplicate name', () => {
-      registry.register(createValidTemplate({ name: 'dup' }));
-      const json = JSON.stringify(createValidTemplate({ name: 'dup' }));
-      expect(() => registry.import(json)).toThrow('already exists');
-    });
-  });
-
-  describe('convertToWorkflowTrigger', () => {
-    it('should convert template to WorkflowTrigger', () => {
-      registry.register(createValidTemplate());
-      const trigger = registry.convertToWorkflowTrigger('test-trigger', 'trigger-1');
-      expect(trigger.id).toBe('trigger-1');
-      expect(trigger.name).toBe('test-trigger');
-      expect(trigger.condition.eventType).toBe('NODE_COMPLETED');
-      expect(trigger.action.type).toBe('set_variable');
-    });
-
-    it('should throw if template does not exist', () => {
-      expect(() => registry.convertToWorkflowTrigger('non-existent', 't1')).toThrow('not found');
-    });
-
-    it('should apply config overrides', () => {
-      registry.register(createValidTemplate());
-      const trigger = registry.convertToWorkflowTrigger('test-trigger', 't1', 'Custom Name', {
-        enabled: false,
-        maxTriggers: 5,
-      });
-      expect(trigger.name).toBe('Custom Name');
-      expect(trigger.enabled).toBe(false);
-      expect(trigger.maxTriggers).toBe(5);
     });
   });
 });

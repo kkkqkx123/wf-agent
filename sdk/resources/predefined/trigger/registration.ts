@@ -71,13 +71,13 @@ export function registerPredefinedTriggers(
  * @param triggerNames: List of trigger names to be unregistered; if empty, all predefined triggers will be unregistered
  * @returns: Unregistration result
  */
-export function unregisterPredefinedTriggers(
+export async function unregisterPredefinedTriggers(
   registry: TriggerTemplateRegistry,
   triggerNames?: string[],
-): {
+): Promise<{
   success: string[];
   failures: Array<{ triggerName: string; error: string }>;
-} {
+}> {
   const success: string[] = [];
   const failures: Array<{ triggerName: string; error: string }> = [];
 
@@ -87,7 +87,7 @@ export function unregisterPredefinedTriggers(
   for (const triggerName of predefinedTriggerNames) {
     try {
       if (registry.has(triggerName)) {
-        registry.unregister(triggerName);
+        await registry.unregister(triggerName);
         success.push(triggerName);
         logger.info(`Unregistered predefined trigger: ${triggerName}`);
       }

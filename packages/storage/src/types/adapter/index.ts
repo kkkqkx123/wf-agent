@@ -20,3 +20,6 @@ export * from "./file-checkpoint-adapter.js";
 export * from "./trigger-adapter.js";
 export * from "./tool-adapter.js";
 export * from "./script-adapter.js";
+export * from "./node-template-adapter.js";
+export * from "./hook-template-adapter.js";
+export * from "./agent-profile-adapter.js";

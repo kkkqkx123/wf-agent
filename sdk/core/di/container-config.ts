@@ -35,6 +35,9 @@ import type {
   TriggerStorageAdapter,
   ToolStorageAdapter,
   ScriptStorageAdapter,
+  NodeTemplateStorageAdapter,
+  HookTemplateStorageAdapter,
+  AgentProfileStorageAdapter,
   MetricsStorageAdapter,
   FileCheckpointStorageAdapter as FileCheckpointStorageAdapterType,
 } from "@wf-agent/storage";
@@ -61,6 +64,7 @@ import { EventRegistry } from "../registry/event-registry.js";
 import { ToolRegistry } from "../registry/tool-registry.js";
 import { ScriptRegistry } from "../registry/script-registry.js";
 import { NodeTemplateRegistry } from "../registry/node-template-registry.js";
+import { HookTemplateRegistry } from "../registry/hook-template-registry.js";
 import { TriggerTemplateRegistry } from "../registry/trigger-template-registry.js";
 import { TimeoutRegistry } from "../registry/timeout-registry.js";
 
@@ -140,6 +144,9 @@ export interface ContainerStorageConfig {
   trigger?: TriggerStorageAdapter;
   tool?: ToolStorageAdapter;
   script?: ScriptStorageAdapter;
+  nodeTemplate?: NodeTemplateStorageAdapter;
+  hookTemplate?: HookTemplateStorageAdapter;
+  agentProfile?: AgentProfileStorageAdapter;
   fileCheckpointStorageAdapter?: FileCheckpointStorageAdapterType;
   fileCheckpointManagerConfig?: FileCheckpointManagerConfig;
 }
@@ -205,6 +212,24 @@ export function configureContainerBindings(
   container
     .bind(Identifiers.ScriptStorageAdapter)
     .toDynamicValue(() => adapters.script || null)
+    .inSingletonScope();
+
+  // NodeTemplateStorageAdapter
+  container
+    .bind(Identifiers.NodeTemplateStorageAdapter)
+    .toDynamicValue(() => adapters.nodeTemplate || null)
+    .inSingletonScope();
+
+  // HookTemplateStorageAdapter
+  container
+    .bind(Identifiers.HookTemplateStorageAdapter)
+    .toDynamicValue(() => adapters.hookTemplate || null)
+    .inSingletonScope();
+
+  // AgentProfileStorageAdapter
+  container
+    .bind(Identifiers.AgentProfileStorageAdapter)
+    .toDynamicValue(() => adapters.agentProfile || null)
     .inSingletonScope();
 
   // FileCheckpointStorageAdapter (optional, only bound when file checkpoint is enabled)
@@ -297,7 +322,25 @@ export function configureContainerBindings(
     })
     .inSingletonScope();
 
-  container.bind(Identifiers.NodeTemplateRegistry).to(NodeTemplateRegistry).inSingletonScope();
+  container
+    .bind(Identifiers.NodeTemplateRegistry)
+    .toDynamicValue((c: IContainer): NodeTemplateRegistry => {
+      const storageAdapter = c.get(
+        Identifiers.NodeTemplateStorageAdapter,
+      ) as NodeTemplateStorageAdapter | null;
+      return new NodeTemplateRegistry(storageAdapter);
+    })
+    .inSingletonScope();
+
+  container
+    .bind(Identifiers.HookTemplateRegistry)
+    .toDynamicValue((c: IContainer): HookTemplateRegistry => {
+      const storageAdapter = c.get(
+        Identifiers.HookTemplateStorageAdapter,
+      ) as HookTemplateStorageAdapter | null;
+      return new HookTemplateRegistry(storageAdapter);
+    })
+    .inSingletonScope();
 
   container
     .bind(Identifiers.TriggerTemplateRegistry)
@@ -350,10 +393,15 @@ export function configureContainerBindings(
     })
     .inSingletonScope();
 
-  // AgentProfileRegistry - Agent Profile Registry, no dependencies
+  // AgentProfileRegistry - Agent Profile Registry (with optional storage adapter)
   container
     .bind(Identifiers.AgentProfileRegistry)
-    .to(AgentProfileRegistry)
+    .toDynamicValue((c: IContainer): AgentProfileRegistry => {
+      const storageAdapter = c.get(
+        Identifiers.AgentProfileStorageAdapter,
+      ) as AgentProfileStorageAdapter | null;
+      return new AgentProfileRegistry(storageAdapter);
+    })
     .inSingletonScope();
 
   // ============================================================

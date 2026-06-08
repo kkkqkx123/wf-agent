@@ -20,7 +20,7 @@ import { StatelessExecutor } from "../../services/executors/tools/stateless/Stat
 import { StatefulExecutor } from "../../services/executors/tools/stateful/StatefulExecutor.js";
 import { RestExecutor } from "../../services/executors/tools/rest/RestExecutor.js";
 import { BuiltinExecutor } from "../../services/executors/tools/builtin/BuiltinExecutor.js";
-import { tryCatchAsyncWithSignal, all, getErrorMessage } from "@wf-agent/common-utils";
+import { tryCatchAsyncWithSignal, all } from "@wf-agent/common-utils";
 import type { Result } from "@wf-agent/types";
 import { ok, err } from "@wf-agent/common-utils";
 import { StaticValidator } from "../validation/tool-static-validator.js";
@@ -70,12 +70,13 @@ class ToolRegistry {
   }
 
   /**
-   * Register Tool
+   * Register tool (memory-only, no persistence).
+   * Used for predefined content registration during bootstrap.
    * @param tool Tool definition
    * @param options Registration options
    * @throws ConfigurationValidationError If the tool definition is invalid or already exists
    */
-  registerTool(tool: Tool, options?: { skipIfExists?: boolean }): void {
+  register(tool: Tool, options?: { skipIfExists?: boolean }): void {
     // Static Validation Tool Definition
     const result = this.staticValidator.validateTool(tool);
     if (result.isErr()) {
@@ -97,17 +98,43 @@ class ToolRegistry {
     }
 
     this.tools.set(tool.id, tool);
-    logger.info("Tool registered", { toolId: tool.id, toolType: tool.type });
+    logger.info("Tool registered (memory-only)", { toolId: tool.id, toolType: tool.type });
+  }
 
-    // Persist to storage (async, non-blocking)
-    if (this.storageAdapter) {
-      persistTool(tool, this.storageAdapter).catch(error => {
-        logger.error("Failed to persist tool during registration", {
-          toolId: tool.id,
-          error: getErrorMessage(error),
-        });
+  /**
+   * Register Tool with storage persistence (write-through).
+   * @param tool Tool definition
+   * @param options Registration options
+   * @throws ConfigurationValidationError If the tool definition is invalid or already exists
+   */
+  async registerTool(tool: Tool, options?: { skipIfExists?: boolean }): Promise<void> {
+    // Static Validation Tool Definition
+    const result = this.staticValidator.validateTool(tool);
+    if (result.isErr()) {
+      throw result.error[0];
+    }
+
+    // Check if the tool ID already exists.
+    if (this.tools.has(tool.id)) {
+      if (options?.skipIfExists) {
+        logger.info("Tool already exists, skipping", { toolId: tool.id });
+        return;
+      }
+      logger.warn("Tool already exists", { toolId: tool.id });
+      throw new ConfigurationValidationError(`Tool with id '${tool.id}' already exists`, {
+        configType: "tool",
+        field: "id",
+        value: tool.id,
       });
     }
+
+    // Persist to storage first (write-through: DB is source of truth)
+    if (this.storageAdapter) {
+      await persistTool(tool, this.storageAdapter);
+    }
+
+    this.tools.set(tool.id, tool);
+    logger.info("Tool registered", { toolId: tool.id, toolType: tool.type });
   }
 
   /**
@@ -115,9 +142,9 @@ class ToolRegistry {
    * @param tools: An array of tool definitions
    * @param options: Registration options
    */
-  registerTools(tools: Tool[], options?: { skipIfExists?: boolean }): void {
+  async registerTools(tools: Tool[], options?: { skipIfExists?: boolean }): Promise<void> {
     for (const tool of tools) {
-      this.registerTool(tool, options);
+      await this.registerTool(tool, options);
     }
   }
 
@@ -126,23 +153,19 @@ class ToolRegistry {
    * @param toolId Tool ID
    * @throws ToolNotFoundError If the tool does not exist
    */
-  unregisterTool(toolId: string): void {
+  async unregisterTool(toolId: string): Promise<void> {
     if (!this.tools.has(toolId)) {
       logger.warn("Attempted to unregister non-existent tool", { toolId });
       throw new ToolNotFoundError(`Tool with id '${toolId}' not found`, toolId);
     }
+
+    // Remove from storage first (write-through: DB is source of truth)
+    if (this.storageAdapter) {
+      await removeTool(toolId, this.storageAdapter);
+    }
+
     this.tools.delete(toolId);
     logger.info("Tool unregistered", { toolId });
-
-    // Remove from storage (async, non-blocking)
-    if (this.storageAdapter) {
-      removeTool(toolId, this.storageAdapter).catch(error => {
-        logger.error("Failed to remove tool from storage", {
-          toolId,
-          error: getErrorMessage(error),
-        });
-      });
-    }
   }
 
   /**
@@ -401,22 +424,12 @@ class ToolRegistry {
    * @param updates Update content
    * @throws ToolNotFoundError If the tool does not exist
    */
-  updateTool(toolId: string, updates: Partial<Tool>): void {
+  async updateTool(toolId: string, updates: Partial<Tool>): Promise<void> {
     const tool = this.getTool(toolId);
     const updatedTool = { ...tool, ...updates };
     // Delete the old tool first, then register the new one (re-verification will be required).
     this.tools.delete(toolId);
-    this.registerTool(updatedTool);
-
-    // Persist to storage (async, non-blocking)
-    if (this.storageAdapter) {
-      persistTool(updatedTool, this.storageAdapter).catch(error => {
-        logger.error("Failed to persist tool update", {
-          toolId,
-          error: getErrorMessage(error),
-        });
-      });
-    }
+    await this.registerTool(updatedTool);
   }
 
   /**

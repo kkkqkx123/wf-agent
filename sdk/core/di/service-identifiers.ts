@@ -62,6 +62,9 @@ import type {
   TriggerStorageAdapter as TriggerStorageAdapterType,
   ToolStorageAdapter as ToolStorageAdapterType,
   ScriptStorageAdapter as ScriptStorageAdapterType,
+  NodeTemplateStorageAdapter as NodeTemplateStorageAdapterType,
+  HookTemplateStorageAdapter as HookTemplateStorageAdapterType,
+  AgentProfileStorageAdapter as AgentProfileStorageAdapterType,
   FileCheckpointStorageAdapter as FileCheckpointStorageAdapterType,
 } from "@wf-agent/storage";
 import type { FileCheckpointManager as FileCheckpointManagerType } from "@wf-agent/common-utils";
@@ -454,6 +457,24 @@ export const ToolStorageAdapter: ServiceIdentifier<ToolStorageAdapterType> = Sym
  * Provides script persistence operations
  */
 export const ScriptStorageAdapter: ServiceIdentifier<ScriptStorageAdapterType> = Symbol("ScriptStorageAdapter");
+
+/**
+ * NodeTemplateStorageAdapter - Node Template Storage Adapter
+ * Provides node template persistence operations
+ */
+export const NodeTemplateStorageAdapter: ServiceIdentifier<NodeTemplateStorageAdapterType> = Symbol("NodeTemplateStorageAdapter");
+
+/**
+ * HookTemplateStorageAdapter - Hook Template Storage Adapter
+ * Provides hook template persistence operations
+ */
+export const HookTemplateStorageAdapter: ServiceIdentifier<HookTemplateStorageAdapterType> = Symbol("HookTemplateStorageAdapter");
+
+/**
+ * AgentProfileStorageAdapter - Agent Profile Storage Adapter
+ * Provides agent profile persistence operations
+ */
+export const AgentProfileStorageAdapter: ServiceIdentifier<AgentProfileStorageAdapterType> = Symbol("AgentProfileStorageAdapter");
 
 // ============================================================
 // Metrics Services

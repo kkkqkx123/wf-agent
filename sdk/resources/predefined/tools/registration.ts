@@ -57,9 +57,9 @@ export function registerPredefinedTools(
           continue;
         }
 
-        // Convert to SDK format and register.
+        // Convert to SDK format and register (memory-only, no persistence needed for predefined).
         const sdkTool = toSdkTool(tool);
-        toolService.registerTool(sdkTool);
+        toolService.register(sdkTool);
         success.push(tool.id);
         logger.info(`Registered predefined tool: ${tool.id}`);
       } catch (error) {
@@ -86,13 +86,13 @@ export function registerPredefinedTools(
  * @param toolIds: List of tool IDs to be canceled; if empty, all predefined tools will be canceled
  * @returns: Cancellation result
  */
-export function unregisterPredefinedTools(
+export async function unregisterPredefinedTools(
   toolService: ToolRegistry,
   toolIds?: string[],
-): {
+): Promise<{
   success: string[];
   failures: Array<{ toolId: string; error: string }>;
-} {
+}> {
   const success: string[] = [];
   const failures: Array<{ toolId: string; error: string }> = [];
 
@@ -111,7 +111,7 @@ export function unregisterPredefinedTools(
 
   for (const toolId of predefinedToolIds) {
     try {
-      toolService.unregisterTool(toolId);
+      await toolService.unregisterTool(toolId);
       success.push(toolId);
       logger.info(`Unregistered predefined tool: ${toolId}`);
     } catch (error) {

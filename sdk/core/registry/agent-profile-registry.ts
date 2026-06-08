@@ -14,6 +14,12 @@
  * @see ProfileManager - Similar pattern for LLM Profile management
  */
 
+import type { AgentProfileStorageAdapter } from "@wf-agent/storage";
+import {
+  persistAgentProfile,
+  removeAgentProfile,
+} from "./utils/agent-profile-storage-utils.js";
+
 /**
  * Agent profile metadata stored in the registry
  */
@@ -32,13 +38,33 @@ export interface AgentProfileMeta {
 export class AgentProfileRegistry {
   private profiles: Map<string, AgentProfileMeta> = new Map();
 
+  constructor(
+    private readonly storageAdapter: AgentProfileStorageAdapter | null = null,
+  ) {}
+
   /**
-   * Register an agent profile
+   * Register an agent profile (memory-only, no persistence).
    *
    * @param profile Agent profile metadata to register
    */
   register(profile: AgentProfileMeta): void {
     this.validateProfile(profile);
+    this.profiles.set(profile.id, { ...profile });
+  }
+
+  /**
+   * Register an agent profile with storage persistence (write-through).
+   *
+   * @param profile Agent profile metadata to register
+   */
+  async registerProfile(profile: AgentProfileMeta): Promise<void> {
+    this.validateProfile(profile);
+
+    // Persist to storage first (write-through: DB is source of truth)
+    if (this.storageAdapter) {
+      await persistAgentProfile(profile, this.storageAdapter);
+    }
+
     this.profiles.set(profile.id, { ...profile });
   }
 
@@ -62,11 +88,25 @@ export class AgentProfileRegistry {
   }
 
   /**
-   * Remove an agent profile from the registry
+   * Remove an agent profile from the registry (memory only).
    *
    * @param id Profile ID to remove
    */
   remove(id: string): void {
+    this.profiles.delete(id);
+  }
+
+  /**
+   * Remove an agent profile with storage persistence (write-through).
+   *
+   * @param id Profile ID to remove
+   */
+  async removeProfile(id: string): Promise<void> {
+    // Remove from storage first (write-through)
+    if (this.storageAdapter) {
+      await removeAgentProfile(id, this.storageAdapter);
+    }
+
     this.profiles.delete(id);
   }
 

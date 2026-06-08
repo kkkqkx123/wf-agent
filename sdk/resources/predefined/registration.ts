@@ -81,13 +81,13 @@ function mapLlmSummaryConfig(
  * @param skipIfExists Whether to skip registration if already exists
  * @returns Registration results
  */
-export function registerAllPredefinedContent(
+export async function registerAllPredefinedContent(
   triggerRegistry: TriggerTemplateRegistry,
   workflowRegistry: WorkflowRegistry,
   toolService: ToolRegistry,
   presets?: PresetsConfig,
   skipIfExists: boolean = true,
-): PredefinedRegistrationResult {
+): Promise<PredefinedRegistrationResult> {
   const results: PredefinedRegistrationResult = {
     triggers: { success: [], failures: [] },
     workflows: { success: [], failures: [] },
@@ -155,22 +155,22 @@ export function registerAllPredefinedContent(
       logger.error("Failed to register predefined tools", { error });
       // Rollback: undo previously registered workflows and triggers
       // to avoid leaving the system in a partially-registered state.
-      rollbackState.workflows.forEach((id) => {
+      for (const id of rollbackState.workflows) {
         try {
-          workflowRegistry.unregister(id, { force: true });
+          await workflowRegistry.unregister(id, { force: true });
           logger.warn(`Rolled back workflow: ${id}`);
         } catch (rollbackError) {
           logger.error(`Failed to rollback workflow: ${id}`, { error: rollbackError });
         }
-      });
-      rollbackState.triggers.forEach((name) => {
+      }
+      for (const name of rollbackState.triggers) {
         try {
-          triggerRegistry.unregister(name);
+          await triggerRegistry.unregister(name);
           logger.warn(`Rolled back trigger: ${name}`);
         } catch (rollbackError) {
           logger.error(`Failed to rollback trigger: ${name}`, { error: rollbackError });
         }
-      });
+      }
     }
   }
 
@@ -180,7 +180,7 @@ export function registerAllPredefinedContent(
 /**
  * Unregister all predefined content.
  */
-export function unregisterAllPredefinedContent(
+export async function unregisterAllPredefinedContent(
   triggerRegistry: TriggerTemplateRegistry,
   workflowRegistry: WorkflowRegistry,
   toolService: ToolRegistry,
@@ -189,7 +189,7 @@ export function unregisterAllPredefinedContent(
     workflowIds?: string[];
     toolIds?: string[];
   },
-): PredefinedRegistrationResult {
+): Promise<PredefinedRegistrationResult> {
   const results = {
     triggers: {
       success: [] as string[],
@@ -207,7 +207,7 @@ export function unregisterAllPredefinedContent(
 
   // Unregister predefined triggers
   try {
-    results.triggers = unregisterPredefinedTriggers(triggerRegistry, options?.triggerNames);
+    results.triggers = await unregisterPredefinedTriggers(triggerRegistry, options?.triggerNames);
     logger.info("Predefined triggers unregistered");
   } catch (error) {
     logger.error("Failed to unregister predefined triggers", { error });
@@ -215,7 +215,7 @@ export function unregisterAllPredefinedContent(
 
   // Unregister predefined workflows
   try {
-    results.workflows = unregisterPredefinedWorkflows(workflowRegistry, options?.workflowIds);
+    results.workflows = await unregisterPredefinedWorkflows(workflowRegistry, options?.workflowIds);
     logger.info("Predefined workflows unregistered");
   } catch (error) {
     logger.error("Failed to unregister predefined workflows", { error });
@@ -223,7 +223,7 @@ export function unregisterAllPredefinedContent(
 
   // Unregister predefined tools (delegated to the tools module).
   try {
-    results.tools = unregisterPredefinedTools(toolService, options?.toolIds);
+    results.tools = await unregisterPredefinedTools(toolService, options?.toolIds);
     logger.info("Predefined tools unregistered");
   } catch (error) {
     logger.error("Failed to unregister predefined tools", { error });

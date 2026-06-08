@@ -72,13 +72,13 @@ export function registerPredefinedWorkflows(
  * @param workflowIds: List of workflow IDs to be unregistered; if empty, all predefined workflows will be unregistered
  * @returns: Unregistration result
  */
-export function unregisterPredefinedWorkflows(
+export async function unregisterPredefinedWorkflows(
   registry: WorkflowRegistry,
   workflowIds?: string[],
-): {
+): Promise<{
   success: string[];
   failures: Array<{ workflowId: string; error: string }>;
-} {
+}> {
   const success: string[] = [];
   const failures: Array<{ workflowId: string; error: string }> = [];
 
@@ -88,7 +88,7 @@ export function unregisterPredefinedWorkflows(
   for (const workflowId of predefinedWorkflowIds) {
     try {
       if (registry.has(workflowId)) {
-        registry.unregister(workflowId, { force: true });
+        await registry.unregister(workflowId, { force: true });
         success.push(workflowId);
         logger.info(`Unregistered predefined workflow: ${workflowId}`);
       }

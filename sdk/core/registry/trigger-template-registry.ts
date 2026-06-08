@@ -27,10 +27,6 @@ import {
   removeTrigger,
   initializeTriggersFromStorage,
 } from "./utils/trigger-storage-utils.js";
-import { createContextualLogger } from "../../utils/contextual-logger.js";
-
-const logger = createContextualLogger();
-
 /**
  * Trigger Template Registry Class
  */
@@ -73,9 +69,8 @@ class TriggerTemplateRegistry {
   /**
    * Register trigger template asynchronously (with storage persistence).
    *
-   * Writes to the in-memory cache and persists to storage asynchronously.
-   * The persistence is fire-and-forget; registration succeeds regardless of
-   * storage outcome. Errors during persistence are logged but not thrown.
+   * Persists to storage first (write-through: DB is source of truth),
+   * then updates the in-memory cache upon success.
    *
    * @param template Trigger template to register
    * @param options Registration options
@@ -99,18 +94,13 @@ class TriggerTemplateRegistry {
       );
     }
 
-    // Save to memory
-    this.templates.set(template.name, template);
-
-    // Persist to storage (async, non-blocking)
+    // Persist to storage first (write-through: DB is source of truth)
     if (this.storageAdapter) {
-      persistTrigger(template, this.storageAdapter).catch(error => {
-        logger.error("Failed to persist trigger template during registration", {
-          name: template.name,
-          error: getErrorMessage(error),
-        });
-      });
+      await persistTrigger(template, this.storageAdapter);
     }
+
+    // Save to memory cache after successful persistence.
+    this.templates.set(template.name, template);
   }
 
   /**
@@ -139,7 +129,7 @@ class TriggerTemplateRegistry {
    * @throws NotFoundError If the trigger template does not exist
    * @throws ValidationError If the updated configuration is invalid
    */
-  update(name: string, updates: Partial<TriggerTemplate>, options?: UpdateOptions): void {
+  async update(name: string, updates: Partial<TriggerTemplate>, options?: UpdateOptions): Promise<void> {
     const template = this.templates.get(name);
     if (!template) {
       if (options?.createIfNotExists) {
@@ -165,29 +155,24 @@ class TriggerTemplateRegistry {
     // Verify the updated template.
     this.validateTemplate(updatedTemplate);
 
-    // Update the template
-    this.templates.set(name, updatedTemplate);
-
-    // Persist to storage (async, non-blocking)
+    // Persist to storage first (write-through: DB is source of truth)
     if (this.storageAdapter) {
-      persistTrigger(updatedTemplate, this.storageAdapter).catch(error => {
-        logger.error("Failed to persist trigger template update", {
-          name,
-          error: getErrorMessage(error),
-        });
-      });
+      await persistTrigger(updatedTemplate, this.storageAdapter);
     }
+
+    // Update the template in memory after successful persistence.
+    this.templates.set(name, updatedTemplate);
   }
 
   /**
    * Register or update a trigger template (update if it exists, create if it doesn't).
    * @param template Trigger template
    */
-  upsert(template: TriggerTemplate): void {
+  async upsert(template: TriggerTemplate): Promise<void> {
     if (this.templates.has(template.name)) {
-      this.update(template.name, template);
+      await this.update(template.name, template);
     } else {
-      this.register(template);
+      await this.registerAsync(template);
     }
   }
 
@@ -216,7 +201,7 @@ class TriggerTemplateRegistry {
    * @throws NotFoundError If the trigger template does not exist
    * @throws ConfigurationValidationError If the template is referenced and force is not set
    */
-  unregister(name: string, options?: UnregisterOptions): void {
+  async unregister(name: string, options?: UnregisterOptions): Promise<void> {
     if (!this.templates.has(name)) {
       throw new TriggerTemplateNotFoundError(`Trigger template '${name}' not found`, name);
     }
@@ -233,17 +218,12 @@ class TriggerTemplateRegistry {
       // This method proceeds with deletion assuming the API layer has validated safety
     }
 
-    this.templates.delete(name);
-
-    // Remove from storage (async, non-blocking)
+    // Remove from storage first (write-through: DB is source of truth)
     if (this.storageAdapter) {
-      removeTrigger(name, this.storageAdapter).catch(error => {
-        logger.error("Failed to remove trigger template from storage", {
-          name,
-          error: getErrorMessage(error),
-        });
-      });
+      await removeTrigger(name, this.storageAdapter);
     }
+
+    this.templates.delete(name);
   }
 
   /**
@@ -251,10 +231,10 @@ class TriggerTemplateRegistry {
    * @param names Array of trigger template names
    * @param options Options for batch deletion
    */
-  unregisterBatch(names: string[], options?: BatchUnregisterOptions): void {
+  async unregisterBatch(names: string[], options?: BatchUnregisterOptions): Promise<void> {
     for (const name of names) {
       try {
-        this.unregister(name, options);
+        await this.unregister(name, options);
       } catch (error) {
         if (options?.skipErrors) {
           continue;

@@ -14,6 +14,9 @@ import type {
   TriggerStorageAdapter,
   ToolStorageAdapter,
   ScriptStorageAdapter,
+  NodeTemplateStorageAdapter,
+  HookTemplateStorageAdapter,
+  AgentProfileStorageAdapter,
 } from "@wf-agent/storage";
 
 /**
@@ -171,6 +174,12 @@ export interface SDKOptions {
   toolStorageAdapter?: ToolStorageAdapter;
   /** Script storage adapter interface (implemented by the application layer) */
   scriptStorageAdapter?: ScriptStorageAdapter;
+  /** Node template storage adapter interface (implemented by the application layer) */
+  nodeTemplateStorageAdapter?: NodeTemplateStorageAdapter;
+  /** Hook template storage adapter interface (implemented by the application layer) */
+  hookTemplateStorageAdapter?: HookTemplateStorageAdapter;
+  /** Agent profile storage adapter interface (implemented by the application layer) */
+  agentProfileStorageAdapter?: AgentProfileStorageAdapter;
   /** Whether to enable verification */
   enableValidation?: boolean;
   /** Detailed validation configuration */

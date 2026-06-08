@@ -91,6 +91,9 @@ export class SDKInstance {
       trigger: options?.triggerStorageAdapter,
       tool: options?.toolStorageAdapter,
       script: options?.scriptStorageAdapter,
+      nodeTemplate: options?.nodeTemplateStorageAdapter,
+      hookTemplate: options?.hookTemplateStorageAdapter,
+      agentProfile: options?.agentProfileStorageAdapter,
       fileCheckpointStorageAdapter: fcStorageAdapter,
       fileCheckpointManagerConfig: fcManagerConfig,
     });
@@ -481,7 +484,7 @@ export class SDKInstance {
     // 2. Register all predefined content (skips if already in storage)
     if (presets) {
       try {
-        registerAllPredefinedContent(
+        await registerAllPredefinedContent(
           this.globalContext.triggerTemplateRegistry,
           this.globalContext.workflowRegistry,
           this.globalContext.toolRegistry,

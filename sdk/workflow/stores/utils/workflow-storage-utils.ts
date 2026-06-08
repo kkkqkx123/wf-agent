@@ -49,8 +49,11 @@ export async function persistWorkflow(
   } catch (error) {
     logger.error("Failed to persist workflow", {
       workflowId: workflow.id,
+      operation: "persist",
+      storageType: adapter.constructor.name,
       error: getErrorMessage(error),
     });
+    throw error; // Propagate so callers can decide how to handle
   }
 }
 
@@ -73,6 +76,8 @@ export async function removeWorkflow(
   } catch (error) {
     logger.error("Failed to remove workflow from storage", {
       workflowId,
+      operation: "remove",
+      storageType: adapter.constructor.name,
       error: getErrorMessage(error),
     });
   }
@@ -104,6 +109,8 @@ export async function loadWorkflow(
   } catch (error) {
     logger.error("Failed to load workflow from storage", {
       workflowId,
+      operation: "load",
+      storageType: adapter.constructor.name,
       error: getErrorMessage(error),
     });
     return null;
@@ -153,6 +160,8 @@ export async function initializeWorkflowsFromStorage(
   } catch (error) {
     logger.error("Failed to initialize workflows from storage", {
       error: getErrorMessage(error),
+      storageType: adapter.constructor.name,
+      operation: "initializeFromStorage",
     });
   }
 }

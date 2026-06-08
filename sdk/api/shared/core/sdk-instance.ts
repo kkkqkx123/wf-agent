@@ -88,6 +88,9 @@ export class SDKInstance {
       workflow: options?.workflowStorageAdapter,
       workflowExecution: options?.workflowExecutionStorageAdapter,
       agentLoop: options?.agentLoopCheckpointStorageAdapter,
+      trigger: options?.triggerStorageAdapter,
+      tool: options?.toolStorageAdapter,
+      script: options?.scriptStorageAdapter,
       fileCheckpointStorageAdapter: fcStorageAdapter,
       fileCheckpointManagerConfig: fcManagerConfig,
     });
@@ -146,6 +149,18 @@ export class SDKInstance {
     
     if (!options?.workflowExecutionStorageAdapter) {
       warnings.push('No workflow execution storage adapter provided. Execution history will not be persisted.');
+    }
+    
+    if (!options?.triggerStorageAdapter) {
+      warnings.push('No trigger storage adapter provided. Trigger templates will not be persisted.');
+    }
+    
+    if (!options?.toolStorageAdapter) {
+      warnings.push('No tool storage adapter provided. Tools will not be persisted.');
+    }
+    
+    if (!options?.scriptStorageAdapter) {
+      warnings.push('No script storage adapter provided. Scripts will not be persisted.');
     }
     
     // Log warnings
@@ -258,6 +273,9 @@ export class SDKInstance {
       workflow: !!this.config?.workflowStorageAdapter,
       workflowExecution: !!this.config?.workflowExecutionStorageAdapter,
       agentLoop: !!this.config?.agentLoopCheckpointStorageAdapter,
+      trigger: !!this.config?.triggerStorageAdapter,
+      tool: !!this.config?.toolStorageAdapter,
+      script: !!this.config?.scriptStorageAdapter,
     });
     
     // Preload lazy-loaded modules (TOML parser)
@@ -427,6 +445,36 @@ export class SDKInstance {
       } catch (error) {
         logger.error(`Failed to initialize workflow registry from storage: ${getErrorMessage(error)}`);
         // Don't fail bootstrap - allow SDK to work with empty registry
+      }
+    }
+
+    // Initialize trigger template registry from storage if adapter is provided
+    if (this.config?.triggerStorageAdapter) {
+      try {
+        await this.globalContext.triggerTemplateRegistry.initializeFromStorage();
+        logger.info("Trigger template registry initialized from storage");
+      } catch (error) {
+        logger.error(`Failed to initialize trigger template registry from storage: ${getErrorMessage(error)}`);
+      }
+    }
+
+    // Initialize tool registry from storage if adapter is provided
+    if (this.config?.toolStorageAdapter) {
+      try {
+        await this.globalContext.toolRegistry.initializeFromStorage();
+        logger.info("Tool registry initialized from storage");
+      } catch (error) {
+        logger.error(`Failed to initialize tool registry from storage: ${getErrorMessage(error)}`);
+      }
+    }
+
+    // Initialize script registry from storage if adapter is provided
+    if (this.config?.scriptStorageAdapter) {
+      try {
+        await this.globalContext.scriptRegistry.initializeFromStorage();
+        logger.info("Script registry initialized from storage");
+      } catch (error) {
+        logger.error(`Failed to initialize script registry from storage: ${getErrorMessage(error)}`);
       }
     }
 

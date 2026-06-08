@@ -32,6 +32,7 @@ import {
   persistWorkflow,
   removeWorkflow,
   initializeWorkflowsFromStorage,
+  loadWorkflow,
 } from "./utils/workflow-storage-utils.js";
 import { getErrorMessage } from "@wf-agent/common-utils";
 import { checkWorkflowReferences } from "../execution/utils/workflow-reference-checker.js";
@@ -114,10 +115,19 @@ export class WorkflowRegistry {
   // ============================================================
 
   /**
-   * Register workflow definition (synchronous, without async preprocessing)
-   * @param workflow: The workflow definition
-   * @param options: Registration options
-   * @throws ValidationError: If the workflow definition is invalid or the ID already exists
+   * Register workflow definition (synchronous, memory-only).
+   *
+   * Writes to the in-memory cache but does NOT persist to storage or
+   * perform async preprocessing (graph resolution, relationship tracking).
+   * Use for internal operations (e.g. predefined content registration,
+   * batch registration) where the workflow is rebuilt on every bootstrap.
+   *
+   * For durable registration that persists to storage and performs full
+   * preprocessing, use registerAsync() instead.
+   *
+   * @param workflow - The workflow definition
+   * @param options - Registration options
+   * @throws ValidationError - If the workflow definition is invalid or the ID already exists
    */
   register(workflow: WorkflowTemplate, options?: RegisterOptions): void {
     // Verify the workflow definition.
@@ -212,12 +222,14 @@ export class WorkflowRegistry {
       // Remove the workflow from both memory and storage if preprocessing fails
       this.workflows.delete(workflow.id);
       if (this.storageAdapter) {
-        removeWorkflow(workflow.id, this.storageAdapter).catch(err => {
+        try {
+          await removeWorkflow(workflow.id, this.storageAdapter);
+        } catch (removeError) {
           logger.error("Failed to remove workflow from storage after preprocessing failure", {
             workflowId: workflow.id,
-            error: getErrorMessage(err),
+            error: getErrorMessage(removeError),
           });
-        });
+        }
       }
       throw new ConfigurationValidationError(
         `Workflow preprocessing failed: ${getErrorMessage(error)}`,
@@ -294,8 +306,18 @@ export class WorkflowRegistry {
       );
     }
 
-    // Update the workflow
+    // Update the workflow in memory
     this.workflows.set(workflowId, updatedWorkflow);
+
+    // Persist to storage (async, non-blocking)
+    if (this.storageAdapter) {
+      persistWorkflow(updatedWorkflow, this.storageAdapter).catch(error => {
+        logger.error("Failed to persist workflow update", {
+          workflowId,
+          error: getErrorMessage(error),
+        });
+      });
+    }
   }
 
   /**
@@ -395,25 +417,42 @@ export class WorkflowRegistry {
    * @returns List of workflow summary information
    */
   async list(): Promise<WorkflowSummary[]> {
-    const memoryWorkflows = Array.from(this.workflows.values());
+    const allWorkflows = new Map(this.workflows);
 
-    // If no storage adapter, return only memory workflows
-    if (!this.storageAdapter) {
-      return this.buildWorkflowSummaries(memoryWorkflows);
+    // If storage adapter is available, fetch workflows not yet in memory
+    if (this.storageAdapter) {
+      try {
+        const storageIds = await this.storageAdapter.list();
+        const missingIds = storageIds.filter((id) => !allWorkflows.has(id));
+
+        if (missingIds.length > 0) {
+          logger.debug("Loading missing workflows from storage during list", {
+            count: missingIds.length,
+          });
+
+          for (const id of missingIds) {
+            try {
+              const workflow = await loadWorkflow(id, this.storageAdapter);
+              if (workflow) {
+                allWorkflows.set(id, workflow);
+              }
+            } catch (loadError) {
+              logger.error("Failed to load workflow from storage during list", {
+                workflowId: id,
+                error: getErrorMessage(loadError),
+              });
+            }
+          }
+        }
+      } catch (error) {
+        logger.error("Failed to list workflows from storage adapter", {
+          error: getErrorMessage(error),
+        });
+        // Fall through to return in-memory workflows only
+      }
     }
 
-    try {
-      // Get all IDs from storage via storage manager
-      // Since we don't have a direct list method on WorkflowStorageAdapter,
-      // we rely on the previously loaded workflows + memory cache
-      return this.buildWorkflowSummaries(memoryWorkflows);
-    } catch (error) {
-      logger.error("Failed to list workflows from storage", {
-        error: getErrorMessage(error),
-      });
-      // Return only memory workflows as fallback
-      return this.buildWorkflowSummaries(memoryWorkflows);
-    }
+    return this.buildWorkflowSummaries(Array.from(allWorkflows.values()));
   }
 
   /**

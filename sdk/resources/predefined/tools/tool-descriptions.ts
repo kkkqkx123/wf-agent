@@ -23,6 +23,7 @@ export { APPLY_DIFF_TOOL_DESCRIPTION } from "./stateless/filesystem/apply-diff/i
 export { EDIT_TOOL_DESCRIPTION } from "./stateless/filesystem/edit/index.js";
 export { LIST_FILES_TOOL_DESCRIPTION } from "./stateless/filesystem/list-files/index.js";
 export { GREP_TOOL_DESCRIPTION } from "./stateless/filesystem/grep/index.js";
+export { GLOB_TOOL_DESCRIPTION } from "./stateless/filesystem/glob/index.js";
 
 // Stateless - Shell tools
 export { RUN_SHELL_TOOL_DESCRIPTION } from "./stateless/shell/run-shell/index.js";
@@ -60,6 +61,7 @@ import { APPLY_DIFF_TOOL_DESCRIPTION } from "./stateless/filesystem/apply-diff/i
 import { EDIT_TOOL_DESCRIPTION } from "./stateless/filesystem/edit/index.js";
 import { LIST_FILES_TOOL_DESCRIPTION } from "./stateless/filesystem/list-files/index.js";
 import { GREP_TOOL_DESCRIPTION } from "./stateless/filesystem/grep/index.js";
+import { GLOB_TOOL_DESCRIPTION } from "./stateless/filesystem/glob/index.js";
 import { RUN_SHELL_TOOL_DESCRIPTION } from "./stateless/shell/run-shell/index.js";
 // TODO: RUN_SLASH_COMMAND_TOOL_DESCRIPTION not implemented yet
 // import { RUN_SLASH_COMMAND_TOOL_DESCRIPTION } from "./stateless/utility/run-slash-command/index.js";
@@ -91,6 +93,7 @@ export const ALL_PREDEFINED_TOOL_DESCRIPTIONS = [
   EDIT_TOOL_DESCRIPTION,
   LIST_FILES_TOOL_DESCRIPTION,
   GREP_TOOL_DESCRIPTION,
+  GLOB_TOOL_DESCRIPTION,
 
   // Shell tools
   RUN_SHELL_TOOL_DESCRIPTION,

@@ -32,6 +32,9 @@ import type {
   TaskStorageAdapter,
   WorkflowExecutionStorageAdapter,
   AgentLoopStorageAdapter,
+  TriggerStorageAdapter,
+  ToolStorageAdapter,
+  ScriptStorageAdapter,
   MetricsStorageAdapter,
   FileCheckpointStorageAdapter as FileCheckpointStorageAdapterType,
 } from "@wf-agent/storage";
@@ -134,6 +137,9 @@ export interface ContainerStorageConfig {
   task?: TaskStorageAdapter;
   workflowExecution?: WorkflowExecutionStorageAdapter;
   agentLoop?: AgentLoopStorageAdapter;
+  trigger?: TriggerStorageAdapter;
+  tool?: ToolStorageAdapter;
+  script?: ScriptStorageAdapter;
   fileCheckpointStorageAdapter?: FileCheckpointStorageAdapterType;
   fileCheckpointManagerConfig?: FileCheckpointManagerConfig;
 }
@@ -181,6 +187,24 @@ export function configureContainerBindings(
   container
     .bind(Identifiers.AgentLoopStorageAdapter)
     .toDynamicValue(() => adapters.agentLoop || null)
+    .inSingletonScope();
+
+  // TriggerStorageAdapter
+  container
+    .bind(Identifiers.TriggerStorageAdapter)
+    .toDynamicValue(() => adapters.trigger || null)
+    .inSingletonScope();
+
+  // ToolStorageAdapter
+  container
+    .bind(Identifiers.ToolStorageAdapter)
+    .toDynamicValue(() => adapters.tool || null)
+    .inSingletonScope();
+
+  // ScriptStorageAdapter
+  container
+    .bind(Identifiers.ScriptStorageAdapter)
+    .toDynamicValue(() => adapters.script || null)
     .inSingletonScope();
 
   // FileCheckpointStorageAdapter (optional, only bound when file checkpoint is enabled)
@@ -255,19 +279,34 @@ export function configureContainerBindings(
 
   container
     .bind(Identifiers.ToolRegistry)
-    .toDynamicValue(() => new ToolRegistry())
+    .toDynamicValue((c: IContainer): ToolRegistry => {
+      const storageAdapter = c.get(
+        Identifiers.ToolStorageAdapter,
+      ) as ToolStorageAdapter | null;
+      return new ToolRegistry(undefined, storageAdapter);
+    })
     .inSingletonScope();
 
   container
     .bind(Identifiers.ScriptRegistry)
-    .toDynamicValue(() => new ScriptRegistry())
+    .toDynamicValue((c: IContainer): ScriptRegistry => {
+      const storageAdapter = c.get(
+        Identifiers.ScriptStorageAdapter,
+      ) as ScriptStorageAdapter | null;
+      return new ScriptRegistry(undefined, storageAdapter);
+    })
     .inSingletonScope();
 
   container.bind(Identifiers.NodeTemplateRegistry).to(NodeTemplateRegistry).inSingletonScope();
 
   container
     .bind(Identifiers.TriggerTemplateRegistry)
-    .to(TriggerTemplateRegistry)
+    .toDynamicValue((c: IContainer): TriggerTemplateRegistry => {
+      const storageAdapter = c.get(
+        Identifiers.TriggerStorageAdapter,
+      ) as TriggerStorageAdapter | null;
+      return new TriggerTemplateRegistry(storageAdapter);
+    })
     .inSingletonScope();
 
   // TimeoutRegistry - Timeout registry with optional configuration

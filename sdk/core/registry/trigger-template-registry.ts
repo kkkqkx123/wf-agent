@@ -21,12 +21,25 @@ import {
   TriggerTemplateNotFoundError,
 } from "@wf-agent/types";
 import { getErrorMessage, now } from "@wf-agent/common-utils";
+import type { TriggerStorageAdapter } from "@wf-agent/storage";
+import {
+  persistTrigger,
+  removeTrigger,
+  initializeTriggersFromStorage,
+} from "./utils/trigger-storage-utils.js";
+import { createContextualLogger } from "../../utils/contextual-logger.js";
+
+const logger = createContextualLogger();
 
 /**
  * Trigger Template Registry Class
  */
 class TriggerTemplateRegistry {
   private templates: Map<string, TriggerTemplate> = new Map();
+
+  constructor(
+    private readonly storageAdapter: TriggerStorageAdapter | null = null,
+  ) {}
 
   /**
    * Register trigger template (only for new triggers)
@@ -55,6 +68,49 @@ class TriggerTemplateRegistry {
 
     // Register Trigger Template
     this.templates.set(template.name, template);
+  }
+
+  /**
+   * Register trigger template asynchronously (with storage persistence).
+   *
+   * Writes to the in-memory cache and persists to storage asynchronously.
+   * The persistence is fire-and-forget; registration succeeds regardless of
+   * storage outcome. Errors during persistence are logged but not thrown.
+   *
+   * @param template Trigger template to register
+   * @param options Registration options
+   * @throws ValidationError If the trigger configuration is invalid or the name already exists
+   */
+  async registerAsync(template: TriggerTemplate, options?: RegisterOptions): Promise<void> {
+    // Verify trigger configuration
+    this.validateTemplate(template);
+
+    // Check if the name already exists
+    if (this.templates.has(template.name)) {
+      if (options?.skipIfExists) {
+        return;
+      }
+      throw new ConfigurationValidationError(
+        `Trigger template with name '${template.name}' already exists. Use update() to modify or upsert() to create or update.`,
+        {
+          configType: "trigger",
+          configPath: "template.name",
+        },
+      );
+    }
+
+    // Save to memory
+    this.templates.set(template.name, template);
+
+    // Persist to storage (async, non-blocking)
+    if (this.storageAdapter) {
+      persistTrigger(template, this.storageAdapter).catch(error => {
+        logger.error("Failed to persist trigger template during registration", {
+          name: template.name,
+          error: getErrorMessage(error),
+        });
+      });
+    }
   }
 
   /**
@@ -111,6 +167,16 @@ class TriggerTemplateRegistry {
 
     // Update the template
     this.templates.set(name, updatedTemplate);
+
+    // Persist to storage (async, non-blocking)
+    if (this.storageAdapter) {
+      persistTrigger(updatedTemplate, this.storageAdapter).catch(error => {
+        logger.error("Failed to persist trigger template update", {
+          name,
+          error: getErrorMessage(error),
+        });
+      });
+    }
   }
 
   /**
@@ -168,6 +234,16 @@ class TriggerTemplateRegistry {
     }
 
     this.templates.delete(name);
+
+    // Remove from storage (async, non-blocking)
+    if (this.storageAdapter) {
+      removeTrigger(name, this.storageAdapter).catch(error => {
+        logger.error("Failed to remove trigger template from storage", {
+          name,
+          error: getErrorMessage(error),
+        });
+      });
+    }
   }
 
   /**
@@ -478,6 +554,22 @@ class TriggerTemplateRegistry {
     };
 
     return workflowTrigger;
+  }
+
+  // ============================================================
+  // Storage Initialization
+  // ============================================================
+
+  /**
+   * Initialize trigger templates from storage
+   * Loads all persisted trigger template definitions into memory cache.
+   */
+  async initializeFromStorage(): Promise<void> {
+    if (!this.storageAdapter) {
+      return;
+    }
+
+    await initializeTriggersFromStorage(this.storageAdapter, this.templates);
   }
 }
 

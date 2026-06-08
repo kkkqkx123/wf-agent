@@ -52,6 +52,11 @@ import {
   createGrepHandler,
   GREP_TOOL_DESCRIPTION,
 } from "./stateless/filesystem/grep/index.js";
+import {
+  globSchema,
+  createGlobHandler,
+  GLOB_TOOL_DESCRIPTION,
+} from "./stateless/filesystem/glob/index.js";
 
 // Import knowledge tools (skill)
 import {
@@ -273,6 +278,17 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
       description: renderToolDescription(GREP_TOOL_DESCRIPTION),
       parameters: grepSchema,
       execute: createGrepHandler(config?.readFile ?? { workspaceDir: process.cwd() }),
+    });
+  }
+
+  // glob
+  if (!isDisabled("glob", options)) {
+    tools.push({
+      id: "glob",
+      type: "STATELESS",
+      description: renderToolDescription(GLOB_TOOL_DESCRIPTION),
+      parameters: globSchema,
+      execute: createGlobHandler(config?.readFile ?? { workspaceDir: process.cwd() }),
     });
   }
 

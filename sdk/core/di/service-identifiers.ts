@@ -59,6 +59,9 @@ import type {
   TaskStorageAdapter as TaskStorageAdapterType,
   WorkflowExecutionStorageAdapter as WorkflowExecutionStorageAdapterType,
   AgentLoopStorageAdapter as AgentLoopStorageAdapterType,
+  TriggerStorageAdapter as TriggerStorageAdapterType,
+  ToolStorageAdapter as ToolStorageAdapterType,
+  ScriptStorageAdapter as ScriptStorageAdapterType,
   FileCheckpointStorageAdapter as FileCheckpointStorageAdapterType,
 } from "@wf-agent/storage";
 import type { FileCheckpointManager as FileCheckpointManagerType } from "@wf-agent/common-utils";
@@ -433,6 +436,24 @@ export const FileCheckpointManager: ServiceIdentifier<FileCheckpointManagerType>
  * Storage adapter for file checkpoint persistence
  */
 export const FileCheckpointStorageAdapter: ServiceIdentifier<FileCheckpointStorageAdapterType> = Symbol("FileCheckpointStorageAdapter");
+
+/**
+ * TriggerStorageAdapter - Trigger Template Storage Adapter
+ * Provides trigger template persistence operations
+ */
+export const TriggerStorageAdapter: ServiceIdentifier<TriggerStorageAdapterType> = Symbol("TriggerStorageAdapter");
+
+/**
+ * ToolStorageAdapter - Tool Storage Adapter
+ * Provides tool persistence operations
+ */
+export const ToolStorageAdapter: ServiceIdentifier<ToolStorageAdapterType> = Symbol("ToolStorageAdapter");
+
+/**
+ * ScriptStorageAdapter - Script Storage Adapter
+ * Provides script persistence operations
+ */
+export const ScriptStorageAdapter: ServiceIdentifier<ScriptStorageAdapterType> = Symbol("ScriptStorageAdapter");
 
 // ============================================================
 // Metrics Services

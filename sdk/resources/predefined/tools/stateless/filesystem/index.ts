@@ -9,3 +9,4 @@ export * from "./apply-diff/index.js";
 export * from "./edit/index.js";
 export * from "./list-files/index.js";
 export * from "./grep/index.js";
+export * from "./glob/index.js";

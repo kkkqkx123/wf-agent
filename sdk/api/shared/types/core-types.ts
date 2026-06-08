@@ -11,6 +11,9 @@ import type {
   WorkflowExecutionStorageAdapter,
   TaskStorageAdapter,
   AgentLoopStorageAdapter,
+  TriggerStorageAdapter,
+  ToolStorageAdapter,
+  ScriptStorageAdapter,
 } from "@wf-agent/storage";
 
 /**
@@ -162,6 +165,12 @@ export interface SDKOptions {
   workflowExecutionStorageAdapter?: WorkflowExecutionStorageAdapter;
   /** Agent loop checkpoint storage adapter interface (implemented by the application layer) */
   agentLoopCheckpointStorageAdapter?: AgentLoopStorageAdapter;
+  /** Trigger template storage adapter interface (implemented by the application layer) */
+  triggerStorageAdapter?: TriggerStorageAdapter;
+  /** Tool storage adapter interface (implemented by the application layer) */
+  toolStorageAdapter?: ToolStorageAdapter;
+  /** Script storage adapter interface (implemented by the application layer) */
+  scriptStorageAdapter?: ScriptStorageAdapter;
   /** Whether to enable verification */
   enableValidation?: boolean;
   /** Detailed validation configuration */

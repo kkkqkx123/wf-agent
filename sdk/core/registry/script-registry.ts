@@ -20,10 +20,15 @@ import {
   ScriptNotFoundError,
   ConfigurationValidationError,
 } from "@wf-agent/types";
-import { all } from "@wf-agent/common-utils";
+import { all, ok, err, getErrorMessage } from "@wf-agent/common-utils";
 import type { Result } from "@wf-agent/types";
-import { ok, err } from "@wf-agent/common-utils";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
+import type { ScriptStorageAdapter } from "@wf-agent/storage";
+import {
+  persistScript,
+  removeScript,
+  initializeScriptsFromStorage,
+} from "./utils/script-storage-utils.js";
 
 const logger = createContextualLogger({ component: "ScriptRegistry" });
 
@@ -38,7 +43,10 @@ class ScriptRegistry {
   private scriptEngine: ScriptEngine | null = null;
   private flowEngine: ScriptFlowEngine | null = null;
 
-  constructor(executor?: ScriptExecutor) {
+  constructor(
+    executor?: ScriptExecutor,
+    private readonly storageAdapter: ScriptStorageAdapter | null = null,
+  ) {
     this.executor = executor ?? new ScriptExecutor();
   }
 
@@ -69,6 +77,16 @@ class ScriptRegistry {
     // Registration script
     this.scripts.set(script.name, scriptWithDefaults);
     logger.info("Script registered", { scriptName: script.name });
+
+    // Persist to storage (async, non-blocking)
+    if (this.storageAdapter) {
+      persistScript(scriptWithDefaults, this.storageAdapter).catch(error => {
+        logger.error("Failed to persist script during registration", {
+          scriptName: script.name,
+          error: getErrorMessage(error),
+        });
+      });
+    }
   }
 
   /**
@@ -93,6 +111,16 @@ class ScriptRegistry {
     }
     this.scripts.delete(scriptName);
     logger.info("Script unregistered", { scriptName });
+
+    // Remove from storage (async, non-blocking)
+    if (this.storageAdapter) {
+      removeScript(scriptName, this.storageAdapter).catch(error => {
+        logger.error("Failed to remove script from storage", {
+          scriptName,
+          error: getErrorMessage(error),
+        });
+      });
+    }
   }
 
   /**
@@ -196,6 +224,16 @@ class ScriptRegistry {
 
     this.validateScript(updatedScript);
     this.scripts.set(scriptName, updatedScript);
+
+    // Persist to storage (async, non-blocking)
+    if (this.storageAdapter) {
+      persistScript(updatedScript, this.storageAdapter).catch(error => {
+        logger.error("Failed to persist script update", {
+          scriptName,
+          error: getErrorMessage(error),
+        });
+      });
+    }
   }
 
   /**
@@ -441,6 +479,22 @@ class ScriptRegistry {
 
     // Combine the results; return "success" if everything is successful, otherwise return the first error.
     return all(results);
+  }
+
+  // ============================================================
+  // Storage Initialization
+  // ============================================================
+
+  /**
+   * Initialize scripts from storage
+   * Loads all persisted script definitions into memory cache.
+   */
+  async initializeFromStorage(): Promise<void> {
+    if (!this.storageAdapter) {
+      return;
+    }
+
+    await initializeScriptsFromStorage(this.storageAdapter, this.scripts);
   }
 }
 

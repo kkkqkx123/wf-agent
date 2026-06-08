@@ -20,13 +20,19 @@ import { StatelessExecutor } from "../../services/executors/tools/stateless/Stat
 import { StatefulExecutor } from "../../services/executors/tools/stateful/StatefulExecutor.js";
 import { RestExecutor } from "../../services/executors/tools/rest/RestExecutor.js";
 import { BuiltinExecutor } from "../../services/executors/tools/builtin/BuiltinExecutor.js";
-import { tryCatchAsyncWithSignal, all } from "@wf-agent/common-utils";
+import { tryCatchAsyncWithSignal, all, getErrorMessage } from "@wf-agent/common-utils";
 import type { Result } from "@wf-agent/types";
 import { ok, err } from "@wf-agent/common-utils";
 import { StaticValidator } from "../validation/tool-static-validator.js";
 import { RuntimeValidator } from "../validation/tool-runtime-validator.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 import { createBuiltinTools } from "../../resources/predefined/tools/builtin/index.js";
+import type { ToolStorageAdapter } from "@wf-agent/storage";
+import {
+  persistTool,
+  removeTool,
+  initializeToolsFromStorage,
+} from "./utils/tool-storage-utils.js";
 
 const logger = createContextualLogger({ component: "ToolRegistry" });
 
@@ -41,7 +47,10 @@ class ToolRegistry {
   private builtinExecutor: BuiltinExecutor;
   private restExecutorConfig: RestExecutorConfig;
 
-  constructor(restExecutorConfig: RestExecutorConfig = {}) {
+  constructor(
+    restExecutorConfig: RestExecutorConfig = {},
+    private readonly storageAdapter: ToolStorageAdapter | null = null,
+  ) {
     this.staticValidator = new StaticValidator();
     this.runtimeValidator = new RuntimeValidator();
     this.builtinExecutor = new BuiltinExecutor();
@@ -89,6 +98,16 @@ class ToolRegistry {
 
     this.tools.set(tool.id, tool);
     logger.info("Tool registered", { toolId: tool.id, toolType: tool.type });
+
+    // Persist to storage (async, non-blocking)
+    if (this.storageAdapter) {
+      persistTool(tool, this.storageAdapter).catch(error => {
+        logger.error("Failed to persist tool during registration", {
+          toolId: tool.id,
+          error: getErrorMessage(error),
+        });
+      });
+    }
   }
 
   /**
@@ -114,6 +133,16 @@ class ToolRegistry {
     }
     this.tools.delete(toolId);
     logger.info("Tool unregistered", { toolId });
+
+    // Remove from storage (async, non-blocking)
+    if (this.storageAdapter) {
+      removeTool(toolId, this.storageAdapter).catch(error => {
+        logger.error("Failed to remove tool from storage", {
+          toolId,
+          error: getErrorMessage(error),
+        });
+      });
+    }
   }
 
   /**
@@ -378,6 +407,16 @@ class ToolRegistry {
     // Delete the old tool first, then register the new one (re-verification will be required).
     this.tools.delete(toolId);
     this.registerTool(updatedTool);
+
+    // Persist to storage (async, non-blocking)
+    if (this.storageAdapter) {
+      persistTool(updatedTool, this.storageAdapter).catch(error => {
+        logger.error("Failed to persist tool update", {
+          toolId,
+          error: getErrorMessage(error),
+        });
+      });
+    }
   }
 
   /**
@@ -443,6 +482,22 @@ class ToolRegistry {
     taskQueueManager?: unknown;
   }): void {
     this.builtinExecutor.updateDefaultContext(context);
+  }
+
+  // ============================================================
+  // Storage Initialization
+  // ============================================================
+
+  /**
+   * Initialize tools from storage
+   * Loads all persisted tool definitions into memory cache.
+   */
+  async initializeFromStorage(): Promise<void> {
+    if (!this.storageAdapter) {
+      return;
+    }
+
+    await initializeToolsFromStorage(this.storageAdapter, this.tools);
   }
 }
 

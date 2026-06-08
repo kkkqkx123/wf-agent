@@ -21,8 +21,11 @@ import {
   mergeMetricsWithDefaults,
   mergeTimeoutWithDefaults,
   mergeFileCheckpointConfig,
+  mergeStorageWithDefaults,
+  mergeOutputWithDefaults,
+  mergePresetsWithDefaults,
 } from "@wf-agent/sdk/api";
-import type { MetricsConfig, TimeoutConfig, FileCheckpointConfig } from "@wf-agent/types";
+import type { MetricsConfig, TimeoutConfig, FileCheckpointConfig, StorageConfig, OutputConfig, PresetsConfig } from "@wf-agent/types";
 
 // -----------------------------------------------------------------------
 // Helpers
@@ -106,4 +109,61 @@ export async function loadFileCheckpointConfig(
   }
 
   return mergeFileCheckpointConfig({}, workspaceRoot);
+}
+
+/**
+ * Load storage config from the first existing file in `configPaths`.
+ *
+ * @param configPaths - Ordered list of candidate file paths.
+ * @returns The merged StorageConfig (with defaults applied).
+ */
+export async function loadStorageConfig(
+  configPaths: string[],
+): Promise<StorageConfig> {
+  for (const filePath of configPaths) {
+    const raw = await tryLoadRawConfig(filePath);
+    if (raw !== null) {
+      return mergeStorageWithDefaults(raw as Partial<StorageConfig>);
+    }
+  }
+
+  return mergeStorageWithDefaults({});
+}
+
+/**
+ * Load output config from the first existing file in `configPaths`.
+ *
+ * @param configPaths - Ordered list of candidate file paths.
+ * @returns The merged OutputConfig (with defaults applied).
+ */
+export async function loadOutputConfig(
+  configPaths: string[],
+): Promise<Required<OutputConfig>> {
+  for (const filePath of configPaths) {
+    const raw = await tryLoadRawConfig(filePath);
+    if (raw !== null) {
+      return mergeOutputWithDefaults(raw as Partial<OutputConfig>);
+    }
+  }
+
+  return mergeOutputWithDefaults({});
+}
+
+/**
+ * Load presets config from the first existing file in `configPaths`.
+ *
+ * @param configPaths - Ordered list of candidate file paths.
+ * @returns The merged PresetsConfig (with defaults applied).
+ */
+export async function loadPresetsConfig(
+  configPaths: string[],
+): Promise<PresetsConfig> {
+  for (const filePath of configPaths) {
+    const raw = await tryLoadRawConfig(filePath);
+    if (raw !== null) {
+      return mergePresetsWithDefaults(raw as Partial<PresetsConfig>);
+    }
+  }
+
+  return mergePresetsWithDefaults({});
 }

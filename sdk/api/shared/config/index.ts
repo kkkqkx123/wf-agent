@@ -106,6 +106,15 @@ export {
   // File Checkpoint
   mergeFileCheckpointConfig,
   toFileCheckpointManagerConfig,
+  // Storage
+  mergeStorageWithDefaults,
+  getStorageEnvironmentDefaults,
+  // Output
+  mergeOutputWithDefaults,
+  getOutputEnvironmentDefaults,
+  // Presets
+  mergePresetsWithDefaults,
+  getPresetsEnvironmentDefaults,
 } from "./processors/index.js";
 
 // MCP Configuration — consolidated under api/shared/config as the single config entry point

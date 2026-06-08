@@ -388,6 +388,12 @@ export {
   mergeTimeoutWithDefaults,
   getTimeoutEnvironmentDefaults,
   mergeFileCheckpointConfig,
+  mergeStorageWithDefaults,
+  getStorageEnvironmentDefaults,
+  mergeOutputWithDefaults,
+  getOutputEnvironmentDefaults,
+  mergePresetsWithDefaults,
+  getPresetsEnvironmentDefaults,
 } from "./shared/config/index.js";
 
 // ============================================================================

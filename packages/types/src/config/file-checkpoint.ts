@@ -11,7 +11,7 @@
  */
 export interface FileCheckpointStorageConfig {
   /** Storage backend type */
-  type: "sqlite" | "json" | "memory";
+  type: "sqlite" | "json";
   /** Database file path (only for sqlite type) */
   dbPath?: string;
 }

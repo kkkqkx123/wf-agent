@@ -10,21 +10,26 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import type { McpSettings } from "@wf-agent/types";
 import { McpSettingsSchema } from "@wf-agent/types";
-import { createDefaultMcpSettings } from "@wf-agent/sdk/services";
+import { createDefaultMcpSettings, loadServerConfigs, mergeServerConfigs } from "@wf-agent/sdk/services";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
 /**
- * Default MCP settings file name
+ * Default MCP settings file name (global)
  */
 export const DEFAULT_MCP_SETTINGS_FILE = "mcp-settings.json";
 
 /**
- * Default project MCP file path
+ * Default project MCP file path (.agent/, traditional convention)
  */
 export const PROJECT_MCP_FILE = ".agent/mcp.json";
+
+/**
+ * Project MCP file path (.wf/, higher priority)
+ */
+export const PROJECT_WF_MCP_FILE = ".wf/mcp.json";
 
 // ---------------------------------------------------------------------------
 // Path helpers
@@ -38,10 +43,28 @@ export function getGlobalMcpSettingsPath(settingsDir: string): string {
 }
 
 /**
- * Get project MCP file path
+ * Get project MCP file path (.agent/)
  */
 export function getProjectMcpPath(projectRoot: string): string {
   return path.join(projectRoot, PROJECT_MCP_FILE);
+}
+
+/**
+ * Get project MCP file path (.wf/, higher priority)
+ */
+export function getProjectWfMcpPath(projectRoot: string): string {
+  return path.join(projectRoot, PROJECT_WF_MCP_FILE);
+}
+
+/**
+ * Get all possible project MCP file paths in priority order.
+ * .wf/ takes priority over .agent/.
+ */
+export function getProjectMcpPaths(projectRoot: string): string[] {
+  return [
+    getProjectWfMcpPath(projectRoot),
+    getProjectMcpPath(projectRoot),
+  ];
 }
 
 // ---------------------------------------------------------------------------
@@ -111,4 +134,55 @@ export async function ensureMcpSettingsFile(filePath: string): Promise<boolean> 
   await fs.mkdir(dir, { recursive: true });
   await writeMcpSettings(filePath, createDefaultMcpSettings());
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// Composite loader
+// ---------------------------------------------------------------------------
+
+/**
+ * Load and merge MCP settings from global and all project-level config files.
+ *
+ * Priority chain (highest first):
+ *   1. .wf/mcp.json (project-specific, highest priority)
+ *   2. .agent/mcp.json (project-specific)
+ *   3. Global config at settingsDir (lowest priority)
+ *
+ * Server configs with the same key are overridden by higher-priority sources.
+ *
+ * @param settingsDir - Global settings directory
+ * @param projectRoot - Absolute path to the project root
+ * @returns Merged McpSettings
+ */
+export async function loadAndMergeMcpSettings(
+  settingsDir: string,
+  projectRoot: string,
+): Promise<McpSettings> {
+  const globalPath = getGlobalMcpSettingsPath(settingsDir);
+  const projectPaths = getProjectMcpPaths(projectRoot);
+
+  // Load from all sources (null if file doesn't exist)
+  const [globalSettings, ...projectSettings] = await Promise.all([
+    loadMcpSettings(globalPath).catch(() => null),
+    ...projectPaths.map((p) => loadMcpSettings(p).catch(() => null)),
+  ]);
+
+  // Start with global as the base
+  const baseSettings = globalSettings ?? createDefaultMcpSettings();
+  const globalConfigs = loadServerConfigs(baseSettings).configs;
+
+  // Merge project layers in priority order (last wins in the chain)
+  // projectPaths[0] = .wf/mcp.json (highest), projectPaths[1] = .agent/mcp.json
+  let mergedConfigs = new Map(globalConfigs);
+
+  for (const settings of projectSettings) {
+    if (settings !== null) {
+      const projectConfigs = loadServerConfigs(settings).configs;
+      mergedConfigs = mergeServerConfigs(mergedConfigs, projectConfigs);
+    }
+  }
+
+  return {
+    mcpServers: Object.fromEntries(mergedConfigs),
+  };
 }

@@ -1,0 +1,35 @@
+# Timeout Configuration Example
+#
+# All values are in milliseconds.
+# Controls waiting periods for various SDK operations.
+#
+# Type: packages/types/src/config/timeout.ts → TimeoutConfig
+# Processor: sdk/api/shared/config/processors/timeout.ts → mergeTimeoutWithDefaults()
+# Loader: apps/config-processor/src/loader-orchestrator.ts → loadTimeoutConfig()
+
+# Workflow-level timeouts
+workflowExecutionCompletion = 30000   # 30s — wait for a workflow run to finish
+workflowExecutionPause = 5000         # 5s  — wait for workflow to pause
+workflowExecutionCancel = 10000       # 10s — wait for cancellation
+workflowExecutionResume = 5000        # 5s  — wait for resume
+
+# Child / nested execution
+childExecutionWait = 30000            # 30s — wait for child execution completion
+cascadeCancel = 30000                 # 30s — cascade cancel all children
+
+# Node-level timeouts
+nodeCompletion = 30000                # 30s — wait for a single node to complete
+nodeFailed = 30000                    # 30s — wait for node failure propagation
+
+# Synchronisation / join timeouts
+syncBranchWait = 60000                # 60s — SYNC node waiting for all branches
+joinCompletion = 60000                # 60s — JOIN node waiting for branches
+
+# Event / polling timeouts
+lifecycleEvent = 5000                 # 5s  — wait for lifecycle event
+pollingWait = 30000                   # 30s — default polling timeout
+pollingInterval = 100                 # 100ms — polling interval
+
+# Default / safety
+default = 30000                       # 30s — fallback when no specific timeout is set
+maxAllowed = 300000                   # 5min — hard ceiling for any timeout value

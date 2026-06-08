@@ -1,0 +1,12 @@
+# Output & Logging Configuration Example
+#
+# Controls how the application outputs logs and data.
+#
+# Type: packages/types/src/config/output.ts → OutputConfig
+# Schema: packages/types/src/config/schemas.ts → OutputConfigSchema
+
+dir = "./outputs"                     # Base output directory
+logFilePattern = "app-{date}.log"     # Log file naming pattern
+enableLogTerminal = true              # Also write logs to terminal
+enableSDKLogs = true                  # Include SDK-internal logs
+sdkLogLevel = "warn"                  # SDK log verbosity: silent | error | warn | info | debug

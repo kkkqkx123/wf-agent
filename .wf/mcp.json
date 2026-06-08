@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "project-db": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["path/to/mcp-server.js"],
+      "disabled": false,
+      "timeout": 60,
+      "alwaysAllow": ["query", "execute"],
+      "disabledTools": ["drop-table", "delete-all"]
+    },
+    "project-search": {
+      "type": "sse",
+      "url": "http://localhost:8080/mcp",
+      "timeout": 30
+    }
+  }
+}

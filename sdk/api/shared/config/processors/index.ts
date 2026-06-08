@@ -94,6 +94,24 @@ export {
   toFileCheckpointManagerConfig,
 } from "./file-checkpoint.js";
 
+// Storage configuration processing function
+export {
+  mergeStorageWithDefaults,
+  getStorageEnvironmentDefaults,
+} from "./storage.js";
+
+// Output configuration processing function
+export {
+  mergeOutputWithDefaults,
+  getOutputEnvironmentDefaults,
+} from "./output.js";
+
+// Presets configuration processing function
+export {
+  mergePresetsWithDefaults,
+  getPresetsEnvironmentDefaults,
+} from "./presets.js";
+
 // MCP connection configuration processing function
 export {
   loadServerConfigs,

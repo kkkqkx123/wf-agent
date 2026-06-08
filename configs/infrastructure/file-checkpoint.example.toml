@@ -1,0 +1,24 @@
+# File Checkpoint Configuration Example
+#
+# Controls workspace file state checkpointing.
+# When enabled, file checkpoints are created alongside execution checkpoints
+# to capture workspace file state for restoration.
+#
+# Type: packages/types/src/config/file-checkpoint.ts → FileCheckpointConfig
+# Processor: sdk/api/shared/config/processors/file-checkpoint.ts → mergeFileCheckpointConfig()
+# Loader: apps/config-processor/src/loader-orchestrator.ts → loadFileCheckpointConfig()
+
+enabled = false                       # Enable workspace file snapshotting
+workspaceRoot = ""                    # Override workspace root (default: process.cwd())
+maxDeltaChainLength = 20              # Max delta chain before forcing a full backup
+
+# Custom ignore patterns (appended to .gitignore and hardcoded ignores)
+customIgnorePatterns = [
+  "node_modules/**",
+  ".git/**",
+  "dist/**",
+]
+
+[storage]
+type = "sqlite"                       # Backend: sqlite | json
+dbPath = ""                           # Override DB path (default: {workspaceRoot}/data/file-checkpoints.db)

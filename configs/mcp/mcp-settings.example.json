@@ -1,0 +1,36 @@
+{
+  "mcpServers": {
+    "example-filesystem": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "./"
+      ],
+      "disabled": false,
+      "timeout": 60,
+      "alwaysAllow": ["read"],
+      "disabledTools": []
+    },
+    "example-database": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["dist/mcp-server-db.js"],
+      "env": {
+        "DB_HOST": "localhost",
+        "DB_PORT": "5432"
+      },
+      "disabled": true,
+      "watchPaths": ["dist/mcp-server-db.js"]
+    },
+    "example-remote": {
+      "type": "sse",
+      "url": "https://api.example.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${MCP_API_TOKEN}"
+      },
+      "timeout": 120
+    }
+  }
+}

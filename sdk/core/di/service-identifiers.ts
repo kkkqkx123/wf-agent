@@ -20,6 +20,7 @@ import type { WorkflowRegistry as WorkflowRegistryType } from "../../workflow/st
 import type { WorkflowRelationshipRegistry as WorkflowRelationshipRegistryType } from "../../workflow/stores/workflow-relationship-registry.js";
 import type { NodeTemplateRegistry as NodeTemplateRegistryType } from "../registry/node-template-registry.js";
 import type { TriggerTemplateRegistry as TriggerTemplateRegistryType } from "../registry/trigger-template-registry.js";
+import type { HookTemplateRegistry as HookTemplateRegistryType } from "../registry/hook-template-registry.js";
 import type { TaskRegistry as TaskRegistryType } from "../../workflow/stores/task/task-registry.js";
 import type { GlobalContext as GlobalContextType } from "../global-context.js";
 import type { WorkflowExecutionBuilder as WorkflowExecutionBuilderType } from "../../workflow/execution/factories/workflow-execution-builder.js";
@@ -127,6 +128,13 @@ export const NodeTemplateRegistry: ServiceIdentifier<NodeTemplateRegistryType> =
  */
 export const TriggerTemplateRegistry: ServiceIdentifier<TriggerTemplateRegistryType> =
   Symbol("TriggerTemplateRegistry");
+
+/**
+ * HookTemplateRegistry - Hook Template Registry
+ * Manages the registration and querying of hook templates
+ */
+export const HookTemplateRegistry: ServiceIdentifier<HookTemplateRegistryType> =
+  Symbol("HookTemplateRegistry");
 
 /**
  * TaskRegistry - Task Registry

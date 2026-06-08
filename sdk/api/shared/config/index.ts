@@ -18,6 +18,7 @@ export {
   EdgeConfigFile,
   WorkflowConfigFile,
   NodeTemplateConfigFile,
+  HookTemplateConfigFile,
   TriggerTemplateConfigFile,
   ScriptConfigFile,
   LLMProfileConfigFile,
@@ -29,6 +30,7 @@ export {
   ParsedConfig,
   ParsedWorkflowConfig,
   ParsedNodeTemplateConfig,
+  ParsedHookTemplateConfig,
   ParsedTriggerTemplateConfig,
   ParsedScriptConfig,
   ParsedLLMProfileConfig,
@@ -77,6 +79,11 @@ export {
   validateScript,
   transformScript,
   exportScript,
+  // HookTemplate
+  parseHookTemplate,
+  validateHookTemplate,
+  transformHookTemplate,
+  exportHookTemplate,
   // TriggerTemplate
   parseTriggerTemplate,
   validateTriggerTemplate,

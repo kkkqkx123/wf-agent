@@ -161,6 +161,7 @@ if (configError.context) {
     | "script"
     | "schema"
     | "llm"
+    | "hook_template"
     | undefined
   >(configError.context["configType"] as | "workflow"
     | "node"
@@ -171,6 +172,7 @@ if (configError.context) {
     | "script"
     | "schema"
     | "llm"
+    | "hook_template"
     | undefined);
 }
 

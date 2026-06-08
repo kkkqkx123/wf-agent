@@ -11,6 +11,9 @@ export * from "./edge-schema.js";
 export * from "./node-template.js";
 export * from "./node-template-schema.js";
 
+// Export Hook Template Types
+export * from "./hook-template.js";
+
 // Exporting workflow definitions
 export * from "./definition.js";
 

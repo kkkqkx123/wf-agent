@@ -175,3 +175,24 @@ export class NodeTemplateNotFoundError extends NotFoundError {
     return "error";
   }
 }
+
+/**
+ * Hook template not found error type
+ *
+ * Specialized for hook template not found scenarios
+ * Inherited from NotFoundError to maintain backward compatibility
+ */
+export class HookTemplateNotFoundError extends NotFoundError {
+  constructor(
+    message: string,
+    templateName: string,
+    context?: Record<string, unknown>,
+    severity?: ErrorSeverity,
+  ) {
+    super(message, "HookTemplate", templateName, context, severity);
+  }
+
+  protected override getDefaultSeverity(): ErrorSeverity {
+    return "error";
+  }
+}

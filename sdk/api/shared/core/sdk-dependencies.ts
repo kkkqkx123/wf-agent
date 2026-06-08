@@ -20,6 +20,7 @@ import type { LLMExecutor } from "../../../core/executors/llm-executor.js";
 import type { ScriptRegistry } from "../../../core/registry/script-registry.js";
 import type { NodeTemplateRegistry } from "../../../core/registry/node-template-registry.js";
 import type { TriggerTemplateRegistry } from "../../../core/registry/trigger-template-registry.js";
+import type { HookTemplateRegistry } from "../../../core/registry/hook-template-registry.js";
 import type { WorkflowGraphRegistry } from "../../../workflow/stores/workflow-graph-registry.js";
 import type { SkillRegistry } from "../../../core/registry/skill-registry.js";
 import type { AgentLoopRegistry } from "../../../agent/stores/agent-loop-registry.js";
@@ -108,6 +109,13 @@ export class APIDependencyManager {
    */
   getTriggerTemplateRegistry(): TriggerTemplateRegistry {
     return this.globalContext.triggerTemplateRegistry;
+  }
+
+  /**
+   * Obtain hook template registry
+   */
+  getHookTemplateRegistry(): HookTemplateRegistry {
+    return this.globalContext.hookTemplateRegistry;
   }
 
   /**

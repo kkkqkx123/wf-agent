@@ -21,7 +21,8 @@ export interface ConfigurationValidationErrorOptions {
     | "tool"
     | "script"
     | "schema"
-    | "llm";
+    | "llm"
+    | "hook_template";
   /** field name */
   field?: string;
   /** field value */

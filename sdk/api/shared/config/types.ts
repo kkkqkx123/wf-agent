@@ -18,6 +18,7 @@
 import type { Edge } from "@wf-agent/types";
 import type { WorkflowTemplate } from "@wf-agent/types";
 import type { NodeTemplate } from "@wf-agent/types";
+import type { HookTemplate } from "@wf-agent/types";
 import type { TriggerTemplate } from "@wf-agent/types";
 import type { Script, ScriptExecutorConfig } from "@wf-agent/types";
 import type { LLMProfile } from "@wf-agent/types";
@@ -63,6 +64,13 @@ export type NodeTemplateConfigFile = NodeTemplate;
  * Description: Directly reuse the TriggerTemplate type; it is completely identical.
  */
 export type TriggerTemplateConfigFile = TriggerTemplate;
+
+/**
+ * Hook Template Configuration File Format
+ *
+ * Description: Directly reuse the HookTemplate type; it is completely identical.
+ */
+export type HookTemplateConfigFile = HookTemplate;
 
 /**
  * Script Configuration File Format
@@ -165,7 +173,8 @@ export type ConfigType =
   | "llm_profile" /** LLM Profile Placement */
   | "prompt_template" /** Cue word template configuration */
   | "agent_loop" /** Agent Loop Configuration */
-  | "tool"; /** Tool Configuration */
+  | "tool" /** Tool Configuration */
+  | "hook_template"; /** Hook Template Configuration */
 
 /**
  * Common configuration file types
@@ -174,6 +183,7 @@ export type ConfigFile =
   | WorkflowConfigFile
   | NodeTemplateConfigFile
   | TriggerTemplateConfigFile
+  | HookTemplateConfigFile
   | ScriptConfigFile
   | LLMProfileConfigFile
   | PromptTemplateConfigFile
@@ -188,6 +198,7 @@ type ConfigTypeToFileMap = {
   workflow: WorkflowConfigFile;
   node_template: NodeTemplateConfigFile;
   trigger_template: TriggerTemplateConfigFile;
+  hook_template: HookTemplateConfigFile;
   script: ScriptConfigFile;
   executor: ExecutorConfigFile;
   llm_profile: LLMProfileConfigFile;
@@ -214,6 +225,7 @@ export interface ParsedConfig<T extends ConfigType = ConfigType> {
 export type ParsedWorkflowConfig = ParsedConfig<"workflow">;
 export type ParsedNodeTemplateConfig = ParsedConfig<"node_template">;
 export type ParsedTriggerTemplateConfig = ParsedConfig<"trigger_template">;
+export type ParsedHookTemplateConfig = ParsedConfig<"hook_template">;
 export type ParsedScriptConfig = ParsedConfig<"script">;
 export type ParsedLLMProfileConfig = ParsedConfig<"llm_profile">;
 export type ParsedPromptTemplateConfig = ParsedConfig<"prompt_template">;

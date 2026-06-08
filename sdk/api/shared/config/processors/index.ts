@@ -32,6 +32,14 @@ export {
   parseTriggerTemplate,
 } from "./trigger-template.js";
 
+// HookTemplate processing function
+export {
+  validateHookTemplate,
+  transformHookTemplate,
+  exportHookTemplate,
+  parseHookTemplate,
+} from "./hook-template.js";
+
 // LLM Profile processing function
 export { validateLLMProfile, transformLLMProfile, exportLLMProfile, parseLLMProfile } from "./llm-profile.js";
 

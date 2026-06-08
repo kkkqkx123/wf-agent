@@ -29,6 +29,7 @@ import type { ScriptRegistry } from "./registry/script-registry.js";
 import type { EventRegistry } from "./registry/event-registry.js";
 import type { NodeTemplateRegistry } from "./registry/node-template-registry.js";
 import type { TriggerTemplateRegistry } from "./registry/trigger-template-registry.js";
+import type { HookTemplateRegistry } from "./registry/hook-template-registry.js";
 import type { LLMExecutor } from "./executors/llm-executor.js";
 import type { ToolCallExecutor } from "./executors/tool-call-executor.js";
 import type { WorkflowExecutor } from "../workflow/execution/executors/workflow-executor.js";
@@ -50,6 +51,7 @@ export class GlobalContext {
   private _eventRegistry?: EventRegistry;
   private _nodeTemplateRegistry?: NodeTemplateRegistry;
   private _triggerTemplateRegistry?: TriggerTemplateRegistry;
+  private _hookTemplateRegistry?: HookTemplateRegistry;
   private _llmExecutor?: LLMExecutor;
   private _toolCallExecutor?: ToolCallExecutor;
   private _workflowExecutor?: WorkflowExecutor;
@@ -104,6 +106,13 @@ export class GlobalContext {
       this._triggerTemplateRegistry = this.container.get(Identifiers.TriggerTemplateRegistry as ServiceIdentifier<TriggerTemplateRegistry>);
     }
     return this._triggerTemplateRegistry;
+  }
+
+  get hookTemplateRegistry(): HookTemplateRegistry {
+    if (!this._hookTemplateRegistry) {
+      this._hookTemplateRegistry = this.container.get(Identifiers.HookTemplateRegistry as ServiceIdentifier<HookTemplateRegistry>);
+    }
+    return this._hookTemplateRegistry;
   }
   
   // Lazy getters for executors

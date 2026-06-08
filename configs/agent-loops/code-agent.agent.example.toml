@@ -1,0 +1,73 @@
+# Agent Loop Configuration Example
+#
+# Defines an Agent Loop — an autonomous LLM-driven loop with tool access,
+# hooks, and checkpointing. Referenced by workflows or run standalone.
+#
+# Type: packages/types/src/agent/definition.ts → AgentLoopDefinition
+
+id = "code-assistant"
+name = "Code Assistant Agent"
+description = "Interactive coding assistant with file read/write and shell access"
+version = "1.0.0"
+profileId = "gpt-4o"
+systemPromptTemplateId = "code-review-system"
+maxIterations = 50
+stream = true
+
+# --- Tool Configuration ---
+[availableTools]
+toolIds = ["readFile", "writeFile", "editFile", "bash", "glob", "grep"]
+
+# --- Checkpoint Configuration ---
+[checkpoint]
+createOnEnd = true
+createOnError = true
+createOnPause = true
+maxCheckpoints = 20
+
+# --- Hooks — lifecycle callbacks ---
+[[hooks]]
+type = "onIterationStart"
+
+[hooks.config]
+condition = "iteration % 10 === 0"
+
+[hooks.config.action]
+type = "checkpoint"
+description = "Periodic checkpoint at iteration {{iteration}}"
+
+[[hooks]]
+type = "onTokenUsage"
+
+[hooks.config]
+condition = "tokenUsage.total > 100000"
+action = { type = "log", message = "High token usage: {{tokenUsage.total}}" }
+
+---
+
+id = "batch-analyzer"
+name = "Batch Code Analyzer"
+description = "Non-interactive batch analysis agent that processes multiple files"
+version = "1.0.0"
+profileId = "gpt-4o"
+systemPrompt = """
+You are a batch code analysis agent.
+Analyze the provided files and produce a structured report.
+Do not ask questions — process the input and output the result.
+"""
+maxIterations = 10
+stream = false
+
+[availableTools]
+toolIds = ["readFile", "grep", "bash"]
+
+[checkpoint]
+createOnEnd = true
+createOnError = true
+
+[[hooks]]
+type = "onError"
+
+[hooks.config]
+condition = "errorCount > 3"
+action = { type = "stop" }

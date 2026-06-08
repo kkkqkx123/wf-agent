@@ -1,0 +1,95 @@
+# Script Configuration Example
+#
+# Defines reusable scripts that can be invoked from CUSTOM nodes or Agent Loop.
+# Scripts can define inline code, file paths, or command templates.
+#
+# Type: packages/types/src/script/script.ts → Script
+
+id = "git-diff-script"
+name = "Git Diff"
+description = "Get the git diff for a given branch or commit range"
+content = """
+#!/bin/bash
+set -euo pipefail
+BRANCH="${1:-HEAD~1}"
+git fetch origin
+git diff "origin/$BRANCH" --stat
+git diff "origin/$BRANCH"
+"""
+timeout = 60000
+retries = 2
+retryDelay = 1000
+language = "shell"
+
+[[arguments]]
+name = "branch"
+type = "string"
+required = false
+defaultValue = "HEAD~1"
+description = "Branch or commit range"
+
+[metadata]
+author = "platform-team"
+tags = ["git", "diff", "utility"]
+
+---
+
+id = "json-transform"
+name = "JSON Transform"
+description = "Transform JSON data using jq expressions"
+language = "shell"
+template = "echo '{{input}}' | jq '{{expression}}'"
+timeout = 10000
+
+[[arguments]]
+name = "input"
+type = "string"
+required = true
+description = "JSON input string"
+
+[[arguments]]
+name = "expression"
+type = "string"
+required = true
+description = "jq filter expression"
+
+[metadata]
+tags = ["json", "transform", "utility"]
+
+---
+
+id = "python-analyze"
+name = "Python Code Analyzer"
+description = "Analyze Python source code for complexity metrics"
+language = "python"
+content = """
+import ast, sys, os
+from pathlib import Path
+
+def analyze_file(filepath):
+    with open(filepath) as f:
+        tree = ast.parse(f.read())
+    functions = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]
+    classes = [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]
+    return {
+        "file": filepath,
+        "functions": len(functions),
+        "classes": len(classes),
+        "lines": len(open(filepath).readlines()),
+    }
+
+if __name__ == "__main__":
+    import json
+    result = analyze_file(sys.argv[1])
+    print(json.dumps(result))
+"""
+timeout = 30000
+
+[[arguments]]
+name = "filepath"
+type = "string"
+required = true
+description = "Path to Python file to analyze"
+
+[metadata]
+tags = ["python", "analysis", "quality"]

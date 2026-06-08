@@ -1,0 +1,53 @@
+# Trigger Template Configuration Example
+#
+# Predefined trigger configurations that can be referenced by name in a workflow.
+# Enables reuse of trigger logic across multiple workflows.
+#
+# Type: packages/types/src/trigger/template.ts → TriggerTemplate
+
+name = "pr-opened"
+description = "Triggered when a pull request is opened"
+enabled = true
+maxTriggers = 0
+createCheckpoint = true
+checkpointDescriptionTemplate = "Checkpoint before handling PR #{{prNumber}}"
+createdAt = "2026-06-01T00:00:00Z"
+updatedAt = "2026-06-01T00:00:00Z"
+
+[condition]
+type = "event"
+source = "github"
+event = "pull_request.opened"
+
+[condition.filters]
+"action" = "opened"
+"repository.owner" = "my-org"
+
+[action]
+type = "start_workflow"
+targetWorkflowId = "wf-code-review"
+
+[action.inputMapping]
+prNumber = "$event.pull_request.number"
+repoPath = "$event.repository.full_name"
+
+---
+
+name = "schedule-daily"
+description = "Daily scheduled trigger at midnight"
+enabled = true
+maxTriggers = 1
+createdAt = "2026-06-01T00:00:00Z"
+updatedAt = "2026-06-01T00:00:00Z"
+
+[condition]
+type = "schedule"
+cron = "0 0 * * *"
+timezone = "UTC"
+
+[action]
+type = "start_workflow"
+targetWorkflowId = "wf-daily-report"
+
+[action.inputMapping]
+reportDate = "$trigger.time"

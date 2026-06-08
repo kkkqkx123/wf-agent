@@ -1,0 +1,21 @@
+# Gemini 2.5 Pro — Capable
+#
+# Google's most capable model. Suitable for complex reasoning,
+# long-context tasks, and code generation.
+
+id = "gemini-2.5-pro"
+name = "Gemini 2.5 Pro"
+provider = "GEMINI_NATIVE"
+model = "gemini-2.5-pro"
+apiKey = "${GEMINI_API_KEY}"
+timeout = 120000
+maxRetries = 3
+retryDelay = 2000
+
+[parameters]
+temperature = 0.4
+maxTokens = 16384
+topP = 0.95
+
+[metadata]
+tags = ["gemini", "gemini-pro", "capable", "production"]

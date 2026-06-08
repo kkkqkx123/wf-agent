@@ -1,0 +1,22 @@
+# Gemini 2.5 Flash — via OpenAI-compatible endpoint
+#
+# Access Gemini through Google's OpenAI-compatible endpoint.
+# Uses the same model but different base URL and auth scheme.
+# Useful for migrating OpenAI-centric code to Gemini without SDK changes.
+
+id = "gemini-2.5-flash-openai"
+name = "Gemini 2.5 Flash (OpenAI Compatible)"
+provider = "GEMINI_OPENAI"
+model = "gemini-2.5-flash"
+apiKey = "${GEMINI_API_KEY}"
+baseUrl = "https://generativelanguage.googleapis.com/v1beta/openai"
+timeout = 30000
+maxRetries = 2
+retryDelay = 1000
+
+[parameters]
+temperature = 0.5
+maxTokens = 8192
+
+[metadata]
+tags = ["gemini", "gemini-flash", "openai-compatible", "fast"]

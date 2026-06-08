@@ -1,0 +1,24 @@
+# GPT-4o-mini — Fast & Cheap
+#
+# Use for high-volume, low-complexity tasks: classification, extraction,
+# simple Q&A, or as a cost-effective fallback model.
+
+id = "gpt-4o-mini"
+name = "GPT-4o-mini Fast"
+provider = "OPENAI_CHAT"
+model = "gpt-4o-mini"
+apiKey = "${OPENAI_API_KEY}"
+baseUrl = "https://api.openai.com/v1"
+timeout = 30000
+maxRetries = 2
+retryDelay = 500
+
+[parameters]
+temperature = 0.3
+maxTokens = 2048
+topP = 0.9
+frequencyPenalty = 0.0
+presencePenalty = 0.0
+
+[metadata]
+tags = ["openai", "gpt-4o-mini", "fast", "cheap", "high-volume"]

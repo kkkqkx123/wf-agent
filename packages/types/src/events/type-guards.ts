@@ -35,7 +35,7 @@ import type {
   AgentToolExecutionCompletedEvent,
   AgentIterationStartedEvent,
   AgentIterationCompletedEvent,
-  AgentHookTriggeredCoreEvent,
+  AgentHookTriggeredEvent,
 } from "./agent-events.js";
 import type {
   WorkflowExecutionStartedEvent,
@@ -176,7 +176,7 @@ export function isWorkflowExecutionEvent(
 /**
  * Type guard for agent hook triggered event
  */
-export function isAgentHookTriggeredEvent(event: Event): event is AgentHookTriggeredCoreEvent {
+export function isAgentHookTriggeredEvent(event: Event): event is AgentHookTriggeredEvent {
   return event.type === 'AGENT_HOOK_TRIGGERED';
 }
 
@@ -197,7 +197,7 @@ export function isAgentEvent(
   | AgentToolExecutionCompletedEvent
   | AgentIterationStartedEvent
   | AgentIterationCompletedEvent
-  | AgentHookTriggeredCoreEvent {
+  | AgentHookTriggeredEvent {
   return (
     event.type === 'AGENT_STARTED' ||
     event.type === 'AGENT_COMPLETED' ||

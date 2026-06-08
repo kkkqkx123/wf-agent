@@ -15,7 +15,7 @@
  */
 
 import type { Trigger, TriggerStatus, WorkflowTrigger, TriggerRuntimeState } from "@wf-agent/types";
-import type { BaseEvent, NodeCustomEvent, AgentHookTriggeredCoreEvent } from "@wf-agent/types";
+import type { BaseEvent, NodeCustomEvent, AgentHookTriggeredEvent } from "@wf-agent/types";
 import type { ID } from "@wf-agent/types";
 import { getTriggerHandler } from "../handlers/trigger-handlers/index.js";
 import { ExecutionError, RuntimeValidationError, DependencyInjectionError } from "@wf-agent/types";
@@ -243,7 +243,7 @@ export class TriggerCoordinator {
     // Build event context for agent hook triggered events
     let eventContext: TriggerEventContext | undefined;
     if (event.type === "AGENT_HOOK_TRIGGERED") {
-      const agentEvent = event as AgentHookTriggeredCoreEvent;
+      const agentEvent = event as AgentHookTriggeredEvent;
       eventContext = {
         agentLoopEntityId: agentEvent.agentLoopEntityId,
       };

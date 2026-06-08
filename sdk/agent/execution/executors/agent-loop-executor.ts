@@ -41,7 +41,6 @@ import { LLMExecutionCoordinator as CoreLLMExecutionCoordinator } from "../../..
 import { ToolExecutionCoordinator } from "../coordinators/tool-execution-coordinator.js";
 import { prepareToolSchemas } from "../../../core/utils/tools/tool-schema-helper.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
-import { buildAgentHookTriggeredCoreEvent } from "../../../core/utils/event/builders/agent-events.js";
 
 const logger = createContextualLogger({ component: "AgentLoopExecutor" });
 
@@ -236,21 +235,14 @@ export class AgentLoopExecutor {
 
   /**
    * Unified event emission method
-   * Prioritizes EventRegistry, otherwise uses emitEvent callback
+   * Emits to EventRegistry if available, otherwise uses emitEvent callback.
+   * The event is already in core format (type: "AGENT_HOOK_TRIGGERED")
+   * produced by buildAgentHookTriggeredEvent.
    */
   private async emitAgentEvent(event: AgentHookTriggeredEvent): Promise<void> {
     if (this.eventManager) {
       try {
-        const coreEvent = buildAgentHookTriggeredCoreEvent({
-          agentLoopId: event.agentLoopId,
-          agentLoopEntityId: event.agentLoopEntityId,
-          hookType: event.hookType,
-          eventName: event.eventName,
-          eventData: event.eventData,
-          iteration: event.iteration,
-          metadata: event.metadata,
-        });
-        await emit(this.eventManager, coreEvent);
+        await emit(this.eventManager, event);
       } catch (error) {
         logger.debug("Failed to emit agent event", { eventType: event.type, error });
       }

@@ -164,14 +164,18 @@ export interface AgentIterationCompletedEvent extends BaseEvent {
 }
 
 /**
- * Agent Hook Triggered Event (Core Event System)
+ * Agent Hook Triggered Event (Canonical definition)
  *
  * Emitted when an agent hook is triggered during execution.
- * This is the core event system version that extends BaseEvent.
+ * This is the single canonical type used by both EventRegistry (persistence)
+ * and streaming consumers.
  *
- * Note: For streaming events, use AgentHookTriggeredEvent from agent-execution/event.ts
+ * For streaming, the AgentHookTriggeredStreamEvent variant (type: "hook_triggered")
+ * is used to maintain the lower_snake_case convention of the AgentStreamEvent system.
+ *
+ * @see AgentHookTriggeredStreamEvent - Streaming variant in agent-execution/event.ts
  */
-export interface AgentHookTriggeredCoreEvent extends BaseEvent {
+export interface AgentHookTriggeredEvent extends BaseEvent {
   type: "AGENT_HOOK_TRIGGERED";
   /** Agent Loop ID */
   agentLoopId: ID;
@@ -185,6 +189,13 @@ export interface AgentHookTriggeredCoreEvent extends BaseEvent {
   eventData: Record<string, unknown>;
   /** Current iteration number */
   iteration: number;
+  /** Parent execution context (unified hierarchy) */
+  parentContext?: {
+    parentType: "WORKFLOW" | "AGENT_LOOP";
+    parentId: string;
+    nodeId?: string;
+    delegationPurpose?: string;
+  };
   /** Additional metadata */
   metadata?: Metadata;
 }
@@ -279,7 +290,7 @@ export type AgentEvent =
   | AgentToolExecutionCompletedEvent
   | AgentIterationStartedEvent
   | AgentIterationCompletedEvent
-  | AgentHookTriggeredCoreEvent
+  | AgentHookTriggeredEvent
   | AgentPausedEvent
   | AgentCancelledEvent
   | AgentResumedEvent

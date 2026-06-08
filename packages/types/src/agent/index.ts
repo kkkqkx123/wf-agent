@@ -100,7 +100,7 @@ export type {
   AgentErrorEvent,
   SteeringInjectedEvent,
   FollowupQueuedEvent,
-  AgentHookTriggeredEvent,
+  AgentHookTriggeredStreamEvent,
 } from "../agent-execution/event.js";
 
 // Hook Type (runtime)

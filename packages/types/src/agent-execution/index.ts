@@ -41,7 +41,7 @@
  *
  * ### Events
  * - `AgentStreamEvent`: Streaming events during execution
- * - `AgentHookTriggeredEvent`: Hook-triggered events
+ * - `AgentHookTriggeredStreamEvent`: Hook-triggered streaming events
  *
  * @see AgentLoopDefinition - Static definition in agent/ package
  */
@@ -87,7 +87,7 @@ export type {
   AgentErrorEvent,
   SteeringInjectedEvent,
   FollowupQueuedEvent,
-  AgentHookTriggeredEvent,
+  AgentHookTriggeredStreamEvent,
 } from "./event.js";
 
 // Execution Definition

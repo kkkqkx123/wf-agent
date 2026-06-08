@@ -76,7 +76,7 @@ export async function emitAgentHookEvent(
     event,
     emitEvent,
     `Failed to emit agent hook event "${eventName}" for agent loop "${entity.id}"`,
-    { operation: "emit", eventType: "HOOK_TRIGGERED", nodeId: entity.nodeId },
+    { operation: "emit", eventType: "AGENT_HOOK_TRIGGERED", nodeId: entity.nodeId },
     { eventName, hookType, agentLoopId: entity.id },
   );
 }

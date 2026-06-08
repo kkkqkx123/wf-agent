@@ -138,7 +138,7 @@ import type {
   AgentToolExecutionCompletedEvent,
   AgentIterationStartedEvent,
   AgentIterationCompletedEvent,
-  AgentHookTriggeredCoreEvent,
+  AgentHookTriggeredEvent,
   AgentPausedEvent,
   AgentCancelledEvent,
   AgentResumedEvent,
@@ -222,7 +222,7 @@ export type Event =
   | AgentToolExecutionCompletedEvent
   | AgentIterationStartedEvent
   | AgentIterationCompletedEvent
-  | AgentHookTriggeredCoreEvent
+  | AgentHookTriggeredEvent
   | AgentPausedEvent
   | AgentCancelledEvent
   | AgentResumedEvent

@@ -278,11 +278,14 @@ export interface FollowupQueuedEvent {
 }
 
 /**
- * Agent Hook Triggered Event
+ * Agent Hook Triggered Stream Event
  *
- * Emitted when an agent hook is triggered during execution.
+ * Streaming variant of AgentHookTriggeredEvent for the AgentStreamEvent system.
+ * Uses lowercase "hook_triggered" type to maintain the AgentStreamEvent naming convention.
+ *
+ * For the canonical (EventRegistry) version, see AgentHookTriggeredEvent in events/agent-events.ts.
  */
-export interface AgentHookTriggeredEvent {
+export interface AgentHookTriggeredStreamEvent {
   /** Unique event identifier */
   id: ID;
   type: "hook_triggered";
@@ -377,6 +380,6 @@ export type AgentStreamEvent =
   | AgentErrorEvent
   | SteeringInjectedEvent
   | FollowupQueuedEvent
-  | AgentHookTriggeredEvent
+  | AgentHookTriggeredStreamEvent
   | AgentPausedEvent
   | AgentCancelledEvent;

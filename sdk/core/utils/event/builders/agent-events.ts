@@ -20,7 +20,6 @@ import type {
   AgentToolExecutionCompletedEvent,
   AgentIterationStartedEvent,
   AgentIterationCompletedEvent,
-  AgentHookTriggeredCoreEvent,
   AgentHookTriggeredEvent,
   AgentHookType,
   Metadata,
@@ -131,17 +130,13 @@ export const buildAgentIterationCompletedEvent = createBuilder<AgentIterationCom
 // =============================================================================
 
 /**
- * Build AGENT_HOOK_TRIGGERED core event (for EventRegistry)
- * Used to convert streaming events to core events
- */
-export const buildAgentHookTriggeredCoreEvent =
-  createBuilder<AgentHookTriggeredCoreEvent>("AGENT_HOOK_TRIGGERED");
-
-/**
- * Build agent hook triggered event
+ * Build AGENT_HOOK_TRIGGERED event
  *
- * Manually constructed because "hook_triggered" is a custom event type
- * not part of the standard EventType union.
+ * Manually constructed to support parentContext which is not representable
+ * via createBuilder (nested sub-object with optional fields).
+ *
+ * This is the single canonical builder for hook triggered events used by both
+ * EventRegistry (persistence) and streaming consumers.
  */
 export const buildAgentHookTriggeredEvent = (params: {
   agentLoopId: string;
@@ -159,7 +154,7 @@ export const buildAgentHookTriggeredEvent = (params: {
   metadata?: Metadata;
 }): AgentHookTriggeredEvent => ({
   id: generateId(),
-  type: "hook_triggered",
+  type: "AGENT_HOOK_TRIGGERED",
   timestamp: now(),
   agentLoopId: params.agentLoopId,
   agentLoopEntityId: params.agentLoopEntityId,

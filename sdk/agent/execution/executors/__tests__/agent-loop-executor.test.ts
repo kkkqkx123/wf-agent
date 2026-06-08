@@ -28,7 +28,6 @@ const {
   MockAgentExecutionCoordinator,
   mockPrepareToolSchemas,
   mockEmit,
-  mockBuildAgentHookTriggeredCoreEvent,
 } = vi.hoisted(() => {
   const _mockCoordinatorExecute = vi.fn();
   const _mockCoordinatorExecuteStream = vi.fn();
@@ -42,7 +41,6 @@ const {
 
   const _mockPrepareToolSchemas = vi.fn();
   const _mockEmit = vi.fn();
-  const _mockBuildAgentHookTriggeredCoreEvent = vi.fn();
 
   return {
     mockCoordinatorExecute: _mockCoordinatorExecute,
@@ -50,7 +48,6 @@ const {
     MockAgentExecutionCoordinator: _MockAgentExecutionCoordinator,
     mockPrepareToolSchemas: _mockPrepareToolSchemas,
     mockEmit: _mockEmit,
-    mockBuildAgentHookTriggeredCoreEvent: _mockBuildAgentHookTriggeredCoreEvent,
   };
 });
 
@@ -84,10 +81,6 @@ vi.mock("../../../../core/utils/tools/tool-schema-helper.js", () => ({
 
 vi.mock("../../../../core/utils/event/emit-event.js", () => ({
   emit: mockEmit,
-}));
-
-vi.mock("../../../../core/utils/event/builders/agent-events.js", () => ({
-  buildAgentHookTriggeredCoreEvent: mockBuildAgentHookTriggeredCoreEvent,
 }));
 
 // =============================================================================

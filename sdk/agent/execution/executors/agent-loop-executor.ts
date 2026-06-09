@@ -206,6 +206,7 @@ export class AgentLoopExecutor {
       toolCallExecutor: this.toolCallExecutor,
       eventManager: this.eventManager,
       toolApprovalHandler: this.toolApprovalHandler,
+      emitEvent: this.emitEvent,
     });
 
     // Create CoreLLMExecutionCoordinator for unified LLM execution with transformContext support

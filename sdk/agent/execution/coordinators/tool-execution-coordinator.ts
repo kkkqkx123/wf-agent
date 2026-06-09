@@ -43,6 +43,8 @@ export interface ToolExecutionCoordinatorDependencies {
   eventManager?: EventRegistry;
   /** Tool Approval Handler (optional) */
   toolApprovalHandler?: ToolApprovalHandler;
+  /** Custom event emitter for agent hooks (optional) */
+  emitEvent?: (event: AgentHookTriggeredEvent) => Promise<void>;
 }
 
 /**
@@ -55,11 +57,13 @@ export class ToolExecutionCoordinator {
   private readonly approvalCoordinator: ToolApprovalCoordinator;
   private readonly eventManager?: EventRegistry;
   private readonly toolApprovalHandler?: ToolApprovalHandler;
+  private readonly emitEvent?: (event: AgentHookTriggeredEvent) => Promise<void>;
 
   constructor(deps: ToolExecutionCoordinatorDependencies) {
     this.toolCallExecutor = deps.toolCallExecutor;
     this.eventManager = deps.eventManager;
     this.toolApprovalHandler = deps.toolApprovalHandler;
+    this.emitEvent = deps.emitEvent;
 
     // Initialize approval coordinator
     this.approvalCoordinator = new ToolApprovalCoordinator(deps.eventManager);
@@ -478,11 +482,15 @@ export class ToolExecutionCoordinator {
   }
 
   /**
-   * Placeholder method for emitAgentEvent - will be injected from parent
+   * Emit agent hook event
+   * Uses the injected emitEvent callback if available, otherwise falls through.
    */
   private async emitAgentEvent(event: AgentHookTriggeredEvent): Promise<void> {
-    // This will be overridden by the parent coordinator
-    logger.debug("emitAgentEvent called (placeholder)", { eventType: event?.type });
+    if (this.emitEvent) {
+      await this.emitEvent(event);
+    } else {
+      logger.debug("emitAgentEvent called (no emitter configured)", { eventType: event?.type });
+    }
   }
 
   /**

@@ -10,7 +10,7 @@ import { ValidationError, ConfigurationValidationError } from "@wf-agent/types";
 import { ok, err } from "@wf-agent/common-utils";
 import type { LLMProfile } from "@wf-agent/types";
 import { LLMProfileSchema } from "@wf-agent/types";
-import { substituteParameters } from "../utils/config-utils.js";
+import { substituteParameters } from "../config-utils.js";
 import { ConfigFormat } from "../types.js";
 import { parseToml } from "../parsers/toml-parser.js";
 import { parseJson } from "../parsers/json-parser.js";
@@ -65,14 +65,8 @@ export function transformLLMProfile(
   config: ParsedConfig<"llm_profile">,
   parameters?: Record<string, unknown>,
 ): LLMProfile {
-  let profile = config.config;
-
-  // If parameters are provided, perform parameter substitution
-  if (parameters && Object.keys(parameters).length > 0) {
-    profile = substituteParameters(profile, parameters);
-  }
-
-  return profile;
+  // substituteParameters is idempotent for empty parameters
+  return substituteParameters(config.config, parameters);
 }
 
 /**

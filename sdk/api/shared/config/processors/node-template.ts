@@ -10,7 +10,7 @@ import { ValidationError } from "@wf-agent/types";
 import { validateNodeTemplateConfig } from "../../../../workflow/validation/node-template-validation.js";
 import { ok } from "@wf-agent/common-utils";
 import type { NodeTemplate } from "@wf-agent/types";
-import { substituteParameters } from "../utils/config-utils.js";
+import { substituteParameters } from "../config-utils.js";
 import { ConfigFormat } from "../types.js";
 import { parseToml } from "../parsers/toml-parser.js";
 import { parseJson } from "../parsers/json-parser.js";
@@ -56,14 +56,8 @@ export function transformNodeTemplate(
   config: ParsedConfig<"node_template">,
   parameters?: Record<string, unknown>,
 ): NodeTemplate {
-  let template = config.config;
-
-  // If parameters are provided, perform parameter substitution
-  if (parameters && Object.keys(parameters).length > 0) {
-    template = substituteParameters(template, parameters);
-  }
-
-  return template;
+  // substituteParameters is idempotent for empty parameters
+  return substituteParameters(config.config, parameters);
 }
 
 /**

@@ -10,7 +10,7 @@ import { ValidationError } from "@wf-agent/types";
 import { CodeConfigValidator } from "../../../../workflow/validation/script-config-validator.js";
 import { ok, err } from "@wf-agent/common-utils";
 import type { Script } from "@wf-agent/types";
-import { substituteParameters } from "../utils/config-utils.js";
+import { substituteParameters } from "../config-utils.js";
 import { ConfigFormat } from "../types.js";
 import { parseToml } from "../parsers/toml-parser.js";
 import { parseJson } from "../parsers/json-parser.js";
@@ -60,14 +60,8 @@ export function transformScript(
   config: ParsedConfig<"script">,
   parameters?: Record<string, unknown>,
 ): Script {
-  let script = config.config;
-
-  // If parameters are provided, perform parameter substitution
-  if (parameters && Object.keys(parameters).length > 0) {
-    script = substituteParameters(script, parameters);
-  }
-
-  return script;
+  // substituteParameters is idempotent for empty parameters
+  return substituteParameters(config.config, parameters);
 }
 
 /**

@@ -8,7 +8,6 @@ import type {
   BaseStorageAdapter,
   StorageLifecycle,
   AgentLoopStorageAdapter,
-  AgentLoopCheckpointStorageAdapter,
   CheckpointStorageAdapter,
   TaskStorageAdapter,
   WorkflowStorageAdapter,
@@ -18,18 +17,14 @@ import type { StorageMetrics } from '../../src/types/metrics.js';
 import type {
   AgentEntityMetadata,
   AgentEntityListOptions,
-  AgentCheckpointMetadata,
-  AgentCheckpointListOptions,
   CheckpointStorageMetadata,
   CheckpointStorageListOptions,
   TaskStorageMetadata,
   TaskListOptions,
   TaskStats,
-  TaskStatsOptions,
   WorkflowStorageMetadata,
   WorkflowListOptions,
   WorkflowVersionInfo,
-  WorkflowVersionListOptions,
   WorkflowExecutionStorageMetadata,
   WorkflowExecutionListOptions,
   AgentLoopStatus,
@@ -93,28 +88,18 @@ expectType<Promise<void>>(agentLoopAdapter.updateAgentLoopStatus('agent-1', 'COM
 expectType<Promise<string[]>>(agentLoopAdapter.listByStatus('RUNNING' as AgentLoopStatus));
 expectType<Promise<{ total: number; byStatus: Record<string, number> }>>(agentLoopAdapter.getAgentLoopStats());
 
-// Test AgentLoopCheckpointStorageAdapter
-declare const agentCheckpointAdapter: AgentLoopCheckpointStorageAdapter;
-
-const agentCheckpointMetadata: AgentCheckpointMetadata = {
-  agentLoopId: 'agent-1',
-  timestamp: Date.now(),
-  type: 'FULL',
-};
-
-expectType<Promise<void>>(agentCheckpointAdapter.save('cp-1', testData, agentCheckpointMetadata));
-expectType<Promise<string[]>>(agentCheckpointAdapter.listByAgentLoop('agent-1'));
-expectType<Promise<string[]>>(agentCheckpointAdapter.listByAgentLoop('agent-1', { type: 'DELTA' }));
-expectType<Promise<string | null>>(agentCheckpointAdapter.getLatestCheckpoint('agent-1'));
-expectType<Promise<number>>(agentCheckpointAdapter.deleteByAgentLoop('agent-1'));
-
 // Test CheckpointStorageAdapter (type alias)
 declare const checkpointAdapter: CheckpointStorageAdapter;
 
 const checkpointMetadata: CheckpointStorageMetadata = {
-  executionId: 'exec-1',
-  workflowId: 'wf-1',
+  entityType: 'workflow',
+  entityId: 'wf-1',
   timestamp: Date.now(),
+};
+
+const checkpointListOptions: CheckpointStorageListOptions = {
+  entityType: 'workflow',
+  entityId: 'wf-1',
 };
 
 const checkpointOptions: CheckpointOptions = {
@@ -126,6 +111,16 @@ expectType<Promise<void>>(checkpointAdapter.save('cp-1', testData, checkpointMet
 expectType<Promise<void>>(checkpointAdapter.save('cp-1', testData, checkpointMetadata));
 expectType<Promise<Uint8Array | null>>(checkpointAdapter.load('cp-1'));
 expectType<Promise<CheckpointStorageMetadata | null>>(checkpointAdapter.getMetadata('cp-1'));
+
+// Test CheckpointStorageAdapter additional methods
+expectType<Promise<Array<{ id: string; metadata: CheckpointStorageMetadata }>>>(checkpointAdapter.listWithMetadata(checkpointListOptions));
+expectType<Promise<Array<{ id: string; metadata: CheckpointStorageMetadata }>>>(checkpointAdapter.listByEntityWithMetadata('wf-1', 'workflow'));
+expectType<Promise<Array<{ id: string; metadata: CheckpointStorageMetadata; data?: Uint8Array }>>>(checkpointAdapter.getLatestByEntity('wf-1', 'workflow'));
+expectType<Promise<Array<{ id: string; metadata: CheckpointStorageMetadata; data?: Uint8Array }>>>(checkpointAdapter.getLatestByEntity('wf-1', 'workflow', 3));
+expectType<Promise<Array<{ id: string; metadata: CheckpointStorageMetadata; data?: Uint8Array }>>>(checkpointAdapter.getLatestByEntity('wf-1', 'workflow', 3, true));
+expectType<Promise<number>>(checkpointAdapter.deleteByEntity('wf-1', 'workflow'));
+expectType<Promise<number>>(checkpointAdapter.deleteByEntity('wf-1', 'workflow', { keepLatest: 5 }));
+expectType<Promise<number>>(checkpointAdapter.deleteByEntity('wf-1', 'workflow', { olderThan: Date.now() }));
 
 // Test TaskStorageAdapter
 declare const taskAdapter: TaskStorageAdapter;
@@ -191,7 +186,6 @@ expectAssignable<StorageLifecycle>(baseAdapter);
 
 // Specific adapters should be assignable to BaseStorageAdapter
 expectAssignable<BaseStorageAdapter<AgentEntityMetadata, AgentEntityListOptions>>(agentLoopAdapter);
-expectAssignable<BaseStorageAdapter<AgentCheckpointMetadata, AgentCheckpointListOptions>>(agentCheckpointAdapter);
 expectAssignable<BaseStorageAdapter<CheckpointStorageMetadata, CheckpointStorageListOptions, CheckpointOptions>>(checkpointAdapter);
 expectAssignable<BaseStorageAdapter<TaskStorageMetadata, TaskListOptions>>(taskAdapter);
 expectAssignable<BaseStorageAdapter<WorkflowStorageMetadata, WorkflowListOptions>>(workflowAdapter);

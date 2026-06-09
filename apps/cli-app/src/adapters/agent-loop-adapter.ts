@@ -41,6 +41,7 @@ import type {
 } from "@wf-agent/sdk/resources";
 import { createPredefinedTools, createBuiltinTools } from "@wf-agent/sdk/resources";
 import { toSdkTool } from "@wf-agent/sdk/services";
+import { loadAgentLoopConfig } from "@wf-agent/config-processor";
 import { CLINotFoundError } from "../types/cli-types.js";
 import { CLIToolApprovalHandler } from "../handlers/user-interaction/tool-approval.js";
 
@@ -450,6 +451,8 @@ export class AgentLoopAdapter extends BaseAdapter {
           hasAgentProfile: (id: string): boolean => {
             return registry.has(id);
           },
+          // Inject loadAgentLoopConfig from application layer
+          loadAgentLoopConfig,
         },
       };
     } catch (error) {

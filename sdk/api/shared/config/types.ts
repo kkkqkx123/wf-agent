@@ -272,19 +272,3 @@ export interface IConfigParser {
     configType: T,
   ): ParsedConfig<T>;
 }
-
-/**
- * Configure the converter interface
- */
-export interface IConfigTransformer {
-  /**
-   * Convert the configuration file format to WorkflowTemplate
-   * @param configFile The parsed configuration file
-   * @param parameters Runtime parameters (used for template replacement)
-   * @returns WorkflowTemplate
-   */
-  transformToWorkflow(
-    configFile: WorkflowConfigFile,
-    parameters?: Record<string, unknown>,
-  ): WorkflowTemplate;
-}

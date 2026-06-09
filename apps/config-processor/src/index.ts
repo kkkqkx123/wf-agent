@@ -33,6 +33,7 @@ export {
   loadStorageConfig,
   loadOutputConfig,
   loadPresetsConfig,
+  loadAgentLoopConfig,
 } from "./loader-orchestrator.js";
 
 // MCP settings file I/O

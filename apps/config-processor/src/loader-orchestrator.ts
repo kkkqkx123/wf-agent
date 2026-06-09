@@ -15,8 +15,7 @@
  */
 
 import { tryLoadConfigFile } from "./config-file-loader.js";
-import { parseJson } from "@wf-agent/sdk/api";
-import { parseToml } from "@wf-agent/sdk/api";
+import { parseJson, parseToml } from "@wf-agent/sdk/api";
 import {
   mergeMetricsWithDefaults,
   mergeTimeoutWithDefaults,
@@ -25,7 +24,9 @@ import {
   mergeOutputWithDefaults,
   mergePresetsWithDefaults,
 } from "@wf-agent/sdk/api";
-import type { MetricsConfig, TimeoutConfig, FileCheckpointConfig, StorageConfig, OutputConfig, PresetsConfig } from "@wf-agent/types";
+import { validateAgentLoopConfig } from "@wf-agent/sdk/agent";
+import type { MetricsConfig, TimeoutConfig, FileCheckpointConfig, StorageConfig, OutputConfig, PresetsConfig, ValidationError } from "@wf-agent/types";
+import type { ParsedAgentLoopConfig, AgentLoopConfigFile } from "@wf-agent/sdk/api";
 
 // -----------------------------------------------------------------------
 // Helpers
@@ -166,4 +167,54 @@ export async function loadPresetsConfig(
   }
 
   return mergePresetsWithDefaults({});
+}
+
+// -----------------------------------------------------------------------
+// Agent Loop Configuration Loader
+// -----------------------------------------------------------------------
+
+/**
+ * Load and parse Agent Loop configuration from file.
+ *
+ * This function belongs in the application layer because it performs file I/O.
+ * The SDK only provides pure parsing and validation functions.
+ *
+ * @param filePath - Configuration file path (TOML or JSON).
+ * @returns Parsed and validated Agent Loop configuration.
+ * @throws Error if file cannot be read, parsed, or validated.
+ */
+export async function loadAgentLoopConfig(filePath: string): Promise<ParsedAgentLoopConfig> {
+  const loaded = await tryLoadConfigFile(filePath);
+  if (loaded === null) {
+    throw new Error(`Agent Loop configuration file not found: ${filePath}`);
+  }
+
+  const { content, format } = loaded;
+
+  // Parse the content
+  let rawConfig: unknown;
+  try {
+    rawConfig = format === "toml" ? parseToml(content) : parseJson(content);
+  } catch (error) {
+    throw new Error(
+      `Agent Loop configuration parsing failed (${format}): ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    );
+  }
+
+  const parsed: ParsedAgentLoopConfig = {
+    configType: "agent_loop",
+    format,
+    config: rawConfig as AgentLoopConfigFile,
+    rawContent: content,
+  };
+
+  // Validate the configuration
+  const result = validateAgentLoopConfig(parsed.config);
+  if (result.isErr()) {
+    const errorMessages = result.error.map((e: ValidationError) => e.message).join("\n");
+    throw new Error(`Agent Loop validation failed:\n${errorMessages}`);
+  }
+
+  return parsed;
 }

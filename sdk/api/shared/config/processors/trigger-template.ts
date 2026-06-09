@@ -10,7 +10,7 @@ import { ValidationError } from "@wf-agent/types";
 import { validateWorkflowTrigger } from "../../../../core/validation/trigger-validator.js";
 import { ok, err } from "@wf-agent/common-utils";
 import type { TriggerTemplate } from "@wf-agent/types";
-import { substituteParameters } from "../utils/config-utils.js";
+import { substituteParameters } from "../config-utils.js";
 import { ConfigFormat } from "../types.js";
 import { parseToml } from "../parsers/toml-parser.js";
 import { parseJson } from "../parsers/json-parser.js";
@@ -69,14 +69,8 @@ export function transformTriggerTemplate(
   config: ParsedConfig<"trigger_template">,
   parameters?: Record<string, unknown>,
 ): TriggerTemplate {
-  let template = config.config;
-
-  // If parameters are provided, perform parameter substitution
-  if (parameters && Object.keys(parameters).length > 0) {
-    template = substituteParameters(template, parameters);
-  }
-
-  return template;
+  // substituteParameters is idempotent for empty parameters
+  return substituteParameters(config.config, parameters);
 }
 
 /**

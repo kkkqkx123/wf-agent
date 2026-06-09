@@ -36,14 +36,10 @@ export {
   ParsedLLMProfileConfig,
   ParsedPromptTemplateConfig,
   ParsedAgentLoopConfig,
-  IConfigTransformer,
 } from "./types.js";
 
-// Configuration Tool Functions (re-exported from utils for backward compatibility)
-export { loadAgentLoopConfig } from "./utils/config-utils.js";
-
 // Parameter Substitution Utility
-export { substituteParameters } from "./utils/config-utils.js";
+export { substituteParameters } from "./config-utils.js";
 
 // JSON Parsing Functions - from parsers/
 export { parseJson, stringifyJson, validateJsonSyntax } from "./parsers/index.js";
@@ -58,9 +54,6 @@ export {
 
 // Format detection utility (pure string operation)
 export { getConfigFormatFromPath } from "./parsers/index.js";
-
-// resolver - from utils/
-export { ConfigTransformer } from "./utils/index.js";
 
 // Configuration handler export (pure function)
 export {

@@ -9,7 +9,7 @@ import type { Result } from "@wf-agent/types";
 import { ValidationError } from "@wf-agent/types";
 import { ok, err } from "@wf-agent/common-utils";
 import type { InteractiveScriptConfig } from "@wf-agent/types";
-import { substituteParameters } from "../utils/config-utils.js";
+import { substituteParameters } from "../config-utils.js";
 
 /**
  * Validate InteractiveScriptConfig configuration
@@ -79,13 +79,8 @@ export function transformInteractiveScript(
   config: ParsedConfig<"script">,
   parameters?: Record<string, unknown>,
 ): InteractiveScriptConfig {
-  let interactiveConfig = config.config as unknown as InteractiveScriptConfig;
-
-  if (parameters && Object.keys(parameters).length > 0) {
-    interactiveConfig = substituteParameters(interactiveConfig, parameters) as unknown as InteractiveScriptConfig;
-  }
-
-  return interactiveConfig;
+  // substituteParameters is idempotent for empty parameters
+  return substituteParameters(config.config, parameters) as unknown as InteractiveScriptConfig;
 }
 
 /**

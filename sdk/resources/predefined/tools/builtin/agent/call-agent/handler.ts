@@ -1,5 +1,9 @@
 /**
  * Call Agent Tool Handler
+ *
+ * Design note: This handler uses dependency injection for config loading
+ * to keep the SDK I/O-free. The loadAgentLoopConfig function is provided
+ * by the application layer (apps/config-processor).
  */
 
 import type { BuiltinToolExecutionContext } from "@wf-agent/types";
@@ -10,7 +14,7 @@ import type { ToolRegistry } from "@sdk/core/registry/tool-registry.js";
 import { resolveSystemPrompt } from "@sdk/core/messaging/prompt/system-prompt-resolver.js";
 import { transformToAgentLoopConfig } from "@sdk/api/shared/config/processors/agent-loop.js";
 import { existsSync } from "fs";
-import { loadAgentLoopConfig } from "@sdk/api/shared/config/utils/config-utils.js";
+import type { ParsedAgentLoopConfig } from "@sdk/api/shared/config/types.js";
 import type { ServiceFactory } from "@sdk/core/di/factory-types.js";
 import type { AgentLoopCoordinator } from "@sdk/agent/execution/coordinators/agent-loop-coordinator.js";
 
@@ -29,6 +33,7 @@ export interface AgentInfo {
  * Provides a loader interface that the call_agent tool uses to:
  * - List available agent profiles (for LLM context and validation)
  * - Check agent profile existence (for validation)
+ * - Load agent loop configuration from file (I/O operation, injected from app layer)
  *
  * Mirrors the SkillHandlerConfig / WorkflowHandlerConfig pattern.
  */
@@ -38,6 +43,8 @@ export interface AgentHandlerConfig {
     getAvailableAgentProfiles: () => AgentInfo[];
     /** Check whether an agent profile with the given ID exists. */
     hasAgentProfile: (id: string) => boolean;
+    /** Load agent loop configuration from file (injected from app layer). */
+    loadAgentLoopConfig: (filePath: string) => Promise<ParsedAgentLoopConfig>;
   };
 }
 
@@ -131,9 +138,17 @@ export function createCallAgentHandler(config?: AgentHandlerConfig) {
       
       // Check if agentProfileId is a file path
       if (existsSync(agentProfileId)) {
-        // Load from configuration file
+        // Load from configuration file using injected loader
+        if (!config?.loader?.loadAgentLoopConfig) {
+          throw new ConfigurationError(
+            "Agent loop config loader not provided. " +
+            "The application layer must inject loadAgentLoopConfig via AgentHandlerConfig.loader.",
+            undefined,
+            { operation: "call_agent", agentProfileId },
+          );
+        }
         try {
-          const parsedConfig = await loadAgentLoopConfig(agentProfileId);
+          const parsedConfig = await config.loader.loadAgentLoopConfig(agentProfileId);
           runtimeConfig = transformToAgentLoopConfig(parsedConfig.config);
         } catch (error) {
           throw new ConfigurationError(

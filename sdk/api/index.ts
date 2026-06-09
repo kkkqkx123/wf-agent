@@ -379,9 +379,8 @@ export {
   parseTriggerTemplate,
   parseScript,
   parseLLMProfile,
-  // Transforms & merges
+  // Transforms
   transformToAgentLoopConfig,
-  loadAgentLoopConfig,
   // Processors (pure: merge / validate / export)
   mergeMetricsWithDefaults,
   getMetricsEnvironmentDefaults,
@@ -394,6 +393,12 @@ export {
   getOutputEnvironmentDefaults,
   mergePresetsWithDefaults,
   getPresetsEnvironmentDefaults,
+} from "./shared/config/index.js";
+
+// Configuration types (for application layer config loaders)
+export type {
+  ParsedAgentLoopConfig,
+  AgentLoopConfigFile,
 } from "./shared/config/index.js";
 
 // ============================================================================

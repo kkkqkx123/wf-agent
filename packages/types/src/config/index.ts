@@ -12,3 +12,4 @@ export * from "./timeout.js";
 export * from "./metrics-schema.js";
 export * from "./timeout-schema.js";
 export * from "./file-checkpoint.js";
+export * from "./config-index.js";

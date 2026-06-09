@@ -23,7 +23,8 @@
 
 import * as fs from "fs/promises";
 import * as path from "path";
-import type { SkillConfig } from "@wf-agent/types";
+import type { SkillConfig, SkillCollectionFile } from "@wf-agent/types";
+import { matchGlobPattern } from "./config-index-loader.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -323,4 +324,147 @@ export async function ensureSkillConfigFile(
   await fs.mkdir(dir, { recursive: true });
   await writeSkillConfig(filePath, createDefaultSkillConfig());
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// Collection-based Skill Loading
+// ---------------------------------------------------------------------------
+
+/**
+ * Default skill preset directory (configs/skills in project root).
+ */
+export function getDefaultSkillPresetDir(projectRoot: string): string {
+  return path.join(projectRoot, "configs", "skills");
+}
+
+/**
+ * Load a skill collection definition by name.
+ *
+ * Resolution:
+ * 1. Load `configs/skills/index.json` → expand paths → discover collections
+ * 2. Match `collectionName` to a collection file by filename
+ * 3. Load the collection file
+ *
+ * @param baseDir - Directory containing the preset index (e.g. `configs/skills`)
+ * @param collectionName - Name of the collection to load
+ * @returns The loaded SkillCollectionFile
+ * @throws Error if index is missing or collection not found
+ */
+export async function loadSkillCollection(
+  baseDir: string,
+  collectionName: string,
+): Promise<SkillCollectionFile> {
+  const { resolvePresetIndex, findPresetByName, loadSingleFilePreset } = await import("./preset-loader.js");
+  const resolved = await resolvePresetIndex(baseDir);
+  const entry = findPresetByName(resolved.presets, collectionName);
+
+  if (!entry) {
+    const available = Array.from(resolved.presets.keys()).join(", ");
+    throw new Error(
+      `Skill collection "${collectionName}" not found in ${baseDir}. Available collections: ${available || "(none)"}`,
+    );
+  }
+
+  const collection = await loadSingleFilePreset<SkillCollectionFile>(entry);
+  return collection;
+}
+
+/**
+ * Expand a skill collection's paths into resolved skill file paths.
+ *
+ * @param collection - The loaded skill collection
+ * @param baseDir - Base directory to resolve relative paths from
+ * @returns Array of absolute paths to skill definition files
+ */
+export async function expandSkillCollectionPaths(
+  collection: SkillCollectionFile,
+  baseDir: string,
+): Promise<string[]> {
+  const allPaths: string[] = [];
+
+  for (const pattern of collection.paths) {
+    const matches = await matchGlobPattern(pattern, baseDir);
+    allPaths.push(...matches);
+  }
+
+  return [...new Set(allPaths)];
+}
+
+/**
+ * Load skill config with collection support.
+ *
+ * Tries collection mode first (if `configs/skills/index.json` exists), then
+ * falls back to the legacy global/project config chain.
+ *
+ * Collection loading flow:
+ * 1. Load `configs/skills/index.json` → scan collections → match by name
+ * 2. Load the matched collection file → expand paths → get skill file paths
+ * 3. Merge with legacy global/project skill paths
+ *
+ * @param settingsDir - Global settings directory
+ * @param projectRoot - Absolute path to the project root
+ * @param collectionName - Name of the collection to use (optional)
+ * @returns Merged SkillConfig with paths from collection + legacy sources
+ */
+export async function loadAndMergeSkillConfigWithCollection(
+  settingsDir: string,
+  projectRoot: string,
+  collectionName?: string,
+): Promise<SkillConfig> {
+  const presetDir = getDefaultSkillPresetDir(projectRoot);
+  const indexPath = path.join(presetDir, "index.json");
+
+  // Check if collection index exists
+  let collectionPaths: string[] = [];
+  try {
+    await fs.access(indexPath);
+  } catch {
+    // No collection index → fall back to legacy loading
+    return loadAndMergeSkillConfig(settingsDir, projectRoot);
+  }
+
+  // Collection mode: load the collection and expand its paths
+  if (collectionName) {
+    try {
+      const collection = await loadSkillCollection(presetDir, collectionName);
+      collectionPaths = await expandSkillCollectionPaths(collection, presetDir);
+    } catch {
+      // Collection not found, fall back to legacy
+      return loadAndMergeSkillConfig(settingsDir, projectRoot);
+    }
+  }
+
+  // Merge with legacy global/project config
+  const globalPath = getGlobalSkillSettingsPath(settingsDir);
+  const projectPaths = getProjectSkillPaths(projectRoot);
+
+  const [globalConfig, wfConfig, agentConfig] = await Promise.all([
+    loadSkillConfig(globalPath),
+    loadSkillConfig(projectPaths[0]!),
+    loadSkillConfig(projectPaths[1]!),
+  ]);
+
+  const legacy = mergeSkillConfigs(globalConfig, wfConfig, agentConfig);
+
+  // Merge: collection paths first, then legacy paths
+  const seen = new Set<string>();
+  const mergedPaths: string[] = [];
+
+  for (const p of collectionPaths) {
+    if (!seen.has(p)) {
+      seen.add(p);
+      mergedPaths.push(p);
+    }
+  }
+  for (const p of legacy.paths) {
+    if (!seen.has(p)) {
+      seen.add(p);
+      mergedPaths.push(p);
+    }
+  }
+
+  return {
+    paths: mergedPaths,
+    autoScan: legacy.autoScan,
+  };
 }

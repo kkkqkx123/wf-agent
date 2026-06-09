@@ -1,7 +1,7 @@
 {
   "paths": [
-    "./skills/folder1",
-    "./skills/folder2"
+    "./folder1",
+    "./folder2"
   ],
   "autoScan": true
 }

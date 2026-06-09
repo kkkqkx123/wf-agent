@@ -186,3 +186,121 @@ export async function loadAndMergeMcpSettings(
     mcpServers: Object.fromEntries(mergedConfigs),
   };
 }
+
+// ---------------------------------------------------------------------------
+// Preset-based MCP Loading
+// ---------------------------------------------------------------------------
+
+/**
+ * Default MCP preset directory (configs/mcp in project root).
+ */
+export function getDefaultMcpPresetDir(projectRoot: string): string {
+  return path.join(projectRoot, "configs", "mcp");
+}
+
+/**
+ * Load MCP settings from a preset by name.
+ *
+ * Preset resolution:
+ * 1. Load `configs/mcp/index.json` → expand paths → discover presets
+ * 2. Match `presetName` to a preset file by filename
+ * 3. Load and validate the preset file content as McpSettings
+ *
+ * @param baseDir - Directory containing the preset index (e.g. `configs/mcp`)
+ * @param presetName - Name of the preset to load (matches filename without extension)
+ * @returns Parsed McpSettings
+ * @throws Error if preset index is missing or preset name is not found
+ */
+export async function loadMcpPresetSettings(
+  baseDir: string,
+  presetName: string,
+): Promise<McpSettings> {
+  const { resolvePresetIndex, findPresetByName, loadSingleFilePreset } = await import("./preset-loader.js");
+  const resolved = await resolvePresetIndex(baseDir);
+  const entry = findPresetByName(resolved.presets, presetName);
+
+  if (!entry) {
+    const available = Array.from(resolved.presets.keys()).join(", ");
+    throw new Error(
+      `MCP preset "${presetName}" not found in ${baseDir}. Available presets: ${available || "(none)"}`,
+    );
+  }
+
+  const settings = await loadSingleFilePreset<McpSettings>(entry);
+  return settings;
+}
+
+/**
+ * Load MCP settings with preset support.
+ *
+ * Tries preset mode first (if `configs/mcp/index.json` exists), then
+ * falls back to the legacy global/project config chain.
+ *
+ * Preset loading flow:
+ * 1. Load `configs/mcp/index.json` → scan presets → match by name
+ * 2. Load the matched preset file for the base config
+ * 3. Merge with instance-level overrides (`.wf/mcp.json`, `.agent/mcp.json`, global)
+ *
+ * @param settingsDir - Global settings directory
+ * @param projectRoot - Absolute path to the project root
+ * @param presetName - Name of the preset to use (optional)
+ * @returns Merged McpSettings
+ */
+export async function loadAndMergeMcpSettingsWithPreset(
+  settingsDir: string,
+  projectRoot: string,
+  presetName?: string,
+): Promise<McpSettings> {
+  const presetDir = getDefaultMcpPresetDir(projectRoot);
+  const indexPath = path.join(presetDir, "index.json");
+
+  // Check if preset index exists
+  let baseSettings: McpSettings | null = null;
+  try {
+    await fs.access(indexPath);
+  } catch {
+    // No preset index → fall back to legacy loading
+    return loadAndMergeMcpSettings(settingsDir, projectRoot);
+  }
+
+  // Preset mode: load the base preset
+  if (presetName) {
+    try {
+      baseSettings = await loadMcpPresetSettings(presetDir, presetName);
+    } catch (error) {
+      // Preset not found, fall back to legacy
+      return loadAndMergeMcpSettings(settingsDir, projectRoot);
+    }
+  }
+
+  // Merge with legacy global/project overrides
+  const projectPaths = getProjectMcpPaths(projectRoot);
+
+  const [globalSettings, ...projectSettings] = await Promise.all([
+    loadMcpSettings(getGlobalMcpSettingsPath(settingsDir)).catch(() => null),
+    ...projectPaths.map((p) => loadMcpSettings(p).catch(() => null)),
+  ]);
+
+  const base = baseSettings ?? globalSettings ?? createDefaultMcpSettings();
+  const baseConfigs = loadServerConfigs(base).configs;
+
+  // Merge: project overrides > global > preset base
+  let mergedConfigs = new Map(baseConfigs);
+
+  // Apply global as override if preset was used as base
+  if (baseSettings && globalSettings) {
+    const globalConfigs = loadServerConfigs(globalSettings).configs;
+    mergedConfigs = mergeServerConfigs(mergedConfigs, globalConfigs);
+  }
+
+  for (const settings of projectSettings) {
+    if (settings !== null) {
+      const projectConfigs = loadServerConfigs(settings).configs;
+      mergedConfigs = mergeServerConfigs(mergedConfigs, projectConfigs);
+    }
+  }
+
+  return {
+    mcpServers: Object.fromEntries(mergedConfigs),
+  };
+}

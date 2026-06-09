@@ -1,0 +1,11 @@
+{
+  "version": "1.0",
+  "type": "llm_profiles",
+  "paths": [
+    "./openai/*.toml",
+    "./anthropic/*.toml",
+    "./gemini-native/*.toml",
+    "./gemini-openai/*.toml",
+    "./siliconflow/*.toml"
+  ]
+}

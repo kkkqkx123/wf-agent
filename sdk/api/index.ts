@@ -377,8 +377,17 @@ export {
   parseWorkflow,
   parseNodeTemplate,
   parseTriggerTemplate,
+  parseHookTemplate,
   parseScript,
   parseLLMProfile,
+  parsePromptTemplateConfig,
+  // Validate functions
+  validateLLMProfile,
+  validateNodeTemplate,
+  validateTriggerTemplate,
+  validateHookTemplate,
+  validateScript,
+  validatePromptTemplate,
   // Transforms
   transformToAgentLoopConfig,
   // Processors (pure: merge / validate / export)
@@ -399,6 +408,13 @@ export {
 export type {
   ParsedAgentLoopConfig,
   AgentLoopConfigFile,
+  ParsedLLMProfileConfig,
+  ParsedNodeTemplateConfig,
+  ParsedTriggerTemplateConfig,
+  ParsedHookTemplateConfig,
+  ParsedScriptConfig,
+  ParsedPromptTemplateConfig,
+  PromptTemplateConfigFile,
 } from "./shared/config/index.js";
 
 // ============================================================================

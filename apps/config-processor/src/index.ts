@@ -34,6 +34,12 @@ export {
   loadOutputConfig,
   loadPresetsConfig,
   loadAgentLoopConfig,
+  loadLLMProfileConfig,
+  loadNodeTemplateConfig,
+  loadTriggerTemplateConfig,
+  loadHookTemplateConfig,
+  loadScriptConfig,
+  loadPromptTemplateConfig,
 } from "./loader-orchestrator.js";
 
 // MCP settings file I/O
@@ -69,3 +75,19 @@ export {
   mergeSkillConfigs,
   loadAndMergeSkillConfig,
 } from "./skill-settings-loader.js";
+
+// Configuration index loaders
+export {
+  loadIndexFile,
+  tryLoadIndexFile,
+  indexFileExists,
+  resolveLLMProfileIndex,
+  resolveWorkflowIndex,
+  resolveNodeTemplateIndex,
+  resolveScriptIndex,
+  resolvePromptTemplateIndex,
+  resolveAgentLoopIndex,
+  filterByTags,
+  filterByCategory,
+  findEntryById,
+} from "./config-index-loader.js";

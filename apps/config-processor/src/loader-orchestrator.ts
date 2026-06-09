@@ -15,8 +15,23 @@
  */
 
 import { tryLoadConfigFile } from "./config-file-loader.js";
-import { parseJson, parseToml } from "@wf-agent/sdk/api";
+import * as fs from "fs/promises";
+import * as path from "path";
 import {
+  parseJson,
+  parseToml,
+  parseLLMProfile,
+  parseNodeTemplate,
+  parseTriggerTemplate,
+  parseHookTemplate,
+  parseScript,
+  parsePromptTemplateConfig,
+  validateLLMProfile,
+  validateNodeTemplate,
+  validateTriggerTemplate,
+  validateHookTemplate,
+  validateScript,
+  validatePromptTemplate,
   mergeMetricsWithDefaults,
   mergeTimeoutWithDefaults,
   mergeFileCheckpointConfig,
@@ -25,8 +40,27 @@ import {
   mergePresetsWithDefaults,
 } from "@wf-agent/sdk/api";
 import { validateAgentLoopConfig } from "@wf-agent/sdk/agent";
-import type { MetricsConfig, TimeoutConfig, FileCheckpointConfig, StorageConfig, OutputConfig, PresetsConfig, ValidationError } from "@wf-agent/types";
-import type { ParsedAgentLoopConfig, AgentLoopConfigFile } from "@wf-agent/sdk/api";
+import type {
+  MetricsConfig,
+  TimeoutConfig,
+  FileCheckpointConfig,
+  StorageConfig,
+  OutputConfig,
+  PresetsConfig,
+  ValidationError,
+  InfrastructurePresetFile,
+} from "@wf-agent/types";
+import type {
+  ParsedAgentLoopConfig,
+  AgentLoopConfigFile,
+  ParsedLLMProfileConfig,
+  ParsedNodeTemplateConfig,
+  ParsedTriggerTemplateConfig,
+  ParsedHookTemplateConfig,
+  ParsedScriptConfig,
+  ParsedPromptTemplateConfig,
+  PromptTemplateConfigFile,
+} from "@wf-agent/sdk/api";
 
 // -----------------------------------------------------------------------
 // Helpers
@@ -217,4 +251,393 @@ export async function loadAgentLoopConfig(filePath: string): Promise<ParsedAgent
   }
 
   return parsed;
+}
+
+// -----------------------------------------------------------------------
+// LLM Profile Configuration Loader
+// -----------------------------------------------------------------------
+
+/**
+ * Load and parse LLM Profile configuration from file.
+ *
+ * @param filePath - Configuration file path (TOML or JSON).
+ * @returns Parsed and validated LLM Profile configuration.
+ * @throws Error if file cannot be read, parsed, or validated.
+ */
+export async function loadLLMProfileConfig(filePath: string): Promise<ParsedLLMProfileConfig> {
+  const loaded = await tryLoadConfigFile(filePath);
+  if (loaded === null) {
+    throw new Error(`LLM Profile configuration file not found: ${filePath}`);
+  }
+
+  const { content, format } = loaded;
+
+  // Parse the content
+  const profile = parseLLMProfile(content, format);
+
+  const parsed: ParsedLLMProfileConfig = {
+    configType: "llm_profile",
+    format,
+    config: profile,
+    rawContent: content,
+  };
+
+  // Validate the configuration
+  const result = validateLLMProfile(parsed);
+  if (result.isErr()) {
+    const errorMessages = result.error.map((e: ValidationError) => e.message).join("\n");
+    throw new Error(`LLM Profile validation failed:\n${errorMessages}`);
+  }
+
+  return parsed;
+}
+
+// -----------------------------------------------------------------------
+// Node Template Configuration Loader
+// -----------------------------------------------------------------------
+
+/**
+ * Load and parse Node Template configuration from file.
+ *
+ * @param filePath - Configuration file path (TOML or JSON).
+ * @returns Parsed and validated Node Template configuration.
+ * @throws Error if file cannot be read, parsed, or validated.
+ */
+export async function loadNodeTemplateConfig(filePath: string): Promise<ParsedNodeTemplateConfig> {
+  const loaded = await tryLoadConfigFile(filePath);
+  if (loaded === null) {
+    throw new Error(`Node Template configuration file not found: ${filePath}`);
+  }
+
+  const { content, format } = loaded;
+
+  // Parse the content
+  const template = parseNodeTemplate(content, format);
+
+  const parsed: ParsedNodeTemplateConfig = {
+    configType: "node_template",
+    format,
+    config: template,
+    rawContent: content,
+  };
+
+  // Validate the configuration
+  const result = validateNodeTemplate(parsed);
+  if (result.isErr()) {
+    const errorMessages = result.error.map((e: ValidationError) => e.message).join("\n");
+    throw new Error(`Node Template validation failed:\n${errorMessages}`);
+  }
+
+  return parsed;
+}
+
+// -----------------------------------------------------------------------
+// Trigger Template Configuration Loader
+// -----------------------------------------------------------------------
+
+/**
+ * Load and parse Trigger Template configuration from file.
+ *
+ * @param filePath - Configuration file path (TOML or JSON).
+ * @returns Parsed and validated Trigger Template configuration.
+ * @throws Error if file cannot be read, parsed, or validated.
+ */
+export async function loadTriggerTemplateConfig(filePath: string): Promise<ParsedTriggerTemplateConfig> {
+  const loaded = await tryLoadConfigFile(filePath);
+  if (loaded === null) {
+    throw new Error(`Trigger Template configuration file not found: ${filePath}`);
+  }
+
+  const { content, format } = loaded;
+
+  // Parse the content
+  const template = parseTriggerTemplate(content, format);
+
+  const parsed: ParsedTriggerTemplateConfig = {
+    configType: "trigger_template",
+    format,
+    config: template,
+    rawContent: content,
+  };
+
+  // Validate the configuration
+  const result = validateTriggerTemplate(parsed);
+  if (result.isErr()) {
+    const errorMessages = result.error.map((e: ValidationError) => e.message).join("\n");
+    throw new Error(`Trigger Template validation failed:\n${errorMessages}`);
+  }
+
+  return parsed;
+}
+
+// -----------------------------------------------------------------------
+// Hook Template Configuration Loader
+// -----------------------------------------------------------------------
+
+/**
+ * Load and parse Hook Template configuration from file.
+ *
+ * @param filePath - Configuration file path (TOML or JSON).
+ * @returns Parsed and validated Hook Template configuration.
+ * @throws Error if file cannot be read, parsed, or validated.
+ */
+export async function loadHookTemplateConfig(filePath: string): Promise<ParsedHookTemplateConfig> {
+  const loaded = await tryLoadConfigFile(filePath);
+  if (loaded === null) {
+    throw new Error(`Hook Template configuration file not found: ${filePath}`);
+  }
+
+  const { content, format } = loaded;
+
+  // Parse the content
+  const template = parseHookTemplate(content, format);
+
+  const parsed: ParsedHookTemplateConfig = {
+    configType: "hook_template",
+    format,
+    config: template,
+    rawContent: content,
+  };
+
+  // Validate the configuration
+  const result = validateHookTemplate(parsed);
+  if (result.isErr()) {
+    const errorMessages = result.error.map((e: ValidationError) => e.message).join("\n");
+    throw new Error(`Hook Template validation failed:\n${errorMessages}`);
+  }
+
+  return parsed;
+}
+
+// -----------------------------------------------------------------------
+// Script Configuration Loader
+// -----------------------------------------------------------------------
+
+/**
+ * Load and parse Script configuration from file.
+ *
+ * @param filePath - Configuration file path (TOML or JSON).
+ * @returns Parsed and validated Script configuration.
+ * @throws Error if file cannot be read, parsed, or validated.
+ */
+export async function loadScriptConfig(filePath: string): Promise<ParsedScriptConfig> {
+  const loaded = await tryLoadConfigFile(filePath);
+  if (loaded === null) {
+    throw new Error(`Script configuration file not found: ${filePath}`);
+  }
+
+  const { content, format } = loaded;
+
+  // Parse the content
+  const script = parseScript(content, format);
+
+  const parsed: ParsedScriptConfig = {
+    configType: "script",
+    format,
+    config: script,
+    rawContent: content,
+  };
+
+  // Validate the configuration
+  const result = validateScript(parsed);
+  if (result.isErr()) {
+    const errorMessages = result.error.map((e: ValidationError) => e.message).join("\n");
+    throw new Error(`Script validation failed:\n${errorMessages}`);
+  }
+
+  return parsed;
+}
+
+// -----------------------------------------------------------------------
+// Prompt Template Configuration Loader
+// -----------------------------------------------------------------------
+
+/**
+ * Load and parse Prompt Template configuration from file.
+ *
+ * @param filePath - Configuration file path (TOML or JSON).
+ * @returns Parsed and validated Prompt Template configuration.
+ * @throws Error if file cannot be read, parsed, or validated.
+ */
+export async function loadPromptTemplateConfig(filePath: string): Promise<ParsedPromptTemplateConfig> {
+  const loaded = await tryLoadConfigFile(filePath);
+  if (loaded === null) {
+    throw new Error(`Prompt Template configuration file not found: ${filePath}`);
+  }
+
+  const { content, format } = loaded;
+
+  // Parse the content
+  const template = parsePromptTemplateConfig(content, format);
+
+  const parsed: ParsedPromptTemplateConfig = {
+    configType: "prompt_template",
+    format,
+    config: template as PromptTemplateConfigFile,
+    rawContent: content,
+  };
+
+  // Validate the configuration
+  const result = validatePromptTemplate(parsed);
+  if (result.isErr()) {
+    const errorMessages = result.error.map((e: ValidationError) => e.message).join("\n");
+    throw new Error(`Prompt Template validation failed:\n${errorMessages}`);
+  }
+
+  return parsed;
+}
+
+// -----------------------------------------------------------------------
+// Infrastructure Preset Loading
+// -----------------------------------------------------------------------
+
+/**
+ * Default infrastructure preset directory (configs/infrastructure in project root).
+ */
+export function getDefaultInfraPresetDir(projectRoot: string): string {
+  return path.join(projectRoot, "configs", "infrastructure");
+}
+
+/**
+ * Load an infrastructure preset definition by name.
+ *
+ * Resolution:
+ * 1. Load `configs/infrastructure/index.json` → expand paths → discover presets
+ * 2. Match `presetName` to a preset file by filename
+ * 3. Load the preset file
+ *
+ * @param baseDir - Directory containing the preset index
+ * @param presetName - Name of the preset to load
+ * @returns The loaded InfrastructurePresetFile
+ */
+export async function loadInfrastructurePreset(
+  baseDir: string,
+  presetName: string,
+): Promise<InfrastructurePresetFile> {
+  const { resolvePresetIndex, findPresetByName, loadSingleFilePreset } = await import("./preset-loader.js");
+  const resolved = await resolvePresetIndex(baseDir);
+  const entry = findPresetByName(resolved.presets, presetName);
+
+  if (!entry) {
+    const available = Array.from(resolved.presets.keys()).join(", ");
+    throw new Error(
+      `Infrastructure preset "${presetName}" not found in ${baseDir}. Available presets: ${available || "(none)"}`,
+    );
+  }
+
+  const preset = await loadSingleFilePreset<InfrastructurePresetFile>(entry);
+  return preset;
+}
+
+/**
+ * Resolve an infrastructure preset's file mappings into absolute paths.
+ *
+ * @param preset - The loaded infrastructure preset
+ * @param baseDir - Base directory to resolve relative paths from
+ * @returns Object with resolved absolute paths for each config domain
+ */
+export function resolveInfraPresetFiles(
+  preset: InfrastructurePresetFile,
+  baseDir: string,
+): InfrastructurePresetFile["files"] & Record<string, string> {
+  const resolved: Record<string, string> = {};
+
+  for (const [key, filePath] of Object.entries(preset.files)) {
+    if (filePath) {
+      resolved[key] = path.resolve(baseDir, filePath);
+    }
+  }
+
+  return resolved as InfrastructurePresetFile["files"] & Record<string, string>;
+}
+
+/**
+ * Infrastructure config bundle — all config types loaded together.
+ */
+export interface InfrastructureConfigBundle {
+  metrics: MetricsConfig;
+  timeout: Required<TimeoutConfig>;
+  fileCheckpoint: Required<FileCheckpointConfig>;
+  storage: StorageConfig;
+  output: Required<OutputConfig>;
+  presets: PresetsConfig;
+}
+
+/**
+ * Load all infrastructure configs with preset support.
+ *
+ * Tries preset mode first (if `configs/infrastructure/index.json` exists).
+ * If no preset index is found, falls back to loading from provided default paths.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @param presetName - Name of the infrastructure preset to use (optional)
+ * @param defaultPaths - Default paths for each config domain (fallback if no preset)
+ * @returns Loaded InfrastructureConfigBundle
+ */
+export async function loadInfrastructureConfigs(
+  projectRoot: string,
+  presetName?: string,
+  defaultPaths?: InfrastructurePresetFile["files"],
+): Promise<InfrastructureConfigBundle> {
+  const presetDir = getDefaultInfraPresetDir(projectRoot);
+  const indexPath = path.join(presetDir, "index.json");
+
+  // Check if preset index exists
+  let fileMapping: InfrastructurePresetFile["files"] | null = null;
+  try {
+    await fs.access(indexPath);
+  } catch {
+    // No preset index — fall back to default paths
+    fileMapping = defaultPaths ?? {};
+  }
+
+  // Try preset mode
+  if (presetName && fileMapping === null) {
+    try {
+      const preset = await loadInfrastructurePreset(presetDir, presetName);
+      fileMapping = preset.files;
+    } catch {
+      fileMapping = defaultPaths ?? {};
+    }
+  }
+
+  // If still null (index exists but no preset name provided), use default paths
+  if (fileMapping === null) {
+    fileMapping = defaultPaths ?? {};
+  }
+
+  // Resolve file paths
+  const resolved = fileMapping as InfrastructurePresetFile["files"];
+
+  // Load each config type
+  const [metrics, timeout, fileCheckpoint, storage, output, presets] =
+    await Promise.all([
+      resolved.metrics
+        ? loadMetricsConfig([resolved.metrics])
+        : loadMetricsConfig([]),
+      resolved.timeout
+        ? loadTimeoutConfig([resolved.timeout])
+        : loadTimeoutConfig([]),
+      resolved.fileCheckpoint
+        ? loadFileCheckpointConfig([resolved.fileCheckpoint], projectRoot)
+        : loadFileCheckpointConfig([], projectRoot),
+      resolved.storage
+        ? loadStorageConfig([resolved.storage])
+        : loadStorageConfig([]),
+      resolved.output
+        ? loadOutputConfig([resolved.output])
+        : loadOutputConfig([]),
+      resolved.presets
+        ? loadPresetsConfig([resolved.presets])
+        : loadPresetsConfig([]),
+    ]);
+
+  return {
+    metrics,
+    timeout,
+    fileCheckpoint,
+    storage,
+    output,
+    presets,
+  };
 }

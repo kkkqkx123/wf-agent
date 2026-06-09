@@ -1,0 +1,16 @@
+# Tool-specific Configuration
+#
+# Overrides the hardcoded defaults in each tool's dedicated processor.
+# Values set here are passed to the corresponding transform function
+# (e.g. transformReadFileConfig) and merged with SDK-internal defaults.
+#
+# When a field is omitted, the SDK processor's hardcoded default is used.
+# This file exists so that application-layer deployers can override
+# tool behaviour without modifying source code.
+
+[readFile]
+# maxFileSize = 500000                # 500KB (SDK default)
+# maxChars = 200000                   # 200K chars (SDK default)
+# maxLines = 2000                     # 2000 lines (SDK default)
+# enableIgnore = false
+# enableProtect = false

@@ -1,11 +1,10 @@
-# Timeout Configuration Example
+# Timeout Configuration
 #
 # All values are in milliseconds.
 # Controls waiting periods for various SDK operations.
 #
-# Type: packages/types/src/config/timeout.ts → TimeoutConfig
 # Processor: sdk/api/shared/config/processors/timeout.ts → mergeTimeoutWithDefaults()
-# Loader: apps/config-processor/src/loader-orchestrator.ts → loadTimeoutConfig()
+# Loader:   apps/config-processor/src/loader-orchestrator.ts → loadTimeoutConfig()
 
 # Workflow-level timeouts
 workflowExecutionCompletion = 30000   # 30s — wait for a workflow run to finish

@@ -9,6 +9,7 @@
     "storage": "./storage.toml",
     "output": "./output.toml",
     "fileCheckpoint": "./file-checkpoint.toml",
-    "presets": "./presets.toml"
+    "presets": "./presets.toml",
+    "tools": "./tools.toml"
   }
 }

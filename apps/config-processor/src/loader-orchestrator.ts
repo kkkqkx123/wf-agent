@@ -686,3 +686,35 @@ export async function loadInfrastructureConfigs(
     tools,
   };
 }
+
+/**
+ * Default infrastructure preset name used when no explicit preset is provided.
+ */
+export const DEFAULT_INFRA_PRESET = "development";
+
+/**
+ * Load infrastructure configs using the default preset from `configs/infrastructure/`.
+ *
+ * This is the recommended entry point for most applications. It loads all config
+ * domains (metrics, timeout, storage, output, file-checkpoint, presets, tools)
+ * from the default preset file (`development.json`) under `configs/infrastructure/`.
+ *
+ * Each loaded value is merged with the SDK processor's hardcoded defaults, so
+ * any fields omitted in the TOML files will still have sensible default values.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @returns Fully resolved InfrastructureConfigBundle
+ *
+ * @example
+ * ```ts
+ * import { loadDefaultInfrastructureConfigs } from "@wf-agent/config-processor";
+ *
+ * const { metrics, timeout, tools } = await loadDefaultInfrastructureConfigs(projectRoot);
+ * // tools.readFile.maxChars → 200000 (or whatever the user set in tools.toml)
+ * ```
+ */
+export async function loadDefaultInfrastructureConfigs(
+  projectRoot: string,
+): Promise<InfrastructureConfigBundle> {
+  return loadInfrastructureConfigs(projectRoot, DEFAULT_INFRA_PRESET);
+}

@@ -1,9 +1,9 @@
-# Output & Logging Configuration Example
+# Output & Logging Configuration
 #
 # Controls how the application outputs logs and data.
 #
-# Type: packages/types/src/config/output.ts → OutputConfig
-# Schema: packages/types/src/config/schemas.ts → OutputConfigSchema
+# Processor: sdk/api/shared/config/processors/output.ts → mergeOutputWithDefaults()
+# Loader:   apps/config-processor/src/loader-orchestrator.ts → loadOutputConfig()
 
 dir = "./outputs"                     # Base output directory
 logFilePattern = "app-{date}.log"     # Log file naming pattern

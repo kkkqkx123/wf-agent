@@ -1,9 +1,9 @@
-# Presets Configuration Example
+# Presets Configuration
 #
 # Controls which predefined resources are enabled at startup.
 #
-# Type: packages/types/src/config/presets.ts → PresetsConfig
-# Schema: packages/types/src/config/schemas.ts → PresetsConfigSchema
+# Processor: sdk/api/shared/config/processors/presets.ts → transformPresetsConfig()
+# Loader:   apps/config-processor/src/loader-orchestrator.ts → loadPresetsConfig()
 
 [contextCompression]
 enabled = true
@@ -12,8 +12,8 @@ maxTriggers = 10                      # Max compression triggers per session
 
 [predefinedTools]
 enabled = true
-# allowList = []                      # Uncomment to restrict to specific tools
-# blockList = []                      # Uncomment to exclude specific tools
+# allowList = []
+# blockList = []
 
 [predefinedTools.config.readFile]
 workspaceDir = "./"

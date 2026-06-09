@@ -1,11 +1,10 @@
-# Metrics Configuration Example
+# Metrics Configuration
 #
 # Controls the metrics collection system across the SDK.
 # Each collector can be independently configured for buffer size and flush interval.
 #
-# Type: packages/types/src/config/metrics.ts → MetricsConfig
 # Processor: sdk/api/shared/config/processors/metrics.ts → mergeMetricsWithDefaults()
-# Loader: apps/config-processor/src/loader-orchestrator.ts → loadMetricsConfig()
+# Loader:   apps/config-processor/src/loader-orchestrator.ts → loadMetricsConfig()
 
 # Global settings
 enabled = true
@@ -13,7 +12,6 @@ enablePeriodicReporting = false
 reportingInterval = 60000
 
 # --- Individual collectors ---
-# Each collector controls a specific domain of metrics.
 
 [workflowMetrics]
 bufferSize = 100

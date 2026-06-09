@@ -1,9 +1,9 @@
-# Storage Configuration Example
+# Storage Configuration
 #
 # Configures the storage backend for workflow/checkpoint/task persistence.
 #
-# Type: packages/types/src/config/storage.ts → StorageConfig
-# Schema: packages/types/src/config/schemas.ts → StorageConfigSchema
+# Processor: sdk/api/shared/config/processors/storage.ts → mergeStorageWithDefaults()
+# Loader:   apps/config-processor/src/loader-orchestrator.ts → loadStorageConfig()
 
 type = "json"                         # Storage backend: json | sqlite | postgres | memory
 

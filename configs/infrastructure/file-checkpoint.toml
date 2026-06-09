@@ -1,12 +1,11 @@
-# File Checkpoint Configuration Example
+# File Checkpoint Configuration
 #
 # Controls workspace file state checkpointing.
 # When enabled, file checkpoints are created alongside execution checkpoints
 # to capture workspace file state for restoration.
 #
-# Type: packages/types/src/config/file-checkpoint.ts → FileCheckpointConfig
 # Processor: sdk/api/shared/config/processors/file-checkpoint.ts → mergeFileCheckpointConfig()
-# Loader: apps/config-processor/src/loader-orchestrator.ts → loadFileCheckpointConfig()
+# Loader:   apps/config-processor/src/loader-orchestrator.ts → loadFileCheckpointConfig()
 
 enabled = false                       # Enable workspace file snapshotting
 workspaceRoot = ""                    # Override workspace root (default: process.cwd())

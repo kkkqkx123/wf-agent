@@ -183,7 +183,7 @@ export class MemoryTaskStorage
       byStatus: byStatus as Record<string, number>,
       byWorkflow,
       avgExecutionTime,
-      maxExecutionTime,
+      maxExecutionTime: executionTimeCount > 0 ? maxExecutionTime : undefined,
       minExecutionTime: executionTimeCount > 0 ? minExecutionTime : undefined,
       successRate: entries.length > 0 ? completedCount / entries.length : undefined,
       timeoutRate: entries.length > 0 ? timeoutCount / entries.length : undefined,

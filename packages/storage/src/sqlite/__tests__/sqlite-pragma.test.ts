@@ -6,7 +6,7 @@
  * These are verified via behavioral tests instead of raw pragma readback.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import * as fs from "fs/promises";
 import * as path from "path";
 import Database from "better-sqlite3";
@@ -17,7 +17,7 @@ describe("configurePragmas", () => {
 
   function tmpPath(): string {
     const f = path.join(
-      process.env.TEMP || process.env.TMP || "/tmp",
+      process.env["TEMP"] || process.env["TMP"] || "/tmp",
       `pragma-test-${Date.now()}-${Math.random()}.db`
     );
     tmpFiles.push(f);

@@ -2,7 +2,7 @@
  * Unit tests for SqliteConnectionPool
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "fs";
 import path from "path";
 import os from "os";
@@ -98,7 +98,7 @@ describe("SqliteConnectionPool", () => {
     });
 
     it("should not close connection when refCount > 0", () => {
-      const db1 = pool.getConnection(dbPath);
+      pool.getConnection(dbPath);
       const db2 = pool.getConnection(dbPath);
       
       pool.releaseConnection(dbPath);

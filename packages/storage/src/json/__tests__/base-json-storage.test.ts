@@ -7,7 +7,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as fs from "fs/promises";
 import * as path from "path";
 import * as os from "os";
-import { BaseJsonStorage, type BaseJsonStorageConfig } from "../base-json-storage.js";
+import { BaseJsonStorage } from "../base-json-storage.js";
 import { StorageError } from "../../types/storage-errors.js";
 
 interface TestMetadata {
@@ -17,7 +17,7 @@ interface TestMetadata {
 
 // Create a concrete implementation for testing
 class TestJsonStorage extends BaseJsonStorage<TestMetadata> {
-  async list(): Promise<string[]> {
+  override async list(): Promise<string[]> {
     return this.getAllIds();
   }
 }

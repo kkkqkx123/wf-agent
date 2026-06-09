@@ -16,6 +16,10 @@ interface TestMetadata {
 
 // Create a concrete implementation for testing
 class TestSqliteStorage extends BaseSqliteStorage<TestMetadata> {
+  protected getBlobTableName(): string | null {
+    return null;
+  }
+
   protected getTableName(): string {
     return "test_table";
   }
@@ -188,12 +192,7 @@ describe("BaseSqliteStorage", () => {
 
   describe("WAL mode", () => {
     it("should enable WAL mode by default", async () => {
-      // Save some data to ensure WAL is working
       await storage.save("test-1", new Uint8Array([1]), { name: "test", value: 1 });
-
-      // Check for WAL file
-      const walPath = dbPath + "-wal";
-      const shmPath = dbPath + "-shm";
 
       // WAL files may or may not exist depending on operations
       // Just verify the database works correctly

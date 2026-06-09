@@ -181,11 +181,24 @@ export class MemoryCheckpointStorage
 
     // Apply additional filters if needed
     if (options) {
-      if (options.entityType && options.entityId) {
-        const key = `${options.entityType}:${options.entityId}`;
-        if (!this.entityIndex.has(key)) {
-          // Already filtered by index, but double-check
-        }
+      // Filter by entityType alone (not already covered by index)
+      if (options.entityType && !options.entityId) {
+        ids = new Set(
+          [...ids].filter(id => {
+            const entry = this.store.get(id);
+            return entry?.metadata.entityType === options.entityType;
+          }),
+        );
+      }
+
+      // Filter by entityId alone (not already covered by index)
+      if (options.entityId && !options.entityType) {
+        ids = new Set(
+          [...ids].filter(id => {
+            const entry = this.store.get(id);
+            return entry?.metadata.entityId === options.entityId;
+          }),
+        );
       }
 
       if (options.tags && options.tags.length > 0) {
@@ -195,7 +208,7 @@ export class MemoryCheckpointStorage
             const entry = this.store.get(id);
             const metadataTags = entry?.metadata.tags || [];
             return options.tags!.some(tag => metadataTags.includes(tag));
-          })
+          }),
         );
       }
     }
@@ -252,6 +265,27 @@ export class MemoryCheckpointStorage
     } else {
       // No filters, return all IDs
       ids = new Set(this.store.keys());
+    }
+
+    // Apply additional filters if needed
+    if (options) {
+      if (options.entityType && !options.entityId) {
+        ids = new Set(
+          [...ids].filter(id => {
+            const entry = this.store.get(id);
+            return entry?.metadata.entityType === options.entityType;
+          }),
+        );
+      }
+
+      if (options.entityId && !options.entityType) {
+        ids = new Set(
+          [...ids].filter(id => {
+            const entry = this.store.get(id);
+            return entry?.metadata.entityId === options.entityId;
+          }),
+        );
+      }
     }
 
     // Build result items

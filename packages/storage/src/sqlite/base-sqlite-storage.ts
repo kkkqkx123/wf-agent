@@ -375,28 +375,6 @@ export abstract class BaseSqliteStorage<TMetadata, TListOptions = Record<string,
   }
 
   /**
-   * Load data from database
-   */
-  async load(id: string): Promise<Uint8Array | null> {
-    try {
-      const stmt = this.getPreparedStatement(`SELECT data FROM ${this.getTableName()} WHERE id = ?`);
-      const row = stmt.get(id) as { data: Buffer } | undefined;
-
-      if (!row) {
-        logger.debug("Data not found in SQLite", { id, table: this.getTableName() });
-        return null;
-      }
-
-      logger.debug("Data loaded from SQLite", { id, dataSize: row.data.length });
-      // Zero-copy conversion: use shared ArrayBuffer to avoid memory duplication
-      const buffer = row.data;
-      return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
-    } catch (error) {
-      return this.handleSqliteError(error, "load", { id });
-    }
-  }
-
-  /**
    * Delete data
    */
   async delete(id: string): Promise<void> {
@@ -629,59 +607,15 @@ export abstract class BaseSqliteStorage<TMetadata, TListOptions = Record<string,
 
   // ── CRUD abstract methods (must be implemented by subclasses) ──────────
   abstract override save(id: string, data: Uint8Array, metadata: TMetadata): Promise<void>;
+  abstract override load(id: string): Promise<Uint8Array | null>;
   abstract override list(options?: TListOptions): Promise<string[]>;
   abstract override getMetadata(id: string): Promise<TMetadata | null>;
 
   /**
-   * Save multiple items in a single transaction
-   * More efficient than individual saves for bulk operations
-   * @param items Array of items to save with id, data, and metadata
-   */
-  override async saveBatch(
-    items: Array<{ id: string; data: Uint8Array; metadata: TMetadata }>,
-  ): Promise<void> {
-    const db = this.getDb();
-    const startTime = Date.now();
-
-    try {
-      if (items.length === 0) {
-        return;
-      }
-
-      // Use transaction for atomicity and performance
-      const transaction = db.transaction((itemsToSave: Array<{ id: string; data: Uint8Array }>) => {
-        // Prepare statement once
-        const stmt = db.prepare(`
-          INSERT INTO ${this.getTableName()} (id, data) VALUES (?, ?)
-          ON CONFLICT(id) DO UPDATE SET data = excluded.data
-        `);
-
-        // Batch insert using prepared statement
-        for (const item of itemsToSave) {
-          stmt.run(item.id, Buffer.from(item.data));
-        }
-      });
-
-      // Execute transaction with items
-      transaction(items.map(item => ({ id: item.id, data: item.data })));
-
-      const elapsed = Date.now() - startTime;
-      this.updateMetric('save', elapsed / items.length, items.reduce((sum, item) => sum + item.data.length, 0));
-
-      logger.debug("Batch save completed", {
-        table: this.getTableName(),
-        count: items.length,
-        totalTimeMs: elapsed,
-      });
-    } catch (error) {
-      return this.handleSqliteError(error, "saveBatch", { count: items.length });
-    }
-  }
-
-  /**
-   * Save multiple items with custom save logic (protected helper for subclasses)
+   * Save multiple items with custom save logic (protected helper for subclasses
+   * that need metadata-BLOB separation in batch operations)
    * @param items Array of items to save
-   * @param saveFn Custom save function for each item
+   * @param saveFn Custom save function for each item (receives db and item)
    */
   protected async saveBatchWithCustomLogic(
     items: Array<{ id: string; data: Uint8Array; metadata: TMetadata }>,
@@ -719,60 +653,8 @@ export abstract class BaseSqliteStorage<TMetadata, TListOptions = Record<string,
   }
 
   /**
-   * Load multiple items efficiently
-   * @param ids Array of IDs to load
-   * @returns Array of loaded data (null if not found), maintaining order
-   */
-  override async loadBatch(
-    ids: string[],
-  ): Promise<Array<{ id: string; data: Uint8Array | null }>> {
-    const db = this.getDb();
-    const startTime = Date.now();
-
-    try {
-      if (ids.length === 0) {
-        return [];
-      }
-
-      // Use IN clause for efficient batch loading
-      const placeholders = ids.map(() => '?').join(',');
-      const stmt = db.prepare(
-        `SELECT id, data FROM ${this.getTableName()} WHERE id IN (${placeholders})`
-      );
-      const rows = stmt.all(...ids) as Array<{ id: string; data: Buffer }>;
-
-      // Create a map for quick lookup
-      const dataMap = new Map<string, Uint8Array>();
-      for (const row of rows) {
-        // Zero-copy conversion: use shared ArrayBuffer to avoid memory duplication
-        const buffer = row.data;
-        dataMap.set(row.id, new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength));
-      }
-
-      // Maintain order and handle missing items
-      const results = ids.map(id => ({
-        id,
-        data: dataMap.get(id) || null,
-      }));
-
-      const elapsed = Date.now() - startTime;
-      this.updateMetric('load', elapsed / ids.length);
-
-      logger.debug("Batch load completed", {
-        table: this.getTableName(),
-        requested: ids.length,
-        found: rows.length,
-        totalTimeMs: elapsed,
-      });
-
-      return results;
-    } catch (error) {
-      return this.handleSqliteError(error, "loadBatch", { count: ids.length });
-    }
-  }
-
-  /**
-   * Load multiple items with custom extraction logic (protected helper for subclasses)
+   * Load multiple items with custom extraction logic (protected helper for subclasses
+   * that need metadata-BLOB separation in batch operations)
    * @param ids Array of IDs to load
    * @param loadFn Function to extract data from row
    * @returns Array of loaded data (null if not found), maintaining order
@@ -824,50 +706,6 @@ export abstract class BaseSqliteStorage<TMetadata, TListOptions = Record<string,
       return results;
     } catch (error) {
       return this.handleSqliteError(error, "loadBatch", { count: ids.length });
-    }
-  }
-
-  /**
-   * Delete multiple items in a single transaction
-   * More efficient than individual deletes for bulk operations
-   * @param ids Array of IDs to delete
-   */
-  override async deleteBatch(ids: string[]): Promise<void> {
-    const db = this.getDb();
-    const startTime = Date.now();
-
-    try {
-      if (ids.length === 0) {
-        return;
-      }
-
-      // Use transaction for atomicity and performance
-      const transaction = db.transaction((idsToDelete: string[]) => {
-        // Prepare statement once
-        const stmt = db.prepare(`DELETE FROM ${this.getTableName()} WHERE id = ?`);
-        
-        for (const id of idsToDelete) {
-          stmt.run(id);
-        }
-      });
-
-      transaction(ids);
-
-      const elapsed = Date.now() - startTime;
-      this.updateMetric('delete', elapsed / ids.length);
-
-      logger.debug("Batch delete completed", {
-        table: this.getTableName(),
-        count: ids.length,
-        totalTimeMs: elapsed,
-      });
-    } catch (error) {
-      logger.error("Batch delete failed", { 
-        table: this.getTableName(), 
-        count: ids.length,
-        error: (error as Error).message 
-      });
-      return this.handleSqliteError(error, "deleteBatch", { count: ids.length });
     }
   }
 }

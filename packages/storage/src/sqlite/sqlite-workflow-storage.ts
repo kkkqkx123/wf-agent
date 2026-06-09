@@ -504,6 +504,18 @@ export class SqliteWorkflowStorage
         updates.push("enabled = ?");
         params.push(metadata.enabled ? 1 : 0);
       }
+      if (metadata.edgeCount !== undefined) {
+        updates.push("edge_count = ?");
+        params.push(metadata.edgeCount);
+      }
+      if (metadata.nodeCount !== undefined) {
+        updates.push("node_count = ?");
+        params.push(metadata.nodeCount);
+      }
+      if (metadata.version !== undefined) {
+        updates.push("version = ?");
+        params.push(metadata.version);
+      }
       if (metadata.customFields !== undefined) {
         updates.push("custom_fields = ?");
         params.push(JSON.stringify(metadata.customFields));

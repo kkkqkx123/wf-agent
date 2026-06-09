@@ -75,6 +75,19 @@ class TestSqliteStorage extends BaseSqliteStorage<TestMetadata> {
       this.handleSqliteError(error, "list", {});
     }
   }
+
+  async load(id: string): Promise<Uint8Array | null> {
+    const db = this.getDb();
+    try {
+      const stmt = db.prepare(`SELECT data FROM test_table WHERE id = ?`);
+      const row = stmt.get(id) as { data: Buffer } | undefined;
+      if (!row) return null;
+      const buffer = row.data;
+      return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+    } catch (error) {
+      this.handleSqliteError(error, "load", { id });
+    }
+  }
 }
 
 describe("BaseSqliteStorage", () => {

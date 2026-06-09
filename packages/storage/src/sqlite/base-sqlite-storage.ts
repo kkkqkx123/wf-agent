@@ -405,11 +405,65 @@ export abstract class BaseSqliteStorage<TMetadata, TListOptions = Record<string,
    */
   async clear(): Promise<void> {
     try {
-      const stmt = this.getPreparedStatement(`DELETE FROM ${this.getTableName()}`);
-      stmt.run();
-      logger.info("SQLite table cleared", { table: this.getTableName() });
+      const db = this.getDb();
+      const blobTableName = this.getBlobTableName();
+
+      // Use transaction to delete from both tables atomically
+      const clearTransaction = db.transaction(() => {
+        // Delete from blob table first (if exists) to respect FK constraints
+        if (blobTableName) {
+          db.prepare(`DELETE FROM ${blobTableName}`).run();
+        }
+        db.prepare(`DELETE FROM ${this.getTableName()}`).run();
+      });
+
+      clearTransaction();
+      logger.info("SQLite tables cleared", { table: this.getTableName(), blobTable: blobTableName });
     } catch (error) {
       return this.handleSqliteError(error, "clear", {});
+    }
+  }
+
+  /**
+   * Delete multiple items atomically in a single transaction.
+   *
+   * Delegates to each `delete(id)` call within a better-sqlite3 transaction,
+   * ensuring all-or-nothing semantics. This is important because subclasses
+   * rely on ON DELETE CASCADE to clean up associated blob data — aborting
+   * mid-way would leave orphaned rows in the blob table.
+   *
+   * If a subclass needs custom batch delete logic (e.g., multi-table cleanup),
+   * it should override this method directly.
+   */
+  override async deleteBatch(ids: string[]): Promise<void> {
+    const db = this.getDb();
+    const startTime = Date.now();
+
+    try {
+      if (ids.length === 0) {
+        return;
+      }
+
+      const stmt = db.prepare(`DELETE FROM ${this.getTableName()} WHERE id = ?`);
+
+      const deleteTransaction = db.transaction((batch: string[]) => {
+        for (const id of batch) {
+          stmt.run(id);
+        }
+      });
+
+      deleteTransaction(ids);
+
+      const elapsed = Date.now() - startTime;
+      this.updateMetric("delete", elapsed / ids.length);
+
+      logger.debug("Batch delete completed", {
+        table: this.getTableName(),
+        count: ids.length,
+        totalTimeMs: elapsed,
+      });
+    } catch (error) {
+      return this.handleSqliteError(error, "deleteBatch", { count: ids.length });
     }
   }
 
@@ -610,102 +664,4 @@ export abstract class BaseSqliteStorage<TMetadata, TListOptions = Record<string,
   abstract override load(id: string): Promise<Uint8Array | null>;
   abstract override list(options?: TListOptions): Promise<string[]>;
   abstract override getMetadata(id: string): Promise<TMetadata | null>;
-
-  /**
-   * Save multiple items with custom save logic (protected helper for subclasses
-   * that need metadata-BLOB separation in batch operations)
-   * @param items Array of items to save
-   * @param saveFn Custom save function for each item (receives db and item)
-   */
-  protected async saveBatchWithCustomLogic(
-    items: Array<{ id: string; data: Uint8Array; metadata: TMetadata }>,
-    saveFn: (db: Database.Database, item: { id: string; data: Uint8Array; metadata: TMetadata }) => void,
-  ): Promise<void> {
-    const db = this.getDb();
-    const startTime = Date.now();
-
-    try {
-      // Use transaction for atomicity and performance
-      const transaction = db.transaction(() => {
-        for (const item of items) {
-          saveFn(db, item);
-        }
-      });
-
-      transaction();
-
-      const elapsed = Date.now() - startTime;
-      this.updateMetric('save', elapsed / items.length, items.reduce((sum, item) => sum + item.data.length, 0));
-
-      logger.debug("Batch save completed", {
-        table: this.getTableName(),
-        count: items.length,
-        totalTimeMs: elapsed,
-      });
-    } catch (error) {
-      logger.error("Batch save failed", { 
-        table: this.getTableName(), 
-        count: items.length,
-        error: (error as Error).message 
-      });
-      return this.handleSqliteError(error, "saveBatch", { count: items.length });
-    }
-  }
-
-  /**
-   * Load multiple items with custom extraction logic (protected helper for subclasses
-   * that need metadata-BLOB separation in batch operations)
-   * @param ids Array of IDs to load
-   * @param loadFn Function to extract data from row
-   * @returns Array of loaded data (null if not found), maintaining order
-   */
-  protected async loadBatchWithCustomLogic(
-    ids: string[],
-    loadFn: (row: Record<string, unknown>) => Uint8Array | null,
-  ): Promise<Array<{ id: string; data: Uint8Array | null }>> {
-    const db = this.getDb();
-    const startTime = Date.now();
-
-    try {
-      if (ids.length === 0) {
-        return [];
-      }
-
-      // Use IN clause for efficient batch loading
-      const placeholders = ids.map(() => '?').join(',');
-      const stmt = db.prepare(
-        `SELECT id, data FROM ${this.getTableName()} WHERE id IN (${placeholders})`
-      );
-      const rows = stmt.all(...ids) as Array<{ id: string; data: Buffer }>;
-
-      // Create a map for quick lookup
-      const dataMap = new Map<string, Uint8Array>();
-      for (const row of rows) {
-        const extractedData = loadFn(row);
-        if (extractedData) {
-          dataMap.set(row.id, extractedData);
-        }
-      }
-
-      // Maintain order and handle missing items
-      const results = ids.map(id => ({
-        id,
-        data: dataMap.get(id) || null,
-      }));
-
-      const elapsed = Date.now() - startTime;
-      this.updateMetric('load', elapsed / ids.length);
-
-      logger.debug("Batch load completed", {
-        table: this.getTableName(),
-        requested: ids.length,
-        found: rows.length,
-        totalTimeMs: elapsed,
-      });
-
-      return results;
-    } catch (error) {
-      return this.handleSqliteError(error, "loadBatch", { count: ids.length });
-    }
-  }
 }

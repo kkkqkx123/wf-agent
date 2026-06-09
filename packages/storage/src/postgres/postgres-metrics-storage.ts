@@ -2,6 +2,14 @@
  * PostgreSQL Metrics Storage Implementation
  * Stores metrics data in a PostgreSQL database table
  *
+ * Design Note:
+ * This storage directly implements MetricsStorageAdapter instead of extending
+ * StorageAdapterBase because metrics have a different data model:
+ * - Metrics are time-series data points (not single entities with metadata + blob)
+ * - They use saveBatch() for bulk inserts instead of save()
+ * - They use query() with time-range filters instead of list()
+ * This design choice is intentional and consistent across all MetricsStorage implementations.
+ *
  * Database Schema:
  * - metrics table: Stores all metric data points with JSON labels
  * - Indexes on (metric_name, timestamp) for efficient time-range queries

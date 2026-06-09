@@ -17,7 +17,7 @@ import { BaseJsonStorage, BaseJsonStorageConfig } from "./base-json-storage.js";
  * Implements the AgentLoopStorageAdapter interface
  */
 export class JsonAgentLoopStorage
-  extends BaseJsonStorage<AgentEntityMetadata>
+  extends BaseJsonStorage<AgentEntityMetadata, AgentEntityListOptions>
   implements AgentLoopStorageAdapter
 {
   constructor(config: BaseJsonStorageConfig) {

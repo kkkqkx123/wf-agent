@@ -40,7 +40,7 @@ export class SqliteCheckpointStorage
   /**
    * Get BLOB table name
    */
-  protected getBlobTableName(): string {
+  protected getBlobTableName(): string | null {
     return "checkpoint_blob";
   }
 

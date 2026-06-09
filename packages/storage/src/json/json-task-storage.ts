@@ -19,7 +19,7 @@ import { BaseJsonStorage, BaseJsonStorageConfig } from "./base-json-storage.js";
  * Implements the TaskStorageAdapter interface
  */
 export class JsonTaskStorage
-  extends BaseJsonStorage<TaskStorageMetadata>
+  extends BaseJsonStorage<TaskStorageMetadata, TaskListOptions>
   implements TaskStorageAdapter
 {
   constructor(config: BaseJsonStorageConfig) {

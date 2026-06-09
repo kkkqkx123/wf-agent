@@ -1,6 +1,14 @@
 /**
  * In-Memory Metrics Storage Adapter
  * Fast, ephemeral storage for metrics data points, primarily for testing
+ *
+ * Design Note:
+ * This storage directly implements MetricsStorageAdapter instead of extending
+ * StorageAdapterBase because metrics have a different data model:
+ * - Metrics are time-series data points (not single entities with metadata + blob)
+ * - They use saveBatch() for bulk inserts instead of save()
+ * - They use query() with time-range filters instead of list()
+ * This design choice is intentional and consistent across all MetricsStorage implementations.
  */
 
 import type { MetricsStorageAdapter, MetricDataPoint, MetricsQuery } from "../types/adapter/metrics-storage-adapter.js";

@@ -264,4 +264,69 @@ describe("BaseSqliteStorage", () => {
       await customTimeoutStorage.close();
     });
   });
+
+  describe("free space management", () => {
+    it("getFreelistCount returns a non-negative number", async () => {
+      // Initially empty table, freelist should be 0
+      const count = storage.getFreelistCount();
+      expect(count).toBeGreaterThanOrEqual(0);
+    });
+
+    it("getPageCount returns a positive number", async () => {
+      const count = storage.getPageCount();
+      expect(count).toBeGreaterThan(0);
+    });
+
+    it("getFragmentationRatio returns value between 0 and 1", async () => {
+      const ratio = storage.getFragmentationRatio();
+      expect(ratio).toBeGreaterThanOrEqual(0);
+      expect(ratio).toBeLessThanOrEqual(1);
+    });
+
+    it("incrementalVacuum executes without error", async () => {
+      expect(() => {
+        storage.incrementalVacuum();
+      }).not.toThrow();
+    });
+
+    it("incrementalVacuum with page count executes without error", async () => {
+      expect(() => {
+        storage.incrementalVacuum(10);
+      }).not.toThrow();
+    });
+  });
+
+  describe("new config options", () => {
+    it("should initialize with autoVacuum config", async () => {
+      const autoVacuumStorage = new TestSqliteStorage({
+        dbPath,
+        autoVacuum: "INCREMENTAL",
+        useConnectionPool: false,
+      });
+      await autoVacuumStorage.initialize();
+      expect(() => autoVacuumStorage.getFragmentationRatio()).not.toThrow();
+      await autoVacuumStorage.close();
+    });
+
+    it("should initialize with journalSizeLimit config", async () => {
+      const limitedStorage = new TestSqliteStorage({
+        dbPath,
+        journalSizeLimit: 32 * 1024 * 1024,
+        useConnectionPool: false,
+      });
+      await limitedStorage.initialize();
+      expect(() => limitedStorage.getFreelistCount()).not.toThrow();
+      await limitedStorage.close();
+    });
+
+    it("should initialize with maintenanceIntervalMs config without throwing", async () => {
+      const maintenanceStorage = new TestSqliteStorage({
+        dbPath,
+        maintenanceIntervalMs: 60000,
+        useConnectionPool: false,
+      });
+      await maintenanceStorage.initialize();
+      await maintenanceStorage.close();
+    });
+  });
 });

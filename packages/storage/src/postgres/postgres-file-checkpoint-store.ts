@@ -2,6 +2,14 @@
  * PostgreSQL File Checkpoint Store Implementation
  * Stores file checkpoints in PostgreSQL database tables
  *
+ * Design Note:
+ * This storage directly implements FileCheckpointStorageAdapter instead of extending
+ * StorageAdapterBase because file checkpoints have a different data model:
+ * - File checkpoints store multiple files per checkpoint (Map<string, Buffer>)
+ * - They don't fit the single metadata + blob pattern of other storage types
+ * - The save() method accepts a Map of files instead of a single Uint8Array
+ * This design choice is intentional and consistent across all FileCheckpointStore implementations.
+ *
  * Database Schema:
  * - file_cp_metadata: stores checkpoint-level metadata
  * - file_cp_files: stores individual file content per checkpoint

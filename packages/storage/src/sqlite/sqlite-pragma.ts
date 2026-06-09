@@ -68,5 +68,7 @@ export function configurePragmas(db: Database.Database, config?: PragmaConfig): 
 
   if (cfg.foreignKeys) {
     db.pragma('foreign_keys = ON');
+  } else {
+    db.pragma('foreign_keys = OFF');
   }
 }

@@ -6,6 +6,14 @@
  * - file_cp_metadata: checkpoint metadata and hash snapshots
  * - file_cp_files: actual file content stored per checkpoint
  *
+ * Design Note:
+ * This storage directly implements FileCheckpointStorageAdapter instead of extending
+ * StorageAdapterBase because file checkpoints have a different data model:
+ * - File checkpoints store multiple files per checkpoint (Map<string, Buffer>)
+ * - They don't fit the single metadata + blob pattern of other storage types
+ * - The save() method accepts a Map of files instead of a single Uint8Array
+ * This design choice is intentional and consistent across all FileCheckpointStore implementations.
+ *
  * Design follows the same metadata-BLOB separation pattern as other storage implementations.
  */
 import Database from 'better-sqlite3';

@@ -14,7 +14,7 @@ import { StorageError } from "../types/storage-errors.js";
  * Implements the WorkflowExecutionStorageAdapter interface
  */
 export class JsonWorkflowExecutionStorage
-  extends BaseJsonStorage<WorkflowExecutionStorageMetadata>
+  extends BaseJsonStorage<WorkflowExecutionStorageMetadata, WorkflowExecutionListOptions>
   implements WorkflowExecutionStorageAdapter
 {
   constructor(config: BaseJsonStorageConfig) {

@@ -45,7 +45,7 @@ export class SqliteWorkflowExecutionStorage
   /**
    * Get BLOB table name
    */
-  protected getBlobTableName(): string {
+  protected getBlobTableName(): string | null {
     return "workflow_execution_blob";
   }
 

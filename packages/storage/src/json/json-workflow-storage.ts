@@ -40,7 +40,7 @@ interface VersionMetadataContent {
  * Implements the WorkflowStorageAdapter interface
  */
 export class JsonWorkflowStorage
-  extends BaseJsonStorage<WorkflowStorageMetadata>
+  extends BaseJsonStorage<WorkflowStorageMetadata, WorkflowListOptions>
   implements WorkflowStorageAdapter
 {
   constructor(config: BaseJsonStorageConfig) {

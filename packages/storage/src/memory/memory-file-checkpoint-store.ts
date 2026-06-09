@@ -1,6 +1,14 @@
 /**
  * In-Memory File Checkpoint Store Adapter
  * Fast, ephemeral storage for file checkpoints, primarily for testing
+ *
+ * Design Note:
+ * This storage directly implements FileCheckpointStorageAdapter instead of extending
+ * StorageAdapterBase because file checkpoints have a different data model:
+ * - File checkpoints store multiple files per checkpoint (Map<string, Buffer>)
+ * - They don't fit the single metadata + blob pattern of other storage types
+ * - The save() method accepts a Map of files instead of a single Uint8Array
+ * This design choice is intentional and consistent across all FileCheckpointStore implementations.
  */
 
 import type { FileCheckpointMetadata, FileCheckpointListOptions } from "@wf-agent/types";

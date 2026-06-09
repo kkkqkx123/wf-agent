@@ -75,10 +75,11 @@ interface MetadataIndexEntry<TMetadata> {
  * JSON File Storage Abstract Base Class
  * Separates metadata (JSON) and binary data for optimal performance
  * @template TMetadata Metadata Type
+ * @template TListOptions List query options type (default: Record<string, unknown>)
  * @template TSaveOptions Save operation options type (default: void)
  */
-export abstract class BaseJsonStorage<TMetadata extends object, TSaveOptions = void>
-  extends StorageAdapterBase<TMetadata, Record<string, unknown>, TSaveOptions>
+export abstract class BaseJsonStorage<TMetadata extends object, TListOptions = Record<string, unknown>, TSaveOptions = void>
+  extends StorageAdapterBase<TMetadata, TListOptions, TSaveOptions>
 {
   protected metadataIndex: Map<string, MetadataIndexEntry<TMetadata>> = new Map();
   protected lockFiles: Map<string, Promise<void>> = new Map();
@@ -685,7 +686,7 @@ export abstract class BaseJsonStorage<TMetadata extends object, TSaveOptions = v
   /**
    * List all IDs
    */
-  async list(_options?: Record<string, unknown>): Promise<string[]> {
+  async list(_options?: TListOptions): Promise<string[]> {
     this.ensureInitialized();
     return this.getAllIds();
   }

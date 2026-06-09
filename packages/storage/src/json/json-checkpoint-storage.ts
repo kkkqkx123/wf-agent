@@ -14,7 +14,7 @@ import { BaseJsonStorage, BaseJsonStorageConfig } from "./base-json-storage.js";
  * Implements the CheckpointStorageAdapter interface
  */
 export class JsonCheckpointStorage
-  extends BaseJsonStorage<CheckpointStorageMetadata, CheckpointOptions>
+  extends BaseJsonStorage<CheckpointStorageMetadata, CheckpointStorageListOptions, CheckpointOptions>
   implements CheckpointStorageAdapter
 {
   constructor(config: BaseJsonStorageConfig) {

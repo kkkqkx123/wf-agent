@@ -60,8 +60,8 @@ const MAX_PAGE_LIMIT = 1000;
  * @template TMetadata metadata type
  * @template TListOptions list options type
  */
-export abstract class BaseSqliteStorage<TMetadataType, TListOptions = Record<string, unknown>>
-  extends StorageAdapterBase<TMetadataType, TListOptions>
+export abstract class BaseSqliteStorage<TMetadata, TListOptions = Record<string, unknown>>
+  extends StorageAdapterBase<TMetadata, TListOptions>
 {
   protected db: Database.Database | null = null;
   protected usingPool: boolean = false;
@@ -80,6 +80,12 @@ export abstract class BaseSqliteStorage<TMetadataType, TListOptions = Record<str
    * Subclasses must implement this method to return the table name.
    */
   protected abstract getTableName(): string;
+
+  /**
+   * Get BLOB table name (return null if not using separate BLOB table)
+   * Subclasses must implement this method
+   */
+  protected abstract getBlobTableName(): string | null;
 
   /**
    * Creating a Table Structure
@@ -622,9 +628,9 @@ export abstract class BaseSqliteStorage<TMetadataType, TListOptions = Record<str
   }
 
   // ── CRUD abstract methods (must be implemented by subclasses) ──────────
-  abstract override save(id: string, data: Uint8Array, metadata: TMetadataType): Promise<void>;
+  abstract override save(id: string, data: Uint8Array, metadata: TMetadata): Promise<void>;
   abstract override list(options?: TListOptions): Promise<string[]>;
-  abstract override getMetadata(id: string): Promise<TMetadataType | null>;
+  abstract override getMetadata(id: string): Promise<TMetadata | null>;
 
   /**
    * Save multiple items in a single transaction
@@ -632,7 +638,7 @@ export abstract class BaseSqliteStorage<TMetadataType, TListOptions = Record<str
    * @param items Array of items to save with id, data, and metadata
    */
   override async saveBatch(
-    items: Array<{ id: string; data: Uint8Array; metadata: TMetadataType }>,
+    items: Array<{ id: string; data: Uint8Array; metadata: TMetadata }>,
   ): Promise<void> {
     const db = this.getDb();
     const startTime = Date.now();
@@ -678,8 +684,8 @@ export abstract class BaseSqliteStorage<TMetadataType, TListOptions = Record<str
    * @param saveFn Custom save function for each item
    */
   protected async saveBatchWithCustomLogic(
-    items: Array<{ id: string; data: Uint8Array; metadata: TMetadataType }>,
-    saveFn: (db: Database.Database, item: { id: string; data: Uint8Array; metadata: TMetadataType }) => void,
+    items: Array<{ id: string; data: Uint8Array; metadata: TMetadata }>,
+    saveFn: (db: Database.Database, item: { id: string; data: Uint8Array; metadata: TMetadata }) => void,
   ): Promise<void> {
     const db = this.getDb();
     const startTime = Date.now();

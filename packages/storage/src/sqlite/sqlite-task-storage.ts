@@ -46,7 +46,7 @@ export class SqliteTaskStorage
   /**
    * Get BLOB table name
    */
-  protected getBlobTableName(): string {
+  protected getBlobTableName(): string | null {
     return "task_blob";
   }
 

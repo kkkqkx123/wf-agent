@@ -40,7 +40,7 @@ export class SqliteAgentLoopStorage
   /**
    * Get BLOB table name
    */
-  protected getBlobTableName(): string {
+  protected getBlobTableName(): string | null {
     return "agent_loop_blob";
   }
 

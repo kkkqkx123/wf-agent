@@ -58,8 +58,8 @@ export interface BasePostgresStorageConfig {
  * @template TMetadata metadata type
  * @template TListOptions list options type
  */
-export abstract class BasePostgresStorage<TMetadataType, TListOptions = Record<string, unknown>>
-  extends StorageAdapterBase<TMetadataType, TListOptions>
+export abstract class BasePostgresStorage<TMetadata, TListOptions = Record<string, unknown>>
+  extends StorageAdapterBase<TMetadata, TListOptions>
 {
   protected pool: Pool | null = null;
   protected usingPool: boolean = false;
@@ -381,10 +381,10 @@ export abstract class BasePostgresStorage<TMetadataType, TListOptions = Record<s
   }
 
   // ── CRUD abstract methods (must be implemented by subclasses) ──────────
-  abstract override save(id: string, data: Uint8Array, metadata: TMetadataType): Promise<void>;
+  abstract override save(id: string, data: Uint8Array, metadata: TMetadata): Promise<void>;
   abstract override load(id: string): Promise<Uint8Array | null>;
   abstract override list(options?: TListOptions): Promise<string[]>;
-  abstract override getMetadata(id: string): Promise<TMetadataType | null>;
+  abstract override getMetadata(id: string): Promise<TMetadata | null>;
 
   /**
    * Clear all data
@@ -435,7 +435,7 @@ export abstract class BasePostgresStorage<TMetadataType, TListOptions = Record<s
    * Save multiple items in a single transaction
    */
   override async saveBatch(
-    items: Array<{ id: string; data: Uint8Array; metadata: TMetadataType }>,
+    items: Array<{ id: string; data: Uint8Array; metadata: TMetadata }>,
   ): Promise<void> {
     const client = await this.getClient();
     const startTime = Date.now();
@@ -483,7 +483,7 @@ export abstract class BasePostgresStorage<TMetadataType, TListOptions = Record<s
     client: PoolClient,
     id: string,
     data: Uint8Array,
-    metadata: TMetadataType
+    metadata: TMetadata
   ): Promise<void>;
 
   /**

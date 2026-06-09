@@ -84,6 +84,9 @@ export async function resolvePresetIndex(
   const failures: Array<{ path: string; error: string }> = [];
 
   for (const filePath of filePaths) {
+    // Skip the index file itself when using broad patterns like ./*.json
+    if (path.basename(filePath).toLowerCase() === INDEX_FILE_NAMES["mcp_presets"]) continue;
+
     const name = path.basename(filePath, path.extname(filePath));
     if (!name) continue;
 

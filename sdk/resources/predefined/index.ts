@@ -28,7 +28,10 @@ export * from "./workflow/index.js";
 // Export predefined tools
 export * from "./tools/index.js";
 
-// Export predefined prompt word templates
+// Export preset type definitions
+export * from "./presets-types.js";
+
+// Export the predefined prompt moduleword templates
 export * from "./prompts/index.js";
 
 // Export the registration tool function

@@ -400,8 +400,14 @@ export {
   getStorageEnvironmentDefaults,
   mergeOutputWithDefaults,
   getOutputEnvironmentDefaults,
-  mergePresetsWithDefaults,
   getPresetsEnvironmentDefaults,
+  validatePresetsConfig,
+  transformPresetsConfig,
+  exportPresetsConfig,
+  // Tool processors
+  validateReadFileConfig,
+  transformReadFileConfig,
+  exportReadFileConfig,
 } from "./shared/config/index.js";
 
 // Configuration types (for application layer config loaders)

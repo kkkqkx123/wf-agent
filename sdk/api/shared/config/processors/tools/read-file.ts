@@ -25,7 +25,7 @@ export interface ReadFileConfigInput {
  */
 const DEFAULTS: ReadFileConfig = {
   maxFileSize: 500000, // 500KB
-  maxChars: 50000,     // 50K chars
+  maxChars: 200000,     // 200K chars
   maxLines: 2000,      // 2000 lines
   enableIgnore: false,
   enableProtect: false,

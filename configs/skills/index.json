@@ -2,6 +2,6 @@
   "version": "1.0",
   "type": "skill_presets",
   "paths": [
-    "./collections/*.json"
+    "./*.json"
   ]
 }

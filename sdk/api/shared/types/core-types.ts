@@ -3,7 +3,8 @@
  * Defines types related to core execution
  */
 
-import type { WorkflowExecutionOptions, PresetsConfig, MetricsConfig, TimeoutConfig } from "@wf-agent/types";
+import type { WorkflowExecutionOptions, MetricsConfig, TimeoutConfig } from "@wf-agent/types";
+import type { PresetsConfig } from "@wf-agent/sdk/resources";
 import type { FileCheckpointConfig } from "@wf-agent/types";
 import type {
   CheckpointStorageAdapter,

@@ -2,6 +2,6 @@
   "version": "1.0",
   "type": "mcp_presets",
   "paths": [
-    "./presets/*.json"
+    "./*.json"
   ]
 }

@@ -222,5 +222,7 @@ export interface InfrastructurePresetFile {
     output?: string;
     fileCheckpoint?: string;
     presets?: string;
+    /** Tool-specific configuration file (readFile, writeFile, etc.) */
+    tools?: string;
   };
 }

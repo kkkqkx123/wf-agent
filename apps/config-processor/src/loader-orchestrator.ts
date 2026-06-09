@@ -37,16 +37,21 @@ import {
   mergeFileCheckpointConfig,
   mergeStorageWithDefaults,
   mergeOutputWithDefaults,
-  mergePresetsWithDefaults,
+  transformPresetsConfig,
+  transformReadFileConfig,
 } from "@wf-agent/sdk/api";
 import { validateAgentLoopConfig } from "@wf-agent/sdk/agent";
+import type {
+  PresetsConfig,
+  PresetsConfigInput,
+  PredefinedToolsPresetConfig,
+} from "@wf-agent/sdk/resources";
 import type {
   MetricsConfig,
   TimeoutConfig,
   FileCheckpointConfig,
   StorageConfig,
   OutputConfig,
-  PresetsConfig,
   ValidationError,
   InfrastructurePresetFile,
 } from "@wf-agent/types";
@@ -196,16 +201,50 @@ export async function loadPresetsConfig(
   for (const filePath of configPaths) {
     const raw = await tryLoadRawConfig(filePath);
     if (raw !== null) {
-      return mergePresetsWithDefaults(raw as Partial<PresetsConfig>);
+      return transformPresetsConfig(raw as PresetsConfigInput);
     }
   }
 
-  return mergePresetsWithDefaults({});
+  return transformPresetsConfig({});
 }
 
-// -----------------------------------------------------------------------
-// Agent Loop Configuration Loader
-// -----------------------------------------------------------------------
+/**
+ * Load tool-specific configurations (readFile, writeFile, etc.).
+ *
+ * Reads a single config file that may contain sections for each tool,
+ * routing recognizable sections through their dedicated processors.
+ *
+ * @param configPaths - Ordered list of candidate file paths.
+ * @returns Loaded tool configuration object.
+ */
+export async function loadToolConfigs(
+  configPaths: string[],
+): Promise<PredefinedToolsPresetConfig["config"]> {
+  for (const filePath of configPaths) {
+    const raw = await tryLoadRawConfig(filePath);
+    if (raw === null) continue;
+
+    const rawRecord = raw as Record<string, unknown>;
+    const config: PredefinedToolsPresetConfig["config"] = {};
+
+    // Route readFile section through its dedicated processor
+    if (rawRecord["readFile"] && typeof rawRecord["readFile"] === "object") {
+      config["readFile"] = transformReadFileConfig(rawRecord["readFile"] as Parameters<typeof transformReadFileConfig>[0]);
+    }
+
+    // For now, pass through other tool sections without dedicated processors.
+    // When writeFile/editFile/etc. processors are added, route them similarly.
+    for (const key of ["writeFile", "editFile", "runShell", "sessionNote", "backendShell"] as const) {
+      if (rawRecord[key] && typeof rawRecord[key] === "object") {
+        (config as Record<string, unknown>)[key] = rawRecord[key];
+      }
+    }
+
+    return config;
+  }
+
+  return {};
+}
 
 /**
  * Load and parse Agent Loop configuration from file.
@@ -561,6 +600,8 @@ export interface InfrastructureConfigBundle {
   storage: StorageConfig;
   output: Required<OutputConfig>;
   presets: PresetsConfig;
+  /** Tool-specific configuration (readFile, writeFile, etc.) */
+  tools: PredefinedToolsPresetConfig["config"];
 }
 
 /**
@@ -610,7 +651,7 @@ export async function loadInfrastructureConfigs(
   const resolved = fileMapping as InfrastructurePresetFile["files"];
 
   // Load each config type
-  const [metrics, timeout, fileCheckpoint, storage, output, presets] =
+  const [metrics, timeout, fileCheckpoint, storage, output, presets, tools] =
     await Promise.all([
       resolved.metrics
         ? loadMetricsConfig([resolved.metrics])
@@ -630,6 +671,9 @@ export async function loadInfrastructureConfigs(
       resolved.presets
         ? loadPresetsConfig([resolved.presets])
         : loadPresetsConfig([]),
+      resolved.tools
+        ? loadToolConfigs([resolved.tools])
+        : loadToolConfigs([]),
     ]);
 
   return {
@@ -639,5 +683,6 @@ export async function loadInfrastructureConfigs(
     storage,
     output,
     presets,
+    tools,
   };
 }

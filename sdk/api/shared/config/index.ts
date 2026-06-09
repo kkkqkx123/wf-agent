@@ -113,8 +113,17 @@ export {
   mergeOutputWithDefaults,
   getOutputEnvironmentDefaults,
   // Presets
-  mergePresetsWithDefaults,
   getPresetsEnvironmentDefaults,
+  validatePresetsConfig,
+  transformPresetsConfig,
+  exportPresetsConfig,
+} from "./processors/index.js";
+
+// Tool processors
+export {
+  validateReadFileConfig,
+  transformReadFileConfig,
+  exportReadFileConfig,
 } from "./processors/index.js";
 
 // MCP Configuration — consolidated under api/shared/config as the single config entry point

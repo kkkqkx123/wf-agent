@@ -4,7 +4,7 @@
   "description": "Standard skill definitions for general use",
   "tags": ["general"],
   "paths": [
-    "../default.json",
-    "../default2.json"
+    "./default.json",
+    "./default2.json"
   ]
 }

@@ -24,7 +24,7 @@ export type {
   CLIConfig,
 } from "./cli/types.js";
 
-// Re-export configuration types from @wf-agent/types
+// Re-export configuration types
 export type {
   LogLevel,
   OutputFormat,
@@ -36,11 +36,15 @@ export type {
   SqliteStorageConfig,
   StorageConfig,
   OutputConfig,
+} from "@wf-agent/types";
+
+// Presets types moved to @wf-agent/sdk/resources
+export type {
   ContextCompressionPresetConfig,
   PredefinedToolsPresetConfig,
   PredefinedPromptsPresetConfig,
   PresetsConfig,
-} from "@wf-agent/types";
+} from "@wf-agent/sdk/resources";
 
 // Validator
 export { ConfigValidator } from "./config-validator.js";

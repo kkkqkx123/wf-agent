@@ -18,7 +18,7 @@
 import type { TriggerTemplateRegistry } from "@sdk/core/registry/trigger-template-registry.js";
 import type { WorkflowRegistry } from "@sdk/workflow/stores/workflow-registry.js";
 import type { ToolRegistry } from "@sdk/core/registry/tool-registry.js";
-import type { PresetsConfig } from "@wf-agent/types";
+import type { PresetsConfig } from "@wf-agent/sdk/resources";
 import { createContextualLogger } from "@sdk/utils/contextual-logger.js";
 
 // Import from submodules

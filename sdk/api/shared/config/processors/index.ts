@@ -116,7 +116,9 @@ export {
 
 // Presets configuration processing function
 export {
-  mergePresetsWithDefaults,
+  validatePresetsConfig,
+  transformPresetsConfig,
+  exportPresetsConfig,
   getPresetsEnvironmentDefaults,
 } from "./presets.js";
 

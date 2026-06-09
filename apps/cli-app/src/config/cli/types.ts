@@ -6,13 +6,17 @@
 import type {
   StorageConfig,
   OutputConfig,
-  PresetsConfig,
   LogLevel,
   OutputFormat,
 } from "@wf-agent/types";
 
-// Re-export types from @wf-agent/types for convenience
-export type { StorageConfig, OutputConfig, PresetsConfig, LogLevel, OutputFormat };
+import type {
+  PresetsConfig,
+} from "@wf-agent/sdk/resources";
+
+// Re-export types for convenience
+export type { StorageConfig, OutputConfig, LogLevel, OutputFormat };
+export type { PresetsConfig };
 
 /**
  * Complete CLI Configuration

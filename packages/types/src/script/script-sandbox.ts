@@ -29,7 +29,7 @@ export type SandboxMode = "disabled" | "lenient" | "strict" | "custom";
 /**
  * Script language type for sandbox routing
  */
-export type ScriptLanguage = "auto" | "shell" | "python" | "javascript";
+export type ScriptLanguage = "auto" | "shell" | "python" | "javascript" | "lua";
 
 // ============================================================================
 // Policy System (§4.2)
@@ -124,6 +124,19 @@ export interface JavaScriptPolicy {
   allowDynamicEval: boolean;
 }
 
+export interface LuaPolicy {
+  /** Whitelist of allowed modules */
+  allowedModules: string[];
+  /** Blacklist of denied modules */
+  deniedModules: string[];
+  /** Allow os.execute (subprocess) */
+  allowOsExecute: boolean;
+  /** Restrict io.open write mode */
+  restrictIoOpen: boolean;
+  /** Allow loadstring/load (dynamic code) */
+  allowDynamicLoad: boolean;
+}
+
 /**
  * Sandbox policy declaration
  * Each sub-policy is optional; defaults are applied at runtime.
@@ -137,6 +150,7 @@ export interface SandboxPolicy {
   shell?: Partial<ShellPolicy>;
   python?: Partial<PythonPolicy>;
   javascript?: Partial<JavaScriptPolicy>;
+  lua?: Partial<LuaPolicy>;
 }
 
 // ============================================================================
@@ -160,6 +174,15 @@ export type JavaScriptSandboxStrategy =
   | "vm-context"
   | "isolated-vm"
   | "os-hook"
+  | "container"
+  | "custom";
+
+/** Lua sandbox strategy identifiers */
+export type LuaSandboxStrategy =
+  | "builtin-hook"
+  | "static-analyzer"
+  | "os-hook"
+  | "wasmer-lua"
   | "container"
   | "custom";
 
@@ -219,9 +242,11 @@ export interface StrategyResolver {
   resolveJavaScriptStrategy(
     id: JavaScriptSandboxStrategy | string,
   ): StrategyImplementation<unknown>;
+  /** Resolve a lua strategy by id */
+  resolveLuaStrategy(id: LuaSandboxStrategy | string): StrategyImplementation<unknown>;
   /** Register a custom strategy implementation */
   registerStrategy(
-    language: "shell" | "python" | "javascript",
+    language: "shell" | "python" | "javascript" | "lua",
     impl: StrategyImplementation<unknown>,
   ): void;
 }
@@ -300,6 +325,8 @@ export interface SandboxProfile {
   pythonStrategy?: (PythonSandboxStrategy | string)[];
   /** JavaScript strategy priority list (fallback order) */
   javascriptStrategy?: (JavaScriptSandboxStrategy | string)[];
+  /** Lua strategy priority list (fallback order) */
+  luaStrategy?: (LuaSandboxStrategy | string)[];
   /** Policy declarations */
   policy?: Partial<SandboxPolicy>;
   /** VFS configuration */
@@ -364,6 +391,8 @@ export interface SandboxConfig {
   pythonStrategy?: (PythonSandboxStrategy | string)[];
   /** Override javascript strategy priority list */
   javascriptStrategy?: (JavaScriptSandboxStrategy | string)[];
+  /** Override lua strategy priority list */
+  luaStrategy?: (LuaSandboxStrategy | string)[];
 
   /** Custom strategy resolver (fully overrides built-in resolver) */
   customProvider?: StrategyResolver;

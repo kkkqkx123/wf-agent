@@ -5,7 +5,7 @@
  * Architecture reference: docs/infra/sandbox/architecture.md
  */
 
-import type { SandboxPolicy, ShellPolicy, PythonPolicy, JavaScriptPolicy, FilesystemPolicy, ProcessPolicy, NetworkPolicy, ResourcePolicy } from "@wf-agent/types";
+import type { SandboxPolicy, ShellPolicy, PythonPolicy, JavaScriptPolicy, LuaPolicy, FilesystemPolicy, ProcessPolicy, NetworkPolicy, ResourcePolicy } from "@wf-agent/types";
 
 export const DEFAULT_SHELL_POLICY: ShellPolicy = {
   allowedCommands: [],
@@ -87,6 +87,23 @@ export const DEFAULT_JS_POLICY: JavaScriptPolicy = {
   allowDynamicEval: false,
 };
 
+export const DEFAULT_LUA_POLICY: LuaPolicy = {
+  allowedModules: [],
+  deniedModules: [
+    "os",
+    "io",
+    "package",
+    "debug",
+    "ffi",
+    "socket",
+    "lfs",
+    "luaposix",
+  ],
+  allowOsExecute: false,
+  restrictIoOpen: true,
+  allowDynamicLoad: false,
+};
+
 export const DEFAULT_FILESYSTEM_POLICY: FilesystemPolicy = {
   allowedReadPaths: [],
   allowedWritePaths: [],
@@ -118,6 +135,7 @@ export const DEFAULT_SANDBOX_POLICY: SandboxPolicy = {
   shell: DEFAULT_SHELL_POLICY,
   python: DEFAULT_PYTHON_POLICY,
   javascript: DEFAULT_JS_POLICY,
+  lua: DEFAULT_LUA_POLICY,
   filesystem: DEFAULT_FILESYSTEM_POLICY,
   process: DEFAULT_PROCESS_POLICY,
   network: DEFAULT_NETWORK_POLICY,

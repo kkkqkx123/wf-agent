@@ -18,7 +18,7 @@ export const SandboxModeSchema = z.enum(["disabled", "lenient", "strict", "custo
 /**
  * Script Language Schema
  */
-export const ScriptLanguageSchema = z.enum(["auto", "shell", "python", "javascript"]);
+export const ScriptLanguageSchema = z.enum(["auto", "shell", "python", "javascript", "lua"]);
 
 /**
  * Script Risk Level Schema
@@ -106,6 +106,17 @@ export const JavaScriptPolicySchema = z.object({
 });
 
 /**
+ * Lua Policy Schema
+ */
+export const LuaPolicySchema = z.object({
+  allowedModules: z.array(z.string()),
+  deniedModules: z.array(z.string()),
+  allowOsExecute: z.boolean(),
+  restrictIoOpen: z.boolean(),
+  allowDynamicLoad: z.boolean(),
+});
+
+/**
  * Sandbox Policy Schema
  */
 export const SandboxPolicySchema = z.object({
@@ -117,6 +128,7 @@ export const SandboxPolicySchema = z.object({
   shell: ShellPolicySchema.partial().optional(),
   python: PythonPolicySchema.partial().optional(),
   javascript: JavaScriptPolicySchema.partial().optional(),
+  lua: LuaPolicySchema.partial().optional(),
 });
 
 // ============================================================================
@@ -154,6 +166,7 @@ export const SandboxConfigSchema = z.object({
   shellStrategy: z.array(z.string()).optional(),
   pythonStrategy: z.array(z.string()).optional(),
   javascriptStrategy: z.array(z.string()).optional(),
+  luaStrategy: z.array(z.string()).optional(),
   vfs: VFSConfigSchema.optional(),
 
   // Legacy backward-compatible fields

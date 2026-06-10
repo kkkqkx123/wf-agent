@@ -100,7 +100,7 @@ export class SandboxRuntime {
   }
 
   registerStrategy(
-    language: "shell" | "python" | "javascript",
+    language: "shell" | "python" | "javascript" | "lua",
     impl: StrategyImplementation<unknown>,
   ): void {
     this.resolver.registerStrategy(language, impl);
@@ -132,13 +132,14 @@ export class SandboxRuntime {
     return resolved;
   }
 
-  private mergeConfig(base: { mode?: SandboxMode; policy?: Partial<SandboxPolicy>; shellStrategy?: string[]; pythonStrategy?: string[]; javascriptStrategy?: string[]; vfs?: VFSConfig }, override: SandboxConfig): SandboxConfig {
+  private mergeConfig(base: { mode?: SandboxMode; policy?: Partial<SandboxPolicy>; shellStrategy?: string[]; pythonStrategy?: string[]; javascriptStrategy?: string[]; luaStrategy?: string[]; vfs?: VFSConfig }, override: SandboxConfig): SandboxConfig {
     return {
       mode: override.mode ?? base.mode ?? "disabled",
       policy: { ...base.policy, ...override.policy },
       shellStrategy: override.shellStrategy ?? base.shellStrategy,
       pythonStrategy: override.pythonStrategy ?? base.pythonStrategy,
       javascriptStrategy: override.javascriptStrategy ?? base.javascriptStrategy,
+      luaStrategy: override.luaStrategy ?? base.luaStrategy,
       vfs: override.vfs ?? base.vfs,
     };
   }
@@ -166,6 +167,7 @@ export class SandboxRuntime {
       shell: { ...base.shell, ...config.policy.shell },
       python: { ...base.python, ...config.policy.python },
       javascript: { ...base.javascript, ...config.policy.javascript },
+      lua: { ...base.lua, ...config.policy.lua },
       filesystem: { ...base.filesystem, ...config.policy.filesystem },
       process: { ...base.process, ...config.policy.process },
       network: { ...base.network, ...config.policy.network },
@@ -201,6 +203,9 @@ export class SandboxRuntime {
       case "javascript":
         preferredIds = config.javascriptStrategy ?? ["vm-context"];
         return this.resolver.resolveBest("javascript", preferredIds) as StrategyImplementation<ScriptExecutionResult>;
+      case "lua":
+        preferredIds = config.luaStrategy ?? ["static-analyzer", "builtin-hook"];
+        return this.resolver.resolveBest("lua", preferredIds) as StrategyImplementation<ScriptExecutionResult>;
       default:
         return this.resolver.resolveBest("shell", ["static-analyzer"]) as StrategyImplementation<ScriptExecutionResult>;
     }

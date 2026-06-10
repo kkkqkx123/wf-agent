@@ -14,11 +14,13 @@ import type {
   ShellSandboxStrategy,
   PythonSandboxStrategy,
   JavaScriptSandboxStrategy,
+  LuaSandboxStrategy,
 } from "@wf-agent/types";
 
 import { ShellStaticAnalyzerStrategy } from "./strategies/shell-static-analyzer.js";
 import { PythonBuiltinHookStrategy, PythonASTAnalyzerStrategy } from "./strategies/python-strategies/index.js";
 import { JavaScriptVmContextStrategy } from "./strategies/js-vm-context.js";
+import { LuaBuiltinHookStrategy, LuaStaticAnalyzerStrategy } from "./strategies/lua-strategies/index.js";
 import {
   LinuxSeccompStrategy,
   WindowsJobObjectStrategy,
@@ -67,12 +69,13 @@ class PassthroughStrategy implements StrategyImplementation<ScriptExecutionResul
   }
 }
 
-type Language = "shell" | "python" | "javascript";
+type Language = "shell" | "python" | "javascript" | "lua";
 
 export class DefaultStrategyResolver implements StrategyResolver {
   private shellStrategies = new Map<string, StrategyImplementation<unknown>>();
   private pythonStrategies = new Map<string, StrategyImplementation<unknown>>();
   private javascriptStrategies = new Map<string, StrategyImplementation<unknown>>();
+  private luaStrategies = new Map<string, StrategyImplementation<unknown>>();
 
   constructor() {
     this.registerDefaultStrategies();
@@ -88,6 +91,10 @@ export class DefaultStrategyResolver implements StrategyResolver {
 
   resolveJavaScriptStrategy(id: JavaScriptSandboxStrategy | string): StrategyImplementation<unknown> {
     return this.javascriptStrategies.get(id) ?? new PassthroughStrategy();
+  }
+
+  resolveLuaStrategy(id: LuaSandboxStrategy | string): StrategyImplementation<unknown> {
+    return this.luaStrategies.get(id) ?? new PassthroughStrategy();
   }
 
   registerStrategy(
@@ -133,6 +140,12 @@ export class DefaultStrategyResolver implements StrategyResolver {
     this.pythonStrategies.set("ast-analyzer", new PythonASTAnalyzerStrategy(builtinHook));
 
     this.javascriptStrategies.set("vm-context", new JavaScriptVmContextStrategy());
+
+    // Register Lua strategies — inject builtin-hook into static-analyzer
+    // to decouple the delegation chain from direct instantiation.
+    const luaBuiltinHook = new LuaBuiltinHookStrategy();
+    this.luaStrategies.set("builtin-hook", luaBuiltinHook);
+    this.luaStrategies.set("static-analyzer", new LuaStaticAnalyzerStrategy(luaBuiltinHook));
   }
 
   private getRegistry(language: Language): Map<string, StrategyImplementation<unknown>> {
@@ -143,6 +156,8 @@ export class DefaultStrategyResolver implements StrategyResolver {
         return this.pythonStrategies;
       case "javascript":
         return this.javascriptStrategies;
+      case "lua":
+        return this.luaStrategies;
     }
   }
 }

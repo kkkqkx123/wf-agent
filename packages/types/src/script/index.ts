@@ -31,6 +31,7 @@ export {
   ShellPolicySchema,
   PythonPolicySchema,
   JavaScriptPolicySchema,
+  LuaPolicySchema,
   SandboxPolicySchema,
   VFSConfigSchema,
   ScriptArgumentSchema,

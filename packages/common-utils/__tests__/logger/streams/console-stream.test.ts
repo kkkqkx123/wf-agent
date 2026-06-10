@@ -1,7 +1,7 @@
 /**
  * ConsoleStream Unit Tests
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   ConsoleStream,
   createConsoleStream,

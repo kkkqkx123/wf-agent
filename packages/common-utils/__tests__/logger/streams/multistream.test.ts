@@ -1,7 +1,7 @@
 /**
  * Multistream Unit Tests
  */
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import {
   Multistream,
   createMultistream,
@@ -123,8 +123,8 @@ describe("Multistream", () => {
 
     it("should assign incremental ids", () => {
       const ms = new Multistream();
-      const r1 = ms.add({ stream: stream1 });
-      const r2 = ms.add({ stream: stream2 });
+      ms.add({ stream: stream1 });
+      ms.add({ stream: stream2 });
       const streams = (ms as any).streams;
       expect(streams[0].id).toBe(1);
       expect(streams[1].id).toBe(2);

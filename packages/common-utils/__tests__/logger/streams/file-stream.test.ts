@@ -1,7 +1,7 @@
 /**
  * FileStream Unit Tests
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
@@ -9,7 +9,7 @@ import {
   FileStream,
   createFileStream,
 } from "../../../src/logger/streams/file-stream.js";
-import type { LogEntry } from "../../../src/logger/types.js";
+
 
 describe("FileStream", () => {
   const tmpDir = path.join(os.tmpdir(), "wf-agent-file-stream-test-" + Date.now());
@@ -40,7 +40,7 @@ describe("FileStream", () => {
     it("should create via factory function", () => {
       const stream = createFileStream({ filePath: testFilePath });
       expect(stream).toBeInstanceOf(FileStream);
-      stream.end();
+      stream.end?.();
     });
 
     it("should throw if filePath is not provided", () => {

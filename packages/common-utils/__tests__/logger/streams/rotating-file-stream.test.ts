@@ -9,7 +9,7 @@ import {
   RotatingFileStream,
   createRotatingFileStream,
 } from "../../../src/logger/streams/rotating-file-stream.js";
-import type { LogEntry } from "../../../src/logger/types.js";
+
 
 describe("RotatingFileStream", () => {
   const tmpDir = path.join(os.tmpdir(), "wf-agent-rotating-test-" + Date.now());
@@ -38,7 +38,7 @@ describe("RotatingFileStream", () => {
     it("should create via factory function", () => {
       const stream = createRotatingFileStream({ filePath: testFilePath });
       expect(stream).toBeInstanceOf(RotatingFileStream);
-      stream.end();
+      stream.end?.();
     });
 
     it("should throw if filePath is not provided", () => {

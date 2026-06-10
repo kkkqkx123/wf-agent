@@ -25,6 +25,9 @@ export const TIMEOUT_TAG_PREFIXES = {
   USER: 'user',
 } as const;
 
+/** Union type of all timeout tag prefix values */
+export type TimeoutTagPrefix = typeof TIMEOUT_TAG_PREFIXES[keyof typeof TIMEOUT_TAG_PREFIXES];
+
 /**
  * LLM-related timeout tags
  */
@@ -125,7 +128,7 @@ export function isValidTimeoutTag(tag: string): boolean {
   const prefix = parts[0];
   const validPrefixes = Object.values(TIMEOUT_TAG_PREFIXES);
   
-  return validPrefixes.includes(prefix as unknown as TIMEOUT_TAG_PREFIXES);
+  return validPrefixes.includes(prefix as TimeoutTagPrefix);
 }
 
 /**
@@ -146,5 +149,5 @@ export function getTagCategory(tag: string): string | null {
   
   const validPrefixes = Object.values(TIMEOUT_TAG_PREFIXES);
   
-  return validPrefixes.includes(prefix as unknown as TIMEOUT_TAG_PREFIXES) ? prefix : null;
+  return validPrefixes.includes(prefix as TimeoutTagPrefix) ? prefix : null;
 }

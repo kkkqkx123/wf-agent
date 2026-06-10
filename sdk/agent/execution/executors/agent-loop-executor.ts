@@ -31,6 +31,7 @@ import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import type { MetricsRegistry } from "../../../core/metrics/metrics-registry.js";
 import type { GlobalContext } from "../../../core/global-context.js";
 import { LLMExecutor } from "../../../core/executors/llm-executor.js";
+import type { LLMWrapper } from "../../../core/llm/index.js";
 import { ToolCallExecutor } from "../../../core/executors/tool-call-executor.js";
 import type { CheckpointDependencies as WorkflowCheckpointDependencies } from "../../../workflow/checkpoint/checkpoint-coordinator.js";
 import * as Identifiers from "../../../core/di/service-identifiers.js";
@@ -216,7 +217,7 @@ export class AgentLoopExecutor {
       this.llmExecutor,
       this.toolCallExecutor,
       undefined,
-      (this.llmExecutor as unknown as { llmWrapper?: unknown }).llmWrapper,
+      (this.llmExecutor as unknown as { llmWrapper: LLMWrapper | undefined }).llmWrapper,
     );
 
     // Create AgentIterationCoordinator with core LLM and tool execution coordinators

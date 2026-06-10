@@ -210,10 +210,10 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
    */
   private validateVariableAccess(name: string): void {
     try {
-      const currentNodeId = this.executionEntity.getCurrentNodeId?.();
+      const currentNodeId = this.executionEntity?.getCurrentNodeId?.();
       if (!currentNodeId) return;
       
-      const currentNode = this.executionEntity.getNode?.(currentNodeId);
+      const currentNode = this.executionEntity?.getNode?.(currentNodeId);
       if (!currentNode) return;
       
       // Check if current node is a subgraph or loop that should have explicit inputs

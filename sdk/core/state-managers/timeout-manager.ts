@@ -279,7 +279,7 @@ export class TimeoutManager implements StateManager<TimeoutSnapshot> {
     try {
       this.cancelEntry(entry, "cancelled");
     } catch (error) {
-      logger.error(`Failed to cancel timeout ${handle.id}:`, error);
+      logger.error(`Failed to cancel timeout ${handle.id}`);
     }
   }
 
@@ -323,7 +323,7 @@ export class TimeoutManager implements StateManager<TimeoutSnapshot> {
         }
       }
     } catch (error) {
-      logger.error(`Failed to refresh timeout ${handle.id}:`, error);
+      logger.error(`Failed to refresh timeout ${handle.id}`);
     }
   }
 
@@ -604,8 +604,7 @@ export class TimeoutManager implements StateManager<TimeoutSnapshot> {
       await entry.onTimeout();
     } catch (error) {
       logger.error(
-        `Error in timeout callback for '${entry.id}':`,
-        error instanceof Error ? error.message : error
+        `Error in timeout callback for '${entry.id}'`,
       );
     }
   }
@@ -644,10 +643,9 @@ export class TimeoutManager implements StateManager<TimeoutSnapshot> {
     if (entry.onWarning) {
       try {
         await entry.onWarning();
-      } catch (error) {
+      } catch (error: unknown) {
         logger.error(
-          `Error in warning callback for '${entry.id}':`,
-          error instanceof Error ? error.message : error
+          `Error in warning callback for '${entry.id}'`,
         );
       }
     }
@@ -674,7 +672,7 @@ export class TimeoutManager implements StateManager<TimeoutSnapshot> {
     const unsubscribe = interruptionState.onResumed(() => {
       // Refresh timeout on resume
       const entryWithHandle = this.timeouts.get(entry.id);
-      if (entryWithHandle && entryWithHandle.status === "active") {
+      if (entryWithHandle && entryWithHandle.status === "active" && entryWithHandle.handle) {
         this.refresh(entryWithHandle.handle);
       }
     });

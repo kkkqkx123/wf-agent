@@ -8,6 +8,7 @@
 import type { NodeTemplate, StaticNode } from "@wf-agent/types";
 import type { Result } from "@wf-agent/types";
 import { ValidationError, ConfigurationValidationError, NodeTemplateSchema } from "@wf-agent/types";
+import type { ZodIssue } from "zod";
 import { NodeValidator } from "./node-validator.js";
 import { ok, err } from "@wf-agent/common-utils";
 

@@ -79,7 +79,7 @@ export interface AgentLoopHandlerContext {
   executionRegistry?: unknown;
   /** WorkflowExecutionEntity reference (for VariableManager access) */
   workflowExecutionEntity?: {
-    variableStateManager: { setVariable: (name: string, value: unknown) => void };
+    variableStateManager: { setVariable: (name: string, value: unknown) => void; getVariable: (name: string) => unknown };
     getInput(): Record<string, unknown>;
   };
 }
@@ -271,7 +271,7 @@ function resolveAgentRuntimeConfig(config: AgentLoopNodeConfig): ResolvedAgentRu
 }
 
 interface AgentLoopExecutionEntity {
-  getExecution(): { input: Record<string, unknown> };
+  getExecution(): WorkflowExecution;
   getInput?(): Record<string, unknown>;
 }
 

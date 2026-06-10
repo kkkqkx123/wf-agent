@@ -8,6 +8,7 @@
 import type { AgentLoopConfigFile } from "../../api/shared/config/types.js";
 import type { Result } from "@wf-agent/types";
 import { ValidationError, ConfigurationValidationError, AgentLoopDefinitionSchema } from "@wf-agent/types";
+import type { ZodIssue } from "zod";
 import { ok, err } from "@wf-agent/common-utils";
 
 /**

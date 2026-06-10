@@ -232,7 +232,7 @@ export function createAutoSaveStrategy(options: {
         const checkpoint = await options.loadCheckpoint(context.executionId);
         if (checkpoint) {
           // Merge checkpoint state into current state
-          Object.assign(context.state, checkpoint.state);
+          Object.assign(context.state, checkpoint['state']);
           logger.info("Restored from checkpoint", {
             executionId: context.executionId,
           });

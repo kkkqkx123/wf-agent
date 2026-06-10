@@ -167,7 +167,7 @@ export class TimeoutRegistry {
       try {
         manager.clear();
       } catch (error) {
-        logger.error(`Failed to cancel timeouts for execution ${executionId}:`, error);
+        logger.error(`Failed to cancel timeouts for execution ${executionId}`);
       }
     }
   }
@@ -201,8 +201,7 @@ export class TimeoutRegistry {
           cancelledCount += statsBefore.activeTimeouts;
         } catch (error) {
           logger.error(
-            `Failed to cancel timeouts with tag '${tag}' for execution ${executionId}:`,
-            error
+            `Failed to cancel timeouts with tag '${tag}' for execution ${executionId}`,
           );
         }
       }
@@ -246,8 +245,7 @@ export class TimeoutRegistry {
           totalCancelled += statsBefore.activeTimeouts;
         } catch (error) {
           logger.error(
-            `Failed to cancel timeouts for execution ${executionId}:`,
-            error
+            `Failed to cancel timeouts for execution ${executionId}`,
           );
         }
       }
@@ -342,7 +340,7 @@ export class TimeoutRegistry {
         // Remove manager from registry
         this.managers.delete(executionId);
       } catch (error) {
-        logger.error(`Failed to cleanup execution ${executionId}:`, error);
+        logger.error(`Failed to cleanup execution ${executionId}`);
         // Still remove the manager even if cleanup fails
         this.managers.delete(executionId);
       }
@@ -360,7 +358,7 @@ export class TimeoutRegistry {
         manager.clear();
       } catch (error) {
         errors.push({ executionId, error });
-        logger.error(`Failed to cleanup execution ${executionId}:`, error);
+        logger.error(`Failed to cleanup execution ${executionId}`);
       }
     });
 
@@ -536,6 +534,8 @@ export class TimeoutRegistry {
           executionId: timeout.executionId,
           timeoutId: timeout.timeoutId,
           tag: timeout.tag,
+          duration: timeout.duration,
+          startTime: timeout.startTime,
           progressPercent,
           remainingTime: timeout.remainingTime,
         });

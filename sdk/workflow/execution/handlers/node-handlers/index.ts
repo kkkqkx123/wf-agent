@@ -10,7 +10,8 @@ import { agentLoopHandler, type AgentLoopHandlerContext } from "./agent-loop-han
 import { contextProcessorHandler, type ContextProcessorHandlerContext } from "./context-processor-handler.js";
 import { continueFromTriggerHandler } from "./continue-from-trigger-handler.js";
 import { endHandler } from "./end-handler.js";
-import { forkHandler, type ForkHandlerContext } from "./fork-handler.js";
+import { forkHandler } from "./fork-handler.js";
+import type { ForkHandlerContext } from "../../types/fork.types.js";
 import { joinHandler } from "./join-handler.js";
 import { llmHandler, type LLMHandlerContext } from "./llm-handler.js";
 import { loopEndHandler } from "./loop-end-handler.js";
@@ -40,7 +41,7 @@ export function getNodeHandler(nodeType: string): NodeHandlerFn {
   const handlers: Record<string, NodeHandlerFn> = {
     // Handlers that need globalContext as first param
     AGENT_LOOP: (globalContext, workflowExecutionEntity, node, context) =>
-      agentLoopHandler(globalContext, workflowExecutionEntity.getExecution(), node, context as AgentLoopHandlerContext),
+      agentLoopHandler(globalContext, workflowExecutionEntity as any, node, context as AgentLoopHandlerContext),
     SCRIPT: (globalContext, workflowExecutionEntity, node, _context) =>
       scriptHandler(globalContext, workflowExecutionEntity, node),
     INTERACTIVE_SCRIPT: (globalContext, workflowExecutionEntity, node, context) =>

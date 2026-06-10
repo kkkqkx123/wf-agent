@@ -7,6 +7,8 @@
  *
  * Currently supports:
  * - ReadFileConfig: File reading tool configuration
+ * - ListFilesConfig: File listing tool (list_files) configuration
+ * - GlobConfig: Glob tool configuration
  */
 
 export {
@@ -15,3 +17,17 @@ export {
   exportReadFileConfig,
   type ReadFileConfigInput,
 } from "./read-file.js";
+
+export {
+  validateListFilesConfig,
+  transformListFilesConfig,
+  exportListFilesConfig,
+  type ListFilesConfigInput,
+} from "./list-files.js";
+
+export {
+  validateGlobConfig,
+  transformGlobConfig,
+  exportGlobConfig,
+  type GlobConfigInput,
+} from "./glob.js";

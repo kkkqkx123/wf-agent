@@ -6,6 +6,9 @@ import type { ToolParameterSchema } from "@wf-agent/types";
 
 /**
  * glob tool parameter Schema
+ *
+ * Recursive matching is controlled by the glob pattern itself, not a separate parameter.
+ * Use double-asterisk (e.g., '**\/*.ts') for recursive matching, single asterisk (e.g., '*.ts') for single-directory.
  */
 export const globSchema: ToolParameterSchema = {
   type: "object",
@@ -17,12 +20,12 @@ export const globSchema: ToolParameterSchema = {
     pattern: {
       type: "string",
       description:
-        "Glob pattern to match file/directory names (e.g., '*.ts', '**/*.test.ts', 'src/**/*.js')",
+        "Glob pattern to match file/directory names. Use '**' for recursive matching (e.g., '**/*.ts'), or '*' for top-level only (e.g., '*.ts')",
     },
-    recursive: {
+    includeIgnored: {
       type: "boolean",
       description:
-        "Search recursively. true for recursive, false for top-level only (default: true)",
+        "Include typically ignored directories (node_modules, .git, target, etc.). Set to true only when you specifically need to search inside these directories. (default: false)",
     },
   },
   required: ["path", "pattern"],

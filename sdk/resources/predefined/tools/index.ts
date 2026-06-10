@@ -15,6 +15,8 @@ export type {
   ReadFileConfig,
   WriteFileConfig,
   EditFileConfig,
+  ListFilesConfig,
+  GlobConfig,
   RunShellConfig,
   SessionNoteConfig,
   BackendShellConfig,

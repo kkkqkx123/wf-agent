@@ -4,4 +4,7 @@
 
 export { listFilesSchema } from "./schema.js";
 export { createListFilesHandler } from "./handler.js";
-export { LIST_FILES_TOOL_DESCRIPTION } from "./description.js";
+export { createListFilesDescription } from "./description.js";
+// Re-export with default config for backward compatibility (tool-descriptions.ts)
+import { createListFilesDescription } from "./description.js";
+export const LIST_FILES_TOOL_DESCRIPTION = createListFilesDescription();

@@ -57,6 +57,8 @@ export interface PredefinedToolsOptions {
     readFile?: ReadFileConfig;
     writeFile?: WriteFileConfig;
     editFile?: EditFileConfig;
+    listFiles?: ListFilesConfig;
+    glob?: GlobConfig;
     runShell?: RunShellConfig;
     sessionNote?: SessionNoteConfig;
     backendShell?: BackendShellConfig;
@@ -95,6 +97,30 @@ export interface ReadFileConfig {
    * Pure reads (read_file, list_files, grep) always use HostFSAdapter directly.
    */
   vfs?: VFSFileIO;
+}
+
+/**
+ * File listing tool configuration (list_files)
+ */
+export interface ListFilesConfig {
+  /** Working directory */
+  workspaceDir?: string;
+  /** Maximum results returned per call (default: 1000). Injected into tool description at registration time. */
+  maxResults?: number;
+  /** Enable ignore filtering to skip node_modules, .git, etc. LLM can override at call time via includeIgnored param. */
+  enableIgnore?: boolean;
+}
+
+/**
+ * Glob tool configuration (glob)
+ */
+export interface GlobConfig {
+  /** Working directory */
+  workspaceDir?: string;
+  /** Maximum results returned per call (default: 50). Injected into tool description at registration time. */
+  maxResults?: number;
+  /** Enable ignore filtering to skip node_modules, .git, etc. LLM can override at call time via includeIgnored param. */
+  enableIgnore?: boolean;
 }
 
 /**

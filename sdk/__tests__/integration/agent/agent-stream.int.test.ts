@@ -13,7 +13,7 @@ import {
   createBasicAgentConfig,
 } from "./__shared/fixtures.js";
 import type { FullAgentLoopTestFixture } from "./__shared/fixtures.js";
-import type { AgentLoopStreamEvent } from "@/agent/execution/coordinators/agent-loop-coordinator.js";
+import type { AgentLoopStreamEvent } from "@/agent/execution/executors/agent-loop-executor.js";
 
 describe("Agent Loop Streaming", () => {
   let fixture: FullAgentLoopTestFixture;

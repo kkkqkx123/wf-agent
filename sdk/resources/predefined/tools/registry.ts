@@ -45,7 +45,7 @@ import {
 import {
   listFilesSchema,
   createListFilesHandler,
-  LIST_FILES_TOOL_DESCRIPTION,
+  createListFilesDescription,
 } from "./stateless/filesystem/list-files/index.js";
 import {
   grepSchema,
@@ -55,7 +55,7 @@ import {
 import {
   globSchema,
   createGlobHandler,
-  GLOB_TOOL_DESCRIPTION,
+  createGlobDescription,
 } from "./stateless/filesystem/glob/index.js";
 
 // Import knowledge tools (skill)
@@ -264,9 +264,9 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
     tools.push({
       id: "list_files",
       type: "STATELESS",
-      description: renderToolDescription(LIST_FILES_TOOL_DESCRIPTION),
+      description: renderToolDescription(createListFilesDescription(config?.listFiles)),
       parameters: listFilesSchema,
-      execute: createListFilesHandler(config?.readFile ?? { workspaceDir: process.cwd() }),
+      execute: createListFilesHandler(config?.listFiles ?? { workspaceDir: process.cwd() }),
     });
   }
 
@@ -286,9 +286,9 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
     tools.push({
       id: "glob",
       type: "STATELESS",
-      description: renderToolDescription(GLOB_TOOL_DESCRIPTION),
+      description: renderToolDescription(createGlobDescription(config?.glob)),
       parameters: globSchema,
-      execute: createGlobHandler(config?.readFile ?? { workspaceDir: process.cwd() }),
+      execute: createGlobHandler(config?.glob ?? { workspaceDir: process.cwd() }),
     });
   }
 

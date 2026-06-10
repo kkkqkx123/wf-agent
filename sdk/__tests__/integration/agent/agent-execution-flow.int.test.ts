@@ -15,6 +15,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { createFullAgentLoopFixture, createBasicAgentConfig } from "./__shared/fixtures.js";
 import type { FullAgentLoopTestFixture } from "./__shared/fixtures.js";
+import type { Tool } from "@wf-agent/types";
 
 // =============================================================================
 // Mock Data
@@ -24,10 +25,6 @@ const echoToolCall = {
   id: "call_echo_1",
   name: "mock_echo_tool",
   arguments: JSON.stringify({ message: "Hello from agent loop" }),
-};
-
-const toolResponseConfig = {
-  toolCalls: [echoToolCall],
 };
 
 describe("Agent Loop Execution Flow", () => {
@@ -240,6 +237,291 @@ describe("Agent Loop Execution Flow", () => {
       expect(result.success).toBe(true);
       expect(result.iterations).toBe(2);
       expect(result.toolCallCount).toBe(2);
+    });
+  });
+
+  // ===========================================================================
+  // Multiple Parallel Tool Calls in a Single Iteration
+  // ===========================================================================
+
+  describe("Multiple Parallel Tool Calls in a Single Iteration", () => {
+    it("should execute multiple tool calls and produce final answer in next iteration", async () => {
+      fixture.mockLLMWrapper.setResponseSequence([
+        {
+          content: "Using two tools at once.",
+          toolCalls: [
+            {
+              id: "call_1",
+              name: "mock_echo_tool",
+              arguments: JSON.stringify({ message: "first tool" }),
+            },
+            {
+              id: "call_2",
+              name: "mock_echo_tool",
+              arguments: JSON.stringify({ message: "second tool" }),
+            },
+          ],
+        },
+        {
+          content: "Final answer after parallel tools.",
+        },
+      ]);
+
+      const config = createBasicAgentConfig({ maxIterations: 5 });
+
+      const result = await fixture.coordinator.execute(config);
+
+      expect(result.success).toBe(true);
+      expect(result.content).toContain("Final answer");
+      expect(result.iterations).toBeGreaterThanOrEqual(2);
+      expect(result.toolCallCount).toBeGreaterThanOrEqual(2);
+      expect(fixture.mockLLMWrapper.getCallCount()).toBeGreaterThanOrEqual(2);
+    });
+
+    it("should track all tool call IDs and names correctly with parallel calls", async () => {
+      fixture.mockLLMWrapper.setResponseSequence([
+        {
+          content: "Multiple tools.",
+          toolCalls: [
+            {
+              id: "call_a",
+              name: "mock_echo_tool",
+              arguments: JSON.stringify({ message: "A" }),
+            },
+            {
+              id: "call_b",
+              name: "mock_echo_tool",
+              arguments: JSON.stringify({ message: "B" }),
+            },
+            {
+              id: "call_c",
+              name: "mock_echo_tool",
+              arguments: JSON.stringify({ message: "C" }),
+            },
+          ],
+        },
+        {
+          content: "Done with three tools.",
+        },
+      ]);
+
+      const config = createBasicAgentConfig({ maxIterations: 5 });
+
+      const result = await fixture.coordinator.execute(config);
+
+      expect(result.success).toBe(true);
+      expect(result.toolCallCount).toBe(3);
+      expect(result.iterations).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  // ===========================================================================
+  // Tool Call Failure Recovery
+  // ===========================================================================
+
+  describe("Tool Call Failure Recovery", () => {
+    it("should continue the loop after a tool call failure and produce final answer", async () => {
+      const failingTool: Tool = {
+        id: "failing_tool",
+        description: "A tool that always fails",
+        type: "STATELESS",
+        parameters: { type: "object", properties: {}, required: [] },
+        config: {
+          execute: async () => ({
+            success: false,
+            error: "Intentional failure for testing",
+          }),
+        },
+      };
+      fixture.toolRegistry.register(failingTool, { skipIfExists: true });
+
+      fixture.mockLLMWrapper.setResponseSequence([
+        {
+          content: "I'll try to use the failing tool.",
+          toolCalls: [
+            {
+              id: "call_fail",
+              name: "failing_tool",
+              arguments: "{}",
+            },
+          ],
+        },
+        {
+          content: "Final answer after tool failure.",
+        },
+      ]);
+
+      const config = createBasicAgentConfig({ maxIterations: 5 });
+
+      const result = await fixture.coordinator.execute(config);
+
+      expect(result.success).toBe(true);
+      expect(result.content).toContain("Final answer");
+      expect(result.iterations).toBeGreaterThanOrEqual(2);
+      // Failed tool call is still counted
+      expect(result.toolCallCount).toBe(1);
+    });
+
+    it("should continue the loop through multiple tool failures", async () => {
+      const alwaysFailingTool: Tool = {
+        id: "always_fails",
+        description: "Always fails",
+        type: "STATELESS",
+        parameters: { type: "object", properties: {}, required: [] },
+        config: {
+          execute: async () => ({
+            success: false,
+            error: "Persistent failure",
+          }),
+        },
+      };
+      fixture.toolRegistry.register(alwaysFailingTool, { skipIfExists: true });
+
+      fixture.mockLLMWrapper.setResponseSequence([
+        {
+          content: "First attempt.",
+          toolCalls: [
+            {
+              id: "cf1",
+              name: "always_fails",
+              arguments: "{}",
+            },
+          ],
+        },
+        {
+          content: "Second attempt.",
+          toolCalls: [
+            {
+              id: "cf2",
+              name: "always_fails",
+              arguments: "{}",
+            },
+          ],
+        },
+        {
+          content: "Final answer after multiple failures.",
+        },
+      ]);
+
+      const config = createBasicAgentConfig({ maxIterations: 5 });
+
+      const result = await fixture.coordinator.execute(config);
+
+      expect(result.success).toBe(true);
+      expect(result.content).toContain("Final answer");
+      expect(result.iterations).toBeGreaterThanOrEqual(3);
+      expect(result.toolCallCount).toBe(2);
+    });
+  });
+
+  // ===========================================================================
+  // Edge Cases
+  // ===========================================================================
+
+  describe("Edge Cases", () => {
+    it("should handle empty toolCalls array as no tool calls", async () => {
+      fixture.mockLLMWrapper.setResponseSequence([
+        {
+          content: "I would call a tool but I won't.",
+          toolCalls: [],
+        },
+      ]);
+
+      const config = createBasicAgentConfig({ maxIterations: 1 });
+
+      const result = await fixture.coordinator.execute(config);
+
+      expect(result.success).toBe(true);
+      expect(result.content).toBe("I would call a tool but I won't.");
+      expect(result.iterations).toBe(1);
+      expect(result.toolCallCount).toBe(0);
+    });
+
+    it("should handle tools that return empty/undefined data", async () => {
+      const emptyResultTool: Tool = {
+        id: "empty_result_tool",
+        description: "A tool that returns empty data",
+        type: "STATELESS",
+        parameters: { type: "object", properties: {}, required: [] },
+        config: {
+          execute: async () => ({
+            success: true,
+            data: {},
+          }),
+        },
+      };
+      fixture.toolRegistry.register(emptyResultTool, { skipIfExists: true });
+
+      fixture.mockLLMWrapper.setResponseSequence([
+        {
+          content: "Calling tool with empty result.",
+          toolCalls: [
+            {
+              id: "call_empty",
+              name: "empty_result_tool",
+              arguments: "{}",
+            },
+          ],
+        },
+        {
+          content: "Final answer after empty result.",
+        },
+      ]);
+
+      const config = createBasicAgentConfig({ maxIterations: 5 });
+
+      const result = await fixture.coordinator.execute(config);
+
+      expect(result.success).toBe(true);
+      expect(result.content).toContain("Final answer");
+      expect(result.iterations).toBeGreaterThanOrEqual(2);
+      expect(result.toolCallCount).toBe(1);
+    });
+
+    it("should handle mixed tool results (success and failure) in the same iteration", async () => {
+      const mixedFailTool: Tool = {
+        id: "mixed_fail",
+        description: "A tool that fails",
+        type: "STATELESS",
+        parameters: { type: "object", properties: {}, required: [] },
+        config: {
+          execute: async () => ({
+            success: false,
+            error: "Mock failure",
+          }),
+        },
+      };
+      fixture.toolRegistry.register(mixedFailTool, { skipIfExists: true });
+
+      fixture.mockLLMWrapper.setResponseSequence([
+        {
+          content: "Using one good and one bad tool.",
+          toolCalls: [
+            {
+              id: "call_ok",
+              name: "mock_echo_tool",
+              arguments: JSON.stringify({ message: "OK" }),
+            },
+            {
+              id: "call_bad",
+              name: "mixed_fail",
+              arguments: "{}",
+            },
+          ],
+        },
+        {
+          content: "Final answer after mixed results.",
+        },
+      ]);
+
+      const config = createBasicAgentConfig({ maxIterations: 5 });
+
+      const result = await fixture.coordinator.execute(config);
+
+      expect(result.success).toBe(true);
+      expect(result.toolCallCount).toBe(2);
+      expect(result.content).toContain("Final answer");
+      expect(result.iterations).toBeGreaterThanOrEqual(2);
     });
   });
 });

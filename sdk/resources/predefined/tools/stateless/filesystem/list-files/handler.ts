@@ -1,11 +1,17 @@
 /**
  * The logic executed by the list_files tool
+ *
+ * Returns structured results with both machine-readable `entries` array
+ * and human-readable `display` string (for LLM consumption).
+ *
+ * IgnoreController is used by default to exclude build artifacts and
+ * hidden directories. LLM can override at call time via includeIgnored=true.
  */
 
 import path from "path";
 import type { ToolOutput } from "@wf-agent/types";
-import type { ReadFileConfig, VFSFileIO } from "../../../types.js";
-import { IgnoreController, MAX_FILE_RESULTS } from "@wf-agent/sdk/services";
+import type { ListFilesConfig } from "../../../types.js";
+import { IgnoreController } from "@wf-agent/sdk/services";
 import { resolveFilePath } from "@wf-agent/sdk/utils";
 import { HostFSAdapter } from "../../../utils/host-fs-adapter.js";
 
@@ -15,13 +21,11 @@ import { HostFSAdapter } from "../../../utils/host-fs-adapter.js";
 function isSpecialDirectory(dirPath: string): boolean {
   const absolutePath = path.resolve(dirPath);
 
-  // Check for root directory
   const root = process.platform === "win32" ? path.parse(absolutePath).root : "/";
   if (absolutePath === root) {
     return true;
   }
 
-  // Check for home directory
   const homeDir = process.env["HOME"] || process.env["USERPROFILE"];
   if (homeDir && absolutePath === homeDir) {
     return true;
@@ -42,22 +46,21 @@ interface FileEntry {
 async function listFilesRecursive(
   dirPath: string,
   basePath: string,
-  vfs: VFSFileIO,
+  vfs: HostFSAdapter,
+  maxResults: number,
   ignoreController?: IgnoreController,
   resultCount: { count: number } = { count: 0 },
 ): Promise<FileEntry[]> {
   const entries: FileEntry[] = [];
 
-  // Check if we've reached the limit
-  if (resultCount.count >= MAX_FILE_RESULTS) {
+  if (resultCount.count >= maxResults) {
     return entries;
   }
 
   const names = (await vfs.readdir(dirPath)) ?? [];
 
   for (const name of names) {
-    // Check limit before processing each item
-    if (resultCount.count >= MAX_FILE_RESULTS) {
+    if (resultCount.count >= maxResults) {
       break;
     }
 
@@ -68,39 +71,24 @@ async function listFilesRecursive(
     if (!entryStat) continue;
 
     if (entryStat.type === "directory") {
-      // Check if directory should be included
       const shouldInclude = ignoreController
         ? ignoreController.shouldIncludeDirectory(name, itemPath)
         : true;
 
       if (shouldInclude) {
-        entries.push({
-          name,
-          type: "directory",
-          path: relativePath,
-        });
+        entries.push({ name, type: "directory", path: relativePath });
         resultCount.count++;
 
-        // Recurse into subdirectory
         const subEntries = await listFilesRecursive(
-          itemPath,
-          relativePath,
-          vfs,
-          ignoreController,
-          resultCount,
+          itemPath, relativePath, vfs, maxResults, ignoreController, resultCount,
         );
         entries.push(...subEntries);
       }
     } else if (entryStat.type === "file") {
-      // Check if file should be included
       const shouldInclude = ignoreController ? ignoreController.validateAccess(itemPath) : true;
 
       if (shouldInclude) {
-        entries.push({
-          name,
-          type: "file",
-          path: relativePath,
-        });
+        entries.push({ name, type: "file", path: relativePath });
         resultCount.count++;
       }
     }
@@ -115,13 +103,19 @@ async function listFilesRecursive(
 async function listFilesFlat(
   dirPath: string,
   basePath: string,
-  vfs: VFSFileIO,
+  vfs: HostFSAdapter,
+  maxResults: number,
   ignoreController?: IgnoreController,
+  resultCount: { count: number } = { count: 0 },
 ): Promise<FileEntry[]> {
   const entries: FileEntry[] = [];
   const names = (await vfs.readdir(dirPath)) ?? [];
 
   for (const name of names) {
+    if (resultCount.count >= maxResults) {
+      break;
+    }
+
     const relativePath = basePath === "." ? name : `${basePath}/${name}`;
     const itemPath = `${dirPath}/${name}`;
 
@@ -129,28 +123,20 @@ async function listFilesFlat(
     if (!entryStat) continue;
 
     if (entryStat.type === "directory") {
-      // Check if directory should be included
       const shouldInclude = ignoreController
         ? ignoreController.shouldIncludeDirectory(name, itemPath)
         : true;
 
       if (shouldInclude) {
-        entries.push({
-          name,
-          type: "directory",
-          path: relativePath,
-        });
+        entries.push({ name, type: "directory", path: relativePath });
+        resultCount.count++;
       }
     } else if (entryStat.type === "file") {
-      // Check if file should be included
       const shouldInclude = ignoreController ? ignoreController.validateAccess(itemPath) : true;
 
       if (shouldInclude) {
-        entries.push({
-          name,
-          type: "file",
-          path: relativePath,
-        });
+        entries.push({ name, type: "file", path: relativePath });
+        resultCount.count++;
       }
     }
   }
@@ -160,14 +146,30 @@ async function listFilesFlat(
 
 /**
  * Create the `list_files` tool execution function
+ *
+ * Returns a structured ToolOutput where `content` is an object:
+ * ```ts
+ * {
+ *   entries: FileEntry[],       // machine-readable matched entries
+ *   display: string,            // human-readable formatted output for LLM
+ *   total: number,              // total matching entries (before truncation)
+ *   truncated: boolean          // true if maxResults was reached
+ * }
+ * ```
  */
-export function createListFilesHandler(config: ReadFileConfig = {}) {
+export function createListFilesHandler(config: ListFilesConfig = {}) {
+  const maxResults = config.maxResults ?? 1000;
+  const enableIgnore = config.enableIgnore ?? true;
+
   return async (params: Record<string, unknown>): Promise<ToolOutput> => {
     try {
-      const { path: targetPath, recursive } = params as { path: string; recursive?: boolean };
+      const { path: targetPath, recursive, includeIgnored } = params as {
+        path: string;
+        recursive?: boolean;
+        includeIgnored?: boolean;
+      };
       const dirPath = resolveFilePath(targetPath, config.workspaceDir);
 
-      // Check for special directories
       if (isSpecialDirectory(dirPath)) {
         return {
           success: false,
@@ -176,8 +178,7 @@ export function createListFilesHandler(config: ReadFileConfig = {}) {
         };
       }
 
-      // Check directory existence and type via VFS
-      const vfs = config.vfs ?? new HostFSAdapter();
+      const vfs = new HostFSAdapter();
       const dirStat = await vfs.stat(dirPath);
       if (!dirStat) {
         return {
@@ -194,24 +195,20 @@ export function createListFilesHandler(config: ReadFileConfig = {}) {
         };
       }
 
-      // Initialize ignore controller if enabled
+      // IgnoreController: used by default. LLM can bypass via includeIgnored=true.
+      const useIgnore = includeIgnored !== true && enableIgnore;
       let ignoreController: IgnoreController | undefined;
-      if (config.enableIgnore) {
+      if (useIgnore) {
         const workspaceDir = config.workspaceDir ?? process.cwd();
-        ignoreController = new IgnoreController({
-          cwd: workspaceDir,
-          mode: "all",
-        });
+        ignoreController = new IgnoreController({ cwd: workspaceDir, mode: "all" });
         await ignoreController.initialize();
       }
 
-      // List files
       const resultCount = { count: 0 };
       const entries = recursive
-        ? await listFilesRecursive(dirPath, targetPath, vfs, ignoreController, resultCount)
-        : await listFilesFlat(dirPath, targetPath, vfs, ignoreController);
+        ? await listFilesRecursive(dirPath, targetPath, vfs, maxResults, ignoreController, resultCount)
+        : await listFilesFlat(dirPath, targetPath, vfs, maxResults, ignoreController, resultCount);
 
-      // Sort entries: directories first, then files, alphabetically within each group
       entries.sort((a, b) => {
         if (a.type !== b.type) {
           return a.type === "directory" ? -1 : 1;
@@ -219,31 +216,32 @@ export function createListFilesHandler(config: ReadFileConfig = {}) {
         return a.path.localeCompare(b.path);
       });
 
-      // Format output
-      const lines = entries.map(entry => {
-        const prefix = entry.type === "directory" ? "[DIR]" : "[FILE]";
-        return `${prefix} ${entry.path}`;
-      });
+      const dirCount = entries.filter(e => e.type === "directory").length;
+      const fileCount = entries.filter(e => e.type === "file").length;
+      const truncated = resultCount.count >= maxResults;
 
-      const summary = {
-        directories: entries.filter(e => e.type === "directory").length,
-        files: entries.filter(e => e.type === "file").length,
-        limitReached: resultCount.count >= MAX_FILE_RESULTS,
-      };
-
-      let content = "";
-      if (lines.length > 0) {
-        content = `${lines.join("\n")}\n\nSummary: ${summary.directories} directories, ${summary.files} files`;
-        if (summary.limitReached) {
-          content += `\n(Result limit of ${MAX_FILE_RESULTS} reached)`;
+      let display: string;
+      if (entries.length > 0) {
+        const lines = entries.map(e => {
+          const prefix = e.type === "directory" ? "[DIR]" : "[FILE]";
+          return `${prefix} ${e.path}`;
+        });
+        display = `${lines.join("\n")}\n\nSummary: ${dirCount} directories, ${fileCount} files`;
+        if (truncated) {
+          display += `\n(Result limit of ${maxResults} reached. Target a deeper subdirectory or use a more specific path.)`;
         }
       } else {
-        content = "Empty directory";
+        display = "Empty directory";
       }
 
       return {
         success: true,
-        content,
+        content: {
+          entries,
+          display,
+          total: entries.length,
+          truncated,
+        },
       };
     } catch (error) {
       return {

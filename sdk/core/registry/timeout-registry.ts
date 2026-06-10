@@ -135,7 +135,7 @@ export class TimeoutRegistry {
 
     // Validate tag if provided
     if (options.tag && !isValidTimeoutTag(options.tag)) {
-      console.warn(
+      logger.warn(
         `Execution '${executionId}': Timeout '${options.id}' uses non-standard tag '${options.tag}'. Consider using standard tags from timeout-tags.ts`
       );
     }
@@ -167,7 +167,7 @@ export class TimeoutRegistry {
       try {
         manager.clear();
       } catch (error) {
-        console.error(`Failed to cancel timeouts for execution ${executionId}:`, error);
+        logger.error(`Failed to cancel timeouts for execution ${executionId}:`, error);
       }
     }
   }
@@ -180,7 +180,7 @@ export class TimeoutRegistry {
   cancelByTag(tag: string): void {
     // Validate tag
     if (!tag || tag.trim().length === 0) {
-      console.warn("cancelByTag called with empty tag");
+      logger.warn("cancelByTag called with empty tag");
       return;
     }
 
@@ -200,7 +200,7 @@ export class TimeoutRegistry {
           manager.clear();
           cancelledCount += statsBefore.activeTimeouts;
         } catch (error) {
-          console.error(
+          logger.error(
             `Failed to cancel timeouts with tag '${tag}' for execution ${executionId}:`,
             error
           );
@@ -245,7 +245,7 @@ export class TimeoutRegistry {
           manager.clear();
           totalCancelled += statsBefore.activeTimeouts;
         } catch (error) {
-          console.error(
+          logger.error(
             `Failed to cancel timeouts for execution ${executionId}:`,
             error
           );
@@ -342,7 +342,7 @@ export class TimeoutRegistry {
         // Remove manager from registry
         this.managers.delete(executionId);
       } catch (error) {
-        console.error(`Failed to cleanup execution ${executionId}:`, error);
+        logger.error(`Failed to cleanup execution ${executionId}:`, error);
         // Still remove the manager even if cleanup fails
         this.managers.delete(executionId);
       }
@@ -360,7 +360,7 @@ export class TimeoutRegistry {
         manager.clear();
       } catch (error) {
         errors.push({ executionId, error });
-        console.error(`Failed to cleanup execution ${executionId}:`, error);
+        logger.error(`Failed to cleanup execution ${executionId}:`, error);
       }
     });
 
@@ -368,7 +368,7 @@ export class TimeoutRegistry {
     this.tagIndex.clear();
 
     if (errors.length > 0) {
-      console.warn(`Cleanup completed with ${errors.length} errors`);
+      logger.warn(`Cleanup completed with ${errors.length} errors`);
     }
   }
 
@@ -424,7 +424,7 @@ export class TimeoutRegistry {
     try {
       this.metricsCollector.collectFromRegistry();
     } catch (error) {
-      console.error("Failed to collect timeout metrics", { error });
+      logger.error("Failed to collect timeout metrics", { error });
     }
   }
 
@@ -446,7 +446,14 @@ export class TimeoutRegistry {
     duration: number;
     startTime: number;
   }> {
-    const activeTimeouts: Array<any> = [];
+    const activeTimeouts: Array<{
+      executionId: string;
+      timeoutId: string;
+      tag?: string;
+      remainingTime: number;
+      duration: number;
+      startTime: number;
+    }> = [];
 
     this.managers.forEach((manager, execId) => {
       // Filter by executionId if specified
@@ -510,7 +517,15 @@ export class TimeoutRegistry {
     progressPercent: number;
     remainingTime: number;
   }> {
-    const stuckTimeouts: Array<any> = [];
+    const stuckTimeouts: Array<{
+    executionId: string;
+    timeoutId: string;
+    tag?: string;
+    duration: number;
+    startTime: number;
+    progressPercent: number;
+    remainingTime: number;
+  }> = [];
     const activeTimeouts = this.getActiveTimeouts();
 
     activeTimeouts.forEach((timeout) => {

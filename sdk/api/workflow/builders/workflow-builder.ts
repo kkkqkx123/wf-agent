@@ -5,6 +5,7 @@
 
 import type {
   WorkflowTemplate,
+  WorkflowTemplateType,
   VariableDefinition,
   WorkflowConfig,
   WorkflowMetadata,
@@ -388,7 +389,7 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
       id: this._id,
       name: this._name,
       version: this._version,
-      type: (this._type || "STANDALONE") as any,
+      type: (this._type || "STANDALONE") as WorkflowTemplateType,
       description: this._description,
       config: this._config,
       metadata: this._metadata as Metadata,

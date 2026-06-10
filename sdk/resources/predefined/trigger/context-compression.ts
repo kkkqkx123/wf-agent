@@ -4,7 +4,7 @@
  * Provides trigger definition functionality
  */
 
-import type { TriggerTemplate } from "@wf-agent/types";
+import type { TriggerTemplate, TriggerAction } from "@wf-agent/types";
 import { now } from "@wf-agent/common-utils";
 import { LLM_SUMMARY_WORKFLOW_ID } from "../workflow/llm-summary.js";
 
@@ -69,8 +69,7 @@ export function createCustomContextCompressionTrigger(
   const template = createContextCompressionTriggerTemplate(config.triggeredWorkflowId);
 
   if (config.timeout !== undefined) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (template.action.parameters as any)["timeout"] = config.timeout;
+    (template.action as Extract<TriggerAction, { type: "execute_triggered_subworkflow" }>).parameters.timeout = config.timeout;
   }
 
   if (config.maxTriggers !== undefined) {

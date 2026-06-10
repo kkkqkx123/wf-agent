@@ -2,237 +2,151 @@
 
 ## Type Issues Summary
 
-- **Total**: 66
-- **⚠️** warning: 66
-- **Categories**: 44
-- **Files Affected**: 38
+- **Total**: 103
+- **⚠️** warning: 103
+- **Categories**: 3
+- **Files Affected**: 31
 
 ## Breakdown by Category
 
-- **Unexpected any. Specify a different**: 13 occurrence(s)
-- **'WorkflowToolExecutionContext' is defined but never**: 3 occurrence(s)
-- **'error' is defined but never**: 3 occurrence(s)
-- **'errorMessage' is defined but never**: 2 occurrence(s)
-- **Unexpected console statement**: 2 occurrence(s)
-- **'now' is defined but never**: 2 occurrence(s)
-- **'logger' is assigned a value**: 2 occurrence(s)
-- **'IgnoreMode' is defined but never**: 2 occurrence(s)
-- **'subgraphConfig' is assigned a value**: 2 occurrence(s)
-- **'ALL_EVENT_TYPES' is assigned a value**: 1 occurrence(s)
-- **'executionId' is assigned a value**: 1 occurrence(s)
-- **'QueryWorkflowStatusParams' is defined but never**: 1 occurrence(s)
-- **'AgentStreamEventType' is defined but never**: 1 occurrence(s)
-- **'searchChunk' is assigned a value**: 1 occurrence(s)
-- **'EventEmitterOptions' is defined but never**: 1 occurrence(s)
-- **'toolCallName' is assigned a value**: 1 occurrence(s)
-- **'executionTime' is assigned a value**: 1 occurrence(s)
-- **'CancelWorkflowParams' is defined but never**: 1 occurrence(s)
-- **'options' is defined but never**: 1 occurrence(s)
-- **'failureCount' is assigned a value**: 1 occurrence(s)
-- **'ID' is defined but never**: 1 occurrence(s)
-- **'currentMessages' is assigned a value**: 1 occurrence(s)
-- **'timeout' is assigned a value**: 1 occurrence(s)
-- **'NamedMessageContext' is defined but never**: 1 occurrence(s)
-- **'nodeId' is defined but never**: 1 occurrence(s)
-- **'ExecutionError' is defined but never**: 1 occurrence(s)
-- **'MetricFilter' is defined but never**: 1 occurrence(s)
-- **'compressionPrompt' is defined but never**: 1 occurrence(s)
-- **'searchEndIndex' is assigned a value**: 1 occurrence(s)
-- **'MetricQueryResult' is defined but never**: 1 occurrence(s)
-- **'TCheckpoint' is defined but never**: 1 occurrence(s)
-- **'VariableManager' is defined but never**: 1 occurrence(s)
-- **'workflowExecution' is assigned a value**: 1 occurrence(s)
-- **'ExecuteWorkflowParams' is defined but never**: 1 occurrence(s)
-- **'WorkflowNode' is defined but never**: 1 occurrence(s)
-- **'recordHistory' is assigned a value**: 1 occurrence(s)
-- **'SUBGRAPH_METADATA_KEYS' is defined but never**: 1 occurrence(s)
-- **'resolvePath' is defined but never**: 1 occurrence(s)
-- **'WorkflowExecution' is defined but never**: 1 occurrence(s)
-- **'generateId' is defined but never**: 1 occurrence(s)
-- **'toolCallArgs' is assigned a value**: 1 occurrence(s)
-- **'sourceContext' is assigned a value**: 1 occurrence(s)
-- **'getErrorOrNew' is defined but never**: 1 occurrence(s)
-- **'targetContext' is assigned a value**: 1 occurrence(s)
+- **Unexpected any. Specify a different**: 96 occurrence(s)
+- **Unused eslint-disable directive (no problems**: 4 occurrence(s)
+- **Unexpected console statement**: 3 occurrence(s)
 
 ## Details by File
 
-### `D:\项目\agent\wf-agent\sdk\core\registry\event-registry.ts` (5 item(s))
+### `D:\项目\agent\wf-agent\sdk\workflow\evaluation\dsl\condition-cst-to-ast.ts` (29 item(s))
+
+- ⚠️ **warning** at line 19:21: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 74:30: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 93:31: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 97:29: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 111:31: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 125:32: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 139:29: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 151:32: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 177:30: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 192:36: Unexpected any. Specify a different type
+- ... and 19 more
 
-- ⚠️ **warning** at line 17:10: 'ExecutionError' is defined but never used. Allowed unused vars must match /^_/u
-- ⚠️ **warning** at line 18:10: 'generateId' is defined but never used. Allowed unused vars must match /^_/u
-- ⚠️ **warning** at line 19:10: 'now' is defined but never used. Allowed unused vars must match /^_/u
-- ⚠️ **warning** at line 19:15: 'getErrorOrNew' is defined but never used. Allowed unused vars must match /^_/u
-- ⚠️ **warning** at line 22:38: 'EventEmitterOptions' is defined but never used. Allowed unused vars must match /^_/u
+### `D:\项目\agent\wf-agent\sdk\services\sandbox\strategies\os-hooks\windows-job-object.ts` (12 item(s))
 
-### `D:\项目\agent\wf-agent\sdk\api\workflow\builders\workflow-builder.ts` (4 item(s))
+- ⚠️ **warning** at line 91:7: Unused eslint-disable directive (no problems were reported from
+- ⚠️ **warning** at line 239:11: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 352:32: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 352:42: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 366:29: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 366:51: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 367:37: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 368:38: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 368:58: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 369:32: Unexpected any. Specify a different type
+- ... and 2 more
 
-- ⚠️ **warning** at line 443:39: Unexpected any. Specify a different type
-- ⚠️ **warning** at line 459:39: Unexpected any. Specify a different type
-- ⚠️ **warning** at line 464:63: Unexpected any. Specify a different type
-- ⚠️ **warning** at line 473:39: Unexpected any. Specify a different type
+### `D:\项目\agent\wf-agent\sdk\core\registry\timeout-registry.ts` (5 item(s))
 
-### `D:\项目\agent\wf-agent\sdk\core\checkpoint\types.ts` (3 item(s))
+- ⚠️ **warning** at line 138:7: Unexpected console statement
+- ⚠️ **warning** at line 183:7: Unexpected console statement
+- ⚠️ **warning** at line 371:7: Unexpected console statement
+- ⚠️ **warning** at line 449:33: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 513:32: Unexpected any. Specify a different type
 
-- ⚠️ **warning** at line 10:43: 'TCheckpoint' is defined but never used. Allowed unused vars must match /^_/u
-- ⚠️ **warning** at line 10:78: Unexpected any. Specify a different type
-- ⚠️ **warning** at line 10:83: Unexpected any. Specify a different type
+### `D:\项目\agent\wf-agent\sdk\workflow\state-managers\variable-manager.ts` (5 item(s))
 
-### `D:\项目\agent\wf-agent\sdk\workflow\execution\handlers\node-handlers\context-processor-handler.ts` (3 item(s))
+- ⚠️ **warning** at line 86:29: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 108:30: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 215:46: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 220:19: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 231:60: Unexpected any. Specify a different type
 
-- ⚠️ **warning** at line 156:9: 'sourceContext' is assigned a value but never used. Allowed unused vars must match /^_/u
-- ⚠️ **warning** at line 159:9: 'targetContext' is assigned a value but never used. Allowed unused vars must match /^_/u
-- ⚠️ **warning** at line 188:9: 'currentMessages' is assigned a value but never used. Allowed unused vars must match /^_/u
+### `D:\项目\agent\wf-agent\sdk\workflow\evaluation\expression-evaluator.ts` (5 item(s))
 
-### `D:\项目\agent\wf-agent\sdk\workflow\execution\coordinators\workflow-execution-coordinator.ts` (3 item(s))
+- ⚠️ **warning** at line 27:59: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 27:69: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 627:22: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 660:48: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 660:58: Unexpected any. Specify a different type
 
-- ⚠️ **warning** at line 7:40: 'WorkflowNode' is defined but never used. Allowed unused vars must match /^_/u
-- ⚠️ **warning** at line 20:7: 'logger' is assigned a value but never used. Allowed unused vars must match /^_/u
-- ⚠️ **warning** at line 52:11: 'executionId' is assigned a value but never used. Allowed unused vars must match /^_/u
+### `D:\项目\agent\wf-agent\sdk\workflow\execution\handlers\node-handlers\user-interaction-handler.ts` (5 item(s))
 
-### `D:\项目\agent\wf-agent\sdk\core\metrics\workflow-collector.ts` (2 item(s))
+- ⚠️ **warning** at line 98:73: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 230:73: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 293:73: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 331:76: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 342:180: Unexpected any. Specify a different type
 
-- ⚠️ **warning** at line 145:11: 'failureCount' is assigned a value but never used. Allowed unused vars must match /^_/u
-- ⚠️ **warning** at line 248:18: 'error' is defined but never used
+### `D:\项目\agent\wf-agent\sdk\core\state-managers\timeout-manager.ts` (3 item(s))
 
-### `D:\项目\agent\wf-agent\sdk\core\metrics\resource-collector.ts` (2 item(s))
+- ⚠️ **warning** at line 187:23: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 480:25: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 700:30: Unexpected any. Specify a different type
 
-- ⚠️ **warning** at line 12:38: 'MetricFilter' is defined but never used. Allowed unused vars must match /^_/u
-- ⚠️ **warning** at line 12:52: 'MetricQueryResult' is defined but never used. Allowed unused vars must match /^_/u
+### `D:\项目\agent\wf-agent\sdk\workflow\evaluation\dsl\types.ts` (3 item(s))
 
-### `D:\项目\agent\wf-agent\sdk\resources\predefined\tools\builtin\workflow\query-workflow-status\handler.ts` (2 item(s))
+- ⚠️ **warning** at line 13:12: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 32:10: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 126:28: Unexpected any. Specify a different type
 
-- ⚠️ **warning** at line 7:3: 'QueryWorkflowStatusParams' is defined but never used. Allowed unused vars must match /^_/u
-- ⚠️ **warning** at line 9:3: 'WorkflowToolExecutionContext' is defined but never used. Allowed unused vars must match /^_/u
+### `D:\项目\agent\wf-agent\sdk\workflow\execution\handlers\node-handlers\agent-loop-handler.ts` (3 item(s))
 
-### `D:\项目\agent\wf-agent\sdk\resources\predefined\tools\builtin\interaction\ask-followup-question\handler.ts` (2 item(s))
+- ⚠️ **warning** at line 81:29: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 275:20: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 277:66: Unexpected any. Specify a different type
 
-- ⚠️ **warning** at line 164:13: 'executionTime' is assigned a value but never used. Allowed unused vars must match /^_/u
-- ⚠️ **warning** at line 226:75: Unexpected any. Specify a different type
+### `D:\项目\agent\wf-agent\sdk\core\utils\interruption\recovery-strategy-manager.ts` (3 item(s))
 
-### `D:\项目\agent\wf-agent\sdk\workflow\execution\handlers\trigger-handlers\execute-triggered-subgraph-handler.ts` (2 item(s))
+- ⚠️ **warning** at line 29:10: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 210:48: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 211:52: Unexpected any. Specify a different type
 
-- ⚠️ **warning** at line 123:11: 'timeout' is assigned a value but never used. Allowed unused vars must match /^_/u
-- ⚠️ **warning** at line 124:11: 'recordHistory' is assigned a value but never used. Allowed unused vars must match /^_/u
+### `D:\项目\agent\wf-agent\sdk\api\shared\core\sdk-instance.ts` (3 item(s))
 
-### `D:\项目\agent\wf-agent\sdk\api\shared\resources\events\event-resource-api.ts` (2 item(s))
+- ⚠️ **warning** at line 294:51: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 295:32: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 297:48: Unexpected any. Specify a different type
 
-- ⚠️ **warning** at line 26:7: 'ALL_EVENT_TYPES' is assigned a value but never used. Allowed unused vars must match /^_/u
-- ⚠️ **warning** at line 274:9: Unexpected console statement
+### `D:\项目\agent\wf-agent\sdk\workflow\execution\factories\workflow-execution-builder.ts` (3 item(s))
 
-### `D:\项目\agent\wf-agent\sdk\resources\predefined\tools\builtin\workflow\execute-workflow\handler.ts` (2 item(s))
+- ⚠️ **warning** at line 91:18: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 647:48: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 746:18: Unexpected any. Specify a different type
 
-- ⚠️ **warning** at line 7:3: 'WorkflowToolExecutionContext' is defined but never used. Allowed unused vars must match /^_/u
-- ⚠️ **warning** at line 8:3: 'ExecuteWorkflowParams' is defined but never used. Allowed unused vars must match /^_/u
+### `D:\项目\agent\wf-agent\sdk\services\sandbox\strategies\js-vm-context.ts` (3 item(s))
 
-### `D:\项目\agent\wf-agent\sdk\resources\predefined\tools\stateless\filesystem\apply-diff\utils\apply.ts` (2 item(s))
+- ⚠️ **warning** at line 248:7: Unused eslint-disable directive (no problems were reported from
+- ⚠️ **warning** at line 259:5: Unused eslint-disable directive (no problems were reported from
+- ⚠️ **warning** at line 324:7: Unused eslint-disable directive (no problems were reported from
 
-- ⚠️ **warning** at line 74:9: 'searchChunk' is assigned a value but never used. Allowed unused vars must match /^_/u
-- ⚠️ **warning** at line 78:9: 'searchEndIndex' is assigned a value but never used. Allowed unused vars must match /^_/u
+### `D:\项目\agent\wf-agent\sdk\workflow\execution\handlers\node-handlers\fork-handler.ts` (2 item(s))
 
-### `D:\项目\agent\wf-agent\sdk\workflow\execution\handlers\node-handlers\llm-handler.ts` (2 item(s))
+- ⚠️ **warning** at line 81:62: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 105:84: Unexpected any. Specify a different type
 
-- ⚠️ **warning** at line 13:43: 'NamedMessageContext' is defined but never used. Allowed unused vars must match /^_/u
-- ⚠️ **warning** at line 26:7: 'logger' is assigned a value but never used. Allowed unused vars must match /^_/u
+### `D:\项目\agent\wf-agent\sdk\workflow\validation\node-template-validation.ts` (2 item(s))
 
-### `D:\项目\agent\wf-agent\sdk\resources\predefined\tools\builtin\workflow\cancel-workflow\handler.ts` (2 item(s))
+- ⚠️ **warning** at line 31:60: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 77:39: Unexpected any. Specify a different type
 
-- ⚠️ **warning** at line 7:3: 'CancelWorkflowParams' is defined but never used. Allowed unused vars must match /^_/u
-- ⚠️ **warning** at line 9:3: 'WorkflowToolExecutionContext' is defined but never used. Allowed unused vars must match /^_/u
+### `D:\项目\agent\wf-agent\sdk\core\types\timeout-tags.ts` (2 item(s))
 
-### `D:\项目\agent\wf-agent\sdk\workflow\execution\handlers\node-handlers\variable-handler.ts` (2 item(s))
+- ⚠️ **warning** at line 128:43: Unexpected any. Specify a different type
+- ⚠️ **warning** at line 149:43: Unexpected any. Specify a different type
 
-- ⚠️ **warning** at line 6:48: 'WorkflowExecution' is defined but never used. Allowed unused vars must match /^_/u
-- ⚠️ **warning** at line 10:10: 'resolvePath' is defined but never used. Allowed unused vars must match /^_/u
+### `D:\项目\agent\wf-agent\sdk\api\shared\config\processors\metrics.ts` (1 item(s))
 
-### `D:\项目\agent\wf-agent\sdk\agent\checkpoint\checkpoint-state-manager.ts` (2 item(s))
+- ⚠️ **warning** at line 67:18: Unexpected any. Specify a different type
 
-- ⚠️ **warning** at line 41:58: Unexpected any. Specify a different type
-- ⚠️ **warning** at line 78:33: Unexpected any. Specify a different type
+### `D:\项目\agent\wf-agent\sdk\api\shared\resources\events\event-resource-api.ts` (1 item(s))
 
-### `D:\项目\agent\wf-agent\sdk\workflow\execution\handlers\subgraph-handler.ts` (2 item(s))
+- ⚠️ **warning** at line 447:41: Unexpected any. Specify a different type
 
-- ⚠️ **warning** at line 175:9: 'subgraphConfig' is assigned a value but never used. Allowed unused vars must match /^_/u
-- ⚠️ **warning** at line 288:9: 'subgraphConfig' is assigned a value but never used. Allowed unused vars must match /^_/u
+### `D:\项目\agent\wf-agent\sdk\api\workflow\builders\workflow-builder.ts` (1 item(s))
 
-### `D:\项目\agent\wf-agent\sdk\core\metrics\node-collector.ts` (2 item(s))
+- ⚠️ **warning** at line 391:45: Unexpected any. Specify a different type
 
-- ⚠️ **warning** at line 188:18: 'error' is defined but never used
-- ⚠️ **warning** at line 211:18: 'error' is defined but never used
+### `D:\项目\agent\wf-agent\sdk\core\llm\message-stream.ts` (1 item(s))
 
-### `D:\项目\agent\wf-agent\sdk\workflow\execution\coordinators\llm-execution-coordinator.ts` (2 item(s))
+- ⚠️ **warning** at line 862:11: Unexpected any. Specify a different type
 
-- ⚠️ **warning** at line 599:11: 'toolCallName' is assigned a value but never used. Allowed unused vars must match /^_/u
-- ⚠️ **warning** at line 600:11: 'toolCallArgs' is assigned a value but never used. Allowed unused vars must match /^_/u
-
-### `D:\项目\agent\wf-agent\sdk\resources\predefined\tools\stateless\filesystem\list-files\handler.ts` (1 item(s))
-
-- ⚠️ **warning** at line 10:28: 'IgnoreMode' is defined but never used. Allowed unused vars must match /^_/u
-
-### `D:\项目\agent\wf-agent\sdk\workflow\checkpoint\checkpoint-coordinator.ts` (1 item(s))
-
-- ⚠️ **warning** at line 33:10: 'VariableManager' is defined but never used. Allowed unused vars must match /^_/u
-
-### `D:\项目\agent\wf-agent\sdk\workflow\execution\handlers\node-handlers\loop-end-handler.ts` (1 item(s))
-
-- ⚠️ **warning** at line 39:9: 'workflowExecution' is assigned a value but never used. Allowed unused vars must match /^_/u
-
-### `D:\项目\agent\wf-agent\sdk\core\metrics\template-collector.ts` (1 item(s))
-
-- ⚠️ **warning** at line 308:43: Unexpected any. Specify a different type
-
-### `D:\项目\agent\wf-agent\sdk\core\metrics\error-collector.ts` (1 item(s))
-
-- ⚠️ **warning** at line 39:5: 'errorMessage' is defined but never used. Allowed unused args must match /^_/u
-
-### `D:\项目\agent\wf-agent\sdk\workflow\execution\handlers\hook-handlers\hook-handler.ts` (1 item(s))
-
-- ⚠️ **warning** at line 211:27: Unexpected any. Specify a different type
-
-### `D:\项目\agent\wf-agent\sdk\workflow\execution\handlers\triggered-subworkflow-handler.ts` (1 item(s))
-
-- ⚠️ **warning** at line 231:9: Unexpected console statement
-
-### `D:\项目\agent\wf-agent\sdk\core\utils\event\builders\custom-events.ts` (1 item(s))
-
-- ⚠️ **warning** at line 7:82: 'AgentStreamEventType' is defined but never used. Allowed unused vars must match /^_/u
-
-### `D:\项目\agent\wf-agent\sdk\core\metrics\types.ts` (1 item(s))
-
-- ⚠️ **warning** at line 7:10: 'now' is defined but never used. Allowed unused vars must match /^_/u
-
-### `D:\项目\agent\wf-agent\sdk\core\state-managers\tool-failure-protection-types.ts` (1 item(s))
-
-- ⚠️ **warning** at line 7:15: 'ID' is defined but never used. Allowed unused vars must match /^_/u
-
-### `D:\项目\agent\wf-agent\sdk\core\metrics\event-collector.ts` (1 item(s))
-
-- ⚠️ **warning** at line 363:42: Unexpected any. Specify a different type
-
-### `D:\项目\agent\wf-agent\sdk\core\metrics\tool-collector.ts` (1 item(s))
-
-- ⚠️ **warning** at line 102:5: 'errorMessage' is defined but never used. Allowed unused args must match /^_/u
-
-### `D:\项目\agent\wf-agent\sdk\core\metrics\metrics-registry.ts` (1 item(s))
-
-- ⚠️ **warning** at line 155:24: 'options' is defined but never used. Allowed unused args must match /^_/u
-
-### `D:\项目\agent\wf-agent\sdk\core\utils\interruption\interruption-handler.ts` (1 item(s))
-
-- ⚠️ **warning** at line 92:33: Unexpected any. Specify a different type
-
-### `D:\项目\agent\wf-agent\sdk\workflow\checkpoint\checkpoint-state-manager.ts` (1 item(s))
-
-- ⚠️ **warning** at line 136:58: 'nodeId' is defined but never used. Allowed unused args must match /^_/u
-
-### `D:\项目\agent\wf-agent\sdk\resources\predefined\workflow\context-compression.ts` (1 item(s))
-
-- ⚠️ **warning** at line 49:50: 'compressionPrompt' is defined but never used. Allowed unused args must match /^_/u
-
-### `D:\项目\agent\wf-agent\sdk\resources\predefined\tools\stateless\filesystem\read-file\handler.ts` (1 item(s))
-
-- ⚠️ **warning** at line 10:28: 'IgnoreMode' is defined but never used. Allowed unused vars must match /^_/u
-
-### `D:\项目\agent\wf-agent\sdk\workflow\builder\workflow-graph-builder.ts` (1 item(s))
-
-- ⚠️ **warning** at line 27:10: 'SUBGRAPH_METADATA_KEYS' is defined but never used. Allowed unused vars must match /^_/u
+*... and 11 more files (use --verbose to see all)*
 

@@ -290,11 +290,13 @@ export class SDKInstance {
 
     // Initialize TaskRegistry with async storage loading
     try {
-      const taskRegistry = this.globalContext.container.get(ServiceIdentifiers.TaskRegistry);
-      if (taskRegistry && typeof (taskRegistry as any).initialize === 'function') {
-        await (taskRegistry as any).initialize();
+      const taskRegistry = this.globalContext.container.get(ServiceIdentifiers.TaskRegistry) as
+        | { initialize: () => Promise<void>; isPersistenceEnabled?: () => boolean }
+        | undefined;
+      if (taskRegistry?.initialize) {
+        await taskRegistry.initialize();
         logger.info("TaskRegistry initialized", {
-          persistenceEnabled: (taskRegistry as any).isPersistenceEnabled?.() ?? false,
+          persistenceEnabled: taskRegistry.isPersistenceEnabled?.() ?? false,
         });
       }
     } catch (error) {

@@ -14,6 +14,9 @@
 import type { ID, StaticNodeType, SyncNodeConfig } from "@wf-agent/types";
 import { ConfigurationValidationError } from "@wf-agent/types";
 import type { WorkflowGraphData } from "../../entities/workflow-graph-data.js";
+import { createContextualLogger } from "../../../utils/contextual-logger.js";
+
+const logger = createContextualLogger({ component: "SyncNodeValidator" });
 
 /**
  * Validate SYNC nodes configuration and pairing
@@ -213,7 +216,7 @@ export function validateSyncNodes(
         if (mapping.externalName === mapping.internalName) {
           // This is allowed but we can add a warning in development mode
           if (process.env["NODE_ENV"] === "development") {
-            console.warn(
+            logger.warn(
               `[DEV] SYNC node '${nodeId}' has self-mapping: ${mapping.externalName} -> ${mapping.internalName}`
             );
           }

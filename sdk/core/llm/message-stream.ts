@@ -848,18 +848,14 @@ export class MessageStream implements AsyncIterable<InternalStreamEvent> {
    */
   [Symbol.asyncIterator](): AsyncIterator<InternalStreamEvent> {
     // Add an event listener
-    this.on("streamEvent", ((event: { type: string; data: unknown }) => {
-      const internalEvent: InternalStreamEvent = {
-        type: event.type,
-        data: event.data,
-      };
+    this.on("streamEvent", ((event: InternalStreamEvent) => {
       if (this.readQueue.length > 0) {
         const reader = this.readQueue.shift()!;
-        reader(internalEvent);
+        reader(event);
       } else {
-        this.pushQueue.push(internalEvent);
+        this.pushQueue.push(event);
       }
-    }) as any);
+    }) as (...args: unknown[]) => void);
 
     this.once("end", () => {
       while (this.readQueue.length > 0) {

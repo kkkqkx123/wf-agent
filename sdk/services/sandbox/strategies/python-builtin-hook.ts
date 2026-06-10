@@ -13,6 +13,7 @@ import { getTerminalService, type TerminalService } from "../../terminal/index.j
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
+import { spawnSync } from "node:child_process";
 
 /**
  * Default denied Python modules when policy.python.deniedModules is empty.
@@ -210,7 +211,6 @@ ${code}
    */
   private checkPythonAvailable(): boolean {
     try {
-      const { spawnSync } = require("child_process");
       const result = spawnSync("python", ["--version"], {
         timeout: 5000,
         stdio: "pipe",

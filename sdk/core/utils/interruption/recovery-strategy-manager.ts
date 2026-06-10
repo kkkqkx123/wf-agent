@@ -26,7 +26,7 @@ export interface RecoveryContext {
   /** Iteration number (for Agent loops, optional) */
   iteration?: number;
   /** Current state object (can be modified by strategies) */
-  state: any;
+  state: Record<string, unknown>;
 }
 
 /**
@@ -207,8 +207,8 @@ export class RecoveryStrategyManager {
  * This is a convenience implementation that can be used as a template.
  */
 export function createAutoSaveStrategy(options: {
-  saveCheckpoint: (executionId: string, state: any) => Promise<void>;
-  loadCheckpoint: (executionId: string) => Promise<any>;
+  saveCheckpoint: (executionId: string, state: Record<string, unknown>) => Promise<void>;
+  loadCheckpoint: (executionId: string) => Promise<Record<string, unknown>>;
 }): RecoveryStrategy {
   return {
     async beforeInterrupt(type, context) {

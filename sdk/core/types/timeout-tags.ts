@@ -125,7 +125,7 @@ export function isValidTimeoutTag(tag: string): boolean {
   const prefix = parts[0];
   const validPrefixes = Object.values(TIMEOUT_TAG_PREFIXES);
   
-  return validPrefixes.includes(prefix as any);
+  return validPrefixes.includes(prefix as unknown as TIMEOUT_TAG_PREFIXES);
 }
 
 /**
@@ -146,5 +146,5 @@ export function getTagCategory(tag: string): string | null {
   
   const validPrefixes = Object.values(TIMEOUT_TAG_PREFIXES);
   
-  return validPrefixes.includes(prefix as any) ? prefix : null;
+  return validPrefixes.includes(prefix as unknown as TIMEOUT_TAG_PREFIXES) ? prefix : null;
 }

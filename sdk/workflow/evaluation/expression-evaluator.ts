@@ -24,7 +24,7 @@ import type {
 
 export class ExpressionEvaluator {
   private logger = getGlobalLogger().child("ExpressionEvaluator", { pkg: "sdk/workflow" });
-  private registeredFunctions = new Map<string, (...args: any[]) => any>();
+  private registeredFunctions = new Map<string, (...args: unknown[]) => unknown>();
 
   // Cache for array method computation results (per-call, bounded)
   private arrayMethodCache = new Map<string, { value: unknown; timestamp: number }>();
@@ -624,7 +624,7 @@ export class ExpressionEvaluator {
     }
 
     if (typeof obj === "string" || typeof obj === "number" || typeof obj === "boolean") {
-      return (obj as any)[node.property];
+      return (obj as unknown as Record<string, unknown>)[node.property];
     }
 
     if (typeof obj !== "object") {
@@ -657,7 +657,7 @@ export class ExpressionEvaluator {
     return result;
   }
 
-  registerFunction(name: string, fn: (...args: any[]) => any): void {
+  registerFunction(name: string, fn: (...args: unknown[]) => unknown): void {
     this.registeredFunctions.set(name, fn);
     this.logger.info(`Registered custom function: ${name}`);
   }

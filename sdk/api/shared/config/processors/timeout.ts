@@ -11,6 +11,9 @@
  */
 
 import type { TimeoutConfig } from "@wf-agent/types";
+import { createContextualLogger } from "../../../../utils/contextual-logger.js";
+
+const logger = createContextualLogger({ component: "TimeoutConfigProcessor" });
 
 /**
  * Default timeout configuration
@@ -96,7 +99,7 @@ export function validateTimeout(timeout: number, context: string): void {
   }
   
   if (timeout > DEFAULT_TIMEOUT_CONFIG.maxAllowed) {
-    console.warn(
+    logger.warn(
       `Very long timeout for ${context}: ${timeout}ms (>${DEFAULT_TIMEOUT_CONFIG.maxAllowed / 1000}s). ` +
       `Consider if this is intentional.`
     );

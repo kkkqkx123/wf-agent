@@ -64,9 +64,10 @@ export function mergeMetricsWithDefaults(userConfig: Partial<MetricsConfig>): Me
   for (const key of collectorConfigs) {
     if (userConfig[key]) {
       // Merge at collector level: user config overrides defaults for that collector
-      (merged as any)[key] = {
-        ...(DEFAULT_METRICS_CONFIG[key] as MetricCollectorConfig),
-        ...(userConfig[key] as MetricCollectorConfig),
+      const collectorKey = key as keyof MetricsConfig;
+      (merged[collectorKey] as MetricCollectorConfig | undefined) = {
+        ...(DEFAULT_METRICS_CONFIG[collectorKey] as MetricCollectorConfig | undefined),
+        ...(userConfig[collectorKey] as MetricCollectorConfig | undefined),
       };
     }
   }

@@ -151,7 +151,7 @@ export class LLMExecutionCoordinator {
    */
   setPermissionManager(permissionManager: ToolPermissionManager | null): void {
     // Update the context factory's config
-    (this.contextFactory as any).config.permissionManager = permissionManager;
+    (this.contextFactory as unknown as { config?: { permissionManager?: unknown } }).config!.permissionManager = permissionManager;
   }
 
   /**

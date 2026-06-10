@@ -83,7 +83,10 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
    * Optional reference to WorkflowExecutionEntity for runtime validation
    * This allows checking if accessed variables are declared in current node's variableInputs
    */
-  private executionEntity?: any; // Type will be set via setter to avoid circular dependency
+  private executionEntity?: {
+    getCurrentNodeId?: () => string;
+    getNode?: (nodeId: string) => { type: string; config?: { variableInputs?: Array<{ internalName: string }> } } | undefined;
+  };
 
   /**
    * Optional cache for frequently accessed variables
@@ -105,7 +108,10 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
    * Set the execution entity reference for runtime validation
    * @param entity WorkflowExecutionEntity instance
    */
-  setExecutionEntity(entity: any): void {
+  setExecutionEntity(entity: {
+    getCurrentNodeId?: () => string;
+    getNode?: (nodeId: string) => { type: string; config?: { variableInputs?: Array<{ internalName: string }> } } | undefined;
+  }): void {
     this.executionEntity = entity;
   }
 
@@ -212,12 +218,11 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
       
       // Check if current node is a subgraph or loop that should have explicit inputs
       if (currentNode.type === "SUBGRAPH" || currentNode.type === "LOOP_START") {
-        const config = currentNode.config as any;
-        const declaredInputs = config.variableInputs || [];
+        const declaredInputs = currentNode.config?.variableInputs || [];
         
         // Check if this variable was declared in variableInputs
         const isDeclared = declaredInputs.some(
-          (input: any) => input.internalName === name
+          (input) => input.internalName === name
         );
         
         // Also check if it's a global variable (always accessible)
@@ -228,7 +233,9 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
           logger.warn(
             `⚠️  Accessing undeclared variable '${name}' in ${currentNode.type} node '${currentNodeId}'.\n` +
             `This variable was not declared in variableInputs. It should have been caught by static validation.\n` +
-            `Available variables: ${declaredInputs.map((i: any) => i.internalName).join(", ") || "(none)"}`
+            `Available variables: ${declaredInputs.map(
+            (i) => i.internalName
+          ).join(", ") || "(none)"}`
           );
         }
       }

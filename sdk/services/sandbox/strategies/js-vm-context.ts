@@ -9,8 +9,11 @@
  */
 
 import vm from "node:vm";
+import { createRequire } from "node:module";
 import type { SandboxPolicy, JavaScriptPolicy, ScriptExecutionResult, StrategyExecuteOptions, VFSProvider } from "@wf-agent/types";
 import type { StrategyImplementation } from "../types.js";
+
+const _require = createRequire(import.meta.url);
 
 /**
  * Default denied JS modules when policy.javascript.deniedModules is empty.
@@ -238,12 +241,11 @@ export class JavaScriptVmContextStrategy implements StrategyImplementation<Scrip
       if (vfs) {
         return this.createVFSBackedFS(vfs, policy.allowFSWrite);
       }
-      return policy.allowFSWrite ? require("fs") : this.createReadonlyFS();
+      return policy.allowFSWrite ? _require("fs") : this.createReadonlyFS();
     }
 
     try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      return require(moduleName);
+      return _require(moduleName);
     } catch {
       throw new Error(`Module not found: ${moduleName}`);
     }
@@ -253,8 +255,7 @@ export class JavaScriptVmContextStrategy implements StrategyImplementation<Scrip
    * Create a read-only proxy for the fs module.
    */
   private createReadonlyFS(): Record<string, unknown> {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const fs = require("fs") as Record<string, unknown>;
+    const fs = _require("fs") as Record<string, unknown>;
 
     return new Proxy(fs, {
       get: (target, prop: string) => {
@@ -318,8 +319,7 @@ export class JavaScriptVmContextStrategy implements StrategyImplementation<Scrip
     // Read directory
     fsProxy["readdir"] = async (path: string) => {
       // VFSProvider doesn't have readdir, so fall back to real fs readdir
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const realFs = require("fs") as { readdir: (p: string, cb: (e: Error | null, f: string[]) => void) => void };
+      const realFs = _require("fs") as { readdir: (p: string, cb: (e: Error | null, f: string[]) => void) => void };
       return new Promise<string[]>((resolve, reject) => {
         realFs.readdir(path, (err, files) => {
           if (err) reject(err);

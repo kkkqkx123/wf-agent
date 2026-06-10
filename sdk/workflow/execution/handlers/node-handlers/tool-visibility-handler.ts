@@ -54,7 +54,7 @@ export async function toolVisibilityHandler(
         toolIds: config.toolIds,
       });
     } else {
-      throw new Error(`Unknown action: ${(config as any).action}`);
+      throw new Error(`Unknown action: ${(config as { action?: string }).action}`);
     }
 
     return {

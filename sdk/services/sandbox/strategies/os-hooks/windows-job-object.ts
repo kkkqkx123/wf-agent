@@ -5,7 +5,11 @@
  * accessed through the koffi FFI library (optional dependency).
  *
  * Falls back to passthrough when koffi is not installed.
+ *
+ * @note This file uses `any` types for Win32 FFI bindings and handle types
+ * because koffi (foreign function interface) types are inherently dynamic.
  */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 import type { SandboxPolicy, ScriptExecutionResult, StrategyExecuteOptions } from "@wf-agent/types";
 import type { StrategyImplementation } from "../../types.js";
@@ -13,6 +17,9 @@ import { getTerminalService, type TerminalService } from "../../../terminal/inde
 import { spawn } from "child_process";
 import { executePassthrough, recordAudit } from "./base.js";
 import { createContextualLogger } from "../../../../utils/contextual-logger.js";
+import { createRequire } from "node:module";
+
+const _require = createRequire(import.meta.url);
 
 const logger = createContextualLogger({ component: "WindowsJobObjectStrategy" });
 
@@ -85,8 +92,7 @@ export class WindowsJobObjectStrategy implements StrategyImplementation<ScriptEx
     try {
       // Dynamic require to avoid bundling koffi's native binaries.
       // koffi is an optional dependency (see sdk/package.json).
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const koffi = require("koffi") as KoffiModule;
+      const koffi = _require("koffi") as KoffiModule;
       const k32 = koffi.load("kernel32.dll");
 
       // ── Win32 API bindings ────────────────────────────────────────────

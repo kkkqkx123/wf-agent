@@ -10,7 +10,7 @@ import { agentLoopHandler, type AgentLoopHandlerContext } from "./agent-loop-han
 import { contextProcessorHandler, type ContextProcessorHandlerContext } from "./context-processor-handler.js";
 import { continueFromTriggerHandler } from "./continue-from-trigger-handler.js";
 import { endHandler } from "./end-handler.js";
-import { forkHandler } from "./fork-handler.js";
+import { forkHandler, type ForkHandlerContext } from "./fork-handler.js";
 import { joinHandler } from "./join-handler.js";
 import { llmHandler, type LLMHandlerContext } from "./llm-handler.js";
 import { loopEndHandler } from "./loop-end-handler.js";
@@ -53,7 +53,7 @@ export function getNodeHandler(nodeType: string): NodeHandlerFn {
       continueFromTriggerHandler(workflowExecutionEntity, node),
     END: (_gc, workflowExecutionEntity, node, _ctx) => endHandler(workflowExecutionEntity, node),
     FORK: (globalContext, workflowExecutionEntity, node, context) =>
-      forkHandler(globalContext, workflowExecutionEntity, node, context as any),
+      forkHandler(globalContext, workflowExecutionEntity, node, context as ForkHandlerContext | undefined),
     JOIN: (globalContext, workflowExecutionEntity, node, _ctx) => joinHandler(globalContext, workflowExecutionEntity, node),
     LLM: (_gc, workflowExecutionEntity, node, context) =>
       llmHandler(workflowExecutionEntity.getExecution(), node, context as LLMHandlerContext),
@@ -70,7 +70,7 @@ export function getNodeHandler(nodeType: string): NodeHandlerFn {
     EMBED_END: (_gc, workflowExecutionEntity, node, _ctx) =>
       embedEndHandler(workflowExecutionEntity, node),
     USER_INTERACTION: (_gc, workflowExecutionEntity, node, context) =>
-      userInteractionHandler(workflowExecutionEntity.getExecution(), node, context as UserInteractionHandlerContext),
+      userInteractionHandler(workflowExecutionEntity.getExecution(), node, context as UserInteractionHandlerContext, workflowExecutionEntity),
     VARIABLE: (_gc, workflowExecutionEntity, node, _ctx) => variableHandler(workflowExecutionEntity, node),
     TOOL_VISIBILITY: (_gc, _we, node, context) =>
       toolVisibilityHandler(node, context as ToolVisibilityHandlerContext),

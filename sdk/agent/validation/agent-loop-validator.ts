@@ -21,7 +21,7 @@ export function validateAgentLoopConfig(
   const result = AgentLoopDefinitionSchema.safeParse(config);
 
   if (!result.success) {
-    const errors = result.error.issues.map((issue: any) => {
+    const errors = result.error.issues.map((issue: ZodIssue) => {
       const fieldPath = issue.path.join(".");
       return new ConfigurationValidationError(
         `${fieldPath ? fieldPath + ": " : ""}${issue.message}`,

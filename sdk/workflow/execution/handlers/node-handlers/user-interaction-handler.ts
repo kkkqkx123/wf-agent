@@ -6,7 +6,7 @@
  * - Only contains the core execution logic; does not include event triggering.
  * - Receives verified configuration.
  * - Returns the execution results.
- * 
+ *
  * Note: This handler is workflow-specific and handles UPDATE_VARIABLES and ADD_MESSAGE operations.
  * It does NOT use the general UserInteractionRequest protocol (which is for app-level UI interactions
  * like tool approval and follow-up questions).
@@ -20,6 +20,16 @@ import type {
 } from "@wf-agent/types";
 import { ExecutionError } from "@wf-agent/types";
 import { generateId } from "../../../../utils/index.js";
+
+/**
+ * Minimal interface for VariableManager access
+ * Avoids circular dependency with WorkflowExecutionEntity
+ */
+interface VariableManagerAccess {
+  getVariable: (name: string) => unknown;
+  setVariable: (name: string, value: unknown) => void;
+  getAllVariables: () => Record<string, unknown>;
+}
 
 /**
  * Workflow-specific interaction request
@@ -95,7 +105,7 @@ function createInteractionContext(
   node: RuntimeNode,
   timeout: number,
   _conversationManager?: unknown,
-  context?: UserInteractionHandlerContext & { workflowExecutionEntity?: any },
+  variableManager?: VariableManagerAccess,
 ): unknown {
   const cancelToken = {
     cancelled: false,
@@ -109,23 +119,19 @@ function createInteractionContext(
     workflowId: workflowExecution.workflowId,
     nodeId: node.id,
     getVariable: (variableName: string) => {
-      // Use VariableManager API to retrieve variables
-      if (context?.workflowExecutionEntity?.variableStateManager) {
-        return context.workflowExecutionEntity.variableStateManager.getVariable(variableName);
+      if (variableManager) {
+        return variableManager.getVariable(variableName);
       }
-      // Fallback for backward compatibility
       return undefined;
     },
     setVariable: async (variableName: string, value: unknown) => {
-      // Use VariableManager API to set variables
-      if (context?.workflowExecutionEntity?.variableStateManager) {
-        context.workflowExecutionEntity.variableStateManager.setVariable(variableName, value);
+      if (variableManager) {
+        variableManager.setVariable(variableName, value);
       }
     },
     getVariables: () => {
-      // Use VariableManager API to get all variables
-      if (context?.workflowExecutionEntity?.variableStateManager) {
-        return context.workflowExecutionEntity.variableStateManager.getAllVariables();
+      if (variableManager) {
+        return variableManager.getAllVariables();
       }
       return {};
     },
@@ -227,7 +233,7 @@ async function processVariableUpdate(
   config: UserInteractionNodeConfig,
   inputData: unknown,
   workflowExecution: WorkflowExecution,
-  context?: UserInteractionHandlerContext & { workflowExecutionEntity?: any },
+  variableManager?: VariableManagerAccess,
 ): Promise<Record<string, unknown>> {
   if (!config.variables || config.variables.length === 0) {
     throw new ExecutionError("No variables defined for UPDATE_VARIABLES operation", workflowExecution.id);
@@ -243,8 +249,8 @@ async function processVariableUpdate(
     const value = evaluateExpression(expression, inputData);
 
     // Update the variable using VariableManager API
-    if (context?.workflowExecutionEntity?.variableStateManager) {
-      context.workflowExecutionEntity.variableStateManager.setVariable(variableConfig.variableName, value);
+    if (variableManager) {
+      variableManager.setVariable(variableConfig.variableName, value);
     }
 
     results[variableConfig.variableName] = value;
@@ -290,11 +296,11 @@ async function processUserInput(
   inputData: unknown,
   workflowExecution: WorkflowExecution,
   conversationManager?: UserInteractionHandlerContext["conversationManager"],
-  context?: UserInteractionHandlerContext & { workflowExecutionEntity?: any },
+  variableManager?: VariableManagerAccess,
 ): Promise<unknown> {
   switch (config.operationType) {
     case "UPDATE_VARIABLES":
-      return await processVariableUpdate(config, inputData, workflowExecution, context);
+      return await processVariableUpdate(config, inputData, workflowExecution, variableManager);
 
     case "ADD_MESSAGE":
       return processMessageAdd(config, inputData, conversationManager);
@@ -309,12 +315,14 @@ async function processUserInput(
  * @param workflowExecution Workflow execution instance
  * @param node Node definition
  * @param context Processor context
+ * @param executionEntity Workflow execution entity for variable access
  * @returns Execution result
  */
 export async function userInteractionHandler(
   workflowExecution: WorkflowExecution,
   node: RuntimeNode,
   context: UserInteractionHandlerContext,
+  executionEntity?: { variableStateManager: VariableManagerAccess },
 ): Promise<import("@wf-agent/types").UserInteractionNodeOutput> {
   const config = node.config as UserInteractionNodeConfig;
   const interactionId = generateId();
@@ -328,7 +336,7 @@ export async function userInteractionHandler(
     node,
     request.timeout,
     context.conversationManager,
-    context as UserInteractionHandlerContext & { workflowExecutionEntity?: any },
+    executionEntity?.variableStateManager,
   );
 
   // 3. Obtain user input
@@ -339,7 +347,13 @@ export async function userInteractionHandler(
   );
 
   // 4. Processing user input
-  const results = await processUserInput(config, inputData, workflowExecution, context.conversationManager, context as UserInteractionHandlerContext & { workflowExecutionEntity?: any });
+  const results = await processUserInput(
+    config,
+    inputData,
+    workflowExecution,
+    context.conversationManager,
+    executionEntity?.variableStateManager,
+  );
 
   // Build output matching UserInteractionNodeOutput
   const output: import("@wf-agent/types").UserInteractionNodeOutput = {

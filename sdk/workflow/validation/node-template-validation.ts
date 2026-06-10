@@ -28,7 +28,7 @@ export function validateNodeTemplateConfig(
   // Phase 1: Schema validation
   const schemaResult = NodeTemplateSchema.safeParse(config);
   if (!schemaResult.success) {
-    const schemaErrors = schemaResult.error.issues.map((e: any) => 
+    const schemaErrors = schemaResult.error.issues.map((e: ZodIssue) => 
       new ConfigurationValidationError(e.message, {
         configType: "schema",
         field: e.path.join("."),
@@ -74,7 +74,7 @@ export function getNodeTemplateValidationWarnings(config: NodeTemplate): string[
 
   // Add node template-specific warnings here
   if (config.config && typeof config.config === 'object' && 'timeout' in config.config) {
-    const timeout = (config.config as any).timeout;
+    const timeout = (config.config as { timeout?: number }).timeout;
     if (timeout && timeout > 60000) {
       warnings.push(`Node has a long timeout (${timeout}ms). Consider if this is intentional.`);
     }

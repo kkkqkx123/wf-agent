@@ -18,7 +18,7 @@
 
 import type { EventRegistry } from "../../registry/event-registry.js";
 import type { InterruptionType } from "../../types/interruption-types.js";
-import type { ExecutionDomainContext } from "@wf-agent/types";
+import type { ExecutionDomainContext, BaseEvent } from "@wf-agent/types";
 import {
   InterruptionHistoryManager,
   type InterruptionHistoryEntry,
@@ -599,7 +599,7 @@ export class InterruptionState {
         timestamp: Date.now(),
         context: { ...this.context },
         reason,
-      } as any);
+      } as BaseEvent & { context: unknown; reason?: string });
     } catch (error) {
       logger.warn("Failed to emit interruption event", {
         contextId: this.contextId,

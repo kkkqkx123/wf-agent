@@ -19,6 +19,7 @@ import { createForkBranchResult } from "../../types/subworkflow-result.types.js"
 import type { ForkHandlerContext } from "../../types/fork.types.js";
 import { createContextualLogger } from "../../../../utils/contextual-logger.js";
 import { now, diffTimestamp, getErrorOrNew } from "@wf-agent/common-utils";
+import type { EventRegistry } from "../../../../core/registry/event-registry.js";
 import { emit } from "../../../../core/utils/event/emit-event.js";
 import {
   buildForkStartedEvent,
@@ -78,13 +79,13 @@ export async function forkHandler(
   const startTime = now();
   
   // Track branch creations for cleanup in case of failure
-  let branchCreations: Array<{ pathId: string; branchEntity: any }> = [];
+  let branchCreations: Array<{ pathId: string; branchEntity: WorkflowExecutionEntity }> = [];
 
   try {
     // Step 0: Initialize SyncBarrier for parent execution (REQUIRED for FORK nodes)
     // This must be done BEFORE creating child executions so that path mappings can be registered
     if (!workflowExecutionEntity.hasSyncBarrier()) {
-      const eventRegistry = globalContext.container.get(Identifiers.EventRegistry);
+      const eventRegistry = globalContext.container.get(Identifiers.EventRegistry) as EventRegistry | undefined;
       
       if (!eventRegistry) {
         throw new Error(
@@ -102,7 +103,7 @@ export async function forkHandler(
     }
 
     // Emit FORK_STARTED event
-    const eventManager = globalContext.container.get(Identifiers.EventRegistry) as any;
+    const eventManager = globalContext.container.get(Identifiers.EventRegistry) as EventRegistry | undefined;
     if (eventManager) {
       await emit(eventManager, buildForkStartedEvent({
         executionId: workflowExecutionEntity.id,

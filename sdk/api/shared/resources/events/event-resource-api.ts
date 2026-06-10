@@ -444,7 +444,7 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
       
       // Node ID (if present)
       if ('nodeId' in event && event.nodeId) {
-        searchableFields.push((event as any).nodeId.toLowerCase());
+        searchableFields.push((event as { nodeId: string }).nodeId.toLowerCase());
       }
       
       // Check if query matches any field

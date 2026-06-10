@@ -6,7 +6,7 @@
 
 import type { ScriptExecutionResult } from "@wf-agent/types";
 import { BaseExecutor, type BaseExecuteOptions } from "./base-executor.js";
-import type { TerminalService } from "../../../services/terminal/index.js";
+import type { TerminalService, TerminalSessionOptions } from "../../../services/terminal/index.js";
 import { getTerminalService } from "../../../services/terminal/index.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 
@@ -36,12 +36,7 @@ export class PtyExecutor extends BaseExecutor {
     const commandKey = options.command.substring(0, 100);
 
     try {
-      const sessionOptions: {
-        shellType?: string;
-        cwd?: string;
-        env?: Record<string, string>;
-        timeout?: number;
-      } = {};
+      const sessionOptions: TerminalSessionOptions = {};
 
       if (options.cwd) {
         sessionOptions.cwd = options.cwd;
@@ -50,9 +45,7 @@ export class PtyExecutor extends BaseExecutor {
         sessionOptions.env = options.env;
       }
 
-      const session = await this.terminalService.createSession({
-        ...sessionOptions,
-      } as any);
+      const session = await this.terminalService.createSession(sessionOptions);
 
       this.activeSessions.set(commandKey, session.sessionId);
 

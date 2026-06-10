@@ -12,7 +12,12 @@ import type {
 
 /**
  * Visitor to convert CST to AST
+ *
+ * The `any` types below are required by the chevrotain ICstVisitor interface,
+ * which uses `any` for CST node context types due to the dynamic nature of
+ * parser grammar definitions.
  */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 export class ConditionCstToAstVisitor implements ICstVisitor<CstNode, Expression | Expression[]> {
   public validateVisitor(): void {}
 

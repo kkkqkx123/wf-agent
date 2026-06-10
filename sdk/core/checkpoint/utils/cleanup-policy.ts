@@ -24,6 +24,9 @@ import type {
   CheckpointCleanupStrategy,
 } from "@wf-agent/types";
 import { now } from "@wf-agent/common-utils";
+import { createContextualLogger } from "../../../utils/contextual-logger.js";
+
+const logger = createContextualLogger({ component: "CleanupPolicy" });
 
 /**
  * Implementation of a time-based cleaning strategy
@@ -120,7 +123,7 @@ export class SizeBasedCleanupStrategy implements CheckpointCleanupStrategy {
     }
 
     if (missingSizeIds.length > 0) {
-      console.warn(
+      logger.warn(
         `SizeBasedCleanupStrategy: ${missingSizeIds.length} checkpoint(s) have no recorded size and will be treated as 0 bytes`,
         { missingSizeIds },
       );

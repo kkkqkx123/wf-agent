@@ -78,7 +78,10 @@ export interface AgentLoopHandlerContext {
   /** Execution Registry (used for checking interrupts) */
   executionRegistry?: unknown;
   /** WorkflowExecutionEntity reference (for VariableManager access) */
-  workflowExecutionEntity?: any;
+  workflowExecutionEntity?: {
+    variableStateManager: { setVariable: (name: string, value: unknown) => void };
+    getInput(): Record<string, unknown>;
+  };
 }
 
 /**
@@ -267,14 +270,19 @@ function resolveAgentRuntimeConfig(config: AgentLoopNodeConfig): ResolvedAgentRu
   );
 }
 
+interface AgentLoopExecutionEntity {
+  getExecution(): { input: Record<string, unknown> };
+  getInput?(): Record<string, unknown>;
+}
+
 /**
  * Agent Loop Node Processor
  */
 export async function agentLoopHandler(
   globalContext: GlobalContext,
-  executionEntity: any, // WorkflowExecutionEntity - using any to avoid circular dependency
+  executionEntity: AgentLoopExecutionEntity,
   node: RuntimeNode,
-  context: AgentLoopHandlerContext & { workflowExecutionEntity?: any },
+  context: AgentLoopHandlerContext,
 ): Promise<AgentLoopExecutionResult> {
   const execution = executionEntity.getExecution();
   const config = node.config as AgentLoopNodeConfig;

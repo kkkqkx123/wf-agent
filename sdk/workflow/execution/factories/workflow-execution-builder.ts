@@ -13,7 +13,7 @@
  * - This eliminates data redundancy and synchronization issues
  */
 
-import type { WorkflowExecution, WorkflowExecutionOptions, WorkflowConfig, MessageContextRegistry, VariableDefinition } from "@wf-agent/types";
+import type { WorkflowExecution, WorkflowExecutionType, WorkflowExecutionOptions, WorkflowConfig, MessageContextRegistry, VariableDefinition } from "@wf-agent/types";
 import type { WorkflowGraph } from "../../types/graph/preprocessed-graph.js";
 import { AvailableTools, resolveSchemaTools, resolveInitialTools } from "@wf-agent/types";
 import { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
@@ -88,7 +88,7 @@ export interface ChildExecutionConfig {
       defaultValue?: unknown;
     }>;
   };
-  inputMapping?: any;          // TRIGGERED - ExecuteTriggeredSubworkflowActionConfig['inputMapping']
+  inputMapping?: Record<string, unknown>;  // TRIGGERED - ExecuteTriggeredSubworkflowActionConfig['inputMapping']
   async?: boolean;             // TRIGGERED
 }
 
@@ -644,7 +644,7 @@ export class WorkflowExecutionBuilder {
       output: {},
       nodeResults: [],
       errors: [],
-      executionType: executionTypeMap[type] as any,
+      executionType: executionTypeMap[type] as WorkflowExecutionType,
     };
     if (type === 'SUBGRAPH') {
       execution.hierarchy = {
@@ -743,7 +743,7 @@ export class WorkflowExecutionBuilder {
     // All types: initialize variables from workflow definitions
     const variableCoordinator = this.getVariableCoordinator() as {
       initializeFromDefinitions: (
-        manager: any,
+        manager: VariableManager,
         variables: VariableDefinition[]
       ) => void;
     };

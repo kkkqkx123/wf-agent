@@ -10,7 +10,8 @@ export interface SourceLocation {
 export interface NodeMetadata {
   location?: SourceLocation;
   comments?: string[];
-  custom?: any;
+  /** Custom metadata - intentionally flexible for extensibility */
+  custom?: unknown;
 }
 
 // Unified AST node types (matching the architecture document)
@@ -29,7 +30,7 @@ export type Expression =
 export interface LiteralExpr {
   type: "literal";
   valueType: "boolean" | "number" | "string" | "null";
-  value: any;
+  value: boolean | number | string | null;
   metadata?: NodeMetadata;
 }
 
@@ -123,7 +124,7 @@ export interface ArrayLiteralExpr {
 export interface CstNode {
   type: string;
   name: string;
-  children: Record<string, any>;
+  children: Record<string, unknown>;
 }
 
 // DSL error type

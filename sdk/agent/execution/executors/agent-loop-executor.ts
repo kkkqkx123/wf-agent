@@ -210,13 +210,13 @@ export class AgentLoopExecutor {
     });
 
     // Create CoreLLMExecutionCoordinator for unified LLM execution with transformContext support
-    // Note: llmWrapper is a private property of LLMExecutor; we access it via `as any`
+    // Note: llmWrapper is a private property of LLMExecutor; we access it via `as unknown as { llmWrapper }`
     // as a temporary workaround until LLMExecutor exposes it as a public getter.
     const coreCoordinator = new CoreLLMExecutionCoordinator(
       this.llmExecutor,
       this.toolCallExecutor,
       undefined,
-      (this.llmExecutor as any)["llmWrapper"],
+      (this.llmExecutor as unknown as { llmWrapper?: unknown }).llmWrapper,
     );
 
     // Create AgentIterationCoordinator with core LLM and tool execution coordinators

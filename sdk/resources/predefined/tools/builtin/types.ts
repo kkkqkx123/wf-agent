@@ -27,11 +27,9 @@ export interface BuiltinToolDefinition {
   /** Tool description */
   description: string;
   /** Parameter schema */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  parameters: any;
+  parameters: unknown;
   /** Create handler function */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  createHandler: () => (params: any, context: BuiltinToolExecutionContext) => Promise<any>;
+  createHandler: () => (params: unknown, context: BuiltinToolExecutionContext) => Promise<unknown>;
 }
 
 /**

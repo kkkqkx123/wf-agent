@@ -14,6 +14,7 @@ import { PythonBuiltinHookStrategy, DEFAULT_DENIED_MODULES } from "./python-buil
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
+import { spawnSync } from "node:child_process";
 
 /**
  * AST Analysis result from the subprocess.
@@ -206,7 +207,6 @@ print(json.dumps({"safe": len(violations) == 0, "violations": violations}))
    */
   private checkPythonAvailable(): boolean {
     try {
-      const { spawnSync } = require("child_process");
       const result = spawnSync("python", ["--version"], {
         timeout: 5000,
         stdio: "pipe",

@@ -33,7 +33,7 @@ export interface InterruptionHistoryEntry {
   /** Who triggered the interruption */
   triggeredBy?: "user" | "system" | "timeout" | "error";
   /** Additional metadata */
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
   /** Duration in milliseconds (for RESUME events, indicates pause duration) */
   duration?: number;
 }

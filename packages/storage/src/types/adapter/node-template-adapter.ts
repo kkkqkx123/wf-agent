@@ -14,4 +14,4 @@ import type { BaseStorageAdapter } from "./base-storage-adapter.js";
  * - packages/storage provides a NodeTemplateStorageAdapter implementation based on this interface.
  * - The application layer can use NodeTemplateStorageAdapter directly or implement it by itself.
  */
-export interface NodeTemplateStorageAdapter extends BaseStorageAdapter<NodeTemplateStorageMetadata, void> {}
+export type NodeTemplateStorageAdapter = BaseStorageAdapter<NodeTemplateStorageMetadata, void>;

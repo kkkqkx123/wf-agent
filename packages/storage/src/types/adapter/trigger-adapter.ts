@@ -14,4 +14,4 @@ import type { BaseStorageAdapter } from "./base-storage-adapter.js";
  * - packages/storage provides a TriggerStorageAdapter implementation based on this interface.
  * - The application layer can use TriggerStorageAdapter directly or implement it by itself.
  */
-export interface TriggerStorageAdapter extends BaseStorageAdapter<TriggerStorageMetadata, void> {}
+export type TriggerStorageAdapter = BaseStorageAdapter<TriggerStorageMetadata, void>;

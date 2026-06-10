@@ -14,4 +14,4 @@ import type { BaseStorageAdapter } from "./base-storage-adapter.js";
  * - packages/storage provides a AgentProfileStorageAdapter implementation based on this interface.
  * - The application layer can use AgentProfileStorageAdapter directly or implement it by itself.
  */
-export interface AgentProfileStorageAdapter extends BaseStorageAdapter<AgentProfileStorageMetadata, void> {}
+export type AgentProfileStorageAdapter = BaseStorageAdapter<AgentProfileStorageMetadata, void>;

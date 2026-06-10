@@ -426,7 +426,7 @@ if (conditions.length > 0) {
 
       // Add sorting options if specified
       if (options?.sortBy) {
-        let order = options.sortOrder === 'asc' ? 'ASC' : 'DESC';
+        const order = options.sortOrder === 'asc' ? 'ASC' : 'DESC';
         switch (options.sortBy) {
           case 'timestamp':
             sql += ` ORDER BY timestamp ${order}`;
@@ -563,7 +563,7 @@ if (conditions.length > 0) {
 
       // Add sorting options if specified
       if (options?.sortBy) {
-        let order = options.sortOrder === 'asc' ? 'ASC' : 'DESC';
+        const order = options.sortOrder === 'asc' ? 'ASC' : 'DESC';
         switch (options.sortBy) {
           case 'timestamp':
             sql += ` ORDER BY timestamp ${order}`;

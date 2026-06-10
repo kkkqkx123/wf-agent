@@ -14,4 +14,4 @@ import type { BaseStorageAdapter } from "./base-storage-adapter.js";
  * - packages/storage provides a HookTemplateStorageAdapter implementation based on this interface.
  * - The application layer can use HookTemplateStorageAdapter directly or implement it by itself.
  */
-export interface HookTemplateStorageAdapter extends BaseStorageAdapter<HookTemplateStorageMetadata, void> {}
+export type HookTemplateStorageAdapter = BaseStorageAdapter<HookTemplateStorageMetadata, void>;

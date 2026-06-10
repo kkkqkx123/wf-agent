@@ -14,4 +14,4 @@ import type { BaseStorageAdapter } from "./base-storage-adapter.js";
  * - packages/storage provides a ScriptStorageAdapter implementation based on this interface.
  * - The application layer can use ScriptStorageAdapter directly or implement it by itself.
  */
-export interface ScriptStorageAdapter extends BaseStorageAdapter<ScriptStorageMetadata, void> {}
+export type ScriptStorageAdapter = BaseStorageAdapter<ScriptStorageMetadata, void>;

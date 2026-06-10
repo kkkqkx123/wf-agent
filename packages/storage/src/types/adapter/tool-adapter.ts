@@ -14,4 +14,4 @@ import type { BaseStorageAdapter } from "./base-storage-adapter.js";
  * - packages/storage provides a ToolStorageAdapter implementation based on this interface.
  * - The application layer can use ToolStorageAdapter directly or implement it by itself.
  */
-export interface ToolStorageAdapter extends BaseStorageAdapter<ToolStorageMetadata, void> {}
+export type ToolStorageAdapter = BaseStorageAdapter<ToolStorageMetadata, void>;

@@ -17,8 +17,7 @@ import type {
 } from "@wf-agent/types";
 
 import { ShellStaticAnalyzerStrategy } from "./strategies/shell-static-analyzer.js";
-import { PythonBuiltinHookStrategy } from "./strategies/python-builtin-hook.js";
-import { PythonASTAnalyzerStrategy } from "./strategies/python-ast-analyzer.js";
+import { PythonBuiltinHookStrategy, PythonASTAnalyzerStrategy } from "./strategies/python-strategies/index.js";
 import { JavaScriptVmContextStrategy } from "./strategies/js-vm-context.js";
 import {
   LinuxSeccompStrategy,
@@ -127,8 +126,11 @@ export class DefaultStrategyResolver implements StrategyResolver {
     this.shellStrategies.set("windows-job", new WindowsJobObjectStrategy(terminalService));
     this.shellStrategies.set("proot-redirect", new ProotLikeRedirectStrategy(terminalService));
 
-    this.pythonStrategies.set("builtin-hook", new PythonBuiltinHookStrategy());
-    this.pythonStrategies.set("ast-analyzer", new PythonASTAnalyzerStrategy());
+    // Register Python strategies — inject builtin-hook into ast-analyzer
+    // to decouple the delegation chain from direct instantiation.
+    const builtinHook = new PythonBuiltinHookStrategy();
+    this.pythonStrategies.set("builtin-hook", builtinHook);
+    this.pythonStrategies.set("ast-analyzer", new PythonASTAnalyzerStrategy(builtinHook));
 
     this.javascriptStrategies.set("vm-context", new JavaScriptVmContextStrategy());
   }

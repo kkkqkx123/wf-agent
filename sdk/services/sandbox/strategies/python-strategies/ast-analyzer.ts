@@ -9,8 +9,9 @@
  */
 
 import type { SandboxPolicy, PythonPolicy, ScriptExecutionResult, StrategyExecuteOptions } from "@wf-agent/types";
-import type { StrategyImplementation } from "../types.js";
-import { PythonBuiltinHookStrategy, DEFAULT_DENIED_MODULES } from "./python-builtin-hook.js";
+import type { StrategyImplementation } from "../../types.js";
+import { PythonBuiltinHookStrategy } from "./builtin-hook.js";
+import { checkPythonAvailable, DEFAULT_DENIED_MODULES } from "./base.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -29,6 +30,9 @@ interface ASTAnalysisResult {
  *
  * Runs Python's `ast` module as a subprocess to analyze code before execution.
  * Priority is higher than builtin-hook (25 > 20), so it is preferred when available.
+ *
+ * Accepts an optional PythonBuiltinHookStrategy instance for dependency injection,
+ * enabling the resolver to manage the delegation chain explicitly.
  */
 export class PythonASTAnalyzerStrategy implements StrategyImplementation<ScriptExecutionResult> {
   id = "ast-analyzer";
@@ -38,12 +42,16 @@ export class PythonASTAnalyzerStrategy implements StrategyImplementation<ScriptE
 
   private builtinHook: PythonBuiltinHookStrategy;
 
-  constructor() {
-    this.builtinHook = new PythonBuiltinHookStrategy();
+  /**
+   * @param builtinHook Optional PythonBuiltinHookStrategy instance for dependency injection.
+   *                     When omitted, creates a new instance internally (fallback).
+   */
+  constructor(builtinHook?: PythonBuiltinHookStrategy) {
+    this.builtinHook = builtinHook ?? new PythonBuiltinHookStrategy();
   }
 
   isAvailable(): boolean {
-    return this.checkPythonAvailable();
+    return checkPythonAvailable();
   }
 
   async execute(
@@ -112,7 +120,6 @@ except SyntaxError as e:
     sys.exit(0)
 
 for node in ast.walk(tree):
-    # Detect: import os, import subprocess
     if isinstance(node, ast.Import):
         for alias in node.names:
             name = alias.name.split(".")[0]
@@ -123,7 +130,6 @@ for node in ast.walk(tree):
             elif name == "subprocess" and not ALLOW_SUBPROCESS:
                 violations.append(f"Module denied: subprocess")
 
-    # Detect: from os import remove
     if isinstance(node, ast.ImportFrom):
         if node.module:
             base = node.module.split(".")[0]
@@ -134,7 +140,6 @@ for node in ast.walk(tree):
             elif base == "subprocess" and not ALLOW_SUBPROCESS:
                 violations.append(f"Module denied: subprocess")
 
-    # Detect: os.remove(...), shutil.rmtree(...) etc.
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
         if isinstance(node.func.value, ast.Name):
             if node.func.attr in DENIED_FUNCTIONS:
@@ -142,7 +147,6 @@ for node in ast.walk(tree):
                     f"Dangerous function call: {node.func.value.id}.{node.func.attr}"
                 )
 
-    # Detect: eval(), exec(), compile(), open(...)
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
         if node.func.id in DENIED_BUILTINS:
             violations.append(f"Dangerous builtin call: {node.func.id}()")
@@ -168,7 +172,6 @@ print(json.dumps({"safe": len(violations) == 0, "violations": violations}))
     try {
       fs.writeFileSync(tmpFile, analyzerScript, "utf-8");
 
-      const { spawnSync } = await import("child_process");
       const result = spawnSync("python", [tmpFile], {
         input: code,
         timeout: 10000,
@@ -199,22 +202,6 @@ print(json.dumps({"safe": len(violations) == 0, "violations": violations}))
       } catch {
         // Ignore cleanup errors
       }
-    }
-  }
-
-  /**
-   * Check if Python is available on the system.
-   */
-  private checkPythonAvailable(): boolean {
-    try {
-      const result = spawnSync("python", ["--version"], {
-        timeout: 5000,
-        stdio: "pipe",
-        encoding: "utf-8",
-      });
-      return result.status === 0;
-    } catch {
-      return false;
     }
   }
 }

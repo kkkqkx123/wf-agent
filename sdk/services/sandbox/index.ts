@@ -12,8 +12,7 @@ export type {
 
 // Strategy implementations
 export { ShellStaticAnalyzerStrategy } from "./strategies/shell-static-analyzer.js";
-export { PythonBuiltinHookStrategy } from "./strategies/python-builtin-hook.js";
-export { PythonASTAnalyzerStrategy } from "./strategies/python-ast-analyzer.js";
+export { PythonBuiltinHookStrategy, PythonASTAnalyzerStrategy } from "./strategies/python-strategies/index.js";
 export { JavaScriptVmContextStrategy } from "./strategies/js-vm-context.js";
 
 // Phase 3: Runtime & Resolver

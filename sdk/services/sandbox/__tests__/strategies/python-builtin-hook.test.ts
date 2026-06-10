@@ -13,7 +13,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
-import { PythonBuiltinHookStrategy } from "../../strategies/python-builtin-hook.js";
+import { PythonBuiltinHookStrategy } from "../../strategies/python-strategies/index.js";
 import type { SandboxPolicy, StrategyExecuteOptions } from "@wf-agent/types";
 
 // =========================================================================

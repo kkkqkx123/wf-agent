@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
-import { PythonASTAnalyzerStrategy } from "../../strategies/python-ast-analyzer.js";
+import { PythonASTAnalyzerStrategy } from "../../strategies/python-strategies/index.js";
 import type { SandboxPolicy, StrategyExecuteOptions } from "@wf-agent/types";
 
 // =========================================================================

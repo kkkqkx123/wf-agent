@@ -8,28 +8,12 @@
  */
 
 import type { SandboxPolicy, PythonPolicy, ScriptExecutionResult, StrategyExecuteOptions } from "@wf-agent/types";
-import type { StrategyImplementation } from "../types.js";
-import { getTerminalService, type TerminalService } from "../../terminal/index.js";
+import type { StrategyImplementation } from "../../types.js";
+import { getTerminalService, type TerminalService } from "../../../terminal/index.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import { spawnSync } from "node:child_process";
-
-/**
- * Default denied Python modules when policy.python.deniedModules is empty.
- */
-export const DEFAULT_DENIED_MODULES: string[] = [
-  "os",
-  "subprocess",
-  "shutil",
-  "ctypes",
-  "socket",
-  "pty",
-  "signal",
-  "multiprocessing",
-  "distutils",
-  "sysconfig",
-];
+import { checkPythonAvailable, DEFAULT_DENIED_MODULES } from "./base.js";
 
 /**
  * Python Builtin-hook Strategy
@@ -53,7 +37,7 @@ export class PythonBuiltinHookStrategy implements StrategyImplementation<ScriptE
   }
 
   isAvailable(): boolean {
-    return this.checkPythonAvailable();
+    return checkPythonAvailable();
   }
 
   async execute(
@@ -131,7 +115,7 @@ export class PythonBuiltinHookStrategy implements StrategyImplementation<ScriptE
    * When VFS is enabled, write operations are allowed within the workspace
    * directory (the VFS delta layer on the Node.js side handles CoW).
    */
-  private wrapWithSandbox(code: string, policy: PythonPolicy, vfsEnabled: boolean = false, writableDirs: string[] = []): string {
+  wrapWithSandbox(code: string, policy: PythonPolicy, vfsEnabled: boolean = false, writableDirs: string[] = []): string {
     const deniedModulesJson = JSON.stringify(policy.deniedModules);
     const allowedModulesJson = JSON.stringify(policy.allowedModules);
     const restrictOpen = policy.restrictBuiltinOpen ? "True" : "False";
@@ -204,21 +188,5 @@ if not ${allowSubprocess}:
 # ════════════════════════════════════════
 ${code}
 `;
-  }
-
-  /**
-   * Check if Python is available on the system.
-   */
-  private checkPythonAvailable(): boolean {
-    try {
-      const result = spawnSync("python", ["--version"], {
-        timeout: 5000,
-        stdio: "pipe",
-        encoding: "utf-8",
-      });
-      return result.status === 0;
-    } catch {
-      return false;
-    }
   }
 }

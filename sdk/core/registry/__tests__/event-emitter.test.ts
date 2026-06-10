@@ -135,8 +135,7 @@ describe("ExecutionEventEmitter", () => {
   describe("off", () => {
     it("should remove a specific listener by id", () => {
       const listener = vi.fn();
-      const unsub = emitter.on("NODE_COMPLETED", listener);
-      const listenerId = (unsub as any)._listenerId;
+      emitter.on("NODE_COMPLETED", listener);
 
       emitter.off("NODE_COMPLETED", "unknown-id");
       expect(emitter.getListenerCount().get("NODE_COMPLETED")).toBe(1);
@@ -204,8 +203,8 @@ describe("ExecutionEventEmitter", () => {
 
       const info = emitter.getAllListenerInfo();
       expect(info.length).toBe(2);
-      expect(info[0].eventType).toBeDefined();
-      expect(info[0].registeredAt).toBeGreaterThan(0);
+      expect(info[0]!.eventType).toBeDefined();
+      expect(info[0]!.registeredAt).toBeGreaterThan(0);
     });
   });
 

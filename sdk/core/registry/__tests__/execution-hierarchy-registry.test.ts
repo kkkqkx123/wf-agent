@@ -14,7 +14,7 @@ function createMockWorkflowEntity(
     getWorkflowId: () => `wf-${id}`,
     stop: vi.fn(),
     cleanup: vi.fn(),
-  };
+  } as any;
 }
 
 function createMockAgentEntity(
@@ -29,7 +29,7 @@ function createMockAgentEntity(
     conversationManager: { id: `cm-${id}` },
     stop: vi.fn(),
     cleanup: vi.fn(),
-  };
+  } as any;
 }
 
 function createChildRef(childId: string, childType: 'WORKFLOW' | 'AGENT_LOOP' = 'WORKFLOW'): ChildExecutionReference {
@@ -124,7 +124,7 @@ describe('ExecutionHierarchyRegistry', () => {
 
       const descendants = registry.getAllDescendants('wf-1');
       expect(descendants).toHaveLength(1);
-      expect(descendants[0].id).toBe('agent-1');
+      expect(descendants[0]!.id).toBe('agent-1');
     });
 
     it('should handle nested hierarchies recursively', () => {
@@ -173,7 +173,7 @@ describe('ExecutionHierarchyRegistry', () => {
 
       const children = registry.getDirectChildren('wf-1');
       expect(children).toHaveLength(1);
-      expect(children[0].id).toBe('agent-1');
+      expect(children[0]!.id).toBe('agent-1');
     });
   });
 
@@ -236,8 +236,8 @@ describe('ExecutionHierarchyRegistry', () => {
       const { workflows, agents } = registry.getExecutionsByRoot('wf-1');
       expect(workflows).toHaveLength(1);
       expect(agents).toHaveLength(1);
-      expect(workflows[0].id).toBe('wf-1');
-      expect(agents[0].id).toBe('agent-1');
+      expect(workflows[0]!.id).toBe('wf-1');
+      expect(agents[0]!.id).toBe('agent-1');
     });
   });
 
@@ -253,7 +253,7 @@ describe('ExecutionHierarchyRegistry', () => {
 
       const roots = registry.getRootExecutions();
       expect(roots).toHaveLength(1);
-      expect(roots[0].id).toBe('wf-1');
+      expect(roots[0]!.id).toBe('wf-1');
     });
 
     it('should handle entities without getParentContext', () => {
@@ -293,7 +293,7 @@ describe('ExecutionHierarchyRegistry', () => {
 
       const workflows = registry.getByType('WORKFLOW');
       expect(workflows).toHaveLength(1);
-      expect(workflows[0].id).toBe('wf-1');
+      expect(workflows[0]!.id).toBe('wf-1');
     });
 
     it('should filter by AGENT_LOOP type', () => {
@@ -302,7 +302,7 @@ describe('ExecutionHierarchyRegistry', () => {
 
       const agents = registry.getByType('AGENT_LOOP');
       expect(agents).toHaveLength(1);
-      expect(agents[0].id).toBe('agent-1');
+      expect(agents[0]!.id).toBe('agent-1');
     });
   });
 

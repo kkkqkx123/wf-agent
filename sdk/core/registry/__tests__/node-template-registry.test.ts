@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { NodeTemplateRegistry } from '../node-template-registry.js';
 import type { NodeTemplate } from '@wf-agent/types';
 
@@ -177,16 +177,16 @@ describe('NodeTemplateRegistry', () => {
       registry.register(createValidStartTemplate({ name: 't1', metadata: { category: 'control', tags: ['start'] } }));
       const summaries = registry.listSummaries();
       expect(summaries).toHaveLength(1);
-      expect(summaries[0].name).toBe('t1');
-      expect(summaries[0].category).toBe('control');
-      expect(summaries[0].tags).toEqual(['start']);
+      expect(summaries[0]!.name).toBe('t1');
+      expect(summaries[0]!.category).toBe('control');
+      expect(summaries[0]!.tags).toEqual(['start']);
     });
 
     it('should return summaries without optional metadata', () => {
       registry.register(createValidStartTemplate({ name: 't1', metadata: undefined }));
       const summaries = registry.listSummaries();
-      expect(summaries[0].category).toBeUndefined();
-      expect(summaries[0].tags).toBeUndefined();
+      expect(summaries[0]!.category).toBeUndefined();
+      expect(summaries[0]!.tags).toBeUndefined();
     });
   });
 
@@ -196,7 +196,7 @@ describe('NodeTemplateRegistry', () => {
       registry.register(createValidLLMTemplate({ name: 'llm-1' }));
       const startTemplates = registry.listByType('START');
       expect(startTemplates).toHaveLength(1);
-      expect(startTemplates[0].name).toBe('start-1');
+      expect(startTemplates[0]!.name).toBe('start-1');
     });
   });
 

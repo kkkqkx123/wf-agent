@@ -12,14 +12,12 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import type { ID, AgentLoopRuntimeConfig, AgentLoopResult } from "@wf-agent/types";
+import type { AgentLoopRuntimeConfig, AgentLoopResult } from "@wf-agent/types";
 import { AgentLoopStatus } from "@wf-agent/types";
-import type { AgentLoopEntity } from "../../../entities/agent-loop-entity.js";
 import type { AgentLoopRegistry } from "../../../stores/agent-loop-registry.js";
 import type { AgentLoopExecutor } from "../../executors/agent-loop-executor.js";
 import type { GlobalContext } from "../../../../core/global-context.js";
 import type { EventRegistry } from "../../../../core/registry/event-registry.js";
-import type { AgentLoopStateTransitor } from "../agent-loop-state-transitor.js";
 import type { AgentLoopMetricsCollector } from "../../../../core/metrics/agent-loop-collector.js";
 import { AgentLoopCoordinator } from "../agent-loop-coordinator.js";
 import type { AgentLoopStreamEvent } from "../agent-execution-coordinator.js";

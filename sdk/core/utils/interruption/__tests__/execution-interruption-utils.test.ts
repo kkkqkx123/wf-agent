@@ -64,7 +64,7 @@ describe("checkExecutionInterruption", () => {
 
     const result = checkExecutionInterruption(controller.signal);
     expect(result.type).toBe("aborted");
-    expect(result.reason).toBe("plain string reason");
+    expect((result as { type: "aborted"; reason?: unknown }).reason).toBe("plain string reason");
   });
 });
 

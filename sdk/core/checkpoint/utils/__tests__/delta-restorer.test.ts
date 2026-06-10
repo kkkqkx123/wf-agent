@@ -35,7 +35,7 @@ class TestDeltaRestorer extends DeltaRestorer<
   }
 
   protected extractParentId(checkpoint: BaseCheckpoint<TestDelta, TestSnapshot>): string {
-    return checkpoint.metadata?.entityId as string || "default";
+    return (checkpoint.metadata as { entityId?: string })?.entityId || "default";
   }
 
   protected applyDelta(snapshot: TestSnapshot, delta: TestDelta): TestSnapshot {

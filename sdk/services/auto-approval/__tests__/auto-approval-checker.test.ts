@@ -3,12 +3,12 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { checkAutoApproval, extractContextFromParameters } from "../auto-approval-checker.js";
+import { checkAutoApproval, extractContextFromParameters, type AutoApprovalContext } from "../auto-approval-checker.js";
 import type {
   Tool,
   ToolApprovalOptions,
-  AutoApprovalContext,
   McpRequest,
+  McpToolCallRequest,
   FilePermissionSettings,
 } from "@wf-agent/types";
 
@@ -612,8 +612,9 @@ describe("extractContextFromParameters", () => {
       expect(context.mcpRequest).toBeDefined();
       expect(context.mcpRequest!.type).toBe("use_mcp");
       expect(context.mcpRequest!.serverName).toBe("my-server");
-      expect(context.mcpRequest!.toolName).toBe("my-tool");
-      expect(context.mcpRequest!.arguments).toEqual({ key: "value" });
+      const mcpRequest = context.mcpRequest as McpToolCallRequest;
+      expect(mcpRequest.toolName).toBe("my-tool");
+      expect(mcpRequest.arguments).toEqual({ key: "value" });
     });
 
     it("should default arguments to empty object when not provided", () => {
@@ -621,7 +622,7 @@ describe("extractContextFromParameters", () => {
         server_name: "my-server",
         tool_name: "my-tool",
       });
-      expect(context.mcpRequest!.arguments).toEqual({});
+      expect((context.mcpRequest as McpToolCallRequest).arguments).toEqual({});
     });
 
     it("should throw error when server_name is missing", () => {

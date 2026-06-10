@@ -6,7 +6,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { MessageStream } from "../message-stream.js";
 import { ExecutionError } from "@wf-agent/types";
-import type { LLMMessage, LLMResult, MessageStreamEvent } from "@wf-agent/types";
+import type { LLMMessage, LLMResult } from "@wf-agent/types";
 
 function createTestMessage(overrides: Partial<LLMMessage> = {}): LLMMessage {
   return {
@@ -567,7 +567,7 @@ describe("MessageStream", () => {
       });
 
       expect(inputJsonListener).toHaveBeenCalled();
-      const callArg = inputJsonListener.mock.calls[0];
+      const callArg = inputJsonListener.mock.calls[0]!;
       expect(callArg[0]).toBe('{"key": "value"}');
     });
 

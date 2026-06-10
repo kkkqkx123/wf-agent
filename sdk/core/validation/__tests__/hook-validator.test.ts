@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { validateHook, validateHooks } from '../hook-validator.js';
 import { ConfigurationValidationError, ExpressionSecurityError } from '@wf-agent/types';
 import { validateExpression } from '../../../workflow/evaluation/index.js';
@@ -161,7 +161,7 @@ describe('validateHooks', () => {
 
     expect(result.isErr()).toBe(true);
     if (result.isErr()) {
-      expect(result.error[0].message).toContain('must be an array');
+      expect(result.error[0]!.message).toContain('must be an array');
     }
   });
 

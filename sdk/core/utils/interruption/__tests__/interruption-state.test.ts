@@ -95,7 +95,7 @@ describe("InterruptionState", () => {
       state.requestPause();
       const history = state.getHistory();
       expect(history).toHaveLength(1);
-      expect(history[0].type).toBe("PAUSE");
+      expect(history[0]!.type).toBe("PAUSE");
     });
   });
 
@@ -279,7 +279,7 @@ describe("InterruptionState", () => {
 
       expect(mockGetEmitter).toHaveBeenCalledWith("exec-1");
       expect(mockEmit).toHaveBeenCalledOnce();
-      const emittedEvent = mockEmit.mock.calls[0][0];
+      const emittedEvent = mockEmit.mock.calls[0]![0];
       expect(emittedEvent.type).toBe("EXECUTION_PAUSED");
       expect(emittedEvent.executionId).toBe("exec-1");
     });
@@ -296,7 +296,7 @@ describe("InterruptionState", () => {
 
       stateWithEvents.requestStop();
 
-      const emittedEvent = mockEmit.mock.calls[0][0];
+      const emittedEvent = mockEmit.mock.calls[0]![0];
       expect(emittedEvent.type).toBe("EXECUTION_CANCELLED");
     });
 
@@ -315,7 +315,7 @@ describe("InterruptionState", () => {
 
       // PAUSE + RESUME
       expect(mockEmit).toHaveBeenCalledTimes(2);
-      const resumeEvent = mockEmit.mock.calls[1][0];
+      const resumeEvent = mockEmit.mock.calls[1]![0];
       expect(resumeEvent.type).toBe("EXECUTION_RESUMED");
     });
 
@@ -352,7 +352,7 @@ describe("InterruptionState", () => {
       const mockGetEmitter = vi.fn().mockReturnValue({ on: mockOn });
       const mockEventRegistry = { getEmitter: mockGetEmitter } as any;
 
-      const childState = new InterruptionState({
+      new InterruptionState({
         contextId: "child-1",
         eventRegistry: mockEventRegistry,
         parentExecutionId: "parent-1",
@@ -407,9 +407,9 @@ describe("InterruptionState", () => {
 
       const history = state.getHistory();
       expect(history).toHaveLength(3);
-      expect(history[0].type).toBe("STOP"); // newest first
-      expect(history[1].type).toBe("RESUME");
-      expect(history[2].type).toBe("PAUSE");
+      expect(history[0]!.type).toBe("STOP"); // newest first
+      expect(history[1]!.type).toBe("RESUME");
+      expect(history[2]!.type).toBe("PAUSE");
     });
 
     it("should return statistics", () => {

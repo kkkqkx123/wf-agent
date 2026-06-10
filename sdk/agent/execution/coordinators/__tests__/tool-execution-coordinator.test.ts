@@ -12,7 +12,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { ToolCallExecutor } from "../../../../core/executors/tool-call-executor.js";
 import type { EventRegistry } from "../../../../core/registry/event-registry.js";
-import type { ToolApprovalHandler, ToolBatchResult, LLMToolCall } from "@wf-agent/types";
+import type { ToolApprovalHandler, ToolBatchResult } from "@wf-agent/types";
 import { ToolExecutionCoordinator } from "../tool-execution-coordinator.js";
 
 // Mock executeAgentHook
@@ -163,7 +163,7 @@ describe("ToolExecutionCoordinator", () => {
       expect(mockProcessToolBatch).toHaveBeenCalledOnce();
 
       // Verify the batch was processed with expected args
-      const callArgs = mockProcessToolBatch.mock.calls[0];
+      const callArgs = mockProcessToolBatch.mock.calls[0]!;
       expect(callArgs[0]).toHaveLength(1);
       expect(callArgs[0][0].id).toBe("tool-1");
       expect(callArgs[0][0].function.name).toBe("search");

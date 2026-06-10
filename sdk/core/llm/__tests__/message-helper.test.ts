@@ -104,7 +104,7 @@ describe("message-helper", () => {
       const { systemMessage, filteredMessages } = extractAndFilterSystemMessages(messages);
       expect(systemMessage?.content).toBe("System");
       expect(filteredMessages).toHaveLength(1);
-      expect(filteredMessages[0].role).toBe("user");
+      expect(filteredMessages[0]!.role).toBe("user");
     });
 
     it("should return null for systemMessage when none present", () => {

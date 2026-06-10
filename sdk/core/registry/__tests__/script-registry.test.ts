@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ScriptRegistry } from '../script-registry.js';
-import type { Script, ScriptFlow } from '@wf-agent/types';
+import type { Script } from '@wf-agent/types';
 
 vi.mock('../../executors/script-executor.js', () => {
   const mockExecute = vi.fn().mockResolvedValue({

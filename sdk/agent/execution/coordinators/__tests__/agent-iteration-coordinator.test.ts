@@ -10,8 +10,6 @@
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { LLMResult, AgentHookTriggeredEvent } from "@wf-agent/types";
-import type { AgentLoopEntity } from "../../../entities/agent-loop-entity.js";
-import type { ConversationSession } from "../../../../core/messaging/conversation-session.js";
 import type { EventRegistry } from "../../../../core/registry/event-registry.js";
 import type { MessageStream } from "../../../../core/llm/message-stream.js";
 import type { LLMExecutionCoordinator as CoreLLMExecutionCoordinator } from "../../../../core/coordinators/llm-execution-coordinator.js";

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   validateTriggerCondition,
   validateExecuteTriggeredSubworkflowActionConfig,
@@ -515,7 +515,7 @@ describe('validateTriggers', () => {
     const result = validateTriggers(null as any);
     expect(result.isErr()).toBe(true);
     if (result.isErr()) {
-      expect(result.error[0].message).toContain('must be an array');
+      expect(result.error[0]!.message).toContain('must be an array');
     }
   });
 

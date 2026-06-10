@@ -383,7 +383,7 @@ describe("SizeBasedCleanupStrategy", () => {
 
     strategy.execute(checkpoints);
     expect(warnSpy).toHaveBeenCalledOnce();
-    expect(warnSpy.mock.calls[0][0]).toContain("no recorded size");
+    expect(warnSpy.mock.calls[0]![0]).toContain("no recorded size");
     warnSpy.mockRestore();
   });
 });
@@ -421,7 +421,7 @@ describe("createCleanupStrategy", () => {
 
   it("should throw for unknown policy type", () => {
     expect(() =>
-      createCleanupStrategy({ type: "unknown" as any }),
+      createCleanupStrategy({ type: "unknown" } as any),
     ).toThrow("Unknown cleanup policy type: unknown");
   });
 });

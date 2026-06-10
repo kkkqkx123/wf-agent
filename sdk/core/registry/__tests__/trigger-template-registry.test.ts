@@ -210,9 +210,9 @@ describe('TriggerTemplateRegistry', () => {
       registry.register(createValidTemplate({ name: 't1', metadata: { category: 'workflow', tags: ['test'] } }));
       const summaries = registry.listSummaries();
       expect(summaries).toHaveLength(1);
-      expect(summaries[0].name).toBe('t1');
-      expect(summaries[0].category).toBe('workflow');
-      expect(summaries[0].tags).toEqual(['test']);
+      expect(summaries[0]!.name).toBe('t1');
+      expect(summaries[0]!.category).toBe('workflow');
+      expect(summaries[0]!.tags).toEqual(['test']);
     });
   });
 

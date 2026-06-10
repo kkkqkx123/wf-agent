@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { StaticValidator } from '../tool-static-validator.js';
 import type { Tool } from '@wf-agent/types';
 
@@ -139,7 +139,7 @@ describe('StaticValidator', () => {
         properties: {},
         required: [],
       };
-      const result = validator.validateParameters(params);
+      const result = validator.validateParameters(params as any);
       expect(result.isErr()).toBe(true);
     });
 
@@ -212,7 +212,7 @@ describe('StaticValidator', () => {
       const result = validator.validateToolConfig('UNKNOWN' as any, {});
       expect(result.isErr()).toBe(true);
       if (result.isErr()) {
-        expect(result.error[0].message).toContain('Unknown tool type');
+        expect(result.error[0]!.message).toContain('Unknown tool type');
       }
     });
 

@@ -86,7 +86,7 @@ describe("estimateTokens", () => {
         role: "user",
         content: [
           { type: "text", text: "Describe this image" },
-          { type: "image", source: { type: "base64", data: "abc" } },
+          { type: "image_url", image_url: { url: "data:base64,abc" } },
         ],
       },
     ];

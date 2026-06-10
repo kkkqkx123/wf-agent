@@ -9,7 +9,6 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import type { AgentLoopEntity } from "../../../entities/agent-loop-entity.js";
 import type { ConversationSession } from "../../../../core/messaging/conversation-session.js";
 import type { MetricsRegistry } from "../../../../core/metrics/metrics-registry.js";
 import type { AgentIterationCoordinator } from "../agent-iteration-coordinator.js";

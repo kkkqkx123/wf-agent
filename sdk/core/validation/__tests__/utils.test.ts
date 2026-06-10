@@ -66,9 +66,9 @@ describe("validateNodeType", () => {
 
     expect(result.isErr()).toBe(true);
     if (result.isErr()) {
-      expect(result.error[0]).toBeInstanceOf(ConfigurationValidationError);
-      expect(result.error[0].message).toContain("Expected START");
-      expect(result.error[0].message).toContain("END");
+      expect(result.error[0]!).toBeInstanceOf(ConfigurationValidationError);
+      expect(result.error[0]!.message).toContain("Expected START");
+      expect(result.error[0]!.message).toContain("END");
     }
   });
 
@@ -78,7 +78,7 @@ describe("validateNodeType", () => {
 
     expect(result.isErr()).toBe(true);
     if (result.isErr()) {
-      expect(result.error[0].message).toContain("Expected BAR");
+      expect(result.error[0]!.message).toContain("Expected BAR");
     }
   });
 });

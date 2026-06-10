@@ -10,7 +10,7 @@ import {
   batchCheckFilePermissions,
   createDefaultFilePermissionSettings,
 } from "../file-permission-checker.js";
-import type { FilePermissionSettings, FilePermissionRule } from "@wf-agent/types";
+import type { FilePermissionSettings } from "@wf-agent/types";
 
 describe("matchesPattern", () => {
   it("should match exact patterns", () => {

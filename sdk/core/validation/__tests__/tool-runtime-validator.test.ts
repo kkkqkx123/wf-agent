@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { RuntimeValidator } from '../tool-runtime-validator.js';
 import type { Tool } from '@wf-agent/types';
 import { RuntimeValidationError } from '@wf-agent/types';

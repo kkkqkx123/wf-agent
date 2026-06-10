@@ -447,9 +447,9 @@ describe("TokenUsageTracker", () => {
 
       const history = tracker.getUsageHistory();
       expect(history).toHaveLength(1);
-      expect(history[0].requestId).toBe("test-request-id");
-      expect(history[0].promptTokens).toBe(10);
-      expect(history[0].totalTokens).toBe(30);
+      expect(history[0]!.requestId).toBe("test-request-id");
+      expect(history[0]!.promptTokens).toBe(10);
+      expect(history[0]!.totalTokens).toBe(30);
     });
 
     it("should return last N entries from getRecentHistory", () => {
@@ -475,8 +475,8 @@ describe("TokenUsageTracker", () => {
       tracker.finalizeCurrentRequest();
 
       const history = tracker.getUsageHistory();
-      expect(history[0].cost).toBeUndefined();
-      expect(history[0].model).toBeUndefined();
+      expect(history[0]!.cost).toBeUndefined();
+      expect(history[0]!.model).toBeUndefined();
     });
 
     it("should include cost and model from rawUsage", () => {
@@ -492,8 +492,8 @@ describe("TokenUsageTracker", () => {
       tracker.finalizeCurrentRequest();
 
       const history = tracker.getUsageHistory();
-      expect(history[0].cost).toBe(0.05);
-      expect(history[0].model).toBe("gpt-4");
+      expect(history[0]!.cost).toBe(0.05);
+      expect(history[0]!.model).toBe("gpt-4");
     });
   });
 
@@ -599,7 +599,7 @@ describe("TokenUsageTracker", () => {
       const history = customTracker.getUsageHistory();
       // mock generates the same ID for all calls, so both entries have same requestId.
       // rollbackToRequestId finds the first match (index 0), rolling back before all requests.
-      const requestId = history[0].requestId;
+      const requestId = history[0]!.requestId;
 
       customTracker.rollbackToRequestId(requestId);
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { BaseMetricCollector } from "../base-collector.js";
-import type { Metric, MetricCollectorConfig, MetricFilter } from "../types.js";
+import type { Metric, MetricCollectorConfig } from "../types.js";
 
 class TestCollector extends BaseMetricCollector {
   toPrometheus(): string[] {

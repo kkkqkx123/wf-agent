@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { MetricsRegistry } from '../metrics-registry.js';
-import type { MetricCollectorConfig } from '../types.js';
 
 describe('MetricsRegistry', () => {
   let registry: MetricsRegistry;

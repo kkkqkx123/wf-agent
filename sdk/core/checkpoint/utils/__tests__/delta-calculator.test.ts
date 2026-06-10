@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import {
   DeltaCalculator,
-  type DeltaCalculatorOptions,
   type DeltaCalculatorContext,
 } from "../delta-calculator.js";
 

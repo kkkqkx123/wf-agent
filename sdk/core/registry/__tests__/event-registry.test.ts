@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { EventRegistry } from "../event-registry.js";
 
 describe("EventRegistry", () => {

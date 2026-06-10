@@ -5,7 +5,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import {
   InterruptionHistoryManager,
-  type InterruptionHistoryEntry,
 } from "../interruption-history-manager.js";
 
 describe("InterruptionHistoryManager", () => {
@@ -58,8 +57,8 @@ describe("InterruptionHistoryManager", () => {
       const history = manager.getHistory();
       expect(history.length).toBe(2);
       // Newest first
-      expect(history[0].type).toBe("RESUME");
-      expect(history[1].type).toBe("PAUSE");
+      expect(history[0]!.type).toBe("RESUME");
+      expect(history[1]!.type).toBe("PAUSE");
     });
 
     it("should filter by contextId", () => {
@@ -68,7 +67,7 @@ describe("InterruptionHistoryManager", () => {
 
       const filtered = manager.getHistory({ contextId: "e1" });
       expect(filtered).toHaveLength(1);
-      expect(filtered[0].contextId).toBe("e1");
+      expect(filtered[0]!.contextId).toBe("e1");
     });
 
     it("should filter by type", () => {
@@ -77,7 +76,7 @@ describe("InterruptionHistoryManager", () => {
 
       const filtered = manager.getHistory({ type: "PAUSE" });
       expect(filtered).toHaveLength(1);
-      expect(filtered[0].type).toBe("PAUSE");
+      expect(filtered[0]!.type).toBe("PAUSE");
     });
 
     it("should filter by triggeredBy", () => {

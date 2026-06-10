@@ -31,6 +31,7 @@ import type { SkillRegistry } from "../../../../core/registry/skill-registry.js"
 import * as Identifiers from "../../../../core/di/service-identifiers.js";
 import type { GlobalContext } from "../../../../core/global-context.js";
 import { createContextualLogger } from "../../../../utils/contextual-logger.js";
+import { injectSkillMetadata } from "../../../../core/utils/metadata-injection.js";
 
 const logger = createContextualLogger({ component: "AgentLoopHandler" });
 
@@ -335,23 +336,27 @@ export async function agentLoopHandler(
     }
 
     // 2. Inject skill metadata into system prompt if skills are configured
+    // Only inject if 'skill' tool is in availableTools (or auto-add if skills exist)
     try {
       const skillRegistry = globalContext.container.get(Identifiers.SkillRegistry) as SkillRegistry | undefined;
-      if (skillRegistry && skillRegistry.getEnabledSkills().length > 0) {
-        resolvedConfig.systemPrompt = skillRegistry.injectSkillMetadata(
-          resolvedConfig.systemPrompt || "",
-        );
-        if (!resolvedConfig.availableTools) {
-          resolvedConfig.availableTools = { tools: ["skill"] };
-        } else if (
-          resolvedConfig.availableTools.tools &&
-          !resolvedConfig.availableTools.tools.includes("skill")
-        ) {
-          resolvedConfig.availableTools.tools = [...resolvedConfig.availableTools.tools, "skill"];
-        }
+      const skillResult = injectSkillMetadata(skillRegistry, {
+        systemPrompt: resolvedConfig.systemPrompt || "",
+        availableTools: resolvedConfig.availableTools,
+        autoAddTool: true,
+      });
+
+      resolvedConfig.systemPrompt = skillResult.systemPrompt;
+      // Type assertion: injectSkillMetadata preserves AgentToolConfig type when input is AgentToolConfig
+      resolvedConfig.availableTools = skillResult.availableTools as typeof resolvedConfig.availableTools;
+
+      if (skillResult.injected) {
+        logger.debug("Skill metadata injected", {
+          skillCount: skillResult.skillCount,
+          nodeId: node.id,
+        });
       }
-    } catch {
-      logger.debug("Skills not configured, skipping skill metadata injection");
+    } catch (error) {
+      logger.debug("Skills not configured, skipping skill metadata injection", { error });
     }
 
     // 3. Create a Coordinator and execute it.

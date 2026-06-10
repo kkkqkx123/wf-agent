@@ -24,6 +24,9 @@ import {
   SkillRegistry,
   AgentProfileRegistry,
   ServiceIdentifiers,
+  injectSkillMetadata,
+  isToolAvailable,
+  METADATA_TOOL_NAMES,
 } from "@wf-agent/sdk/core";
 import type {
   AgentLoopRuntimeConfig,
@@ -32,6 +35,7 @@ import type {
   Message,
   AgentStreamEvent,
   MessageStreamEvent,
+  AgentToolConfig,
 } from "@wf-agent/types";
 import type {
   SkillHandlerConfig,
@@ -89,6 +93,10 @@ export class AgentLoopAdapter extends BaseAdapter {
    * injects skill metadata into the system prompt, and registers
    * the skill tool with proper handler on the internal ToolRegistry.
    *
+   * Only injects skill metadata if:
+   * 1. 'skill' tool is in availableTools, OR
+   * 2. Skills exist and autoAddTool is enabled (default behavior)
+   *
    * Safe to call even if skills are not configured — a no-op in that case.
    *
    * @param config The runtime config to apply skills integration to
@@ -97,19 +105,24 @@ export class AgentLoopAdapter extends BaseAdapter {
     try {
       const globalContext = this.sdk.getGlobalContext();
       const container = globalContext.container;
-      const skillRegistry = container.get(ServiceIdentifiers.SkillRegistry);
-      if (skillRegistry && skillRegistry.getEnabledSkills().length > 0) {
-        config.systemPrompt = skillRegistry.injectSkillMetadata(config.systemPrompt || "");
+      const skillRegistry = container.get(ServiceIdentifiers.SkillRegistry) as SkillRegistry | undefined;
 
-        // Ensure "skill" tool is in availableTools
-        if (!config.availableTools) {
-          config.availableTools = { tools: ["skill"] };
-        } else if (config.availableTools.tools && !config.availableTools.tools.includes("skill")) {
-          config.availableTools.tools = [...config.availableTools.tools, "skill"];
-        }
+      // Use unified metadata injection utility
+      const skillResult = injectSkillMetadata(skillRegistry, {
+        systemPrompt: config.systemPrompt || "",
+        availableTools: config.availableTools,
+        autoAddTool: true, // Auto-add skill tool if skills exist
+      });
 
+      // Update config with results
+      config.systemPrompt = skillResult.systemPrompt;
+      // Type assertion: injectSkillMetadata preserves AgentToolConfig type when input is AgentToolConfig
+      config.availableTools = skillResult.availableTools as AgentToolConfig | undefined;
+
+      // If skill metadata was injected, register the skill tool handler
+      if (skillResult.injected) {
         // Build a SkillHandlerConfig so the skill tool handler can resolve skills
-        const skillHandlerConfig = this.buildSkillHandlerConfig(skillRegistry);
+        const skillHandlerConfig = this.buildSkillHandlerConfig(skillRegistry!);
         if (skillHandlerConfig) {
           // Create predefined tools with the skill config and register on the internal ToolRegistry
           const options: PredefinedToolsOptions = {
@@ -124,7 +137,10 @@ export class AgentLoopAdapter extends BaseAdapter {
           );
         }
 
-        this.output.infoLog("Skill metadata injected into system prompt");
+        this.output.infoLog(`Skill metadata injected into system prompt (${skillResult.skillCount} skills)`);
+      } else if (skillResult.skillCount > 0) {
+        // Skills exist but not injected (tool not in availableTools and autoAddTool was false)
+        this.output.infoLog(`Skills available (${skillResult.skillCount}) but 'skill' tool not in availableTools`);
       }
     } catch {
       this.output.infoLog("Skills not configured, running without skill support");
@@ -177,12 +193,34 @@ export class AgentLoopAdapter extends BaseAdapter {
    * Workflow visibility is controlled by the static agent definition (allowedWorkflows).
    * Only workflows explicitly allowed by the agent config will be visible to the LLM.
    *
+   * Only injects workflow metadata if:
+   * 1. 'execute_workflow' tool is in availableTools, OR
+   * 2. allowedWorkflows are configured (auto-adds execute_workflow tool)
+   *
    * Safe to call even if no workflows are configured — a no-op in that case.
    *
    * @param config The runtime config to apply workflows integration to
    */
   async applyWorkflowsToConfig(config: AgentLoopRuntimeConfig): Promise<void> {
     try {
+      // Check if execute_workflow tool is available or should be added
+      const hasExecuteWorkflowTool = isToolAvailable(
+        config.availableTools,
+        METADATA_TOOL_NAMES.EXECUTE_WORKFLOW,
+      );
+
+      // Determine allowed workflow IDs from config
+      const allowedIds = config.availableTools?.allowedWorkflows;
+      if (!allowedIds || allowedIds.length === 0) {
+        // No allowedWorkflows configured
+        if (hasExecuteWorkflowTool) {
+          this.output.infoLog(
+            "'execute_workflow' tool is available but no allowedWorkflows configured",
+          );
+        }
+        return;
+      }
+
       const globalContext = this.sdk.getGlobalContext();
       const container = globalContext.container;
       const workflowRegistry = container.get(ServiceIdentifiers.WorkflowRegistry) as {
@@ -209,13 +247,6 @@ export class AgentLoopAdapter extends BaseAdapter {
 
       if (!workflowRegistry) {
         this.output.infoLog("Workflow registry not available, running without workflow support");
-        return;
-      }
-
-      // Determine allowed workflow IDs from config
-      const allowedIds = config.availableTools?.allowedWorkflows;
-      if (!allowedIds || allowedIds.length === 0) {
-        this.output.infoLog("No allowedWorkflows configured, running without workflow support");
         return;
       }
 
@@ -384,6 +415,8 @@ export class AgentLoopAdapter extends BaseAdapter {
    * DI container. This enables description injection so the LLM can
    * discover available agent profiles.
    *
+   * Only applies agent integration if 'call_agent' tool is in availableTools.
+   *
    * Safe to call even if no agent profiles are registered — the tool
    * remains available with a default description.
    *
@@ -391,10 +424,13 @@ export class AgentLoopAdapter extends BaseAdapter {
    */
   applyAgentsToConfig(config: AgentLoopRuntimeConfig): void {
     try {
-      // Check if call_agent tool is enabled
-      const hasCallAgent = config.availableTools?.tools?.includes("call_agent");
+      // Check if call_agent tool is available using unified utility
+      const hasCallAgent = isToolAvailable(
+        config.availableTools,
+        METADATA_TOOL_NAMES.CALL_AGENT,
+      );
       if (!hasCallAgent) {
-        this.output.infoLog("call_agent tool not enabled, skipping agent integration");
+        this.output.infoLog("'call_agent' tool not in availableTools, skipping agent integration");
         return;
       }
 

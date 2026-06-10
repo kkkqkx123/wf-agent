@@ -27,3 +27,6 @@ export * from "./interruption/index.js";
 
 // Timeout utilities
 export * from "./timeout/index.js";
+
+// Metadata injection utilities
+export * from "./metadata-injection.js";

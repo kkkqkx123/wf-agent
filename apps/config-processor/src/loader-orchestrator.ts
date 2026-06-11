@@ -39,6 +39,7 @@ import {
   mergeOutputWithDefaults,
   transformPresetsConfig,
   transformReadFileConfig,
+  mergeSandboxWithDefaults,
 } from "@wf-agent/sdk/api";
 import { validateAgentLoopConfig } from "@wf-agent/sdk/agent";
 import type {
@@ -54,6 +55,7 @@ import type {
   OutputConfig,
   ValidationError,
   InfrastructurePresetFile,
+  SandboxGlobalConfig,
 } from "@wf-agent/types";
 import type {
   ParsedAgentLoopConfig,
@@ -602,6 +604,27 @@ export interface InfrastructureConfigBundle {
   presets: PresetsConfig;
   /** Tool-specific configuration (readFile, writeFile, etc.) */
   tools: PredefinedToolsPresetConfig["config"];
+  /** Sandbox global configuration (profiles, rules, etc.) */
+  sandbox: SandboxGlobalConfig;
+}
+
+/**
+ * Load sandbox config from the first existing file in `configPaths`.
+ *
+ * @param configPaths - Ordered list of candidate file paths.
+ * @returns The merged SandboxGlobalConfig (with defaults applied).
+ */
+export async function loadSandboxConfig(
+  configPaths: string[],
+): Promise<SandboxGlobalConfig> {
+  for (const filePath of configPaths) {
+    const raw = await tryLoadRawConfig(filePath);
+    if (raw !== null) {
+      return mergeSandboxWithDefaults(raw as Partial<SandboxGlobalConfig>);
+    }
+  }
+
+  return mergeSandboxWithDefaults({});
 }
 
 /**
@@ -651,7 +674,7 @@ export async function loadInfrastructureConfigs(
   const resolved = fileMapping as InfrastructurePresetFile["files"];
 
   // Load each config type
-  const [metrics, timeout, fileCheckpoint, storage, output, presets, tools] =
+  const [metrics, timeout, fileCheckpoint, storage, output, presets, tools, sandbox] =
     await Promise.all([
       resolved.metrics
         ? loadMetricsConfig([resolved.metrics])
@@ -674,6 +697,9 @@ export async function loadInfrastructureConfigs(
       resolved.tools
         ? loadToolConfigs([resolved.tools])
         : loadToolConfigs([]),
+      resolved.sandbox
+        ? loadSandboxConfig([resolved.sandbox])
+        : loadSandboxConfig([]),
     ]);
 
   return {
@@ -684,6 +710,7 @@ export async function loadInfrastructureConfigs(
     output,
     presets,
     tools,
+    sandbox,
   };
 }
 

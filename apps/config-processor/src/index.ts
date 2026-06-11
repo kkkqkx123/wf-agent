@@ -33,6 +33,7 @@ export {
   loadStorageConfig,
   loadOutputConfig,
   loadPresetsConfig,
+  loadSandboxConfig,
   loadInfrastructureConfigs,
   loadDefaultInfrastructureConfigs,
   DEFAULT_INFRA_PRESET,

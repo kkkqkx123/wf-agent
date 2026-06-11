@@ -129,6 +129,14 @@ export {
   mergeServerConfigs,
 } from "../../../../services/mcp/mcp-connection-processor.js";
 
+// Sandbox configuration processing function
+export {
+  mergeSandboxWithDefaults,
+  validateSandboxConfig,
+  transformSandboxConfig,
+  exportSandboxConfig,
+} from "./sandbox.js";
+
 // Checkpoint Config (base class for multi-level checkpoint config resolution)
 export {
   CheckpointConfigResolver,

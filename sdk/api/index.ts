@@ -404,6 +404,11 @@ export {
   validatePresetsConfig,
   transformPresetsConfig,
   exportPresetsConfig,
+  // Sandbox
+  mergeSandboxWithDefaults,
+  validateSandboxConfig,
+  transformSandboxConfig,
+  exportSandboxConfig,
   // Tool processors
   validateReadFileConfig,
   transformReadFileConfig,

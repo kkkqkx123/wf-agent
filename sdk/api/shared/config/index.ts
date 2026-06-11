@@ -117,6 +117,11 @@ export {
   validatePresetsConfig,
   transformPresetsConfig,
   exportPresetsConfig,
+  // Sandbox
+  mergeSandboxWithDefaults,
+  validateSandboxConfig,
+  transformSandboxConfig,
+  exportSandboxConfig,
 } from "./processors/index.js";
 
 // Tool processors

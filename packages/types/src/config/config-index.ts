@@ -224,5 +224,7 @@ export interface InfrastructurePresetFile {
     presets?: string;
     /** Tool-specific configuration file (readFile, writeFile, etc.) */
     tools?: string;
+    /** Sandbox global configuration file (profiles, rules, etc.) */
+    sandbox?: string;
   };
 }

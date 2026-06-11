@@ -86,16 +86,16 @@ export interface ResourcePolicy {
 }
 
 export interface ShellPolicy {
-  /** Whitelist of allowed commands */
-  allowedCommands: string[];
-  /** Blacklist of denied commands */
-  deniedCommands: string[];
-  /** Dangerous pattern regex array */
-  dangerousPatterns: string[];
-  /** Allow pipe operator */
-  allowPipe: boolean;
-  /** Allow redirect operator */
-  allowRedirect: boolean;
+  /** Whitelist of allowed commands (empty = allow all, undefined = use shell-specific defaults) */
+  allowedCommands?: string[];
+  /** Blacklist of denied commands (empty = deny none, undefined = use shell-specific defaults) */
+  deniedCommands?: string[];
+  /** Dangerous pattern regex array (empty = no patterns, undefined = use shell-specific defaults) */
+  dangerousPatterns?: string[];
+  /** Allow pipe operator (undefined = true by default) */
+  allowPipe?: boolean;
+  /** Allow redirect operator (undefined = true by default) */
+  allowRedirect?: boolean;
 }
 
 export interface PythonPolicy {

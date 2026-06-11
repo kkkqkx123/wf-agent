@@ -130,6 +130,7 @@ export class PowerShellAnalyzer implements ShellAnalyzer {
   readonly shellType = SHELL_TYPE;
 
   analyze(ctx: ShellAnalysisContext): ShellAnalysisResult {
+    // Resolve policy with defaults first
     const policy = this.resolvePolicy(ctx.policy);
 
     // Layer 1: Extract primary cmdlet and check whitelist/blacklist
@@ -189,7 +190,7 @@ export class PowerShellAnalyzer implements ShellAnalyzer {
     return { allowed: true, command: ctx.command, shellType: SHELL_TYPE };
   }
 
-  private resolvePolicy(policy: ShellPolicy): ShellPolicy {
+  private resolvePolicy(policy: ShellPolicy): Required<ShellPolicy> {
     return {
       allowedCommands: policy.allowedCommands ?? [],
       deniedCommands: policy.deniedCommands ?? DENIED_COMMANDS,

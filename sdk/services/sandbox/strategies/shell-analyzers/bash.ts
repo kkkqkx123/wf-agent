@@ -78,12 +78,15 @@ export const DANGEROUS_PATTERNS: string[] = [
 ];
 
 /** Bash prefix commands that should be skipped when extracting primary command */
-const PREFIX_COMMANDS = ["time", "env", "nice", "nohup", "command", "\\", "sudo"];
+// NOTE: "sudo" is NOT included here because it's a dangerous privilege escalation
+// command that should always be checked against the blacklist, not skipped.
+const PREFIX_COMMANDS = ["time", "env", "nice", "nohup", "command", "\\"];
 
 export class BashAnalyzer implements ShellAnalyzer {
   readonly shellType = SHELL_TYPE;
 
   analyze(ctx: ShellAnalysisContext): ShellAnalysisResult {
+    // Resolve policy with defaults first
     const policy = this.resolvePolicy(ctx.policy);
 
     // Layer 1: Extract primary command and check whitelist/blacklist
@@ -143,7 +146,7 @@ export class BashAnalyzer implements ShellAnalyzer {
     return { allowed: true, command: ctx.command, shellType: SHELL_TYPE };
   }
 
-  private resolvePolicy(policy: ShellPolicy): ShellPolicy {
+  private resolvePolicy(policy: ShellPolicy): Required<ShellPolicy> {
     return {
       allowedCommands: policy.allowedCommands ?? [],
       deniedCommands: policy.deniedCommands ?? DENIED_COMMANDS,

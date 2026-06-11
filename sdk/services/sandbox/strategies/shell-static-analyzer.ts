@@ -83,12 +83,15 @@ export class ShellStaticAnalyzerStrategy implements StrategyImplementation<Scrip
     const shellType = this.resolveShellType(options.shellType, options.runtime);
 
     // Resolve shell-specific policy
+    // NOTE: We pass undefined for fields not explicitly set by user, so that
+    // shell-specific analyzers can apply their own defaults (e.g., DENIED_COMMANDS).
+    // This allows users to override defaults by explicitly setting empty arrays.
     const shellPolicy: ShellPolicy = {
-      allowedCommands: policy.shell?.allowedCommands ?? [],
-      deniedCommands: policy.shell?.deniedCommands ?? [],
-      dangerousPatterns: policy.shell?.dangerousPatterns ?? [],
-      allowPipe: policy.shell?.allowPipe ?? true,
-      allowRedirect: policy.shell?.allowRedirect ?? true,
+      allowedCommands: policy.shell?.allowedCommands,
+      deniedCommands: policy.shell?.deniedCommands,
+      dangerousPatterns: policy.shell?.dangerousPatterns,
+      allowPipe: policy.shell?.allowPipe,
+      allowRedirect: policy.shell?.allowRedirect,
     };
 
     // Route to shell-specific analyzer

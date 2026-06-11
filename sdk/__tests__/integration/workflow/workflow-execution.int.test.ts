@@ -6,21 +6,15 @@
  *
  * Test cases:
  *   WF-INT-01: SDK with Workflow API availability
- *   WF-INT-02: Linear workflow START -> SCRIPT -> END (skipped: storage init bug)
- *   WF-INT-03: Multiple SCRIPT nodes in sequence (skipped: storage init bug)
- *   WF-INT-04: Workflow execution metadata (skipped: storage init bug)
- *   WF-INT-05: Workflow with VARIABLE node (skipped: storage init bug)
- *
- * NOTE: Tests involving sdk.workflows.create() are skipped due to a known
- * pre-existing bug: MemoryWorkflowStorage.initialize() is never called during
- * SDK bootstrap, causing "Storage not initialized" errors on persist.
- * Tracked separately from this test file.
+ *   WF-INT-02: Linear workflow START -> SCRIPT -> END
+ *   WF-INT-03: Multiple SCRIPT nodes in sequence
+ *   WF-INT-04: Workflow execution metadata
+ *   WF-INT-05: Workflow with VARIABLE node
  *
  * Architecture:
  * - Uses Memory storage adapters (no persistence)
  * - Creates fresh SDK instance per test for isolation
  * - Tests through public API only (createSDK, WorkflowBuilder, ExecutionBuilder)
- * - Follows the pattern established by e2e tests but with tighter isolation
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
@@ -114,10 +108,8 @@ describe("Workflow Execution Integration", () => {
   // ===========================================================================
   // WF-INT-02: Linear Workflow START -> SCRIPT -> END
   // ===========================================================================
-  // SKIPPED: sdk.workflows.create() fails because MemoryWorkflowStorage
-  // is never initialized during SDK bootstrap. This is a pre-existing bug.
 
-  describe.skip("Linear Workflow (WF-INT-02)", () => {
+  describe("Linear Workflow (WF-INT-02)", () => {
     it("should execute a simple linear workflow with one SCRIPT node", async () => {
       registerScript(sdk, "linear-step", "echo hello");
 
@@ -169,9 +161,8 @@ describe("Workflow Execution Integration", () => {
   // ===========================================================================
   // WF-INT-03: Multiple SCRIPT nodes in sequence
   // ===========================================================================
-  // SKIPPED: Same storage initialization bug as WF-INT-02.
 
-  describe.skip("Multi-Step Workflow (WF-INT-03)", () => {
+  describe("Multi-Step Workflow (WF-INT-03)", () => {
     it("should execute two SCRIPT nodes in sequence", async () => {
       registerScript(sdk, "step-one", "echo step-1");
       registerScript(sdk, "step-two", "echo step-2");
@@ -233,10 +224,8 @@ describe("Workflow Execution Integration", () => {
   // ===========================================================================
   // WF-INT-04: Workflow execution metadata
   // ===========================================================================
-  // SKIPPED: Depends on sdk.workflows.create() which fails due to the storage
-  // initialization bug. Also triggers "Event must have executionId" error.
 
-  describe.skip("Execution Metadata (WF-INT-04)", () => {
+  describe("Execution Metadata (WF-INT-04)", () => {
     it("should return execution metadata with timestamps", async () => {
       registerScript(sdk, "meta-script", "echo meta");
 
@@ -293,10 +282,8 @@ describe("Workflow Execution Integration", () => {
   // ===========================================================================
   // WF-INT-05: Workflow with VARIABLE node
   // ===========================================================================
-  // SKIPPED: Depends on sdk.workflows.create() which fails due to the storage
-  // initialization bug. Also triggers "Event must have executionId" error.
 
-  describe.skip("Variable Node (WF-INT-05)", () => {
+  describe("Variable Node (WF-INT-05)", () => {
     it("should execute workflow with a VARIABLE node setting a string value", async () => {
       registerScript(sdk, "var-demo", "echo var-demo");
 

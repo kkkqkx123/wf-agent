@@ -123,6 +123,9 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
    * @returns this
    */
   addNode(id: string, type: StaticNodeType, config: StaticNode['config'], name?: string): this {
+    if (this.nodes.has(id)) {
+      throw new Error(`Node ID must be unique: '${id}' already exists in workflow '${this._id}'`);
+    }
     const nodeBuilder = NodeBuilder.create(this.globalContext, id).type(type).config(config);
     if (name) {
       nodeBuilder.name(name);
@@ -140,6 +143,9 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
    */
   addNodeWithBuilder(nodeBuilder: NodeBuilder): this {
     const node = nodeBuilder.build();
+    if (this.nodes.has(node.id)) {
+      throw new Error(`Node ID must be unique: '${node.id}' already exists in workflow '${this._id}'`);
+    }
     this.nodes.set(node.id, node);
     this.updateTimestamp();
     return this;
@@ -414,6 +420,13 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
     // Check for nodes
     if (this.nodes.size === 0) {
       errors.push("The workflow must have at least one node.");
+    }
+
+    // Check for duplicate node IDs (defensive: Map keys are unique by design,
+    // but this check verifies no corruption via internal code paths)
+    const nodeIds = Array.from(this.nodes.keys());
+    if (nodeIds.length !== new Set(nodeIds).size) {
+      errors.push("Node IDs must be unique within the workflow.");
     }
 
     // Check for START nodes

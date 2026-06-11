@@ -440,48 +440,58 @@ export class SDKInstance {
     // 3. Mark bootstrapped as complete
     // ====================================================================
 
-    // 1. Initialize workflow registry from storage if adapter is provided
-    // Runs BEFORE predefined registration so that persisted workflows take
-    // priority over predefined defaults.
-    if (this.config?.workflowStorageAdapter) {
-      try {
-        await this.globalContext.workflowRegistry.initializeFromStorage();
-        logger.info("Workflow registry initialized from storage");
-      } catch (error) {
-        logger.error(`Failed to initialize workflow registry from storage: ${getErrorMessage(error)}`);
-        // Don't fail bootstrap - allow SDK to work with empty registry
-      }
-    }
+    // 1. Initialize storage adapters and load persisted data
+    // All storage adapters (Memory, SQLite, JSON, Postgres) implement
+    // StorageAdapterBase with an initialize() lifecycle method that must be
+    // called before any CRUD operation. Without it, ensureInitialized() throws.
+    // This runs BEFORE predefined registration so persisted data takes priority.
 
-    // Initialize trigger template registry from storage if adapter is provided
-    if (this.config?.triggerStorageAdapter) {
-      try {
-        await this.globalContext.triggerTemplateRegistry.initializeFromStorage();
-        logger.info("Trigger template registry initialized from storage");
-      } catch (error) {
-        logger.error(`Failed to initialize trigger template registry from storage: ${getErrorMessage(error)}`);
+    // Helper to initialize a storage adapter if it has the initialize() method
+    const tryInitAdapter = async (adapter: unknown, name: string): Promise<void> => {
+      if (adapter && typeof (adapter as { initialize: () => Promise<void> }).initialize === 'function') {
+        try {
+          await (adapter as { initialize: () => Promise<void> }).initialize();
+          logger.debug(`${name} storage adapter initialized`);
+        } catch (error) {
+          logger.error(`Failed to initialize ${name} storage adapter: ${getErrorMessage(error)}`);
+        }
       }
-    }
+    };
 
-    // Initialize tool registry from storage if adapter is provided
-    if (this.config?.toolStorageAdapter) {
-      try {
-        await this.globalContext.toolRegistry.initializeFromStorage();
-        logger.info("Tool registry initialized from storage");
-      } catch (error) {
-        logger.error(`Failed to initialize tool registry from storage: ${getErrorMessage(error)}`);
-      }
-    }
+    // Initialize all adapters first, then load registries from storage
+    await tryInitAdapter(this.config?.workflowStorageAdapter, "workflow");
+    await tryInitAdapter(this.config?.triggerStorageAdapter, "trigger");
+    await tryInitAdapter(this.config?.toolStorageAdapter, "tool");
+    await tryInitAdapter(this.config?.scriptStorageAdapter, "script");
+    await tryInitAdapter(this.config?.checkpointStorageAdapter, "checkpoint");
+    await tryInitAdapter(this.config?.taskStorageAdapter, "task");
+    await tryInitAdapter(this.config?.workflowExecutionStorageAdapter, "workflowExecution");
+    await tryInitAdapter(this.config?.agentLoopCheckpointStorageAdapter, "agentLoop");
+    await tryInitAdapter(this.config?.nodeTemplateStorageAdapter, "nodeTemplate");
+    await tryInitAdapter(this.config?.hookTemplateStorageAdapter, "hookTemplate");
+    await tryInitAdapter(this.config?.agentProfileStorageAdapter, "agentProfile");
 
-    // Initialize script registry from storage if adapter is provided
-    if (this.config?.scriptStorageAdapter) {
+    // Helper to initialize a registry from storage if it has initializeFromStorage()
+    // Each registry already guards against missing storageAdapter internally,
+    // so it's safe to call unconditionally.
+    const tryInitRegistry = async (
+      registry: { initializeFromStorage?: () => Promise<void> } | undefined | null,
+      name: string,
+    ): Promise<void> => {
+      if (!registry?.initializeFromStorage) return;
       try {
-        await this.globalContext.scriptRegistry.initializeFromStorage();
-        logger.info("Script registry initialized from storage");
+        await registry.initializeFromStorage();
+        logger.info(`${name} registry initialized from storage`);
       } catch (error) {
-        logger.error(`Failed to initialize script registry from storage: ${getErrorMessage(error)}`);
+        logger.error(`Failed to initialize ${name} registry from storage: ${getErrorMessage(error)}`);
       }
-    }
+    };
+
+    // Initialize registries from storage (safely using initialized adapters)
+    await tryInitRegistry(this.globalContext.workflowRegistry, "Workflow");
+    await tryInitRegistry(this.globalContext.triggerTemplateRegistry, "Trigger template");
+    await tryInitRegistry(this.globalContext.toolRegistry, "Tool");
+    await tryInitRegistry(this.globalContext.scriptRegistry, "Script");
 
     // 2. Register all predefined content (skips if already in storage)
     if (presets) {

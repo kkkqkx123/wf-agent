@@ -10,9 +10,9 @@
 
 **严重程度：** 🔴 高
 
-**状态：** 待修复
+**状态：** ✅ 已修复
 
-**发现时间：** 2026-06-11
+**修复时间：** 2026-06-11
 
 **问题描述：**
 
@@ -28,11 +28,13 @@ Storage not initialized. Call initialize() first.
 - `sdk.workflows.update()` - 工作流更新失败
 - 所有依赖持久化的操作
 
-**临时解决方案：**
-测试中使用 `describe.skip` 跳过相关测试。
-
 **根本解决方案：**
-详见 [storage-initialization-issue.md](./storage-initialization-issue.md)
+在 `sdk-instance.ts` 的 `bootstrap()` 中为所有 11 个存储适配器调用 `initialize()` 方法。详见 [storage-initialization-issue.md](./storage-initialization-issue.md)
+
+**验证结果：**
+- 集成测试：22/22 通过
+- E2E 测试：4/4 通过
+- 总计：26/26 测试通过
 
 ---
 
@@ -107,7 +109,7 @@ addNode(id: string, type: StaticNodeType, config: StaticNode['config']): this {
 
 **严重程度：** 🔴 高
 
-**状态：** 待修复
+**状态：** ✅ 已修复（作为 ISSUE-001 的一部分）
 
 **发现时间：** 2026-06-11
 
@@ -115,18 +117,7 @@ addNode(id: string, type: StaticNodeType, config: StaticNode['config']): this {
 
 E2E 测试使用相同的 SDK 初始化方式，同样受 ISSUE-001 影响。
 
-**验证命令：**
-```bash
-cd sdk && npx vitest run --config vitest.config.e2e.mjs "__tests__/e2e/workflow/"
-```
-
-**结果：**
-```
-expected false to be true
-```
-
-**说明：**
-E2E 测试和集成测试共享相同的问题根源。
+**验证结果：** 4/4 E2E 测试已通过。
 
 ---
 
@@ -137,48 +128,44 @@ E2E 测试和集成测试共享相同的问题根源。
 | 测试文件 | 测试用例 | 状态 |
 |----------|----------|------|
 | workflow-execution.int.test.ts | WF-INT-01: SDK API 可用性 | ✅ 4 通过 |
+| workflow-execution.int.test.ts | WF-INT-02: 线性工作流 | ✅ 2 通过 |
+| workflow-execution.int.test.ts | WF-INT-03: 多步工作流 | ✅ 2 通过 |
+| workflow-execution.int.test.ts | WF-INT-04: 执行元数据 | ✅ 2 通过 |
+| workflow-execution.int.test.ts | WF-INT-05: 变量节点 | ✅ 3 通过 |
+| workflow-scenarios.int.test.ts | WF-INT-06: 条件路由 | ✅ 2 通过 |
 | workflow-scenarios.int.test.ts | WF-INT-07: 工作流验证 | ✅ 4 通过 |
+| workflow-scenarios.int.test.ts | WF-INT-08: 错误处理 | ✅ 2 通过 |
+| workflow-scenarios.int.test.ts | WF-INT-09: 输入数据 | ✅ 1 通过 |
+| workflow-execution.e2e.test.ts | WF-E2E-01: 线性工作流 | ✅ 2 通过 |
+| workflow-execution.e2e.test.ts | WF-E2E-12: 变量传递 | ✅ 2 通过 |
 
-### 已跳过的测试
-
-| 测试文件 | 测试用例 | 原因 |
-|----------|----------|------|
-| workflow-execution.int.test.ts | WF-INT-02: 线性工作流 | ISSUE-001 |
-| workflow-execution.int.test.ts | WF-INT-03: 多步工作流 | ISSUE-001 |
-| workflow-execution.int.test.ts | WF-INT-04: 执行元数据 | ISSUE-001, ISSUE-002 |
-| workflow-execution.int.test.ts | WF-INT-05: 变量节点 | ISSUE-001, ISSUE-002 |
-| workflow-scenarios.int.test.ts | WF-INT-06: 条件路由 | ISSUE-001 |
-| workflow-scenarios.int.test.ts | WF-INT-08: 错误处理 | ISSUE-001, ISSUE-002 |
-| workflow-scenarios.int.test.ts | WF-INT-09: 输入数据 | ISSUE-001, ISSUE-002 |
-
-**总计：** 8 通过，14 跳过
+**总计：** 26 通过，0 跳过
 
 ---
 
 ## 修复优先级
 
-| 优先级 | 问题 | 影响 |
-|--------|------|------|
-| P0 | ISSUE-001 | 阻塞所有工作流测试 |
-| P1 | ISSUE-004 | E2E 测试同样受影响 |
-| P2 | ISSUE-002 | 事件系统问题 |
-| P3 | ISSUE-003 | 开发体验问题 |
+| 优先级 | 问题 | 影响 | 状态 |
+|--------|------|------|------|
+| P0 | ISSUE-001 | 阻塞所有工作流测试 | ✅ 已修复 |
+| P1 | ISSUE-004 | E2E 测试同样受影响 | ✅ 已修复 |
+| P2 | ISSUE-002 | 事件系统问题 | ⏳ 待调查 |
+| P3 | ISSUE-003 | 开发体验问题 | ⏳ 待决策 |
 
 ---
 
 ## 下一步行动
 
-1. **修复 ISSUE-001**（P0）
-   - 修改 SDK bootstrap 初始化存储适配器
-   - 验证所有测试通过
-
-2. **调查 ISSUE-002**（P2）
+1. **调查 ISSUE-002**（P2）
    - 定位缺少 executionId 的事件
    - 确定修复方案
 
-3. **决定 ISSUE-003**（P3）
+2. **决定 ISSUE-003**（P3）
    - 确定是否需要修改 WorkflowBuilder 行为
    - 更新相关文档
+
+3. **关闭已修复问题**
+   - ISSUE-001 和 ISSUE-004 的修复已通过 26/26 测试验证
 
 ---
 

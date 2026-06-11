@@ -5,13 +5,10 @@
  * validation, error handling, and input-driven execution.
  *
  * Test cases:
- *   WF-INT-06: Conditional routing with ROUTE node (skipped: storage init bug)
+ *   WF-INT-06: Conditional routing with ROUTE node
  *   WF-INT-07: Workflow validation (invalid workflow detection)
- *   WF-INT-08: Error handling (skipped: storage init bug)
- *   WF-INT-09: Workflow execution with input data (skipped: storage init bug)
- *
- * NOTE: Tests involving sdk.workflows.create() are skipped due to the same
- * MemoryWorkflowStorage.initialize() bug as the execution tests.
+ *   WF-INT-08: Error handling (missing script, empty workflow)
+ *   WF-INT-09: Workflow execution with input data
  *
  * Architecture:
  * - Uses Memory storage adapters (no persistence)
@@ -103,10 +100,8 @@ describe("Workflow Advanced Scenarios Integration", () => {
   // ===========================================================================
   // WF-INT-06: Conditional routing with ROUTE node
   // ===========================================================================
-  // SKIPPED: Depends on sdk.workflows.create() which fails due to the storage
-  // initialization bug. Also triggers "Event must have executionId" error.
 
-  describe.skip("Conditional Routing (WF-INT-06)", () => {
+  describe("Conditional Routing (WF-INT-06)", () => {
     it("should execute workflow with a ROUTE node", async () => {
       registerScript(sdk, "route-a", "echo route-a");
       registerScript(sdk, "route-b", "echo route-b");
@@ -279,10 +274,8 @@ describe("Workflow Advanced Scenarios Integration", () => {
   // ===========================================================================
   // WF-INT-08: Error handling
   // ===========================================================================
-  // SKIPPED: Depends on sdk.workflows.create() which fails due to the storage
-  // initialization bug. Also triggers "Event must have executionId" error.
 
-  describe.skip("Error Handling (WF-INT-08)", () => {
+  describe("Error Handling (WF-INT-08)", () => {
     it("should handle execution with missing script gracefully", async () => {
       // Register workflow that references a nonexistent script
       const wfId = "wf-missing-script";
@@ -324,10 +317,8 @@ describe("Workflow Advanced Scenarios Integration", () => {
   // ===========================================================================
   // WF-INT-09: Workflow execution with input data
   // ===========================================================================
-  // SKIPPED: Depends on sdk.workflows.create() which fails due to the storage
-  // initialization bug. Also triggers "Event must have executionId" error.
 
-  describe.skip("Input Data (WF-INT-09)", () => {
+  describe("Input Data (WF-INT-09)", () => {
     it("should execute workflow with input data", async () => {
       registerScript(sdk, "input-script", "echo input-test");
 

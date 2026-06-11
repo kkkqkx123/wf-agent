@@ -69,11 +69,16 @@ export class WorkflowCheckpointConfigResolver extends CheckpointConfigResolver {
 
   /**
    * Merge the configuration layers
+   *
+   * Iterates from lowest priority to highest priority so that higher-priority
+   * layers' values correctly override lower-priority ones.
    */
   private mergeConfigs(layers: GraphCheckpointConfigLayer[]): CheckpointConfigContent {
     const result: CheckpointConfigContent = {};
 
-    for (const layer of layers) {
+    // Iterate in reverse: lowest priority first, so higher-priority values win.
+    const reversed = [...layers].reverse();
+    for (const layer of reversed) {
       if (layer.config.enabled !== undefined) {
         result.enabled = layer.config.enabled;
       }

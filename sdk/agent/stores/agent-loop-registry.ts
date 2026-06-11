@@ -228,9 +228,7 @@ export class AgentLoopRegistry implements IAgentExecutionRegistry {
    */
   clear(): void {
     for (const entity of this.entities.values()) {
-      if (typeof entity.cleanup === "function") {
-        entity.cleanup();
-      }
+      entity.cleanup();
     }
     this.entities.clear();
   }

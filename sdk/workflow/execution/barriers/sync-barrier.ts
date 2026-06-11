@@ -15,19 +15,19 @@ import type { ID } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import type { ExecutionHierarchyRegistry } from "../../../core/registry/execution-hierarchy-registry.js";
-import { waitForWorkflowExecutionCompleted } from "../utils/event/event-waiter.js";
-import { createTimeoutPromise, isTimeoutError } from "../../../core/utils/timeout/timeout-utils.js";
+import { waitForWorkflowExecutionCompleted, WAIT_FOREVER } from "../utils/event/event-waiter.js";
+import { isTimeoutError } from "../../../core/utils/timeout/timeout-utils.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ operation: "SyncBarrier" });
 
 /**
- * Path to execution mapping entry
+ * Result of waiting for multiple branches via SyncBarrier.waitForMultipleBranches
  */
-interface PathMapping {
-  forkPathId: ID;
-  executionId: ID;
-  registeredAt: number;
+export interface WaitForMultipleResult {
+  successful: Map<ID, WorkflowExecutionEntity>;
+  failed: Array<{ pathId: ID; error: unknown }>;
+  totalRequested: number;
 }
 
 /**
@@ -36,12 +36,9 @@ interface PathMapping {
 export class SyncBarrier {
   /** Fork path ID to execution ID mapping */
   private pathToExecutionMap: Map<ID, ID> = new Map();
-  
+
   /** Execution ID to path ID reverse mapping (for quick lookup) */
   private executionToPathMap: Map<ID, ID> = new Map();
-  
-  /** All path mappings with metadata */
-  private allMappings: Map<ID, PathMapping> = new Map();
   
   /** Parent execution ID (the execution that owns this barrier) */
   private readonly parentExecutionId: ID;
@@ -75,20 +72,20 @@ export class SyncBarrier {
    */
   registerPath(forkPathId: ID, executionId: ID): void {
     if (this.pathToExecutionMap.has(forkPathId)) {
+      const oldExecutionId = this.pathToExecutionMap.get(forkPathId);
+      // Clean up old reverse mapping before overwriting
+      if (oldExecutionId !== undefined) {
+        this.executionToPathMap.delete(oldExecutionId);
+      }
       logger.warn("Fork path already registered, overwriting", {
         forkPathId,
-        existingExecutionId: this.pathToExecutionMap.get(forkPathId),
+        existingExecutionId: oldExecutionId,
         newExecutionId: executionId,
       });
     }
 
     this.pathToExecutionMap.set(forkPathId, executionId);
     this.executionToPathMap.set(executionId, forkPathId);
-    this.allMappings.set(forkPathId, {
-      forkPathId,
-      executionId,
-      registeredAt: Date.now(),
-    });
 
     logger.debug("Registered fork path mapping", {
       forkPathId,
@@ -171,20 +168,11 @@ export class SyncBarrier {
     });
 
     try {
-      // Use event-driven waiting with timeout support
-      const timeoutMs = timeout > 0 ? timeout * 1000 : 0;
-      
-      if (timeoutMs > 0) {
-        // With timeout
-        await createTimeoutPromise(
-          waitForWorkflowExecutionCompleted(this.eventManager, executionId),
-          timeoutMs,
-          `SYNC node timeout: Branch ${forkPathId} did not complete within ${timeout}s`
-        );
-      } else {
-        // No timeout - wait indefinitely
-        await waitForWorkflowExecutionCompleted(this.eventManager, executionId);
-      }
+      // Convert seconds to milliseconds for event waiter.
+      // timeout=0 means no timeout (wait indefinitely).
+      const timeoutMs = timeout > 0 ? timeout * 1000 : WAIT_FOREVER;
+
+      await waitForWorkflowExecutionCompleted(this.eventManager, executionId, timeoutMs);
 
       // Get the execution entity after waiting completes
       const entity = this.executionRegistry?.get(executionId);
@@ -192,7 +180,6 @@ export class SyncBarrier {
         throw new Error(`Failed to get execution entity for executionId: ${executionId}`);
       }
       
-      // Type assertion: we know this is a WorkflowExecutionEntity in fork-join context
       const result = entity as WorkflowExecutionEntity;
 
       logger.debug("Branch completed successfully", {
@@ -224,17 +211,18 @@ export class SyncBarrier {
   /**
    * Wait for multiple fork branches to complete
    * Useful for implementing custom join strategies
-   * 
+   *
    * @param forkPathIds Array of fork path IDs to wait for
    * @param timeout Timeout in seconds per branch (0 = no timeout)
-   * @returns Map of fork path ID to completed execution entity
+   * @returns Object with successful and failed branch results
    */
   async waitForMultipleBranches(
     forkPathIds: ID[],
     timeout: number = 0
-  ): Promise<Map<ID, WorkflowExecutionEntity>> {
-    const results = new Map<ID, WorkflowExecutionEntity>();
-    
+  ): Promise<WaitForMultipleResult> {
+    const successful = new Map<ID, WorkflowExecutionEntity>();
+    const failed: Array<{ pathId: ID; error: unknown }> = [];
+
     logger.debug("Waiting for multiple branches", {
       forkPathIds,
       count: forkPathIds.length,
@@ -255,41 +243,22 @@ export class SyncBarrier {
     });
 
     const settled = await Promise.allSettled(promises);
-    
+
     settled.forEach((result) => {
       if (result.status === "fulfilled" && result.value.success) {
-        results.set(result.value.pathId, result.value.execution!);
+        successful.set(result.value.pathId, result.value.execution!);
+      } else if (result.status === "fulfilled" && !result.value.success) {
+        failed.push({ pathId: result.value.pathId, error: result.value.error });
       }
     });
 
     logger.debug("Multiple branches wait completed", {
       totalRequested: forkPathIds.length,
-      successful: results.size,
+      successful: successful.size,
+      failed: failed.length,
     });
 
-    return results;
-  }
-
-  /**
-   * Get the status of all registered branches
-   * This is useful for join condition evaluation without blocking
-   * 
-   * Note: This requires access to the execution registry to check statuses
-   * For now, we return basic info. In production, you'd integrate with registry.
-   * 
-   * @returns Map of fork path ID to execution status info
-   */
-  getBranchStatuses(): Map<ID, { executionId: ID; registered: boolean }> {
-    const statuses = new Map<ID, { executionId: ID; registered: boolean }>();
-    
-    for (const [pathId, executionId] of this.pathToExecutionMap.entries()) {
-      statuses.set(pathId, {
-        executionId,
-        registered: true,
-      });
-    }
-    
-    return statuses;
+    return { successful, failed, totalRequested: forkPathIds.length };
   }
 
   /**
@@ -299,8 +268,7 @@ export class SyncBarrier {
     const pathCount = this.pathToExecutionMap.size;
     this.pathToExecutionMap.clear();
     this.executionToPathMap.clear();
-    this.allMappings.clear();
-    
+
     logger.debug("SyncBarrier cleared", {
       parentExecutionId: this.parentExecutionId,
       clearedPaths: pathCount,

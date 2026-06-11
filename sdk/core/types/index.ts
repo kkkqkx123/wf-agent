@@ -42,3 +42,6 @@ export { type Abortable } from "./abortable.js";
 export * from "./timeout.js";
 export * from "./timeout-config.js";
 export * from "./timeout-tags.js";
+
+// Task Snapshot Types - Serializable task data for persistence
+export { type TaskSnapshot, TaskSerializationUtils } from "./task-snapshot.js";

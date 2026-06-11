@@ -2,6 +2,12 @@
  * Task Snapshot Types and Utilities
  *
  * Defines Task snapshot structure and serialization utilities.
+ *
+ * Design notes:
+ * - WorkflowExecutionResult is a pure data structure (all fields JSON-serializable),
+ *   so it is used directly in TaskSnapshot without a separate serialized type.
+ * - Only Error requires explicit serialization (via ErrorCodec) since Error
+ *   objects are not directly JSON-serializable.
  */
 
 import type {
@@ -9,13 +15,12 @@ import type {
   SerializedError,
   TaskStatus,
   WorkflowExecutionResult,
-  NodeExecutionResult,
-  WorkflowExecutionStatus,
 } from "@wf-agent/types";
 import { ErrorCodec } from "@wf-agent/common-utils";
 
 /**
  * Task Snapshot - Serializable representation of task data
+ * WorkflowExecutionResult is stored directly as it is a pure data structure.
  */
 export interface TaskSnapshot extends SnapshotBase {
   _entityType: "task";
@@ -37,8 +42,8 @@ export interface TaskSnapshot extends SnapshotBase {
   startTime?: number;
   /** Completion time */
   completeTime?: number;
-  /** Execution result (upon success) - serialized with full data */
-  result?: SerializedWorkflowExecutionResult;
+  /** Execution result (upon success) - WorkflowExecutionResult is a pure data structure */
+  result?: WorkflowExecutionResult;
   /** Error message (in case of failure) */
   error?: SerializedError;
   /** Timeout period (in milliseconds) */
@@ -46,83 +51,13 @@ export interface TaskSnapshot extends SnapshotBase {
 }
 
 /**
- * Serialized WorkflowExecution Result Metadata
- */
-export interface SerializedWorkflowExecutionResultMetadata {
-  /** Workflow execution state status */
-  status: WorkflowExecutionStatus;
-  /** Starting time */
-  startTime: number;
-  /** End time */
-  endTime: number;
-  /** Execution time (milliseconds) */
-  executionTime: number;
-  /** Number of nodes */
-  nodeCount: number;
-  /** Number of errors */
-  errorCount: number;
-}
-
-/**
- * Serialized WorkflowExecution Result
- */
-export interface SerializedWorkflowExecutionResult {
-  /** Execution ID */
-  id: string;
-  /** Output data */
-  output: Record<string, unknown>;
-  /** Execution time (milliseconds) */
-  executionTime: number;
-  /** Complete array of node execution results */
-  nodeResults: NodeExecutionResult[];
-  /** Complete metadata */
-  metadata: SerializedWorkflowExecutionResultMetadata;
-}
-
-/**
  * Utility functions for Task serialization
+ *
+ * Note: WorkflowExecutionResult is used directly (it is a pure data structure),
+ * so no separate serialize/deserialize functions are needed for it.
+ * Only Error objects require explicit serialization via ErrorCodec.
  */
 export const TaskSerializationUtils = {
-  /**
-   * Serialize WorkflowExecutionResult for storage
-   */
-  serializeWorkflowExecutionResult(result: WorkflowExecutionResult): SerializedWorkflowExecutionResult {
-    return {
-      id: result.executionId,
-      output: result.output,
-      executionTime: result.executionTime,
-      nodeResults: result.nodeResults,
-      metadata: {
-        status: result.metadata.status,
-        startTime: result.metadata.startTime,
-        endTime: result.metadata.endTime,
-        executionTime: result.metadata.executionTime,
-        nodeCount: result.metadata.nodeCount,
-        errorCount: result.metadata.errorCount,
-      },
-    };
-  },
-
-  /**
-   * Deserialize WorkflowExecutionResult from serialized format
-   */
-  deserializeWorkflowExecutionResult(serialized: SerializedWorkflowExecutionResult): WorkflowExecutionResult {
-    return {
-      executionId: serialized.id,
-      output: serialized.output,
-      executionTime: serialized.executionTime,
-      nodeResults: serialized.nodeResults,
-      metadata: {
-        status: serialized.metadata.status,
-        startTime: serialized.metadata.startTime,
-        endTime: serialized.metadata.endTime,
-        executionTime: serialized.metadata.executionTime,
-        nodeCount: serialized.metadata.nodeCount,
-        errorCount: serialized.metadata.errorCount,
-      },
-    };
-  },
-
   /**
    * Create a TaskSnapshot from TaskInfo
    */
@@ -162,8 +97,9 @@ export const TaskSerializationUtils = {
       snapshot.workflowId = taskInfo.instance.id;
     }
 
+    // WorkflowExecutionResult is a pure data structure, assign directly
     if (taskInfo.result) {
-      snapshot.result = TaskSerializationUtils.serializeWorkflowExecutionResult(taskInfo.result);
+      snapshot.result = taskInfo.result;
     }
 
     if (taskInfo.error) {

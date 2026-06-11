@@ -39,7 +39,7 @@ import {
 import {
   type TaskSnapshot,
   TaskSerializationUtils,
-} from "../../../core/utils/task/index.js";
+} from "../../../core/types/index.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "TaskRegistry" });
@@ -209,7 +209,7 @@ export class TaskRegistry {
           };
 
           if (snapshot.result) {
-            storedTask.result = TaskSerializationUtils.deserializeWorkflowExecutionResult(snapshot.result);
+            storedTask.result = snapshot.result;
           }
 
           if (snapshot.error) {
@@ -271,7 +271,7 @@ export class TaskRegistry {
         }
 
         if (storedTask.result) {
-          snapshot.result = TaskSerializationUtils.serializeWorkflowExecutionResult(storedTask.result);
+          snapshot.result = storedTask.result;
         }
 
         if (storedTask.error) {

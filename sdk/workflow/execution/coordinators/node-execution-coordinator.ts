@@ -129,6 +129,7 @@ export class NodeExecutionCoordinator {
   // Core Dependencies (Required)
   private globalContext: GlobalContext;
   private eventManager: EventRegistry;
+  private conversationManager: ConversationSession;
   private interruptionManager: InterruptionState;
 
   // Checkpoint-related (optional)
@@ -152,6 +153,7 @@ export class NodeExecutionCoordinator {
     // Core Dependencies
     this.globalContext = config.globalContext;
     this.eventManager = config.eventManager;
+    this.conversationManager = config.conversationManager;
     this.interruptionManager = config.interruptionManager;
 
     // Checkpoint-related
@@ -433,6 +435,7 @@ export class NodeExecutionCoordinator {
                 ? (node as WorkflowNode).originalNode
                 : node) as StaticNode,
               checkpointDependencies: this.checkpointDependencies,
+              conversationManager: this.conversationManager,
             },
             "BEFORE_EXECUTE",
             event => this.eventManager.emit(event),
@@ -483,6 +486,7 @@ export class NodeExecutionCoordinator {
                 : node) as StaticNode,
               result: nodeResult,
               checkpointDependencies: this.checkpointDependencies,
+              conversationManager: this.conversationManager,
             },
             "AFTER_EXECUTE",
             event => this.eventManager.emit(event),

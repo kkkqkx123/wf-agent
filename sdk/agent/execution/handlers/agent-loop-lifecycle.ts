@@ -111,8 +111,8 @@ export function cloneAgentLoop(entity: AgentLoopEntity): AgentLoopEntity {
   const cloned = new AgentLoopEntity(entity.id, { ...entity.config }, entity.state.clone());
 
   // Cloning News History
-  const messageSnapshot = entity.conversationManager.createSnapshot();
-  cloned.conversationManager.restoreFromSnapshot(messageSnapshot);
+  const messageSnapshot = entity.getConversationManager().createSnapshot();
+  cloned.getConversationManager().restoreFromSnapshot(messageSnapshot);
 
   // Clone parent context using unified hierarchy API
   const parentContext = entity.getParentContext();

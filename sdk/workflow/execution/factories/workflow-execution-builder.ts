@@ -98,6 +98,13 @@ export interface ChildExecutionConfig {
 export interface ChildExecutionOptions {
   type: ChildExecutionType;
   config: ChildExecutionConfig;
+  /**
+   * Parent's state coordinator for message export (required)
+   * 
+   * Initial messages are exported from the state coordinator
+   * using exportMessagesForChild() method (single data source architecture).
+   */
+  parentStateCoordinator?: WorkflowStateCoordinator;
 }
 
 /**
@@ -346,7 +353,6 @@ export class WorkflowExecutionBuilder {
 
     // Step 9: Create WorkflowStateCoordinator
     const stateCoordinator = new WorkflowStateCoordinator({
-      workflowExecutionEntity,
       conversationManager,
     });
 
@@ -380,10 +386,12 @@ export class WorkflowExecutionBuilder {
    * Create a copy of WorkflowExecutionEntity
    *
    * @param sourceWorkflowExecutionEntity Source WorkflowExecutionEntity
+   * @param sourceStateCoordinator Source execution's state coordinator (required for message export)
    * @returns WorkflowExecutionBuildResult containing WorkflowExecutionEntity, WorkflowStateCoordinator, and ConversationSession
    */
   async createCopy(
     sourceWorkflowExecutionEntity: WorkflowExecutionEntity,
+    sourceStateCoordinator?: WorkflowStateCoordinator,
   ): Promise<WorkflowExecutionBuildResult> {
     const sourceWorkflowExecution = sourceWorkflowExecutionEntity.getWorkflowExecutionData();
     const copiedExecutionId = generateId();
@@ -434,18 +442,29 @@ export class WorkflowExecutionBuilder {
       sourceWorkflowExecutionEntity.variableStateManager
     );
 
+    // Get initial messages from source state coordinator
+    if (!sourceStateCoordinator) {
+      throw new ExecutionError(
+        `sourceStateCoordinator is required for creating execution copy`,
+        undefined,
+        copiedExecutionId,
+        { sourceId: sourceWorkflowExecution.id }
+      );
+    }
+    
+    const initialMessages = sourceStateCoordinator.exportMessagesForChild();
+
     // Create ConversationSession (clone from source message history)
     const conversationManager = new ConversationSession({
       eventManager: this.getEventManager(),
       workflowExecutionId: copiedWorkflowExecution.id,
       workflowId: copiedWorkflowExecution.workflowId,
-      initialMessages: sourceWorkflowExecutionEntity.messageHistoryManager.getMessages(),
+      initialMessages,
     });
     conversationManager.setContext(copiedWorkflowExecution.workflowId, copiedWorkflowExecution.id);
 
     // Create WorkflowStateCoordinator
     const stateCoordinator = new WorkflowStateCoordinator({
-      workflowExecutionEntity: copiedWorkflowExecutionEntity,
       conversationManager,
     });
 
@@ -509,12 +528,12 @@ export class WorkflowExecutionBuilder {
     // Step 6: Create conversation session
     const conversationManager = this.createConversationSession(
       childEntity,
-      parent
+      parent,
+      options.parentStateCoordinator
     );
     
     // Step 7: Create state coordinator
     const stateCoordinator = new WorkflowStateCoordinator({
-      workflowExecutionEntity: childEntity,
       conversationManager,
     });
     
@@ -813,18 +832,33 @@ export class WorkflowExecutionBuilder {
 
   /**
    * Create conversation session for child execution
+   * 
+   * Uses parentStateCoordinator.exportMessagesForChild() to get initial messages.
    */
   private createConversationSession(
     child: WorkflowExecutionEntity,
-    parent: WorkflowExecutionEntity
+    parent: WorkflowExecutionEntity,
+    parentStateCoordinator?: WorkflowStateCoordinator
   ): ConversationSession {
     const childExecution = child.getWorkflowExecutionData();
+    
+    // Get initial messages from parent's state coordinator
+    if (!parentStateCoordinator) {
+      throw new ExecutionError(
+        `parentStateCoordinator is required for child execution creation`,
+        undefined,
+        childExecution.id,
+        { parentId: parent.id }
+      );
+    }
+    
+    const initialMessages = parentStateCoordinator.exportMessagesForChild();
     
     const conversationManager = new ConversationSession({
       eventManager: this.getEventManager(),
       workflowExecutionId: childExecution.id,
       workflowId: childExecution.workflowId,
-      initialMessages: parent.messageHistoryManager.getMessages(),
+      initialMessages,
     });
     conversationManager.setContext(childExecution.workflowId, childExecution.id);
     

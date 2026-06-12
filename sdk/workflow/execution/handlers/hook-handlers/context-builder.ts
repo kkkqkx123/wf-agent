@@ -40,7 +40,7 @@ export interface HookEvaluationContext {
  * @returns Evaluation context
  */
 export function buildHookEvaluationContext(context: HookExecutionContext): HookEvaluationContext {
-  const { workflowExecutionEntity, node, result } = context;
+  const { workflowExecutionEntity, node, result, conversationManager } = context;
   const workflowExecution = workflowExecutionEntity.getExecution();
 
   return {
@@ -53,8 +53,8 @@ export function buildHookEvaluationContext(context: HookExecutionContext): HookE
     // Existing: Final workflow output
     output: workflowExecution.output,
     
-    // NEW: Message history if available
-    messages: workflowExecutionEntity.messageHistoryManager?.getMessages() || [],
+    // Message history from ConversationSession (single data source)
+    messages: conversationManager?.getMessages() || [],
     
     status: result?.status || "PENDING",
     executionTime: result?.executionTime || 0,

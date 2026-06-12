@@ -281,7 +281,7 @@ export class ExecutionHierarchyRegistry implements IHierarchyRegistry {
         (e): e is WorkflowExecutionEntity => 'getWorkflowId' in e && typeof e.getWorkflowId === 'function' && !!e.getWorkflowId()
       ),
       agents: allDescendants.filter(
-        (e): e is AgentLoopEntity => 'conversationManager' in e && !!e.conversationManager
+        (e): e is AgentLoopEntity => 'getConversationManager' in e && typeof e.getConversationManager === 'function'
       ),
     };
   }
@@ -329,8 +329,8 @@ export class ExecutionHierarchyRegistry implements IHierarchyRegistry {
         // Check if getWorkflowId returns a truthy value (not undefined)
         return 'getWorkflowId' in entity && typeof entity.getWorkflowId === 'function' && !!entity.getWorkflowId();
       } else {
-        // Check if conversationManager is defined
-        return 'conversationManager' in entity && !!entity.conversationManager;
+        // Check if getConversationManager method exists
+        return 'getConversationManager' in entity && typeof entity.getConversationManager === 'function';
       }
     });
   }

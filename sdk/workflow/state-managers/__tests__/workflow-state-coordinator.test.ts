@@ -1,6 +1,10 @@
 /**
  * WorkflowStateCoordinator - Unit Tests
- * Tests for workflow state coordination between WorkflowExecutionEntity and ConversationSession
+ * Tests for workflow state coordination using ConversationSession as single data source
+ *
+ * Architecture Design:
+ * - All message operations: Only use ConversationSession (single data source)
+ * - Parent-child message passing: Use export/import methods
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -8,23 +12,14 @@ import { WorkflowStateCoordinator } from '../workflow-state-coordinator.js';
 import { RuntimeValidationError } from '@wf-agent/types';
 import type { LLMMessage, TokenUsageStats, MessageMarkMap } from '@wf-agent/types';
 
-// Mock MessageHistory
-const createMockMessageHistory = () => ({
-  addMessage: vi.fn(),
-  addMessages: vi.fn(),
-  getMessages: vi.fn().mockReturnValue([]),
-  getRecentMessages: vi.fn().mockReturnValue([]),
-  setMessages: vi.fn(),
-  clearMessages: vi.fn(),
-  normalizeHistory: vi.fn(),
-  cleanup: vi.fn(),
-});
-
-// Mock ConversationSession
+// Mock ConversationSession (primary data source)
 const createMockConversationSession = () => ({
   addMessage: vi.fn(),
   addMessages: vi.fn(),
+  getMessages: vi.fn().mockReturnValue([]),
   getAllMessages: vi.fn().mockReturnValue([]),
+  getRecentMessages: vi.fn().mockReturnValue([]),
+  getMessageCount: vi.fn().mockReturnValue(0),
   clear: vi.fn(),
   getTokenUsage: vi.fn().mockReturnValue({ totalTokens: 0, promptTokens: 0, completionTokens: 0 }),
   getCurrentRequestUsage: vi.fn().mockReturnValue({ totalTokens: 0, promptTokens: 0, completionTokens: 0 }),
@@ -42,37 +37,31 @@ const createMockConversationSession = () => ({
   cleanup: vi.fn(),
 });
 
-// Mock WorkflowExecutionEntity
-const createMockWorkflowExecutionEntity = () => ({
-  id: 'test-execution-id',
-  messageHistoryManager: createMockMessageHistory(),
-});
-
 describe('WorkflowStateCoordinator', () => {
   let coordinator: WorkflowStateCoordinator;
-  let mockWorkflowExecutionEntity: ReturnType<typeof createMockWorkflowExecutionEntity>;
   let mockConversationSession: ReturnType<typeof createMockConversationSession>;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockWorkflowExecutionEntity = createMockWorkflowExecutionEntity();
     mockConversationSession = createMockConversationSession();
     
     coordinator = new WorkflowStateCoordinator({
-      workflowExecutionEntity: mockWorkflowExecutionEntity as any,
       conversationManager: mockConversationSession as any,
     });
   });
 
   describe('constructor', () => {
-    it('should initialize with workflow execution entity and conversation session', () => {
-      expect(coordinator.getWorkflowExecutionEntity()).toBe(mockWorkflowExecutionEntity);
+    it('should initialize with conversation session', () => {
       expect(coordinator.getConversationManager()).toBe(mockConversationSession);
     });
   });
 
+  // ============================================================
+  // Message Management (Single Data Source: ConversationSession)
+  // ============================================================
+
   describe('addMessage', () => {
-    it('should add message to both managers', () => {
+    it('should add message to ConversationSession (single data source)', () => {
       // Arrange
       const message: LLMMessage = {
         role: 'user',
@@ -82,8 +71,7 @@ describe('WorkflowStateCoordinator', () => {
       // Act
       coordinator.addMessage(message);
 
-      // Assert
-      expect(mockWorkflowExecutionEntity.messageHistoryManager.addMessage).toHaveBeenCalledWith(message);
+      // Assert - Only ConversationSession is called
       expect(mockConversationSession.addMessage).toHaveBeenCalledWith(message);
     });
 
@@ -119,7 +107,7 @@ describe('WorkflowStateCoordinator', () => {
   });
 
   describe('addMessages', () => {
-    it('should add multiple messages', () => {
+    it('should add multiple messages to ConversationSession', () => {
       // Arrange
       const messages: LLMMessage[] = [
         { role: 'user', content: 'message 1' },
@@ -129,30 +117,30 @@ describe('WorkflowStateCoordinator', () => {
       // Act
       coordinator.addMessages(...messages);
 
-      // Assert
-      expect(mockWorkflowExecutionEntity.messageHistoryManager.addMessage).toHaveBeenCalledTimes(2);
+      // Assert - Only ConversationSession is called
       expect(mockConversationSession.addMessage).toHaveBeenCalledTimes(2);
     });
   });
 
   describe('getMessages', () => {
-    it('should get visible messages from workflow execution entity', () => {
+    it('should get visible messages from ConversationSession (single data source)', () => {
       // Arrange
       const messages: LLMMessage[] = [
         { role: 'user', content: 'test' },
       ];
-      mockWorkflowExecutionEntity.messageHistoryManager.getMessages.mockReturnValue(messages);
+      mockConversationSession.getMessages.mockReturnValue(messages);
 
       // Act
       const result = coordinator.getMessages();
 
-      // Assert
+      // Assert - Only ConversationSession is called
+      expect(mockConversationSession.getMessages).toHaveBeenCalled();
       expect(result).toEqual(messages);
     });
   });
 
   describe('getAllMessages', () => {
-    it('should get all messages from conversation session', () => {
+    it('should get all messages from ConversationSession', () => {
       // Arrange
       const messages: LLMMessage[] = [
         { role: 'user', content: 'test' },
@@ -168,24 +156,38 @@ describe('WorkflowStateCoordinator', () => {
   });
 
   describe('getRecentMessages', () => {
-    it('should get recent messages from workflow execution entity', () => {
+    it('should get recent messages from ConversationSession (single data source)', () => {
       // Arrange
       const messages: LLMMessage[] = [
         { role: 'user', content: 'test' },
       ];
-      mockWorkflowExecutionEntity.messageHistoryManager.getRecentMessages.mockReturnValue(messages);
+      mockConversationSession.getRecentMessages.mockReturnValue(messages);
 
       // Act
       const result = coordinator.getRecentMessages(5);
 
-      // Assert
-      expect(mockWorkflowExecutionEntity.messageHistoryManager.getRecentMessages).toHaveBeenCalledWith(5);
+      // Assert - Only ConversationSession is called
+      expect(mockConversationSession.getRecentMessages).toHaveBeenCalledWith(5);
       expect(result).toEqual(messages);
     });
   });
 
+  describe('getMessageCount', () => {
+    it('should get message count from ConversationSession', () => {
+      // Arrange
+      mockConversationSession.getMessageCount.mockReturnValue(5);
+
+      // Act
+      const result = coordinator.getMessageCount();
+
+      // Assert
+      expect(mockConversationSession.getMessageCount).toHaveBeenCalled();
+      expect(result).toBe(5);
+    });
+  });
+
   describe('setMessages', () => {
-    it('should set messages to both managers', () => {
+    it('should set messages to ConversationSession (single data source)', () => {
       // Arrange
       const messages: LLMMessage[] = [
         { role: 'user', content: 'test' },
@@ -194,33 +196,89 @@ describe('WorkflowStateCoordinator', () => {
       // Act
       coordinator.setMessages(messages);
 
-      // Assert
-      expect(mockWorkflowExecutionEntity.messageHistoryManager.setMessages).toHaveBeenCalledWith(messages);
+      // Assert - Only ConversationSession is called
       expect(mockConversationSession.clear).toHaveBeenCalled();
       expect(mockConversationSession.addMessages).toHaveBeenCalledWith(...messages);
     });
   });
 
   describe('clearMessages', () => {
-    it('should clear messages from both managers', () => {
+    it('should clear messages from ConversationSession (single data source)', () => {
       // Act
       coordinator.clearMessages();
 
-      // Assert
-      expect(mockWorkflowExecutionEntity.messageHistoryManager.clearMessages).toHaveBeenCalled();
+      // Assert - Only ConversationSession is called
       expect(mockConversationSession.clear).toHaveBeenCalled();
     });
   });
 
   describe('normalizeHistory', () => {
-    it('should normalize history', () => {
+    it('should not call any method (empty implementation)', () => {
       // Act
       coordinator.normalizeHistory();
 
-      // Assert
-      expect(mockWorkflowExecutionEntity.messageHistoryManager.normalizeHistory).toHaveBeenCalled();
+      // Assert - normalizeHistory is empty
+      expect(mockConversationSession.addMessage).not.toHaveBeenCalled();
+      expect(mockConversationSession.getMessages).not.toHaveBeenCalled();
     });
   });
+
+  // ============================================================
+  // Parent-Child Execution Message Passing
+  // ============================================================
+
+  describe('exportMessagesForChild', () => {
+    it('should export messages from ConversationSession for child execution', () => {
+      // Arrange
+      const messages: LLMMessage[] = [
+        { role: 'user', content: 'test' },
+      ];
+      mockConversationSession.getMessages.mockReturnValue(messages);
+
+      // Act
+      const result = coordinator.exportMessagesForChild();
+
+      // Assert
+      expect(mockConversationSession.getMessages).toHaveBeenCalled();
+      expect(result).toEqual(messages);
+    });
+  });
+
+  describe('importMessagesFromChild', () => {
+    it('should import messages from child execution to ConversationSession', () => {
+      // Arrange
+      const messages: LLMMessage[] = [
+        { role: 'user', content: 'test' },
+      ];
+
+      // Act
+      coordinator.importMessagesFromChild(messages);
+
+      // Assert
+      expect(mockConversationSession.addMessages).toHaveBeenCalledWith(...messages);
+    });
+  });
+
+  describe('exportAllMessagesForCheckpoint', () => {
+    it('should export all messages for checkpoint', () => {
+      // Arrange
+      const messages: LLMMessage[] = [
+        { role: 'user', content: 'test' },
+      ];
+      mockConversationSession.getAllMessages.mockReturnValue(messages);
+
+      // Act
+      const result = coordinator.exportAllMessagesForCheckpoint();
+
+      // Assert
+      expect(mockConversationSession.getAllMessages).toHaveBeenCalled();
+      expect(result).toEqual(messages);
+    });
+  });
+
+  // ============================================================
+  // Token Management
+  // ============================================================
 
   describe('token management', () => {
     describe('getTokenUsage', () => {
@@ -275,6 +333,10 @@ describe('WorkflowStateCoordinator', () => {
       });
     });
   });
+
+  // ============================================================
+  // Batch Management
+  // ============================================================
 
   describe('batch management', () => {
     describe('getMarkMap', () => {
@@ -343,8 +405,12 @@ describe('WorkflowStateCoordinator', () => {
     });
   });
 
+  // ============================================================
+  // State Snapshot & Recovery
+  // ============================================================
+
   describe('createSnapshot', () => {
-    it('should create snapshot', () => {
+    it('should create snapshot from ConversationSession', () => {
       // Arrange
       const messages: LLMMessage[] = [
         { role: 'user', content: 'test' },
@@ -374,7 +440,7 @@ describe('WorkflowStateCoordinator', () => {
   });
 
   describe('restoreFromSnapshot', () => {
-    it('should restore from snapshot', () => {
+    it('should restore from snapshot to ConversationSession', () => {
       // Arrange
       const messages: LLMMessage[] = [
         { role: 'user', content: 'test' },
@@ -397,11 +463,9 @@ describe('WorkflowStateCoordinator', () => {
       // Act
       coordinator.restoreFromSnapshot(snapshot);
 
-      // Assert
-      expect(mockWorkflowExecutionEntity.messageHistoryManager.clearMessages).toHaveBeenCalled();
+      // Assert - Only ConversationSession is called
       expect(mockConversationSession.clear).toHaveBeenCalled();
-      expect(mockWorkflowExecutionEntity.messageHistoryManager.addMessage).toHaveBeenCalledWith(messages[0]);
-      expect(mockConversationSession.addMessage).toHaveBeenCalledWith(messages[0]);
+      expect(mockConversationSession.addMessages).toHaveBeenCalledWith(...messages);
       expect(mockConversationSession.setMarkMap).toHaveBeenCalledWith(markMap);
       expect(mockConversationSession.setTokenUsageState).toHaveBeenCalledWith(tokenUsage, tokenUsage);
     });
@@ -421,20 +485,22 @@ describe('WorkflowStateCoordinator', () => {
       // Act
       coordinator.restoreFromSnapshot(snapshot as any);
 
-      // Assert
-      expect(mockWorkflowExecutionEntity.messageHistoryManager.clearMessages).toHaveBeenCalled();
+      // Assert - Only ConversationSession is called
       expect(mockConversationSession.clear).toHaveBeenCalled();
-      expect(mockWorkflowExecutionEntity.messageHistoryManager.addMessage).not.toHaveBeenCalled();
+      expect(mockConversationSession.addMessages).not.toHaveBeenCalled();
     });
   });
 
+  // ============================================================
+  // Resource Management
+  // ============================================================
+
   describe('cleanup', () => {
-    it('should cleanup both managers', () => {
+    it('should cleanup ConversationSession', () => {
       // Act
       coordinator.cleanup();
 
-      // Assert
-      expect(mockWorkflowExecutionEntity.messageHistoryManager.cleanup).toHaveBeenCalled();
+      // Assert - Only ConversationSession is cleaned up
       expect(mockConversationSession.cleanup).toHaveBeenCalled();
     });
   });

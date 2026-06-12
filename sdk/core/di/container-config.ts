@@ -89,6 +89,7 @@ import {
   buildToolCallFailedEvent,
 } from "../utils/event/builders/index.js";
 import { WorkflowStateTransitor } from "../../workflow/execution/coordinators/workflow-state-transitor.js";
+import { WorkflowStateCoordinator } from "../../workflow/state-managers/workflow-state-coordinator.js";
 import { CheckpointState } from "../../workflow/checkpoint/checkpoint-state-manager.js";
 import { WorkflowExecutionBuilder } from "../../workflow/execution/factories/workflow-execution-builder.js";
 import { WorkflowExecutor } from "../../workflow/execution/executors/workflow-executor.js";
@@ -859,6 +860,8 @@ export function configureContainerBindings(
       // Create an adapter to convert null to undefined
       const workflowExecutionRegistryAdapter = {
         register: (entity: WorkflowExecutionEntity) => workflowExecutionRegistry.register(entity),
+        registerStateCoordinator: (executionId: string, stateCoordinator: WorkflowStateCoordinator) => 
+          workflowExecutionRegistry.registerStateCoordinator(executionId, stateCoordinator),
         get: (id: string) => workflowExecutionRegistry.get(id) ?? undefined,
       };
       return new TriggeredSubworkflowHandler(

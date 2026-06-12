@@ -139,6 +139,7 @@ describe("AgentLoopExecutor", () => {
         toolCallCount: 0,
       },
       conversationManager: mockConversationManager,
+      getConversationManager: vi.fn(() => mockConversationManager),
       getAbortSignal: vi.fn().mockReturnValue(new AbortController().signal),
     };
 

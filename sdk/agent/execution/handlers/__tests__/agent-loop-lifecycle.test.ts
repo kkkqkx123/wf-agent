@@ -24,6 +24,8 @@ const { mockConversationManagerRef, mockSetParentContextRef, mockGetParentContex
       config: unknown;
       state: unknown;
       conversationManager: MockConversationManager;
+      getConversationManager: () => MockConversationManager;
+      setConversationManager: (cm: MockConversationManager) => void;
       setParentContext: (context: object) => void;
       getParentContext: () => object | undefined;
       cleanup: () => void;
@@ -36,6 +38,8 @@ const { mockConversationManagerRef, mockSetParentContextRef, mockGetParentContex
         this.config = config;
         this.state = state;
         this.conversationManager = mockConversationManagerRef;
+        this.getConversationManager = vi.fn(() => mockConversationManagerRef);
+        this.setConversationManager = vi.fn();
         this.setParentContext = mockSetParentContextRef;
         this.getParentContext = mockGetParentContextRef;
         this.cleanup = vi.fn();
@@ -113,6 +117,8 @@ describe("AgentLoopLifecycle", () => {
         })),
       },
       conversationManager: mockConversationManagerRef,
+      getConversationManager: vi.fn(() => mockConversationManagerRef),
+      setConversationManager: vi.fn(),
       getParentContext: mockGetParentContextRef,
       getStatus: vi.fn(() => "RUNNING"),
       cleanup: vi.fn(),

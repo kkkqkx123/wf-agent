@@ -2,6 +2,10 @@
  * WorkflowExecutionEntity - A pure data entity that encapsulates the data access operations for WorkflowExecution instances.
  * Refer to the design pattern of AgentLoopEntity.
  *
+ * Architecture Design (Single Data Source for Messages):
+ * - All message operations: Managed by WorkflowStateCoordinator using ConversationSession
+ * - Parent-child message passing: Use WorkflowStateCoordinator.exportMessagesForChild/importMessagesFromChild
+ *
  * Notes:
  * - The factory method is provided by WorkflowExecutionBuilder.
  * - Lifecycle management is handled by WorkflowLifecycleCoordinator and WorkflowLifecycleCoordinator.
@@ -10,7 +14,7 @@
  *
  */
 
-import type { ID, LLMMessage, NodeExecutionResult, BaseEvent } from "@wf-agent/types";
+import type { ID, NodeExecutionResult, BaseEvent } from "@wf-agent/types";
 import type {
   WorkflowExecution,
   WorkflowExecutionStatus,
@@ -25,7 +29,6 @@ import type {
 import type { SubgraphContext } from "../state-managers/execution-state.js";
 import { ExecutionState } from "../state-managers/execution-state.js";
 import { WorkflowExecutionState } from "../state-managers/workflow-execution-state.js";
-import { MessageHistory } from "../../agent/state-managers/message-history.js";
 import { VariableManager } from "../state-managers/variable-manager.js";
 import { ExecutionHierarchyManager } from "../../core/execution/execution-hierarchy-manager.js";
 import type { ExecutionHierarchyRegistry } from "../../core/registry/execution-hierarchy-registry.js";
@@ -72,9 +75,6 @@ export class WorkflowExecutionEntity implements Abortable {
 
   /** Execution Status Manager (Subgraph Execution Stack) */
   private readonly executionState: ExecutionState;
-
-  /** Message History Manager */
-  readonly messageHistoryManager: MessageHistory;
 
   /** Variable State Manager (NEW - Simplified) */
   readonly variableStateManager: VariableManager;
@@ -127,7 +127,6 @@ export class WorkflowExecutionEntity implements Abortable {
     this.workflowExecution = workflowExecution;
     this.executionState = executionState;
     this.state = state ?? new WorkflowExecutionState();
-    this.messageHistoryManager = new MessageHistory(workflowExecution.id);
     this.variableStateManager = new VariableManager();
 
     // Set execution entity reference for runtime validation
@@ -290,53 +289,6 @@ export class WorkflowExecutionEntity implements Abortable {
       };
     }
     this.workflowExecution.triggeredSubworkflowContext.triggeredSubworkflowId = subworkflowId;
-  }
-
-  // Message Management ============
-
-  /**
-   * Add a message
-   * @param message LLM message
-   */
-  addMessage(message: LLMMessage): void {
-    this.messageHistoryManager.addMessage(message);
-  }
-
-  /**
-   * Get all messages
-   */
-  getMessages(): LLMMessage[] {
-    return this.messageHistoryManager.getMessages();
-  }
-
-  /**
-   * Get the latest messages
-   * @param count Number of messages
-   */
-  getRecentMessages(count: number): LLMMessage[] {
-    return this.messageHistoryManager.getRecentMessages(count);
-  }
-
-  /**
-   * Set message history
-   * @param messages List of messages
-   */
-  setMessages(messages: LLMMessage[]): void {
-    this.messageHistoryManager.setMessages(messages);
-  }
-
-  /**
-   * Clear the message history
-   */
-  clearMessages(): void {
-    this.messageHistoryManager.clearMessages();
-  }
-
-  /**
-   * Standardizing the message history
-   */
-  normalizeHistory(): void {
-    this.messageHistoryManager.normalizeHistory();
   }
 
   // Variable Management ============
@@ -830,15 +782,6 @@ export class WorkflowExecutionEntity implements Abortable {
       this.state.cleanup();
     } catch (error) {
       logger.error("Failed to cleanup state during cleanup", {
-        executionId: this.id,
-        error,
-      });
-    }
-
-    try {
-      this.messageHistoryManager.clearMessages();
-    } catch (error) {
-      logger.error("Failed to clear message history during cleanup", {
         executionId: this.id,
         error,
       });

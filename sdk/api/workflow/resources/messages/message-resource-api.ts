@@ -78,7 +78,13 @@ export class MessageResourceAPI extends ReadonlyResourceAPI<LLMMessage, string, 
       return null;
     }
 
-    const messages = executionEntity.getMessages() || [];
+    // Get messages from state coordinator
+    const stateCoordinator = this.registry.getStateCoordinator(executionId);
+    if (!stateCoordinator) {
+      return null;
+    }
+
+    const messages = stateCoordinator.getMessages() || [];
     if (index >= messages.length) {
       return null;
     }
@@ -95,7 +101,11 @@ export class MessageResourceAPI extends ReadonlyResourceAPI<LLMMessage, string, 
     const allMessages: LLMMessage[] = [];
 
     for (const executionEntity of executionEntities) {
-      const messages = executionEntity.getMessages() || [];
+      const stateCoordinator = this.registry.getStateCoordinator(executionEntity.id);
+      if (!stateCoordinator) {
+        continue;
+      }
+      const messages = stateCoordinator.getMessages() || [];
       allMessages.push(...messages);
     }
 
@@ -145,7 +155,12 @@ export class MessageResourceAPI extends ReadonlyResourceAPI<LLMMessage, string, 
       throw new WorkflowExecutionNotFoundError(`Workflow execution not found: ${executionId}`, executionId);
     }
 
-    let messages = executionEntity.getMessages() || [];
+    const stateCoordinator = this.registry.getStateCoordinator(executionId);
+    if (!stateCoordinator) {
+      throw new WorkflowExecutionNotFoundError(`State coordinator not found for execution: ${executionId}`, executionId);
+    }
+
+    let messages = stateCoordinator.getMessages() || [];
 
     // Apply sorting
     if (orderBy === "desc") {
@@ -174,7 +189,12 @@ export class MessageResourceAPI extends ReadonlyResourceAPI<LLMMessage, string, 
       throw new WorkflowExecutionNotFoundError(`Workflow execution not found: ${executionId}`, executionId);
     }
 
-    const messages = executionEntity.getMessages() || [];
+    const stateCoordinator = this.registry.getStateCoordinator(executionId);
+    if (!stateCoordinator) {
+      throw new WorkflowExecutionNotFoundError(`State coordinator not found for execution: ${executionId}`, executionId);
+    }
+
+    const messages = stateCoordinator.getMessages() || [];
     return messages.slice(-count);
   }
 
@@ -190,7 +210,12 @@ export class MessageResourceAPI extends ReadonlyResourceAPI<LLMMessage, string, 
       throw new WorkflowExecutionNotFoundError(`Workflow execution not found: ${executionId}`, executionId);
     }
 
-    const messages = executionEntity.getMessages() || [];
+    const stateCoordinator = this.registry.getStateCoordinator(executionId);
+    if (!stateCoordinator) {
+      throw new WorkflowExecutionNotFoundError(`State coordinator not found for execution: ${executionId}`, executionId);
+    }
+
+    const messages = stateCoordinator.getMessages() || [];
     return messages.filter((message: LLMMessage) => {
       const content =
         typeof message.content === "string" ? message.content : JSON.stringify(message.content);
@@ -209,7 +234,12 @@ export class MessageResourceAPI extends ReadonlyResourceAPI<LLMMessage, string, 
       throw new WorkflowExecutionNotFoundError(`Workflow execution not found: ${executionId}`, executionId);
     }
 
-    const messages = executionEntity.getMessages() || [];
+    const stateCoordinator = this.registry.getStateCoordinator(executionId);
+    if (!stateCoordinator) {
+      throw new WorkflowExecutionNotFoundError(`State coordinator not found for execution: ${executionId}`, executionId);
+    }
+
+    const messages = stateCoordinator.getMessages() || [];
 
     const stats: MessageStats = {
       total: messages.length,
@@ -246,7 +276,11 @@ export class MessageResourceAPI extends ReadonlyResourceAPI<LLMMessage, string, 
     };
 
     for (const executionEntity of executionEntities) {
-      const messages = executionEntity.getMessages() || [];
+      const stateCoordinator = this.registry.getStateCoordinator(executionEntity.id);
+      if (!stateCoordinator) {
+        continue;
+      }
+      const messages = stateCoordinator.getMessages() || [];
       const executionId = executionEntity.id;
 
       stats.byExecution[executionId] = messages.length;

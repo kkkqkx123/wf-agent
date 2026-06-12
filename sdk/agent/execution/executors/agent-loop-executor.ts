@@ -140,7 +140,7 @@ export class AgentLoopExecutor {
     const coordinator = this.createCoordinator();
     return coordinator.execute(
       entity,
-      entity.conversationManager,
+      entity.getConversationManager(),
       toolSchemas,
       profileId,
       maxIterations,
@@ -159,7 +159,7 @@ export class AgentLoopExecutor {
     const coordinator = this.createCoordinator();
     yield* coordinator.executeStream(
       entity,
-      entity.conversationManager,
+      entity.getConversationManager(),
       toolSchemas,
       profileId,
       maxIterations,
@@ -184,7 +184,7 @@ export class AgentLoopExecutor {
       maxIterations,
       toolsCount: getAvailableTools(config.availableTools).length,
       profileId,
-      initialMessageCount: entity.conversationManager.getMessageCount(),
+      initialMessageCount: entity.getConversationManager().getMessageCount(),
     });
 
     const toolIds = getAvailableTools(config.availableTools);

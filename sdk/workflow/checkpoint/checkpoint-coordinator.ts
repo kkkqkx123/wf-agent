@@ -289,7 +289,7 @@ export class CheckpointCoordinator {
     workflowExecutionEntity: WorkflowExecutionEntity,
     workflowExecution: WorkflowExecution,
     conversationManager?: ConversationSession,
-    ): WorkflowExecutionStateSnapshot {
+  ): WorkflowExecutionStateSnapshot {
     // Create a variable snapshot using VariableManager
     const vmSnapshot = workflowExecutionEntity.variableStateManager.createSnapshot();
     
@@ -513,7 +513,6 @@ export class CheckpointCoordinator {
 
     // Step 11: Create WorkflowStateCoordinator
     const stateCoordinator = new WorkflowStateCoordinator({
-      workflowExecutionEntity,
       conversationManager,
     });
 
@@ -614,6 +613,12 @@ export class CheckpointCoordinator {
           // Register with WorkflowExecutionRegistry
           workflowExecutionRegistry.register(childResult.workflowExecutionEntity);
           
+          // Register state coordinator
+          workflowExecutionRegistry.registerStateCoordinator(
+            childResult.workflowExecutionEntity.id,
+            childResult.stateCoordinator
+          );
+          
           // Register the child workflow execution in the main workflow execution
           workflowExecutionEntity.registerChild({
             childType: 'WORKFLOW',
@@ -626,6 +631,9 @@ export class CheckpointCoordinator {
 
     // Step 19: Register with WorkflowExecutionRegistry
     workflowExecutionRegistry.register(workflowExecutionEntity);
+    
+    // Register state coordinator
+    workflowExecutionRegistry.registerStateCoordinator(workflowExecutionEntity.id, stateCoordinator);
 
     // Step 20: Restore file checkpoint (if file checkpoint manager is available)
     if (dependencies.fileCheckpointManager) {

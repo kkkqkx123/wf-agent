@@ -9,6 +9,7 @@ import type { WorkflowExecutionEntity } from "../../entities/index.js";
 import type { WorkflowExecutionBuilder } from "../factories/workflow-execution-builder.js";
 import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-registry.js";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
+import type { WorkflowStateCoordinator } from "../../state-managers/workflow-state-coordinator.js";
 import { ExecutionError, RuntimeValidationError } from "@wf-agent/types";
 import { MessageArrayUtils } from "../../../core/utils/messages/message-array-utils.js";
 import { getErrorMessage, getErrorOrUndefined } from "@wf-agent/common-utils";
@@ -158,6 +159,7 @@ export async function fork(
  * @param eventManager Event manager (optional)
  * @param variableOutputs Variable output mappings for explicit export from branches (optional)
  * @param messageOutputs Message context output mappings using boundary-config pattern (optional)
+ * @param stateCoordinatorMap Map of execution IDs to state coordinators (optional, for new architecture)
  * @returns Join result
  */
 export async function join(
@@ -170,6 +172,7 @@ export async function join(
   eventManager?: EventRegistry,
   variableOutputs?: Array<{ sourcePathId: string; variableName: string; targetName?: string }>,
   messageOutputs?: Array<{ sourcePathId: string; internalName: string; externalName: string }>,
+  stateCoordinatorMap?: Map<string, WorkflowStateCoordinator>,
 ): Promise<JoinResult> {
   // Step 1: Verify the Join configuration
   if (!joinStrategy) {
@@ -292,9 +295,13 @@ export async function join(
             }
             
             // Get messages from the source branch's main context
-            // Note: For named contexts, you would use a context manager
-            // For now, we use the default message history
-            const sourceMessages = sourceEntity.messageHistoryManager.getMessages();
+            const sourceStateCoordinator = stateCoordinatorMap?.get(sourceExecution.id);
+            if (!sourceStateCoordinator) {
+              logger.warn(`State coordinator not found for source execution: ${sourceExecution.id}`);
+              continue;
+            }
+            
+            const sourceMessages = sourceStateCoordinator.exportMessagesForChild();
             
             if (!sourceMessages || sourceMessages.length === 0) {
               logger.debug(`No messages found in source execution`, {
@@ -308,12 +315,13 @@ export async function join(
             const clonedMessages = MessageArrayUtils.cloneMessages(sourceMessages);
             
             // Add messages to parent execution
-            // In a full implementation with named contexts, you'd use:
-            // parentExecutionEntity.getContextManager().setContext(msgOutput.externalName, clonedMessages);
-            // For now, append to parent's main message history
-            for (const msg of clonedMessages) {
-              parentExecutionEntity.messageHistoryManager.addMessage(msg);
+            const parentStateCoordinator = stateCoordinatorMap?.get(parentExecutionId);
+            if (!parentStateCoordinator) {
+              logger.warn(`State coordinator not found for parent execution: ${parentExecutionId}`);
+              continue;
             }
+            
+            parentStateCoordinator.importMessagesFromChild(clonedMessages);
             
             logger.debug("Message context exported from branch to parent", {
               sourcePathId: msgOutput.sourcePathId,
@@ -331,19 +339,26 @@ export async function join(
           );
 
           if (mainExecution) {
-            const mainExecutionEntity = workflowExecutionRegistry.get(mainExecution.id);
-            if (mainExecutionEntity) {
-              const mainMessages = mainExecutionEntity.messageHistoryManager.getMessages();
+            const mainStateCoordinator = stateCoordinatorMap?.get(mainExecution.id);
+            if (!mainStateCoordinator) {
+              logger.warn(`State coordinator not found for main execution: ${mainExecution.id}`);
+            } else {
+              // Get messages from main path
+              const mainMessages = mainStateCoordinator.exportMessagesForChild();
               const clonedMessages = MessageArrayUtils.cloneMessages(mainMessages);
 
-              for (const msg of clonedMessages) {
-                parentExecutionEntity.messageHistoryManager.addMessage(msg);
+              // Add messages to parent
+              const parentStateCoordinator = stateCoordinatorMap?.get(parentExecutionId);
+              if (!parentStateCoordinator) {
+                logger.warn(`State coordinator not found for parent execution: ${parentExecutionId}`);
+              } else {
+                parentStateCoordinator.importMessagesFromChild(clonedMessages);
+                
+                logger.debug("Backward compatible message merge from main path", {
+                  mainPathId,
+                  messageCount: clonedMessages.length,
+                });
               }
-              
-              logger.debug("Backward compatible message merge from main path", {
-                mainPathId,
-                messageCount: clonedMessages.length,
-              });
             }
           }
         }
@@ -431,11 +446,13 @@ export async function join(
  * Copy Operation - Creates a copy of a WorkflowExecution
  * @param sourceExecutionEntity: The source WorkflowExecution entity
  * @param executionBuilder: The WorkflowExecution builder
+ * @param sourceStateCoordinator: Source execution's state coordinator (required for message export)
  * @returns: The copied WorkflowExecution entity
  */
 export async function copy(
   sourceExecutionEntity: WorkflowExecutionEntity,
   executionBuilder: WorkflowExecutionBuilder,
+  sourceStateCoordinator: WorkflowStateCoordinator,
   eventManager?: EventRegistry,
 ): Promise<WorkflowExecutionEntity> {
   // Step 1: Verify that the source WorkflowExecution exists.
@@ -459,7 +476,10 @@ export async function copy(
   }
 
   // Step 2: Call WorkflowExecutionBuilder to create a new WorkflowExecution
-  const { workflowExecutionEntity: copiedExecutionEntity } = await executionBuilder.createCopy(sourceExecutionEntity);
+  const { workflowExecutionEntity: copiedExecutionEntity } = await executionBuilder.createCopy(
+    sourceExecutionEntity,
+    sourceStateCoordinator,
+  );
 
   // Trigger the WORKFLOW_EXECUTION_COPY_COMPLETED event.
   const copyCompletedEvent = buildWorkflowExecutionCopyCompletedEvent({

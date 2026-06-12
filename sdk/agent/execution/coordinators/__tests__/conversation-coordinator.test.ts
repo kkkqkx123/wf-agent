@@ -34,7 +34,7 @@ describe("ConversationCoordinator", () => {
   describe("getConversationManager", () => {
     it("should return conversation manager when agent loop exists", async () => {
       (mockRegistry.get as ReturnType<typeof vi.fn>).mockResolvedValue({
-        conversationManager: mockConversationManager,
+        getConversationManager: vi.fn().mockReturnValue(mockConversationManager),
       });
 
       const result = await coordinator.getConversationManager("agent-loop-1");
@@ -59,7 +59,7 @@ describe("ConversationCoordinator", () => {
         { role: "user", content: "Hello" },
       ];
       (mockRegistry.get as ReturnType<typeof vi.fn>).mockResolvedValue({
-        conversationManager: mockConversationManager,
+        getConversationManager: vi.fn().mockReturnValue(mockConversationManager),
       });
       (mockConversationManager.getMessages as ReturnType<typeof vi.fn>).mockReturnValue(
         mockMessages,
@@ -81,7 +81,7 @@ describe("ConversationCoordinator", () => {
 
     it("should return empty array when conversation manager is undefined", async () => {
       (mockRegistry.get as ReturnType<typeof vi.fn>).mockResolvedValue({
-        conversationManager: undefined,
+        getConversationManager: vi.fn().mockReturnValue(undefined),
       });
 
       const result = await coordinator.getNormalizedHistory("agent-loop-1");
@@ -101,7 +101,7 @@ describe("ConversationCoordinator", () => {
       const mockTokenUsage = { prompt: 100, completion: 50, total: 150 };
 
       (mockRegistry.get as ReturnType<typeof vi.fn>).mockResolvedValue({
-        conversationManager: mockConversationManager,
+        getConversationManager: vi.fn().mockReturnValue(mockConversationManager),
       });
       (mockConversationManager.getMessages as ReturnType<typeof vi.fn>).mockReturnValue(
         mockMessages,
@@ -133,7 +133,7 @@ describe("ConversationCoordinator", () => {
 
     it("should return undefined when conversation manager is undefined", async () => {
       (mockRegistry.get as ReturnType<typeof vi.fn>).mockResolvedValue({
-        conversationManager: undefined,
+        getConversationManager: vi.fn().mockReturnValue(undefined),
       });
 
       const result = await coordinator.getConversationStats("agent-loop-1");
@@ -143,7 +143,7 @@ describe("ConversationCoordinator", () => {
 
     it("should handle empty messages array", async () => {
       (mockRegistry.get as ReturnType<typeof vi.fn>).mockResolvedValue({
-        conversationManager: mockConversationManager,
+        getConversationManager: vi.fn().mockReturnValue(mockConversationManager),
       });
       (mockConversationManager.getMessages as ReturnType<typeof vi.fn>).mockReturnValue([]);
       (mockConversationManager.getTokenUsage as ReturnType<typeof vi.fn>).mockReturnValue({

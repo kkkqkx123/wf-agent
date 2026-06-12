@@ -87,7 +87,7 @@ export class WorkflowLifecycleCoordinator {
    */
   async execute(workflowId: string, options: WorkflowExecutionOptions = {}): Promise<WorkflowExecutionResult> {
     // Step 1: Construct the WorkflowExecutionEntity
-    const { workflowExecutionEntity } = await this.workflowExecutionBuilder.build(workflowId, options);
+    const { workflowExecutionEntity, stateCoordinator } = await this.workflowExecutionBuilder.build(workflowId, options);
     const executionId = workflowExecutionEntity.id;
     const workflowVersion = workflowExecutionEntity.getWorkflowVersion();
 
@@ -106,6 +106,9 @@ export class WorkflowLifecycleCoordinator {
 
     // Step 2: Register WorkflowExecutionEntity
     this.workflowExecutionRegistry.register(workflowExecutionEntity);
+    
+    // Register state coordinator
+    this.workflowExecutionRegistry.registerStateCoordinator(executionId, stateCoordinator);
     
     // Step 2.5: Register with ExecutionHierarchyRegistry for unified hierarchy management
     const hierarchyRegistry = this.globalContext.container.get(

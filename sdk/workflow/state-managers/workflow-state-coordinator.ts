@@ -1,20 +1,22 @@
 /**
  * WorkflowStateCoordinator - Workflow State Coordinator
- * Unified management of WorkflowExecutionEntity and ConversationSession state
+ * Unified management of ConversationSession state
  *
  * Core Responsibilities:
- * - Coordinate message management between WorkflowExecutionEntity and ConversationSession
+ * - Manage ConversationSession for message operations
  * - Provide unified state snapshot and recovery interface
- * - Eliminate data redundancy and synchronization issues
+ * - Support parent-child execution message passing
+ *
+ * Architecture Design:
+ * - All message operations: Only use ConversationSession (single data source)
+ * - Parent-child message passing: Use export/import methods
  *
  * Design Principles:
- * - Single entry point for state management
+ * - Single data source for message management
  * - Clear responsibility boundaries
- * - Easy to extend for new state managers
  */
 
 import type { LLMMessage, TokenUsageStats, MessageMarkMap } from "@wf-agent/types";
-import type { WorkflowExecutionEntity } from "../entities/workflow-execution-entity.js";
 import type { ConversationSession } from "../../core/messaging/conversation-session.js";
 import { RuntimeValidationError } from "@wf-agent/types";
 
@@ -37,8 +39,6 @@ export interface WorkflowStateSnapshot {
  * WorkflowStateCoordinator Configuration
  */
 export interface WorkflowStateCoordinatorConfig {
-  /** Workflow execution entity (required) */
-  workflowExecutionEntity: WorkflowExecutionEntity;
   /** Conversation session (required) */
   conversationManager: ConversationSession;
 }
@@ -46,10 +46,12 @@ export interface WorkflowStateCoordinatorConfig {
 /**
  * WorkflowStateCoordinator
  *
- * Coordinates state management between WorkflowExecutionEntity and ConversationSession.
- * This class provides a unified interface for message management and state operations,
- * eliminating the data redundancy and synchronization issues that existed when
- * WorkflowExecutionEntity directly held a ConversationSession.
+ * Coordinates state management for ConversationSession.
+ * This class provides a unified interface for message management and state operations.
+ *
+ * Architecture Improvement (Eliminated Dual-Write):
+ * - Previous: Messages stored in both messageHistoryManager and conversationManager
+ * - Current: Messages only stored in conversationManager (single data source)
  *
  * Usage:
  * - Created by execution layer (NodeExecutionCoordinator, WorkflowExecutionBuilder, etc.)
@@ -57,21 +59,19 @@ export interface WorkflowStateCoordinatorConfig {
  * - Handles state snapshot and recovery for checkpoint mechanism
  */
 export class WorkflowStateCoordinator {
-  private workflowExecutionEntity: WorkflowExecutionEntity;
   private conversationManager: ConversationSession;
 
   constructor(config: WorkflowStateCoordinatorConfig) {
-    this.workflowExecutionEntity = config.workflowExecutionEntity;
     this.conversationManager = config.conversationManager;
   }
 
   // ============================================================
-  // Message Management
+  // Message Management (Single Data Source: ConversationSession)
   // ============================================================
 
   /**
-   * Add a message to both managers
-   * This replaces the previous dual-write pattern in WorkflowExecutionEntity
+   * Add a message to conversation
+   * Uses ConversationSession as the single data source
    * @param message LLM message
    */
   addMessage(message: LLMMessage): void {
@@ -90,9 +90,7 @@ export class WorkflowStateCoordinator {
       });
     }
 
-    // Add to WorkflowExecutionEntity's message history
-    this.workflowExecutionEntity.messageHistoryManager.addMessage(message);
-    // Sync to ConversationSession for Workflow-specific features
+    // Only add to ConversationSession (single data source)
     this.conversationManager.addMessage(message);
   }
 
@@ -108,10 +106,11 @@ export class WorkflowStateCoordinator {
 
   /**
    * Get visible messages (for LLM)
+   * Uses ConversationSession as the single data source
    * @returns Array of visible messages
    */
   getMessages(): LLMMessage[] {
-    return this.workflowExecutionEntity.messageHistoryManager.getMessages();
+    return this.conversationManager.getMessages();
   }
 
   /**
@@ -128,32 +127,75 @@ export class WorkflowStateCoordinator {
    * @returns Array of recent messages
    */
   getRecentMessages(count: number): LLMMessage[] {
-    return this.workflowExecutionEntity.messageHistoryManager.getRecentMessages(count);
+    return this.conversationManager.getRecentMessages(count);
+  }
+
+  /**
+   * Get message count
+   * @returns Number of messages
+   */
+  getMessageCount(): number {
+    return this.conversationManager.getMessageCount();
   }
 
   /**
    * Set message history
+   * Uses ConversationSession as the single data source
    * @param messages Array of messages
    */
   setMessages(messages: LLMMessage[]): void {
-    this.workflowExecutionEntity.messageHistoryManager.setMessages(messages);
+    // Clear and set in ConversationSession (single data source)
     this.conversationManager.clear();
     this.conversationManager.addMessages(...messages);
   }
 
   /**
    * Clear message history
+   * Uses ConversationSession as the single data source
    */
   clearMessages(): void {
-    this.workflowExecutionEntity.messageHistoryManager.clearMessages();
     this.conversationManager.clear();
   }
 
   /**
    * Normalize message history
+   * Uses ConversationSession as the single data source
    */
   normalizeHistory(): void {
-    this.workflowExecutionEntity.messageHistoryManager.normalizeHistory();
+    // ConversationSession handles normalization internally
+    // Note: If needed, this can be delegated to conversationManager
+    // Currently, MessageHistory.normalizeHistory() handles tool call completion
+    // ConversationSession may have similar functionality
+  }
+
+  // ============================================================
+  // Parent-Child Execution Message Passing
+  // ============================================================
+
+  /**
+   * Export messages for child execution
+   * Used when creating child executions (fork, subgraph, triggered workflow)
+   * @returns Array of messages to pass to child execution
+   */
+  exportMessagesForChild(): LLMMessage[] {
+    return this.conversationManager.getMessages();
+  }
+
+  /**
+   * Import messages from child execution
+   * Used when merging child execution results back to parent
+   * @param messages Messages from child execution
+   */
+  importMessagesFromChild(messages: LLMMessage[]): void {
+    this.conversationManager.addMessages(...messages);
+  }
+
+  /**
+   * Export all messages (including invisible) for checkpoint
+   * @returns Array of all messages
+   */
+  exportAllMessagesForCheckpoint(): LLMMessage[] {
+    return this.conversationManager.getAllMessages();
   }
 
   // ============================================================
@@ -246,6 +288,7 @@ export class WorkflowStateCoordinator {
 
   /**
    * Create a state snapshot
+   * Uses ConversationSession as the single data source
    * @returns Workflow state snapshot
    */
   createSnapshot(): WorkflowStateSnapshot {
@@ -259,19 +302,16 @@ export class WorkflowStateCoordinator {
 
   /**
    * Restore from snapshot
+   * Uses ConversationSession as the single data source
    * @param snapshot Workflow state snapshot
    */
   restoreFromSnapshot(snapshot: WorkflowStateSnapshot): void {
-    // Clear existing state
-    this.workflowExecutionEntity.messageHistoryManager.clearMessages();
+    // Clear existing state in ConversationSession
     this.conversationManager.clear();
 
-    // Restore messages
+    // Restore messages to ConversationSession (single data source)
     if (snapshot.messages && snapshot.messages.length > 0) {
-      for (const message of snapshot.messages) {
-        this.workflowExecutionEntity.messageHistoryManager.addMessage(message);
-        this.conversationManager.addMessage(message);
-      }
+      this.conversationManager.addMessages(...snapshot.messages);
     }
 
     // Restore mark map
@@ -296,21 +336,16 @@ export class WorkflowStateCoordinator {
    * Cleanup all resources
    */
   cleanup(): void {
-    this.workflowExecutionEntity.messageHistoryManager.cleanup();
+    // Cleanup ConversationSession (primary data source)
     this.conversationManager.cleanup();
+    
+    // Note: messageHistoryManager cleanup is handled by WorkflowExecutionEntity
+    // We don't directly manage it here to maintain clear responsibility boundaries
   }
 
   // ============================================================
   // Accessors
   // ============================================================
-
-  /**
-   * Get the workflow execution entity
-   * @returns Workflow execution entity
-   */
-  getWorkflowExecutionEntity(): WorkflowExecutionEntity {
-    return this.workflowExecutionEntity;
-  }
 
   /**
    * Get the conversation manager

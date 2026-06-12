@@ -13,6 +13,7 @@ import type { WorkflowExecutionStorageAdapter } from "@wf-agent/storage";
 import type { WorkflowExecutionStorageMetadata } from "@wf-agent/types";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 import { getErrorMessage } from "@wf-agent/common-utils";
+import type { WorkflowStateCoordinator } from "../state-managers/workflow-state-coordinator.js";
 
 const logger = createContextualLogger({ component: "WorkflowExecutionRegistry" });
 
@@ -21,6 +22,7 @@ const logger = createContextualLogger({ component: "WorkflowExecutionRegistry" }
  *
  * Core Responsibilities:
  * - Manage active WorkflowExecutionEntity instances.
+ * - Manage WorkflowStateCoordinator instances (for message access).
  * - Provide registration, query and deletion of instances.
  * - Support filtering by status.
  * - Support resource cleanup.
@@ -32,6 +34,7 @@ const logger = createContextualLogger({ component: "WorkflowExecutionRegistry" }
  */
 export class WorkflowExecutionRegistry {
   private workflowExecutionEntities: Map<string, WorkflowExecutionEntity> = new Map();
+  private stateCoordinatorMap: Map<string, WorkflowStateCoordinator> = new Map();
   private storageAdapter?: WorkflowExecutionStorageAdapter;
 
   /**
@@ -59,6 +62,24 @@ export class WorkflowExecutionRegistry {
   }
 
   /**
+   * Register WorkflowStateCoordinator
+   * @param executionId Execution ID
+   * @param stateCoordinator WorkflowStateCoordinator instance
+   */
+  registerStateCoordinator(executionId: string, stateCoordinator: WorkflowStateCoordinator): void {
+    this.stateCoordinatorMap.set(executionId, stateCoordinator);
+  }
+
+  /**
+   * Get WorkflowStateCoordinator
+   * @param executionId Execution ID
+   * @returns WorkflowStateCoordinator instance or null
+   */
+  getStateCoordinator(executionId: string): WorkflowStateCoordinator | null {
+    return this.stateCoordinatorMap.get(executionId) || null;
+  }
+
+  /**
    * Get WorkflowExecutionEntity
    * @param workflowExecutionId: Workflow Execution ID
    * @returns: An instance of WorkflowExecutionEntity or null
@@ -73,6 +94,7 @@ export class WorkflowExecutionRegistry {
    */
   delete(executionId: string): void {
     this.workflowExecutionEntities.delete(executionId);
+    this.stateCoordinatorMap.delete(executionId);
     
     // Remove from storage (async, non-blocking)
     this.removeFromStorage(executionId).catch(error => {
@@ -116,7 +138,11 @@ export class WorkflowExecutionRegistry {
         entity.cleanup();
       }
     }
+    for (const stateCoordinator of this.stateCoordinatorMap.values()) {
+      stateCoordinator.cleanup();
+    }
     this.workflowExecutionEntities.clear();
+    this.stateCoordinatorMap.clear();
   }
 
   /**

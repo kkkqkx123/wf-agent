@@ -84,6 +84,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
    */
   private workflowExecutionRegistry: {
     register: (entity: WorkflowExecutionEntity) => void;
+    registerStateCoordinator: (executionId: string, stateCoordinator: WorkflowStateCoordinator) => void;
     get: (id: string) => WorkflowExecutionEntity | undefined;
   };
 
@@ -134,6 +135,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     taskRegistry: TaskRegistry,
     workflowExecutionRegistry: {
       register: (entity: WorkflowExecutionEntity) => void;
+      registerStateCoordinator: (executionId: string, stateCoordinator: WorkflowStateCoordinator) => void;
       get: (id: string) => WorkflowExecutionEntity | undefined;
     },
     executionBuilder: {
@@ -192,9 +194,11 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     // Create a sub-workflow WorkflowExecutionEntity using unified API if available
     let subgraphEntity: WorkflowExecutionEntity;
     
+    let buildResult: { workflowExecutionEntity: any; stateCoordinator: any };
+    
     if (this.executionBuilder.createChildExecution) {
       // Use new unified API
-      const buildResult = await this.executionBuilder.createChildExecution(
+      buildResult = await this.executionBuilder.createChildExecution(
         task.mainWorkflowExecutionEntity,
         {
           type: 'TRIGGERED',
@@ -208,7 +212,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
       subgraphEntity = buildResult.workflowExecutionEntity;
     } else {
       // Fallback to old API for backward compatibility during migration
-      const buildResult = await this.executionBuilder.build(task.subworkflowId, {
+      buildResult = await this.executionBuilder.build(task.subworkflowId, {
         input,
       });
       subgraphEntity = buildResult.workflowExecutionEntity;
@@ -217,6 +221,9 @@ export class TriggeredSubworkflowHandler implements TaskManager {
 
     // Register with WorkflowExecutionRegistry
     this.workflowExecutionRegistry.register(subgraphEntity);
+    
+    // Register state coordinator
+    this.workflowExecutionRegistry.registerStateCoordinator(subgraphEntity.id, buildResult.stateCoordinator);
 
     // Set triggered subworkflow ID
     subgraphEntity.setTriggeredSubworkflowId(task.subworkflowId);

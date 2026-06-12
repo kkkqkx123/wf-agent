@@ -26,6 +26,7 @@ import { createContextualLogger } from "../../../../utils/contextual-logger.js";
 import { buildHookEvaluationContext, convertToEvaluationContext } from "./context-builder.js";
 import { emitHookEvent } from "./event-emitter.js";
 import type { WorkflowExecutionEntity } from "../../../entities/index.js";
+import type { ConversationSession } from "../../../../core/messaging/conversation-session.js";
 
 const logger = createContextualLogger();
 
@@ -43,6 +44,8 @@ export interface HookExecutionContext extends BaseHookContext {
   result?: NodeExecutionResult;
   /** Checkpoint dependencies (optional) */
   checkpointDependencies?: CheckpointDependencies;
+  /** Conversation session for message access (single data source) */
+  conversationManager: ConversationSession;
 }
 
 /**

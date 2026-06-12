@@ -91,8 +91,8 @@ export function buildAgentHookEvaluationContext(
     },
     // Conversation manager reference for message access
     conversationManager: {
-      getAllMessages: () => entity.conversationManager.getAllMessages(),
-      getMessages: () => entity.conversationManager.getMessages(),
+      getAllMessages: () => entity.getConversationManager().getAllMessages(),
+      getMessages: () => entity.getConversationManager().getMessages(),
     },
   };
 }

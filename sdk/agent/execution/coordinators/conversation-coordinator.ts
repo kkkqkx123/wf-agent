@@ -34,7 +34,7 @@ export class ConversationCoordinator {
       return undefined;
     }
 
-    return loop.conversationManager;
+    return loop.getConversationManager();
   }
 
   /**

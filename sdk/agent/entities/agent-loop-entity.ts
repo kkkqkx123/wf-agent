@@ -16,6 +16,12 @@
  * - **NOT Serialized**: Config (contains functions), managers (runtime-only)
  * - **On Restore**: Config is re-provided by application, state is restored from checkpoint
  *
+ * ## Design Improvements
+ *
+ * - **Encapsulation**: conversationManager is now private, accessed via getConversationManager()
+ * - **Single Responsibility**: Message operations are delegated to ConversationSession
+ * - **No Dual-Write**: Messages are stored only in ConversationSession, eliminating synchronization issues
+ *
  * @see AgentLoopRuntimeConfig - Runtime configuration (with callbacks)
  * @see AgentLoopState - Execution state manager (serializable)
  * @see AgentLoopFactory - Factory for creating instances
@@ -78,6 +84,7 @@ export type FollowUpMode = "one-at-a-time" | "all";
  * - No factory methods: handled by AgentLoopFactory.
  * - No lifecycle methods: handled by AgentLoopLifecycle
  * - Use a unified ConversationSession to manage message history.
+ * - Encapsulation: conversationManager is private, accessed via getter.
  */
 export class AgentLoopEntity implements Abortable {
   /** Execution Instance ID */
@@ -89,8 +96,8 @@ export class AgentLoopEntity implements Abortable {
   /** Execution state manager (mutable, serializable) */
   readonly state: AgentLoopState;
 
-  /** Dialogue Manager (unified message management) */
-  conversationManager: ConversationSession;
+  /** Dialogue Manager (unified message management) - private for encapsulation */
+  private conversationManager: ConversationSession;
 
   /** Tool Failure Protection State Manager */
   readonly toolFailureProtection: ToolFailureProtectionState;
@@ -216,6 +223,32 @@ export class AgentLoopEntity implements Abortable {
    */
   isCancelled(): boolean {
     return this.state.status === AgentLoopStatus.CANCELLED;
+  }
+
+  // ========== Conversation Manager Access ==========
+
+  /**
+   * Get the conversation manager
+   * 
+   * Provides read-only access to the ConversationSession for coordinators
+   * and other components that need to manage messages.
+   * 
+   * @returns The ConversationSession instance
+   */
+  getConversationManager(): ConversationSession {
+    return this.conversationManager;
+  }
+
+  /**
+   * Set the conversation manager (for checkpoint restoration)
+   * 
+   * This method is used during checkpoint restoration to replace
+   * the conversation manager with a restored instance.
+   * 
+   * @param conversationManager The new ConversationSession instance
+   */
+  setConversationManager(conversationManager: ConversationSession): void {
+    this.conversationManager = conversationManager;
   }
 
   // ========== Message Management (delegated to ConversationSession) ==========

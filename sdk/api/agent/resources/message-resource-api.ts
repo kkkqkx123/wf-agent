@@ -215,7 +215,7 @@ export class AgentLoopMessageResourceAPI extends ReadonlyResourceAPI<
     }
 
     const messages = entity.getMessages();
-    const tokenUsage = entity.conversationManager.getTokenUsage();
+    const tokenUsage = entity.getConversationManager().getTokenUsage();
 
     // Build stats from ConversationSession data
     const roleDistribution: Record<string, number> = {};

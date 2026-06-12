@@ -17,6 +17,7 @@
 
 import type {
   LLMResult,
+  LLMUsage,
   AgentHookTriggeredEvent,
   AgentStreamEvent,
   MessageStreamEvent,
@@ -42,7 +43,8 @@ import {
   buildAgentIterationCompletedEvent,
   buildAgentToolExecutionStartedEvent,
   buildAgentToolExecutionCompletedEvent,
-} from "../../../core/utils/event/builders/agent-events.js";
+  buildMessageAddedEvent,
+} from "../../../core/utils/event/builders/index.js";
 import { ToolExecutionCoordinator } from "./tool-execution-coordinator.js";
 
 /**
@@ -172,6 +174,12 @@ export class AgentIterationCoordinator {
       toolCalls: response.toolCalls,
     });
 
+    // Track token usage from LLM response (capability gap closure)
+    if (response.usage) {
+      conversationManager.updateTokenUsage(response.usage as LLMUsage);
+      conversationManager.finalizeCurrentRequest();
+    }
+
     const toolCalls = response.toolCalls?.map(tc => ({
       id: tc.id,
       type: "function" as const,
@@ -179,7 +187,9 @@ export class AgentIterationCoordinator {
     }));
 
     conversationManager.addAssistantMessage(response.content, toolCalls);
-    entity.addMessage({ role: "assistant", content: response.content, toolCalls });
+
+    // Emit message-added event for observability (unified with workflow behavior)
+    await this.emitMessageEvent(entity, response.content, "assistant");
 
     if (!response.toolCalls || response.toolCalls.length === 0) {
       logger.debug("No tool calls required, completing execution", {
@@ -268,6 +278,12 @@ export class AgentIterationCoordinator {
       toolCalls: finalResult.toolCalls,
     });
 
+    // Track token usage from stream LLM response
+    if (finalResult.usage) {
+      conversationManager.updateTokenUsage(finalResult.usage as LLMUsage);
+      conversationManager.finalizeCurrentRequest();
+    }
+
     const toolCalls = finalResult.toolCalls?.map(tc => ({
       id: tc.id,
       type: "function" as const,
@@ -275,11 +291,7 @@ export class AgentIterationCoordinator {
     }));
 
     conversationManager.addAssistantMessage(finalResult.content, toolCalls);
-    entity.addMessage({
-      role: "assistant",
-      content: finalResult.content,
-      toolCalls,
-    });
+    await this.emitMessageEvent(entity, finalResult.content, "assistant");
 
     if (!finalResult.toolCalls || finalResult.toolCalls.length === 0) {
       logger.debug("No tool calls required, completing stream iteration", {
@@ -508,6 +520,33 @@ export class AgentIterationCoordinator {
       iteration,
       context,
     };
+  }
+
+  /**
+   * Emit a message-added event to the EventRegistry
+   * Unifies agent event emission with workflow behavior for observability.
+   */
+  private async emitMessageEvent(
+    entity: AgentLoopEntity,
+    content: string,
+    role: string,
+  ): Promise<void> {
+    if (!this.eventManager) return;
+    try {
+      const event = buildMessageAddedEvent({
+        executionId: entity.id,
+        role,
+        content,
+        nodeId: entity.nodeId,
+      });
+      await this.eventManager.emit(event);
+    } catch (error) {
+      logger.warn("Failed to emit message added event", {
+        agentLoopId: entity.id,
+        role,
+        error,
+      });
+    }
   }
 
   // ============ Event Registry Helpers ============

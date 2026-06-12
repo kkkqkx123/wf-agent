@@ -6,8 +6,25 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // Mock the base interruption check - must be at the top level before any imports
 const mockCheckExecutionInterruption = vi.hoisted(() => vi.fn());
+const mockGetExecutionInterruptionDescription = vi.hoisted(() =>
+  vi.fn((result: Record<string, unknown>) => {
+    switch (result.type) {
+      case "continue":
+        return "Workflow execution continuing";
+      case "paused":
+        return `Workflow execution paused at node: ${result.nodeId}`;
+      case "stopped":
+        return `Workflow execution stopped at node: ${result.nodeId}`;
+      case "aborted":
+        return result.reason ? String(result.reason) : "Workflow execution operation aborted";
+      default:
+        return "Unknown workflow interruption state";
+    }
+  }),
+);
 vi.mock("../../../../core/utils/interruption/index.js", () => ({
   checkExecutionInterruption: mockCheckExecutionInterruption,
+  getExecutionInterruptionDescription: mockGetExecutionInterruptionDescription,
 }));
 
 import {
@@ -47,13 +64,12 @@ describe("checkWorkflowInterruption", () => {
 
   describe("with aborted signal (workflow pause)", () => {
     it("should return paused when reason contains PAUSE interruption type", () => {
+      // Core's checkExecutionInterruption already parses the abort reason,
+      // so the mock returns the already-parsed result
       mockCheckExecutionInterruption.mockReturnValue({
-        type: "aborted",
-        reason: {
-          interruptionType: "PAUSE",
-          executionId: "exec-1",
-          nodeId: "node-1",
-        },
+        type: "paused",
+        executionId: "exec-1",
+        nodeId: "node-1",
       });
 
       const result = checkWorkflowInterruption();
@@ -66,12 +82,10 @@ describe("checkWorkflowInterruption", () => {
     });
 
     it("should return paused with unknown nodeId when nodeId is missing", () => {
+      // Core returns paused without nodeId; workflow wrapper defaults to "unknown"
       mockCheckExecutionInterruption.mockReturnValue({
-        type: "aborted",
-        reason: {
-          interruptionType: "PAUSE",
-          executionId: "exec-1",
-        },
+        type: "paused",
+        executionId: "exec-1",
       });
 
       const result = checkWorkflowInterruption();
@@ -87,12 +101,9 @@ describe("checkWorkflowInterruption", () => {
   describe("with aborted signal (workflow stop)", () => {
     it("should return stopped when reason contains STOP interruption type", () => {
       mockCheckExecutionInterruption.mockReturnValue({
-        type: "aborted",
-        reason: {
-          interruptionType: "STOP",
-          executionId: "exec-2",
-          nodeId: "node-2",
-        },
+        type: "stopped",
+        executionId: "exec-2",
+        nodeId: "node-2",
       });
 
       const result = checkWorkflowInterruption();
@@ -106,11 +117,8 @@ describe("checkWorkflowInterruption", () => {
 
     it("should return stopped with unknown nodeId when nodeId is missing", () => {
       mockCheckExecutionInterruption.mockReturnValue({
-        type: "aborted",
-        reason: {
-          interruptionType: "STOP",
-          executionId: "exec-2",
-        },
+        type: "stopped",
+        executionId: "exec-2",
       });
 
       const result = checkWorkflowInterruption();

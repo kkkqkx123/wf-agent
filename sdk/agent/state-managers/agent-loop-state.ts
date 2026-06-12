@@ -596,6 +596,15 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
 
   /**
    * Create a snapshot of the current state (used for checkpoint creation)
+   *
+   * Design:
+   * - Serializes persistent execution progress data (iteration count, status, tool calls)
+   * - Does NOT include `messages` (owned by ConversationSession) or `config` (re-provided on restore)
+   * - Includes streaming state fields for pause/resume precision:
+   *   - `isStreaming`: Whether the agent was in the middle of streaming an LLM response
+   *   - `streamMessage`: The partial/incomplete streamed message content (serialized as unknown)
+   *   - `pendingToolCallIds`: Array of tool call IDs that were in-flight at snapshot time
+   *
    * @returns State snapshot
    */
   createSnapshot(): AgentLoopStateSnapshot {
@@ -606,7 +615,6 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
       startTime: this._startTime,
       endTime: this._endTime,
       error: this._error,
-      messages: [], // Messages are managed separately by AgentLoopEntity
       // Extended fields for complete state capture
       iterationHistory: this._iterationHistory.map(record => ({
         ...record,
@@ -618,8 +626,12 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
             toolCalls: this._currentIterationRecord.toolCalls.map(tc => ({ ...tc })),
           }
         : undefined,
-      // Note: isStreaming, pendingToolCalls, and streamMessage are runtime-only fields
-      // and should not be persisted in checkpoints
+      // Streaming state for pause/resume precision
+      isStreaming: this._isStreaming || undefined,
+      streamMessage: this._streamMessage ? { ...this._streamMessage } : undefined,
+      pendingToolCallIds: this._pendingToolCalls.size > 0
+        ? Array.from(this._pendingToolCalls)
+        : undefined,
     };
   }
 
@@ -644,10 +656,19 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
       this._iterationHistory = [];
     }
 
-    // Reset runtime-only fields (not restored from snapshot)
+    // Restore streaming state if present in snapshot
     this._pendingToolCalls.clear();
-    this._isStreaming = false;
-    this._streamMessage = null;
+    this._isStreaming = snapshot.isStreaming ?? false;
+    this._streamMessage = snapshot.streamMessage
+      ? (snapshot.streamMessage as LLMMessage)
+      : null;
+
+    // Restore pending tool call IDs if present
+    if (snapshot.pendingToolCallIds && snapshot.pendingToolCallIds.length > 0) {
+      for (const toolCallId of snapshot.pendingToolCallIds) {
+        this._pendingToolCalls.add(toolCallId);
+      }
+    }
 
     // Restore current iteration record if present
     const currentIterationRecord = snapshot['currentIterationRecord'] as IterationRecord | undefined;

@@ -12,6 +12,7 @@ import type {
   TCheckpointType,
   AgentLoopCheckpoint,
   AgentLoopStateSnapshot,
+  AgentLoopRuntimeConfig,
   DeltaCheckpoint,
   FullCheckpoint,
   AgentLoopDelta,
@@ -51,15 +52,38 @@ export interface CheckpointDependencies extends BaseCheckpointDependencies<Agent
  *
  * Design Principles:
  * - Instance-based for dependency injection and testability
- * - Stateless operations - no internal state maintained between calls
  * - Coordinates the entire checkpoint lifecycle
  * - Extends BaseCheckpointCoordinator to eliminate duplication
+ * - Config must be provided at construction time (via constructor) for restore operations
+ *   because AgentLoopRuntimeConfig contains callbacks that cannot be serialized
  */
 export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
   AgentLoopCheckpoint,
-  AgentLoopEntity, // Now compatible because CheckpointableEntity only requires 'id'
+  AgentLoopEntity,
   AgentLoopStateSnapshot
 > {
+  /**
+   * Config for restore operations.
+   * Required because AgentLoopRuntimeConfig contains callbacks that cannot be serialized.
+   * Must be set before calling restoreFromCheckpoint().
+   */
+  private restoreConfig?: AgentLoopRuntimeConfig;
+
+  /**
+   * @param config AgentLoopRuntimeConfig for restoration (must be provided for restore operations)
+   */
+  constructor(config?: AgentLoopRuntimeConfig) {
+    super();
+    this.restoreConfig = config;
+  }
+
+  /**
+   * Set config for restore operations
+   * @param config AgentLoopRuntimeConfig for restoration
+   */
+  setConfig(config: AgentLoopRuntimeConfig): void {
+    this.restoreConfig = config;
+  }
   /**
    * Create a checkpoint
    * @param entity Agent Loop entity
@@ -112,6 +136,12 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
 
   /**
    * Extracting a state snapshot
+   *
+   * Only serializes persistent execution progress data (iteration count, status, tool calls).
+   * Does NOT include:
+   * - `config`: Contains callbacks, must be re-provided by application on restore
+   * - `messages`: Managed by ConversationSession, not AgentLoopState
+   *
    * @param entity Agent Loop entity
    * @returns Status Snapshot
    */
@@ -123,8 +153,6 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
       startTime: entity.state.startTime,
       endTime: entity.state.endTime,
       error: entity.state.error,
-      messages: entity.getMessages(),
-      config: entity.config,
     };
   }
 
@@ -175,9 +203,24 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
 
   /**
    * Create entity from restored state snapshot
+   *
+   * Uses the stored `restoreConfig` to provide AgentLoopRuntimeConfig.
+   * Config must be set before calling restoreFromCheckpoint() via constructor or setConfig().
+   *
+   * @param parentId Parent entity ID (used as entity id)
+   * @param snapshot Restored state snapshot
+   * @returns Reconstructed AgentLoopEntity with config injected
+   * @throws Error if restoreConfig is not set
    */
   protected createEntityFromSnapshot(parentId: string, snapshot: AgentLoopStateSnapshot): AgentLoopEntity {
-    return AgentLoopEntity.fromSnapshot(parentId, snapshot);
+    if (!this.restoreConfig) {
+      throw new Error(
+        "AgentLoopRuntimeConfig is required for restore. " +
+        "Set it via constructor: new AgentLoopCheckpointCoordinator(config) " +
+        "or via setConfig(config) before calling restoreFromCheckpoint()."
+      );
+    }
+    return AgentLoopEntity.fromSnapshot(parentId, snapshot, this.restoreConfig);
   }
 
   /**

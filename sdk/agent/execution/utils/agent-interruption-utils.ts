@@ -1,61 +1,55 @@
 /**
  * Agent-Specific Interruption Utilities
  *
- * Extends generic interruption utilities with agent-specific context (iteration).
+ * Thin wrappers over Core interruption utilities that add agent-specific
+ * iteration context. Uses Core's unified ExecutionInterruptionCheckResult
+ * type to eliminate type duplication between Agent and Workflow layers.
+ *
+ * Design Principle:
+ * - All core logic delegates to sdk/core/utils/interruption/
+ * - Agent adds only the iteration context extraction
+ * - Type aliases kept for backward compatibility
  */
 
 import type { InterruptionType } from "../../../core/types/interruption-types.js";
 import {
   checkExecutionInterruption as baseCheckInterruption,
+  getExecutionInterruptionDescription as baseGetDescription,
+  type ExecutionInterruptionCheckResult,
 } from "../../../core/utils/interruption/index.js";
 import { AgentExecutionInterruptedException } from "../types/agent-interruption-types.js";
 
 /**
- * Agent interruption check result with iteration context
+ * Agent interruption check result (type alias for backward compatibility)
+ *
+ * Uses Core's unified type which now includes optional iteration field.
  */
-export type AgentInterruptionCheckResult =
-  | { type: "continue" }
-  | { type: "paused"; iteration: number; executionId?: string }
-  | { type: "stopped"; iteration: number; executionId?: string }
-  | { type: "aborted"; reason?: unknown };
+export type AgentInterruptionCheckResult = ExecutionInterruptionCheckResult;
 
 /**
  * Check interruption with agent context extraction (iteration)
+ *
+ * Delegates to Core's checkExecutionInterruption which parses the abort
+ * reason for all context fields including iteration.
  */
 export function checkAgentInterruption(
   signal?: AbortSignal,
   currentIteration?: number,
 ): AgentInterruptionCheckResult {
-  const baseResult = baseCheckInterruption(signal);
+  const result = baseCheckInterruption(signal);
 
-  // If not aborted or continue, return as-is
-  if (baseResult.type === "continue") {
-    return baseResult;
+  // If Core extracted iteration from abort reason, prefer that
+  if ((result.type === "paused" || result.type === "stopped") && currentIteration !== undefined && result.iteration === undefined) {
+    return { ...result, iteration: currentIteration };
   }
 
-  // For aborted state, try to extract agent-specific information
-  if (baseResult.type === "aborted") {
-    const reason = baseResult.reason;
-    if (reason && typeof reason === "object" && "interruptionType" in reason) {
-      const interruption = reason as Record<string, unknown>;
-      const type = interruption["interruptionType"] as InterruptionType;
-      const executionId = interruption["executionId"] as string | undefined;
-
-      if (type === "PAUSE") {
-        return { type: "paused", executionId, iteration: currentIteration ?? 0 };
-      } else if (type === "STOP") {
-        return { type: "stopped", executionId, iteration: currentIteration ?? 0 };
-      }
-    }
-  }
-
-  return baseResult as AgentInterruptionCheckResult;
+  return result;
 }
 
 /**
  * Get the agent interrupt type
  */
-export function getAgentInterruptionType(result: AgentInterruptionCheckResult): InterruptionType {
+export function getAgentInterruptionType(result: AgentInterruptionCheckResult): InterruptionType | null {
   if (result.type === "paused") {
     return "PAUSE";
   } else if (result.type === "stopped") {
@@ -66,20 +60,12 @@ export function getAgentInterruptionType(result: AgentInterruptionCheckResult): 
 
 /**
  * Get a user-friendly description for agent interruptions
+ *
+ * Delegates to Core's unified getExecutionInterruptionDescription
+ * which handles iteration context automatically.
  */
 export function getAgentInterruptionDescription(result: AgentInterruptionCheckResult): string {
-  switch (result.type) {
-    case "continue":
-      return "Agent loop continuing";
-    case "paused":
-      return `Agent loop paused at iteration ${result.iteration}`;
-    case "stopped":
-      return `Agent loop stopped at iteration ${result.iteration}`;
-    case "aborted":
-      return result.reason ? String(result.reason) : "Agent loop operation aborted";
-    default:
-      return "Unknown agent interruption state";
-  }
+  return baseGetDescription(result);
 }
 
 /**

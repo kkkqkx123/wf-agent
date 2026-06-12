@@ -25,11 +25,9 @@ export {
 // `AgentLoopStateSnapshot` is exported from the `types` package.
 export { type AgentLoopStateSnapshot } from "@wf-agent/types";
 
-// State Manager Layer (NEW)
+// State Manager Layer
 export {
   AgentLoopState,
-  MessageHistory,
-  type MessageHistoryState,
 } from "./state-managers/index.js";
 
 // Execution Layer (Factories and Lifecycle)

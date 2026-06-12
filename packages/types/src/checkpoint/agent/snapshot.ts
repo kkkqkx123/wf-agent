@@ -1,41 +1,65 @@
 /**
  * Agent Loop State Snapshot Type Definition
+ *
+ * ## Design Principles
+ *
+ * 1. **Config NOT serialized**: `AgentLoopRuntimeConfig` contains callback functions
+ *    (`transformContext`, `convertToLlm`) that cannot be serialized to JSON/TOML.
+ *    Config must be re-provided by the application when restoring from checkpoint.
+ *
+ * 2. **Messages NOT in snapshot**: Messages are owned and managed by `ConversationSession`,
+ *    not by `AgentLoopState`. The `AgentLoopStateSnapshot` captures only the execution
+ *    progress state (iteration count, tool calls, status), while messages are handled
+ *    through the conversation's checkpoint path.
+ *
+ * 3. **Restoration flow**: Application calls `AgentLoopFactory.fromCheckpoint()`
+ *    with both the checkpoint ID and a fresh `AgentLoopRuntimeConfig`.
+ *    The factory loads the snapshot, creates state from it, and injects the config.
  */
 
-import type { Message } from "../../message/index.js";
 import { AgentLoopStatus } from "../../agent-execution/types.js";
 import type { IterationRecord } from "../../agent-execution/types.js";
 
 /**
  * Agent Loop Status Snapshot
+ *
+ * Contains only serializable execution progress data.
+ * Does NOT include:
+ * - `config`: Must be re-provided by application (contains callbacks)
+ * - `messages`: Managed by ConversationSession, not AgentLoopState
  */
 export interface AgentLoopStateSnapshot {
-  /** state of affairs */
+  /** Execution status */
   status: AgentLoopStatus;
-  /** Current number of iterations */
+  /** Current iteration number */
   currentIteration: number;
-  /** Number of tool calls */
+  /** Total tool call count */
   toolCallCount: number;
-  /** Starting time */
+  /** Execution start timestamp (ms) */
   startTime: number | null;
-  /** end time */
+  /** Execution end timestamp (ms) */
   endTime: number | null;
-  /** error message */
+  /** Error data (if execution failed) */
   error: unknown;
-  /** Message History */
-  messages: Message[];
-  /** deployment */
-  config?: unknown;
 
   // ========== Extended fields for complete state capture ==========
 
   /** Iteration history records */
   iterationHistory?: IterationRecord[];
-  /** Current iteration record (if in progress) */
+  /** Current in-progress iteration record (if any) */
   currentIterationRecord?: IterationRecord;
 
   /** Dynamic tools (serialized from Set<string> to string[]) */
   dynamicTools?: string[];
+
+  // ========== Streaming state fields (for pause/resume precision) ==========
+
+  /** Whether the agent was streaming an LLM response at checkpoint time */
+  isStreaming?: boolean;
+  /** Incomplete streaming message content (for stream resume) */
+  streamMessage?: unknown;
+  /** Pending tool call IDs that were in-flight at checkpoint time */
+  pendingToolCallIds?: string[];
 
   /** Allow additional properties for extensibility */
   [key: string]: unknown;

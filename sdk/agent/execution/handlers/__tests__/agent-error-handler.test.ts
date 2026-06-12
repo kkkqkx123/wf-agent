@@ -23,6 +23,9 @@ vi.mock("../../../../utils/contextual-logger.js", () => ({
 
 vi.mock("../../../../core/utils/error-utils.js", () => ({
   handleError: vi.fn().mockResolvedValue(undefined),
+  handleErrorWithContext: vi.fn().mockResolvedValue({}),
+  logError: vi.fn(),
+  emitErrorEvent: vi.fn().mockResolvedValue(undefined),
 }));
 
 // Mock emit to forward calls to eventManager.emit for verification

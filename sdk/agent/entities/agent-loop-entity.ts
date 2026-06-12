@@ -880,26 +880,42 @@ export class AgentLoopEntity implements Abortable {
 
   /**
    * Create AgentLoopEntity from state snapshot
+   *
    * @param id Agent loop ID
-   * @param snapshot State snapshot
+   * @param snapshot State snapshot (contains iteration/tool call progress only)
+   * @param config Runtime configuration (REQUIRED - must be re-provided, NOT from snapshot)
    * @returns Restored AgentLoopEntity
+   *
+   * ## Design Notes
+   *
+   * - `config` is a required separate parameter because `AgentLoopRuntimeConfig` contains
+   *   callback functions (`transformContext`, `convertToLlm`) that cannot be serialized.
+   * - The application must provide the config when restoring from checkpoint.
+   * - Only `AgentLoopState` is restored from the snapshot (iteration count, tool calls, status).
+   * - Messages are NOT restored here; they are managed by `ConversationSession`
+   *   and should be restored through a separate mechanism (e.g., workflow checkpoint path).
+   *
+   * @throws Error if config is not provided
    */
-  static fromSnapshot(id: string, snapshot: AgentLoopStateSnapshot): AgentLoopEntity {
+  static fromSnapshot(
+    id: string,
+    snapshot: AgentLoopStateSnapshot,
+    config: AgentLoopRuntimeConfig,
+  ): AgentLoopEntity {
+    if (!config) {
+      throw new Error(
+        "AgentLoopRuntimeConfig is required to restore from snapshot. " +
+        "Config contains callback functions and cannot be serialized in checkpoints. " +
+        "The application must re-provide config when restoring from checkpoint."
+      );
+    }
+
     // Create state from snapshot
     const state = new AgentLoopState();
     state.restoreFromSnapshot(snapshot);
 
-    // Restore config from snapshot
-    // Note: In production, config should be re-provided by application rather than restored from snapshot
-    // because AgentLoopRuntimeConfig contains non-serializable functions.
-    // This cast is a temporary workaround; proper implementation should accept config as a parameter.
-    const config = snapshot.config as AgentLoopRuntimeConfig;
-
-    // Create entity with restored state and config
+    // Create entity with provided config and restored state
     const entity = new AgentLoopEntity(id, config, state);
-
-    // Restore messages
-    entity.setMessages(snapshot.messages as LLMMessage[]);
 
     // Invalidate cache after restoration to ensure fresh computation
     entity.cachedAvailableTools = undefined;

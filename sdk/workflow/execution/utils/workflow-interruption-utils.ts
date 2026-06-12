@@ -1,68 +1,53 @@
 /**
  * Workflow-Specific Interruption Utilities
  *
- * Extends generic interruption utilities with workflow-specific context (nodeId).
+ * Thin wrappers over Core interruption utilities that add workflow-specific
+ * nodeId context. Uses Core's unified ExecutionInterruptionCheckResult
+ * type to eliminate type duplication between Agent and Workflow layers.
+ *
+ * Design Principle:
+ * - All core logic delegates to sdk/core/utils/interruption/
+ * - Workflow adds only the nodeId context extraction
+ * - Type aliases kept for backward compatibility
  */
 
 import type { InterruptionType } from "../../../core/types/interruption-types.js";
 import {
   checkExecutionInterruption as baseCheckInterruption,
+  getExecutionInterruptionDescription as baseGetDescription,
+  type ExecutionInterruptionCheckResult,
 } from "../../../core/utils/interruption/index.js";
 import { WorkflowExecutionInterruptedException } from "../types/workflow-interruption-types.js";
 
 /**
- * Workflow interruption check result with node context
+ * Workflow interruption check result (type alias for backward compatibility)
+ *
+ * Uses Core's unified type which now includes optional nodeId field.
  */
-export type WorkflowInterruptionCheckResult =
-  | { type: "continue" }
-  | { type: "paused"; nodeId: string; executionId?: string }
-  | { type: "stopped"; nodeId: string; executionId?: string }
-  | { type: "aborted"; reason?: unknown };
+export type WorkflowInterruptionCheckResult = ExecutionInterruptionCheckResult;
 
 /**
  * Check interruption with workflow context extraction (nodeId)
+ *
+ * Delegates to Core's checkExecutionInterruption which parses the abort
+ * reason for all context fields including nodeId.
+ * Ensures nodeId defaults to "unknown" for backward compatibility.
  */
 export function checkWorkflowInterruption(signal?: AbortSignal): WorkflowInterruptionCheckResult {
-  const baseResult = baseCheckInterruption(signal);
+  const result = baseCheckInterruption(signal);
 
-  // If not aborted, return as-is
-  if (baseResult.type === "continue") {
-    return baseResult;
+  // Ensure nodeId is always present for paused/stopped results (backward compat)
+  if (result.type === "paused" || result.type === "stopped") {
+    return { ...result, nodeId: result.nodeId || "unknown" };
   }
 
-  // For aborted state, try to extract workflow-specific information
-  if (baseResult.type === "aborted") {
-    const reason = baseResult.reason;
-    if (reason && typeof reason === "object" && "interruptionType" in reason) {
-      const interruption = reason as Record<string, unknown>;
-      const type = interruption["interruptionType"] as InterruptionType;
-      const executionId = interruption["executionId"] as string | undefined;
-      const nodeId = interruption["nodeId"] as string | undefined;
-
-      if (type === "PAUSE") {
-        return {
-          type: "paused",
-          executionId: executionId,
-          nodeId: nodeId || "unknown",
-        };
-      } else if (type === "STOP") {
-        return {
-          type: "stopped",
-          executionId: executionId,
-          nodeId: nodeId || "unknown",
-        };
-      }
-    }
-  }
-
-  // Return as generic aborted if no workflow context found
-  return baseResult as WorkflowInterruptionCheckResult;
+  return result;
 }
 
 /**
  * Get the workflow interrupt type
  */
-export function getWorkflowInterruptionType(result: WorkflowInterruptionCheckResult): InterruptionType {
+export function getWorkflowInterruptionType(result: WorkflowInterruptionCheckResult): InterruptionType | null {
   if (result.type === "paused") {
     return "PAUSE";
   } else if (result.type === "stopped") {
@@ -73,36 +58,28 @@ export function getWorkflowInterruptionType(result: WorkflowInterruptionCheckRes
 
 /**
  * Get a user-friendly description for workflow interruptions
+ *
+ * Delegates to Core's unified getExecutionInterruptionDescription
+ * which handles nodeId context automatically.
  */
 export function getWorkflowInterruptionDescription(result: WorkflowInterruptionCheckResult): string {
-  switch (result.type) {
-    case "continue":
-      return "Workflow execution continuing";
-    case "paused":
-      return `Workflow execution paused at node: ${result.nodeId}`;
-    case "stopped":
-      return `Workflow execution stopped at node: ${result.nodeId}`;
-    case "aborted":
-      return result.reason ? String(result.reason) : "Workflow execution operation aborted";
-    default:
-      return "Unknown workflow interruption state";
-  }
+  return baseGetDescription(result);
 }
 
 /**
  * Convert generic interruption result to workflow-specific result
  */
 export function toWorkflowInterruptionResult(
-  result: import("../../../core/utils/interruption/index.js").ExecutionInterruptionCheckResult,
+  result: ExecutionInterruptionCheckResult,
   nodeId: string,
 ): WorkflowInterruptionCheckResult {
   if (result.type === "paused" || result.type === "stopped") {
     return {
       ...result,
-      nodeId,
+      nodeId: nodeId || result.nodeId,
     };
   }
-  return result as WorkflowInterruptionCheckResult;
+  return result;
 }
 
 /**
@@ -120,4 +97,3 @@ export function createWorkflowInterruptionAbortReason(
     nodeId,
   );
 }
-

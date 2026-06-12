@@ -4,14 +4,14 @@
  * Responsibilities:
  * - Handle errors during Agent Loop execution
  * - Unified error normalization and context building
- * - Integrate error handling tool functions for logging and triggering events
- * - Managing Agent Loop Status
+ * - Delegate to Core error-utils for logging and event emission
+ * - Manage Agent Loop state transitions based on error severity
  *
  * Design Principles:
- * - Functional implementation, statelessness
- * - Use stateless error handling tool functions
+ * - Thin wrapper over Core's error-utils (no duplication of logging/event logic)
  * - severity-driven: stop execution at ERROR level only
- * - Consistent with error-handler.ts in the Graph module.
+ * - Recoverable errors (WARNING, INFO) allow continuation
+ * - Consistent with the unified error handling pattern used by workflow
  */
 
 import type { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
@@ -19,7 +19,11 @@ import type { ErrorContext, SDKError } from "@wf-agent/types";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import { SDKError as SDKErrorClass } from "@wf-agent/types";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
-import { handleError } from "../../../core/utils/error-utils.js";
+import {
+  handleErrorWithContext,
+  emitErrorEvent,
+  logError,
+} from "../../../core/utils/error-utils.js";
 import { emit } from "../../../core/utils/event/emit-event.js";
 import { generateId, now } from "@wf-agent/common-utils";
 import type { AgentPausedEvent, AgentCancelledEvent } from "@wf-agent/types";
@@ -81,6 +85,9 @@ function isRecoverableError(error: SDKError): boolean {
 /**
  * Handling Agent Loop execution error
  *
+ * Delegates to Core's handleErrorWithContext for logging and event emission,
+ * then manages Agent Loop state transitions based on severity.
+ *
  * @param entity Agent Loop instance
  * @param error Original error
  * @param operation Type of the operation
@@ -115,12 +122,9 @@ export async function handleAgentError(
     recoverable: isRecoverableError(standardizedError),
   });
 
-  // Use stateless error handling utility functions (logging and triggering events)
-  await handleError(eventManager, standardizedError, {
-    executionId: entity.id,
-    workflowId: context.workflowId || "",
-    nodeId: context.nodeId,
-  });
+  // Delegate to Core's unified error handling (logging + event emission)
+  // This ensures consistent error event format across Agent and Workflow layers
+  await handleErrorWithContext(eventManager, standardizedError, context, operation);
 
   // Decide whether to stop execution based on the severity.
   if (standardizedError.severity === "error") {
@@ -185,12 +189,17 @@ export async function handleAgentInterruption(
     context,
   );
 
-  // Use a stateless error handling utility function
-  await handleError(eventManager, interruptionError, {
-    executionId: entity.id,
-    workflowId: context.workflowId || "",
-    nodeId: context.nodeId,
-  });
+  // Use core error utilities for consistent logging and event emission
+  logError(interruptionError, context);
+
+  if (eventManager) {
+    await emitErrorEvent(eventManager, {
+      executionId: entity.id,
+      workflowId: context.workflowId || "",
+      nodeId: context.nodeId,
+      error: interruptionError,
+    });
+  }
 
   // Update Agent Status
   if (interruption.type === "paused") {
@@ -199,7 +208,6 @@ export async function handleAgentInterruption(
       agentLoopId: entity.id,
       operation,
       iteration: entity.state.currentIteration,
-      // Enhanced context
       isStreaming: entity.state.isStreaming,
       pendingToolCalls: Array.from(entity.state.pendingToolCalls),
       streamMessagePreserved: !!entity.state.streamMessage,
@@ -230,7 +238,6 @@ export async function handleAgentInterruption(
       agentLoopId: entity.id,
       operation,
       iteration: entity.state.currentIteration,
-      // Enhanced context
       isStreaming: entity.state.isStreaming,
       pendingToolCalls: Array.from(entity.state.pendingToolCalls),
       toolCallCount: entity.state.toolCallCount,

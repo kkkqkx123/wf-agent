@@ -364,6 +364,60 @@ export class ConversationSession extends MessageHistory implements StateManager<
   }
 
   /**
+   * Normalize message history: handle unresponded tool calls
+   *
+   * Ensures the tool call sequence is complete by adding error messages
+   * for any tool calls that were never responded to. This prevents
+   * LLM API errors when sending incomplete tool call sequences.
+   *
+   * @returns Number of error messages added
+   */
+  normalizeHistory(): number {
+    const respondedToolCallIds = new Set<string>();
+
+    // Collect all responded tool call IDs
+    const allMessages = this.getAllMessages();
+    for (const msg of allMessages) {
+      if (msg.role === "tool" && msg.toolCallId) {
+        respondedToolCallIds.add(msg.toolCallId);
+      }
+    }
+
+    // Find and fix unresponded tool calls
+    let addedErrorMessages = 0;
+    const normalizedMessages: LLMMessage[] = [];
+
+    for (const msg of allMessages) {
+      normalizedMessages.push(msg);
+
+      if (msg.role === "assistant" && msg.toolCalls) {
+        for (const call of msg.toolCalls) {
+          if (!respondedToolCallIds.has(call.id)) {
+            normalizedMessages.push({
+              role: "tool",
+              toolCallId: call.id,
+              content: `Error: Tool call ${call.id} was not responded to before session end/reset.`,
+              timestamp: Date.now(),
+              metadata: { normalized: true },
+            });
+            respondedToolCallIds.add(call.id);
+            addedErrorMessages++;
+          }
+        }
+      }
+    }
+
+    if (addedErrorMessages > 0) {
+      this.clear();
+      for (const msg of normalizedMessages) {
+        super.addMessage(msg);
+      }
+    }
+
+    return addedErrorMessages;
+  }
+
+  /**
    * Initialize Manager Messages
    * @param messages List of messages
    */

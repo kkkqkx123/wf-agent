@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { TriggerAction, WorkflowExecutionEntity } from "@wf-agent/types";
+import type { TriggerAction } from "@wf-agent/types";
+import type { WorkflowExecutionEntity } from "../../../../entities/workflow-execution-entity.js";
 import { setVariableHandler } from "../set-variable-handler.js";
 import type { WorkflowExecutionRegistry } from "../../../../stores/workflow-execution-registry.js";
 
@@ -41,10 +42,10 @@ describe("set-variable-handler", () => {
   });
 
   it("should fail when executionId is missing", async () => {
-    const action: TriggerAction = {
+    const action = {
       type: "set_variable",
       parameters: {},
-    };
+    } as unknown as TriggerAction;
 
     const result = await setVariableHandler(action, "trigger-2", mockRegistry);
 
@@ -53,10 +54,10 @@ describe("set-variable-handler", () => {
   });
 
   it("should fail when variables are missing", async () => {
-    const action: TriggerAction = {
+    const action = {
       type: "set_variable",
-      parameters: { executionId: "exec-1" },
-    };
+      parameters: { executionId: "exec-1" } as any,
+    } as unknown as TriggerAction;
 
     const result = await setVariableHandler(action, "trigger-3", mockRegistry);
 

@@ -5,9 +5,12 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { TriggerCoordinator } from "../trigger-coordinator.js";
 import { TriggerHandlerContextFactory } from "../../factories/trigger-handler-context-factory.js";
-import type { Trigger, TriggerStatus, WorkflowTrigger, TriggerRuntimeState } from "@wf-agent/types";
+import type { TriggerHandlerContextFactoryConfig } from "../../factories/trigger-handler-context-factory.js";
+import type { TriggerStatus, WorkflowTrigger, TriggerRuntimeState } from "@wf-agent/types";
 import type { BaseEvent } from "@wf-agent/types";
-import { ExecutionError, RuntimeValidationError, DependencyInjectionError } from "@wf-agent/types";
+import { ExecutionError, RuntimeValidationError } from "@wf-agent/types";
+import type { WorkflowExecutionRegistry } from "../../../stores/workflow-execution-registry.js";
+import type { WorkflowRegistry } from "../../../stores/workflow-registry.js";
 
 // ============================================================================
 // Mock Helpers
@@ -178,15 +181,15 @@ describe("TriggerCoordinator", () => {
   let coordinator: TriggerCoordinator;
   let mockStateManager: ReturnType<typeof createMockStateManager>;
   let mockGraphRegistry: ReturnType<typeof createMockGraphRegistry>;
-  let contextFactoryConfig: Parameters<typeof TriggerHandlerContextFactory.prototype.constructor>[0];
+  let contextFactoryConfig: TriggerHandlerContextFactoryConfig;
 
   beforeEach(() => {
     mockStateManager = createMockStateManager();
     mockGraphRegistry = createMockGraphRegistry();
 
     contextFactoryConfig = {
-      workflowExecutionRegistry: createMockWorkflowExecutionRegistry(),
-      workflowRegistry: createMockWorkflowRegistry(),
+      workflowExecutionRegistry: createMockWorkflowExecutionRegistry() as unknown as WorkflowExecutionRegistry,
+      workflowRegistry: createMockWorkflowRegistry() as unknown as WorkflowRegistry,
       stateManager: mockStateManager as any,
       globalContext: createMockGlobalContext() as any,
       graphRegistry: mockGraphRegistry as any,
@@ -226,7 +229,7 @@ describe("TriggerCoordinator", () => {
       coordinator.register(trigger, "workflow-1");
 
       expect(mockStateManager.register).toHaveBeenCalledTimes(1);
-      const registeredState = mockStateManager.register.mock.calls[0][0] as TriggerRuntimeState;
+      const registeredState = mockStateManager.register.mock.calls[0]![0] as TriggerRuntimeState;
       expect(registeredState.triggerId).toBe("trigger-1");
       expect(registeredState.status).toBe("enabled");
       expect(registeredState.workflowId).toBe("workflow-1");
@@ -237,7 +240,7 @@ describe("TriggerCoordinator", () => {
       const trigger = buildTriggerDefinition({ enabled: false });
       coordinator.register(trigger, "workflow-1");
 
-      const registeredState = mockStateManager.register.mock.calls[0][0] as TriggerRuntimeState;
+      const registeredState = mockStateManager.register.mock.calls[0]![0] as TriggerRuntimeState;
       expect(registeredState.status).toBe("disabled");
     });
 

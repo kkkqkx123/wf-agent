@@ -250,8 +250,8 @@ describe("AgentLoopState", () => {
       state.endIteration("Final response");
 
       expect(state.iterationHistory).toHaveLength(1);
-      expect(state.iterationHistory[0].iteration).toBe(1);
-      expect(state.iterationHistory[0].responseContent).toBe("Final response");
+      expect(state.iterationHistory[0]!.iteration).toBe(1);
+      expect(state.iterationHistory[0]!.responseContent).toBe("Final response");
     });
 
     it("should end iteration without response content", () => {
@@ -259,7 +259,7 @@ describe("AgentLoopState", () => {
       state.endIteration();
 
       expect(state.iterationHistory).toHaveLength(1);
-      expect(state.iterationHistory[0].responseContent).toBeUndefined();
+      expect(state.iterationHistory[0]!.responseContent).toBeUndefined();
     });
 
     it("should handle ending iteration when no current record exists", () => {
@@ -297,8 +297,8 @@ describe("AgentLoopState", () => {
       state.endIteration();
 
       expect(state.toolCallCount).toBe(1);
-      expect(state.iterationHistory[0].toolCalls[0].endTime).toBe(1000000);
-      expect(state.iterationHistory[0].toolCalls[0].result).toBe("result");
+      expect(state.iterationHistory[0]!.toolCalls[0]!.endTime).toBe(1000000);
+      expect(state.iterationHistory[0]!.toolCalls[0]!.result).toBe("result");
     });
 
     it("should record tool call with error", () => {
@@ -308,7 +308,7 @@ describe("AgentLoopState", () => {
       state.endIteration();
 
       expect(state.toolCallCount).toBe(1);
-      expect(state.iterationHistory[0].toolCalls[0].error).toBe("Error message");
+      expect(state.iterationHistory[0]!.toolCalls[0]!.error).toBe("Error message");
     });
 
     it("should record tool call outside iteration", () => {
@@ -576,9 +576,9 @@ describe("AgentLoopState", () => {
 
       const snapshot = state.createSnapshot();
 
-      expect(snapshot.iterationHistory![0].toolCalls[0].id).toBe("call-1");
-      expect(snapshot.iterationHistory![0].toolCalls[0].result).toBe("result");
-      expect(snapshot.iterationHistory![0].responseContent).toBe("Done");
+      expect(snapshot.iterationHistory![0]!.toolCalls[0]!.id).toBe("call-1");
+      expect(snapshot.iterationHistory![0]!.toolCalls[0]!.result).toBe("result");
+      expect(snapshot.iterationHistory![0]!.responseContent).toBe("Done");
     });
 
     it("should handle snapshot without iterationHistory", () => {
@@ -624,8 +624,8 @@ describe("AgentLoopState", () => {
       const snapshot = state.createSnapshot();
 
       // Streaming fields should not be in the snapshot
-      expect((snapshot as Record<string, unknown>).isStreaming).toBeUndefined();
-      expect((snapshot as Record<string, unknown>).streamMessage).toBeUndefined();
+      expect((snapshot as Record<string, unknown>)["isStreaming"]).toBeUndefined();
+      expect((snapshot as Record<string, unknown>)["streamMessage"]).toBeUndefined();
     });
   });
 
@@ -653,9 +653,9 @@ describe("AgentLoopState", () => {
 
       const cloned = state.clone();
 
-      cloned.iterationHistory[0].responseContent = "Modified";
+      cloned.iterationHistory[0]!.responseContent = "Modified";
 
-      expect(state.iterationHistory[0].responseContent).toBe("Response");
+      expect(state.iterationHistory[0]!.responseContent).toBe("Response");
     });
   });
 

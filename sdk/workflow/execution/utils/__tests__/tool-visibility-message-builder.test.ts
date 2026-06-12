@@ -4,15 +4,15 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ToolVisibilityMessageBuilder } from "../tool-visibility-message-builder.js";
-import type { ToolRegistry } from "../../../core/registry/tool-registry.js";
+import type { ToolRegistry } from "../../../../core/registry/tool-registry.js";
 
 // Mock the template renderer
 vi.mock("../../../core/utils/template-renderer/index.js", () => ({
   renderTemplate: vi.fn((template: string, params: Record<string, string>) => {
     // Simple template rendering for testing
     return template
-      .replace("{{addedTools}}", params.addedTools || "")
-      .replace("{{removedTools}}", params.removedTools || "");
+      .replace("{{addedTools}}", params["addedTools"] || "")
+      .replace("{{removedTools}}", params["removedTools"] || "");
   }),
 }));
 
@@ -110,8 +110,8 @@ describe("ToolVisibilityMessageBuilder", () => {
       );
       const after = Date.now();
 
-      expect(metadata.timestamp).toBeGreaterThanOrEqual(before);
-      expect(metadata.timestamp).toBeLessThanOrEqual(after);
+      expect(metadata["timestamp"]).toBeGreaterThanOrEqual(before);
+      expect(metadata["timestamp"]).toBeLessThanOrEqual(after);
     });
   });
 

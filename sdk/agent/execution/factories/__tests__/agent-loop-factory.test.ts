@@ -306,7 +306,7 @@ describe("AgentLoopFactory", () => {
       };
       mockRestoreFromCheckpoint.mockResolvedValue(restoredEntity);
 
-      const entity = await AgentLoopFactory.fromCheckpoint(checkpointId, mockCheckpointDeps);
+      const entity = await AgentLoopFactory.fromCheckpoint(checkpointId, mockConfig, mockCheckpointDeps);
 
       expect(MockAgentLoopCheckpointCoordinator).toHaveBeenCalledTimes(1);
       expect(mockRestoreFromCheckpoint).toHaveBeenCalledWith(
@@ -321,7 +321,7 @@ describe("AgentLoopFactory", () => {
       mockRestoreFromCheckpoint.mockRejectedValue(error);
 
       await expect(
-        AgentLoopFactory.fromCheckpoint(checkpointId, mockCheckpointDeps),
+        AgentLoopFactory.fromCheckpoint(checkpointId, mockConfig, mockCheckpointDeps),
       ).rejects.toThrow("Checkpoint not found: checkpoint-1");
     });
 
@@ -336,7 +336,7 @@ describe("AgentLoopFactory", () => {
       };
       mockRestoreFromCheckpoint.mockResolvedValue(restoredEntity);
 
-      const entity = await AgentLoopFactory.fromCheckpoint(checkpointId, depsWithDelta);
+      const entity = await AgentLoopFactory.fromCheckpoint(checkpointId, mockConfig, depsWithDelta);
 
       expect(mockRestoreFromCheckpoint).toHaveBeenCalledWith(
         checkpointId,

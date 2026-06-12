@@ -1,12 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { TriggerAction, WorkflowExecutionEntity } from "@wf-agent/types";
+import type { TriggerAction } from "@wf-agent/types";
+import type { WorkflowExecutionEntity } from "../../../../entities/workflow-execution-entity.js";
 import { executeTriggeredSubworkflowHandler } from "../execute-triggered-subworkflow-handler.js";
 import type { WorkflowExecutionRegistry } from "../../../../stores/workflow-execution-registry.js";
 import type { GlobalContext } from "../../../../../core/global-context.js";
 import type { WorkflowGraphRegistry } from "../../../../stores/workflow-graph-registry.js";
-import type { TriggeredSubworkflowHandler } from "../triggered-subworkflow-handler.js";
+import type { TriggeredSubworkflowHandler } from "../../triggered-subworkflow-handler.js";
 import type { AgentLoopEntity } from "../../../../../agent/entities/agent-loop-entity.js";
-import type { Container } from "inversify";
+import type { Container } from "@wf-agent/common-utils";
 import * as Identifiers from "../../../../../core/di/service-identifiers.js";
 
 const mockMainEntity = {
@@ -161,10 +162,10 @@ describe("execute-triggered-subworkflow-handler", () => {
   });
 
   it("should fail when triggeredWorkflowId is missing", async () => {
-    const action: TriggerAction = {
+    const action = {
       type: "execute_triggered_subworkflow",
       parameters: {},
-    };
+    } as unknown as TriggerAction;
 
     const result = await executeTriggeredSubworkflowHandler(
       action,

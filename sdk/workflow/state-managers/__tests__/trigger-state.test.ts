@@ -6,7 +6,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { TriggerState } from '../trigger-state.js';
 import { RuntimeValidationError, ExecutionError, NotFoundError } from '@wf-agent/types';
-import type { TriggerRuntimeState, TriggerStatus } from '@wf-agent/types';
+import type { TriggerRuntimeState } from '@wf-agent/types';
 
 describe('TriggerState', () => {
   let triggerState: TriggerState;
@@ -48,7 +48,7 @@ describe('TriggerState', () => {
         triggerId: 'trigger-1',
         executionId,
         workflowId,
-        status: 'ENABLED',
+        status: 'enabled',
         triggerCount: 0,
         updatedAt: Date.now(),
       };
@@ -70,7 +70,7 @@ describe('TriggerState', () => {
         triggerId: '',
         executionId,
         workflowId,
-        status: 'ENABLED',
+        status: 'enabled',
         triggerCount: 0,
         updatedAt: Date.now(),
       };
@@ -86,7 +86,7 @@ describe('TriggerState', () => {
         triggerId: 'trigger-1',
         executionId: '',
         workflowId,
-        status: 'ENABLED',
+        status: 'enabled',
         triggerCount: 0,
         updatedAt: Date.now(),
       };
@@ -102,7 +102,7 @@ describe('TriggerState', () => {
         triggerId: 'trigger-1',
         executionId,
         workflowId: '',
-        status: 'ENABLED',
+        status: 'enabled',
         triggerCount: 0,
         updatedAt: Date.now(),
       };
@@ -118,7 +118,7 @@ describe('TriggerState', () => {
         triggerId: 'trigger-1',
         executionId: 'different-exec',
         workflowId,
-        status: 'ENABLED',
+        status: 'enabled',
         triggerCount: 0,
         updatedAt: Date.now(),
       };
@@ -134,7 +134,7 @@ describe('TriggerState', () => {
         triggerId: 'trigger-1',
         executionId,
         workflowId: 'different-workflow',
-        status: 'ENABLED',
+        status: 'enabled',
         triggerCount: 0,
         updatedAt: Date.now(),
       };
@@ -151,7 +151,7 @@ describe('TriggerState', () => {
         triggerId: 'trigger-1',
         executionId: 'exec-1',
         workflowId: 'workflow-1',
-        status: 'ENABLED',
+        status: 'enabled',
         triggerCount: 0,
         updatedAt: Date.now(),
       };
@@ -169,7 +169,7 @@ describe('TriggerState', () => {
         triggerId: 'trigger-1',
         executionId,
         workflowId,
-        status: 'ENABLED',
+        status: 'enabled',
         triggerCount: 0,
         updatedAt: Date.now(),
       };
@@ -189,7 +189,7 @@ describe('TriggerState', () => {
         triggerId: 'trigger-1',
         executionId,
         workflowId,
-        status: 'ENABLED',
+        status: 'enabled',
         triggerCount: 0,
         updatedAt: Date.now(),
       };
@@ -214,25 +214,25 @@ describe('TriggerState', () => {
         triggerId: 'trigger-1',
         executionId,
         workflowId,
-        status: 'ENABLED',
+        status: 'enabled',
         triggerCount: 0,
         updatedAt: Date.now() - 1000, // Use past timestamp to ensure update
       };
       triggerState.register(state);
 
       // Act
-      triggerState.updateStatus('trigger-1', 'DISABLED');
+      triggerState.updateStatus('trigger-1', 'disabled');
 
       // Assert
       const updated = triggerState.getState('trigger-1');
-      expect(updated?.status).toBe('DISABLED');
+      expect(updated?.status).toBe('disabled');
       expect(updated?.updatedAt).toBeGreaterThan(state.updatedAt);
     });
 
     it('should throw error when trigger not found', () => {
       // Act & Assert
-      expect(() => triggerState.updateStatus('non-existent', 'DISABLED')).toThrow(NotFoundError);
-      expect(() => triggerState.updateStatus('non-existent', 'DISABLED')).toThrow('Trigger status non-existent not present');
+      expect(() => triggerState.updateStatus('non-existent', 'disabled')).toThrow(NotFoundError);
+      expect(() => triggerState.updateStatus('non-existent', 'disabled')).toThrow('Trigger status non-existent not present');
     });
   });
 
@@ -243,7 +243,7 @@ describe('TriggerState', () => {
         triggerId: 'trigger-1',
         executionId,
         workflowId,
-        status: 'ENABLED',
+        status: 'enabled',
         triggerCount: 0,
         updatedAt: Date.now() - 1000, // Use past timestamp to ensure update
       };
@@ -264,7 +264,7 @@ describe('TriggerState', () => {
         triggerId: 'trigger-1',
         executionId,
         workflowId,
-        status: 'ENABLED',
+        status: 'enabled',
         triggerCount: 0,
         updatedAt: Date.now(),
       };
@@ -293,7 +293,7 @@ describe('TriggerState', () => {
         triggerId: 'trigger-1',
         executionId,
         workflowId,
-        status: 'ENABLED',
+        status: 'enabled',
         triggerCount: 0,
         updatedAt: Date.now(),
       };
@@ -301,7 +301,7 @@ describe('TriggerState', () => {
         triggerId: 'trigger-2',
         executionId,
         workflowId,
-        status: 'DISABLED',
+        status: 'disabled',
         triggerCount: 5,
         updatedAt: Date.now(),
       };
@@ -323,7 +323,7 @@ describe('TriggerState', () => {
         triggerId: 'trigger-1',
         executionId,
         workflowId,
-        status: 'ENABLED',
+        status: 'enabled',
         triggerCount: 0,
         updatedAt: Date.now(),
       };
@@ -345,7 +345,7 @@ describe('TriggerState', () => {
         triggerId: 'trigger-1',
         executionId,
         workflowId,
-        status: 'ENABLED',
+        status: 'enabled',
         triggerCount: 0,
         updatedAt: Date.now(),
       };
@@ -372,7 +372,7 @@ describe('TriggerState', () => {
         triggerId: 'trigger-1',
         executionId,
         workflowId,
-        status: 'ENABLED',
+        status: 'enabled',
         triggerCount: 0,
         updatedAt: Date.now(),
       };
@@ -380,7 +380,7 @@ describe('TriggerState', () => {
         triggerId: 'trigger-2',
         executionId,
         workflowId,
-        status: 'DISABLED',
+        status: 'disabled',
         triggerCount: 5,
         updatedAt: Date.now(),
       };
@@ -402,7 +402,7 @@ describe('TriggerState', () => {
         triggerId: 'trigger-1',
         executionId,
         workflowId,
-        status: 'ENABLED',
+        status: 'enabled',
         triggerCount: 0,
         updatedAt: Date.now(),
       };
@@ -426,7 +426,7 @@ describe('TriggerState', () => {
         triggerId: 'trigger-1',
         executionId: 'different-exec',
         workflowId,
-        status: 'ENABLED',
+        status: 'enabled',
         triggerCount: 0,
         updatedAt: Date.now(),
       });
@@ -444,7 +444,7 @@ describe('TriggerState', () => {
         triggerId: 'trigger-1',
         executionId,
         workflowId,
-        status: 'ENABLED',
+        status: 'enabled',
         triggerCount: 0,
         updatedAt: Date.now(),
       };
@@ -464,7 +464,7 @@ describe('TriggerState', () => {
         triggerId: 'trigger-1',
         executionId,
         workflowId,
-        status: 'ENABLED',
+        status: 'enabled',
         triggerCount: 0,
         updatedAt: Date.now(),
       };

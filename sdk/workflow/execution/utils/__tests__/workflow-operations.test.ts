@@ -9,12 +9,12 @@ import {
   copy,
   type ForkConfig,
   type JoinStrategy,
-  type JoinResult,
 } from "../workflow-operations.js";
-import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
-import type { WorkflowExecutionBuilder } from "../factories/workflow-execution-builder.js";
-import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-registry.js";
-import type { EventRegistry } from "../../../core/registry/event-registry.js";
+import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
+import type { WorkflowExecutionBuilder } from "../../factories/workflow-execution-builder.js";
+import type { WorkflowExecutionRegistry } from "../../../stores/workflow-execution-registry.js";
+import type { EventRegistry } from "../../../../core/registry/event-registry.js";
+import type { WorkflowStateCoordinator } from "../../../state-managers/workflow-state-coordinator.js";
 import { RuntimeValidationError, ExecutionError } from "@wf-agent/types";
 
 // Mock the contextual logger
@@ -63,7 +63,7 @@ vi.mock("../../../core/utils/event/emit-event.js", () => ({
 // Mock the message array utils
 vi.mock("../../../core/utils/messages/message-array-utils.js", () => ({
   MessageArrayUtils: {
-    cloneMessages: vi.fn((messages) => messages.map((m: unknown) => ({ ...m }))),
+    cloneMessages: vi.fn((messages) => messages.map((m: unknown) => ({ ...(m as object) }))),
   },
 }));
 
@@ -380,7 +380,7 @@ describe("join", () => {
   describe("message export", () => {
     it("should export messages from main path", async () => {
       const messages = [{ role: "user", content: "test" }];
-      (mockChildEntity.messageHistoryManager.getMessages as ReturnType<typeof vi.fn>).mockReturnValue(messages);
+      ((mockChildEntity as any).messageHistoryManager.getMessages as ReturnType<typeof vi.fn>).mockReturnValue(messages);
 
       await join(
         ["child-exec-1"],
@@ -392,7 +392,7 @@ describe("join", () => {
         mockEventManager
       );
 
-      expect(mockParentEntity.messageHistoryManager.addMessage).toHaveBeenCalled();
+      expect((mockParentEntity as any).messageHistoryManager.addMessage).toHaveBeenCalled();
     });
   });
 
@@ -446,6 +446,7 @@ describe("join", () => {
 describe("copy", () => {
   let mockSourceEntity: WorkflowExecutionEntity;
   let mockExecutionBuilder: WorkflowExecutionBuilder;
+  let mockSourceStateCoordinator: WorkflowStateCoordinator;
   let mockEventManager: EventRegistry;
   let mockCopiedEntity: WorkflowExecutionEntity;
 
@@ -467,6 +468,10 @@ describe("copy", () => {
       }),
     } as unknown as WorkflowExecutionBuilder;
 
+    mockSourceStateCoordinator = {
+      cleanup: vi.fn(),
+    } as unknown as WorkflowStateCoordinator;
+
     mockEventManager = {
       emit: vi.fn(),
     } as unknown as EventRegistry;
@@ -475,20 +480,20 @@ describe("copy", () => {
   describe("validation", () => {
     it("should throw error when source entity is null", async () => {
       await expect(
-        copy(null as unknown as WorkflowExecutionEntity, mockExecutionBuilder)
+        copy(null as unknown as WorkflowExecutionEntity, mockExecutionBuilder, mockSourceStateCoordinator)
       ).rejects.toThrow(ExecutionError);
     });
 
     it("should throw error when source entity is undefined", async () => {
       await expect(
-        copy(undefined as unknown as WorkflowExecutionEntity, mockExecutionBuilder)
+        copy(undefined as unknown as WorkflowExecutionEntity, mockExecutionBuilder, mockSourceStateCoordinator)
       ).rejects.toThrow(ExecutionError);
     });
   });
 
   describe("copy creation", () => {
     it("should create copy of workflow execution", async () => {
-      const copiedEntity = await copy(mockSourceEntity, mockExecutionBuilder);
+      const copiedEntity = await copy(mockSourceEntity, mockExecutionBuilder, mockSourceStateCoordinator);
 
       expect(mockExecutionBuilder.createCopy).toHaveBeenCalledWith(mockSourceEntity);
       expect(copiedEntity.id).toBe("copied-exec-1");
@@ -497,20 +502,20 @@ describe("copy", () => {
 
   describe("event emission", () => {
     it("should emit copy started event when eventManager provided", async () => {
-      await copy(mockSourceEntity, mockExecutionBuilder, mockEventManager);
+      await copy(mockSourceEntity, mockExecutionBuilder, mockSourceStateCoordinator, mockEventManager);
 
       expect(mockEventManager.emit).toHaveBeenCalled();
     });
 
     it("should emit copy completed event when eventManager provided", async () => {
-      await copy(mockSourceEntity, mockExecutionBuilder, mockEventManager);
+      await copy(mockSourceEntity, mockExecutionBuilder, mockSourceStateCoordinator, mockEventManager);
 
       // Should emit both started and completed events
       expect(mockEventManager.emit).toHaveBeenCalledTimes(2);
     });
 
     it("should not emit events when eventManager not provided", async () => {
-      await copy(mockSourceEntity, mockExecutionBuilder);
+      await copy(mockSourceEntity, mockExecutionBuilder, mockSourceStateCoordinator);
 
       expect(mockEventManager.emit).not.toHaveBeenCalled();
     });
@@ -522,7 +527,7 @@ describe("copy", () => {
 
       // Should not throw
       await expect(
-        copy(mockSourceEntity, mockExecutionBuilder, mockEventManager)
+        copy(mockSourceEntity, mockExecutionBuilder, mockSourceStateCoordinator, mockEventManager)
       ).resolves.not.toThrow();
     });
   });

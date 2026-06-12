@@ -96,7 +96,7 @@ describe("LuaStaticAnalyzerStrategy", () => {
     });
 
     it("should return error for undefined code", async () => {
-      const result = await strategy.execute({ command: undefined } as StrategyExecuteOptions, defaultPolicy);
+      const result = await strategy.execute({ command: undefined } as unknown as StrategyExecuteOptions, defaultPolicy);
 
       expect(result.success).toBe(false);
       expect(result.error).toContain("Empty Lua code");
@@ -142,7 +142,7 @@ describe("LuaStaticAnalyzerStrategy", () => {
       });
 
       const code = 'os.execute("echo hello")';
-      const result = await strategy.execute({ command: code }, policyWithOsExecute);
+      await strategy.execute({ command: code }, policyWithOsExecute);
 
       // Should pass static analysis and delegate to builtin hook
       expect(mockTerminalService.executeOneOff).toHaveBeenCalled();
@@ -198,7 +198,7 @@ describe("LuaStaticAnalyzerStrategy", () => {
       });
 
       const code = 'loadstring("print(1)")()';
-      const result = await strategy.execute({ command: code }, policyWithDynamicLoad);
+      await strategy.execute({ command: code }, policyWithDynamicLoad);
 
       expect(mockTerminalService.executeOneOff).toHaveBeenCalled();
     });

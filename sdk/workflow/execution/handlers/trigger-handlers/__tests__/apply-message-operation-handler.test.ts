@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { TriggerAction } from "@wf-agent/types";
 import { applyMessageOperationHandler } from "../apply-message-operation-handler.js";
 import type { WorkflowExecutionRegistry } from "../../../../stores/workflow-execution-registry.js";
-import type { WorkflowStateCoordinator } from "../../../state-managers/workflow-state-coordinator.js";
+import type { WorkflowStateCoordinator } from "../../../../state-managers/workflow-state-coordinator.js";
 import type { WorkflowExecutionEntity } from "../../../../entities/workflow-execution-entity.js";
 
 const mockConversationManager = {
@@ -37,7 +37,7 @@ describe("apply-message-operation-handler", () => {
       stats: { messagesAdded: 2, tokensUsed: 100 },
     });
 
-    const action: TriggerAction = {
+    const action = {
       type: "apply_message_operation",
       parameters: {
         executionId: "exec-1",
@@ -45,8 +45,8 @@ describe("apply-message-operation-handler", () => {
           operation: "add_message",
           message: { role: "user", content: "Hello" },
         },
-      },
-    };
+      } as any,
+    } as unknown as TriggerAction;
 
     const result = await applyMessageOperationHandler(
       action,
@@ -69,12 +69,12 @@ describe("apply-message-operation-handler", () => {
   });
 
   it("should fail when executionId is missing", async () => {
-    const action: TriggerAction = {
+    const action = {
       type: "apply_message_operation",
       parameters: {
         operationConfig: { operation: "clear" },
-      },
-    };
+      } as any,
+    } as unknown as TriggerAction;
 
     const result = await applyMessageOperationHandler(
       action,
@@ -88,10 +88,10 @@ describe("apply-message-operation-handler", () => {
   });
 
   it("should fail when operationConfig is missing", async () => {
-    const action: TriggerAction = {
+    const action = {
       type: "apply_message_operation",
-      parameters: { executionId: "exec-1" },
-    };
+      parameters: { executionId: "exec-1" } as any,
+    } as unknown as TriggerAction;
 
     const result = await applyMessageOperationHandler(
       action,
@@ -106,13 +106,13 @@ describe("apply-message-operation-handler", () => {
 
   it("should fail when workflow execution not found", async () => {
     (mockRegistry.get as any).mockReturnValue(null);
-    const action: TriggerAction = {
+    const action = {
       type: "apply_message_operation",
       parameters: {
         executionId: "exec-not-found",
         operationConfig: { operation: "clear" },
-      },
-    };
+      } as any,
+    } as unknown as TriggerAction;
 
     const result = await applyMessageOperationHandler(
       action,
@@ -127,13 +127,13 @@ describe("apply-message-operation-handler", () => {
 
   it("should fail when state coordinator not found", async () => {
     (mockRegistry.get as any).mockReturnValue(mockEntity);
-    const action: TriggerAction = {
+    const action = {
       type: "apply_message_operation",
       parameters: {
         executionId: "exec-no-coord",
         operationConfig: { operation: "clear" },
-      },
-    };
+      } as any,
+    } as unknown as TriggerAction;
 
     const result = await applyMessageOperationHandler(
       action,

@@ -125,7 +125,7 @@ describe("Agent Loop Storage Integration", () => {
 
       // Execute first agent loop
       await fixture.coordinator.execute(createBasicAgentConfig({ maxIterations: 1 }));
-      const firstIds = fixture.registry.getAllIds();
+      fixture.registry.getAllIds();
 
       // Execute second agent loop
       await fixture.coordinator.execute(createBasicAgentConfig({ maxIterations: 1 }));

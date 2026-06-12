@@ -157,11 +157,20 @@ export class TaskQueue {
 
     try {
       while (this.pendingQueue.length > 0) {
-        // Remove the first task from the queue.
-        const queueTask = this.pendingQueue.shift()!;
+        // Peek at the first task without removing it from the queue.
+        // We defer the shift() until after the async await to ensure the task
+        // remains in pendingQueue (findable by cancelTask) during the await window.
+        const queueTask = this.pendingQueue[0]!;
 
         // Assign an executor
         const executor = await this.workflowExecutionPool.allocateExecutor();
+
+        // Now remove the task from the queue (after the async boundary).
+        if (this.pendingQueue.length === 0 || this.pendingQueue[0] !== queueTask) {
+          // Task was cancelled or queue was modified during the await; skip it.
+          continue;
+        }
+        this.pendingQueue.shift();
 
         // Update task status
         this.taskRegistry.updateStatusToRunning(queueTask.taskId);

@@ -413,7 +413,7 @@ describe("AgentLoopRegistry", () => {
       const running = registry.getRunning();
 
       expect(running).toHaveLength(1);
-      expect(running[0].id).toBe("agent-1");
+      expect(running[0]!.id).toBe("agent-1");
     });
 
     it("should return paused entities", () => {
@@ -433,7 +433,7 @@ describe("AgentLoopRegistry", () => {
       const completed = registry.getCompleted();
 
       expect(completed).toHaveLength(1);
-      expect(completed[0].id).toBe("agent-2");
+      expect(completed[0]!.id).toBe("agent-2");
     });
 
     it("should return failed entities", () => {
@@ -443,7 +443,7 @@ describe("AgentLoopRegistry", () => {
       const failed = registry.getFailed();
 
       expect(failed).toHaveLength(1);
-      expect(failed[0].id).toBe("agent-2");
+      expect(failed[0]!.id).toBe("agent-2");
     });
   });
 
@@ -465,7 +465,7 @@ describe("AgentLoopRegistry", () => {
       const results = registry.query({ status: AgentLoopStatus.COMPLETED });
 
       expect(results).toHaveLength(1);
-      expect(results[0].id).toBe("agent-2");
+      expect(results[0]!.id).toBe("agent-2");
     });
 
     it("should filter by parentWorkflowId", () => {
@@ -499,7 +499,7 @@ describe("AgentLoopRegistry", () => {
       });
 
       expect(results).toHaveLength(1);
-      expect(results[0].id).toBe("agent-1");
+      expect(results[0]!.id).toBe("agent-1");
     });
 
     it("should ignore entities with agent loop parent when filtering by parentWorkflowId", () => {

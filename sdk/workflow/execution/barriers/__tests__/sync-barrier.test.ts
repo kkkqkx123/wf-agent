@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { SyncBarrier } from "../sync-barrier.js";
-import type { EventRegistry } from "../../../core/registry/event-registry.js";
-import type { ExecutionHierarchyRegistry } from "../../../core/registry/execution-hierarchy-registry.js";
+import type { EventRegistry } from "../../../../core/registry/event-registry.js";
+import type { ExecutionHierarchyRegistry } from "../../../../core/registry/execution-hierarchy-registry.js";
 
 // Mock the event-waiter module so waitForWorkflowExecutionCompleted is controllable
 vi.mock("../../utils/event/event-waiter.js", () => ({
@@ -278,8 +278,8 @@ describe("SyncBarrier", () => {
       expect(result.successful.size).toBe(1);
       expect(result.successful.get("path-a")?.getStatus()).toBe("COMPLETED");
       expect(result.failed).toHaveLength(1);
-      expect(result.failed[0].pathId).toBe("path-b");
-      expect(result.failed[0].error).toBeInstanceOf(Error);
+      expect(result.failed[0]!.pathId).toBe("path-b");
+      expect(result.failed[0]!.error).toBeInstanceOf(Error);
       expect(result.totalRequested).toBe(2);
     });
 

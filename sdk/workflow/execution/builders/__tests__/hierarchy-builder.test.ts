@@ -8,7 +8,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { setupHierarchy, teardownHierarchy, validateHierarchy } from '../hierarchy-builder.js';
 import type { WorkflowExecutionEntity } from '../../../entities/workflow-execution-entity.js';
 import type { ExecutionHierarchyRegistry } from '../../../../core/registry/execution-hierarchy-registry.js';
-import type { ID, ChildExecutionReference, ParentExecutionContext, ExecutionHierarchyMetadata } from '@wf-agent/types';
+import type { ID, ParentExecutionContext, ExecutionHierarchyMetadata } from '@wf-agent/types';
 
 // ============================================================================
 // Mock Factory Helpers
@@ -98,7 +98,7 @@ describe('setupHierarchy', () => {
 
     // Verify parent context is set on child
     expect(childEntity.setParentContext).toHaveBeenCalledTimes(1);
-    const parentContextArg = (childEntity.setParentContext as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    const parentContextArg = (childEntity.setParentContext as ReturnType<typeof vi.fn>).mock.calls[0]![0];
     expect(parentContextArg).toMatchObject({
       parentType: 'WORKFLOW',
       parentId: 'parent-1',
@@ -110,7 +110,7 @@ describe('setupHierarchy', () => {
 
     // Verify child reference is registered in parent
     expect(parentEntity.registerChild).toHaveBeenCalledTimes(1);
-    const childRefArg = (parentEntity.registerChild as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    const childRefArg = (parentEntity.registerChild as ReturnType<typeof vi.fn>).mock.calls[0]![0];
     expect(childRefArg).toMatchObject({
       childType: 'WORKFLOW',
       childId: 'child-1',
@@ -122,7 +122,7 @@ describe('setupHierarchy', () => {
     const nodeId = 'subgraph-node-123';
     await setupHierarchy({ parentEntity, childEntity, nodeId });
 
-    const parentContextArg = (childEntity.setParentContext as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    const parentContextArg = (childEntity.setParentContext as ReturnType<typeof vi.fn>).mock.calls[0]![0];
     expect(parentContextArg).toMatchObject({
       parentType: 'WORKFLOW',
       parentId: 'parent-1',
@@ -131,10 +131,10 @@ describe('setupHierarchy', () => {
   });
 
   it('should include custom childMetadata when provided', async () => {
-    const childMetadata = { forkPathId: 'path-1' };
+    const childMetadata = { forkPathId: 'path-1', createdAt: Date.now() };
     await setupHierarchy({ parentEntity, childEntity, childMetadata });
 
-    const childRefArg = (parentEntity.registerChild as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    const childRefArg = (parentEntity.registerChild as ReturnType<typeof vi.fn>).mock.calls[0]![0];
     expect(childRefArg).toMatchObject({
       childType: 'WORKFLOW',
       childId: 'child-1',

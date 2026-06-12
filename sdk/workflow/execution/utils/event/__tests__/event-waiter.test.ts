@@ -21,7 +21,7 @@ import type { EventRegistry } from "../../../../../core/registry/event-registry.
 
 // Mock the timeout utilities
 vi.mock("../../../../core/utils/timeout/timeout-utils.js", () => ({
-  executeWithSharedTimeout: vi.fn(async (config, timeout, options) => {
+  executeWithSharedTimeout: vi.fn(async (config, _timeout, _options) => {
     // Simulate shared timeout execution
     await config.wait();
   }),
@@ -96,7 +96,7 @@ describe("Event Waiter Functions", () => {
 
       await waitForWorkflowExecutionPaused(mockEventManager, "exec-1");
 
-      const filterFn = (mockEventManager.waitFor as ReturnType<typeof vi.fn>).mock.calls[0][3];
+      const filterFn = (mockEventManager.waitFor as ReturnType<typeof vi.fn>).mock.calls[0]![3];
       expect(filterFn({ executionId: "exec-1" })).toBe(true);
       expect(filterFn({ executionId: "exec-2" })).toBe(false);
     });
@@ -317,7 +317,7 @@ describe("Event Waiter Functions", () => {
 
       await waitForNodeCompleted(mockEventManager, "exec-1", "node-1");
 
-      const filterFn = (mockEventManager.waitFor as ReturnType<typeof vi.fn>).mock.calls[0][3];
+      const filterFn = (mockEventManager.waitFor as ReturnType<typeof vi.fn>).mock.calls[0]![3];
       expect(filterFn({ executionId: "exec-1", nodeId: "node-1" })).toBe(true);
       expect(filterFn({ executionId: "exec-1", nodeId: "node-2" })).toBe(false);
       expect(filterFn({ executionId: "exec-2", nodeId: "node-1" })).toBe(false);
@@ -356,7 +356,7 @@ describe("Event Waiter Functions", () => {
 
       await waitForNodeFailed(mockEventManager, "exec-1", "node-1");
 
-      const filterFn = (mockEventManager.waitFor as ReturnType<typeof vi.fn>).mock.calls[0][3];
+      const filterFn = (mockEventManager.waitFor as ReturnType<typeof vi.fn>).mock.calls[0]![3];
       expect(filterFn({ executionId: "exec-1", nodeId: "node-1" })).toBe(true);
       expect(filterFn({ executionId: "exec-2", nodeId: "node-1" })).toBe(false);
     });

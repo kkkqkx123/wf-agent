@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { TriggerAction, WorkflowExecutionEntity } from "@wf-agent/types";
+import type { TriggerAction } from "@wf-agent/types";
+import type { WorkflowExecutionEntity } from "../../../../entities/workflow-execution-entity.js";
 import { skipNodeHandler } from "../skip-node-handler.js";
 import type { WorkflowExecutionRegistry } from "../../../../stores/workflow-execution-registry.js";
-import type { EventRegistry } from "../../../../core/registry/event-registry.js";
+import type { EventRegistry } from "../../../../../core/registry/event-registry.js";
 
 const mockExecution = {
   nodeResults: [] as Array<{ nodeId: string; nodeType: string; status: string; step: number; executionTime: number }>,
@@ -66,14 +67,14 @@ describe("skip-node-handler", () => {
     await skipNodeHandler(action, "trigger-2", mockRegistry, mockEventManager);
 
     expect(mockExecution.nodeResults).toHaveLength(2);
-    expect(mockExecution.nodeResults[1].step).toBe(2);
+    expect(mockExecution.nodeResults[1]!.step).toBe(2);
   });
 
   it("should fail when executionId is missing", async () => {
-    const action: TriggerAction = {
+    const action = {
       type: "skip_node",
-      parameters: { nodeId: "node-1" },
-    };
+      parameters: { nodeId: "node-1" } as any,
+    } as unknown as TriggerAction;
 
     const result = await skipNodeHandler(action, "trigger-3", mockRegistry, mockEventManager);
 
@@ -82,10 +83,10 @@ describe("skip-node-handler", () => {
   });
 
   it("should fail when nodeId is missing", async () => {
-    const action: TriggerAction = {
+    const action = {
       type: "skip_node",
-      parameters: { executionId: "exec-1" },
-    };
+      parameters: { executionId: "exec-1" } as any,
+    } as unknown as TriggerAction;
 
     const result = await skipNodeHandler(action, "trigger-4", mockRegistry, mockEventManager);
 

@@ -172,28 +172,28 @@ describe("checkWorkflowInterruption", () => {
 
 describe("getWorkflowInterruptionType", () => {
   it("should return PAUSE for paused result", () => {
-    const result = { type: "paused", nodeId: "node-1" };
+    const result = { type: "paused", nodeId: "node-1" } as const;
     const interruptionType = getWorkflowInterruptionType(result);
 
     expect(interruptionType).toBe("PAUSE");
   });
 
   it("should return STOP for stopped result", () => {
-    const result = { type: "stopped", nodeId: "node-1" };
+    const result = { type: "stopped", nodeId: "node-1" } as const;
     const interruptionType = getWorkflowInterruptionType(result);
 
     expect(interruptionType).toBe("STOP");
   });
 
   it("should return null for continue result", () => {
-    const result = { type: "continue" };
+    const result = { type: "continue" } as const;
     const interruptionType = getWorkflowInterruptionType(result);
 
     expect(interruptionType).toBeNull();
   });
 
   it("should return null for aborted result", () => {
-    const result = { type: "aborted", reason: new Error("Aborted") };
+    const result = { type: "aborted", reason: new Error("Aborted") } as const;
     const interruptionType = getWorkflowInterruptionType(result);
 
     expect(interruptionType).toBeNull();
@@ -202,42 +202,42 @@ describe("getWorkflowInterruptionType", () => {
 
 describe("getWorkflowInterruptionDescription", () => {
   it("should return description for continue", () => {
-    const result = { type: "continue" };
+    const result = { type: "continue" } as const;
     const description = getWorkflowInterruptionDescription(result);
 
     expect(description).toBe("Workflow execution continuing");
   });
 
   it("should return description for paused with nodeId", () => {
-    const result = { type: "paused", nodeId: "node-123" };
+    const result = { type: "paused", nodeId: "node-123" } as const;
     const description = getWorkflowInterruptionDescription(result);
 
     expect(description).toBe("Workflow execution paused at node: node-123");
   });
 
   it("should return description for stopped with nodeId", () => {
-    const result = { type: "stopped", nodeId: "node-456" };
+    const result = { type: "stopped", nodeId: "node-456" } as const;
     const description = getWorkflowInterruptionDescription(result);
 
     expect(description).toBe("Workflow execution stopped at node: node-456");
   });
 
   it("should return description for aborted with reason", () => {
-    const result = { type: "aborted", reason: "Custom abort reason" };
+    const result = { type: "aborted", reason: "Custom abort reason" } as const;
     const description = getWorkflowInterruptionDescription(result);
 
     expect(description).toBe("Custom abort reason");
   });
 
   it("should return default description for aborted without reason", () => {
-    const result = { type: "aborted" };
+    const result = { type: "aborted" } as const;
     const description = getWorkflowInterruptionDescription(result);
 
     expect(description).toBe("Workflow execution operation aborted");
   });
 
   it("should return description for aborted with Error reason", () => {
-    const result = { type: "aborted", reason: new Error("Error abort") };
+    const result = { type: "aborted", reason: new Error("Error abort") } as const;
     const description = getWorkflowInterruptionDescription(result);
 
     expect(description).toBe("Error: Error abort");
@@ -317,7 +317,7 @@ describe("createWorkflowInterruptionAbortReason", () => {
     );
 
     expect(reason.context).toBeDefined();
-    expect(reason.context?.executionId).toBe("exec-3");
-    expect(reason.context?.nodeId).toBe("node-3");
+    expect(reason.context?.["executionId"]).toBe("exec-3");
+    expect(reason.context?.["nodeId"]).toBe("node-3");
   });
 });

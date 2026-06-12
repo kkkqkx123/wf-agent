@@ -239,8 +239,8 @@ describe("Workflow Advanced Scenarios Integration", () => {
         type: "END",
         config: {},
       } as StaticNode);
-      workflow.edges.unshift({ sourceNodeId: "start", targetNodeId: "dup" });
-      workflow.edges.push({ sourceNodeId: "dup", targetNodeId: "end" });
+      workflow.edges.unshift({ id: "edge-start-dup", type: "DEFAULT", sourceNodeId: "start", targetNodeId: "dup" });
+      workflow.edges.push({ id: "edge-dup-end", type: "DEFAULT", sourceNodeId: "dup", targetNodeId: "end" });
 
       const validator = new WorkflowValidatorAPI();
       const result = validator.validate(workflow);

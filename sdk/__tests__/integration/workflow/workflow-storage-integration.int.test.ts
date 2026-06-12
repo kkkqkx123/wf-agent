@@ -105,9 +105,11 @@ describe("Workflow Storage Integration", () => {
       // Verify via SDK API get()
       const getResult = await sdk.workflows.get("wf-persist-01");
       expect(getResult.result.isOk()).toBe(true);
-      expect(getResult.result.value).not.toBeNull();
-      expect(getResult.result.value!.id).toBe("wf-persist-01");
-      expect(getResult.result.value!.name).toBe("Persistence Test");
+      const getVal = getResult.result;
+      if (getVal.isOk() && getVal.value) {
+        expect(getVal.value.id).toBe("wf-persist-01");
+        expect(getVal.value.name).toBe("Persistence Test");
+      }
     });
 
     it("should persist workflow with nodes and edges intact", async () => {
@@ -128,9 +130,11 @@ describe("Workflow Storage Integration", () => {
 
       const getResult = await sdk.workflows.get("wf-persist-nodes");
       expect(getResult.result.isOk()).toBe(true);
-      expect(getResult.result.value).not.toBeNull();
-      expect(getResult.result.value!.nodes.length).toBe(3);
-      expect(getResult.result.value!.edges.length).toBe(3);
+      const getVal = getResult.result;
+      if (getVal.isOk() && getVal.value) {
+        expect(getVal.value.nodes.length).toBe(3);
+        expect(getVal.value.edges.length).toBe(3);
+      }
     });
   });
 
@@ -212,13 +216,19 @@ describe("Workflow Storage Integration", () => {
     it("should return null for non-existent workflow", async () => {
       const getResult = await sdk.workflows.get("non-existent");
       expect(getResult.result.isOk()).toBe(true);
-      expect(getResult.result.value).toBeNull();
+      const getVal = getResult.result;
+      if (getVal.isOk()) {
+        expect(getVal.value).toBeNull();
+      }
     });
 
     it("should return false for has() on non-existent workflow", async () => {
       const hasResult = await sdk.workflows.has("non-existent");
       expect(hasResult.result.isOk()).toBe(true);
-      expect(hasResult.result.value).toBe(false);
+      const hasVal = hasResult.result;
+      if (hasVal.isOk()) {
+        expect(hasVal.value).toBe(false);
+      }
     });
   });
 });

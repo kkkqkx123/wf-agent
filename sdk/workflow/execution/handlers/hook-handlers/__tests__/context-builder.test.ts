@@ -66,6 +66,7 @@ describe("Workflow Hook Context Builder", () => {
         workflowExecutionEntity: mockEntity,
         node: mockNode,
         result: mockResult,
+        conversationManager: {} as any,
       };
 
       const hookContext = buildHookEvaluationContext(context);
@@ -79,6 +80,7 @@ describe("Workflow Hook Context Builder", () => {
         workflowExecutionEntity: mockEntity,
         node: mockNode,
         result: mockResult,
+        conversationManager: {} as any,
       };
 
       const hookContext = buildHookEvaluationContext(context);
@@ -92,6 +94,7 @@ describe("Workflow Hook Context Builder", () => {
         workflowExecutionEntity: mockEntity,
         node: mockNode,
         result: undefined,
+        conversationManager: {} as any,
       };
 
       const hookContext = buildHookEvaluationContext(context);
@@ -106,6 +109,7 @@ describe("Workflow Hook Context Builder", () => {
         workflowExecutionEntity: mockEntity,
         node: mockNode,
         result: mockResult,
+        conversationManager: {} as any,
       };
 
       const hookContext = buildHookEvaluationContext(context);
@@ -120,6 +124,7 @@ describe("Workflow Hook Context Builder", () => {
         workflowExecutionEntity: mockEntity,
         node: mockNode,
         result: mockResult,
+        conversationManager: {} as any,
       };
 
       const hookContext = buildHookEvaluationContext(context);
@@ -244,6 +249,7 @@ describe("Workflow Hook Context Builder", () => {
           config: { scriptName: "test_script", risk: "low" }
         },
         result: scriptResult,
+        conversationManager: {} as any,
       };
 
       const hookContext = buildHookEvaluationContext(context);
@@ -284,6 +290,7 @@ describe("Workflow Hook Context Builder", () => {
           config: { subgraphId: "test-subgraph", async: false }
         },
         result: subgraphResult,
+        conversationManager: {} as any,
       };
 
       const hookContext = buildHookEvaluationContext(context);
@@ -315,6 +322,7 @@ describe("Workflow Hook Context Builder", () => {
           config: { profileId: "test-profile" }
         },
         result: llmResult,
+        conversationManager: {} as any,
       };
 
       const hookContext = buildHookEvaluationContext(context);

@@ -4,13 +4,12 @@
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { WorkflowStateTransitor } from "../workflow-state-transitor.js";
-import type { EventRegistry } from "../../../core/registry/event-registry.js";
-import type { ConversationSession } from "../../../core/messaging/conversation-session.js";
-import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-registry.js";
-import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
-import type { GlobalContext } from "../../../core/global-context.js";
+import type { EventRegistry } from "../../../../core/registry/event-registry.js";
+import type { ConversationSession } from "../../../../core/messaging/conversation-session.js";
+import type { WorkflowExecutionRegistry } from "../../../stores/workflow-execution-registry.js";
+import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
+import type { GlobalContext } from "../../../../core/global-context.js";
 import type { WorkflowExecutionResult } from "@wf-agent/types";
-import { WorkflowExecutionNotFoundError } from "@wf-agent/types";
 
 // ============================================================================
 // Mock Helpers
@@ -260,7 +259,7 @@ describe("WorkflowStateTransitor", () => {
 
     it("should call state.complete when already COMPLETED but no endTime", async () => {
       vi.mocked(mockEntity.getStatus).mockReturnValue("COMPLETED");
-      vi.mocked(mockEntity.getEndTime).mockReturnValue(undefined); // no endTime set
+      vi.mocked(mockEntity.getEndTime).mockReturnValue(null); // no endTime set
       const result = createWorkflowExecutionResult();
 
       await transitor.completeWorkflowExecution(mockEntity, result);
@@ -353,7 +352,7 @@ describe("WorkflowStateTransitor", () => {
 
   describe("cascadeCancel", () => {
     it("should return 0 when parent execution not found", async () => {
-      vi.mocked(mockRegistry.get).mockReturnValue(undefined);
+      vi.mocked(mockRegistry.get).mockReturnValue(null);
 
       const count = await transitor.cascadeCancel("non-existent");
 
@@ -376,7 +375,7 @@ describe("WorkflowStateTransitor", () => {
       vi.mocked(childEntity.getStatus).mockReturnValue("RUNNING");
       vi.mocked(mockRegistry.get).mockImplementation((id: string) => {
         if (id === "child-1") return childEntity;
-        return undefined;
+        return null;
       });
 
       // Access the private method through `any` cast
@@ -391,7 +390,7 @@ describe("WorkflowStateTransitor", () => {
       vi.mocked(childEntity.getStatus).mockReturnValue("PAUSED");
       vi.mocked(mockRegistry.get).mockImplementation((id: string) => {
         if (id === "child-1") return childEntity;
-        return undefined;
+        return null;
       });
 
       const result = await (transitor as any).cancelChildWorkflowExecution("child-1");
@@ -405,7 +404,7 @@ describe("WorkflowStateTransitor", () => {
       vi.mocked(childEntity.getStatus).mockReturnValue("COMPLETED");
       vi.mocked(mockRegistry.get).mockImplementation((id: string) => {
         if (id === "child-1") return childEntity;
-        return undefined;
+        return null;
       });
 
       const result = await (transitor as any).cancelChildWorkflowExecution("child-1");
@@ -415,7 +414,7 @@ describe("WorkflowStateTransitor", () => {
     });
 
     it("should return false when child execution not found", async () => {
-      vi.mocked(mockRegistry.get).mockReturnValue(undefined);
+      vi.mocked(mockRegistry.get).mockReturnValue(null);
 
       const result = await (transitor as any).cancelChildWorkflowExecution("non-existent");
 

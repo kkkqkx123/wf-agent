@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { TriggerAction, WorkflowExecutionEntity } from "@wf-agent/types";
+import type { TriggerAction } from "@wf-agent/types";
+import type { WorkflowExecutionEntity } from "../../../../entities/workflow-execution-entity.js";
 import { pauseExecutionHandler } from "../pause-execution-handler.js";
 import type { WorkflowExecutionRegistry } from "../../../../stores/workflow-execution-registry.js";
-import { RuntimeValidationError, WorkflowExecutionNotFoundError } from "@wf-agent/types";
 
 const mockEntity = {
   id: "exec-1",
@@ -35,10 +35,10 @@ describe("pause-execution-handler", () => {
   });
 
   it("should throw RuntimeValidationError when executionId is missing", async () => {
-    const action: TriggerAction = {
+    const action = {
       type: "pause_workflow_execution",
       parameters: {},
-    };
+    } as unknown as TriggerAction;
 
     const result = await pauseExecutionHandler(action, "trigger-2", mockRegistry);
 

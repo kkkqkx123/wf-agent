@@ -51,10 +51,10 @@ describe("send-notification-handler", () => {
   });
 
   it("should fail when message is missing", async () => {
-    const action: TriggerAction = {
+    const action = {
       type: "send_notification",
       parameters: {},
-    };
+    } as unknown as TriggerAction;
 
     const result = await sendNotificationHandler(action, "trigger-3");
 

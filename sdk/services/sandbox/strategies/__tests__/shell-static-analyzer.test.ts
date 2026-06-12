@@ -5,7 +5,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { ShellStaticAnalyzerStrategy } from "../shell-static-analyzer.js";
 import type { SandboxPolicy, StrategyExecuteOptions } from "@wf-agent/types";
-import type { TerminalService } from "../../terminal/index.js";
+import type { TerminalService } from "../../../terminal/index.js";
 
 // =========================================================================
 // Test Helpers
@@ -188,7 +188,7 @@ describe("ShellStaticAnalyzerStrategy", () => {
   describe("shell type resolution", () => {
     it("should use bash for linux platform by default", async () => {
       // The strategy defaults to bash on non-Windows platforms
-      const result = await strategy.execute({
+      await strategy.execute({
         command: "echo hello",
       }, defaultPolicy);
 
@@ -216,7 +216,7 @@ describe("ShellStaticAnalyzerStrategy", () => {
 
   describe("command chain analysis", () => {
     it("should analyze each sub-command in chain (&&)", async () => {
-      const result = await strategy.execute({
+      await strategy.execute({
         command: "echo hello && echo world",
       }, defaultPolicy);
 
@@ -224,7 +224,7 @@ describe("ShellStaticAnalyzerStrategy", () => {
     });
 
     it("should analyze each sub-command in chain (||)", async () => {
-      const result = await strategy.execute({
+      await strategy.execute({
         command: "echo hello || echo world",
       }, defaultPolicy);
 
@@ -232,7 +232,7 @@ describe("ShellStaticAnalyzerStrategy", () => {
     });
 
     it("should analyze each sub-command in chain (;)", async () => {
-      const result = await strategy.execute({
+      await strategy.execute({
         command: "echo hello; echo world",
       }, defaultPolicy);
 
@@ -294,7 +294,7 @@ describe("ShellStaticAnalyzerStrategy", () => {
         },
       };
 
-      const result = await strategy.execute({
+      await strategy.execute({
         command: "echo hello | grep test",
       }, policy);
 

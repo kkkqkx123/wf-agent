@@ -4,9 +4,8 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { PauseTimeoutManager } from "../pause-timeout-manager.js";
-import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-registry.js";
-import type { EventRegistry } from "../../../core/registry/event-registry.js";
-import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
+import type { WorkflowExecutionRegistry } from "../../../stores/workflow-execution-registry.js";
+import type { EventRegistry } from "../../../../core/registry/event-registry.js";
 
 // Mock the contextual logger
 vi.mock("../../../utils/contextual-logger.js", () => ({

@@ -4,13 +4,14 @@
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { ScriptInteractionCoordinator } from "../script-interaction-coordinator.js";
-import type { GlobalContext } from "../../../core/global-context.js";
+import type { InputProvider } from "../script-interaction-coordinator.js";
+import type { GlobalContext } from "../../../../core/global-context.js";
 
 // ============================================================================
 // Test-friendly subclass — overrides delay to 0ms for fast tests
 // ============================================================================
 class FastTestCoordinator extends ScriptInteractionCoordinator {
-  protected delay(): Promise<void> {
+  protected override delay(): Promise<void> {
     return Promise.resolve();
   }
 }
@@ -70,7 +71,7 @@ describe("ScriptInteractionCoordinator", () => {
     mockGlobalContext = createMockGlobalContext(mockScriptRegistry);
     mockInputProvider = vi.fn().mockResolvedValue("user-input");
 
-    coordinator = new FastTestCoordinator(mockGlobalContext, {} as any, mockInputProvider);
+    coordinator = new FastTestCoordinator(mockGlobalContext, {} as any, mockInputProvider as unknown as InputProvider);
     (coordinator as any).terminalService = mockTerminalService;
   });
 
@@ -171,6 +172,8 @@ describe("ScriptInteractionCoordinator", () => {
         .mockResolvedValue(""); // subsequent polls → idle → exit
 
       const result = await coordinator.executeWithInteraction("test-script", {
+        scriptName: "test-script",
+        risk: "none",
         interactionMode: "blocking",
         maxRounds: 2,
         promptPatterns: [":\\s*$"],
@@ -190,6 +193,8 @@ describe("ScriptInteractionCoordinator", () => {
         .mockResolvedValue("");
 
       const result = await coordinator.executeWithInteraction("test-script", {
+        scriptName: "test-script",
+        risk: "none",
         interactionMode: "blocking",
         maxRounds: 3,
         promptPatterns: [">"],
@@ -205,6 +210,8 @@ describe("ScriptInteractionCoordinator", () => {
       mockTerminalService.getOutput.mockResolvedValue("");
 
       const result = await coordinator.executeWithInteraction("test-script", {
+        scriptName: "test-script",
+        risk: "none",
         interactionMode: "llm-assisted" as any,
       });
 
@@ -217,6 +224,8 @@ describe("ScriptInteractionCoordinator", () => {
       mockTerminalService.sendInput.mockRejectedValue(new Error("Send failed"));
 
       const result = await coordinator.executeWithInteraction("test-script", {
+        scriptName: "test-script",
+        risk: "none",
         interactionMode: "blocking",
         maxRounds: 1,
         promptPatterns: [">"],

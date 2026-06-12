@@ -53,8 +53,6 @@ describe("AgentLoopCheckpointCoordinator", () => {
       startTime: Date.now(),
       endTime: null,
       error: undefined,
-      messages: [],
-      config: {},
     },
   });
 
@@ -120,6 +118,7 @@ describe("AgentLoopCheckpointCoordinator", () => {
           endTime: 2000,
           error: new Error("Test"),
         },
+        config: { profileId: "test-profile" },
         getMessages: vi.fn().mockReturnValue([{ role: "user", content: "Test" } as Message]),
       } as any);
       dependencies.listCheckpoints = vi.fn().mockResolvedValue([]);
@@ -130,7 +129,8 @@ describe("AgentLoopCheckpointCoordinator", () => {
       const savedCheckpoint = (dependencies.saveCheckpoint as any).mock.calls[0][0];
       expect(savedCheckpoint.snapshot.status).toBe(AgentLoopStatus.COMPLETED);
       expect(savedCheckpoint.snapshot.currentIteration).toBe(5);
-      expect(savedCheckpoint.snapshot.messages.length).toBe(1);
+      // Snapshot no longer contains messages or config (managed separately)
+      expect(savedCheckpoint.snapshot.error).toBeDefined();
     });
   });
 

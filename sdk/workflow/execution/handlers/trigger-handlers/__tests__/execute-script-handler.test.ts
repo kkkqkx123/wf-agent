@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { TriggerAction } from "@wf-agent/types";
 import { executeScriptHandler } from "../execute-script-handler.js";
-import type { GlobalContext } from "../../../../core/global-context.js";
-import type { ScriptRegistry } from "../../../../core/registry/script-registry.js";
-import type { Container } from "inversify";
+import type { GlobalContext } from "../../../../../core/global-context.js";
+import type { ScriptRegistry } from "../../../../../core/registry/script-registry.js";
+import type { Container } from "@wf-agent/common-utils";
 
 const mockScriptRegistry = {
   execute: vi.fn(),
@@ -73,10 +73,10 @@ describe("execute-script-handler", () => {
   });
 
   it("should fail when scriptName is missing", async () => {
-    const action: TriggerAction = {
+    const action = {
       type: "execute_script",
       parameters: {},
-    };
+    } as unknown as TriggerAction;
 
     const result = await executeScriptHandler(action, "trigger-4", mockGlobalContext);
 

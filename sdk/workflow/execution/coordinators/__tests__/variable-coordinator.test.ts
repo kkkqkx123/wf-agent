@@ -5,8 +5,9 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { VariableCoordinator } from "../variable-coordinator.js";
 import { VariableManager } from "../../../state-managers/variable-manager.js";
-import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
-import type { EventRegistry } from "../../../core/registry/event-registry.js";
+import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
+import type { EventRegistry } from "../../../../core/registry/event-registry.js";
+import type { ExecutionEventEmitter } from "../../../../core/registry/event-emitter.js";
 import type { VariableDefinition } from "@wf-agent/types";
 import { RuntimeValidationError } from "@wf-agent/types";
 
@@ -61,7 +62,7 @@ function createMockExecutionEntity(overrides: Partial<WorkflowExecutionEntity> =
 }
 
 function createVariableManager(variableDefinitions: VariableDefinition[] = []): VariableManager {
-  const manager = new VariableManager({ executionId: "test-exec-1", workflowId: "workflow-1" });
+  const manager = new VariableManager();
   if (variableDefinitions.length > 0) {
     manager.initializeFromDefinitions(variableDefinitions);
   }
@@ -99,8 +100,8 @@ describe("VariableCoordinator", () => {
     it("should initialize variables from definitions", () => {
       const manager = createVariableManager();
       const definitions: VariableDefinition[] = [
-        { name: "var1", type: "string", value: "hello", scope: "execution" },
-        { name: "var2", type: "number", value: 42, scope: "execution" },
+        { name: "var1", type: "string", value: "hello", readonly: false },
+        { name: "var2", type: "number", value: 42, readonly: false },
       ];
 
       coordinator.initializeFromDefinitions(manager, definitions);
@@ -119,7 +120,7 @@ describe("VariableCoordinator", () => {
   describe("getVariable", () => {
     it("should return variable value when it exists", () => {
       const manager = createVariableManager([
-        { name: "myVar", type: "string", value: "test-value", scope: "execution" },
+        { name: "myVar", type: "string", value: "test-value", readonly: false },
       ]);
 
       const result = coordinator.getVariable(manager, mockExecutionEntity, "myVar");
@@ -136,7 +137,7 @@ describe("VariableCoordinator", () => {
   describe("updateVariable", () => {
     it("should update an existing variable", async () => {
       const manager = createVariableManager([
-        { name: "myVar", type: "string", value: "old", scope: "execution" },
+        { name: "myVar", type: "string", value: "old", readonly: false },
       ]);
 
       await coordinator.updateVariable(manager, mockExecutionEntity, "myVar", "new-value");
@@ -154,7 +155,7 @@ describe("VariableCoordinator", () => {
 
     it("should throw RuntimeValidationError for readonly variable", async () => {
       const manager = createVariableManager([
-        { name: "readonlyVar", type: "string", value: "fixed", scope: "execution", readonly: true },
+        { name: "readonlyVar", type: "string", value: "fixed", readonly: true },
       ]);
 
       await expect(
@@ -164,7 +165,7 @@ describe("VariableCoordinator", () => {
 
     it("should throw RuntimeValidationError on type mismatch", async () => {
       const manager = createVariableManager([
-        { name: "numVar", type: "number", value: 42, scope: "execution" },
+        { name: "numVar", type: "number", value: 42, readonly: false },
       ]);
 
       await expect(
@@ -175,11 +176,11 @@ describe("VariableCoordinator", () => {
     it("should emit VARIABLE_CHANGED event on successful update", async () => {
       const emitter = { on: vi.fn(), emit: vi.fn() };
       const eventRegistry = createMockEventRegistry();
-      vi.mocked(eventRegistry.getEmitter).mockReturnValue(emitter);
+      vi.mocked(eventRegistry.getEmitter).mockReturnValue(emitter as unknown as ExecutionEventEmitter);
 
       const c = new VariableCoordinator(eventRegistry);
       const manager = createVariableManager([
-        { name: "myVar", type: "string", value: "old", scope: "execution" },
+        { name: "myVar", type: "string", value: "old", readonly: false },
       ]);
 
       await c.updateVariable(manager, mockExecutionEntity, "myVar", "new-value");
@@ -193,7 +194,7 @@ describe("VariableCoordinator", () => {
 
       const c = new VariableCoordinator(eventRegistry);
       const manager = createVariableManager([
-        { name: "myVar", type: "string", value: "old", scope: "execution" },
+        { name: "myVar", type: "string", value: "old", readonly: false },
       ]);
 
       // Should not throw despite event emission failure
@@ -205,7 +206,7 @@ describe("VariableCoordinator", () => {
     it("should not emit event when no event manager is configured", async () => {
       const c = new VariableCoordinator(); // No event manager
       const manager = createVariableManager([
-        { name: "myVar", type: "string", value: "old", scope: "execution" },
+        { name: "myVar", type: "string", value: "old", readonly: false },
       ]);
 
       await c.updateVariable(manager, mockExecutionEntity, "myVar", "new-value");
@@ -217,7 +218,7 @@ describe("VariableCoordinator", () => {
   describe("validateType", () => {
     it("should validate number type", async () => {
       const manager = createVariableManager([
-        { name: "n", type: "number", value: 0, scope: "execution" },
+        { name: "n", type: "number", value: 0, readonly: false },
       ]);
 
       await expect(
@@ -227,7 +228,7 @@ describe("VariableCoordinator", () => {
 
     it("should reject NaN for number type", async () => {
       const manager = createVariableManager([
-        { name: "n", type: "number", value: 0, scope: "execution" },
+        { name: "n", type: "number", value: 0, readonly: false },
       ]);
 
       await expect(
@@ -237,7 +238,7 @@ describe("VariableCoordinator", () => {
 
     it("should validate boolean type", async () => {
       const manager = createVariableManager([
-        { name: "b", type: "boolean", value: false, scope: "execution" },
+        { name: "b", type: "boolean", value: false, readonly: false },
       ]);
 
       await coordinator.updateVariable(manager, mockExecutionEntity, "b", true);
@@ -246,7 +247,7 @@ describe("VariableCoordinator", () => {
 
     it("should validate array type", async () => {
       const manager = createVariableManager([
-        { name: "arr", type: "array", value: [], scope: "execution" },
+        { name: "arr", type: "array", value: [], readonly: false },
       ]);
 
       await coordinator.updateVariable(manager, mockExecutionEntity, "arr", [1, 2, 3]);
@@ -255,7 +256,7 @@ describe("VariableCoordinator", () => {
 
     it("should reject non-array for array type", async () => {
       const manager = createVariableManager([
-        { name: "arr", type: "array", value: [], scope: "execution" },
+        { name: "arr", type: "array", value: [], readonly: false },
       ]);
 
       await expect(
@@ -265,7 +266,7 @@ describe("VariableCoordinator", () => {
 
     it("should validate object type", async () => {
       const manager = createVariableManager([
-        { name: "obj", type: "object", value: {}, scope: "execution" },
+        { name: "obj", type: "object", value: {}, readonly: false },
       ]);
 
       await coordinator.updateVariable(manager, mockExecutionEntity, "obj", { key: "val" });
@@ -274,7 +275,7 @@ describe("VariableCoordinator", () => {
 
     it("should reject array for object type", async () => {
       const manager = createVariableManager([
-        { name: "obj", type: "object", value: {}, scope: "execution" },
+        { name: "obj", type: "object", value: {}, readonly: false },
       ]);
 
       await expect(
@@ -284,7 +285,7 @@ describe("VariableCoordinator", () => {
 
     it("should reject null for object type", async () => {
       const manager = createVariableManager([
-        { name: "obj", type: "object", value: {}, scope: "execution" },
+        { name: "obj", type: "object", value: {}, readonly: false },
       ]);
 
       await expect(
@@ -294,7 +295,7 @@ describe("VariableCoordinator", () => {
 
     it("should reject unknown type", async () => {
       const manager = createVariableManager([
-        { name: "unk", type: "unknown-type", value: "", scope: "execution" },
+        { name: "unk", type: "number", value: 0, readonly: false },
       ]);
 
       await expect(
@@ -306,7 +307,7 @@ describe("VariableCoordinator", () => {
   describe("hasVariable", () => {
     it("should return true when variable exists with a value", () => {
       const manager = createVariableManager([
-        { name: "exists", type: "string", value: "yes", scope: "execution" },
+        { name: "exists", type: "string", value: "yes", readonly: false },
       ]);
 
       expect(coordinator.hasVariable(manager, mockExecutionEntity, "exists")).toBe(true);
@@ -321,8 +322,7 @@ describe("VariableCoordinator", () => {
   describe("getAllVariables", () => {
     it("should return all variables", () => {
       const manager = createVariableManager([
-        { name: "a", type: "string", value: "1", scope: "execution" },
-        { name: "b", type: "number", value: 2, scope: "execution" },
+        { name: "a", type: "string", value: "1", readonly: false },
       ]);
 
       const all = coordinator.getAllVariables(manager);
@@ -338,7 +338,7 @@ describe("VariableCoordinator", () => {
   describe("copyVariables", () => {
     it("should copy variables from source to target", () => {
       const source = createVariableManager([
-        { name: "srcVar", type: "string", value: "source-value", scope: "execution" },
+        { name: "srcVar", type: "string", value: "source-value", readonly: false },
       ]);
       const target = createVariableManager();
 
@@ -351,7 +351,7 @@ describe("VariableCoordinator", () => {
   describe("clearVariables", () => {
     it("should clear all variables", () => {
       const manager = createVariableManager([
-        { name: "a", type: "string", value: "test", scope: "execution" },
+        { name: "a", type: "string", value: "test", readonly: false },
       ]);
 
       coordinator.clearVariables(manager);

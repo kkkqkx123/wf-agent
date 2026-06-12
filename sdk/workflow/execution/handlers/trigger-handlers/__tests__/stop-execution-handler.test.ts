@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { TriggerAction, WorkflowExecutionEntity } from "@wf-agent/types";
+import type { TriggerAction } from "@wf-agent/types";
+import type { WorkflowExecutionEntity } from "../../../../entities/workflow-execution-entity.js";
 import { stopExecutionHandler } from "../stop-execution-handler.js";
 import type { WorkflowExecutionRegistry } from "../../../../stores/workflow-execution-registry.js";
 
@@ -33,10 +34,10 @@ describe("stop-execution-handler", () => {
   });
 
   it("should fail when executionId is missing", async () => {
-    const action: TriggerAction = {
+    const action = {
       type: "stop_workflow_execution",
       parameters: {},
-    };
+    } as unknown as TriggerAction;
 
     const result = await stopExecutionHandler(action, "trigger-2", mockRegistry);
 

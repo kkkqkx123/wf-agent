@@ -80,9 +80,9 @@ describe("MessageHistory", () => {
 
       expect(messageHistory.size()).toBe(3);
       const messages = messageHistory.getMessages();
-      expect(messages[0].content).toBe("Hello");
-      expect(messages[1].content).toBe("Hi there");
-      expect(messages[2].content).toBe("How are you?");
+      expect(messages[0]!.content).toBe("Hello");
+      expect(messages[1]!.content).toBe("Hi there");
+      expect(messages[2]!.content).toBe("How are you?");
     });
   });
 
@@ -136,7 +136,7 @@ describe("MessageHistory", () => {
 
       expect(result.total).toBe(10);
       expect(result.messages).toHaveLength(3);
-      expect(result.messages[0].content).toBe("Message 5");
+      expect(result.messages[0]!.content).toBe("Message 5");
     });
 
     it("should handle offset beyond total", () => {
@@ -149,8 +149,8 @@ describe("MessageHistory", () => {
     it("should return cloned messages", () => {
       const result = messageHistory.getMessagesPaged({ limit: 1 });
 
-      result.messages[0].content = "Modified";
-      expect(messageHistory.getMessages()[0].content).toBe("Message 0");
+      result.messages[0]!.content = "Modified";
+      expect(messageHistory.getMessages()[0]!.content).toBe("Message 0");
     });
 
     it("should use default values when options are empty", () => {
@@ -172,8 +172,8 @@ describe("MessageHistory", () => {
       const recent = messageHistory.getRecentMessages(3);
 
       expect(recent).toHaveLength(3);
-      expect(recent[0].content).toBe("Message 2");
-      expect(recent[2].content).toBe("Message 4");
+      expect(recent[0]!.content).toBe("Message 2");
+      expect(recent[2]!.content).toBe("Message 4");
     });
 
     it("should return fewer messages when count exceeds total", () => {
@@ -191,8 +191,8 @@ describe("MessageHistory", () => {
     it("should return cloned messages", () => {
       const recent = messageHistory.getRecentMessages(1);
 
-      recent[0].content = "Modified";
-      expect(messageHistory.getMessages()[4].content).toBe("Message 4");
+      recent[0]!.content = "Modified";
+      expect(messageHistory.getMessages()[4]!.content).toBe("Message 4");
     });
   });
 
@@ -241,7 +241,7 @@ describe("MessageHistory", () => {
       messageHistory.setMessages(newMessages);
 
       expect(messageHistory.size()).toBe(2);
-      expect(messageHistory.getMessages()[0].content).toBe("System message");
+      expect(messageHistory.getMessages()[0]!.content).toBe("System message");
     });
 
     it("should throw RuntimeValidationError for non-array input", () => {
@@ -377,10 +377,10 @@ describe("MessageHistory", () => {
       const messages = messageHistory.getMessages();
       // Error for call-2 is inserted right after the assistant message (index 1), so it's at index 2
       const errorMessage = messages[2];
-      expect(errorMessage.role).toBe("tool");
-      expect(errorMessage.toolCallId).toBe("call-2");
-      expect(errorMessage.content).toContain("not responded");
-      expect(errorMessage.metadata).toEqual({ normalized: true });
+      expect(errorMessage!.role).toBe("tool");
+      expect(errorMessage!.toolCallId).toBe("call-2");
+      expect(errorMessage!.content).toContain("not responded");
+      expect(errorMessage!.metadata).toEqual({ normalized: true });
     });
 
     it("should not change history with no tool calls", () => {
@@ -407,8 +407,8 @@ describe("MessageHistory", () => {
       const snapshot = messageHistory.createSnapshot();
 
       expect(snapshot.messages).toHaveLength(2);
-      expect(snapshot.messages[0].content).toBe("Hello");
-      expect(snapshot.messages[1].content).toBe("Hi");
+      expect(snapshot.messages[0]!.content).toBe("Hello");
+      expect(snapshot.messages[1]!.content).toBe("Hi");
     });
 
     it("should return cloned messages in snapshot", () => {
@@ -416,8 +416,8 @@ describe("MessageHistory", () => {
 
       const snapshot = messageHistory.createSnapshot();
 
-      snapshot.messages[0].content = "Modified";
-      expect(messageHistory.getMessages()[0].content).toBe("Hello");
+      snapshot.messages[0]!.content = "Modified";
+      expect(messageHistory.getMessages()[0]!.content).toBe("Hello");
     });
 
     it("should restore from snapshot", () => {
@@ -431,16 +431,16 @@ describe("MessageHistory", () => {
       messageHistory.restoreFromSnapshot({ messages: snapshot.messages });
 
       expect(messageHistory.size()).toBe(2);
-      expect(messageHistory.getMessages()[1].content).toBe("Restored message");
+      expect(messageHistory.getMessages()[1]!.content).toBe("Restored message");
     });
 
     it("should create cloned messages when restoring from snapshot", () => {
       const originalMessages = [createMessage("user", "Hello")];
       messageHistory.restoreFromSnapshot({ messages: originalMessages });
 
-      originalMessages[0].content = "Modified";
+      originalMessages[0]!.content = "Modified";
 
-      expect(messageHistory.getMessages()[0].content).toBe("Hello");
+      expect(messageHistory.getMessages()[0]!.content).toBe("Hello");
     });
 
     it("should restore empty snapshot", () => {

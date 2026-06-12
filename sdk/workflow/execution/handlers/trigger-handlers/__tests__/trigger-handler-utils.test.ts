@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { TriggerAction, TriggerExecutionResult } from "@wf-agent/types";
+import type { TriggerAction } from "@wf-agent/types";
 import { createSuccessResult, createFailureResult } from "../trigger-handler-utils.js";
 
 describe("trigger-handler-utils", () => {

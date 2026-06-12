@@ -125,7 +125,7 @@ describe("ExpressionEvaluator", () => {
     });
 
     it("should evaluate call AST node", () => {
-      evaluator.registerFunction("double", (x: number) => x * 2);
+      evaluator.registerFunction("double", (...args: unknown[]) => (args[0] as number) * 2);
       const ast = dslParse("double(5)");
       expect(evaluator.evaluateAST(ast, makeContext())).toBe(10);
     });
@@ -267,8 +267,8 @@ describe("ExpressionEvaluator", () => {
 
   describe("custom functions", () => {
     it("should register and call custom functions", () => {
-      evaluator.registerFunction("add", (a: number, b: number) => a + b);
-      evaluator.registerFunction("multiply", (a: number, b: number) => a * b);
+      evaluator.registerFunction("add", (...args: unknown[]) => (args[0] as number) + (args[1] as number));
+      evaluator.registerFunction("multiply", (...args: unknown[]) => (args[0] as number) * (args[1] as number));
 
       const ctx = makeContext({});
       expect(evaluator.evaluate("add(1, 2)", ctx)).toBe(3);

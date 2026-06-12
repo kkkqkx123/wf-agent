@@ -4,11 +4,10 @@
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { WorkflowExecutionCoordinator } from "../workflow-execution-coordinator.js";
-import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
-import type { InterruptionState } from "../../../core/utils/interruption/interruption-state.js";
+import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
+import type { InterruptionState } from "../../../../core/utils/interruption/interruption-state.js";
 import type { NodeExecutionCoordinator } from "../node-execution-coordinator.js";
-import type { WorkflowNavigator } from "../../builder/workflow-navigator.js";
-import type { WorkflowNode, RuntimeNode, NodeExecutionResult, Condition, EvaluationContext } from "@wf-agent/types";
+import type { WorkflowNavigator } from "../../../builder/workflow-navigator.js";
 
 // ============================================================================
 // Mock Helpers
@@ -42,7 +41,7 @@ function createMockNavigator(): WorkflowNavigator {
   } as unknown as WorkflowNavigator;
 }
 
-function createMockEntity(overrides: Partial<WorkflowExecutionEntity> = {}): WorkflowExecutionEntity {
+function createMockEntity(_overrides: Partial<WorkflowExecutionEntity> = {}): WorkflowExecutionEntity {
   return {
     id: "test-exec-1",
     getWorkflowId: vi.fn().mockReturnValue("workflow-1"),
